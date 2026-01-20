@@ -12,7 +12,7 @@ use solana_sdk::{
     pubkey::Pubkey,
 };
 
-use crate::shared::constants::ED25519_PROGRAM_ID;
+use crate::program::constants::ED25519_PROGRAM_ID;
 use crate::program::orders::FullOrder;
 
 // ============================================================================
@@ -202,15 +202,15 @@ pub fn create_batch_ed25519_verify_instruction(params: &[Ed25519VerifyParams]) -
 /// Match instruction data layout offsets (for cross-instruction references).
 ///
 /// Layout for single maker (332 bytes):
-/// - [0]:        discriminator (1 byte)
-/// - [1..33]:    taker_hash (32 bytes)        <- taker message
-/// - [33..98]:   taker_compact (65 bytes)     <- taker pubkey at offset 33+8=41
-/// - [98..162]:  taker_signature (64 bytes)   <- taker signature
-/// - [162]:      num_makers (1 byte)
-/// - [163..195]: maker_hash (32 bytes)        <- maker message
-/// - [195..260]: maker_compact (65 bytes)     <- maker pubkey at offset 195+8=203
-/// - [260..324]: maker_signature (64 bytes)   <- maker signature
-/// - [324..332]: maker_fill_amount (8 bytes)
+/// - `[0]`:        discriminator (1 byte)
+/// - `[1..33]`:    taker_hash (32 bytes)        <- taker message
+/// - `[33..98]`:   taker_compact (65 bytes)     <- taker pubkey at offset 33+8=41
+/// - `[98..162]`:  taker_signature (64 bytes)   <- taker signature
+/// - `[162]`:      num_makers (1 byte)
+/// - `[163..195]`: maker_hash (32 bytes)        <- maker message
+/// - `[195..260]`: maker_compact (65 bytes)     <- maker pubkey at offset 195+8=203
+/// - `[260..324]`: maker_signature (64 bytes)   <- maker signature
+/// - `[324..332]`: maker_fill_amount (8 bytes)
 pub struct MatchIxOffsets;
 
 impl MatchIxOffsets {

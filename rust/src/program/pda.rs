@@ -4,7 +4,7 @@
 
 use solana_sdk::pubkey::Pubkey;
 
-use crate::shared::constants::{
+use crate::program::constants::{
     CONDITIONAL_MINT_SEED, EXCHANGE_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, ORDER_STATUS_SEED,
     POSITION_SEED, USER_NONCE_SEED, VAULT_SEED,
 };

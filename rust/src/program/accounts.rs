@@ -5,13 +5,13 @@
 
 use solana_sdk::pubkey::Pubkey;
 
-use crate::shared::constants::{
+use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE,
     ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR, POSITION_SIZE,
     USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
-use crate::shared::types::MarketStatus;
+use crate::program::types::MarketStatus;
 
 /// Helper to extract a fixed-size array from a slice
 #[inline]

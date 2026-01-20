@@ -4,7 +4,7 @@
 
 use solana_sdk::pubkey::Pubkey;
 
-use crate::shared::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
+use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::program::error::{SdkError, SdkResult};
 
 // ============================================================================
@@ -48,7 +48,7 @@ pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 
 /// Validate that the number of outcomes is within the allowed range.
 pub fn validate_outcome_count(num_outcomes: u8) -> SdkResult<()> {
-    if num_outcomes < MIN_OUTCOMES || num_outcomes > MAX_OUTCOMES {
+    if !(MIN_OUTCOMES..=MAX_OUTCOMES).contains(&num_outcomes) {
         return Err(SdkError::InvalidOutcomeCount(num_outcomes));
     }
     Ok(())

@@ -7,9 +7,9 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha3::{Digest, Keccak256};
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
-use crate::shared::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
+use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
-use crate::shared::types::{AskOrderParams, BidOrderParams, OrderSide};
+use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
 
 // ============================================================================
 // Full Order (225 bytes)
@@ -103,15 +103,15 @@ impl FullOrder {
     pub fn hash(&self) -> [u8; 32] {
         let mut hasher = Keccak256::new();
 
-        hasher.update(&self.nonce.to_le_bytes());
+        hasher.update(self.nonce.to_le_bytes());
         hasher.update(self.maker.as_ref());
         hasher.update(self.market.as_ref());
         hasher.update(self.base_mint.as_ref());
         hasher.update(self.quote_mint.as_ref());
-        hasher.update(&[self.side as u8]);
-        hasher.update(&self.maker_amount.to_le_bytes());
-        hasher.update(&self.taker_amount.to_le_bytes());
-        hasher.update(&self.expiration.to_le_bytes());
+        hasher.update([self.side as u8]);
+        hasher.update(self.maker_amount.to_le_bytes());
+        hasher.update(self.taker_amount.to_le_bytes());
+        hasher.update(self.expiration.to_le_bytes());
 
         hasher.finalize().into()
     }
@@ -119,7 +119,7 @@ impl FullOrder {
     /// Sign the order with the given keypair.
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash();
-        let signing_key = SigningKey::from_bytes(&keypair.secret_bytes());
+        let signing_key = SigningKey::from_bytes(keypair.secret_bytes());
         let signature = signing_key.sign(&hash);
         self.signature = signature.to_bytes();
     }
@@ -400,7 +400,7 @@ pub fn derive_condition_id(oracle: &Pubkey, question_id: &[u8; 32], num_outcomes
     let mut hasher = Keccak256::new();
     hasher.update(oracle.as_ref());
     hasher.update(question_id);
-    hasher.update(&[num_outcomes]);
+    hasher.update([num_outcomes]);
     hasher.finalize().into()
 }
 

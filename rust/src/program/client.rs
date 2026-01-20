@@ -13,7 +13,7 @@ use solana_sdk::{
 };
 
 use crate::program::accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
-use crate::shared::constants::PROGRAM_ID;
+use crate::program::constants::PROGRAM_ID;
 use crate::program::ed25519::{create_cross_ref_ed25519_instructions, create_order_verify_instruction};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
@@ -22,7 +22,7 @@ use crate::program::pda::{
     get_all_conditional_mint_pdas, get_exchange_pda, get_market_pda, get_order_status_pda,
     get_position_pda, get_user_nonce_pda, Pda,
 };
-use crate::shared::types::*;
+use crate::program::types::*;
 
 /// Client for interacting with the Lightcone Pinocchio program.
 pub struct LightconePinocchioClient {

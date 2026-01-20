@@ -13,7 +13,7 @@ fn system_program_id() -> Pubkey {
     solana_system_interface::program::ID
 }
 
-use crate::shared::constants::{
+use crate::program::constants::{
     instruction, ASSOCIATED_TOKEN_PROGRAM_ID, INSTRUCTIONS_SYSVAR_ID, MAX_MAKERS,
     TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
 };
@@ -23,12 +23,12 @@ use crate::program::pda::{
     get_conditional_mint_pda, get_exchange_pda, get_market_pda, get_mint_authority_pda,
     get_order_status_pda, get_position_pda, get_user_nonce_pda, get_vault_pda,
 };
-use crate::shared::types::{
+use crate::program::types::{
     ActivateMarketParams, AddDepositMintParams, CreateMarketParams, MatchOrdersMultiParams,
     MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams,
     SettleMarketParams, WithdrawFromPositionParams,
 };
-use crate::shared::utils::{
+use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_outcome_metadata,
     validate_outcome_count, OutcomeMetadataInput,
 };
@@ -135,7 +135,7 @@ pub fn build_create_market_ix(
 /// 5. token_program (SPL Token)
 /// 6. token_2022_program
 /// 7. system_program
-/// 8+ conditional_mints[0..num_outcomes]
+/// 8. conditional_mints\[0..num_outcomes\]
 pub fn build_add_deposit_mint_ix(
     params: &AddDepositMintParams,
     market: &Pubkey,
@@ -552,6 +552,7 @@ pub fn build_activate_market_ix(
 /// 10. token_2022_program (readonly)
 /// 11. system_program (readonly)
 /// 12. instructions_sysvar (readonly)
+///
 /// Per maker: order_status, nonce, position, base_ata, quote_ata
 pub fn build_match_orders_multi_ix(
     params: &MatchOrdersMultiParams,
@@ -643,7 +644,7 @@ pub fn build_match_orders_multi_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::constants::PROGRAM_ID;
+    use crate::program::constants::PROGRAM_ID;
 
     fn test_program_id() -> Pubkey {
         *PROGRAM_ID
