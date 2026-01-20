@@ -1,0 +1,65 @@
+{
+  "name": "@lightcone/pinocchio-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for Lightcone Pinocchio Program on Solana",
+  "author": "Lightcone",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk"
+  },
+  "homepage": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk#readme",
+  "bugs": {
+    "url": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk/issues"
+  },
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "test": "npm run test:unit",
+    "test:unit": "ts-node test/unit.test.ts",
+    "test:devnet": "ts-node test/devnet.test.ts",
+    "test:stress": "ts-node test/stress.test.ts",
+    "test:all": "npm run test:unit && npm run test:devnet",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "dependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.90.0",
+    "js-sha3": "^0.9.3",
+    "tweetnacl": "^1.0.3"
+  },
+  "devDependencies": {
+    "dotenv": "^17.2.3",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "@solana/web3.js": "^1.90.0"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "solana",
+    "pinocchio",
+    "prediction-markets",
+    "lightcone",
+    "defi",
+    "web3",
+    "orderbook",
+    "clob"
+  ]
+}

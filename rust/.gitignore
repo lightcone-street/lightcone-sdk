@@ -1,0 +1,40 @@
+# Build output
+target/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Keypairs (keep .gitkeep)
+keypairs/*.json
+!keypairs/.gitkeep
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
+tarpaulin-report.html
+
+# Cargo lock (optional - uncomment if this is a library)
+# Cargo.lock
+
+# Benchmark results
+criterion/
+
+# Documentation build
+doc/
