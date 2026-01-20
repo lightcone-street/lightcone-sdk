@@ -1,0 +1,646 @@
+//! Main WebSocket client implementation.
+//!
+//! Provides a production-quality WebSocket client for real-time data streaming.
+
+use std::collections::HashMap;
+use std::pin::Pin;
+use std::sync::Arc;
+use std::task::{Context, Poll};
+use std::time::Duration;
+
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, Stream, StreamExt};
+use pin_project_lite::pin_project;
+use tokio::net::TcpStream;
+use tokio::sync::{mpsc, RwLock};
+use tokio::time::{interval, Instant};
+use tokio_tungstenite::tungstenite::protocol::CloseFrame;
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+
+use crate::websocket::error::{WebSocketError, WsResult};
+use crate::websocket::handlers::MessageHandler;
+use crate::websocket::state::price::PriceHistoryKey;
+use crate::websocket::state::{LocalOrderbook, PriceHistory, UserState};
+use crate::websocket::subscriptions::SubscriptionManager;
+use crate::websocket::types::{SubscribeParams, WsEvent, WsRequest};
+
+type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type WsSink = SplitSink<WsStream, Message>;
+type WsSource = SplitStream<WsStream>;
+
+/// WebSocket client configuration
+#[derive(Debug, Clone)]
+pub struct WebSocketConfig {
+    /// Number of reconnect attempts before giving up
+    pub reconnect_attempts: u32,
+    /// Base delay for exponential backoff (ms)
+    pub base_delay_ms: u64,
+    /// Maximum delay for exponential backoff (ms)
+    pub max_delay_ms: u64,
+    /// Interval for client ping (seconds)
+    pub ping_interval_secs: u64,
+    /// Whether to automatically reconnect on disconnect
+    pub auto_reconnect: bool,
+    /// Whether to automatically re-subscribe after reconnect
+    pub auto_resubscribe: bool,
+}
+
+impl Default for WebSocketConfig {
+    fn default() -> Self {
+        Self {
+            reconnect_attempts: 10,
+            base_delay_ms: 1000,
+            max_delay_ms: 30000,
+            ping_interval_secs: 30,
+            auto_reconnect: true,
+            auto_resubscribe: true,
+        }
+    }
+}
+
+/// Connection state
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionState {
+    Disconnected,
+    Connecting,
+    Connected,
+    Reconnecting,
+    Disconnecting,
+}
+
+/// Internal command for the connection task
+enum ConnectionCommand {
+    Send(String),
+    Disconnect,
+    Ping,
+}
+
+pin_project! {
+    /// Main WebSocket client for Lightcone
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use lightcone_pinocchio_sdk::websocket::*;
+    /// use futures_util::StreamExt;
+    ///
+    /// #[tokio::main]
+    /// async fn main() -> Result<(), WebSocketError> {
+    ///     let mut client = LightconeWebSocketClient::connect("ws://localhost:8081/ws").await?;
+    ///
+    ///     client.subscribe_book_updates(vec!["market1:ob1".to_string()]).await?;
+    ///
+    ///     while let Some(event) = client.next().await {
+    ///         match event {
+    ///             WsEvent::BookUpdate { orderbook_id, is_snapshot } => {
+    ///                 if let Some(book) = client.get_orderbook(&orderbook_id) {
+    ///                     println!("Best bid: {:?}", book.best_bid());
+    ///                 }
+    ///             }
+    ///             _ => {}
+    ///         }
+    ///     }
+    ///     Ok(())
+    /// }
+    /// ```
+    pub struct LightconeWebSocketClient {
+        url: String,
+        config: WebSocketConfig,
+        state: ConnectionState,
+        subscriptions: Arc<RwLock<SubscriptionManager>>,
+        orderbooks: Arc<RwLock<HashMap<String, LocalOrderbook>>>,
+        user_states: Arc<RwLock<HashMap<String, UserState>>>,
+        price_histories: Arc<RwLock<HashMap<PriceHistoryKey, PriceHistory>>>,
+        handler: Arc<MessageHandler>,
+        cmd_tx: Option<mpsc::Sender<ConnectionCommand>>,
+        #[pin]
+        event_rx: mpsc::Receiver<WsEvent>,
+        event_tx: mpsc::Sender<WsEvent>,
+        reconnect_attempt: u32,
+        last_ping: Option<Instant>,
+        last_pong: Option<Instant>,
+    }
+}
+
+impl LightconeWebSocketClient {
+    /// Connect to a WebSocket server with default configuration
+    pub async fn connect(url: &str) -> WsResult<Self> {
+        Self::connect_with_config(url, WebSocketConfig::default()).await
+    }
+
+    /// Connect to a WebSocket server with custom configuration
+    pub async fn connect_with_config(url: &str, config: WebSocketConfig) -> WsResult<Self> {
+        let (event_tx, event_rx) = mpsc::channel(1000);
+
+        let orderbooks = Arc::new(RwLock::new(HashMap::new()));
+        let user_states = Arc::new(RwLock::new(HashMap::new()));
+        let price_histories = Arc::new(RwLock::new(HashMap::new()));
+        let subscriptions = Arc::new(RwLock::new(SubscriptionManager::new()));
+
+        let handler = Arc::new(MessageHandler::new(
+            orderbooks.clone(),
+            user_states.clone(),
+            price_histories.clone(),
+        ));
+
+        let mut client = Self {
+            url: url.to_string(),
+            config,
+            state: ConnectionState::Disconnected,
+            subscriptions,
+            orderbooks,
+            user_states,
+            price_histories,
+            handler,
+            cmd_tx: None,
+            event_rx,
+            event_tx,
+            reconnect_attempt: 0,
+            last_ping: None,
+            last_pong: None,
+        };
+
+        client.establish_connection().await?;
+        Ok(client)
+    }
+
+    /// Establish the WebSocket connection
+    async fn establish_connection(&mut self) -> WsResult<()> {
+        self.state = ConnectionState::Connecting;
+
+        let (ws_stream, _) = connect_async(&self.url)
+            .await
+            .map_err(WebSocketError::from)?;
+
+        self.state = ConnectionState::Connected;
+        self.reconnect_attempt = 0;
+
+        let (sink, source) = ws_stream.split();
+        let (cmd_tx, cmd_rx) = mpsc::channel(100);
+        self.cmd_tx = Some(cmd_tx);
+
+        // Spawn the connection task
+        let handler = self.handler.clone();
+        let event_tx = self.event_tx.clone();
+        let config = self.config.clone();
+        let subscriptions = self.subscriptions.clone();
+        let url = self.url.clone();
+
+        tokio::spawn(connection_task(
+            sink,
+            source,
+            cmd_rx,
+            handler,
+            event_tx,
+            config,
+            subscriptions,
+            url,
+        ));
+
+        // Send connected event
+        let _ = self.event_tx.send(WsEvent::Connected).await;
+
+        Ok(())
+    }
+
+    /// Subscribe to orderbook updates
+    pub async fn subscribe_book_updates(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        // Initialize state for each orderbook
+        for id in &orderbook_ids {
+            self.handler.init_orderbook(id).await;
+        }
+
+        // Track subscription
+        self.subscriptions.write().await.add_book_update(orderbook_ids.clone());
+
+        // Send subscribe request
+        let params = SubscribeParams::book_update(orderbook_ids);
+        self.send_subscribe(params).await
+    }
+
+    /// Subscribe to trade executions
+    pub async fn subscribe_trades(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        self.subscriptions.write().await.add_trades(orderbook_ids.clone());
+        let params = SubscribeParams::trades(orderbook_ids);
+        self.send_subscribe(params).await
+    }
+
+    /// Subscribe to user events
+    pub async fn subscribe_user(&mut self, user: String) -> WsResult<()> {
+        self.handler.init_user_state(&user).await;
+        self.subscriptions.write().await.add_user(user.clone());
+        let params = SubscribeParams::user(user);
+        self.send_subscribe(params).await
+    }
+
+    /// Subscribe to price history
+    pub async fn subscribe_price_history(
+        &mut self,
+        orderbook_id: String,
+        resolution: String,
+        include_ohlcv: bool,
+    ) -> WsResult<()> {
+        self.handler
+            .init_price_history(&orderbook_id, &resolution, include_ohlcv)
+            .await;
+        self.subscriptions
+            .write()
+            .await
+            .add_price_history(orderbook_id.clone(), resolution.clone(), include_ohlcv);
+        let params = SubscribeParams::price_history(orderbook_id, resolution, include_ohlcv);
+        self.send_subscribe(params).await
+    }
+
+    /// Subscribe to market events
+    pub async fn subscribe_market(&mut self, market_pubkey: String) -> WsResult<()> {
+        self.subscriptions.write().await.add_market(market_pubkey.clone());
+        let params = SubscribeParams::market(market_pubkey);
+        self.send_subscribe(params).await
+    }
+
+    /// Unsubscribe from orderbook updates
+    pub async fn unsubscribe_book_updates(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        self.subscriptions.write().await.remove_book_update(&orderbook_ids);
+        let params = SubscribeParams::book_update(orderbook_ids);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Unsubscribe from trades
+    pub async fn unsubscribe_trades(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        self.subscriptions.write().await.remove_trades(&orderbook_ids);
+        let params = SubscribeParams::trades(orderbook_ids);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Unsubscribe from user events
+    pub async fn unsubscribe_user(&mut self, user: String) -> WsResult<()> {
+        self.subscriptions.write().await.remove_user(&user);
+        let params = SubscribeParams::user(user);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Unsubscribe from price history
+    pub async fn unsubscribe_price_history(
+        &mut self,
+        orderbook_id: String,
+        resolution: String,
+    ) -> WsResult<()> {
+        self.subscriptions
+            .write()
+            .await
+            .remove_price_history(&orderbook_id, &resolution);
+        let params = SubscribeParams::price_history(orderbook_id, resolution, false);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Unsubscribe from market events
+    pub async fn unsubscribe_market(&mut self, market_pubkey: String) -> WsResult<()> {
+        self.subscriptions.write().await.remove_market(&market_pubkey);
+        let params = SubscribeParams::market(market_pubkey);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Send a subscribe request
+    async fn send_subscribe(&self, params: SubscribeParams) -> WsResult<()> {
+        let request = WsRequest::subscribe(params);
+        self.send_json(&request).await
+    }
+
+    /// Send an unsubscribe request
+    async fn send_unsubscribe(&self, params: SubscribeParams) -> WsResult<()> {
+        let request = WsRequest::unsubscribe(params);
+        self.send_json(&request).await
+    }
+
+    /// Send a ping request
+    pub async fn ping(&mut self) -> WsResult<()> {
+        self.last_ping = Some(Instant::now());
+        if let Some(tx) = &self.cmd_tx {
+            tx.send(ConnectionCommand::Ping)
+                .await
+                .map_err(|_| WebSocketError::ChannelClosed)?;
+        }
+        Ok(())
+    }
+
+    /// Send a JSON message
+    async fn send_json<T: serde::Serialize>(&self, msg: &T) -> WsResult<()> {
+        let json = serde_json::to_string(msg)?;
+        self.send_text(json).await
+    }
+
+    /// Send a text message
+    async fn send_text(&self, text: String) -> WsResult<()> {
+        if let Some(tx) = &self.cmd_tx {
+            tx.send(ConnectionCommand::Send(text))
+                .await
+                .map_err(|_| WebSocketError::ChannelClosed)?;
+            Ok(())
+        } else {
+            Err(WebSocketError::NotConnected)
+        }
+    }
+
+    /// Disconnect from the server
+    pub async fn disconnect(&mut self) -> WsResult<()> {
+        self.state = ConnectionState::Disconnecting;
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.send(ConnectionCommand::Disconnect).await;
+        }
+        self.cmd_tx = None;
+        self.state = ConnectionState::Disconnected;
+        Ok(())
+    }
+
+    /// Get the current connection state
+    pub fn connection_state(&self) -> ConnectionState {
+        self.state
+    }
+
+    /// Check if connected
+    pub fn is_connected(&self) -> bool {
+        self.state == ConnectionState::Connected
+    }
+
+    /// Get a reference to the local orderbook state
+    pub fn get_orderbook(&self, orderbook_id: &str) -> Option<LocalOrderbook> {
+        // Note: This blocks briefly on the RwLock
+        let orderbooks = self.orderbooks.blocking_read();
+        orderbooks.get(orderbook_id).cloned()
+    }
+
+    /// Get a reference to the local orderbook state (async version)
+    pub async fn get_orderbook_async(&self, orderbook_id: &str) -> Option<LocalOrderbook> {
+        let orderbooks = self.orderbooks.read().await;
+        orderbooks.get(orderbook_id).cloned()
+    }
+
+    /// Get a reference to the local user state
+    pub fn get_user_state(&self, user: &str) -> Option<UserState> {
+        let states = self.user_states.blocking_read();
+        states.get(user).cloned()
+    }
+
+    /// Get a reference to the local user state (async version)
+    pub async fn get_user_state_async(&self, user: &str) -> Option<UserState> {
+        let states = self.user_states.read().await;
+        states.get(user).cloned()
+    }
+
+    /// Get a reference to the price history state
+    pub fn get_price_history(&self, orderbook_id: &str, resolution: &str) -> Option<PriceHistory> {
+        let key = PriceHistoryKey::new(orderbook_id.to_string(), resolution.to_string());
+        let histories = self.price_histories.blocking_read();
+        histories.get(&key).cloned()
+    }
+
+    /// Get a reference to the price history state (async version)
+    pub async fn get_price_history_async(
+        &self,
+        orderbook_id: &str,
+        resolution: &str,
+    ) -> Option<PriceHistory> {
+        let key = PriceHistoryKey::new(orderbook_id.to_string(), resolution.to_string());
+        let histories = self.price_histories.read().await;
+        histories.get(&key).cloned()
+    }
+
+    /// Get the WebSocket URL
+    pub fn url(&self) -> &str {
+        &self.url
+    }
+
+    /// Get the configuration
+    pub fn config(&self) -> &WebSocketConfig {
+        &self.config
+    }
+}
+
+impl Stream for LightconeWebSocketClient {
+    type Item = WsEvent;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut this = self.project();
+        this.event_rx.poll_recv(cx)
+    }
+}
+
+/// Connection task that handles the WebSocket connection
+async fn connection_task(
+    mut sink: WsSink,
+    mut source: WsSource,
+    mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
+    handler: Arc<MessageHandler>,
+    event_tx: mpsc::Sender<WsEvent>,
+    config: WebSocketConfig,
+    subscriptions: Arc<RwLock<SubscriptionManager>>,
+    url: String,
+) {
+    let ping_interval_duration = Duration::from_secs(config.ping_interval_secs);
+    let mut ping_interval = interval(ping_interval_duration);
+    ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    let mut reconnect_attempt = 0u32;
+
+    loop {
+        tokio::select! {
+            // Handle incoming WebSocket messages
+            msg = source.next() => {
+                match msg {
+                    Some(Ok(Message::Text(text))) => {
+                        let events = handler.handle_message(&text).await;
+                        for event in events {
+                            if event_tx.send(event).await.is_err() {
+                                tracing::debug!("Event receiver dropped");
+                                return;
+                            }
+                        }
+                    }
+                    Some(Ok(Message::Ping(data))) => {
+                        if sink.send(Message::Pong(data)).await.is_err() {
+                            tracing::warn!("Failed to send pong");
+                        }
+                    }
+                    Some(Ok(Message::Pong(_))) => {
+                        // Received pong response
+                        let _ = event_tx.send(WsEvent::Pong).await;
+                    }
+                    Some(Ok(Message::Close(frame))) => {
+                        let close_code: u16 = frame.as_ref().map(|f| f.code.into()).unwrap_or(0);
+                        let reason = frame
+                            .as_ref()
+                            .map(|f| format!("code: {}, reason: {}", f.code, f.reason))
+                            .unwrap_or_else(|| "no reason".to_string());
+
+                        tracing::info!("WebSocket closed: {}", reason);
+                        let _ = event_tx.send(WsEvent::Disconnected { reason: reason.clone() }).await;
+
+                        // Check if rate limited (close code 1008)
+                        if close_code == 1008 {
+                            let _ = event_tx.send(WsEvent::Error {
+                                error: WebSocketError::RateLimited,
+                            }).await;
+                        }
+
+                        // Try to reconnect if enabled
+                        if config.auto_reconnect && reconnect_attempt < config.reconnect_attempts {
+                            reconnect_attempt += 1;
+                            let _ = event_tx.send(WsEvent::Reconnecting {
+                                attempt: reconnect_attempt,
+                            }).await;
+
+                            let delay = config.base_delay_ms * 2u64.pow(reconnect_attempt.saturating_sub(1));
+                            let delay = delay.min(config.max_delay_ms);
+                            tokio::time::sleep(Duration::from_millis(delay)).await;
+
+                            // Try to reconnect
+                            match reconnect(&url, &event_tx, &handler, &subscriptions, &config).await {
+                                Ok((new_sink, new_source)) => {
+                                    sink = new_sink;
+                                    source = new_source;
+                                    reconnect_attempt = 0;
+                                    let _ = event_tx.send(WsEvent::Connected).await;
+                                }
+                                Err(e) => {
+                                    tracing::error!("Reconnect failed: {:?}", e);
+                                    let _ = event_tx.send(WsEvent::Error { error: e }).await;
+                                }
+                            }
+                        } else {
+                            return;
+                        }
+                    }
+                    Some(Ok(Message::Binary(_))) => {
+                        // Ignore binary messages
+                    }
+                    Some(Ok(Message::Frame(_))) => {
+                        // Ignore raw frames
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        let _ = event_tx.send(WsEvent::Error {
+                            error: WebSocketError::from(e),
+                        }).await;
+                    }
+                    None => {
+                        tracing::info!("WebSocket stream ended");
+                        let _ = event_tx.send(WsEvent::Disconnected {
+                            reason: "Stream ended".to_string(),
+                        }).await;
+                        return;
+                    }
+                }
+            }
+
+            // Handle commands from the client
+            cmd = cmd_rx.recv() => {
+                match cmd {
+                    Some(ConnectionCommand::Send(text)) => {
+                        if sink.send(Message::Text(text)).await.is_err() {
+                            tracing::warn!("Failed to send message");
+                        }
+                    }
+                    Some(ConnectionCommand::Ping) => {
+                        let request = WsRequest::ping();
+                        if let Ok(json) = serde_json::to_string(&request) {
+                            if sink.send(Message::Text(json)).await.is_err() {
+                                tracing::warn!("Failed to send ping");
+                            }
+                        }
+                    }
+                    Some(ConnectionCommand::Disconnect) => {
+                        let _ = sink.send(Message::Close(Some(CloseFrame {
+                            code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Normal,
+                            reason: "Client disconnect".into(),
+                        }))).await;
+                        return;
+                    }
+                    None => {
+                        // Command channel closed
+                        return;
+                    }
+                }
+            }
+
+            // Periodic ping
+            _ = ping_interval.tick() => {
+                let request = WsRequest::ping();
+                if let Ok(json) = serde_json::to_string(&request) {
+                    if sink.send(Message::Text(json)).await.is_err() {
+                        tracing::warn!("Failed to send periodic ping");
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Reconnect to the WebSocket server
+async fn reconnect(
+    url: &str,
+    _event_tx: &mpsc::Sender<WsEvent>,
+    handler: &Arc<MessageHandler>,
+    subscriptions: &Arc<RwLock<SubscriptionManager>>,
+    config: &WebSocketConfig,
+) -> WsResult<(WsSink, WsSource)> {
+    let (ws_stream, _) = connect_async(url).await.map_err(WebSocketError::from)?;
+
+    let (mut sink, source) = ws_stream.split();
+
+    // Clear state
+    handler.clear_all().await;
+
+    // Re-subscribe if enabled
+    if config.auto_resubscribe {
+        let subs = subscriptions.read().await.get_all_subscriptions();
+        for sub in subs {
+            let request = WsRequest::subscribe(sub.to_params());
+            if let Ok(json) = serde_json::to_string(&request) {
+                if sink.send(Message::Text(json)).await.is_err() {
+                    tracing::warn!("Failed to re-subscribe after reconnect");
+                }
+            }
+        }
+    }
+
+    Ok((sink, source))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default() {
+        let config = WebSocketConfig::default();
+        assert_eq!(config.reconnect_attempts, 10);
+        assert_eq!(config.base_delay_ms, 1000);
+        assert_eq!(config.max_delay_ms, 30000);
+        assert_eq!(config.ping_interval_secs, 30);
+        assert!(config.auto_reconnect);
+        assert!(config.auto_resubscribe);
+    }
+
+    #[test]
+    fn test_backoff_calculation() {
+        let config = WebSocketConfig::default();
+
+        // First attempt
+        let delay = config.base_delay_ms * 2u64.pow(0);
+        assert_eq!(delay, 1000);
+
+        // Second attempt
+        let delay = config.base_delay_ms * 2u64.pow(1);
+        assert_eq!(delay, 2000);
+
+        // Third attempt
+        let delay = config.base_delay_ms * 2u64.pow(2);
+        assert_eq!(delay, 4000);
+
+        // Should cap at max
+        let delay = config.base_delay_ms * 2u64.pow(10);
+        let capped = delay.min(config.max_delay_ms);
+        assert_eq!(capped, 30000);
+    }
+}

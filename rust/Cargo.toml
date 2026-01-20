@@ -16,7 +16,7 @@ solana-commitment-config = "3.0"
 solana-system-interface = { version = "2.0", features = ["bincode"] }
 
 # Async
-tokio = { version = "1.35", features = ["full"] }
+tokio = { version = "1.35", features = ["full", "sync"] }
 
 # Crypto
 ed25519-dalek = { version = "2.2", features = ["std"] }
@@ -31,6 +31,22 @@ spl-associated-token-account = "8.0"
 thiserror = "1.0"
 bs58 = "0.5"
 lazy_static = "1.4"
+
+# HTTP client (for API module)
+reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# WebSocket
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Logging
+tracing = "0.1"
+
+# Async utilities
+async-stream = "0.3"
+pin-project-lite = "0.2"
 
 [dev-dependencies]
 tokio-test = "0.4"

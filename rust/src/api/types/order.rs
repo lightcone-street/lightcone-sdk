@@ -1,0 +1,219 @@
+//! Order-related types for the Lightcone REST API.
+
+use serde::{Deserialize, Serialize};
+
+/// Order side enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[repr(u32)]
+pub enum ApiOrderSide {
+    /// Buy base token with quote token
+    Bid = 0,
+    /// Sell base token for quote token
+    Ask = 1,
+}
+
+impl From<u32> for ApiOrderSide {
+    fn from(value: u32) -> Self {
+        match value {
+            0 => Self::Bid,
+            1 => Self::Ask,
+            _ => Self::Bid, // Default to Bid for unknown values
+        }
+    }
+}
+
+impl From<ApiOrderSide> for u32 {
+    fn from(side: ApiOrderSide) -> Self {
+        side as u32
+    }
+}
+
+/// Order status enum.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OrderStatus {
+    /// Order placed on book
+    Accepted,
+    /// Partially filled, remainder on book
+    PartialFill,
+    /// Completely filled
+    Filled,
+    /// Order rejected
+    Rejected,
+}
+
+/// Fill information from order matching.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Fill {
+    /// Counterparty address
+    pub counterparty: String,
+    /// Counterparty's order hash
+    pub counterparty_order_hash: String,
+    /// Amount filled
+    pub fill_amount: u64,
+    /// Fill price
+    pub price: i64,
+    /// Whether this order was the maker
+    pub is_maker: bool,
+}
+
+/// Request for POST /api/orders/submit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubmitOrderRequest {
+    /// Order creator's pubkey (Base58)
+    pub maker: String,
+    /// User's nonce for uniqueness
+    pub nonce: u64,
+    /// Market address (Base58)
+    pub market_pubkey: String,
+    /// Token being bought/sold (Base58)
+    pub base_token: String,
+    /// Token used for payment (Base58)
+    pub quote_token: String,
+    /// Order side (0=BID, 1=ASK)
+    pub side: u32,
+    /// Amount maker gives
+    pub maker_amount: u64,
+    /// Amount maker wants to receive
+    pub taker_amount: u64,
+    /// Unix timestamp, 0=no expiration
+    #[serde(default)]
+    pub expiration: i64,
+    /// Ed25519 signature (hex, 128 chars)
+    pub signature: String,
+    /// Target orderbook
+    pub orderbook_id: String,
+}
+
+/// Response for POST /api/orders/submit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderResponse {
+    /// Order hash (hex)
+    pub order_hash: String,
+    /// Order status
+    pub status: String,
+    /// Remaining amount
+    pub remaining: u64,
+    /// Filled amount
+    pub filled: u64,
+    /// Fill details
+    #[serde(default)]
+    pub fills: Vec<Fill>,
+}
+
+/// Request for POST /api/orders/cancel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelOrderRequest {
+    /// Hash of order to cancel (hex)
+    pub order_hash: String,
+    /// Must match order creator (Base58)
+    pub maker: String,
+}
+
+/// Response for POST /api/orders/cancel.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelResponse {
+    /// Cancellation status
+    pub status: String,
+    /// Order hash
+    pub order_hash: String,
+    /// Remaining amount that was cancelled
+    pub remaining: u64,
+}
+
+/// Request for POST /api/orders/cancel-all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelAllOrdersRequest {
+    /// User's public key (Base58)
+    pub user_pubkey: String,
+    /// Limit to specific market (empty = all)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_pubkey: Option<String>,
+}
+
+/// Response for POST /api/orders/cancel-all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CancelAllResponse {
+    /// Status (success)
+    pub status: String,
+    /// User pubkey
+    pub user_pubkey: String,
+    /// Market pubkey if specified
+    #[serde(default)]
+    pub market_pubkey: Option<String>,
+    /// List of cancelled order hashes
+    pub cancelled_order_hashes: Vec<String>,
+    /// Count of cancelled orders
+    pub count: u64,
+    /// Human-readable message
+    pub message: String,
+}
+
+/// User order from GET /api/users/orders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrder {
+    /// Order hash
+    pub order_hash: String,
+    /// Market pubkey
+    pub market_pubkey: String,
+    /// Orderbook ID
+    pub orderbook_id: String,
+    /// Order side (0=BID, 1=ASK)
+    pub side: u32,
+    /// Maker amount
+    pub maker_amount: u64,
+    /// Taker amount
+    pub taker_amount: u64,
+    /// Remaining amount
+    pub remaining: u64,
+    /// Filled amount
+    pub filled: u64,
+    /// Order price (scaled by 1e6)
+    pub price: i64,
+    /// Creation timestamp
+    pub created_at: String,
+    /// Expiration timestamp
+    pub expiration: i64,
+}
+
+/// Request for POST /api/users/orders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetUserOrdersRequest {
+    /// User's public key (Base58)
+    pub user_pubkey: String,
+}
+
+/// Outcome balance in user orders response.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrderOutcomeBalance {
+    /// Outcome index
+    pub outcome_index: u32,
+    /// Conditional token address
+    pub conditional_token: String,
+    /// Idle balance
+    pub idle: i64,
+    /// Balance on order book
+    pub on_book: i64,
+}
+
+/// User balance from GET /api/users/orders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserBalance {
+    /// Market pubkey
+    pub market_pubkey: String,
+    /// Deposit asset
+    pub deposit_asset: String,
+    /// Outcome balances
+    pub outcomes: Vec<UserOrderOutcomeBalance>,
+}
+
+/// Response for POST /api/users/orders.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrdersResponse {
+    /// User pubkey
+    pub user_pubkey: String,
+    /// Open orders
+    pub orders: Vec<UserOrder>,
+    /// User balances
+    pub balances: Vec<UserBalance>,
+}

@@ -1,18 +1,40 @@
 //! # Lightcone Pinocchio Rust SDK
 //!
-//! A production-quality Rust SDK for interacting with the Lightcone Pinocchio Program
+//! A production-quality Rust SDK for interacting with the Lightcone prediction markets platform.
 //!
 //! ## Modules
 //!
 //! This SDK provides three main modules:
 //! - [`program`]: On-chain program interaction (smart contract)
-//! - [`api`]: REST API client (coming soon)
-//! - [`websocket`]: Real-time data streaming (coming soon)
+//! - [`api`]: REST API client for market data, orders, and positions
+//! - [`websocket`]: Real-time data streaming via WebSocket
 //!
 //! Plus a shared module:
 //! - [`shared`]: Shared utilities, types, and constants
 //!
-//! ## Quick Start
+//! ## Quick Start - REST API
+//!
+//! ```rust,ignore
+//! use lightcone_pinocchio_sdk::api::LightconeApiClient;
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     // Create API client
+//!     let api = LightconeApiClient::new("https://api.lightcone.io");
+//!
+//!     // Get all markets
+//!     let markets = api.get_markets().await?;
+//!     println!("Found {} markets", markets.total);
+//!
+//!     // Get orderbook
+//!     let orderbook = api.get_orderbook("orderbook_id", Some(10)).await?;
+//!     println!("Best bid: {:?}", orderbook.best_bid);
+//!
+//!     Ok(())
+//! }
+//! ```
+//!
+//! ## Quick Start - On-Chain Program
 //!
 //! ```rust,ignore
 //! use lightcone_pinocchio_sdk::program::LightconePinocchioClient;
@@ -21,7 +43,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() {
-//!     // Create client
+//!     // Create on-chain client
 //!     let client = LightconePinocchioClient::new("https://api.devnet.solana.com");
 //!
 //!     // Fetch exchange state
@@ -54,10 +76,10 @@ pub mod program;
 /// Used across all SDK modules.
 pub mod shared;
 
-/// REST API client module (coming soon).
+/// REST API client module for market data, orders, and positions.
 pub mod api;
 
-/// WebSocket client module (coming soon).
+/// WebSocket client module for real-time data streaming.
 pub mod websocket;
 
 // ============================================================================
@@ -70,6 +92,7 @@ pub mod websocket;
 /// use lightcone_pinocchio_sdk::prelude::*;
 /// ```
 pub mod prelude {
+    // Program module exports
     pub use crate::program::{
         Exchange, Market, OrderStatus, Position, UserNonce,
         LightconePinocchioClient,
@@ -82,6 +105,8 @@ pub mod prelude {
         get_conditional_mint_pda, get_order_status_pda, get_user_nonce_pda, get_position_pda,
         get_all_conditional_mint_pdas,
     };
+
+    // Shared module exports
     pub use crate::shared::{
         SdkError, SdkResult,
         MarketStatus, OrderSide, OutcomeMetadata,
@@ -89,5 +114,25 @@ pub mod prelude {
         MintCompleteSetParams, MergeCompleteSetParams, SettleMarketParams, RedeemWinningsParams,
         AddDepositMintParams, ActivateMarketParams, WithdrawFromPositionParams,
         PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+    };
+
+    // API module exports
+    pub use crate::api::{
+        LightconeApiClient, LightconeApiClientBuilder, ApiError, ApiResult,
+        // Common types
+        MarketsResponse, MarketInfoResponse, Market as ApiMarket, DepositAsset, ConditionalToken,
+        OrderbookResponse, PriceLevel,
+        SubmitOrderRequest, OrderResponse, CancelResponse, CancelAllResponse,
+        PositionsResponse, Position as ApiPosition, OutcomeBalance,
+        PriceHistoryParams, PriceHistoryResponse, Resolution,
+        TradesParams, TradesResponse, Trade,
+    };
+
+    // WebSocket module exports
+    pub use crate::websocket::{
+        LightconeWebSocketClient, WebSocketConfig, WebSocketError, WsResult,
+        ConnectionState, WsEvent,
+        BookUpdateData, TradeData, UserEventData, PriceHistoryData, MarketEventData,
+        LocalOrderbook, UserState, PriceHistory,
     };
 }
