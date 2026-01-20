@@ -166,9 +166,13 @@ pub struct WsMessage<T> {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BookUpdateData {
     pub orderbook_id: String,
+    #[serde(default)]
     pub timestamp: String,
+    #[serde(default)]
     pub seq: u64,
+    #[serde(default)]
     pub bids: Vec<PriceLevel>,
+    #[serde(default)]
     pub asks: Vec<PriceLevel>,
     #[serde(default)]
     pub is_snapshot: bool,

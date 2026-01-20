@@ -181,22 +181,15 @@ impl LightconeWebSocketClient {
         self.cmd_tx = Some(cmd_tx);
 
         // Spawn the connection task
-        let handler = self.handler.clone();
-        let event_tx = self.event_tx.clone();
-        let config = self.config.clone();
-        let subscriptions = self.subscriptions.clone();
-        let url = self.url.clone();
+        let ctx = ConnectionContext {
+            handler: self.handler.clone(),
+            event_tx: self.event_tx.clone(),
+            config: self.config.clone(),
+            subscriptions: self.subscriptions.clone(),
+            url: self.url.clone(),
+        };
 
-        tokio::spawn(connection_task(
-            sink,
-            source,
-            cmd_rx,
-            handler,
-            event_tx,
-            config,
-            subscriptions,
-            url,
-        ));
+        tokio::spawn(connection_task(sink, source, cmd_rx, ctx));
 
         // Send connected event
         let _ = self.event_tx.send(WsEvent::Connected).await;
@@ -426,17 +419,29 @@ impl Stream for LightconeWebSocketClient {
     }
 }
 
-/// Connection task that handles the WebSocket connection
-async fn connection_task(
-    mut sink: WsSink,
-    mut source: WsSource,
-    mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
+/// Shared context for the connection task
+struct ConnectionContext {
     handler: Arc<MessageHandler>,
     event_tx: mpsc::Sender<WsEvent>,
     config: WebSocketConfig,
     subscriptions: Arc<RwLock<SubscriptionManager>>,
     url: String,
+}
+
+/// Connection task that handles the WebSocket connection
+async fn connection_task(
+    mut sink: WsSink,
+    mut source: WsSource,
+    mut cmd_rx: mpsc::Receiver<ConnectionCommand>,
+    ctx: ConnectionContext,
 ) {
+    let ConnectionContext {
+        handler,
+        event_tx,
+        config,
+        subscriptions,
+        url,
+    } = ctx;
     let ping_interval_duration = Duration::from_secs(config.ping_interval_secs);
     let mut ping_interval = interval(ping_interval_duration);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);

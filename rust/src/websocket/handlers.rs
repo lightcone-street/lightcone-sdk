@@ -301,12 +301,9 @@ impl MessageHandler {
     ) {
         let key = PriceHistoryKey::new(orderbook_id.to_string(), resolution.to_string());
         let mut histories = self.price_histories.write().await;
-        if !histories.contains_key(&key) {
-            histories.insert(
-                key,
-                PriceHistory::new(orderbook_id.to_string(), resolution.to_string(), include_ohlcv),
-            );
-        }
+        histories.entry(key).or_insert_with(|| {
+            PriceHistory::new(orderbook_id.to_string(), resolution.to_string(), include_ohlcv)
+        });
     }
 
     /// Clear orderbook state

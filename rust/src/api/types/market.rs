@@ -3,9 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Market status enum matching the API specification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ApiMarketStatus {
     /// Market created but not activated
+    #[default]
     #[serde(rename = "Pending")]
     Pending,
     /// Market accepting orders
@@ -14,12 +15,6 @@ pub enum ApiMarketStatus {
     /// Market has a resolved outcome
     #[serde(rename = "Settled")]
     Settled,
-}
-
-impl Default for ApiMarketStatus {
-    fn default() -> Self {
-        Self::Pending
-    }
 }
 
 /// Outcome information for a market.

@@ -3,9 +3,10 @@
 use serde::{Deserialize, Serialize};
 
 /// Resolution for price history candles.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Resolution {
     /// 1 minute candles
+    #[default]
     #[serde(rename = "1m")]
     OneMinute,
     /// 5 minute candles
@@ -23,12 +24,6 @@ pub enum Resolution {
     /// 1 day candles
     #[serde(rename = "1d")]
     OneDay,
-}
-
-impl Default for Resolution {
-    fn default() -> Self {
-        Self::OneMinute
-    }
 }
 
 impl Resolution {

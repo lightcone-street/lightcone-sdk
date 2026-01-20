@@ -238,6 +238,7 @@ impl UserState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::websocket::types::{OrderUpdate, OutcomeBalance};
 
     fn create_snapshot() -> UserEventData {
         UserEventData {

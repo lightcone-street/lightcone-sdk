@@ -189,7 +189,7 @@ impl SubscriptionManager {
         }
 
         // Price history
-        for (_, (orderbook_id, resolution, include_ohlcv)) in &self.price_history {
+        for (orderbook_id, resolution, include_ohlcv) in self.price_history.values() {
             subs.push(Subscription::PriceHistory {
                 orderbook_id: orderbook_id.clone(),
                 resolution: resolution.clone(),
