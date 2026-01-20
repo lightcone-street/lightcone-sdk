@@ -8,7 +8,7 @@ from solders.pubkey import Pubkey
 
 
 class MarketStatus(IntEnum):
-    """Status of a prediction market."""
+    """Status of a market."""
 
     PENDING = 0
     ACTIVE = 1

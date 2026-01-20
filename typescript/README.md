@@ -54,7 +54,7 @@ The SDK supports all 14 Lightcone Pinocchio program instructions:
 | # | Instruction | Description |
 |---|-------------|-------------|
 | 0 | `initialize` | Initialize the exchange (one-time setup) |
-| 1 | `createMarket` | Create a new prediction market |
+| 1 | `createMarket` | Create a new market |
 | 2 | `addDepositMint` | Configure collateral token and create conditional mints |
 | 3 | `mintCompleteSet` | Deposit collateral to mint YES + NO tokens |
 | 4 | `mergeCompleteSet` | Burn YES + NO tokens to withdraw collateral |
@@ -369,7 +369,7 @@ Place your authority keypair at `keypairs/devnet-authority.json` for testing.
 
 ## Architecture
 
-The Lightcone Pinocchio program is a high-performance prediction market CLOB (Central Limit Order Book) built with [Pinocchio](https://github.com/febo/pinocchio) - a zero-dependency, zero-copy Solana program framework.
+The Lightcone Pinocchio program is a high-performance market CLOB (Central Limit Order Book) built with [Pinocchio](https://github.com/febo/pinocchio) - a zero-dependency, zero-copy Solana program framework.
 
 ### Key Design Decisions
 

@@ -1,4 +1,4 @@
-"""Lightcone SDK - Python SDK for the Lightcone prediction market protocol."""
+"""Lightcone SDK - Python SDK for the Lightcone protocol."""
 
 from .accounts import (
     deserialize_exchange,
