@@ -121,12 +121,15 @@ def derive_condition_id(
 
 
 def encode_string(s: str, max_len: int) -> bytes:
-    """Encode a string with length prefix (u32) and padding to max length."""
+    """Encode a string with u16 length prefix (matches Rust SDK).
+
+    Format: [length (2 bytes LE)][utf-8 bytes]
+    """
     encoded = s.encode("utf-8")
     if len(encoded) > max_len:
         raise ValueError(f"String too long: {len(encoded)} > {max_len}")
-    # Length prefix (4 bytes) + string content
-    return struct.pack("<I", len(encoded)) + encoded
+    # Length prefix (2 bytes u16 LE) + string content
+    return struct.pack("<H", len(encoded)) + encoded
 
 
 def encode_string_fixed(s: str, max_len: int) -> bytes:

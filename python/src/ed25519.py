@@ -176,18 +176,14 @@ def build_ed25519_cross_ref_instruction(
     Args:
         orders: List of orders to verify
         target_instruction_index: Index of the instruction containing the order data
+
+    NOTE: This is the legacy implementation that still duplicates data.
+    For efficient cross-ref verification, use create_cross_ref_ed25519_instructions.
     """
     if not orders:
         raise ValueError("Must provide at least one order")
 
     num_signatures = len(orders)
-
-    # For cross-reference, we still include the data in this instruction
-    # but could reference another instruction for the actual verification.
-    # The implementation depends on the exact layout of the target instruction.
-
-    # For simplicity, we use the same layout as batch verify but allow
-    # specifying a different instruction index for the message data
     header_size = 2 + (14 * num_signatures)
 
     current_offset = header_size
@@ -206,15 +202,13 @@ def build_ed25519_cross_ref_instruction(
         msg_offset = current_offset
         current_offset += ORDER_HASH_SIZE
 
-        # Build offsets - signature and pubkey in current instruction,
-        # but could reference message from target instruction
         offsets_data.extend(encode_u16(sig_offset))
-        offsets_data.extend(encode_u16(0xFFFF))  # current instruction
+        offsets_data.extend(encode_u16(0xFFFF))
         offsets_data.extend(encode_u16(pk_offset))
-        offsets_data.extend(encode_u16(0xFFFF))  # current instruction
+        offsets_data.extend(encode_u16(0xFFFF))
         offsets_data.extend(encode_u16(msg_offset))
         offsets_data.extend(encode_u16(ORDER_HASH_SIZE))
-        offsets_data.extend(encode_u16(0xFFFF))  # current instruction
+        offsets_data.extend(encode_u16(0xFFFF))
 
         signature_data.extend(order.signature)
         signature_data.extend(bytes(order.maker))
@@ -231,3 +225,145 @@ def build_ed25519_cross_ref_instruction(
         accounts=[],
         data=bytes(data),
     )
+
+
+# =============================================================================
+# Efficient Cross-Reference Ed25519 Verification
+# =============================================================================
+# These instructions reference data within another instruction (match_orders_multi)
+# rather than duplicating it, resulting in much smaller transaction sizes.
+
+
+class MatchIxOffsets:
+    """Offsets for data within the match_orders_multi instruction.
+
+    Match instruction data layout:
+    - [0]: discriminator (1 byte)
+    - [1..33]: taker_hash (32 bytes) <- taker message
+    - [33..98]: taker_compact (65 bytes): nonce(8) | maker(32) <- pubkey at 41
+    - [98..162]: taker_signature (64 bytes)
+    - [162]: num_makers (1 byte)
+    - [163..]: maker entries (169 bytes each):
+      - [0..32]: maker_hash (32 bytes) <- maker message
+      - [32..97]: maker_compact (65 bytes): nonce(8) | maker(32) <- pubkey at offset+40
+      - [97..161]: maker_signature (64 bytes)
+      - [161..169]: fill_amount (8 bytes)
+    """
+
+    # Taker offsets
+    TAKER_MESSAGE = 1  # taker_hash starts at offset 1
+    TAKER_PUBKEY = 41  # compact.maker at 33 + 8
+    TAKER_SIGNATURE = 98  # after hash (32) + compact (65)
+    NUM_MAKERS = 162
+
+    @staticmethod
+    def maker_offsets(maker_index: int) -> tuple[int, int, int]:
+        """Get (message, pubkey, signature) offsets for a maker.
+
+        Each maker entry is 169 bytes: hash(32) + compact(65) + sig(64) + fill(8)
+        """
+        base = 163 + maker_index * 169
+        message = base
+        pubkey = base + 32 + 8  # after hash, skip nonce
+        signature = base + 32 + 65  # after hash + compact
+        return (message, pubkey, signature)
+
+
+@dataclass
+class CrossRefEd25519Params:
+    """Parameters for a single cross-reference Ed25519 verify instruction."""
+
+    signature_offset: int
+    signature_ix_index: int
+    pubkey_offset: int
+    pubkey_ix_index: int
+    message_offset: int
+    message_size: int
+    message_ix_index: int
+
+
+def create_single_cross_ref_ed25519_instruction(params: CrossRefEd25519Params) -> Instruction:
+    """Create a single Ed25519 instruction that references data in another instruction.
+
+    This is only 16 bytes (just header with offsets) - no embedded signature/pubkey/message.
+    """
+    data = bytearray(16)
+
+    # num_signatures (u8)
+    data[0] = 1
+    # padding (u8)
+    data[1] = 0
+
+    # Signature offsets (14 bytes total)
+    offset = 2
+    data[offset : offset + 2] = encode_u16(params.signature_offset)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.signature_ix_index)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.pubkey_offset)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.pubkey_ix_index)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.message_offset)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.message_size)
+    offset += 2
+    data[offset : offset + 2] = encode_u16(params.message_ix_index)
+
+    return Instruction(
+        program_id=ED25519_PROGRAM_ID,
+        accounts=[],
+        data=bytes(data),
+    )
+
+
+def create_cross_ref_ed25519_instructions(
+    num_makers: int,
+    match_ix_index: int,
+) -> List[Instruction]:
+    """Create Ed25519 verify instructions that reference the match instruction.
+
+    This creates one instruction per order (taker + each maker) that references
+    data offsets within the match instruction, resulting in very small verify
+    instructions (16 bytes each).
+
+    Args:
+        num_makers: Number of maker orders
+        match_ix_index: Index of the match_orders_multi instruction in the transaction
+
+    Returns:
+        List of Ed25519 verify instructions (1 + num_makers total)
+    """
+    instructions = []
+
+    # Taker verification instruction
+    taker_ix = create_single_cross_ref_ed25519_instruction(
+        CrossRefEd25519Params(
+            signature_offset=MatchIxOffsets.TAKER_SIGNATURE,
+            signature_ix_index=match_ix_index,
+            pubkey_offset=MatchIxOffsets.TAKER_PUBKEY,
+            pubkey_ix_index=match_ix_index,
+            message_offset=MatchIxOffsets.TAKER_MESSAGE,
+            message_size=32,
+            message_ix_index=match_ix_index,
+        )
+    )
+    instructions.append(taker_ix)
+
+    # Maker verification instructions
+    for i in range(num_makers):
+        message, pubkey, signature = MatchIxOffsets.maker_offsets(i)
+        maker_ix = create_single_cross_ref_ed25519_instruction(
+            CrossRefEd25519Params(
+                signature_offset=signature,
+                signature_ix_index=match_ix_index,
+                pubkey_offset=pubkey,
+                pubkey_ix_index=match_ix_index,
+                message_offset=message,
+                message_size=32,
+                message_ix_index=match_ix_index,
+            )
+        )
+        instructions.append(maker_ix)
+
+    return instructions

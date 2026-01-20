@@ -160,9 +160,12 @@ class LightconePinocchioClient:
         return user_nonce.nonce
 
     async def get_next_nonce(self, user: Pubkey) -> int:
-        """Get the next available nonce for a user (current nonce + 1)."""
-        current = await self.get_user_nonce(user)
-        return current + 1
+        """Get the next available nonce for a user (the current stored nonce value).
+
+        Orders should be signed with this nonce value.
+        Call `increment_nonce` to invalidate orders with the current nonce.
+        """
+        return await self.get_user_nonce(user)
 
     async def get_next_market_id(self) -> int:
         """Get the next market ID (current market_count)."""
@@ -360,6 +363,49 @@ class LightconePinocchioClient:
         )
 
         return await self._build_transaction([ed25519_ix, match_ix])
+
+    async def match_orders_multi_cross_ref(
+        self,
+        operator: Pubkey,
+        market: Pubkey,
+        base_mint: Pubkey,
+        quote_mint: Pubkey,
+        taker_order: FullOrder,
+        maker_fills: List[MakerFill],
+    ) -> Transaction:
+        """Build a match_orders_multi transaction with efficient cross-ref Ed25519 verification.
+
+        This creates small (16-byte) Ed25519 verify instructions that reference data
+        within the match instruction, resulting in smaller transaction sizes compared
+        to match_orders_multi_with_verify.
+        """
+        from .ed25519 import create_cross_ref_ed25519_instructions
+
+        num_makers = len(maker_fills)
+
+        # Ed25519 verify instructions will be at indices 0..(num_makers)
+        # Match instruction will be at index (1 + num_makers)
+        match_ix_index = 1 + num_makers
+
+        # Build Ed25519 cross-ref verify instructions
+        ed25519_instructions = create_cross_ref_ed25519_instructions(
+            num_makers, match_ix_index
+        )
+
+        # Build match instruction
+        match_ix = build_match_orders_multi_instruction(
+            operator=operator,
+            market=market,
+            base_mint=base_mint,
+            quote_mint=quote_mint,
+            taker_order=taker_order,
+            maker_fills=maker_fills,
+            program_id=self.program_id,
+        )
+
+        # Combine: [ed25519_verify_0, ..., ed25519_verify_n, match_ix]
+        instructions = ed25519_instructions + [match_ix]
+        return await self._build_transaction(instructions)
 
     # =========================================================================
     # Order Helpers

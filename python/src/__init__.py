@@ -49,6 +49,10 @@ from .ed25519 import (
     build_ed25519_cross_ref_instruction,
     build_ed25519_verify_instruction,
     build_ed25519_verify_instruction_for_order,
+    create_cross_ref_ed25519_instructions,
+    create_single_cross_ref_ed25519_instruction,
+    CrossRefEd25519Params,
+    MatchIxOffsets,
 )
 from .errors import (
     AccountNotFoundError,
@@ -263,6 +267,10 @@ __all__ = [
     "build_ed25519_verify_instruction_for_order",
     "build_ed25519_batch_verify_instruction",
     "build_ed25519_cross_ref_instruction",
+    "create_cross_ref_ed25519_instructions",
+    "create_single_cross_ref_ed25519_instruction",
+    "CrossRefEd25519Params",
+    "MatchIxOffsets",
     # Instruction Builders
     "build_initialize_instruction",
     "build_create_market_instruction",

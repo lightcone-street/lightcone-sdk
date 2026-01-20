@@ -245,8 +245,9 @@ def build_mint_complete_set_instruction(
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
+    # Deposit token uses SPL Token, conditional tokens use Token-2022
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
-    position_collateral_ata = get_associated_token_address_2022(position, deposit_mint)
+    position_collateral_ata = get_associated_token_address(position, deposit_mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
@@ -264,7 +265,7 @@ def build_mint_complete_set_instruction(
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    # Add conditional mint and position ATA pairs
+    # Add conditional mint and position ATA pairs (conditional tokens use Token-2022)
     for i in range(num_outcomes):
         cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
         position_cond_ata = get_associated_token_address_2022(position, cond_mint)
@@ -292,15 +293,28 @@ def build_merge_complete_set_instruction(
 ) -> Instruction:
     """Build the merge_complete_set instruction.
 
-    Similar to mint_complete_set but burns conditional tokens to get collateral back.
+    Burns all outcome tokens from Position and releases collateral.
+
+    Accounts:
+    0. user (signer, writable)
+    1. exchange (readonly)
+    2. market (readonly)
+    3. deposit_mint (readonly)
+    4. vault (writable)
+    5. position (writable)
+    6. user_deposit_ata (writable)
+    7. mint_authority (readonly)
+    8. token_program (readonly)
+    9. token_2022_program (readonly)
+    + [conditional_mint, position_ata] pairs
     """
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
+    # Deposit token uses SPL Token
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
-    position_collateral_ata = get_associated_token_address_2022(position, deposit_mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
@@ -308,16 +322,14 @@ def build_merge_complete_set_instruction(
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=position_collateral_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
+    # Conditional tokens use Token-2022
     for i in range(num_outcomes):
         cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
         position_cond_ata = get_associated_token_address_2022(position, cond_mint)
@@ -548,7 +560,7 @@ def build_withdraw_from_position_instruction(
         position_ata = get_associated_token_address_2022(position, mint)
         user_ata = get_associated_token_address_2022(user, mint)
     else:
-        position_ata = get_associated_token_address(user, mint)
+        position_ata = get_associated_token_address(position, mint)
         user_ata = get_associated_token_address(user, mint)
 
     accounts = [
