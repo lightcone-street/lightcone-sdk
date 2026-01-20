@@ -47,7 +47,7 @@ Documentation = "https://docs.lightcone.io"
 Repository = "https://github.com/lightcone/lightcone-sdk"
 
 [tool.hatch.build.targets.wheel]
-packages = ["lightcone_sdk"]
+packages = ["src"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
