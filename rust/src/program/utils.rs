@@ -49,7 +49,7 @@ pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Validate that the number of outcomes is within the allowed range.
 pub fn validate_outcome_count(num_outcomes: u8) -> SdkResult<()> {
     if !(MIN_OUTCOMES..=MAX_OUTCOMES).contains(&num_outcomes) {
-        return Err(SdkError::InvalidOutcomeCount(num_outcomes));
+        return Err(SdkError::InvalidOutcomeCount { count: num_outcomes });
     }
     Ok(())
 }

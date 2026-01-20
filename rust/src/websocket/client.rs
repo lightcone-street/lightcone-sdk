@@ -672,14 +672,14 @@ async fn connection_task(
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(ConnectionCommand::Send(text)) => {
-                        if sink.send(Message::Text(text)).await.is_err() {
+                        if sink.send(Message::Text(text.into())).await.is_err() {
                             tracing::warn!("Failed to send message");
                         }
                     }
                     Some(ConnectionCommand::Ping) => {
                         let request = WsRequest::ping();
                         if let Ok(json) = serde_json::to_string(&request) {
-                            if sink.send(Message::Text(json)).await.is_err() {
+                            if sink.send(Message::Text(json.into())).await.is_err() {
                                 tracing::warn!("Failed to send ping");
                             }
                         }
@@ -702,7 +702,7 @@ async fn connection_task(
             _ = ping_interval.tick() => {
                 let request = WsRequest::ping();
                 if let Ok(json) = serde_json::to_string(&request) {
-                    if sink.send(Message::Text(json)).await.is_err() {
+                    if sink.send(Message::Text(json.into())).await.is_err() {
                         tracing::warn!("Failed to send periodic ping");
                     }
                 }
@@ -754,7 +754,7 @@ async fn reconnect(
         for sub in subs {
             let request = WsRequest::subscribe(sub.to_params());
             if let Ok(json) = serde_json::to_string(&request) {
-                if sink.send(Message::Text(json)).await.is_err() {
+                if sink.send(Message::Text(json.into())).await.is_err() {
                     tracing::warn!("Failed to re-subscribe after reconnect");
                 }
             }

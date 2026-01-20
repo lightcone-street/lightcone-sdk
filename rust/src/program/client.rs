@@ -156,7 +156,7 @@ impl LightconePinocchioClient {
         self.rpc_client
             .get_latest_blockhash()
             .await
-            .map_err(SdkError::from)
+            .map_err(SdkError::Rpc)
     }
 
     /// Build Initialize transaction.

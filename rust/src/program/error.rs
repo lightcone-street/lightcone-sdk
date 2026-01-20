@@ -40,8 +40,8 @@ pub enum SdkError {
     OrderExpired,
 
     /// Invalid outcome count
-    #[error("Invalid outcome count: {0} (must be {}-{})", crate::program::constants::MIN_OUTCOMES, crate::program::constants::MAX_OUTCOMES)]
-    InvalidOutcomeCount(u8),
+    #[error("Invalid outcome count: {count} (must be {min}-{max})", min = crate::program::constants::MIN_OUTCOMES, max = crate::program::constants::MAX_OUTCOMES)]
+    InvalidOutcomeCount { count: u8 },
 
     /// Invalid outcome index
     #[error("Invalid outcome index: {index} (max {max})")]
@@ -51,8 +51,8 @@ pub enum SdkError {
     },
 
     /// Too many makers
-    #[error("Too many makers: {0} (max {})", crate::program::constants::MAX_MAKERS)]
-    TooManyMakers(usize),
+    #[error("Too many makers: {count} (max {max})", max = crate::program::constants::MAX_MAKERS)]
+    TooManyMakers { count: usize },
 
     /// Serialization error
     #[error("Serialization error: {0}")]

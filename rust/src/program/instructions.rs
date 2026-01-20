@@ -143,7 +143,7 @@ pub fn build_add_deposit_mint_ix(
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
     if params.outcome_metadata.len() != num_outcomes as usize {
-        return Err(SdkError::InvalidOutcomeCount(params.outcome_metadata.len() as u8));
+        return Err(SdkError::InvalidOutcomeCount { count: params.outcome_metadata.len() as u8 });
     }
 
     let (vault, _) = get_vault_pda(&params.deposit_mint, market, program_id);
@@ -562,7 +562,7 @@ pub fn build_match_orders_multi_ix(
         return Err(SdkError::MissingField("maker_orders".to_string()));
     }
     if params.maker_orders.len() > MAX_MAKERS {
-        return Err(SdkError::TooManyMakers(params.maker_orders.len()));
+        return Err(SdkError::TooManyMakers { count: params.maker_orders.len() });
     }
     if params.maker_orders.len() != params.fill_amounts.len() {
         return Err(SdkError::MissingField("fill_amounts".to_string()));
