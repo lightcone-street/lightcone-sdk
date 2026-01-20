@@ -432,6 +432,7 @@ impl LightconeApiClient {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::Resolution;
 
     #[test]
     fn test_client_creation() {

@@ -124,9 +124,12 @@ pub mod prelude {
         OrderbookResponse, PriceLevel,
         SubmitOrderRequest, OrderResponse, CancelResponse, CancelAllResponse,
         PositionsResponse, Position as ApiPosition, OutcomeBalance,
-        PriceHistoryParams, PriceHistoryResponse, Resolution,
+        PriceHistoryParams, PriceHistoryResponse,
         TradesParams, TradesResponse, Trade,
     };
+
+    // Shared price types (used by both API and WebSocket)
+    pub use crate::shared::{decimal_to_scaled, scaled_to_decimal, Resolution, PRICE_SCALE};
 
     // WebSocket module exports
     pub use crate::websocket::{

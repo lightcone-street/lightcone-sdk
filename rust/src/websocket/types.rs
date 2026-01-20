@@ -370,42 +370,6 @@ pub struct Candle {
     pub ba: Option<u64>,
 }
 
-/// Price history resolution
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Resolution {
-    #[serde(rename = "1m")]
-    OneMinute,
-    #[serde(rename = "5m")]
-    FiveMinutes,
-    #[serde(rename = "15m")]
-    FifteenMinutes,
-    #[serde(rename = "1h")]
-    OneHour,
-    #[serde(rename = "4h")]
-    FourHours,
-    #[serde(rename = "1d")]
-    OneDay,
-}
-
-impl Resolution {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::OneMinute => "1m",
-            Self::FiveMinutes => "5m",
-            Self::FifteenMinutes => "15m",
-            Self::OneHour => "1h",
-            Self::FourHours => "4h",
-            Self::OneDay => "1d",
-        }
-    }
-}
-
-impl std::fmt::Display for Resolution {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
 // ============================================================================
 // MARKET EVENT TYPES
 // ============================================================================
@@ -621,26 +585,10 @@ impl From<&str> for PriceLevelSide {
     }
 }
 
-// ============================================================================
-// PRICE UTILITIES
-// ============================================================================
-
-/// Price scaling factor (1e6)
-pub const PRICE_SCALE: u64 = 1_000_000;
-
-/// Convert scaled price to decimal
-pub fn scaled_to_decimal(scaled: u64) -> f64 {
-    scaled as f64 / PRICE_SCALE as f64
-}
-
-/// Convert decimal to scaled price
-pub fn decimal_to_scaled(decimal: f64) -> u64 {
-    (decimal * PRICE_SCALE as f64) as u64
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shared::{decimal_to_scaled, scaled_to_decimal};
 
     #[test]
     fn test_price_scaling() {

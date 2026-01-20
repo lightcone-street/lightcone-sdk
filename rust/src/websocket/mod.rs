@@ -123,7 +123,6 @@ pub use types::{
     // Price history
     Candle,
     PriceHistoryData,
-    Resolution,
     // Market events
     MarketEventData,
     MarketEventType,
@@ -134,8 +133,7 @@ pub use types::{
     MessageType,
     PriceLevelSide,
     Side,
-    // Price utilities
-    decimal_to_scaled,
-    scaled_to_decimal,
-    PRICE_SCALE,
 };
+
+// Re-export shared price utilities
+pub use crate::shared::{decimal_to_scaled, scaled_to_decimal, Resolution, PRICE_SCALE};

@@ -4,7 +4,8 @@
 
 use std::collections::HashMap;
 
-use crate::websocket::types::{Candle, PriceHistoryData, Resolution};
+use crate::shared::Resolution;
+use crate::websocket::types::{Candle, PriceHistoryData};
 
 /// Key for price history subscriptions
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
