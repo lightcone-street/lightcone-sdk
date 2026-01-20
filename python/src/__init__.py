@@ -1,157 +1,169 @@
-"""Lightcone SDK - Python SDK for the Lightcone protocol."""
+"""Lightcone SDK - Python SDK for the Lightcone protocol on Solana.
 
-from .accounts import (
+This SDK provides three main modules:
+- `program`: On-chain program interaction (smart contract)
+- `api`: REST API client (coming soon)
+- `websocket`: Real-time data streaming (coming soon)
+
+Example:
+    from lightcone_sdk import LightconePinocchioClient, PROGRAM_ID
+
+    # Or import from specific modules
+    from lightcone_sdk.program import LightconePinocchioClient
+    from lightcone_sdk.shared import PROGRAM_ID
+"""
+
+__version__ = "0.1.0"
+
+# ============================================================================
+# MODULE IMPORTS
+# ============================================================================
+
+# Import submodules for namespace access
+from . import api
+from . import program
+from . import shared
+from . import websocket
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM PROGRAM MODULE
+# ============================================================================
+
+from .program import (
+    LightconePinocchioClient,
+    # Account Deserialization
     deserialize_exchange,
     deserialize_market,
     deserialize_order_status,
     deserialize_position,
     deserialize_user_nonce,
-)
-from .client import LightconePinocchioClient
-from .constants import (
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    COMPACT_ORDER_SIZE,
-    ED25519_PROGRAM_ID,
-    EXCHANGE_DISCRIMINATOR,
-    EXCHANGE_SIZE,
-    FULL_ORDER_SIZE,
-    INSTRUCTIONS_SYSVAR_ID,
-    MARKET_DISCRIMINATOR,
-    MARKET_SIZE,
-    MAX_MAKERS,
-    MAX_OUTCOMES,
-    MIN_OUTCOMES,
-    NO_WINNING_OUTCOME,
-    ORDER_HASH_SIZE,
-    ORDER_STATUS_DISCRIMINATOR,
-    ORDER_STATUS_SIZE,
-    POSITION_DISCRIMINATOR,
-    POSITION_SIZE,
-    PROGRAM_ID,
-    RENT_SYSVAR_ID,
-    SEED_CENTRAL_STATE,
-    SEED_CONDITIONAL_MINT,
-    SEED_MARKET,
-    SEED_MINT_AUTHORITY,
-    SEED_ORDER_STATUS,
-    SEED_POSITION,
-    SEED_USER_NONCE,
-    SEED_VAULT,
-    SIGNATURE_SIZE,
-    SYSTEM_PROGRAM_ID,
-    TOKEN_2022_PROGRAM_ID,
-    TOKEN_PROGRAM_ID,
-    USER_NONCE_DISCRIMINATOR,
-    USER_NONCE_SIZE,
-)
-from .ed25519 import (
-    build_ed25519_batch_verify_instruction,
-    build_ed25519_cross_ref_instruction,
+    # PDA Functions
+    get_exchange_pda,
+    get_market_pda,
+    get_vault_pda,
+    get_mint_authority_pda,
+    get_conditional_mint_pda,
+    get_order_status_pda,
+    get_user_nonce_pda,
+    get_position_pda,
+    get_all_conditional_mints,
+    # Order Functions
+    create_bid_order,
+    create_ask_order,
+    create_signed_bid_order,
+    create_signed_ask_order,
+    hash_order,
+    sign_order,
+    verify_order_signature,
+    serialize_full_order,
+    deserialize_full_order,
+    serialize_compact_order,
+    deserialize_compact_order,
+    to_compact_order,
+    validate_order,
+    validate_signed_order,
+    # Ed25519 Functions
     build_ed25519_verify_instruction,
     build_ed25519_verify_instruction_for_order,
+    build_ed25519_batch_verify_instruction,
+    build_ed25519_cross_ref_instruction,
     create_cross_ref_ed25519_instructions,
     create_single_cross_ref_ed25519_instruction,
     CrossRefEd25519Params,
     MatchIxOffsets,
-)
-from .errors import (
-    AccountNotFoundError,
-    ExchangePausedError,
-    InsufficientBalanceError,
-    InvalidAccountDataError,
-    InvalidDiscriminatorError,
-    InvalidOrderError,
-    InvalidOutcomeError,
-    InvalidSignatureError,
-    LightconeError,
-    MarketNotActiveError,
-    OrderExpiredError,
-    OrdersDoNotCrossError,
-    TooManyMakersError,
-)
-from .instructions import (
-    build_activate_market_instruction,
-    build_add_deposit_mint_instruction,
-    build_cancel_order_instruction,
+    # Instruction Builders
+    build_initialize_instruction,
     build_create_market_instruction,
     build_create_market_instruction_with_id,
-    build_increment_nonce_instruction,
-    build_initialize_instruction,
-    build_match_orders_multi_instruction,
-    build_merge_complete_set_instruction,
+    build_add_deposit_mint_instruction,
     build_mint_complete_set_instruction,
-    build_redeem_winnings_instruction,
-    build_set_operator_instruction,
-    build_set_paused_instruction,
+    build_merge_complete_set_instruction,
+    build_cancel_order_instruction,
+    build_increment_nonce_instruction,
     build_settle_market_instruction,
+    build_redeem_winnings_instruction,
+    build_set_paused_instruction,
+    build_set_operator_instruction,
     build_withdraw_from_position_instruction,
+    build_activate_market_instruction,
+    build_match_orders_multi_instruction,
 )
-from .orders import (
-    create_ask_order,
-    create_bid_order,
-    create_signed_ask_order,
-    create_signed_bid_order,
-    deserialize_compact_order,
-    deserialize_full_order,
-    hash_order,
-    serialize_compact_order,
-    serialize_full_order,
-    sign_order,
-    to_compact_order,
-    validate_order,
-    validate_signed_order,
-    verify_order_signature,
-)
-from .pda import (
-    get_all_conditional_mints,
-    get_conditional_mint_pda,
-    get_exchange_pda,
-    get_market_pda,
-    get_mint_authority_pda,
-    get_order_status_pda,
-    get_position_pda,
-    get_user_nonce_pda,
-    get_vault_pda,
-)
-from .types import (
-    ActivateMarketParams,
-    AddDepositMintParams,
-    AskOrderParams,
-    BidOrderParams,
-    BuildResult,
-    CompactOrder,
-    CreateMarketParams,
-    Exchange,
-    FullOrder,
-    InitializeParams,
-    MakerFill,
-    Market,
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM SHARED MODULE
+# ============================================================================
+
+from .shared import (
+    # Constants
+    PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    SYSTEM_PROGRAM_ID,
+    RENT_SYSVAR_ID,
+    INSTRUCTIONS_SYSVAR_ID,
+    ED25519_PROGRAM_ID,
+    MAX_OUTCOMES,
+    MIN_OUTCOMES,
+    MAX_MAKERS,
+    # Types - Enums
     MarketStatus,
-    MatchOrdersMultiParams,
-    MergeCompleteSetParams,
-    MintCompleteSetParams,
     OrderSide,
-    OrderStatus,
-    OutcomeMetadata,
+    # Types - Account Data
+    Exchange,
+    Market,
     Position,
-    RedeemWinningsParams,
-    SettleMarketParams,
+    OrderStatus,
     UserNonce,
+    # Types - Orders
+    FullOrder,
+    CompactOrder,
+    OutcomeMetadata,
+    MakerFill,
+    # Types - Params
+    InitializeParams,
+    CreateMarketParams,
+    AddDepositMintParams,
+    MintCompleteSetParams,
+    MergeCompleteSetParams,
+    SettleMarketParams,
+    RedeemWinningsParams,
     WithdrawFromPositionParams,
-)
-from .utils import (
+    ActivateMarketParams,
+    MatchOrdersMultiParams,
+    BidOrderParams,
+    AskOrderParams,
+    BuildResult,
+    # Errors
+    LightconeError,
+    InvalidDiscriminatorError,
+    AccountNotFoundError,
+    InvalidAccountDataError,
+    InvalidOrderError,
+    InvalidSignatureError,
+    OrderExpiredError,
+    InsufficientBalanceError,
+    MarketNotActiveError,
+    ExchangePausedError,
+    InvalidOutcomeError,
+    TooManyMakersError,
+    OrdersDoNotCrossError,
+    # Utils
+    keccak256,
     derive_condition_id,
     get_associated_token_address,
     get_associated_token_address_2022,
-    keccak256,
     orders_cross,
 )
-
-__version__ = "0.1.0"
 
 __all__ = [
     # Version
     "__version__",
+    # Modules
+    "program",
+    "shared",
+    "api",
+    "websocket",
     # Client
     "LightconePinocchioClient",
     # Types - Enums
@@ -205,32 +217,9 @@ __all__ = [
     "RENT_SYSVAR_ID",
     "INSTRUCTIONS_SYSVAR_ID",
     "ED25519_PROGRAM_ID",
-    "EXCHANGE_DISCRIMINATOR",
-    "MARKET_DISCRIMINATOR",
-    "ORDER_STATUS_DISCRIMINATOR",
-    "USER_NONCE_DISCRIMINATOR",
-    "POSITION_DISCRIMINATOR",
-    "SEED_CENTRAL_STATE",
-    "SEED_MARKET",
-    "SEED_VAULT",
-    "SEED_MINT_AUTHORITY",
-    "SEED_CONDITIONAL_MINT",
-    "SEED_ORDER_STATUS",
-    "SEED_USER_NONCE",
-    "SEED_POSITION",
-    "EXCHANGE_SIZE",
-    "MARKET_SIZE",
-    "ORDER_STATUS_SIZE",
-    "USER_NONCE_SIZE",
-    "POSITION_SIZE",
-    "FULL_ORDER_SIZE",
-    "COMPACT_ORDER_SIZE",
-    "SIGNATURE_SIZE",
-    "ORDER_HASH_SIZE",
     "MAX_OUTCOMES",
     "MIN_OUTCOMES",
     "MAX_MAKERS",
-    "NO_WINNING_OUTCOME",
     # PDA Functions
     "get_exchange_pda",
     "get_market_pda",

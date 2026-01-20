@@ -2,18 +2,21 @@
 //!
 //! A production-quality Rust SDK for interacting with the Lightcone Pinocchio Program
 //!
-//! ## Features
+//! ## Modules
 //!
-//! - **Account Fetching**: Fetch and deserialize all on-chain account types
-//! - **Transaction Building**: Build all 14 program instructions
-//! - **Order Management**: Create, sign, and verify orders with Ed25519 signatures
-//! - **PDA Derivation**: Derive all program PDAs
-//! - **Ed25519 Verification**: Multiple strategies for signature verification
+//! This SDK provides three main modules:
+//! - [`program`]: On-chain program interaction (smart contract)
+//! - [`api`]: REST API client (coming soon)
+//! - [`websocket`]: Real-time data streaming (coming soon)
+//!
+//! Plus a shared module:
+//! - [`shared`]: Shared utilities, types, and constants
 //!
 //! ## Quick Start
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::{LightconePinocchioClient, types::*};
+//! use lightcone_pinocchio_sdk::program::LightconePinocchioClient;
+//! use lightcone_pinocchio_sdk::shared::types::*;
 //! use solana_sdk::pubkey::Pubkey;
 //!
 //! #[tokio::main]
@@ -38,54 +41,53 @@
 //!     });
 //! }
 //! ```
-//!
-//! ## Modules
-//!
-//! - [`accounts`]: On-chain account structures and deserialization
-//! - [`client`]: Main SDK client with account fetchers and transaction builders
-//! - [`constants`]: Program IDs, seeds, discriminators, and sizes
-//! - [`ed25519`]: Ed25519 signature verification instruction helpers
-//! - [`error`]: Custom error types
-//! - [`instructions`]: Instruction builders for all 14 program instructions
-//! - [`orders`]: Order types, serialization, hashing, and signing
-//! - [`pda`]: PDA derivation functions
-//! - [`types`]: Type definitions (enums and parameter structs)
-//! - [`utils`]: Utility functions
 
-pub mod accounts;
-pub mod client;
-pub mod constants;
-pub mod ed25519;
-pub mod error;
-pub mod instructions;
-pub mod orders;
-pub mod pda;
-pub mod types;
-pub mod utils;
+// ============================================================================
+// MODULES
+// ============================================================================
 
-// Re-export main types at crate root for convenience
-pub use client::LightconePinocchioClient;
-pub use error::{SdkError, SdkResult};
+/// On-chain program interaction module.
+/// Contains the client and utilities for interacting with the Lightcone smart contract.
+pub mod program;
+
+/// Shared utilities, types, and constants.
+/// Used across all SDK modules.
+pub mod shared;
+
+/// REST API client module (coming soon).
+pub mod api;
+
+/// WebSocket client module (coming soon).
+pub mod websocket;
+
+// ============================================================================
+// PRELUDE
+// ============================================================================
 
 /// Prelude module for convenient imports.
+///
+/// ```rust,ignore
+/// use lightcone_pinocchio_sdk::prelude::*;
+/// ```
 pub mod prelude {
-    pub use crate::accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
-    pub use crate::client::LightconePinocchioClient;
-    pub use crate::constants::*;
-    pub use crate::ed25519::{
+    pub use crate::program::{
+        Exchange, Market, OrderStatus, Position, UserNonce,
+        LightconePinocchioClient,
         create_batch_ed25519_verify_instruction, create_cross_ref_ed25519_instructions,
         create_ed25519_verify_instruction, create_order_verify_instruction, Ed25519VerifyParams,
-    };
-    pub use crate::error::{SdkError, SdkResult};
-    pub use crate::instructions::*;
-    pub use crate::orders::{
         calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
         CompactOrder, FullOrder,
+        // PDA functions
+        get_exchange_pda, get_market_pda, get_vault_pda, get_mint_authority_pda,
+        get_conditional_mint_pda, get_order_status_pda, get_user_nonce_pda, get_position_pda,
+        get_all_conditional_mint_pdas,
     };
-    pub use crate::pda::*;
-    pub use crate::types::*;
-    pub use crate::utils::{
-        get_conditional_token_ata, get_deposit_token_ata, validate_outcome_count,
-        validate_outcome_index,
+    pub use crate::shared::{
+        SdkError, SdkResult,
+        MarketStatus, OrderSide, OutcomeMetadata,
+        BidOrderParams, AskOrderParams, CreateMarketParams, MatchOrdersMultiParams,
+        MintCompleteSetParams, MergeCompleteSetParams, SettleMarketParams, RedeemWinningsParams,
+        AddDepositMintParams, ActivateMarketParams, WithdrawFromPositionParams,
+        PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
     };
 }
