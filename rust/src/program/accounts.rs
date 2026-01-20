@@ -10,7 +10,7 @@ use crate::shared::constants::{
     ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR, POSITION_SIZE,
     USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
-use crate::shared::error::{SdkError, SdkResult};
+use crate::program::error::{SdkError, SdkResult};
 use crate::shared::types::MarketStatus;
 
 /// Helper to extract a fixed-size array from a slice

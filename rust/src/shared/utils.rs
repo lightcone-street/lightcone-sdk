@@ -5,7 +5,7 @@
 use solana_sdk::pubkey::Pubkey;
 
 use crate::shared::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
-use crate::shared::error::{SdkError, SdkResult};
+use crate::program::error::{SdkError, SdkResult};
 
 // ============================================================================
 // Associated Token Account Helpers

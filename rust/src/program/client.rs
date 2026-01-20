@@ -15,7 +15,7 @@ use solana_sdk::{
 use crate::program::accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
 use crate::shared::constants::PROGRAM_ID;
 use crate::program::ed25519::{create_cross_ref_ed25519_instructions, create_order_verify_instruction};
-use crate::shared::error::{SdkError, SdkResult};
+use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
 use crate::program::orders::{derive_condition_id, FullOrder};
 use crate::program::pda::{

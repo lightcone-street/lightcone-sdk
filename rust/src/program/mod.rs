@@ -6,12 +6,14 @@
 pub mod accounts;
 pub mod client;
 pub mod ed25519;
+pub mod error;
 pub mod instructions;
 pub mod orders;
 pub mod pda;
 
 // Re-export commonly used items
 pub use accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
+pub use error::{SdkError, SdkResult};
 pub use client::LightconePinocchioClient;
 pub use ed25519::{
     create_batch_ed25519_verify_instruction, create_cross_ref_ed25519_instructions,

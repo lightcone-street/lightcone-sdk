@@ -17,7 +17,7 @@ use crate::shared::constants::{
     instruction, ASSOCIATED_TOKEN_PROGRAM_ID, INSTRUCTIONS_SYSVAR_ID, MAX_MAKERS,
     TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
 };
-use crate::shared::error::{SdkError, SdkResult};
+use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::FullOrder;
 use crate::program::pda::{
     get_conditional_mint_pda, get_exchange_pda, get_market_pda, get_mint_authority_pda,

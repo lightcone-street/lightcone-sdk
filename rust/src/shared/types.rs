@@ -24,7 +24,7 @@ pub enum MarketStatus {
 }
 
 impl TryFrom<u8> for MarketStatus {
-    type Error = crate::shared::error::SdkError;
+    type Error = crate::program::error::SdkError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -32,7 +32,7 @@ impl TryFrom<u8> for MarketStatus {
             1 => Ok(MarketStatus::Active),
             2 => Ok(MarketStatus::Resolved),
             3 => Ok(MarketStatus::Cancelled),
-            _ => Err(crate::shared::error::SdkError::InvalidMarketStatus(value)),
+            _ => Err(crate::program::error::SdkError::InvalidMarketStatus(value)),
         }
     }
 }
@@ -48,13 +48,13 @@ pub enum OrderSide {
 }
 
 impl TryFrom<u8> for OrderSide {
-    type Error = crate::shared::error::SdkError;
+    type Error = crate::program::error::SdkError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
             0 => Ok(OrderSide::Bid),
             1 => Ok(OrderSide::Ask),
-            _ => Err(crate::shared::error::SdkError::InvalidSide(value)),
+            _ => Err(crate::program::error::SdkError::InvalidSide(value)),
         }
     }
 }

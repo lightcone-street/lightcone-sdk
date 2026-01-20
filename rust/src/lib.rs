@@ -96,6 +96,7 @@ pub mod prelude {
     pub use crate::program::{
         Exchange, Market, OrderStatus, Position, UserNonce,
         LightconePinocchioClient,
+        SdkError, SdkResult,
         create_batch_ed25519_verify_instruction, create_cross_ref_ed25519_instructions,
         create_ed25519_verify_instruction, create_order_verify_instruction, Ed25519VerifyParams,
         calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
@@ -108,7 +109,6 @@ pub mod prelude {
 
     // Shared module exports
     pub use crate::shared::{
-        SdkError, SdkResult,
         MarketStatus, OrderSide, OutcomeMetadata,
         BidOrderParams, AskOrderParams, CreateMarketParams, MatchOrdersMultiParams,
         MintCompleteSetParams, MergeCompleteSetParams, SettleMarketParams, RedeemWinningsParams,

@@ -1,4 +1,4 @@
-//! Error types for the Lightcone Pinocchio SDK.
+//! Error types for the Lightcone on-chain program module.
 
 use thiserror::Error;
 

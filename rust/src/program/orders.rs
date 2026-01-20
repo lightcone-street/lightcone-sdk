@@ -8,7 +8,7 @@ use sha3::{Digest, Keccak256};
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
 use crate::shared::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
-use crate::shared::error::{SdkError, SdkResult};
+use crate::program::error::{SdkError, SdkResult};
 use crate::shared::types::{AskOrderParams, BidOrderParams, OrderSide};
 
 // ============================================================================
