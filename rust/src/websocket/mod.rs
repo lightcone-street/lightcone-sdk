@@ -23,7 +23,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), WebSocketError> {
 //!     // Connect with default config
-//!     let mut client = LightconeWebSocketClient::connect("ws://localhost:8081/ws").await?;
+//!     let mut client = LightconeWebSocketClient::connect("ws://api.lightcone.xyz:8081/ws").await?;
 //!
 //!     // Subscribe to orderbook
 //!     client.subscribe_book_updates(vec!["market1:ob1".to_string()]).await?;
@@ -88,11 +88,12 @@
 //! };
 //!
 //! let client = LightconeWebSocketClient::connect_with_config(
-//!     "ws://localhost:8081/ws",
+//!     "ws://api.lightcone.xyz:8081/ws",
 //!     config,
 //! ).await?;
 //! ```
 
+pub mod auth;
 pub mod client;
 pub mod error;
 pub mod handlers;
@@ -101,7 +102,8 @@ pub mod subscriptions;
 pub mod types;
 
 // Re-export main types
-pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig};
+pub use auth::{authenticate, generate_signin_message, AuthCredentials, AUTH_API_URL};
+pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig, DEFAULT_WS_URL};
 pub use error::{WebSocketError, WsResult};
 pub use state::{LocalOrderbook, PriceHistory, UserState};
 pub use subscriptions::{Subscription, SubscriptionManager};

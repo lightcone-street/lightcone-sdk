@@ -11,7 +11,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create client with default settings
-//!     let client = LightconeApiClient::new("https://api.lightcone.io");
+//!     let client = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
 //!     // Get all markets
 //!     let markets = client.get_markets().await?;
@@ -37,7 +37,7 @@
 //! use lightcone_pinocchio_sdk::api::LightconeApiClient;
 //! use std::time::Duration;
 //!
-//! let client = LightconeApiClient::builder("https://api.lightcone.io")
+//! let client = LightconeApiClient::builder("https://api.lightcone.xyz")
 //!     .timeout(Duration::from_secs(60))
 //!     .header("X-Custom-Header", "value")
 //!     .build()?;

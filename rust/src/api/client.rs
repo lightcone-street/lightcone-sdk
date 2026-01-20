@@ -10,7 +10,7 @@
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let client = LightconeApiClient::new("https://api.lightcone.io");
+//!     let client = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
 //!     // Get all markets
 //!     let markets = client.get_markets().await?;
@@ -436,20 +436,20 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = LightconeApiClient::new("https://api.lightcone.io");
-        assert_eq!(client.base_url(), "https://api.lightcone.io");
+        let client = LightconeApiClient::new("https://api.lightcone.xyz");
+        assert_eq!(client.base_url(), "https://api.lightcone.xyz");
     }
 
     #[test]
     fn test_client_builder() {
-        let client = LightconeApiClient::builder("https://api.lightcone.io/")
+        let client = LightconeApiClient::builder("https://api.lightcone.xyz/")
             .timeout_secs(60)
             .header("X-Custom", "test")
             .build()
             .unwrap();
 
         // Base URL should have trailing slash removed
-        assert_eq!(client.base_url(), "https://api.lightcone.io");
+        assert_eq!(client.base_url(), "https://api.lightcone.xyz");
     }
 
     #[test]

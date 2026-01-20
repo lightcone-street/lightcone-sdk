@@ -72,6 +72,18 @@ pub enum WebSocketError {
     /// IO error
     #[error("IO error: {0}")]
     Io(String),
+
+    /// Authentication failed
+    #[error("Authentication failed: {0}")]
+    AuthenticationFailed(String),
+
+    /// Authentication required for user stream
+    #[error("Authentication required for user stream")]
+    AuthRequired,
+
+    /// HTTP request error
+    #[error("HTTP request error: {0}")]
+    HttpError(String),
 }
 
 impl From<tokio_tungstenite::tungstenite::Error> for WebSocketError {
@@ -98,6 +110,12 @@ impl From<tokio_tungstenite::tungstenite::Error> for WebSocketError {
 impl From<serde_json::Error> for WebSocketError {
     fn from(err: serde_json::Error) -> Self {
         WebSocketError::MessageParseError(err.to_string())
+    }
+}
+
+impl From<reqwest::Error> for WebSocketError {
+    fn from(err: reqwest::Error) -> Self {
+        WebSocketError::HttpError(err.to_string())
     }
 }
 

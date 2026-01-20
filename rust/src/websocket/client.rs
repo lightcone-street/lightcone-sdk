@@ -1,6 +1,6 @@
 //! Main WebSocket client implementation.
 //!
-//! Provides a production-quality WebSocket client for real-time data streaming.
+//! Provides a WebSocket client for real-time data streaming.
 
 use std::collections::HashMap;
 use std::pin::Pin;
@@ -14,9 +14,14 @@ use pin_project_lite::pin_project;
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, RwLock};
 use tokio::time::{interval, Instant};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
+
+use ed25519_dalek::SigningKey;
+
+use crate::websocket::auth::{authenticate, AuthCredentials};
 
 use crate::websocket::error::{WebSocketError, WsResult};
 use crate::websocket::handlers::MessageHandler;
@@ -28,6 +33,9 @@ use crate::websocket::types::{SubscribeParams, WsEvent, WsRequest};
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type WsSink = SplitSink<WsStream, Message>;
 type WsSource = SplitStream<WsStream>;
+
+/// Default WebSocket URL for Lightcone
+pub const DEFAULT_WS_URL: &str = "wss://ws.lightcone.xyz/ws";
 
 /// WebSocket client configuration
 #[derive(Debug, Clone)]
@@ -44,6 +52,8 @@ pub struct WebSocketConfig {
     pub auto_reconnect: bool,
     /// Whether to automatically re-subscribe after reconnect
     pub auto_resubscribe: bool,
+    /// Optional authentication token for private user streams
+    pub auth_token: Option<String>,
 }
 
 impl Default for WebSocketConfig {
@@ -55,6 +65,7 @@ impl Default for WebSocketConfig {
             ping_interval_secs: 30,
             auto_reconnect: true,
             auto_resubscribe: true,
+            auth_token: None,
         }
     }
 }
@@ -87,7 +98,7 @@ pin_project! {
     ///
     /// #[tokio::main]
     /// async fn main() -> Result<(), WebSocketError> {
-    ///     let mut client = LightconeWebSocketClient::connect("ws://localhost:8081/ws").await?;
+    ///     let mut client = LightconeWebSocketClient::connect("ws://api.lightcone.xyz:8081/ws").await?;
     ///
     ///     client.subscribe_book_updates(vec!["market1:ob1".to_string()]).await?;
     ///
@@ -120,17 +131,98 @@ pin_project! {
         reconnect_attempt: u32,
         last_ping: Option<Instant>,
         last_pong: Option<Instant>,
+        auth_credentials: Option<AuthCredentials>,
     }
 }
 
 impl LightconeWebSocketClient {
+    /// Connect to the default Lightcone WebSocket server.
+    ///
+    /// Uses the URL `wss://ws.lightcone.xyz/ws`.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// let client = LightconeWebSocketClient::connect_default().await?;
+    /// client.subscribe_book_updates(vec!["ob1".to_string()]).await?;
+    /// ```
+    pub async fn connect_default() -> WsResult<Self> {
+        Self::connect_with_config(DEFAULT_WS_URL, WebSocketConfig::default()).await
+    }
+
     /// Connect to a WebSocket server with default configuration
     pub async fn connect(url: &str) -> WsResult<Self> {
         Self::connect_with_config(url, WebSocketConfig::default()).await
     }
 
+    /// Connect to the default Lightcone WebSocket server with authentication.
+    ///
+    /// This method:
+    /// 1. Authenticates with the Lightcone API using the provided signing key
+    /// 2. Obtains an auth token
+    /// 3. Connects to the WebSocket server with the auth token
+    ///
+    /// # Arguments
+    ///
+    /// * `signing_key` - The Ed25519 signing key for authentication
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use ed25519_dalek::SigningKey;
+    ///
+    /// let signing_key = SigningKey::from_bytes(&secret_key_bytes);
+    /// let client = LightconeWebSocketClient::connect_authenticated(&signing_key).await?;
+    /// client.subscribe_user(pubkey.to_string()).await?;
+    /// ```
+    pub async fn connect_authenticated(signing_key: &SigningKey) -> WsResult<Self> {
+        Self::connect_authenticated_with_config(signing_key, WebSocketConfig::default()).await
+    }
+
+    /// Connect to the default Lightcone WebSocket server with authentication and custom config.
+    pub async fn connect_authenticated_with_config(
+        signing_key: &SigningKey,
+        mut config: WebSocketConfig,
+    ) -> WsResult<Self> {
+        // Authenticate and get credentials
+        let credentials = authenticate(signing_key).await?;
+        config.auth_token = Some(credentials.auth_token.clone());
+
+        Self::connect_with_config_and_credentials(
+            DEFAULT_WS_URL,
+            config,
+            Some(credentials),
+        )
+        .await
+    }
+
+    /// Connect to a WebSocket server with a pre-obtained auth token.
+    ///
+    /// Use this if you already have an auth token from a previous authentication.
+    ///
+    /// # Arguments
+    ///
+    /// * `url` - The WebSocket URL to connect to
+    /// * `auth_token` - The auth token obtained from authentication
+    pub async fn connect_with_auth(url: &str, auth_token: String) -> WsResult<Self> {
+        let config = WebSocketConfig {
+            auth_token: Some(auth_token),
+            ..Default::default()
+        };
+        Self::connect_with_config(url, config).await
+    }
+
     /// Connect to a WebSocket server with custom configuration
     pub async fn connect_with_config(url: &str, config: WebSocketConfig) -> WsResult<Self> {
+        Self::connect_with_config_and_credentials(url, config, None).await
+    }
+
+    /// Internal method to connect with config and optional credentials
+    async fn connect_with_config_and_credentials(
+        url: &str,
+        config: WebSocketConfig,
+        auth_credentials: Option<AuthCredentials>,
+    ) -> WsResult<Self> {
         let (event_tx, event_rx) = mpsc::channel(1000);
 
         let orderbooks = Arc::new(RwLock::new(HashMap::new()));
@@ -159,6 +251,7 @@ impl LightconeWebSocketClient {
             reconnect_attempt: 0,
             last_ping: None,
             last_pong: None,
+            auth_credentials,
         };
 
         client.establish_connection().await?;
@@ -169,9 +262,31 @@ impl LightconeWebSocketClient {
     async fn establish_connection(&mut self) -> WsResult<()> {
         self.state = ConnectionState::Connecting;
 
-        let (ws_stream, _) = connect_async(&self.url)
-            .await
-            .map_err(WebSocketError::from)?;
+        // Build the WebSocket request, optionally with auth cookie
+        let ws_stream = if let Some(ref auth_token) = self.config.auth_token {
+            let mut request = self
+                .url
+                .as_str()
+                .into_client_request()
+                .map_err(|e| WebSocketError::InvalidUrl(e.to_string()))?;
+
+            request.headers_mut().insert(
+                "Cookie",
+                format!("auth_token={}", auth_token)
+                    .parse()
+                    .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
+            );
+
+            let (stream, _) = connect_async(request)
+                .await
+                .map_err(WebSocketError::from)?;
+            stream
+        } else {
+            let (stream, _) = connect_async(&self.url)
+                .await
+                .map_err(WebSocketError::from)?;
+            stream
+        };
 
         self.state = ConnectionState::Connected;
         self.reconnect_attempt = 0;
@@ -354,6 +469,21 @@ impl LightconeWebSocketClient {
     /// Check if connected
     pub fn is_connected(&self) -> bool {
         self.state == ConnectionState::Connected
+    }
+
+    /// Check if the connection is authenticated
+    pub fn is_authenticated(&self) -> bool {
+        self.config.auth_token.is_some()
+    }
+
+    /// Get the authentication credentials if available
+    pub fn auth_credentials(&self) -> Option<&AuthCredentials> {
+        self.auth_credentials.as_ref()
+    }
+
+    /// Get the user's public key if authenticated
+    pub fn user_pubkey(&self) -> Option<&str> {
+        self.auth_credentials.as_ref().map(|c| c.user_pubkey.as_str())
     }
 
     /// Get a reference to the local orderbook state
@@ -589,7 +719,29 @@ async fn reconnect(
     subscriptions: &Arc<RwLock<SubscriptionManager>>,
     config: &WebSocketConfig,
 ) -> WsResult<(WsSink, WsSource)> {
-    let (ws_stream, _) = connect_async(url).await.map_err(WebSocketError::from)?;
+    // Build the WebSocket request, optionally with auth cookie
+    let ws_stream = if let Some(ref auth_token) = config.auth_token {
+        let mut request = url
+            .into_client_request()
+            .map_err(|e| WebSocketError::InvalidUrl(e.to_string()))?;
+
+        request.headers_mut().insert(
+            "Cookie",
+            format!("auth_token={}", auth_token)
+                .parse()
+                .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
+        );
+
+        let (stream, _) = connect_async(request)
+            .await
+            .map_err(WebSocketError::from)?;
+        stream
+    } else {
+        let (stream, _) = connect_async(url)
+            .await
+            .map_err(WebSocketError::from)?;
+        stream
+    };
 
     let (mut sink, source) = ws_stream.split();
 

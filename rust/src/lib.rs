@@ -1,6 +1,6 @@
 //! # Lightcone Pinocchio Rust SDK
 //!
-//! A production-quality Rust SDK for interacting with the Lightcone prediction markets platform.
+//! A Rust SDK for interacting with the Lightcone protocol.
 //!
 //! ## Modules
 //!
