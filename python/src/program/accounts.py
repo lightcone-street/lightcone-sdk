@@ -2,7 +2,7 @@
 
 from typing import Optional
 
-from ..shared.constants import (
+from .constants import (
     EXCHANGE_DISCRIMINATOR,
     EXCHANGE_SIZE,
     MARKET_DISCRIMINATOR,
@@ -15,9 +15,9 @@ from ..shared.constants import (
     USER_NONCE_DISCRIMINATOR,
     USER_NONCE_SIZE,
 )
-from ..shared.errors import InvalidAccountDataError, InvalidDiscriminatorError
-from ..shared.types import Exchange, Market, MarketStatus, OrderStatus, Position, UserNonce
-from ..shared.utils import decode_bool, decode_pubkey, decode_u64, decode_u8
+from .errors import InvalidAccountDataError, InvalidDiscriminatorError
+from .types import Exchange, Market, MarketStatus, OrderStatus, Position, UserNonce
+from .utils import decode_bool, decode_pubkey, decode_u64, decode_u8
 
 
 def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:

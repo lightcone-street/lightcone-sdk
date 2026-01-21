@@ -1,6 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, SEEDS } from "../shared/constants";
-import { toU64Le, toU8 } from "../shared/utils";
+import { PROGRAM_ID, SEEDS } from "./constants";
+import { toU64Le, toU8 } from "./utils";
 
 /**
  * Derive Exchange PDA (singleton central state)

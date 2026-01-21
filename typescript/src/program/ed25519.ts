@@ -3,8 +3,8 @@ import {
   TransactionInstruction,
   Transaction,
 } from "@solana/web3.js";
-import { ED25519_PROGRAM_ID, PROGRAM_ID } from "../shared/constants";
-import { FullOrder, MatchOrdersMultiParams } from "../shared/types";
+import { ED25519_PROGRAM_ID, PROGRAM_ID } from "./constants";
+import { FullOrder, MatchOrdersMultiParams } from "./types";
 import { hashOrder } from "./orders";
 import { buildMatchOrdersMultiIx } from "./instructions";
 

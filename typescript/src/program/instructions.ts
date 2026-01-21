@@ -12,7 +12,7 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   RENT_SYSVAR_ID,
   INSTRUCTIONS_SYSVAR_ID,
-} from "../shared/constants";
+} from "./constants";
 import {
   InitializeParams,
   CreateMarketParams,
@@ -26,7 +26,7 @@ import {
   MatchOrdersMultiParams,
   FullOrder,
   OutcomeMetadata,
-} from "../shared/types";
+} from "./types";
 import {
   getExchangePda,
   getMarketPda,
@@ -45,7 +45,7 @@ import {
   getConditionalTokenAta,
   getDepositTokenAta,
   validateOutcomes,
-} from "../shared/utils";
+} from "./utils";
 import { hashOrder, serializeFullOrder, serializeCompactOrder } from "./orders";
 
 // ============================================================================

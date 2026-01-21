@@ -1,4 +1,4 @@
-"""Custom exceptions for the Lightcone SDK."""
+"""Custom exceptions for the Lightcone program module."""
 
 
 class LightconeError(Exception):

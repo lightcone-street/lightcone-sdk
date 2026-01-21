@@ -1,4 +1,4 @@
-"""Utility functions for the Lightcone SDK."""
+"""Utility functions for the Lightcone program module."""
 
 import struct
 from typing import Union

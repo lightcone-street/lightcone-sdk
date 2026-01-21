@@ -17,12 +17,12 @@ from .accounts import (
     deserialize_position,
     deserialize_user_nonce,
 )
-from ..shared.constants import PROGRAM_ID
+from .constants import PROGRAM_ID
 from .ed25519 import (
     build_ed25519_batch_verify_instruction,
     build_ed25519_verify_instruction_for_order,
 )
-from ..shared.errors import AccountNotFoundError
+from .errors import AccountNotFoundError
 from .instructions import (
     build_activate_market_instruction,
     build_add_deposit_mint_instruction,
@@ -56,7 +56,7 @@ from .pda import (
     get_position_pda,
     get_user_nonce_pda,
 )
-from ..shared.types import (
+from .types import (
     ActivateMarketParams,
     AddDepositMintParams,
     AskOrderParams,
@@ -73,7 +73,7 @@ from ..shared.types import (
     SettleMarketParams,
     WithdrawFromPositionParams,
 )
-from ..shared.utils import derive_condition_id
+from .utils import derive_condition_id
 
 
 class LightconePinocchioClient:

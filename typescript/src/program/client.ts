@@ -4,7 +4,7 @@ import {
   Transaction,
   Keypair,
 } from "@solana/web3.js";
-import { PROGRAM_ID } from "../shared/constants";
+import { PROGRAM_ID } from "./constants";
 import {
   Exchange,
   Market,
@@ -35,7 +35,7 @@ import {
   RedeemWinningsAccounts,
   ActivateMarketAccounts,
   MatchOrdersMultiAccounts,
-} from "../shared/types";
+} from "./types";
 import * as pda from "./pda";
 import {
   deserializeExchange,
@@ -68,7 +68,7 @@ import {
   signOrderFull,
 } from "./orders";
 import { buildMatchOrdersTransaction } from "./ed25519";
-import { deriveConditionId } from "../shared/utils";
+import { deriveConditionId } from "./utils";
 
 /**
  * LightconePinocchioClient - SDK for interacting with the Lightcone Pinocchio program

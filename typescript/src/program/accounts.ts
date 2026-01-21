@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { DISCRIMINATOR, ACCOUNT_SIZE } from "../shared/constants";
+import { DISCRIMINATOR, ACCOUNT_SIZE } from "./constants";
 import {
   Exchange,
   Market,
@@ -7,8 +7,8 @@ import {
   OrderStatus,
   UserNonce,
   Position,
-} from "../shared/types";
-import { fromLeBytes } from "../shared/utils";
+} from "./types";
+import { fromLeBytes } from "./utils";
 
 // ============================================================================
 // DISCRIMINATOR VALIDATION

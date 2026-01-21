@@ -6,9 +6,9 @@ import {
   OrderSide,
   BidOrderParams,
   AskOrderParams,
-} from "../shared/types";
-import { ORDER_SIZE } from "../shared/constants";
-import { keccak256, toU64Le, toI64Le, toU8, fromLeBytes, fromI64Le } from "../shared/utils";
+} from "./types";
+import { ORDER_SIZE } from "./constants";
+import { keccak256, toU64Le, toI64Le, toU8, fromLeBytes, fromI64Le } from "./utils";
 
 // ============================================================================
 // ORDER HASHING

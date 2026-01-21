@@ -10,10 +10,10 @@ from typing import List
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 
-from ..shared.constants import ED25519_PROGRAM_ID, ORDER_HASH_SIZE, SIGNATURE_SIZE
+from .constants import ED25519_PROGRAM_ID, ORDER_HASH_SIZE, SIGNATURE_SIZE
 from .orders import hash_order
-from ..shared.types import FullOrder
-from ..shared.utils import encode_u16, encode_u8
+from .types import FullOrder
+from .utils import encode_u16, encode_u8
 
 
 @dataclass

@@ -4,7 +4,7 @@ from nacl.signing import SigningKey, VerifyKey
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from ..shared.constants import (
+from .constants import (
     COMPACT_ORDER_SIZE,
     FULL_ORDER_SIZE,
     ORDER_BASE_MINT_OFFSET,
@@ -20,15 +20,15 @@ from ..shared.constants import (
     ORDER_TAKER_AMOUNT_OFFSET,
     SIGNATURE_SIZE,
 )
-from ..shared.errors import InvalidOrderError, InvalidSignatureError
-from ..shared.types import (
+from .errors import InvalidOrderError, InvalidSignatureError
+from .types import (
     AskOrderParams,
     BidOrderParams,
     CompactOrder,
     FullOrder,
     OrderSide,
 )
-from ..shared.utils import (
+from .utils import (
     decode_i64,
     decode_pubkey,
     decode_u64,

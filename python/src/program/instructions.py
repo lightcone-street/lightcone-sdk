@@ -8,7 +8,7 @@ from typing import List
 from solders.instruction import AccountMeta, Instruction
 from solders.pubkey import Pubkey
 
-from ..shared.constants import (
+from .constants import (
     ASSOCIATED_TOKEN_PROGRAM_ID,
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
@@ -44,8 +44,8 @@ from .pda import (
     get_user_nonce_pda,
     get_vault_pda,
 )
-from ..shared.types import FullOrder, MakerFill, OutcomeMetadata
-from ..shared.utils import (
+from .types import FullOrder, MakerFill, OutcomeMetadata
+from .utils import (
     encode_string,
     encode_u64,
     encode_u8,

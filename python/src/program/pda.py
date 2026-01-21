@@ -4,7 +4,7 @@ from typing import Tuple
 
 from solders.pubkey import Pubkey
 
-from ..shared.constants import (
+from .constants import (
     PROGRAM_ID,
     SEED_CENTRAL_STATE,
     SEED_CONDITIONAL_MINT,
@@ -15,7 +15,7 @@ from ..shared.constants import (
     SEED_USER_NONCE,
     SEED_VAULT,
 )
-from ..shared.utils import encode_u64, encode_u8
+from .utils import encode_u64, encode_u8
 
 
 def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> Tuple[Pubkey, int]:

@@ -1,4 +1,4 @@
-"""Constants for the Lightcone SDK."""
+"""Constants for the Lightcone program module."""
 
 from solders.pubkey import Pubkey
 
