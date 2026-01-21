@@ -2,7 +2,7 @@
 
 Rust SDK for the Lightcone protocol on Solana.
 
-## Installation
+## Installation (TBC)
 
 ```toml
 [dependencies]

@@ -1,6 +1,414 @@
 # Program Module Reference
 
-On-chain Solana program interaction for the Lightcone protocol.
+On-chain Solana program interaction for the Lightcone protocol. This module contains all program-specific types, constants, utilities, and the client for building transactions.
+
+## Contents
+
+- [Types](#types) - Enums, account types, order types, parameter types
+- [Constants](#constants) - Program IDs, seeds, discriminators, sizes
+- [Utilities](#utilities) - Byte operations, hashing, ATA derivation, validation
+- [Client](#client) - Transaction building and account fetching
+- [PDA Functions](#pda-functions) - Program Derived Address derivation
+- [Order Operations](#order-creation-and-signing) - Order creation, signing, serialization
+- [Ed25519 Verification](#ed25519-verification) - Signature verification strategies
+
+---
+
+## Types
+
+### MarketStatus
+
+```typescript
+import { MarketStatus } from "@lightcone/sdk";
+
+MarketStatus.Pending    // 0 - Not yet active
+MarketStatus.Active     // 1 - Trading enabled
+MarketStatus.Resolved   // 2 - Market settled
+MarketStatus.Cancelled  // 3 - Market cancelled
+```
+
+### OrderSide
+
+```typescript
+import { OrderSide } from "@lightcone/sdk";
+
+OrderSide.BID  // 0 - Buyer gives quote, receives base
+OrderSide.ASK  // 1 - Seller gives base, receives quote
+```
+
+### Account Types
+
+```typescript
+import type {
+  Exchange,
+  Market,
+  Position,
+  OrderStatus,
+  UserNonce,
+} from "@lightcone/sdk";
+```
+
+#### Exchange
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `authority` | PublicKey | Admin authority |
+| `operator` | PublicKey | Order matching operator |
+| `marketCount` | bigint | Number of markets created |
+| `paused` | boolean | Trading paused |
+| `bump` | number | PDA bump seed |
+
+#### Market
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `marketId` | bigint | Sequential market ID |
+| `numOutcomes` | number | Number of outcomes (2-6) |
+| `status` | MarketStatus | Current status |
+| `winningOutcome` | number | Winner (if settled) |
+| `hasWinningOutcome` | boolean | Is settled |
+| `bump` | number | PDA bump seed |
+| `oracle` | PublicKey | Oracle authority |
+| `questionId` | Buffer | Question identifier (32 bytes) |
+| `conditionId` | Buffer | Computed condition ID (32 bytes) |
+
+#### Position
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `owner` | PublicKey | Position owner |
+| `market` | PublicKey | Market address |
+| `bump` | number | PDA bump seed |
+
+#### OrderStatus
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `remaining` | bigint | Remaining order amount |
+| `isCancelled` | boolean | Cancelled flag |
+
+#### UserNonce
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `nonce` | bigint | Current nonce value |
+
+### Order Types
+
+```typescript
+import type { FullOrder, CompactOrder } from "@lightcone/sdk";
+```
+
+#### FullOrder (225 bytes)
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nonce` | bigint | Order nonce |
+| `maker` | PublicKey | Maker public key |
+| `market` | PublicKey | Market address |
+| `baseMint` | PublicKey | Base token mint |
+| `quoteMint` | PublicKey | Quote token mint |
+| `side` | OrderSide | BID or ASK |
+| `makerAmount` | bigint | Amount maker gives |
+| `takerAmount` | bigint | Amount maker receives |
+| `expiration` | bigint | Expiration timestamp (0 = no expiration) |
+| `signature` | Buffer | Ed25519 signature (64 bytes) |
+
+#### CompactOrder (65 bytes)
+
+Same as FullOrder but without `market`, `baseMint`, `quoteMint` (derived from instruction context).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nonce` | bigint | Order nonce |
+| `maker` | PublicKey | Maker public key |
+| `side` | OrderSide | BID or ASK |
+| `makerAmount` | bigint | Amount maker gives |
+| `takerAmount` | bigint | Amount maker receives |
+| `expiration` | bigint | Expiration timestamp |
+
+### Parameter Types
+
+```typescript
+import type {
+  InitializeParams,
+  CreateMarketParams,
+  AddDepositMintParams,
+  OutcomeMetadata,
+  MintCompleteSetParams,
+  MergeCompleteSetParams,
+  CancelOrderParams,
+  IncrementNonceParams,
+  SettleMarketParams,
+  RedeemWinningsParams,
+  SetPausedParams,
+  SetOperatorParams,
+  WithdrawFromPositionParams,
+  ActivateMarketParams,
+  MatchOrdersMultiParams,
+  BidOrderParams,
+  AskOrderParams,
+} from "@lightcone/sdk";
+```
+
+### Build Result Types
+
+```typescript
+import type {
+  BuildResult,
+  InitializeAccounts,
+  CreateMarketAccounts,
+  AddDepositMintAccounts,
+  MintCompleteSetAccounts,
+  MergeCompleteSetAccounts,
+  CancelOrderAccounts,
+  IncrementNonceAccounts,
+  SettleMarketAccounts,
+  RedeemWinningsAccounts,
+  ActivateMarketAccounts,
+  MatchOrdersMultiAccounts,
+} from "@lightcone/sdk";
+```
+
+#### BuildResult<T>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `transaction` | Transaction | Unsigned transaction ready for signing |
+| `accounts` | T | Key accounts involved |
+| `serialize` | () => string | Serialize to base64 |
+
+---
+
+## Constants
+
+### Program IDs
+
+```typescript
+import {
+  PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  SYSTEM_PROGRAM_ID,
+  RENT_SYSVAR_ID,
+  INSTRUCTIONS_SYSVAR_ID,
+  ED25519_PROGRAM_ID,
+} from "@lightcone/sdk";
+```
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `PROGRAM_ID` | `Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk` | Lightcone program |
+| `TOKEN_PROGRAM_ID` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` | SPL Token program |
+| `TOKEN_2022_PROGRAM_ID` | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | Token-2022 program |
+| `ASSOCIATED_TOKEN_PROGRAM_ID` | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | ATA program |
+| `SYSTEM_PROGRAM_ID` | `11111111111111111111111111111111` | System program |
+| `RENT_SYSVAR_ID` | `SysvarRent111111111111111111111111111111111` | Rent sysvar |
+| `INSTRUCTIONS_SYSVAR_ID` | `Sysvar1nstructions1111111111111111111111111` | Instructions sysvar |
+| `ED25519_PROGRAM_ID` | `Ed25519SigVerify111111111111111111111111111` | Ed25519 verify program |
+
+### PDA Seeds
+
+```typescript
+import { SEEDS } from "@lightcone/sdk";
+
+SEEDS.CENTRAL_STATE              // "central_state"
+SEEDS.MARKET                     // "market"
+SEEDS.MARKET_DEPOSIT_TOKEN_ACCOUNT // "market_deposit_token_account"
+SEEDS.MARKET_MINT_AUTHORITY      // "market_mint_authority"
+SEEDS.CONDITIONAL_MINT           // "conditional_mint"
+SEEDS.ORDER_STATUS               // "order_status"
+SEEDS.USER_NONCE                 // "user_nonce"
+SEEDS.POSITION                   // "position"
+```
+
+### Account Discriminators
+
+```typescript
+import { DISCRIMINATOR } from "@lightcone/sdk";
+
+DISCRIMINATOR.EXCHANGE      // Buffer.from("exchange")
+DISCRIMINATOR.MARKET        // Buffer.from("market\0\0")
+DISCRIMINATOR.ORDER_STATUS  // Buffer.from("ordstat\0")
+DISCRIMINATOR.USER_NONCE    // Buffer.from("usrnonce")
+DISCRIMINATOR.POSITION      // Buffer.from("position")
+```
+
+### Account Sizes
+
+```typescript
+import { ACCOUNT_SIZE } from "@lightcone/sdk";
+
+ACCOUNT_SIZE.EXCHANGE      // 88
+ACCOUNT_SIZE.MARKET        // 120
+ACCOUNT_SIZE.ORDER_STATUS  // 24
+ACCOUNT_SIZE.USER_NONCE    // 16
+ACCOUNT_SIZE.POSITION      // 80
+```
+
+### Order Sizes
+
+```typescript
+import { ORDER_SIZE } from "@lightcone/sdk";
+
+ORDER_SIZE.FULL       // 225
+ORDER_SIZE.COMPACT    // 65
+ORDER_SIZE.SIGNATURE  // 64
+```
+
+### Instruction Discriminators
+
+```typescript
+import { INSTRUCTION } from "@lightcone/sdk";
+
+INSTRUCTION.INITIALIZE           // 0
+INSTRUCTION.CREATE_MARKET        // 1
+INSTRUCTION.ADD_DEPOSIT_MINT     // 2
+INSTRUCTION.MINT_COMPLETE_SET    // 3
+INSTRUCTION.MERGE_COMPLETE_SET   // 4
+INSTRUCTION.CANCEL_ORDER         // 5
+INSTRUCTION.INCREMENT_NONCE      // 6
+INSTRUCTION.SETTLE_MARKET        // 7
+INSTRUCTION.REDEEM_WINNINGS      // 8
+INSTRUCTION.SET_PAUSED           // 9
+INSTRUCTION.SET_OPERATOR         // 10
+INSTRUCTION.WITHDRAW_FROM_POSITION // 11
+INSTRUCTION.ACTIVATE_MARKET      // 12
+INSTRUCTION.MATCH_ORDERS_MULTI   // 13
+```
+
+### Limits
+
+```typescript
+import { MAX_OUTCOMES, MIN_OUTCOMES, MAX_MAKERS } from "@lightcone/sdk";
+
+MAX_OUTCOMES  // 6
+MIN_OUTCOMES  // 2
+MAX_MAKERS    // 5
+```
+
+---
+
+## Utilities
+
+### Byte Utilities
+
+```typescript
+import {
+  toLeBytes,
+  fromLeBytes,
+  toBeBytes,
+  fromBeBytes,
+  toU8,
+  toU64Le,
+  toI64Le,
+  fromI64Le,
+} from "@lightcone/sdk";
+
+// Little-endian conversion
+const bytes = toLeBytes(1000n, 8);  // bigint to 8-byte LE buffer
+const value = fromLeBytes(bytes);   // buffer to bigint
+
+// Big-endian conversion
+const beBytes = toBeBytes(1000n, 8);
+const beValue = fromBeBytes(beBytes);
+
+// Type-specific conversions
+const u8 = toU8(42);           // number to 1-byte buffer
+const u64 = toU64Le(1000000n); // bigint to 8-byte LE buffer
+const i64 = toI64Le(-1000n);   // signed bigint to 8-byte LE buffer
+const signed = fromI64Le(i64); // 8-byte LE buffer to signed bigint
+```
+
+### Hashing
+
+```typescript
+import { keccak256 } from "@lightcone/sdk";
+
+// Hash arbitrary data
+const hash = keccak256(Buffer.from("data"));  // Returns 32-byte Buffer
+```
+
+### Condition ID
+
+```typescript
+import { deriveConditionId } from "@lightcone/sdk";
+import { PublicKey } from "@solana/web3.js";
+
+const conditionId = deriveConditionId(
+  new PublicKey("oracle_pubkey"),  // Oracle
+  Buffer.alloc(32),                // Question ID (32 bytes)
+  2,                               // Number of outcomes
+);
+// Returns 32-byte Buffer: keccak256(oracle || questionId || numOutcomes)
+```
+
+### Associated Token Addresses
+
+```typescript
+import {
+  getAssociatedTokenAddress,
+  getConditionalTokenAta,
+  getDepositTokenAta,
+} from "@lightcone/sdk";
+import { PublicKey } from "@solana/web3.js";
+
+const owner = new PublicKey("owner_pubkey");
+const mint = new PublicKey("mint_pubkey");
+
+// SPL Token ATA
+const ata = getAssociatedTokenAddress(mint, owner);
+
+// Token-2022 ATA (for conditional tokens)
+const ata2022 = getAssociatedTokenAddress(mint, owner, true);
+
+// Convenience methods
+const conditionalAta = getConditionalTokenAta(mint, owner);  // Token-2022
+const depositAta = getDepositTokenAta(mint, owner);          // SPL Token
+```
+
+### String Serialization
+
+```typescript
+import { serializeString, deserializeString } from "@lightcone/sdk";
+
+// Serialize string with u16 length prefix
+const serialized = serializeString("Hello");  // [length (2 bytes)] + [utf-8 bytes]
+
+// Deserialize
+const [str, bytesConsumed] = deserializeString(serialized, 0);
+// str = "Hello", bytesConsumed = 7
+```
+
+### Validation
+
+```typescript
+import {
+  validateOutcomes,
+  validateOutcomeIndex,
+  validate32Bytes,
+} from "@lightcone/sdk";
+
+// Validate outcome count (2-6)
+validateOutcomes(3);  // OK
+validateOutcomes(7);  // throws Error
+
+// Validate outcome index
+validateOutcomeIndex(1, 3);  // OK (index 1 valid for 3 outcomes)
+validateOutcomeIndex(3, 3);  // throws Error (index must be 0-2)
+
+// Validate 32-byte buffer
+validate32Bytes(Buffer.alloc(32), "questionId");  // OK
+validate32Bytes(Buffer.alloc(16), "questionId");  // throws Error
+```
+
+---
 
 ## Client
 

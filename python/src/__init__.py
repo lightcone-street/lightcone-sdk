@@ -10,7 +10,7 @@ Example:
 
     # Or import from specific modules
     from lightcone_sdk.program import LightconePinocchioClient
-    from lightcone_sdk.shared import PROGRAM_ID
+    from lightcone_sdk.program import PROGRAM_ID
 
     # API client
     from lightcone_sdk.api import LightconeApiClient
@@ -93,25 +93,6 @@ from .program import (
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
-)
-
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM API MODULE
-# ============================================================================
-
-from .api import LightconeApiClient
-
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM WEBSOCKET MODULE
-# ============================================================================
-
-from .websocket import LightconeWebSocketClient
-
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM SHARED MODULE
-# ============================================================================
-
-from .shared import (
     # Constants
     PROGRAM_ID,
     TOKEN_PROGRAM_ID,
@@ -173,6 +154,18 @@ from .shared import (
     get_associated_token_address_2022,
     orders_cross,
 )
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM API MODULE
+# ============================================================================
+
+from .api import LightconeApiClient
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM WEBSOCKET MODULE
+# ============================================================================
+
+from .websocket import LightconeWebSocketClient
 
 __all__ = [
     # Version

@@ -2,7 +2,7 @@
 
 Python SDK for the Lightcone protocol on Solana.
 
-## Installation
+## Installation (TBC)
 
 ```bash
 pip install lightcone-sdk

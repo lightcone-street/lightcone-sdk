@@ -7,16 +7,6 @@ from ..types import BookUpdateData, PriceLevel
 from ..error import SequenceGapError
 
 
-def is_zero_size(size: str) -> bool:
-    """Check if a size string represents zero."""
-    if size in ("0", "0.0", "0.000000"):
-        return True
-    try:
-        return float(size) == 0.0
-    except (ValueError, TypeError):
-        return False
-
-
 class LocalOrderbook:
     """Local orderbook state.
 
@@ -39,11 +29,11 @@ class LocalOrderbook:
         self._asks.clear()
 
         for level in update.bids:
-            if not is_zero_size(level.size):
+            if float(level.size) != 0:
                 self._bids[level.price] = level.size
 
         for level in update.asks:
-            if not is_zero_size(level.size):
+            if float(level.size) != 0:
                 self._asks[level.price] = level.size
 
         self._expected_seq = update.seq + 1
@@ -60,13 +50,13 @@ class LocalOrderbook:
             raise SequenceGapError(self._expected_seq, update.seq)
 
         for level in update.bids:
-            if is_zero_size(level.size):
+            if float(level.size) == 0:
                 self._bids.pop(level.price, None)
             else:
                 self._bids[level.price] = level.size
 
         for level in update.asks:
-            if is_zero_size(level.size):
+            if float(level.size) == 0:
                 self._asks.pop(level.price, None)
             else:
                 self._asks[level.price] = level.size

@@ -4,7 +4,6 @@
  * Maintains local state for user orders and balances.
  */
 
-import { isZeroSize } from "../../shared/price";
 import type {
   Order,
   Balance,
@@ -63,7 +62,7 @@ export class UserState {
     const orderHash = update.order_hash;
 
     // If remaining is 0, the order is fully filled or cancelled - remove it
-    if (isZeroSize(update.remaining)) {
+    if (parseFloat(update.remaining) === 0) {
       this.orders.delete(orderHash);
     } else {
       const existing = this.orders.get(orderHash);

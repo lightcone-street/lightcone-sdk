@@ -37,15 +37,3 @@ export function formatDecimal(value: number, precision: number): string {
   return value.toFixed(precision);
 }
 
-/**
- * Check if a size string represents zero.
- * Used for determining whether a price level should be removed.
- */
-export function isZeroSize(size: string): boolean {
-  return (
-    size === "0" ||
-    size === "0.0" ||
-    size === "0.000000" ||
-    parseFloat(size) === 0
-  );
-}

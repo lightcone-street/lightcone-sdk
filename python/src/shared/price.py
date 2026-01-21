@@ -17,14 +17,3 @@ def format_decimal(value: float, precision: int = 6) -> str:
     Used for formatting price values for API requests.
     """
     return f"{value:.{precision}f}"
-
-
-def is_zero_size(size: str) -> bool:
-    """Check if a size string represents zero.
-
-    Used for filtering out zero-size entries in orderbooks.
-    """
-    try:
-        return float(size) == 0.0
-    except (ValueError, TypeError):
-        return True

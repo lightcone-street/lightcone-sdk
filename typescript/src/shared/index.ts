@@ -4,4 +4,4 @@
  */
 
 export { Resolution } from "./types";
-export { parseDecimal, formatDecimal, isZeroSize } from "./price";
+export { parseDecimal, formatDecimal } from "./price";

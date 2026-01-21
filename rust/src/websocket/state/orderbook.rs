@@ -41,11 +41,6 @@ impl LocalOrderbook {
         }
     }
 
-    /// Check if a size string represents zero
-    fn is_zero_size(size: &str) -> bool {
-        size == "0" || size == "0.0" || size == "0.000000" || size.parse::<f64>().map(|v| v == 0.0).unwrap_or(false)
-    }
-
     /// Apply a snapshot (full orderbook state)
     pub fn apply_snapshot(&mut self, update: &BookUpdateData) {
         // Clear existing state
@@ -54,13 +49,13 @@ impl LocalOrderbook {
 
         // Apply all levels
         for level in &update.bids {
-            if !Self::is_zero_size(&level.size) {
+            if level.size.parse::<f64>().map(|v| v != 0.0).unwrap_or(false) {
                 self.bids.insert(level.price.clone(), level.size.clone());
             }
         }
 
         for level in &update.asks {
-            if !Self::is_zero_size(&level.size) {
+            if level.size.parse::<f64>().map(|v| v != 0.0).unwrap_or(false) {
                 self.asks.insert(level.price.clone(), level.size.clone());
             }
         }
@@ -84,7 +79,7 @@ impl LocalOrderbook {
 
         // Apply bid updates
         for level in &update.bids {
-            if Self::is_zero_size(&level.size) {
+            if level.size.parse::<f64>().map(|v| v == 0.0).unwrap_or(false) {
                 self.bids.remove(&level.price);
             } else {
                 self.bids.insert(level.price.clone(), level.size.clone());
@@ -93,7 +88,7 @@ impl LocalOrderbook {
 
         // Apply ask updates
         for level in &update.asks {
-            if Self::is_zero_size(&level.size) {
+            if level.size.parse::<f64>().map(|v| v == 0.0).unwrap_or(false) {
                 self.asks.remove(&level.price);
             } else {
                 self.asks.insert(level.price.clone(), level.size.clone());

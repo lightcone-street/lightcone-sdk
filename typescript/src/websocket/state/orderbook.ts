@@ -8,7 +8,6 @@
  * For numeric comparisons, parse the strings as needed.
  */
 
-import { isZeroSize } from "../../shared/price";
 import { WebSocketError } from "../error";
 import type { BookUpdateData, PriceLevel } from "../types";
 
@@ -43,13 +42,13 @@ export class LocalOrderbook {
 
     // Apply all levels
     for (const level of update.bids) {
-      if (!isZeroSize(level.size)) {
+      if (parseFloat(level.size) !== 0) {
         this.bids.set(level.price, level.size);
       }
     }
 
     for (const level of update.asks) {
-      if (!isZeroSize(level.size)) {
+      if (parseFloat(level.size) !== 0) {
         this.asks.set(level.price, level.size);
       }
     }
@@ -72,7 +71,7 @@ export class LocalOrderbook {
 
     // Apply bid updates
     for (const level of update.bids) {
-      if (isZeroSize(level.size)) {
+      if (parseFloat(level.size) === 0) {
         this.bids.delete(level.price);
       } else {
         this.bids.set(level.price, level.size);
@@ -81,7 +80,7 @@ export class LocalOrderbook {
 
     // Apply ask updates
     for (const level of update.asks) {
-      if (isZeroSize(level.size)) {
+      if (parseFloat(level.size) === 0) {
         this.asks.delete(level.price);
       } else {
         this.asks.set(level.price, level.size);
