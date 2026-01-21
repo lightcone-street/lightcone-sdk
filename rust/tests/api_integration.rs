@@ -143,8 +143,9 @@ mod order_types {
 
     #[test]
     fn test_order_side_conversion() {
-        assert_eq!(ApiOrderSide::from(0), ApiOrderSide::Bid);
-        assert_eq!(ApiOrderSide::from(1), ApiOrderSide::Ask);
+        assert_eq!(ApiOrderSide::try_from(0).unwrap(), ApiOrderSide::Bid);
+        assert_eq!(ApiOrderSide::try_from(1).unwrap(), ApiOrderSide::Ask);
+        assert!(ApiOrderSide::try_from(2).is_err());
         assert_eq!(u32::from(ApiOrderSide::Bid), 0);
         assert_eq!(u32::from(ApiOrderSide::Ask), 1);
     }
@@ -543,13 +544,13 @@ mod client_tests {
 
     #[test]
     fn test_client_creation() {
-        let client = LightconeApiClient::new("https://api.lightcone.io");
+        let client = LightconeApiClient::new("https://api.lightcone.io").unwrap();
         assert_eq!(client.base_url(), "https://api.lightcone.io");
     }
 
     #[test]
     fn test_client_strips_trailing_slash() {
-        let client = LightconeApiClient::new("https://api.lightcone.io/");
+        let client = LightconeApiClient::new("https://api.lightcone.io/").unwrap();
         assert_eq!(client.base_url(), "https://api.lightcone.io");
     }
 

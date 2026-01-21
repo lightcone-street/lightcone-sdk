@@ -28,6 +28,7 @@ async fn test_connect_with_config() {
         base_delay_ms: 500,
         max_delay_ms: 5000,
         ping_interval_secs: 15,
+        pong_timeout_secs: 60,
         auto_reconnect: false,
         auto_resubscribe: false,
         auth_token: None,
@@ -187,7 +188,7 @@ async fn test_orderbook_state() {
             if let WsEvent::BookUpdate { is_snapshot, .. } = event {
                 if is_snapshot {
                     // Check that state was populated
-                    if let Some(book) = client.get_orderbook(orderbook_id) {
+                    if let Some(book) = client.get_orderbook(orderbook_id).await {
                         println!(
                             "Best bid: {:?}, Best ask: {:?}",
                             book.best_bid(),
