@@ -93,7 +93,7 @@ pin_project! {
     /// # Example
     ///
     /// ```ignore
-    /// use lightcone_pinocchio_sdk::websocket::*;
+    /// use lightcone_sdk::websocket::*;
     /// use futures_util::StreamExt;
     ///
     /// #[tokio::main]

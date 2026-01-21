@@ -15,7 +15,7 @@
 //! ## Quick Start - REST API
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::LightconeApiClient;
+//! use lightcone_sdk::api::LightconeApiClient;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,8 +37,8 @@
 //! ## Quick Start - On-Chain Program
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::program::LightconePinocchioClient;
-//! use lightcone_pinocchio_sdk::shared::types::*;
+//! use lightcone_sdk::program::LightconePinocchioClient;
+//! use lightcone_sdk::shared::types::*;
 //! use solana_sdk::pubkey::Pubkey;
 //!
 //! #[tokio::main]
@@ -89,7 +89,7 @@ pub mod websocket;
 /// Prelude module for convenient imports.
 ///
 /// ```rust,ignore
-/// use lightcone_pinocchio_sdk::prelude::*;
+/// use lightcone_sdk::prelude::*;
 /// ```
 pub mod prelude {
     // Program module exports

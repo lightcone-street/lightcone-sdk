@@ -6,7 +6,7 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::LightconeApiClient;
+//! use lightcone_sdk::api::LightconeApiClient;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {

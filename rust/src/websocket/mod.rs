@@ -17,7 +17,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use lightcone_pinocchio_sdk::websocket::*;
+//! use lightcone_sdk::websocket::*;
 //! use futures_util::StreamExt;
 //!
 //! #[tokio::main]
@@ -76,7 +76,7 @@
 //! The client can be configured with custom settings:
 //!
 //! ```ignore
-//! use lightcone_pinocchio_sdk::websocket::*;
+//! use lightcone_sdk::websocket::*;
 //!
 //! let config = WebSocketConfig {
 //!     reconnect_attempts: 5,

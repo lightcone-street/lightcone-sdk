@@ -6,7 +6,7 @@
 //! # Quick Start
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::LightconeApiClient;
+//! use lightcone_sdk::api::LightconeApiClient;
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,7 +34,7 @@
 //! Use the builder pattern for custom configuration:
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::LightconeApiClient;
+//! use lightcone_sdk::api::LightconeApiClient;
 //! use std::time::Duration;
 //!
 //! let client = LightconeApiClient::builder("https://api.lightcone.xyz")
@@ -49,7 +49,7 @@
 //! The [`ApiError`] enum covers all possible error cases:
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::{LightconeApiClient, ApiError};
+//! use lightcone_sdk::api::{LightconeApiClient, ApiError};
 //!
 //! match client.get_market("invalid_pubkey").await {
 //!     Ok(market) => println!("Found market"),
@@ -65,7 +65,7 @@
 //! and sign orders, then submit via the API:
 //!
 //! ```rust,ignore
-//! use lightcone_pinocchio_sdk::api::{LightconeApiClient, SubmitOrderRequest};
+//! use lightcone_sdk::api::{LightconeApiClient, SubmitOrderRequest};
 //!
 //! let request = SubmitOrderRequest {
 //!     maker: "maker_pubkey".to_string(),

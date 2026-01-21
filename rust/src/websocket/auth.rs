@@ -99,7 +99,7 @@ pub fn generate_signin_message_with_timestamp(timestamp_ms: u128) -> String {
 ///
 /// ```ignore
 /// use ed25519_dalek::SigningKey;
-/// use lightcone_pinocchio_sdk::websocket::auth::authenticate;
+/// use lightcone_sdk::websocket::auth::authenticate;
 ///
 /// let signing_key = SigningKey::from_bytes(&secret_key_bytes);
 /// let credentials = authenticate(&signing_key).await?;

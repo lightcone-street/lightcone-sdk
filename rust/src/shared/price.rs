@@ -10,7 +10,7 @@
 /// # Example
 ///
 /// ```
-/// use lightcone_pinocchio_sdk::shared::price::parse_decimal;
+/// use lightcone_sdk::shared::price::parse_decimal;
 ///
 /// assert_eq!(parse_decimal("0.500000").unwrap(), 0.5);
 /// assert_eq!(parse_decimal("1.000000").unwrap(), 1.0);
@@ -24,7 +24,7 @@ pub fn parse_decimal(s: &str) -> Result<f64, std::num::ParseFloatError> {
 /// # Example
 ///
 /// ```
-/// use lightcone_pinocchio_sdk::shared::price::format_decimal;
+/// use lightcone_sdk::shared::price::format_decimal;
 ///
 /// assert_eq!(format_decimal(0.5, 6), "0.500000");
 /// assert_eq!(format_decimal(1.0, 6), "1.000000");
