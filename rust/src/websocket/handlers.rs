@@ -22,6 +22,8 @@ pub struct MessageHandler {
     user_states: Arc<RwLock<HashMap<String, UserState>>>,
     /// Price history state
     price_histories: Arc<RwLock<HashMap<PriceHistoryKey, PriceHistory>>>,
+    /// Currently subscribed user (single user per connection)
+    subscribed_user: Arc<RwLock<Option<String>>>,
 }
 
 impl MessageHandler {
@@ -30,11 +32,13 @@ impl MessageHandler {
         orderbooks: Arc<RwLock<HashMap<String, LocalOrderbook>>>,
         user_states: Arc<RwLock<HashMap<String, UserState>>>,
         price_histories: Arc<RwLock<HashMap<PriceHistoryKey, PriceHistory>>>,
+        subscribed_user: Arc<RwLock<Option<String>>>,
     ) -> Self {
         Self {
             orderbooks,
             user_states,
             price_histories,
+            subscribed_user,
         }
     }
 
@@ -153,23 +157,15 @@ impl MessageHandler {
 
         let event_type = data.event_type.clone();
 
-        // We need to determine the user key
-        // For snapshots, we might not have a user field directly in the data
-        // The user is typically tracked at subscription time
-        // For now, we'll use a placeholder or derive from orders
-        let user = data
-            .orders
-            .first()
-            .map(|o| o.market_pubkey.clone())
-            .or_else(|| data.market_pubkey.clone())
+        // Use the tracked subscribed user (single user per connection)
+        let subscribed_user = self.subscribed_user.read().await;
+        let user = subscribed_user
+            .clone()
             .unwrap_or_else(|| "unknown".to_string());
 
-        // Update local state for all known user states
+        // Update local state for the subscribed user
         let mut user_states = self.user_states.write().await;
-
-        // If this is a snapshot, apply to all tracked user states
-        // In practice, you'd want to track which user this message is for
-        for state in user_states.values_mut() {
+        if let Some(state) = user_states.get_mut(&user) {
             state.apply_event(&data);
         }
 
@@ -286,9 +282,20 @@ impl MessageHandler {
 
     /// Initialize user state for a subscription
     pub async fn init_user_state(&self, user: &str) {
+        // Track the subscribed user
+        *self.subscribed_user.write().await = Some(user.to_string());
+
         let mut user_states = self.user_states.write().await;
         if !user_states.contains_key(user) {
             user_states.insert(user.to_string(), UserState::new(user.to_string()));
+        }
+    }
+
+    /// Clear the subscribed user
+    pub async fn clear_subscribed_user(&self, user: &str) {
+        let mut subscribed = self.subscribed_user.write().await;
+        if subscribed.as_deref() == Some(user) {
+            *subscribed = None;
         }
     }
 
@@ -348,6 +355,7 @@ mod tests {
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
             Arc::new(RwLock::new(HashMap::new())),
+            Arc::new(RwLock::new(None)),
         )
     }
 

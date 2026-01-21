@@ -4,12 +4,13 @@
  * Provides a WebSocket client for real-time data streaming.
  */
 
+import WebSocket from "ws";
 import { Keypair } from "@solana/web3.js";
 import { WebSocketError } from "./error";
 import { MessageHandler } from "./handlers";
 import { SubscriptionManager, subscriptionToParams } from "./subscriptions";
 import type { LocalOrderbook, UserState, PriceHistory } from "./state";
-import type { WsRequest, WsEvent, SubscribeParams } from "./types";
+import type { WsRequest, WsEvent } from "./types";
 import {
   createSubscribeRequest,
   createUnsubscribeRequest,
@@ -91,6 +92,7 @@ export class LightconeWebSocketClient {
   private pingInterval: ReturnType<typeof setInterval> | null = null;
   private eventCallbacks: EventCallback[] = [];
   private authCredentials?: AuthCredentials;
+  private subscribedUser: string | null = null;
 
   constructor(url: string = DEFAULT_WS_URL, config: WebSocketConfig = {}) {
     this.url = url;
@@ -173,13 +175,16 @@ export class LightconeWebSocketClient {
    */
   private async establishConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Build URL with auth token if available
-      let wsUrl = this.url;
-      // Note: In browser, we'd use cookies. For Node.js, we add as query param
-      // or use headers depending on the server implementation.
-
       try {
-        this.ws = new WebSocket(wsUrl);
+        // Build WebSocket options with Cookie header if authenticated
+        const options: WebSocket.ClientOptions = {};
+        if (this.config.authToken) {
+          options.headers = {
+            Cookie: `auth_token=${this.config.authToken}`,
+          };
+        }
+
+        this.ws = new WebSocket(this.url, options);
       } catch (e) {
         this.state = "Disconnected";
         reject(WebSocketError.connectionFailed(String(e)));
@@ -305,9 +310,10 @@ export class LightconeWebSocketClient {
    * Send a WebSocket message.
    */
   private send(message: WsRequest): void {
-    if (this.ws && this.state === "Connected") {
-      this.ws.send(JSON.stringify(message));
+    if (!this.ws || this.state !== "Connected") {
+      throw WebSocketError.notConnected();
     }
+    this.ws.send(JSON.stringify(message));
   }
 
   /**
@@ -330,7 +336,7 @@ export class LightconeWebSocketClient {
   /**
    * Subscribe to orderbook updates.
    */
-  async subscribeBookUpdates(orderbookIds: string[]): Promise<void> {
+  subscribeBookUpdates(orderbookIds: string[]): void {
     // Initialize state for each orderbook
     for (const id of orderbookIds) {
       this.handler.initOrderbook(id);
@@ -347,7 +353,7 @@ export class LightconeWebSocketClient {
   /**
    * Subscribe to trade executions.
    */
-  async subscribeTrades(orderbookIds: string[]): Promise<void> {
+  subscribeTrades(orderbookIds: string[]): void {
     this.subscriptions.addTrades(orderbookIds);
     const request = createSubscribeRequest(tradesParams(orderbookIds));
     this.send(request);
@@ -356,7 +362,8 @@ export class LightconeWebSocketClient {
   /**
    * Subscribe to user events.
    */
-  async subscribeUser(user: string): Promise<void> {
+  subscribeUser(user: string): void {
+    this.subscribedUser = user;
     this.handler.initUserState(user);
     this.subscriptions.addUser(user);
     const request = createSubscribeRequest(userParams(user));
@@ -366,11 +373,11 @@ export class LightconeWebSocketClient {
   /**
    * Subscribe to price history.
    */
-  async subscribePriceHistory(
+  subscribePriceHistory(
     orderbookId: string,
     resolution: string,
     includeOhlcv: boolean
-  ): Promise<void> {
+  ): void {
     this.handler.initPriceHistory(orderbookId, resolution, includeOhlcv);
     this.subscriptions.addPriceHistory(orderbookId, resolution, includeOhlcv);
     const request = createSubscribeRequest(
@@ -382,7 +389,7 @@ export class LightconeWebSocketClient {
   /**
    * Subscribe to market events.
    */
-  async subscribeMarket(marketPubkey: string): Promise<void> {
+  subscribeMarket(marketPubkey: string): void {
     this.subscriptions.addMarket(marketPubkey);
     const request = createSubscribeRequest(marketParams(marketPubkey));
     this.send(request);
@@ -395,7 +402,7 @@ export class LightconeWebSocketClient {
   /**
    * Unsubscribe from orderbook updates.
    */
-  async unsubscribeBookUpdates(orderbookIds: string[]): Promise<void> {
+  unsubscribeBookUpdates(orderbookIds: string[]): void {
     this.subscriptions.removeBookUpdate(orderbookIds);
     const request = createUnsubscribeRequest(bookUpdateParams(orderbookIds));
     this.send(request);
@@ -404,7 +411,7 @@ export class LightconeWebSocketClient {
   /**
    * Unsubscribe from trades.
    */
-  async unsubscribeTrades(orderbookIds: string[]): Promise<void> {
+  unsubscribeTrades(orderbookIds: string[]): void {
     this.subscriptions.removeTrades(orderbookIds);
     const request = createUnsubscribeRequest(tradesParams(orderbookIds));
     this.send(request);
@@ -413,7 +420,11 @@ export class LightconeWebSocketClient {
   /**
    * Unsubscribe from user events.
    */
-  async unsubscribeUser(user: string): Promise<void> {
+  unsubscribeUser(user: string): void {
+    if (this.subscribedUser === user) {
+      this.subscribedUser = null;
+    }
+    this.handler.clearSubscribedUser(user);
     this.subscriptions.removeUser(user);
     const request = createUnsubscribeRequest(userParams(user));
     this.send(request);
@@ -422,10 +433,10 @@ export class LightconeWebSocketClient {
   /**
    * Unsubscribe from price history.
    */
-  async unsubscribePriceHistory(
+  unsubscribePriceHistory(
     orderbookId: string,
     resolution: string
-  ): Promise<void> {
+  ): void {
     this.subscriptions.removePriceHistory(orderbookId, resolution);
     const request = createUnsubscribeRequest(
       priceHistoryParams(orderbookId, resolution, false)
@@ -436,7 +447,7 @@ export class LightconeWebSocketClient {
   /**
    * Unsubscribe from market events.
    */
-  async unsubscribeMarket(marketPubkey: string): Promise<void> {
+  unsubscribeMarket(marketPubkey: string): void {
     this.subscriptions.removeMarket(marketPubkey);
     const request = createUnsubscribeRequest(marketParams(marketPubkey));
     this.send(request);

@@ -123,6 +123,7 @@ pin_project! {
         orderbooks: Arc<RwLock<HashMap<String, LocalOrderbook>>>,
         user_states: Arc<RwLock<HashMap<String, UserState>>>,
         price_histories: Arc<RwLock<HashMap<PriceHistoryKey, PriceHistory>>>,
+        subscribed_user: Arc<RwLock<Option<String>>>,
         handler: Arc<MessageHandler>,
         cmd_tx: Option<mpsc::Sender<ConnectionCommand>>,
         #[pin]
@@ -228,12 +229,14 @@ impl LightconeWebSocketClient {
         let orderbooks = Arc::new(RwLock::new(HashMap::new()));
         let user_states = Arc::new(RwLock::new(HashMap::new()));
         let price_histories = Arc::new(RwLock::new(HashMap::new()));
+        let subscribed_user = Arc::new(RwLock::new(None));
         let subscriptions = Arc::new(RwLock::new(SubscriptionManager::new()));
 
         let handler = Arc::new(MessageHandler::new(
             orderbooks.clone(),
             user_states.clone(),
             price_histories.clone(),
+            subscribed_user.clone(),
         ));
 
         let mut client = Self {
@@ -244,6 +247,7 @@ impl LightconeWebSocketClient {
             orderbooks,
             user_states,
             price_histories,
+            subscribed_user,
             handler,
             cmd_tx: None,
             event_rx,
@@ -383,6 +387,7 @@ impl LightconeWebSocketClient {
 
     /// Unsubscribe from user events
     pub async fn unsubscribe_user(&mut self, user: String) -> WsResult<()> {
+        self.handler.clear_subscribed_user(&user).await;
         self.subscriptions.write().await.remove_user(&user);
         let params = SubscribeParams::user(user);
         self.send_unsubscribe(params).await

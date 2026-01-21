@@ -5,7 +5,7 @@
  */
 
 import { WebSocketError } from "./error";
-import { LocalOrderbook, UserState, PriceHistory, PriceHistoryKey } from "./state";
+import { LocalOrderbook, UserState, PriceHistory } from "./state";
 import type {
   RawWsMessage,
   WsEvent,
@@ -28,6 +28,8 @@ export class MessageHandler {
   private userStates: Map<string, UserState> = new Map();
   /** Price history state */
   private priceHistories: Map<string, PriceHistory> = new Map();
+  /** Currently subscribed user (single user per connection) */
+  private subscribedUser: string | null = null;
 
   /**
    * Handle an incoming message and return events.
@@ -124,14 +126,12 @@ export class MessageHandler {
     const data = rawMsg.data as UserEventData;
     const eventType = data.event_type;
 
-    // We need to determine the user key
-    const user =
-      data.orders[0]?.market_pubkey ||
-      data.market_pubkey ||
-      "unknown";
+    // Use the tracked subscribed user (single user per connection)
+    const user = this.subscribedUser ?? "unknown";
 
-    // Update local state for all known user states
-    for (const state of this.userStates.values()) {
+    // Update local state for the subscribed user
+    const state = this.userStates.get(user);
+    if (state) {
       state.applyEvent(data);
     }
 
@@ -220,8 +220,18 @@ export class MessageHandler {
    * Initialize user state for a subscription.
    */
   initUserState(user: string): void {
+    this.subscribedUser = user;
     if (!this.userStates.has(user)) {
       this.userStates.set(user, new UserState(user));
+    }
+  }
+
+  /**
+   * Clear the subscribed user.
+   */
+  clearSubscribedUser(user: string): void {
+    if (this.subscribedUser === user) {
+      this.subscribedUser = null;
     }
   }
 

@@ -369,6 +369,7 @@ class LightconeWebSocketClient:
         """
         from .types import user_params
 
+        self._handler.clear_subscribed_user(user)
         self._subscriptions.remove_user(user)
         await self._send_unsubscribe(user_params(user))
 

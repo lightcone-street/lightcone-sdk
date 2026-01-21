@@ -28,6 +28,7 @@ class MessageHandler:
         self._orderbooks: dict[str, LocalOrderbook] = {}
         self._user_states: dict[str, UserState] = {}
         self._price_histories: dict[PriceHistoryKey, PriceHistory] = {}
+        self._subscribed_user: Optional[str] = None
 
     async def handle_message(self, text: str) -> list[WsEvent]:
         """Handle an incoming message and return events."""
@@ -113,16 +114,12 @@ class MessageHandler:
 
         event_type = data.event_type
 
-        # Determine user key from orders or market_pubkey
-        user = (
-            data.orders[0].market_pubkey
-            if data.orders
-            else data.market_pubkey or "unknown"
-        )
+        # Use the tracked subscribed user (single user per connection)
+        user = self._subscribed_user or "unknown"
 
-        # Update local state for all known user states
-        for state in self._user_states.values():
-            state.apply_event(data)
+        # Update local state for the subscribed user
+        if user in self._user_states:
+            self._user_states[user].apply_event(data)
 
         return [WsEvent.user_update(event_type, user)]
 
@@ -195,8 +192,14 @@ class MessageHandler:
 
     def init_user_state(self, user: str) -> None:
         """Initialize user state for a subscription."""
+        self._subscribed_user = user
         if user not in self._user_states:
             self._user_states[user] = UserState(user)
+
+    def clear_subscribed_user(self, user: str) -> None:
+        """Clear the subscribed user."""
+        if self._subscribed_user == user:
+            self._subscribed_user = None
 
     def init_price_history(
         self,

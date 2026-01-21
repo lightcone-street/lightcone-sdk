@@ -28,23 +28,34 @@
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
-    "test": "npm run test:unit",
-    "test:unit": "ts-node test/unit.test.ts",
+    "lint": "eslint src",
+    "lint:fix": "eslint src --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:legacy": "ts-node test/unit.test.ts",
     "test:devnet": "ts-node test/devnet.test.ts",
     "test:stress": "ts-node test/stress.test.ts",
-    "test:all": "npm run test:unit && npm run test:devnet",
-    "prepublishOnly": "npm run clean && npm run build"
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run clean && npm run lint && npm run test && npm run build"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
     "@solana/web3.js": "^1.90.0",
+    "bs58": "^5.0.0",
     "js-sha3": "^0.9.3",
-    "tweetnacl": "^1.0.3"
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.0.0"
   },
   "devDependencies": {
+    "@types/ws": "^8.5.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0",
     "dotenv": "^17.2.3",
+    "eslint": "^8.57.0",
     "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^1.6.0"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.90.0"
