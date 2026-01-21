@@ -9,12 +9,12 @@ pub struct OutcomeBalance {
     pub outcome_index: u32,
     /// Conditional token address
     pub conditional_token: String,
-    /// Total balance
-    pub balance: i64,
-    /// Idle balance (not on book)
-    pub balance_idle: i64,
-    /// Balance on order book
-    pub balance_on_book: i64,
+    /// Total balance as decimal string
+    pub balance: String,
+    /// Idle balance (not on book) as decimal string
+    pub balance_idle: String,
+    /// Balance on order book as decimal string
+    pub balance_on_book: String,
 }
 
 /// User position in a market.

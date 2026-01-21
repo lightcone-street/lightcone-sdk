@@ -49,10 +49,10 @@ pub struct Fill {
     pub counterparty: String,
     /// Counterparty's order hash
     pub counterparty_order_hash: String,
-    /// Amount filled
-    pub fill_amount: u64,
-    /// Fill price
-    pub price: i64,
+    /// Amount filled as decimal string
+    pub fill_amount: String,
+    /// Fill price as decimal string
+    pub price: String,
     /// Whether this order was the maker
     pub is_maker: bool,
 }
@@ -92,10 +92,10 @@ pub struct OrderResponse {
     pub order_hash: String,
     /// Order status
     pub status: String,
-    /// Remaining amount
-    pub remaining: u64,
-    /// Filled amount
-    pub filled: u64,
+    /// Remaining amount as decimal string
+    pub remaining: String,
+    /// Filled amount as decimal string
+    pub filled: String,
     /// Fill details
     #[serde(default)]
     pub fills: Vec<Fill>,
@@ -117,8 +117,8 @@ pub struct CancelResponse {
     pub status: String,
     /// Order hash
     pub order_hash: String,
-    /// Remaining amount that was cancelled
-    pub remaining: u64,
+    /// Remaining amount that was cancelled as decimal string
+    pub remaining: String,
 }
 
 /// Request for POST /api/orders/cancel-all.
@@ -160,16 +160,16 @@ pub struct UserOrder {
     pub orderbook_id: String,
     /// Order side (0=BID, 1=ASK)
     pub side: u32,
-    /// Maker amount
-    pub maker_amount: u64,
-    /// Taker amount
-    pub taker_amount: u64,
-    /// Remaining amount
-    pub remaining: u64,
-    /// Filled amount
-    pub filled: u64,
-    /// Order price (scaled by 1e6)
-    pub price: i64,
+    /// Maker amount as decimal string
+    pub maker_amount: String,
+    /// Taker amount as decimal string
+    pub taker_amount: String,
+    /// Remaining amount as decimal string
+    pub remaining: String,
+    /// Filled amount as decimal string
+    pub filled: String,
+    /// Order price as decimal string
+    pub price: String,
     /// Creation timestamp
     pub created_at: String,
     /// Expiration timestamp
@@ -190,10 +190,10 @@ pub struct UserOrderOutcomeBalance {
     pub outcome_index: u32,
     /// Conditional token address
     pub conditional_token: String,
-    /// Idle balance
-    pub idle: i64,
-    /// Balance on order book
-    pub on_book: i64,
+    /// Idle balance as decimal string
+    pub idle: String,
+    /// Balance on order book as decimal string
+    pub on_book: String,
 }
 
 /// User balance from GET /api/users/orders.

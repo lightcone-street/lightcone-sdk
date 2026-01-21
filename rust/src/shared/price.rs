@@ -1,40 +1,36 @@
 //! Price utilities for the Lightcone SDK.
 //!
-//! This module provides constants and functions for working with scaled prices.
-//! All prices in the Lightcone protocol are represented as u64 values scaled by 1e6.
+//! This module provides helper functions for working with decimal string prices.
+//! The SDK now uses String types for price/size/balance fields to preserve
+//! the exact decimal representation from the server, as different tokens
+//! have different decimal places (USDC=6, SOL=9, BTC=8, etc.).
 
-/// Price scaling factor (1e6).
-///
-/// All prices are stored as integers scaled by this factor.
-/// For example, a price of 0.5 is stored as 500,000.
-pub const PRICE_SCALE: u64 = 1_000_000;
-
-/// Convert a scaled price (u64) to a decimal value (f64).
+/// Parse a decimal string to f64 for calculations.
 ///
 /// # Example
 ///
 /// ```
-/// use lightcone_pinocchio_sdk::shared::price::scaled_to_decimal;
+/// use lightcone_pinocchio_sdk::shared::price::parse_decimal;
 ///
-/// assert_eq!(scaled_to_decimal(500_000), 0.5);
-/// assert_eq!(scaled_to_decimal(1_000_000), 1.0);
+/// assert_eq!(parse_decimal("0.500000").unwrap(), 0.5);
+/// assert_eq!(parse_decimal("1.000000").unwrap(), 1.0);
 /// ```
-pub fn scaled_to_decimal(scaled: u64) -> f64 {
-    scaled as f64 / PRICE_SCALE as f64
+pub fn parse_decimal(s: &str) -> Result<f64, std::num::ParseFloatError> {
+    s.parse()
 }
 
-/// Convert a decimal value (f64) to a scaled price (u64).
+/// Format an f64 as a decimal string with specified precision.
 ///
 /// # Example
 ///
 /// ```
-/// use lightcone_pinocchio_sdk::shared::price::decimal_to_scaled;
+/// use lightcone_pinocchio_sdk::shared::price::format_decimal;
 ///
-/// assert_eq!(decimal_to_scaled(0.5), 500_000);
-/// assert_eq!(decimal_to_scaled(1.0), 1_000_000);
+/// assert_eq!(format_decimal(0.5, 6), "0.500000");
+/// assert_eq!(format_decimal(1.0, 6), "1.000000");
 /// ```
-pub fn decimal_to_scaled(decimal: f64) -> u64 {
-    (decimal * PRICE_SCALE as f64) as u64
+pub fn format_decimal(value: f64, precision: usize) -> String {
+    format!("{:.precision$}", value, precision = precision)
 }
 
 #[cfg(test)]
@@ -42,26 +38,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_price_scaling() {
-        assert_eq!(scaled_to_decimal(500_000), 0.5);
-        assert_eq!(scaled_to_decimal(1_000_000), 1.0);
-        assert_eq!(scaled_to_decimal(0), 0.0);
-        assert_eq!(scaled_to_decimal(123_456), 0.123456);
+    fn test_parse_decimal() {
+        assert_eq!(parse_decimal("0.500000").unwrap(), 0.5);
+        assert_eq!(parse_decimal("1.000000").unwrap(), 1.0);
+        assert_eq!(parse_decimal("0.0").unwrap(), 0.0);
+        assert_eq!(parse_decimal("0.123456").unwrap(), 0.123456);
     }
 
     #[test]
-    fn test_decimal_to_scaled() {
-        assert_eq!(decimal_to_scaled(0.5), 500_000);
-        assert_eq!(decimal_to_scaled(1.0), 1_000_000);
-        assert_eq!(decimal_to_scaled(0.0), 0);
-        assert_eq!(decimal_to_scaled(0.123456), 123_456);
+    fn test_format_decimal() {
+        assert_eq!(format_decimal(0.5, 6), "0.500000");
+        assert_eq!(format_decimal(1.0, 6), "1.000000");
+        assert_eq!(format_decimal(0.0, 6), "0.000000");
+        assert_eq!(format_decimal(0.123456, 6), "0.123456");
     }
 
     #[test]
     fn test_roundtrip() {
-        let original = 750_000u64;
-        let decimal = scaled_to_decimal(original);
-        let back = decimal_to_scaled(decimal);
+        let original = "0.750000";
+        let parsed = parse_decimal(original).unwrap();
+        let back = format_decimal(parsed, 6);
         assert_eq!(original, back);
     }
 }

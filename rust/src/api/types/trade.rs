@@ -15,14 +15,14 @@ pub struct Trade {
     pub maker_pubkey: String,
     /// Trade side ("BID" or "ASK")
     pub side: String,
-    /// Trade size
-    pub size: u64,
-    /// Trade price (scaled by 1e6)
-    pub price: i64,
-    /// Taker fee
-    pub taker_fee: i64,
-    /// Maker fee
-    pub maker_fee: i64,
+    /// Trade size as decimal string
+    pub size: String,
+    /// Trade price as decimal string
+    pub price: String,
+    /// Taker fee as decimal string
+    pub taker_fee: String,
+    /// Maker fee as decimal string
+    pub maker_fee: String,
     /// Execution timestamp (milliseconds since epoch)
     pub executed_at: i64,
 }

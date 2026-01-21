@@ -9,30 +9,30 @@ pub struct PricePoint {
     /// Timestamp (milliseconds)
     #[serde(rename = "t")]
     pub timestamp: i64,
-    /// Midpoint price
+    /// Midpoint price as decimal string
     #[serde(rename = "m")]
-    pub midpoint: i64,
-    /// Open price (only with include_ohlcv)
-    #[serde(rename = "o", skip_serializing_if = "Option::is_none")]
-    pub open: Option<i64>,
-    /// High price (only with include_ohlcv)
-    #[serde(rename = "h", skip_serializing_if = "Option::is_none")]
-    pub high: Option<i64>,
-    /// Low price (only with include_ohlcv)
-    #[serde(rename = "l", skip_serializing_if = "Option::is_none")]
-    pub low: Option<i64>,
-    /// Close price (only with include_ohlcv)
-    #[serde(rename = "c", skip_serializing_if = "Option::is_none")]
-    pub close: Option<i64>,
-    /// Volume (only with include_ohlcv)
-    #[serde(rename = "v", skip_serializing_if = "Option::is_none")]
-    pub volume: Option<u64>,
-    /// Best bid (only with include_ohlcv)
-    #[serde(rename = "bb", skip_serializing_if = "Option::is_none")]
-    pub best_bid: Option<i64>,
-    /// Best ask (only with include_ohlcv)
-    #[serde(rename = "ba", skip_serializing_if = "Option::is_none")]
-    pub best_ask: Option<i64>,
+    pub midpoint: String,
+    /// Open price (only with include_ohlcv) as decimal string
+    #[serde(rename = "o", default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<String>,
+    /// High price (only with include_ohlcv) as decimal string
+    #[serde(rename = "h", default, skip_serializing_if = "Option::is_none")]
+    pub high: Option<String>,
+    /// Low price (only with include_ohlcv) as decimal string
+    #[serde(rename = "l", default, skip_serializing_if = "Option::is_none")]
+    pub low: Option<String>,
+    /// Close price (only with include_ohlcv) as decimal string
+    #[serde(rename = "c", default, skip_serializing_if = "Option::is_none")]
+    pub close: Option<String>,
+    /// Volume (only with include_ohlcv) as decimal string
+    #[serde(rename = "v", default, skip_serializing_if = "Option::is_none")]
+    pub volume: Option<String>,
+    /// Best bid (only with include_ohlcv) as decimal string
+    #[serde(rename = "bb", default, skip_serializing_if = "Option::is_none")]
+    pub best_bid: Option<String>,
+    /// Best ask (only with include_ohlcv) as decimal string
+    #[serde(rename = "ba", default, skip_serializing_if = "Option::is_none")]
+    pub best_ask: Option<String>,
 }
 
 /// Query parameters for GET /api/price-history.

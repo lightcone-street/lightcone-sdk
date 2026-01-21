@@ -171,18 +171,18 @@ impl PriceHistory {
     }
 
     /// Get current midpoint price (from most recent candle)
-    pub fn current_midpoint(&self) -> Option<u64> {
-        self.candles.first().and_then(|c| c.m)
+    pub fn current_midpoint(&self) -> Option<String> {
+        self.candles.first().and_then(|c| c.m.clone())
     }
 
     /// Get current best bid (from most recent candle)
-    pub fn current_best_bid(&self) -> Option<u64> {
-        self.candles.first().and_then(|c| c.bb)
+    pub fn current_best_bid(&self) -> Option<String> {
+        self.candles.first().and_then(|c| c.bb.clone())
     }
 
     /// Get current best ask (from most recent candle)
-    pub fn current_best_ask(&self) -> Option<u64> {
-        self.candles.first().and_then(|c| c.ba)
+    pub fn current_best_ask(&self) -> Option<String> {
+        self.candles.first().and_then(|c| c.ba.clone())
     }
 
     /// Number of candles
@@ -241,25 +241,25 @@ mod tests {
             prices: vec![
                 Candle {
                     t: 1704067260000, // Newer
-                    o: Some(505000),
-                    h: Some(508000),
-                    l: Some(503000),
-                    c: Some(507000),
-                    v: Some(5000),
-                    m: Some(505500),
-                    bb: Some(505000),
-                    ba: Some(506000),
+                    o: Some("0.505000".to_string()),
+                    h: Some("0.508000".to_string()),
+                    l: Some("0.503000".to_string()),
+                    c: Some("0.507000".to_string()),
+                    v: Some("0.005000".to_string()),
+                    m: Some("0.505500".to_string()),
+                    bb: Some("0.505000".to_string()),
+                    ba: Some("0.506000".to_string()),
                 },
                 Candle {
                     t: 1704067200000, // Older
-                    o: Some(500000),
-                    h: Some(510000),
-                    l: Some(495000),
-                    c: Some(505000),
-                    v: Some(10000),
-                    m: Some(502500),
-                    bb: Some(500000),
-                    ba: Some(505000),
+                    o: Some("0.500000".to_string()),
+                    h: Some("0.510000".to_string()),
+                    l: Some("0.495000".to_string()),
+                    c: Some("0.505000".to_string()),
+                    v: Some("0.010000".to_string()),
+                    m: Some("0.502500".to_string()),
+                    bb: Some("0.500000".to_string()),
+                    ba: Some("0.505000".to_string()),
                 },
             ],
             last_timestamp: Some(1704067260000),
@@ -315,22 +315,22 @@ mod tests {
             server_time: None,
             last_processed: None,
             t: Some(1704067260000),
-            o: Some(505000),
-            h: Some(510000), // Updated high
-            l: Some(503000),
-            c: Some(509000), // Updated close
-            v: Some(6000),   // Updated volume
-            m: Some(507000),
-            bb: Some(506000),
-            ba: Some(508000),
+            o: Some("0.505000".to_string()),
+            h: Some("0.510000".to_string()), // Updated high
+            l: Some("0.503000".to_string()),
+            c: Some("0.509000".to_string()), // Updated close
+            v: Some("0.006000".to_string()), // Updated volume
+            m: Some("0.507000".to_string()),
+            bb: Some("0.506000".to_string()),
+            ba: Some("0.508000".to_string()),
         };
 
         history.apply_update(&update);
 
         let candle = history.get_candle(1704067260000).unwrap();
-        assert_eq!(candle.h, Some(510000));
-        assert_eq!(candle.c, Some(509000));
-        assert_eq!(candle.v, Some(6000));
+        assert_eq!(candle.h, Some("0.510000".to_string()));
+        assert_eq!(candle.c, Some("0.509000".to_string()));
+        assert_eq!(candle.v, Some("0.006000".to_string()));
     }
 
     #[test]
@@ -348,14 +348,14 @@ mod tests {
             server_time: None,
             last_processed: None,
             t: Some(1704067320000), // New timestamp
-            o: Some(507000),
-            h: Some(512000),
-            l: Some(506000),
-            c: Some(511000),
-            v: Some(8000),
-            m: Some(509000),
-            bb: Some(508000),
-            ba: Some(510000),
+            o: Some("0.507000".to_string()),
+            h: Some("0.512000".to_string()),
+            l: Some("0.506000".to_string()),
+            c: Some("0.511000".to_string()),
+            v: Some("0.008000".to_string()),
+            m: Some("0.509000".to_string()),
+            bb: Some("0.508000".to_string()),
+            ba: Some("0.510000".to_string()),
         };
 
         history.apply_update(&update);
@@ -369,8 +369,8 @@ mod tests {
         let mut history = PriceHistory::new("ob1".to_string(), "1m".to_string(), true);
         history.apply_snapshot(&create_snapshot());
 
-        assert_eq!(history.current_midpoint(), Some(505500));
-        assert_eq!(history.current_best_bid(), Some(505000));
-        assert_eq!(history.current_best_ask(), Some(506000));
+        assert_eq!(history.current_midpoint(), Some("0.505500".to_string()));
+        assert_eq!(history.current_best_bid(), Some("0.505000".to_string()));
+        assert_eq!(history.current_best_ask(), Some("0.506000".to_string()));
     }
 }

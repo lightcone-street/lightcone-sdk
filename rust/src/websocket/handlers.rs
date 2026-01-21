@@ -362,8 +362,8 @@ mod tests {
                 "orderbook_id": "ob1",
                 "timestamp": "2024-01-01T00:00:00.000Z",
                 "seq": 0,
-                "bids": [{"side": "bid", "price": 500000, "size": 1000}],
-                "asks": [{"side": "ask", "price": 510000, "size": 500}],
+                "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
+                "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
                 "is_snapshot": true
             }
         }"#;
@@ -414,8 +414,8 @@ mod tests {
             "version": 0.1,
             "data": {
                 "orderbook_id": "ob1",
-                "price": 505000,
-                "size": 250,
+                "price": "0.505000",
+                "size": "0.000250",
                 "side": "bid",
                 "timestamp": "2024-01-01T00:00:00.000Z",
                 "trade_id": "trade123"
@@ -428,8 +428,8 @@ mod tests {
         match &events[0] {
             WsEvent::Trade { orderbook_id, trade } => {
                 assert_eq!(orderbook_id, "ob1");
-                assert_eq!(trade.price, 505000);
-                assert_eq!(trade.size, 250);
+                assert_eq!(trade.price, "0.505000");
+                assert_eq!(trade.size, "0.000250");
             }
             _ => panic!("Expected Trade event"),
         }

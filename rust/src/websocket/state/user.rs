@@ -6,6 +6,11 @@ use std::collections::HashMap;
 
 use crate::websocket::types::{Balance, BalanceEntry, Order, UserEventData};
 
+/// Check if a string represents zero
+fn is_zero(s: &str) -> bool {
+    s == "0" || s == "0.0" || s == "0.000000" || s.parse::<f64>().map(|v| v == 0.0).unwrap_or(false)
+}
+
 /// User state tracking orders and balances
 #[derive(Debug, Clone, Default)]
 pub struct UserState {
@@ -59,12 +64,12 @@ impl UserState {
             let order_hash = &update.order_hash;
 
             // If remaining is 0, the order is fully filled or cancelled - remove it
-            if update.remaining == 0 {
+            if is_zero(&update.remaining) {
                 self.orders.remove(order_hash);
             } else if let Some(existing) = self.orders.get_mut(order_hash) {
                 // Update existing order
-                existing.remaining = update.remaining;
-                existing.filled = update.filled;
+                existing.remaining = update.remaining.clone();
+                existing.filled = update.filled.clone();
             } else {
                 // New order - we need to construct it from the update
                 // This shouldn't normally happen as orders should come from snapshot first
@@ -77,11 +82,11 @@ impl UserState {
                         market_pubkey: market_pubkey.clone(),
                         orderbook_id: orderbook_id.clone(),
                         side: update.side,
-                        maker_amount: update.remaining + update.filled, // Approximate
-                        taker_amount: 0,                                // Unknown
-                        remaining: update.remaining,
-                        filled: update.filled,
-                        price: update.price,
+                        maker_amount: update.remaining.clone(), // Approximate
+                        taker_amount: "0".to_string(),          // Unknown
+                        remaining: update.remaining.clone(),
+                        filled: update.filled.clone(),
+                        price: update.price.clone(),
                         created_at: update.created_at,
                         expiration: 0,
                     };
@@ -187,28 +192,28 @@ impl UserState {
         self.balances.values().collect()
     }
 
-    /// Get total idle balance for a specific outcome
+    /// Get total idle balance for a specific outcome as a string
     pub fn idle_balance_for_outcome(
         &self,
         market_pubkey: &str,
         deposit_mint: &str,
         outcome_index: i32,
-    ) -> Option<i64> {
+    ) -> Option<String> {
         self.get_balance(market_pubkey, deposit_mint)
             .and_then(|b| b.outcomes.iter().find(|o| o.outcome_index == outcome_index))
-            .map(|o| o.idle)
+            .map(|o| o.idle.clone())
     }
 
-    /// Get total on-book balance for a specific outcome
+    /// Get total on-book balance for a specific outcome as a string
     pub fn on_book_balance_for_outcome(
         &self,
         market_pubkey: &str,
         deposit_mint: &str,
         outcome_index: i32,
-    ) -> Option<i64> {
+    ) -> Option<String> {
         self.get_balance(market_pubkey, deposit_mint)
             .and_then(|b| b.outcomes.iter().find(|o| o.outcome_index == outcome_index))
-            .map(|o| o.on_book)
+            .map(|o| o.on_book.clone())
     }
 
     /// Number of open orders
@@ -248,11 +253,11 @@ mod tests {
                 market_pubkey: "market1".to_string(),
                 orderbook_id: "ob1".to_string(),
                 side: 0,
-                maker_amount: 1000,
-                taker_amount: 500,
-                remaining: 800,
-                filled: 200,
-                price: 500000,
+                maker_amount: "0.001000".to_string(),
+                taker_amount: "0.000500".to_string(),
+                remaining: "0.000800".to_string(),
+                filled: "0.000200".to_string(),
+                price: "0.500000".to_string(),
                 created_at: 1704067200000,
                 expiration: 0,
             }],
@@ -266,8 +271,8 @@ mod tests {
                         outcomes: vec![OutcomeBalance {
                             outcome_index: 0,
                             mint: "outcome_mint".to_string(),
-                            idle: 5000,
-                            on_book: 1000,
+                            idle: "0.005000".to_string(),
+                            on_book: "0.001000".to_string(),
                         }],
                     },
                 );
@@ -306,10 +311,10 @@ mod tests {
             balances: HashMap::new(),
             order: Some(OrderUpdate {
                 order_hash: "hash1".to_string(),
-                price: 500000,
-                fill_amount: 100,
-                remaining: 700,
-                filled: 300,
+                price: "0.500000".to_string(),
+                fill_amount: "0.000100".to_string(),
+                remaining: "0.000700".to_string(),
+                filled: "0.000300".to_string(),
                 side: 0,
                 is_maker: true,
                 created_at: 1704067200000,
@@ -325,8 +330,8 @@ mod tests {
         state.apply_order_update(&update);
 
         let order = state.get_order("hash1").unwrap();
-        assert_eq!(order.remaining, 700);
-        assert_eq!(order.filled, 300);
+        assert_eq!(order.remaining, "0.000700");
+        assert_eq!(order.filled, "0.000300");
     }
 
     #[test]
@@ -340,10 +345,10 @@ mod tests {
             balances: HashMap::new(),
             order: Some(OrderUpdate {
                 order_hash: "hash1".to_string(),
-                price: 500000,
-                fill_amount: 800,
-                remaining: 0, // Fully filled
-                filled: 1000,
+                price: "0.500000".to_string(),
+                fill_amount: "0.000800".to_string(),
+                remaining: "0".to_string(), // Fully filled
+                filled: "0.001000".to_string(),
                 side: 0,
                 is_maker: true,
                 created_at: 1704067200000,
@@ -376,8 +381,8 @@ mod tests {
                 outcomes: vec![OutcomeBalance {
                     outcome_index: 0,
                     mint: "outcome_mint".to_string(),
-                    idle: 6000,
-                    on_book: 500,
+                    idle: "0.006000".to_string(),
+                    on_book: "0.000500".to_string(),
                 }],
             }),
             market_pubkey: Some("market1".to_string()),
@@ -389,7 +394,7 @@ mod tests {
         state.apply_balance_update(&update);
 
         let balance = state.get_balance("market1", "mint1").unwrap();
-        assert_eq!(balance.outcomes[0].idle, 6000);
-        assert_eq!(balance.outcomes[0].on_book, 500);
+        assert_eq!(balance.outcomes[0].idle, "0.006000");
+        assert_eq!(balance.outcomes[0].on_book, "0.000500");
     }
 }

@@ -137,5 +137,5 @@ pub use types::{
     Side,
 };
 
-// Re-export shared price utilities
-pub use crate::shared::{decimal_to_scaled, scaled_to_decimal, Resolution, PRICE_SCALE};
+// Re-export shared utilities
+pub use crate::shared::{format_decimal, parse_decimal, Resolution};

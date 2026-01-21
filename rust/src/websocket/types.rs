@@ -186,8 +186,10 @@ pub struct BookUpdateData {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PriceLevel {
     pub side: String,
-    pub price: u64,
-    pub size: u64,
+    /// Price as decimal string (e.g., "0.500000")
+    pub price: String,
+    /// Size as decimal string
+    pub size: String,
 }
 
 // ============================================================================
@@ -198,8 +200,10 @@ pub struct PriceLevel {
 #[derive(Debug, Clone, Deserialize)]
 pub struct TradeData {
     pub orderbook_id: String,
-    pub price: u64,
-    pub size: u64,
+    /// Price as decimal string
+    pub price: String,
+    /// Size as decimal string
+    pub size: String,
     pub side: String,
     pub timestamp: String,
     pub trade_id: String,
@@ -239,11 +243,16 @@ pub struct Order {
     pub orderbook_id: String,
     /// 0 = BUY, 1 = SELL
     pub side: i32,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
-    pub remaining: u64,
-    pub filled: u64,
-    pub price: u64,
+    /// Maker amount as decimal string
+    pub maker_amount: String,
+    /// Taker amount as decimal string
+    pub taker_amount: String,
+    /// Remaining amount as decimal string
+    pub remaining: String,
+    /// Filled amount as decimal string
+    pub filled: String,
+    /// Price as decimal string
+    pub price: String,
     pub created_at: i64,
     pub expiration: i64,
 }
@@ -252,10 +261,14 @@ pub struct Order {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct OrderUpdate {
     pub order_hash: String,
-    pub price: u64,
-    pub fill_amount: u64,
-    pub remaining: u64,
-    pub filled: u64,
+    /// Price as decimal string
+    pub price: String,
+    /// Fill amount as decimal string
+    pub fill_amount: String,
+    /// Remaining amount as decimal string
+    pub remaining: String,
+    /// Filled amount as decimal string
+    pub filled: String,
     /// 0 = BUY, 1 = SELL
     pub side: i32,
     pub is_maker: bool,
@@ -275,8 +288,10 @@ pub struct Balance {
 pub struct OutcomeBalance {
     pub outcome_index: i32,
     pub mint: String,
-    pub idle: i64,
-    pub on_book: i64,
+    /// Idle balance as decimal string
+    pub idle: String,
+    /// On-book balance as decimal string
+    pub on_book: String,
 }
 
 /// Balance entry from user snapshot
@@ -313,21 +328,21 @@ pub struct PriceHistoryData {
     #[serde(default)]
     pub t: Option<i64>,
     #[serde(default)]
-    pub o: Option<u64>,
+    pub o: Option<String>,
     #[serde(default)]
-    pub h: Option<u64>,
+    pub h: Option<String>,
     #[serde(default)]
-    pub l: Option<u64>,
+    pub l: Option<String>,
     #[serde(default)]
-    pub c: Option<u64>,
+    pub c: Option<String>,
     #[serde(default)]
-    pub v: Option<u64>,
+    pub v: Option<String>,
     #[serde(default)]
-    pub m: Option<u64>,
+    pub m: Option<String>,
     #[serde(default)]
-    pub bb: Option<u64>,
+    pub bb: Option<String>,
     #[serde(default)]
-    pub ba: Option<u64>,
+    pub ba: Option<String>,
 }
 
 impl PriceHistoryData {
@@ -335,14 +350,14 @@ impl PriceHistoryData {
     pub fn to_candle(&self) -> Option<Candle> {
         self.t.map(|t| Candle {
             t,
-            o: self.o,
-            h: self.h,
-            l: self.l,
-            c: self.c,
-            v: self.v,
-            m: self.m,
-            bb: self.bb,
-            ba: self.ba,
+            o: self.o.clone(),
+            h: self.h.clone(),
+            l: self.l.clone(),
+            c: self.c.clone(),
+            v: self.v.clone(),
+            m: self.m.clone(),
+            bb: self.bb.clone(),
+            ba: self.ba.clone(),
         })
     }
 }
@@ -352,22 +367,30 @@ impl PriceHistoryData {
 pub struct Candle {
     /// Timestamp (Unix ms)
     pub t: i64,
-    /// Open price (null if no trades)
-    pub o: Option<u64>,
-    /// High price (null if no trades)
-    pub h: Option<u64>,
-    /// Low price (null if no trades)
-    pub l: Option<u64>,
-    /// Close price (null if no trades)
-    pub c: Option<u64>,
-    /// Volume (null if no trades)
-    pub v: Option<u64>,
-    /// Midpoint: (best_bid + best_ask) / 2
-    pub m: Option<u64>,
-    /// Best bid price
-    pub bb: Option<u64>,
-    /// Best ask price
-    pub ba: Option<u64>,
+    /// Open price as decimal string (null if no trades)
+    #[serde(default)]
+    pub o: Option<String>,
+    /// High price as decimal string (null if no trades)
+    #[serde(default)]
+    pub h: Option<String>,
+    /// Low price as decimal string (null if no trades)
+    #[serde(default)]
+    pub l: Option<String>,
+    /// Close price as decimal string (null if no trades)
+    #[serde(default)]
+    pub c: Option<String>,
+    /// Volume as decimal string (null if no trades)
+    #[serde(default)]
+    pub v: Option<String>,
+    /// Midpoint: (best_bid + best_ask) / 2 as decimal string
+    #[serde(default)]
+    pub m: Option<String>,
+    /// Best bid price as decimal string
+    #[serde(default)]
+    pub bb: Option<String>,
+    /// Best ask price as decimal string
+    #[serde(default)]
+    pub ba: Option<String>,
 }
 
 // ============================================================================
@@ -588,15 +611,6 @@ impl From<&str> for PriceLevelSide {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::{decimal_to_scaled, scaled_to_decimal};
-
-    #[test]
-    fn test_price_scaling() {
-        assert_eq!(scaled_to_decimal(500000), 0.5);
-        assert_eq!(scaled_to_decimal(1000000), 1.0);
-        assert_eq!(decimal_to_scaled(0.5), 500000);
-        assert_eq!(decimal_to_scaled(1.0), 1000000);
-    }
 
     #[test]
     fn test_side_conversion() {
@@ -635,8 +649,8 @@ mod tests {
             "orderbook_id": "ob1",
             "timestamp": "2024-01-01T00:00:00.000Z",
             "seq": 42,
-            "bids": [{"side": "bid", "price": 500000, "size": 1000}],
-            "asks": [{"side": "ask", "price": 510000, "size": 500}],
+            "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
+            "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
             "is_snapshot": true
         }"#;
         let data: BookUpdateData = serde_json::from_str(json).unwrap();
@@ -644,6 +658,26 @@ mod tests {
         assert_eq!(data.seq, 42);
         assert!(data.is_snapshot);
         assert_eq!(data.bids.len(), 1);
+        assert_eq!(data.bids[0].price, "0.500000");
+        assert_eq!(data.bids[0].size, "0.001000");
         assert_eq!(data.asks.len(), 1);
+        assert_eq!(data.asks[0].price, "0.510000");
+        assert_eq!(data.asks[0].size, "0.000500");
+    }
+
+    #[test]
+    fn test_trade_deserialization() {
+        let json = r#"{
+            "orderbook_id": "ob1",
+            "price": "0.505000",
+            "size": "0.000250",
+            "side": "bid",
+            "timestamp": "2024-01-01T00:00:00.000Z",
+            "trade_id": "trade123"
+        }"#;
+        let data: TradeData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.orderbook_id, "ob1");
+        assert_eq!(data.price, "0.505000");
+        assert_eq!(data.size, "0.000250");
     }
 }

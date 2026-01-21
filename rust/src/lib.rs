@@ -131,8 +131,8 @@ pub mod prelude {
         TradesParams, TradesResponse, Trade,
     };
 
-    // Shared price types (used by both API and WebSocket)
-    pub use crate::shared::{decimal_to_scaled, scaled_to_decimal, Resolution, PRICE_SCALE};
+    // Shared utilities (used by both API and WebSocket)
+    pub use crate::shared::{format_decimal, parse_decimal, Resolution};
 
     // WebSocket module exports
     pub use crate::websocket::{

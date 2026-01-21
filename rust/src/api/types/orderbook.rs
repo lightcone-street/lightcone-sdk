@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 /// Price level in the orderbook.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PriceLevel {
-    /// Price (scaled by 1e6)
-    pub price: i64,
-    /// Total size at this price level
-    pub size: u64,
+    /// Price as decimal string (e.g., "0.500000")
+    pub price: String,
+    /// Total size at this price level as decimal string
+    pub size: String,
     /// Number of orders at this level
     pub orders: u32,
 }
@@ -24,12 +24,12 @@ pub struct OrderbookResponse {
     pub bids: Vec<PriceLevel>,
     /// Ask levels (sell orders), sorted by price ascending
     pub asks: Vec<PriceLevel>,
-    /// Best bid price
-    pub best_bid: Option<i64>,
-    /// Best ask price
-    pub best_ask: Option<i64>,
-    /// Spread (best_ask - best_bid)
-    pub spread: Option<i64>,
-    /// Tick size for this orderbook
-    pub tick_size: i64,
+    /// Best bid price as decimal string
+    pub best_bid: Option<String>,
+    /// Best ask price as decimal string
+    pub best_ask: Option<String>,
+    /// Spread (best_ask - best_bid) as decimal string
+    pub spread: Option<String>,
+    /// Tick size for this orderbook as decimal string
+    pub tick_size: String,
 }

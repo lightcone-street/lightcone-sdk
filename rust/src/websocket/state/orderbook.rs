@@ -2,6 +2,9 @@
 //!
 //! Maintains a local copy of the orderbook state, applying deltas from
 //! WebSocket updates.
+//!
+//! Note: Internally uses String keys/values to match the String-based API.
+//! For numeric comparisons, parse the strings as needed.
 
 use std::collections::BTreeMap;
 
@@ -13,10 +16,10 @@ use crate::websocket::types::{BookUpdateData, PriceLevel};
 pub struct LocalOrderbook {
     /// Orderbook identifier
     pub orderbook_id: String,
-    /// Bid levels (price -> size), sorted descending by price
-    bids: BTreeMap<u64, u64>,
-    /// Ask levels (price -> size), sorted ascending by price
-    asks: BTreeMap<u64, u64>,
+    /// Bid levels (price string -> size string), sorted descending by price
+    bids: BTreeMap<String, String>,
+    /// Ask levels (price string -> size string), sorted ascending by price
+    asks: BTreeMap<String, String>,
     /// Expected next sequence number
     expected_seq: u64,
     /// Whether initial snapshot has been received
@@ -38,6 +41,11 @@ impl LocalOrderbook {
         }
     }
 
+    /// Check if a size string represents zero
+    fn is_zero_size(size: &str) -> bool {
+        size == "0" || size == "0.0" || size == "0.000000" || size.parse::<f64>().map(|v| v == 0.0).unwrap_or(false)
+    }
+
     /// Apply a snapshot (full orderbook state)
     pub fn apply_snapshot(&mut self, update: &BookUpdateData) {
         // Clear existing state
@@ -46,14 +54,14 @@ impl LocalOrderbook {
 
         // Apply all levels
         for level in &update.bids {
-            if level.size > 0 {
-                self.bids.insert(level.price, level.size);
+            if !Self::is_zero_size(&level.size) {
+                self.bids.insert(level.price.clone(), level.size.clone());
             }
         }
 
         for level in &update.asks {
-            if level.size > 0 {
-                self.asks.insert(level.price, level.size);
+            if !Self::is_zero_size(&level.size) {
+                self.asks.insert(level.price.clone(), level.size.clone());
             }
         }
 
@@ -76,19 +84,19 @@ impl LocalOrderbook {
 
         // Apply bid updates
         for level in &update.bids {
-            if level.size == 0 {
+            if Self::is_zero_size(&level.size) {
                 self.bids.remove(&level.price);
             } else {
-                self.bids.insert(level.price, level.size);
+                self.bids.insert(level.price.clone(), level.size.clone());
             }
         }
 
         // Apply ask updates
         for level in &update.asks {
-            if level.size == 0 {
+            if Self::is_zero_size(&level.size) {
                 self.asks.remove(&level.price);
             } else {
-                self.asks.insert(level.price, level.size);
+                self.asks.insert(level.price.clone(), level.size.clone());
             }
         }
 
@@ -107,27 +115,27 @@ impl LocalOrderbook {
         }
     }
 
-    /// Get all bid levels sorted by price (descending)
+    /// Get all bid levels sorted by price (descending by string comparison)
     pub fn get_bids(&self) -> Vec<PriceLevel> {
         self.bids
             .iter()
             .rev()
-            .map(|(&price, &size)| PriceLevel {
+            .map(|(price, size)| PriceLevel {
                 side: "bid".to_string(),
-                price,
-                size,
+                price: price.clone(),
+                size: size.clone(),
             })
             .collect()
     }
 
-    /// Get all ask levels sorted by price (ascending)
+    /// Get all ask levels sorted by price (ascending by string comparison)
     pub fn get_asks(&self) -> Vec<PriceLevel> {
         self.asks
             .iter()
-            .map(|(&price, &size)| PriceLevel {
+            .map(|(price, size)| PriceLevel {
                 side: "ask".to_string(),
-                price,
-                size,
+                price: price.clone(),
+                size: size.clone(),
             })
             .collect()
     }
@@ -138,10 +146,10 @@ impl LocalOrderbook {
             .iter()
             .rev()
             .take(n)
-            .map(|(&price, &size)| PriceLevel {
+            .map(|(price, size)| PriceLevel {
                 side: "bid".to_string(),
-                price,
-                size,
+                price: price.clone(),
+                size: size.clone(),
             })
             .collect()
     }
@@ -151,64 +159,74 @@ impl LocalOrderbook {
         self.asks
             .iter()
             .take(n)
-            .map(|(&price, &size)| PriceLevel {
+            .map(|(price, size)| PriceLevel {
                 side: "ask".to_string(),
-                price,
-                size,
+                price: price.clone(),
+                size: size.clone(),
             })
             .collect()
     }
 
-    /// Get the best bid (highest bid price)
-    pub fn best_bid(&self) -> Option<(u64, u64)> {
-        self.bids.iter().next_back().map(|(&p, &s)| (p, s))
+    /// Get the best bid (highest bid price) as (price_string, size_string)
+    pub fn best_bid(&self) -> Option<(String, String)> {
+        self.bids.iter().next_back().map(|(p, s)| (p.clone(), s.clone()))
     }
 
-    /// Get the best ask (lowest ask price)
-    pub fn best_ask(&self) -> Option<(u64, u64)> {
-        self.asks.iter().next().map(|(&p, &s)| (p, s))
+    /// Get the best ask (lowest ask price) as (price_string, size_string)
+    pub fn best_ask(&self) -> Option<(String, String)> {
+        self.asks.iter().next().map(|(p, s)| (p.clone(), s.clone()))
     }
 
-    /// Get the spread (best_ask - best_bid)
-    pub fn spread(&self) -> Option<u64> {
+    /// Get the spread as a string (best_ask - best_bid)
+    /// Note: This parses as f64 for the calculation
+    pub fn spread(&self) -> Option<String> {
         match (self.best_bid(), self.best_ask()) {
             (Some((bid, _)), Some((ask, _))) => {
-                if ask > bid {
-                    Some(ask - bid)
+                let bid_f: f64 = bid.parse().ok()?;
+                let ask_f: f64 = ask.parse().ok()?;
+                if ask_f > bid_f {
+                    Some(format!("{:.6}", ask_f - bid_f))
                 } else {
-                    Some(0)
+                    Some("0.000000".to_string())
                 }
             }
             _ => None,
         }
     }
 
-    /// Get the midpoint price
-    pub fn midpoint(&self) -> Option<u64> {
+    /// Get the midpoint price as a string
+    /// Note: This parses as f64 for the calculation
+    pub fn midpoint(&self) -> Option<String> {
         match (self.best_bid(), self.best_ask()) {
-            (Some((bid, _)), Some((ask, _))) => Some((bid + ask) / 2),
+            (Some((bid, _)), Some((ask, _))) => {
+                let bid_f: f64 = bid.parse().ok()?;
+                let ask_f: f64 = ask.parse().ok()?;
+                Some(format!("{:.6}", (bid_f + ask_f) / 2.0))
+            }
             _ => None,
         }
     }
 
     /// Get size at a specific bid price
-    pub fn bid_size_at(&self, price: u64) -> Option<u64> {
-        self.bids.get(&price).copied()
+    pub fn bid_size_at(&self, price: &str) -> Option<String> {
+        self.bids.get(price).cloned()
     }
 
     /// Get size at a specific ask price
-    pub fn ask_size_at(&self, price: u64) -> Option<u64> {
-        self.asks.get(&price).copied()
+    pub fn ask_size_at(&self, price: &str) -> Option<String> {
+        self.asks.get(price).cloned()
     }
 
     /// Get total bid depth (sum of all bid sizes)
-    pub fn total_bid_depth(&self) -> u64 {
-        self.bids.values().sum()
+    /// Note: This parses as f64 for the calculation
+    pub fn total_bid_depth(&self) -> f64 {
+        self.bids.values().filter_map(|s| s.parse::<f64>().ok()).sum()
     }
 
     /// Get total ask depth (sum of all ask sizes)
-    pub fn total_ask_depth(&self) -> u64 {
-        self.asks.values().sum()
+    /// Note: This parses as f64 for the calculation
+    pub fn total_ask_depth(&self) -> f64 {
+        self.asks.values().filter_map(|s| s.parse::<f64>().ok()).sum()
     }
 
     /// Number of bid levels
@@ -258,25 +276,25 @@ mod tests {
             bids: vec![
                 PriceLevel {
                     side: "bid".to_string(),
-                    price: 500000,
-                    size: 1000,
+                    price: "0.500000".to_string(),
+                    size: "0.001000".to_string(),
                 },
                 PriceLevel {
                     side: "bid".to_string(),
-                    price: 490000,
-                    size: 2000,
+                    price: "0.490000".to_string(),
+                    size: "0.002000".to_string(),
                 },
             ],
             asks: vec![
                 PriceLevel {
                     side: "ask".to_string(),
-                    price: 510000,
-                    size: 500,
+                    price: "0.510000".to_string(),
+                    size: "0.000500".to_string(),
                 },
                 PriceLevel {
                     side: "ask".to_string(),
-                    price: 520000,
-                    size: 1500,
+                    price: "0.520000".to_string(),
+                    size: "0.001500".to_string(),
                 },
             ],
             is_snapshot: true,
@@ -296,8 +314,8 @@ mod tests {
         assert_eq!(book.expected_sequence(), 1);
         assert_eq!(book.bid_count(), 2);
         assert_eq!(book.ask_count(), 2);
-        assert_eq!(book.best_bid(), Some((500000, 1000)));
-        assert_eq!(book.best_ask(), Some((510000, 500)));
+        assert_eq!(book.best_bid(), Some(("0.500000".to_string(), "0.001000".to_string())));
+        assert_eq!(book.best_ask(), Some(("0.510000".to_string(), "0.000500".to_string())));
     }
 
     #[test]
@@ -311,13 +329,13 @@ mod tests {
             seq: 1,
             bids: vec![PriceLevel {
                 side: "bid".to_string(),
-                price: 500000,
-                size: 1500, // Updated size
+                price: "0.500000".to_string(),
+                size: "0.001500".to_string(), // Updated size
             }],
             asks: vec![PriceLevel {
                 side: "ask".to_string(),
-                price: 510000,
-                size: 0, // Remove level
+                price: "0.510000".to_string(),
+                size: "0".to_string(), // Remove level
             }],
             is_snapshot: false,
             resync: false,
@@ -326,8 +344,8 @@ mod tests {
 
         book.apply_delta(&delta).unwrap();
 
-        assert_eq!(book.best_bid(), Some((500000, 1500)));
-        assert_eq!(book.best_ask(), Some((520000, 1500)));
+        assert_eq!(book.best_bid(), Some(("0.500000".to_string(), "0.001500".to_string())));
+        assert_eq!(book.best_ask(), Some(("0.520000".to_string(), "0.001500".to_string())));
         assert_eq!(book.ask_count(), 1);
     }
 
@@ -356,8 +374,8 @@ mod tests {
         let mut book = LocalOrderbook::new("test".to_string());
         book.apply_snapshot(&create_snapshot());
 
-        assert_eq!(book.spread(), Some(10000));
-        assert_eq!(book.midpoint(), Some(505000));
+        assert_eq!(book.spread(), Some("0.010000".to_string()));
+        assert_eq!(book.midpoint(), Some("0.505000".to_string()));
     }
 
     #[test]
@@ -365,7 +383,7 @@ mod tests {
         let mut book = LocalOrderbook::new("test".to_string());
         book.apply_snapshot(&create_snapshot());
 
-        assert_eq!(book.total_bid_depth(), 3000);
-        assert_eq!(book.total_ask_depth(), 2000);
+        assert!((book.total_bid_depth() - 0.003).abs() < 0.0001);
+        assert!((book.total_ask_depth() - 0.002).abs() < 0.0001);
     }
 }
