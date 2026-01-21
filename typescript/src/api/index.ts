@@ -4,11 +4,24 @@
  * This module provides HTTP client functionality for interacting with
  * the Lightcone REST API for orderbook data, market info, and more.
  *
+ * @example
+ * ```typescript
+ * import { api } from "@lightcone/sdk";
+ *
+ * const client = new api.LightconeApiClient();
+ * const markets = await client.getMarkets();
+ * ```
+ *
  * @module api
  */
 
-// TODO: Implement API client
-// export { LightconeApiClient } from "./client";
-// export type { ApiConfig, OrderbookResponse, MarketResponse } from "./types";
+// Client
+export { LightconeApiClient, DEFAULT_API_URL } from "./client";
+export type { LightconeApiClientConfig } from "./client";
 
-export {};
+// Error types
+export { ApiError } from "./error";
+export type { ApiErrorVariant, ApiResult, ErrorResponse } from "./error";
+
+// All types
+export * from "./types";

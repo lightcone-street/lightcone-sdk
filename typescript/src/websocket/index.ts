@@ -4,11 +4,108 @@
  * This module provides real-time data streaming functionality for
  * live orderbook updates, trade notifications, and market events.
  *
+ * @example
+ * ```typescript
+ * import { websocket } from "@lightcone/sdk";
+ *
+ * const client = await websocket.LightconeWebSocketClient.connectDefault();
+ *
+ * client.on((event) => {
+ *   if (event.type === "BookUpdate") {
+ *     const book = client.getOrderbook(event.orderbookId);
+ *     console.log("Best bid:", book?.bestBid());
+ *   }
+ * });
+ *
+ * await client.subscribeBookUpdates(["market1:ob1"]);
+ * ```
+ *
  * @module websocket
  */
 
-// TODO: Implement WebSocket client
-// export { LightconeWebSocketClient } from "./client";
-// export type { WebSocketConfig, OrderbookUpdate, TradeEvent } from "./types";
+// Client
+export {
+  LightconeWebSocketClient,
+  DEFAULT_WS_URL,
+} from "./client";
+export type {
+  WebSocketConfig,
+  ConnectionState,
+  EventCallback,
+} from "./client";
 
-export {};
+// Error types
+export { WebSocketError } from "./error";
+export type { WebSocketErrorVariant, WsResult } from "./error";
+
+// Types
+export type {
+  WsRequest,
+  SubscribeParams,
+  BookUpdateParams,
+  TradesParams,
+  UserParams,
+  PriceHistoryParams,
+  MarketParams,
+  RawWsMessage,
+  WsMessage,
+  BookUpdateData,
+  PriceLevel,
+  TradeData,
+  UserEventData,
+  Order,
+  OrderUpdate,
+  Balance,
+  OutcomeBalance,
+  BalanceEntry,
+  PriceHistoryData,
+  Candle,
+  MarketEventData,
+  MarketEventType,
+  ErrorData,
+  ErrorCode,
+  PongData,
+  WsEvent,
+  MessageType,
+  Side,
+  PriceLevelSide,
+} from "./types";
+
+export {
+  createSubscribeRequest,
+  createUnsubscribeRequest,
+  createPingRequest,
+  bookUpdateParams,
+  tradesParams,
+  userParams,
+  priceHistoryParams,
+  marketParams,
+  toCandle,
+  parseMarketEventType,
+  parseErrorCode,
+  parseMessageType,
+  parseSide,
+  sideToNumber,
+  parsePriceLevelSide,
+} from "./types";
+
+// State management
+export { LocalOrderbook, UserState, PriceHistory, PriceHistoryKey } from "./state";
+
+// Subscription management
+export { SubscriptionManager, subscriptionToParams, subscriptionType } from "./subscriptions";
+export type { Subscription } from "./subscriptions";
+
+// Message handlers
+export { MessageHandler } from "./handlers";
+
+// Authentication
+export {
+  AUTH_API_URL,
+  authenticate,
+  authenticateWithKeypair,
+  generateSigninMessage,
+  generateSigninMessageWithTimestamp,
+  signMessage,
+} from "./auth";
+export type { AuthCredentials } from "./auth";
