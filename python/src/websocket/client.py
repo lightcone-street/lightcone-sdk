@@ -6,8 +6,7 @@ import logging
 import random
 from typing import Optional, AsyncIterator, Union
 
-import websockets
-from websockets.client import WebSocketClientProtocol
+from websockets.asyncio.client import connect as ws_connect, ClientConnection
 from websockets.exceptions import ConnectionClosed, InvalidURI
 
 from .error import (
@@ -75,7 +74,7 @@ class LightconeWebSocketClient:
         self._max_delay = max_delay
         self._auth_token = auth_token
 
-        self._ws: Optional[WebSocketClientProtocol] = None
+        self._ws: Optional[ClientConnection] = None
         self._handler = MessageHandler()
         self._subscriptions = SubscriptionManager()
         self._connected = False
@@ -169,12 +168,12 @@ class LightconeWebSocketClient:
             if self._auth_token:
                 extra_headers["Cookie"] = f"auth_token={self._auth_token}"
 
-            self._ws = await websockets.connect(
+            self._ws = await ws_connect(
                 self._url,
                 ping_interval=30,
                 ping_timeout=10,
                 close_timeout=5,
-                extra_headers=extra_headers if extra_headers else None,
+                additional_headers=extra_headers if extra_headers else None,
             )
             self._connected = True
             self._running = True
@@ -283,12 +282,12 @@ class LightconeWebSocketClient:
             if self._auth_token:
                 extra_headers["Cookie"] = f"auth_token={self._auth_token}"
 
-            self._ws = await websockets.connect(
+            self._ws = await ws_connect(
                 self._url,
                 ping_interval=30,
                 ping_timeout=10,
                 close_timeout=5,
-                extra_headers=extra_headers if extra_headers else None,
+                additional_headers=extra_headers if extra_headers else None,
             )
             self._connected = True
 
