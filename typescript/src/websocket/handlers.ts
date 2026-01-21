@@ -127,7 +127,14 @@ export class MessageHandler {
     const eventType = data.event_type;
 
     // Use the tracked subscribed user (single user per connection)
-    const user = this.subscribedUser ?? "unknown";
+    const user = this.subscribedUser;
+    if (!user) {
+      console.warn(
+        `Received user event '${eventType}' but no user subscription exists. ` +
+          `Call subscribeUser() before receiving events to avoid data loss.`
+      );
+      return [{ type: "UserUpdate", eventType, user: "unknown" }];
+    }
 
     // Update local state for the subscribed user
     const state = this.userStates.get(user);

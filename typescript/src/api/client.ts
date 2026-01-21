@@ -186,7 +186,10 @@ export class LightconeApiClient {
    * @returns Market details
    */
   async getMarket(marketPubkey: string): Promise<MarketInfoResponse> {
-    return this.request<MarketInfoResponse>("GET", `/markets/${marketPubkey}`);
+    return this.request<MarketInfoResponse>(
+      "GET",
+      `/markets/${encodeURIComponent(marketPubkey)}`
+    );
   }
 
   /**
@@ -196,7 +199,10 @@ export class LightconeApiClient {
    * @returns Market details
    */
   async getMarketBySlug(slug: string): Promise<MarketInfoResponse> {
-    return this.request<MarketInfoResponse>("GET", `/markets/by-slug/${slug}`);
+    return this.request<MarketInfoResponse>(
+      "GET",
+      `/markets/by-slug/${encodeURIComponent(slug)}`
+    );
   }
 
   /**
@@ -208,7 +214,7 @@ export class LightconeApiClient {
   async getDepositAssets(marketPubkey: string): Promise<DepositAssetsResponse> {
     return this.request<DepositAssetsResponse>(
       "GET",
-      `/markets/${marketPubkey}/deposit-assets`
+      `/markets/${encodeURIComponent(marketPubkey)}/deposit-assets`
     );
   }
 
@@ -229,7 +235,7 @@ export class LightconeApiClient {
   ): Promise<OrderbookResponse> {
     return this.request<OrderbookResponse>(
       "GET",
-      `/orderbook/${orderbookId}`,
+      `/orderbook/${encodeURIComponent(orderbookId)}`,
       undefined,
       toQueryParams({ depth })
     );
@@ -292,7 +298,7 @@ export class LightconeApiClient {
   async getUserPositions(userPubkey: string): Promise<PositionsResponse> {
     return this.request<PositionsResponse>(
       "GET",
-      `/users/${userPubkey}/positions`
+      `/users/${encodeURIComponent(userPubkey)}/positions`
     );
   }
 
@@ -309,7 +315,7 @@ export class LightconeApiClient {
   ): Promise<MarketPositionsResponse> {
     return this.request<MarketPositionsResponse>(
       "GET",
-      `/users/${userPubkey}/markets/${marketPubkey}/positions`
+      `/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`
     );
   }
 

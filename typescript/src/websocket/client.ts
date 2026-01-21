@@ -38,6 +38,8 @@ export interface WebSocketConfig {
   maxDelayMs?: number;
   /** Interval for client ping (seconds) */
   pingIntervalSecs?: number;
+  /** Timeout for pong response (seconds) - if no pong received within this time, reconnect */
+  pongTimeoutSecs?: number;
   /** Whether to automatically reconnect on disconnect */
   autoReconnect?: boolean;
   /** Whether to automatically re-subscribe after reconnect */
@@ -93,6 +95,8 @@ export class LightconeWebSocketClient {
   private eventCallbacks: EventCallback[] = [];
   private authCredentials?: AuthCredentials;
   private subscribedUser: string | null = null;
+  private lastPong: number = Date.now();
+  private awaitingPong: boolean = false;
 
   constructor(url: string = DEFAULT_WS_URL, config: WebSocketConfig = {}) {
     this.url = url;
@@ -101,6 +105,7 @@ export class LightconeWebSocketClient {
       baseDelayMs: config.baseDelayMs ?? 1000,
       maxDelayMs: config.maxDelayMs ?? 30000,
       pingIntervalSecs: config.pingIntervalSecs ?? 30,
+      pongTimeoutSecs: config.pongTimeoutSecs ?? 60,
       autoReconnect: config.autoReconnect ?? true,
       autoResubscribe: config.autoResubscribe ?? true,
       authToken: config.authToken ?? "",
@@ -202,6 +207,11 @@ export class LightconeWebSocketClient {
       this.ws.onmessage = (event) => {
         const events = this.handler.handleMessage(event.data as string);
         for (const wsEvent of events) {
+          // Track pong responses for timeout detection
+          if (wsEvent.type === "Pong") {
+            this.lastPong = Date.now();
+            this.awaitingPong = false;
+          }
           this.emitEvent(wsEvent);
         }
       };
@@ -286,7 +296,29 @@ export class LightconeWebSocketClient {
    */
   private startPingInterval(): void {
     this.stopPingInterval();
+    // Reset pong tracking state on new connection
+    this.lastPong = Date.now();
+    this.awaitingPong = false;
+
     this.pingInterval = setInterval(() => {
+      // Check if we're still waiting for a pong from a previous ping
+      if (this.awaitingPong) {
+        const elapsed = (Date.now() - this.lastPong) / 1000;
+        if (elapsed > this.config.pongTimeoutSecs) {
+          console.warn(
+            `Pong timeout: no response in ${elapsed.toFixed(1)}s (limit: ${this.config.pongTimeoutSecs}s)`
+          );
+          this.emitEvent({
+            type: "Error",
+            error: WebSocketError.connectionFailed("Pong timeout - connection appears dead"),
+          });
+          // Trigger reconnection by closing the socket
+          if (this.ws && this.state === "Connected") {
+            this.ws.close(4000, "Pong timeout");
+          }
+          return;
+        }
+      }
       this.ping();
     }, this.config.pingIntervalSecs * 1000);
   }
@@ -463,20 +495,33 @@ export class LightconeWebSocketClient {
    * Send a ping request.
    */
   ping(): void {
+    this.awaitingPong = true;
     this.send(createPingRequest());
   }
 
   /**
    * Disconnect from the server.
+   * Returns a Promise that resolves when the connection is fully closed.
    */
   async disconnect(): Promise<void> {
+    if (!this.ws || this.state === "Disconnected") {
+      return;
+    }
+
     this.state = "Disconnecting";
     this.stopPingInterval();
-    if (this.ws) {
-      this.ws.close(1000, "Client disconnect");
-      this.ws = null;
-    }
-    this.state = "Disconnected";
+
+    return new Promise((resolve) => {
+      const ws = this.ws!;
+      const onClose = () => {
+        ws.removeEventListener("close", onClose);
+        this.ws = null;
+        this.state = "Disconnected";
+        resolve();
+      };
+      ws.addEventListener("close", onClose);
+      ws.close(1000, "Client disconnect");
+    });
   }
 
   /**
