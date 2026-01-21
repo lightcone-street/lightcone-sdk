@@ -249,10 +249,12 @@ export class LightconeWebSocketClient {
     this.state = "Reconnecting";
     this.emitEvent({ type: "Reconnecting", attempt: this.reconnectAttempt });
 
-    const delay =
+    // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
+    const maxDelay =
       this.config.baseDelayMs *
       Math.pow(2, this.reconnectAttempt - 1);
-    const cappedDelay = Math.min(delay, this.config.maxDelayMs);
+    const jitteredDelay = Math.random() * maxDelay;
+    const cappedDelay = Math.min(jitteredDelay, this.config.maxDelayMs);
 
     await this.sleep(cappedDelay);
 

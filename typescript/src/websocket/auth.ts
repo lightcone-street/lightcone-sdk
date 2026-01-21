@@ -21,6 +21,9 @@ import { WebSocketError } from "./error";
 /** Authentication API base URL */
 export const AUTH_API_URL = "https://lightcone.xyz/api";
 
+/** Authentication timeout in milliseconds */
+const AUTH_TIMEOUT_MS = 10000;
+
 /**
  * Authentication credentials returned after successful login.
  */
@@ -110,16 +113,33 @@ export async function authenticateWithKeypair(
     signature: signatureB58,
   };
 
-  // Send the authentication request
+  // Send the authentication request with timeout
   const url = `${AUTH_API_URL}/auth/login_or_register_with_message`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(request),
-    credentials: "include",
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(request),
+      credentials: "include",
+      signal: controller.signal,
+    });
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error instanceof Error && error.name === "AbortError") {
+      throw WebSocketError.authenticationFailed(
+        "Authentication request timed out"
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 
   // Check for HTTP errors
   if (!response.ok) {

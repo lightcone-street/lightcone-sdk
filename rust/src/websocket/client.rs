@@ -8,6 +8,8 @@ use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
+use rand::Rng;
+
 use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::{SinkExt, Stream, StreamExt};
 use pin_project_lite::pin_project;
@@ -630,8 +632,10 @@ async fn connection_task(
                                 attempt: reconnect_attempt,
                             }).await;
 
-                            let delay = config.base_delay_ms * 2u64.pow(reconnect_attempt.saturating_sub(1));
-                            let delay = delay.min(config.max_delay_ms);
+                            // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
+                            let max_delay = config.base_delay_ms * 2u64.pow(reconnect_attempt.saturating_sub(1));
+                            let jittered_delay = rand::thread_rng().gen_range(0..=max_delay);
+                            let delay = jittered_delay.min(config.max_delay_ms);
                             tokio::time::sleep(Duration::from_millis(delay)).await;
 
                             // Try to reconnect

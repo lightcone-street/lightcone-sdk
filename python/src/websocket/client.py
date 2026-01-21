@@ -3,6 +3,7 @@
 import asyncio
 import json
 import logging
+import random
 from typing import Optional, AsyncIterator, Union
 
 import websockets
@@ -54,6 +55,8 @@ class LightconeWebSocketClient:
         reconnect: bool = True,
         max_reconnect_attempts: int = 5,
         reconnect_delay: float = 1.0,
+        max_delay: float = 30.0,
+        auth_token: Optional[str] = None,
     ):
         """Create a new WebSocket client.
 
@@ -62,11 +65,15 @@ class LightconeWebSocketClient:
             reconnect: Whether to automatically reconnect on disconnect
             max_reconnect_attempts: Maximum number of reconnect attempts
             reconnect_delay: Initial delay between reconnect attempts (exponential backoff)
+            max_delay: Maximum delay between reconnect attempts in seconds
+            auth_token: Optional authentication token for private streams
         """
         self._url = url
         self._reconnect = reconnect
         self._max_reconnect_attempts = max_reconnect_attempts
         self._reconnect_delay = reconnect_delay
+        self._max_delay = max_delay
+        self._auth_token = auth_token
 
         self._ws: Optional[WebSocketClientProtocol] = None
         self._handler = MessageHandler()
@@ -83,6 +90,8 @@ class LightconeWebSocketClient:
         reconnect: bool = True,
         max_reconnect_attempts: int = 5,
         reconnect_delay: float = 1.0,
+        max_delay: float = 30.0,
+        auth_token: Optional[str] = None,
     ) -> "LightconeWebSocketClient":
         """Connect to the WebSocket server.
 
@@ -91,6 +100,8 @@ class LightconeWebSocketClient:
             reconnect: Whether to automatically reconnect on disconnect
             max_reconnect_attempts: Maximum number of reconnect attempts
             reconnect_delay: Initial delay between reconnect attempts
+            max_delay: Maximum delay between reconnect attempts in seconds
+            auth_token: Optional authentication token for private streams
 
         Returns:
             Connected LightconeWebSocketClient instance
@@ -99,9 +110,53 @@ class LightconeWebSocketClient:
             ConnectionFailedError: If connection fails
             InvalidUrlError: If URL is invalid
         """
-        client = cls(url, reconnect, max_reconnect_attempts, reconnect_delay)
+        client = cls(
+            url, reconnect, max_reconnect_attempts, reconnect_delay, max_delay, auth_token
+        )
         await client._connect()
         return client
+
+    @classmethod
+    async def connect_authenticated(
+        cls,
+        signing_key,  # SigningKey from nacl.signing
+        url: str = "wss://ws.lightcone.xyz/ws",
+        reconnect: bool = True,
+        max_reconnect_attempts: int = 5,
+        reconnect_delay: float = 1.0,
+        max_delay: float = 30.0,
+    ) -> "LightconeWebSocketClient":
+        """Connect to the WebSocket server with authentication.
+
+        This method authenticates with the Lightcone API and then connects
+        to the WebSocket server with the obtained auth token.
+
+        Args:
+            signing_key: The Ed25519 signing key for authentication
+            url: WebSocket URL to connect to
+            reconnect: Whether to automatically reconnect on disconnect
+            max_reconnect_attempts: Maximum number of reconnect attempts
+            reconnect_delay: Initial delay between reconnect attempts
+            max_delay: Maximum delay between reconnect attempts in seconds
+
+        Returns:
+            Connected and authenticated LightconeWebSocketClient instance
+
+        Raises:
+            WebSocketError: If authentication fails
+            ConnectionFailedError: If connection fails
+        """
+        from .auth import authenticate
+
+        credentials = await authenticate(signing_key)
+        return await cls.connect(
+            url,
+            reconnect,
+            max_reconnect_attempts,
+            reconnect_delay,
+            max_delay,
+            credentials.auth_token,
+        )
 
     async def _connect(self) -> None:
         """Internal connect implementation."""
@@ -109,11 +164,17 @@ class LightconeWebSocketClient:
             raise AlreadyConnectedError()
 
         try:
+            # Build extra headers for authentication
+            extra_headers = {}
+            if self._auth_token:
+                extra_headers["Cookie"] = f"auth_token={self._auth_token}"
+
             self._ws = await websockets.connect(
                 self._url,
                 ping_interval=30,
                 ping_timeout=10,
                 close_timeout=5,
+                extra_headers=extra_headers if extra_headers else None,
             )
             self._connected = True
             self._running = True
@@ -207,18 +268,27 @@ class LightconeWebSocketClient:
             self._running = False
             return
 
-        delay = self._reconnect_delay * (2**attempt)
-        logger.info(f"Reconnecting in {delay}s (attempt {attempt + 1})")
+        # Full jitter: randomize between 0 and exponential delay to prevent thundering herd
+        max_delay = self._reconnect_delay * (2**attempt)
+        jittered_delay = random.uniform(0, max_delay)
+        delay = min(jittered_delay, self._max_delay)
+        logger.info(f"Reconnecting in {delay:.2f}s (attempt {attempt + 1})")
 
         await self._event_queue.put(WsEvent.reconnecting(attempt + 1))
         await asyncio.sleep(delay)
 
         try:
+            # Build extra headers for authentication
+            extra_headers = {}
+            if self._auth_token:
+                extra_headers["Cookie"] = f"auth_token={self._auth_token}"
+
             self._ws = await websockets.connect(
                 self._url,
                 ping_interval=30,
                 ping_timeout=10,
                 close_timeout=5,
+                extra_headers=extra_headers if extra_headers else None,
             )
             self._connected = True
 

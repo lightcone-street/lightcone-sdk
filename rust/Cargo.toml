@@ -31,6 +31,7 @@ spl-associated-token-account = "8.0"
 thiserror = "2.0"
 bs58 = "0.5"
 lazy_static = "1.5"
+rand = "0.8"
 
 # HTTP client (for API module)
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"] }

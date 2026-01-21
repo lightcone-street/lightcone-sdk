@@ -11,7 +11,7 @@
 //! 4. Extract `auth_token` from response cookie
 //! 5. Connect to WebSocket with the auth token
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signer, SigningKey};
 use reqwest::cookie::Jar;
@@ -22,6 +22,9 @@ use crate::websocket::error::{WebSocketError, WsResult};
 
 /// Authentication API base URL
 pub const AUTH_API_URL: &str = "https://lightcone.xyz/api";
+
+/// Authentication request timeout
+const AUTH_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Authentication credentials returned after successful login
 #[derive(Debug, Clone)]
@@ -124,10 +127,11 @@ pub async fn authenticate(signing_key: &SigningKey) -> WsResult<AuthCredentials>
         signature: signature_b58,
     };
 
-    // Create client with cookie jar to capture auth_token
+    // Create client with cookie jar to capture auth_token and timeout
     let jar = std::sync::Arc::new(Jar::default());
     let client = Client::builder()
         .cookie_provider(jar.clone())
+        .timeout(AUTH_TIMEOUT)
         .build()
         .map_err(|e| WebSocketError::HttpError(e.to_string()))?;
 
