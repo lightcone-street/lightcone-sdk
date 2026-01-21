@@ -32,6 +32,7 @@ thiserror = "2.0"
 bs58 = "0.5"
 lazy_static = "1.5"
 rand = "0.8"
+urlencoding = "2.1"
 
 # HTTP client (for API module)
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "cookies"] }

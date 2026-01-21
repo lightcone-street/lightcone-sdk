@@ -12,12 +12,26 @@ pub enum ApiOrderSide {
     Ask = 1,
 }
 
-impl From<u32> for ApiOrderSide {
-    fn from(value: u32) -> Self {
+/// Error returned when trying to convert an invalid value to ApiOrderSide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidOrderSideError(pub u32);
+
+impl std::fmt::Display for InvalidOrderSideError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid order side value: {} (expected 0 for Bid or 1 for Ask)", self.0)
+    }
+}
+
+impl std::error::Error for InvalidOrderSideError {}
+
+impl TryFrom<u32> for ApiOrderSide {
+    type Error = InvalidOrderSideError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::Bid,
-            1 => Self::Ask,
-            _ => Self::Bid, // Default to Bid for unknown values
+            0 => Ok(Self::Bid),
+            1 => Ok(Self::Ask),
+            _ => Err(InvalidOrderSideError(value)),
         }
     }
 }

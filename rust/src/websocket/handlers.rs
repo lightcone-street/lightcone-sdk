@@ -167,6 +167,13 @@ impl MessageHandler {
         let mut user_states = self.user_states.write().await;
         if let Some(state) = user_states.get_mut(&user) {
             state.apply_event(&data);
+        } else {
+            tracing::warn!(
+                "Received user event '{}' for user '{}' but no subscription exists. \
+                 Call subscribe_user() before receiving events to avoid data loss.",
+                event_type,
+                user
+            );
         }
 
         vec![WsEvent::UserUpdate { event_type, user }]
@@ -220,6 +227,14 @@ impl MessageHandler {
                 );
                 history.apply_event(&data);
                 histories.insert(key, history);
+            } else {
+                tracing::warn!(
+                    "Received price history event '{}' for orderbook '{}' resolution '{}' \
+                     but no subscription exists. Event dropped.",
+                    data.event_type,
+                    orderbook_id,
+                    resolution
+                );
             }
         }
 
@@ -269,26 +284,27 @@ impl MessageHandler {
         }]
     }
 
-    /// Initialize orderbook state for a subscription
+    /// Initialize orderbook state for a subscription.
+    ///
+    /// Uses atomic entry API to avoid race conditions with message handlers.
     pub async fn init_orderbook(&self, orderbook_id: &str) {
         let mut orderbooks = self.orderbooks.write().await;
-        if !orderbooks.contains_key(orderbook_id) {
-            orderbooks.insert(
-                orderbook_id.to_string(),
-                LocalOrderbook::new(orderbook_id.to_string()),
-            );
-        }
+        orderbooks
+            .entry(orderbook_id.to_string())
+            .or_insert_with(|| LocalOrderbook::new(orderbook_id.to_string()));
     }
 
-    /// Initialize user state for a subscription
+    /// Initialize user state for a subscription.
+    ///
+    /// Uses atomic entry API to avoid race conditions with message handlers.
     pub async fn init_user_state(&self, user: &str) {
         // Track the subscribed user
         *self.subscribed_user.write().await = Some(user.to_string());
 
         let mut user_states = self.user_states.write().await;
-        if !user_states.contains_key(user) {
-            user_states.insert(user.to_string(), UserState::new(user.to_string()));
-        }
+        user_states
+            .entry(user.to_string())
+            .or_insert_with(|| UserState::new(user.to_string()));
     }
 
     /// Clear the subscribed user

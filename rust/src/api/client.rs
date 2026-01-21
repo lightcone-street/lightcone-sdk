@@ -88,11 +88,19 @@ impl LightconeApiClientBuilder {
         );
 
         for (name, value) in self.default_headers {
-            if let (Ok(header_name), Ok(header_value)) = (
+            match (
                 reqwest::header::HeaderName::try_from(name.as_str()),
                 reqwest::header::HeaderValue::from_str(&value),
             ) {
-                headers.insert(header_name, header_value);
+                (Ok(header_name), Ok(header_value)) => {
+                    headers.insert(header_name, header_value);
+                }
+                (Err(e), _) => {
+                    tracing::warn!("Invalid header name '{}': {}", name, e);
+                }
+                (_, Err(e)) => {
+                    tracing::warn!("Invalid header value for '{}': {}", name, e);
+                }
             }
         }
 
@@ -121,10 +129,12 @@ impl LightconeApiClient {
     /// Create a new client with the given base URL.
     ///
     /// Uses default settings (30s timeout, connection pooling).
-    pub fn new(base_url: impl Into<String>) -> Self {
-        LightconeApiClientBuilder::new(base_url)
-            .build()
-            .expect("Failed to build default HTTP client")
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be initialized.
+    pub fn new(base_url: impl Into<String>) -> ApiResult<Self> {
+        LightconeApiClientBuilder::new(base_url).build()
     }
 
     /// Create a new client builder for custom configuration.
@@ -154,7 +164,13 @@ impl LightconeApiClient {
             })
         } else {
             // Try to parse error response
-            let error_text = response.text().await.unwrap_or_default();
+            let error_text = match response.text().await {
+                Ok(text) => text,
+                Err(e) => {
+                    tracing::warn!("Failed to read error response body: {}", e);
+                    format!("HTTP {} (body unreadable: {})", status, e)
+                }
+            };
             let error_msg = if let Ok(err) = serde_json::from_str::<ErrorResponse>(&error_text) {
                 err.get_message()
             } else {
@@ -251,7 +267,8 @@ impl LightconeApiClient {
         orderbook_id: &str,
         depth: Option<u32>,
     ) -> ApiResult<OrderbookResponse> {
-        let mut url = format!("{}/api/orderbook/{}", self.base_url, orderbook_id);
+        let encoded_id = urlencoding::encode(orderbook_id);
+        let mut url = format!("{}/api/orderbook/{}", self.base_url, encoded_id);
 
         if let Some(d) = depth {
             url.push_str(&format!("?depth={}", d));
@@ -348,13 +365,14 @@ impl LightconeApiClient {
         &self,
         params: PriceHistoryParams,
     ) -> ApiResult<PriceHistoryResponse> {
+        let encoded_orderbook_id = urlencoding::encode(&params.orderbook_id);
         let mut url = format!(
             "{}/api/price-history?orderbook_id={}",
-            self.base_url, params.orderbook_id
+            self.base_url, encoded_orderbook_id
         );
 
         if let Some(resolution) = params.resolution {
-            url.push_str(&format!("&resolution={}", resolution));
+            url.push_str(&format!("&resolution={}", urlencoding::encode(&resolution.to_string())));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -382,13 +400,14 @@ impl LightconeApiClient {
 
     /// Get executed trades.
     pub async fn get_trades(&self, params: TradesParams) -> ApiResult<TradesResponse> {
+        let encoded_orderbook_id = urlencoding::encode(&params.orderbook_id);
         let mut url = format!(
             "{}/api/trades?orderbook_id={}",
-            self.base_url, params.orderbook_id
+            self.base_url, encoded_orderbook_id
         );
 
         if let Some(user_pubkey) = params.user_pubkey {
-            url.push_str(&format!("&user_pubkey={}", user_pubkey));
+            url.push_str(&format!("&user_pubkey={}", urlencoding::encode(&user_pubkey)));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -436,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = LightconeApiClient::new("https://api.lightcone.xyz");
+        let client = LightconeApiClient::new("https://api.lightcone.xyz").unwrap();
         assert_eq!(client.base_url(), "https://api.lightcone.xyz");
     }
 
