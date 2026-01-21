@@ -1,8 +1,8 @@
 [package]
-name = "lightcone-pinocchio-sdk"
+name = "lightcone-sdk"
 version = "0.1.0"
 edition = "2021"
-description = "Rust SDK for the Lightcone Pinocchio program on Solana"
+description = "Rust SDK for the Lightcone Protcol"
 license = "MIT"
 repository = "https://github.com/0xZohan/lightcone"
 keywords = ["solana", "lightcone", "sdk", "defi"]
