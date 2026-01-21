@@ -2,8 +2,8 @@
 
 This SDK provides three main modules:
 - `program`: On-chain program interaction (smart contract)
-- `api`: REST API client (coming soon)
-- `websocket`: Real-time data streaming (coming soon)
+- `api`: REST API client
+- `websocket`: Real-time data streaming
 
 Example:
     from lightcone_sdk import LightconePinocchioClient, PROGRAM_ID
@@ -11,6 +11,12 @@ Example:
     # Or import from specific modules
     from lightcone_sdk.program import LightconePinocchioClient
     from lightcone_sdk.shared import PROGRAM_ID
+
+    # API client
+    from lightcone_sdk.api import LightconeApiClient
+
+    # WebSocket client
+    from lightcone_sdk.websocket import LightconeWebSocketClient
 """
 
 __version__ = "0.1.0"
@@ -90,6 +96,18 @@ from .program import (
 )
 
 # ============================================================================
+# CONVENIENCE RE-EXPORTS FROM API MODULE
+# ============================================================================
+
+from .api import LightconeApiClient
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM WEBSOCKET MODULE
+# ============================================================================
+
+from .websocket import LightconeWebSocketClient
+
+# ============================================================================
 # CONVENIENCE RE-EXPORTS FROM SHARED MODULE
 # ============================================================================
 
@@ -164,8 +182,10 @@ __all__ = [
     "shared",
     "api",
     "websocket",
-    # Client
+    # Clients
     "LightconePinocchioClient",
+    "LightconeApiClient",
+    "LightconeWebSocketClient",
     # Types - Enums
     "MarketStatus",
     "OrderSide",

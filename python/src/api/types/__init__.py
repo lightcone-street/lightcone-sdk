@@ -1,36 +1,6 @@
-"""REST API client module for Lightcone.
+"""API type definitions for the Lightcone REST API."""
 
-This module provides HTTP client functionality for interacting with
-the Lightcone REST API for orderbook data, market info, and more.
-
-Example:
-    ```python
-    from lightcone_sdk.api import LightconeApiClient
-
-    async with LightconeApiClient("https://api.lightcone.xyz") as client:
-        markets = await client.get_markets()
-        print(f"Found {markets.total} markets")
-    ```
-"""
-
-from .client import LightconeApiClient
-
-from .error import (
-    ApiError,
-    HttpError,
-    NotFoundError,
-    BadRequestError,
-    ForbiddenError,
-    ConflictError,
-    ServerError,
-    DeserializeError,
-    InvalidParameterError,
-    UnexpectedStatusError,
-    ErrorResponse,
-)
-
-from .types import (
-    # Market types
+from .market import (
     ApiMarketStatus,
     Outcome,
     OrderbookSummary,
@@ -40,10 +10,14 @@ from .types import (
     MarketsResponse,
     MarketInfoResponse,
     DepositAssetsResponse,
-    # Orderbook types
+)
+
+from .orderbook import (
     PriceLevel,
     OrderbookResponse,
-    # Order types
+)
+
+from .order import (
     ApiOrderSide,
     OrderStatus,
     Fill,
@@ -58,40 +32,34 @@ from .types import (
     UserBalance,
     GetUserOrdersRequest,
     UserOrdersResponse,
-    # Position types
+)
+
+from .position import (
     OutcomeBalance,
     Position,
     PositionsResponse,
     MarketPositionsResponse,
-    # Price history types
+)
+
+from .price_history import (
     PricePoint,
     PriceHistoryParams,
     PriceHistoryResponse,
-    # Trade types
+)
+
+from .trade import (
     Trade,
     TradesParams,
     TradesResponse,
-    # Admin types
+)
+
+from .admin import (
     AdminResponse,
     CreateOrderbookRequest,
     CreateOrderbookResponse,
 )
 
 __all__ = [
-    # Client
-    "LightconeApiClient",
-    # Errors
-    "ApiError",
-    "HttpError",
-    "NotFoundError",
-    "BadRequestError",
-    "ForbiddenError",
-    "ConflictError",
-    "ServerError",
-    "DeserializeError",
-    "InvalidParameterError",
-    "UnexpectedStatusError",
-    "ErrorResponse",
     # Market types
     "ApiMarketStatus",
     "Outcome",

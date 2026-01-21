@@ -73,6 +73,7 @@ from .types import (
     OutcomeMetadata,
     Position,
     RedeemWinningsParams,
+    Resolution,
     SettleMarketParams,
     UserNonce,
     WithdrawFromPositionParams,
@@ -112,6 +113,7 @@ __all__ = [
     # Types
     "MarketStatus",
     "OrderSide",
+    "Resolution",
     "Exchange",
     "Market",
     "Position",
