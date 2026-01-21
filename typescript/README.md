@@ -1,391 +1,231 @@
-# Lightcone Pinocchio SDK
+# Lightcone TypeScript SDK
 
-TypeScript SDK for interacting with the Lightcone Pinocchio program on Solana.
+TypeScript SDK for the Lightcone protocol on Solana.
 
-## Features
-
-- **Full instruction coverage**: All 14 program instructions supported
-- **Type-safe**: Full TypeScript support with comprehensive types
-- **Efficient order matching**: Cross-instruction Ed25519 signature verification for minimal transaction size
-- **Complete set operations**: Mint and merge conditional tokens
-- **Order management**: Create, sign, and cancel orders
-- **Position management**: Deposit, withdraw, and track positions
-
-## Installation (TBC - Will deploy to NPM shortly)
+## Installation
 
 ```bash
-npm install @lightcone/pinocchio-sdk
+npm install @lightcone/sdk
 ```
 
+## Modules
+
+| Module | Description |
+|--------|-------------|
+| [`program`](src/program/README.md) | On-chain Solana program interaction (accounts, transactions, orders, Ed25519 verification) |
+| [`api`](src/api/README.md) | REST API client for market data and order management |
+| [`websocket`](src/websocket/README.md) | Real-time data streaming via WebSocket |
+| [`shared`](src/shared/README.md) | Shared utilities (Resolution, constants, decimal helpers) |
+
 ## Quick Start
+
+```typescript
+import { LightconePinocchioClient, PROGRAM_ID, api, websocket } from "@lightcone/sdk";
+```
+
+### REST API
+
+Query markets, submit orders, and manage positions via the REST API.
+
+```typescript
+import { api } from "@lightcone/sdk";
+
+const client = new api.LightconeApiClient();
+
+// Get markets
+const markets = await client.getMarkets();
+console.log(`Found ${markets.total} markets`);
+
+// Get orderbook depth
+const orderbook = await client.getOrderbook("orderbook_id", 10);
+console.log(`Best bid: ${orderbook.best_bid}`);
+console.log(`Best ask: ${orderbook.best_ask}`);
+
+// Get user positions
+const positions = await client.getUserPositions("user_pubkey");
+```
+
+### On-Chain Program
+
+Build transactions for on-chain operations: minting positions, matching orders, redeeming winnings.
+
+```typescript
+import { Connection, Keypair } from "@solana/web3.js";
+import { LightconePinocchioClient, BidOrderParams } from "@lightcone/sdk";
+
+const connection = new Connection("https://api.devnet.solana.com");
+const client = new LightconePinocchioClient(connection);
+
+// Fetch account state
+const exchange = await client.getExchange();
+const market = await client.getMarket(0n);
+console.log(`Market status: ${market.status}`);
+
+// Create a signed order
+const keypair = Keypair.generate();
+const nonce = await client.getNextNonce(keypair.publicKey);
+
+const order = client.signFullOrder(
+  client.createBidOrder({
+    nonce,
+    maker: keypair.publicKey,
+    market: client.pda.getMarketPda(0n, client.programId)[0],
+    baseMint: conditionalTokenMint,
+    quoteMint: usdcMint,
+    makerAmount: 1_000_000n, // 1 USDC
+    takerAmount: 500_000n,   // 0.5 outcome tokens
+    expiration: 0n,
+  }),
+  keypair
+);
+```
+
+### WebSocket
+
+Stream real-time orderbook updates, trades, and user events.
+
+```typescript
+import { websocket } from "@lightcone/sdk";
+
+const client = await websocket.LightconeWebSocketClient.connectDefault();
+
+// Subscribe to orderbook updates
+client.subscribeBookUpdates(["market:orderbook"]);
+
+// Register event handler
+client.on((event) => {
+  if (event.type === "BookUpdate") {
+    const book = client.getOrderbook(event.orderbookId);
+    if (book) {
+      console.log(`Best bid: ${book.bestBid()}`);
+      console.log(`Best ask: ${book.bestAsk()}`);
+    }
+  } else if (event.type === "Trade") {
+    console.log(`Trade: ${event.trade.size} @ ${event.trade.price}`);
+  } else if (event.type === "Disconnected") {
+    console.log(`Disconnected: ${event.reason}`);
+  }
+});
+```
+
+## Module Overview
+
+### Program Module
+
+Direct interaction with the Lightcone Solana program:
+
+- **Account Types**: Exchange, Market, Position, OrderStatus, UserNonce
+- **Transaction Builders**: All 14 instructions (mint, merge, match, settle, etc.)
+- **PDA Derivation**: 8 PDA functions with seeds
+- **Order Types**: FullOrder (225 bytes), CompactOrder (65 bytes)
+- **Ed25519 Verification**: Three strategies (individual, batch, cross-reference)
 
 ```typescript
 import {
   LightconePinocchioClient,
   createBidOrder,
   signOrderFull,
-} from "@lightcone/pinocchio-sdk";
-import { Connection, Keypair } from "@solana/web3.js";
-
-// Initialize client
-const connection = new Connection(process.env.RPC_URL);
-const client = new LightconePinocchioClient(connection);
+  hashOrder,
+} from "@lightcone/sdk";
 
 // Create and sign an order
 const order = signOrderFull(
   createBidOrder({
-    nonce: 0n,
-    maker: wallet.publicKey,
+    nonce: 1n,
+    maker: pubkey,
     market: marketPda,
-    baseMint: yesTokenMint,
-    quoteMint: noTokenMint,
+    baseMint: yesToken,
+    quoteMint: noToken,
     makerAmount: 100_000n,
-    takerAmount: 100_000n,
-    expiration: BigInt(Math.floor(Date.now() / 1000) + 3600),
+    takerAmount: 50_000n,
+    expiration: 0n,
   }),
-  wallet
+  keypair
 );
+const orderHash = hashOrder(order);
 ```
 
-## Program Instructions
+### API Module
 
-The SDK supports all 14 Lightcone Pinocchio program instructions:
+REST API client with typed requests and responses:
 
-| # | Instruction | Description |
-|---|-------------|-------------|
-| 0 | `initialize` | Initialize the exchange (one-time setup) |
-| 1 | `createMarket` | Create a new market |
-| 2 | `addDepositMint` | Configure collateral token and create conditional mints |
-| 3 | `mintCompleteSet` | Deposit collateral to mint YES + NO tokens |
-| 4 | `mergeCompleteSet` | Burn YES + NO tokens to withdraw collateral |
-| 5 | `cancelOrder` | Cancel an open order |
-| 6 | `incrementNonce` | Increment user nonce (invalidates old orders) |
-| 7 | `settleMarket` | Settle market with winning outcome |
-| 8 | `redeemWinnings` | Redeem winning tokens for collateral |
-| 9 | `setPaused` | Pause/unpause the exchange (admin) |
-| 10 | `setOperator` | Change the operator address (admin) |
-| 11 | `withdrawFromPosition` | Withdraw tokens from position to wallet |
-| 12 | `activateMarket` | Activate a pending market |
-| 13 | `matchOrdersMulti` | Match taker against up to 5 makers |
-
-## Client Methods
-
-### Exchange Management
+- **Markets**: getMarkets, getMarket, getMarketBySlug
+- **Orderbooks**: getOrderbook with depth parameter
+- **Orders**: submitOrder, cancelOrder, cancelAllOrders
+- **Positions**: getUserPositions, getUserMarketPositions
+- **Trades**: getTrades with filters
+- **Price History**: getPriceHistory with OHLCV
 
 ```typescript
-// Initialize exchange
-const result = await client.initialize({
-  authority: authorityPubkey,
-  operator: operatorPubkey,
-});
+import { api } from "@lightcone/sdk";
 
-// Set paused state
-await client.setPaused(authority, true);
-
-// Change operator
-await client.setOperator(authority, newOperatorPubkey);
-```
-
-### Market Operations
-
-```typescript
-// Create market
-const result = await client.createMarket({
-  authority: authorityPubkey,
-  numOutcomes: 2,
-  oracle: oraclePubkey,
-  questionId: questionIdBuffer, // 32-byte Buffer
-});
-
-// Add deposit mint (numOutcomes required as 2nd parameter)
-await client.addDepositMint(
-  {
-    authority: authorityPubkey,
-    marketId: 0n,
-    depositMint: usdcMint,
-    outcomeMetadata: [
-      { name: "YES", symbol: "YES", uri: "https://..." },
-      { name: "NO", symbol: "NO", uri: "https://..." },
-    ],
-  },
-  2 // numOutcomes
-);
-
-// Activate market
-await client.activateMarket({
-  authority: authorityPubkey,
-  marketId: 0n,
-});
-
-// Settle market
-await client.settleMarket({
-  oracle: oraclePubkey,
-  marketId: 0n,
-  winningOutcome: 0,
+const client = new api.LightconeApiClient();
+const response = await client.submitOrder({
+  maker: "pubkey",
+  nonce: 1,
+  market_pubkey: "market",
+  base_token: "base",
+  quote_token: "quote",
+  side: 0, // BID
+  maker_amount: 1000000,
+  taker_amount: 500000,
+  expiration: 0,
+  signature: "hex_signature",
+  orderbook_id: "orderbook",
 });
 ```
 
-### Token Operations
+### WebSocket Module
+
+Real-time streaming with automatic state management:
+
+- **Subscriptions**: book_updates, trades, user, price_history, market
+- **State Management**: LocalOrderbook, UserState, PriceHistory
+- **Authentication**: Ed25519 sign-in for user streams
+- **Auto-Reconnect**: Configurable reconnection with exponential backoff and jitter
 
 ```typescript
-// Mint complete set (deposit collateral, receive YES + NO)
-// numOutcomes required as 2nd parameter
-await client.mintCompleteSet(
-  {
-    user: userPubkey,
-    market: marketPda,
-    depositMint: usdcMint,
-    amount: 1_000_000n,
-  },
-  2 // numOutcomes
-);
+import { websocket } from "@lightcone/sdk";
+import { Keypair } from "@solana/web3.js";
 
-// Merge complete set (burn YES + NO, receive collateral)
-// numOutcomes required as 2nd parameter
-await client.mergeCompleteSet(
-  {
-    user: userPubkey,
-    market: marketPda,
-    depositMint: usdcMint,
-    amount: 500_000n,
-  },
-  2 // numOutcomes
-);
+// Authenticated connection for user streams
+const keypair = Keypair.generate();
+const client = await websocket.LightconeWebSocketClient.connectAuthenticated(keypair);
+client.subscribeUser(keypair.publicKey.toBase58());
 
-// Withdraw from position
-// isToken2022 required as 2nd parameter
-await client.withdrawFromPosition(
-  {
-    user: userPubkey,
-    market: marketPda,
-    mint: conditionalMint,
-    amount: 100_000n,
-  },
-  false // isToken2022
-);
-
-// Redeem winnings after settlement
-// winningOutcome required as 2nd parameter
-await client.redeemWinnings(
-  {
-    user: userPubkey,
-    market: marketPda,
-    depositMint: usdcMint,
-    amount: 1_000_000n,
-  },
-  0 // winningOutcome
-);
+// Access maintained state
+const state = client.getUserState(keypair.publicKey.toBase58());
+if (state) {
+  console.log(`Open orders: ${state.orderCount()}`);
+}
 ```
 
-### Order Management
+### Shared Module
+
+Common utilities used across modules:
+
+- **Resolution**: Candle intervals (1m, 5m, 15m, 1h, 4h, 1d)
+- **Constants**: Program IDs, seeds, discriminators, sizes
+- **Types**: MarketStatus, OrderSide, account data interfaces
 
 ```typescript
-import {
-  createBidOrder,
-  createAskOrder,
-  signOrderFull,
-  hashOrder,
-} from "@lightcone/pinocchio-sdk";
+import { Resolution, PROGRAM_ID } from "@lightcone/sdk";
 
-// Create and sign orders
-const bidOrder = signOrderFull(
-  createBidOrder({
-    nonce: await client.getNextNonce(buyer.publicKey),
-    maker: buyer.publicKey,
-    market: marketPda,
-    baseMint: yesToken,
-    quoteMint: noToken,
-    makerAmount: 100_000n, // NO tokens to give
-    takerAmount: 100_000n, // YES tokens to receive
-    expiration: BigInt(Math.floor(Date.now() / 1000) + 3600),
-  }),
-  buyer
-);
-
-// Cancel order - takes maker pubkey and full order object
-await client.cancelOrder(buyer.publicKey, bidOrder);
-
-// Increment nonce (invalidates all pending orders with old nonce)
-await client.incrementNonce(buyer.publicKey);
+const res = Resolution.OneHour; // "1h"
+console.log(res); // "1h"
 ```
 
-### Order Matching
+## Features
 
-```typescript
-// Option 1: Use client method (recommended)
-const matchResult = await client.matchOrdersMultiWithVerify({
-  operator: operatorPubkey,
-  market: marketPda,
-  baseMint: yesToken,
-  quoteMint: noToken,
-  takerOrder: bidOrder,
-  makerOrders: [askOrder],
-  fillAmounts: [100_000n],
-});
-matchResult.transaction.sign(operator);
-await connection.sendRawTransaction(matchResult.transaction.serialize());
-
-// Option 2: Use standalone function
-import { buildCrossRefMatchOrdersTransaction, PROGRAM_ID } from "@lightcone/pinocchio-sdk";
-
-const matchTx = buildCrossRefMatchOrdersTransaction(
-  {
-    operator: operatorPubkey,
-    market: marketPda,
-    baseMint: yesToken,
-    quoteMint: noToken,
-    takerOrder: bidOrder,
-    makerOrders: [askOrder],
-    fillAmounts: [100_000n],
-  },
-  PROGRAM_ID
-);
-matchTx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
-matchTx.feePayer = operatorPubkey;
-matchTx.sign(operator);
-await connection.sendRawTransaction(matchTx.serialize());
-```
-
-## PDA Derivation
-
-```typescript
-import {
-  getExchangePda,
-  getMarketPda,
-  getPositionPda,
-  getConditionalMintPda,
-  getOrderStatusPda,
-  getUserNoncePda,
-  getVaultPda,
-  getMintAuthorityPda,
-  getAllConditionalMintPdas,
-} from "@lightcone/pinocchio-sdk";
-
-// Core PDAs
-const [exchange] = getExchangePda(programId);
-const [market] = getMarketPda(marketId, programId);
-const [position] = getPositionPda(user, market, programId);
-const [conditionalMint] = getConditionalMintPda(market, depositMint, outcomeIndex, programId);
-const [orderStatus] = getOrderStatusPda(orderHash, programId);
-const [userNonce] = getUserNoncePda(user, programId);
-
-// Additional PDAs
-const [vault] = getVaultPda(depositMint, market, programId);
-const [mintAuthority] = getMintAuthorityPda(market, programId);
-const allMints = getAllConditionalMintPdas(market, depositMint, numOutcomes, programId);
-```
-
-## Account Deserialization
-
-```typescript
-import {
-  deserializeExchange,
-  deserializeMarket,
-  deserializePosition,
-  deserializeOrderStatus,
-  deserializeUserNonce,
-} from "@lightcone/pinocchio-sdk";
-
-const exchangeData = await connection.getAccountInfo(exchangePda);
-const exchange = deserializeExchange(exchangeData.data);
-
-const marketData = await connection.getAccountInfo(marketPda);
-const market = deserializeMarket(marketData.data);
-```
-
-## Order Utilities
-
-```typescript
-import {
-  createBidOrder,
-  createAskOrder,
-  signOrderFull,
-  hashOrder,
-  ordersCanCross,
-  calculateTakerFill,
-} from "@lightcone/pinocchio-sdk";
-
-// Create unsigned order
-const unsignedOrder = createBidOrder({ ... });
-
-// Sign order
-const signedOrder = signOrderFull(unsignedOrder, keypair);
-
-// Hash order (for order status lookups)
-const hash = hashOrder(signedOrder);
-
-// Check if orders can match
-const canMatch = ordersCanCross(bidOrder, askOrder);
-
-// Calculate fill amount
-const fillAmount = calculateTakerFill(takerOrder, makerOrder, makerFillAmount);
-```
-
-## Client Utility Methods
-
-```typescript
-// Get all conditional mint addresses for a market
-const mints = client.getConditionalMints(market, depositMint, numOutcomes);
-
-// Derive condition ID
-const conditionId = client.deriveConditionId(oracle, questionId, numOutcomes);
-
-// Get user's current nonce (for order creation)
-const nonce = await client.getNextNonce(userPubkey);
-
-// Get next market ID
-const nextId = await client.getNextMarketId();
-```
-
-## Testing
-
-```bash
-# Unit tests (no network required)
-npm run test:unit
-
-# Devnet integration tests
-npm run test:devnet
-
-# Stress test (100 concurrent order matches)
-npm run test:stress
-
-# Run all tests
-npm run test:all
-```
-
-## Configuration
-
-Create a `.env` file:
-
-```env
-RPC_URL=https://your-rpc-endpoint.com
-```
-
-Place your authority keypair at `keypairs/devnet-authority.json` for testing.
+- **Full TypeScript support**: Comprehensive types for all APIs
+- **Zero-copy serialization**: Efficient binary order formats
+- **Cross-instruction Ed25519**: Optimized transaction sizes
+- **Automatic reconnection**: Jittered exponential backoff
+- **State management**: Local orderbook and user state tracking
 
 ## Program ID
 
-**Devnet**: `Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk`
-
-## Architecture
-
-The Lightcone Pinocchio program is a high-performance market CLOB (Central Limit Order Book) built with [Pinocchio](https://github.com/febo/pinocchio) - a zero-dependency, zero-copy Solana program framework.
-
-### Key Design Decisions
-
-1. **Ed25519 Signature Verification**: Orders are signed off-chain and verified on-chain using the Ed25519 program
-2. **Cross-instruction References**: Signature data is only stored once in the match instruction, with Ed25519 verify instructions referencing offsets
-3. **Position Accounts**: User tokens are held in Position PDAs, enabling atomic matching
-4. **Complete Sets**: Users can only mint/burn complete sets of conditional tokens, ensuring market integrity
-
-### Transaction Size Optimization
-
-The SDK uses cross-instruction Ed25519 references to minimize transaction size:
-
-| Approach | Size | Status |
-|----------|------|--------|
-| Embedded Ed25519 data | ~1,386 bytes | Over limit |
-| **Cross-instruction refs** | ~1,040 bytes | Under 1,232 limit |
+**Mainnet/Devnet**: `Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk`
 
 ## License
 
