@@ -2,6 +2,8 @@
 
 from dataclasses import dataclass
 
+from ..error import DeserializeError
+
 
 @dataclass
 class OutcomeBalance:
@@ -15,13 +17,16 @@ class OutcomeBalance:
 
     @classmethod
     def from_dict(cls, data: dict) -> "OutcomeBalance":
-        return cls(
-            outcome_index=data["outcome_index"],
-            conditional_token=data["conditional_token"],
-            balance=data["balance"],
-            balance_idle=data["balance_idle"],
-            balance_on_book=data["balance_on_book"],
-        )
+        try:
+            return cls(
+                outcome_index=data["outcome_index"],
+                conditional_token=data["conditional_token"],
+                balance=data["balance"],
+                balance_idle=data["balance_idle"],
+                balance_on_book=data["balance_on_book"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in OutcomeBalance: {e}")
 
 
 @dataclass
@@ -38,15 +43,18 @@ class Position:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Position":
-        return cls(
-            id=data["id"],
-            position_pubkey=data["position_pubkey"],
-            owner=data["owner"],
-            market_pubkey=data["market_pubkey"],
-            outcomes=[OutcomeBalance.from_dict(o) for o in data.get("outcomes", [])],
-            created_at=data["created_at"],
-            updated_at=data["updated_at"],
-        )
+        try:
+            return cls(
+                id=data["id"],
+                position_pubkey=data["position_pubkey"],
+                owner=data["owner"],
+                market_pubkey=data["market_pubkey"],
+                outcomes=[OutcomeBalance.from_dict(o) for o in data.get("outcomes", [])],
+                created_at=data["created_at"],
+                updated_at=data["updated_at"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in Position: {e}")
 
 
 @dataclass
@@ -59,11 +67,14 @@ class PositionsResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PositionsResponse":
-        return cls(
-            owner=data["owner"],
-            total_markets=data["total_markets"],
-            positions=[Position.from_dict(p) for p in data.get("positions", [])],
-        )
+        try:
+            return cls(
+                owner=data["owner"],
+                total_markets=data["total_markets"],
+                positions=[Position.from_dict(p) for p in data.get("positions", [])],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in PositionsResponse: {e}")
 
 
 @dataclass
@@ -76,8 +87,11 @@ class MarketPositionsResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "MarketPositionsResponse":
-        return cls(
-            owner=data["owner"],
-            market_pubkey=data["market_pubkey"],
-            positions=[Position.from_dict(p) for p in data.get("positions", [])],
-        )
+        try:
+            return cls(
+                owner=data["owner"],
+                market_pubkey=data["market_pubkey"],
+                positions=[Position.from_dict(p) for p in data.get("positions", [])],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in MarketPositionsResponse: {e}")

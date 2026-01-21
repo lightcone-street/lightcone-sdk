@@ -115,7 +115,13 @@ class MessageHandler:
         event_type = data.event_type
 
         # Use the tracked subscribed user (single user per connection)
-        user = self._subscribed_user or "unknown"
+        user = self._subscribed_user
+        if not user:
+            logger.warning(
+                f"Received user event '{event_type}' but no user subscription exists. "
+                "Call subscribe_user() before receiving events to avoid data loss."
+            )
+            return [WsEvent.user_update(event_type, "unknown")]
 
         # Update local state for the subscribed user
         if user in self._user_states:

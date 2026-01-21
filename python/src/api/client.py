@@ -1,6 +1,10 @@
 """Lightcone REST API client implementation."""
 
+import json
+import warnings
 from typing import Optional
+from urllib.parse import quote
+
 import aiohttp
 
 from .error import (
@@ -105,6 +109,15 @@ class LightconeApiClient:
             await self._session.close()
             self._session = None
 
+    def __del__(self):
+        """Warn if session was not properly closed."""
+        if self._session and not self._session.closed:
+            warnings.warn(
+                "LightconeApiClient session not closed. Use 'async with' or call close()",
+                ResourceWarning,
+                stacklevel=2,
+            )
+
     def _map_status_error(self, status: int, message: str) -> ApiError:
         """Map HTTP status code to ApiError."""
         if status == 404:
@@ -125,16 +138,15 @@ class LightconeApiClient:
         if response.status >= 200 and response.status < 300:
             try:
                 return await response.json()
-            except Exception as e:
+            except (ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
                 raise DeserializeError(f"Failed to deserialize response: {e}")
         else:
             error_text = await response.text()
             try:
-                import json
                 error_data = json.loads(error_text)
                 error_resp = ErrorResponse.from_dict(error_data)
                 error_msg = error_resp.get_message()
-            except Exception:
+            except (ValueError, KeyError, json.JSONDecodeError):
                 error_msg = error_text or "Unknown error"
 
             raise self._map_status_error(response.status, error_msg)
@@ -179,9 +191,14 @@ class LightconeApiClient:
 
         Returns:
             MarketInfoResponse containing market details and deposit assets
+
+        Raises:
+            ValueError: If market_pubkey is empty
         """
+        if not market_pubkey or not market_pubkey.strip():
+            raise ValueError("market_pubkey cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/{market_pubkey}"
+        url = f"{self._base_url}/api/markets/{quote(market_pubkey, safe='')}"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketInfoResponse.from_dict(data)
@@ -194,9 +211,14 @@ class LightconeApiClient:
 
         Returns:
             MarketInfoResponse containing market details
+
+        Raises:
+            ValueError: If slug is empty
         """
+        if not slug or not slug.strip():
+            raise ValueError("slug cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/by-slug/{slug}"
+        url = f"{self._base_url}/api/markets/by-slug/{quote(slug, safe='')}"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketInfoResponse.from_dict(data)
@@ -209,9 +231,14 @@ class LightconeApiClient:
 
         Returns:
             DepositAssetsResponse containing deposit assets
+
+        Raises:
+            ValueError: If market_pubkey is empty
         """
+        if not market_pubkey or not market_pubkey.strip():
+            raise ValueError("market_pubkey cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/{market_pubkey}/deposit-assets"
+        url = f"{self._base_url}/api/markets/{quote(market_pubkey, safe='')}/deposit-assets"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return DepositAssetsResponse.from_dict(data)
@@ -233,9 +260,14 @@ class LightconeApiClient:
 
         Returns:
             OrderbookResponse containing bids and asks
+
+        Raises:
+            ValueError: If orderbook_id is empty
         """
+        if not orderbook_id or not orderbook_id.strip():
+            raise ValueError("orderbook_id cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/orderbook/{orderbook_id}"
+        url = f"{self._base_url}/api/orderbook/{quote(orderbook_id, safe='')}"
         params = {}
         if depth is not None:
             params["depth"] = depth
@@ -318,9 +350,14 @@ class LightconeApiClient:
 
         Returns:
             PositionsResponse containing user positions
+
+        Raises:
+            ValueError: If user_pubkey is empty
         """
+        if not user_pubkey or not user_pubkey.strip():
+            raise ValueError("user_pubkey cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/users/{user_pubkey}/positions"
+        url = f"{self._base_url}/api/users/{quote(user_pubkey, safe='')}/positions"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return PositionsResponse.from_dict(data)
@@ -338,9 +375,16 @@ class LightconeApiClient:
 
         Returns:
             MarketPositionsResponse containing positions in the market
+
+        Raises:
+            ValueError: If user_pubkey or market_pubkey is empty
         """
+        if not user_pubkey or not user_pubkey.strip():
+            raise ValueError("user_pubkey cannot be empty")
+        if not market_pubkey or not market_pubkey.strip():
+            raise ValueError("market_pubkey cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/users/{user_pubkey}/markets/{market_pubkey}/positions"
+        url = f"{self._base_url}/api/users/{quote(user_pubkey, safe='')}/markets/{quote(market_pubkey, safe='')}/positions"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketPositionsResponse.from_dict(data)
@@ -353,7 +397,12 @@ class LightconeApiClient:
 
         Returns:
             UserOrdersResponse containing orders and balances
+
+        Raises:
+            ValueError: If user_pubkey is empty
         """
+        if not user_pubkey or not user_pubkey.strip():
+            raise ValueError("user_pubkey cannot be empty")
         session = await self._ensure_session()
         url = f"{self._base_url}/api/users/orders"
         request = {"user_pubkey": user_pubkey}

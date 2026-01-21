@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Optional, Union
 
 from ...shared.types import Resolution
+from ..error import DeserializeError
 
 
 @dataclass
@@ -22,17 +23,20 @@ class PricePoint:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PricePoint":
-        return cls(
-            timestamp=data["t"],
-            midpoint=data["m"],
-            open=data.get("o"),
-            high=data.get("h"),
-            low=data.get("l"),
-            close=data.get("c"),
-            volume=data.get("v"),
-            best_bid=data.get("bb"),
-            best_ask=data.get("ba"),
-        )
+        try:
+            return cls(
+                timestamp=data["t"],
+                midpoint=data["m"],
+                open=data.get("o"),
+                high=data.get("h"),
+                low=data.get("l"),
+                close=data.get("c"),
+                volume=data.get("v"),
+                best_bid=data.get("bb"),
+                best_ask=data.get("ba"),
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in PricePoint: {e}")
 
 
 @dataclass
@@ -112,11 +116,14 @@ class PriceHistoryResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PriceHistoryResponse":
-        return cls(
-            orderbook_id=data["orderbook_id"],
-            resolution=data["resolution"],
-            include_ohlcv=data["include_ohlcv"],
-            prices=[PricePoint.from_dict(p) for p in data.get("prices", [])],
-            has_more=data["has_more"],
-            next_cursor=data.get("next_cursor"),
-        )
+        try:
+            return cls(
+                orderbook_id=data["orderbook_id"],
+                resolution=data["resolution"],
+                include_ohlcv=data["include_ohlcv"],
+                prices=[PricePoint.from_dict(p) for p in data.get("prices", [])],
+                has_more=data["has_more"],
+                next_cursor=data.get("next_cursor"),
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in PriceHistoryResponse: {e}")

@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ..error import DeserializeError
+
 
 @dataclass
 class PriceLevel:
@@ -14,11 +16,14 @@ class PriceLevel:
 
     @classmethod
     def from_dict(cls, data: dict) -> "PriceLevel":
-        return cls(
-            price=data["price"],
-            size=data["size"],
-            orders=data["orders"],
-        )
+        try:
+            return cls(
+                price=data["price"],
+                size=data["size"],
+                orders=data["orders"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in PriceLevel: {e}")
 
 
 @dataclass
@@ -36,13 +41,16 @@ class OrderbookResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "OrderbookResponse":
-        return cls(
-            market_pubkey=data["market_pubkey"],
-            orderbook_id=data["orderbook_id"],
-            bids=[PriceLevel.from_dict(b) for b in data.get("bids", [])],
-            asks=[PriceLevel.from_dict(a) for a in data.get("asks", [])],
-            tick_size=data["tick_size"],
-            best_bid=data.get("best_bid"),
-            best_ask=data.get("best_ask"),
-            spread=data.get("spread"),
-        )
+        try:
+            return cls(
+                market_pubkey=data["market_pubkey"],
+                orderbook_id=data["orderbook_id"],
+                bids=[PriceLevel.from_dict(b) for b in data.get("bids", [])],
+                asks=[PriceLevel.from_dict(a) for a in data.get("asks", [])],
+                tick_size=data["tick_size"],
+                best_bid=data.get("best_bid"),
+                best_ask=data.get("best_ask"),
+                spread=data.get("spread"),
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in OrderbookResponse: {e}")

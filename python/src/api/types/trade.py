@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ..error import DeserializeError
+
 
 @dataclass
 class Trade:
@@ -21,18 +23,21 @@ class Trade:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Trade":
-        return cls(
-            id=data["id"],
-            orderbook_id=data["orderbook_id"],
-            taker_pubkey=data["taker_pubkey"],
-            maker_pubkey=data["maker_pubkey"],
-            side=data["side"],
-            size=data["size"],
-            price=data["price"],
-            taker_fee=data["taker_fee"],
-            maker_fee=data["maker_fee"],
-            executed_at=data["executed_at"],
-        )
+        try:
+            return cls(
+                id=data["id"],
+                orderbook_id=data["orderbook_id"],
+                taker_pubkey=data["taker_pubkey"],
+                maker_pubkey=data["maker_pubkey"],
+                side=data["side"],
+                size=data["size"],
+                price=data["price"],
+                taker_fee=data["taker_fee"],
+                maker_fee=data["maker_fee"],
+                executed_at=data["executed_at"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in Trade: {e}")
 
 
 @dataclass
@@ -99,9 +104,12 @@ class TradesResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TradesResponse":
-        return cls(
-            orderbook_id=data["orderbook_id"],
-            trades=[Trade.from_dict(t) for t in data.get("trades", [])],
-            has_more=data["has_more"],
-            next_cursor=data.get("next_cursor"),
-        )
+        try:
+            return cls(
+                orderbook_id=data["orderbook_id"],
+                trades=[Trade.from_dict(t) for t in data.get("trades", [])],
+                has_more=data["has_more"],
+                next_cursor=data.get("next_cursor"),
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in TradesResponse: {e}")
