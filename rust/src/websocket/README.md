@@ -1,6 +1,6 @@
 # WebSocket Module Reference
 
-Real-time data streaming for Lightcone prediction markets.
+Real-time data streaming for Lightcone markets.
 
 ## Connection Methods
 

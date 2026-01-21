@@ -1,6 +1,6 @@
 # Lightcone Rust SDK
 
-Rust SDK for the Lightcone prediction market protocol on Solana.
+Rust SDK for the Lightcone protocol on Solana.
 
 ## Installation
 

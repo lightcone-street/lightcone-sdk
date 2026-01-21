@@ -1,6 +1,6 @@
 # Program Module
 
-On-chain Solana smart contract interaction for Lightcone prediction markets.
+On-chain Solana smart contract interaction for Lightcone markets.
 
 ## Overview
 
@@ -29,7 +29,7 @@ Singleton account storing global exchange state.
 
 ### Market (120 bytes)
 
-Individual prediction market state.
+Individual market state.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
@@ -389,7 +389,7 @@ All instructions use a single-byte discriminator.
 | Instruction | Discriminator | Description |
 |-------------|---------------|-------------|
 | Initialize | 0 | Create exchange singleton |
-| CreateMarket | 1 | Create new prediction market |
+| CreateMarket | 1 | Create a new market |
 | AddDepositMint | 2 | Add deposit token to market |
 | MintCompleteSet | 3 | Deposit and mint conditional tokens |
 | MergeCompleteSet | 4 | Burn conditionals and withdraw deposit |
