@@ -225,16 +225,16 @@ impl LocalOrderbook {
     }
 
     /// Get the spread as a string (best_ask - best_bid)
-    /// Note: This parses as f64 for the calculation
+    /// Uses Decimal for precise calculation to preserve backend precision.
     pub fn spread(&self) -> Option<String> {
         match (self.best_bid(), self.best_ask()) {
             (Some((bid, _)), Some((ask, _))) => {
-                let bid_f: f64 = bid.parse().ok()?;
-                let ask_f: f64 = ask.parse().ok()?;
-                if ask_f > bid_f {
-                    Some(format!("{:.6}", ask_f - bid_f))
+                let bid_dec = Decimal::from_str(&bid).ok()?;
+                let ask_dec = Decimal::from_str(&ask).ok()?;
+                if ask_dec > bid_dec {
+                    Some((ask_dec - bid_dec).to_string())
                 } else {
-                    Some("0.000000".to_string())
+                    Some(Decimal::ZERO.to_string())
                 }
             }
             _ => None,
@@ -242,13 +242,14 @@ impl LocalOrderbook {
     }
 
     /// Get the midpoint price as a string
-    /// Note: This parses as f64 for the calculation
+    /// Uses Decimal for precise calculation to preserve backend precision.
     pub fn midpoint(&self) -> Option<String> {
         match (self.best_bid(), self.best_ask()) {
             (Some((bid, _)), Some((ask, _))) => {
-                let bid_f: f64 = bid.parse().ok()?;
-                let ask_f: f64 = ask.parse().ok()?;
-                Some(format!("{:.6}", (bid_f + ask_f) / 2.0))
+                let bid_dec = Decimal::from_str(&bid).ok()?;
+                let ask_dec = Decimal::from_str(&ask).ok()?;
+                let two = Decimal::from(2);
+                Some(((bid_dec + ask_dec) / two).to_string())
             }
             _ => None,
         }
@@ -265,15 +266,21 @@ impl LocalOrderbook {
     }
 
     /// Get total bid depth (sum of all bid sizes)
-    /// Note: This parses as f64 for the calculation
-    pub fn total_bid_depth(&self) -> f64 {
-        self.bids.values().filter_map(|s| s.parse::<f64>().ok()).sum()
+    /// Uses Decimal for precise calculation to preserve backend precision.
+    pub fn total_bid_depth(&self) -> Decimal {
+        self.bids
+            .values()
+            .filter_map(|s| Decimal::from_str(s).ok())
+            .fold(Decimal::ZERO, |acc, x| acc + x)
     }
 
     /// Get total ask depth (sum of all ask sizes)
-    /// Note: This parses as f64 for the calculation
-    pub fn total_ask_depth(&self) -> f64 {
-        self.asks.values().filter_map(|s| s.parse::<f64>().ok()).sum()
+    /// Uses Decimal for precise calculation to preserve backend precision.
+    pub fn total_ask_depth(&self) -> Decimal {
+        self.asks
+            .values()
+            .filter_map(|s| Decimal::from_str(s).ok())
+            .fold(Decimal::ZERO, |acc, x| acc + x)
     }
 
     /// Number of bid levels
@@ -421,6 +428,7 @@ mod tests {
         let mut book = LocalOrderbook::new("test".to_string());
         book.apply_snapshot(&create_snapshot());
 
+        // Decimal preserves precision from input strings
         assert_eq!(book.spread(), Some("0.010000".to_string()));
         assert_eq!(book.midpoint(), Some("0.505000".to_string()));
     }
@@ -430,8 +438,9 @@ mod tests {
         let mut book = LocalOrderbook::new("test".to_string());
         book.apply_snapshot(&create_snapshot());
 
-        assert!((book.total_bid_depth() - 0.003).abs() < 0.0001);
-        assert!((book.total_ask_depth() - 0.002).abs() < 0.0001);
+        // Returns Decimal now for precise calculations
+        assert_eq!(book.total_bid_depth(), Decimal::from_str("0.003").unwrap());
+        assert_eq!(book.total_ask_depth(), Decimal::from_str("0.002").unwrap());
     }
 
     #[test]

@@ -61,6 +61,10 @@ pub struct WebSocketConfig {
     pub auto_resubscribe: bool,
     /// Optional authentication token for private user streams
     pub auth_token: Option<String>,
+    /// Capacity of the event channel. Default: 1000
+    pub event_channel_capacity: usize,
+    /// Capacity of the command channel. Default: 100
+    pub command_channel_capacity: usize,
 }
 
 impl Default for WebSocketConfig {
@@ -74,6 +78,8 @@ impl Default for WebSocketConfig {
             auto_reconnect: true,
             auto_resubscribe: true,
             auth_token: None,
+            event_channel_capacity: 1000,
+            command_channel_capacity: 100,
         }
     }
 }
@@ -213,8 +219,14 @@ impl LightconeWebSocketClient {
     /// * `url` - The WebSocket URL to connect to
     /// * `auth_token` - The auth token obtained from authentication
     pub async fn connect_with_auth(url: &str, auth_token: String) -> WsResult<Self> {
+        let trimmed = auth_token.trim();
+        if trimmed.is_empty() {
+            return Err(WebSocketError::InvalidAuthToken(
+                "Auth token cannot be empty".to_string()
+            ));
+        }
         let config = WebSocketConfig {
-            auth_token: Some(auth_token),
+            auth_token: Some(trimmed.to_string()),
             ..Default::default()
         };
         Self::connect_with_config(url, config).await
@@ -231,7 +243,7 @@ impl LightconeWebSocketClient {
         config: WebSocketConfig,
         auth_credentials: Option<AuthCredentials>,
     ) -> WsResult<Self> {
-        let (event_tx, event_rx) = mpsc::channel(1000);
+        let (event_tx, event_rx) = mpsc::channel(config.event_channel_capacity);
 
         let orderbooks = Arc::new(RwLock::new(HashMap::new()));
         let user_states = Arc::new(RwLock::new(HashMap::new()));
@@ -304,7 +316,7 @@ impl LightconeWebSocketClient {
         self.reconnect_attempt = 0;
 
         let (sink, source) = ws_stream.split();
-        let (cmd_tx, cmd_rx) = mpsc::channel(100);
+        let (cmd_tx, cmd_rx) = mpsc::channel(self.config.command_channel_capacity);
         self.cmd_tx = Some(cmd_tx);
 
         // Spawn the connection task
@@ -614,8 +626,8 @@ async fn connection_task(
                         }
                     }
                     Some(Ok(Message::Ping(data))) => {
-                        if sink.send(Message::Pong(data)).await.is_err() {
-                            tracing::warn!("Failed to send pong");
+                        if let Err(e) = sink.send(Message::Pong(data)).await {
+                            tracing::warn!("Failed to send pong: {}", e);
                         }
                     }
                     Some(Ok(Message::Pong(_))) => {
@@ -699,15 +711,15 @@ async fn connection_task(
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(ConnectionCommand::Send(text)) => {
-                        if sink.send(Message::Text(text.into())).await.is_err() {
-                            tracing::warn!("Failed to send message");
+                        if let Err(e) = sink.send(Message::Text(text.into())).await {
+                            tracing::warn!("Failed to send message: {}", e);
                         }
                     }
                     Some(ConnectionCommand::Ping) => {
                         let request = WsRequest::ping();
                         if let Ok(json) = serde_json::to_string(&request) {
-                            if sink.send(Message::Text(json.into())).await.is_err() {
-                                tracing::warn!("Failed to send ping");
+                            if let Err(e) = sink.send(Message::Text(json.into())).await {
+                                tracing::warn!("Failed to send ping: {}", e);
                             }
                         }
                     }
@@ -771,8 +783,8 @@ async fn connection_task(
                     // Send ping
                     let request = WsRequest::ping();
                     if let Ok(json) = serde_json::to_string(&request) {
-                        if sink.send(Message::Text(json.into())).await.is_err() {
-                            tracing::warn!("Failed to send periodic ping");
+                        if let Err(e) = sink.send(Message::Text(json.into())).await {
+                            tracing::warn!("Failed to send periodic ping: {}", e);
                         } else {
                             awaiting_pong = true;
                         }
@@ -827,8 +839,8 @@ async fn reconnect(
         for sub in subs {
             let request = WsRequest::subscribe(sub.to_params());
             if let Ok(json) = serde_json::to_string(&request) {
-                if sink.send(Message::Text(json.into())).await.is_err() {
-                    tracing::warn!("Failed to re-subscribe after reconnect");
+                if let Err(e) = sink.send(Message::Text(json.into())).await {
+                    tracing::warn!("Failed to re-subscribe after reconnect: {}", e);
                 }
             }
         }
@@ -851,6 +863,8 @@ mod tests {
         assert_eq!(config.pong_timeout_secs, 60);
         assert!(config.auto_reconnect);
         assert!(config.auto_resubscribe);
+        assert_eq!(config.event_channel_capacity, 1000);
+        assert_eq!(config.command_channel_capacity, 100);
     }
 
     #[test]

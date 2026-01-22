@@ -84,6 +84,10 @@ pub enum WebSocketError {
     /// HTTP request error
     #[error("HTTP request error: {0}")]
     HttpError(String),
+
+    /// Invalid auth token
+    #[error("Invalid auth token: {0}")]
+    InvalidAuthToken(String),
 }
 
 impl From<tokio_tungstenite::tungstenite::Error> for WebSocketError {

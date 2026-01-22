@@ -211,6 +211,7 @@ pub fn create_batch_ed25519_verify_instruction(params: &[Ed25519VerifyParams]) -
 /// - `[195..260]`: maker_compact (65 bytes)     <- maker pubkey at offset 195+8=203
 /// - `[260..324]`: maker_signature (64 bytes)   <- maker signature
 /// - `[324..332]`: maker_fill_amount (8 bytes)
+#[derive(Debug)]
 pub struct MatchIxOffsets;
 
 impl MatchIxOffsets {
@@ -236,6 +237,7 @@ impl MatchIxOffsets {
 }
 
 /// Offsets for a maker order within the match instruction data.
+#[derive(Debug)]
 pub struct MakerOffsets {
     /// Offset of maker hash (message)
     pub message: u16,

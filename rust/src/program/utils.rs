@@ -66,7 +66,7 @@ pub fn validate_outcome_index(outcome_index: u8, num_outcomes: u8) -> SdkResult<
 }
 
 /// Validate that a buffer is exactly 32 bytes.
-pub fn validate_32_bytes(buffer: &[u8], _name: &str) -> SdkResult<()> {
+pub fn validate_32_bytes(buffer: &[u8]) -> SdkResult<()> {
     if buffer.len() != 32 {
         return Err(SdkError::InvalidDataLength {
             expected: 32,

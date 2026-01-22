@@ -15,6 +15,7 @@ use crate::websocket::types::{
 };
 
 /// Handles incoming WebSocket messages
+#[derive(Debug)]
 pub struct MessageHandler {
     /// Local orderbook state
     orderbooks: Arc<RwLock<HashMap<String, LocalOrderbook>>>,
@@ -158,16 +159,29 @@ impl MessageHandler {
         let event_type = data.event_type.clone();
 
         // Use the tracked subscribed user (single user per connection)
-        let subscribed_user = self.subscribed_user.read().await;
-        let user = subscribed_user
-            .clone()
-            .unwrap_or_else(|| "unknown".to_string());
+        let user = {
+            let subscribed_user = self.subscribed_user.read().await;
+            subscribed_user
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string())
+        };
 
-        // Update local state for the subscribed user
-        let mut user_states = self.user_states.write().await;
-        if let Some(state) = user_states.get_mut(&user) {
-            state.apply_event(&data);
-        } else {
+        // Check if user state exists (read lock, released quickly)
+        let needs_warning = {
+            let user_states = self.user_states.read().await;
+            !user_states.contains_key(&user)
+        };
+
+        // Update local state for the subscribed user (write lock only if needed)
+        if !needs_warning {
+            let mut user_states = self.user_states.write().await;
+            if let Some(state) = user_states.get_mut(&user) {
+                state.apply_event(&data);
+            }
+        }
+
+        // Log AFTER releasing lock to avoid holding lock during I/O
+        if needs_warning {
             tracing::warn!(
                 "Received user event '{}' for user '{}' but no subscription exists. \
                  Call subscribe_user() before receiving events to avoid data loss.",
@@ -286,7 +300,13 @@ impl MessageHandler {
 
     /// Initialize orderbook state for a subscription.
     ///
+    /// This must be called before subscribing to orderbook updates to ensure
+    /// the local state exists when the first snapshot arrives. If not called,
+    /// the handler will create the state on first message, but there may be
+    /// a brief window where `get_orderbook()` returns `None`.
+    ///
     /// Uses atomic entry API to avoid race conditions with message handlers.
+    /// Thread-safe: multiple concurrent calls are safe due to interior write lock.
     pub async fn init_orderbook(&self, orderbook_id: &str) {
         let mut orderbooks = self.orderbooks.write().await;
         orderbooks
@@ -296,7 +316,14 @@ impl MessageHandler {
 
     /// Initialize user state for a subscription.
     ///
-    /// Uses atomic entry API to avoid race conditions with message handlers.
+    /// This must be called before subscribing to user events to ensure state
+    /// is ready when the first event arrives. Also sets the tracked user for
+    /// this connection (single user per connection model).
+    ///
+    /// Thread-safe: uses interior write locks for both the subscribed user
+    /// tracking and the user state map. Multiple concurrent calls are safe
+    /// but will serialize on lock acquisition. State mutations from incoming
+    /// events are applied atomically via the same lock.
     pub async fn init_user_state(&self, user: &str) {
         // Track the subscribed user
         *self.subscribed_user.write().await = Some(user.to_string());
@@ -315,7 +342,23 @@ impl MessageHandler {
         }
     }
 
-    /// Initialize price history state for a subscription
+    /// Initialize price history state for a subscription.
+    ///
+    /// Creates an empty price history container for the given orderbook and
+    /// resolution. The actual price data will be populated when the snapshot
+    /// message arrives from the server.
+    ///
+    /// # Arguments
+    ///
+    /// * `orderbook_id` - The orderbook identifier (e.g., "BTC-USD:main")
+    /// * `resolution` - The candle resolution (e.g., "1m", "5m", "1h", "1d")
+    /// * `include_ohlcv` - Whether OHLCV candle data should be tracked
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// handler.init_price_history("BTC-USD:main", "1m", true).await;
+    /// ```
     pub async fn init_price_history(
         &self,
         orderbook_id: &str,
