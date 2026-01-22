@@ -140,12 +140,50 @@ export function marketParams(marketPubkey: string): MarketParams {
 // ============================================================================
 
 /**
- * Raw message wrapper for initial parsing.
+ * Auth response data.
  */
-export interface RawWsMessage {
-  type: string;
-  version: number;
-  data: unknown;
+export interface AuthData {
+  status: "authenticated" | "anonymous" | "error";
+  user_pubkey?: string;
+  message?: string;
+}
+
+/**
+ * Server → Client message (discriminated union).
+ * TypeScript automatically narrows the `data` type based on `type` field.
+ */
+export type WsServerMessage =
+  | { type: "book_update"; version: number; data: BookUpdateData }
+  | { type: "trades"; version: number; data: TradeData }
+  | { type: "user"; version: number; data: UserEventData }
+  | { type: "price_history"; version: number; data: PriceHistoryData }
+  | { type: "market"; version: number; data: MarketEventData }
+  | { type: "auth"; version: number; data: AuthData }
+  | { type: "pong"; version: number; data: PongData }
+  | { type: "error"; version: number; data: ErrorData };
+
+/**
+ * Parse a WebSocket message from raw text.
+ * Single validation point at JSON.parse boundary.
+ */
+export function parseWsMessage(text: string): WsServerMessage | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+
+  if (typeof raw !== "object" || raw === null) return null;
+  const obj = raw as Record<string, unknown>;
+
+  if (typeof obj.type !== "string" || typeof obj.version !== "number") {
+    return null;
+  }
+
+  // TypeScript now knows obj has type and version
+  // We trust the server sends correct data shapes for each type
+  return obj as WsServerMessage;
 }
 
 /**
