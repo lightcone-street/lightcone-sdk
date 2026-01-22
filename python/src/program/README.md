@@ -465,6 +465,7 @@ from lightcone_sdk.program import (
     MintCompleteSetParams,
     MergeCompleteSetParams,
     RedeemWinningsParams,
+    WithdrawFromPositionParams,
 )
 
 # Mint complete set (deposit collateral, receive outcome tokens)
@@ -499,6 +500,17 @@ tx = await client.redeem_winnings(
     ),
     winning_outcome=0,
 )
+
+# Withdraw tokens from position account
+tx = await client.withdraw_from_position(
+    WithdrawFromPositionParams(
+        user=user_pubkey,
+        position=position_pubkey,
+        mint=conditional_mint,
+        amount=500_000,
+    ),
+    is_token_2022=True,  # Set to False for SPL Token
+)
 ```
 
 ### Order Matching
@@ -530,6 +542,81 @@ tx = await client.match_orders_multi_with_verify(...)
 tx = await client.match_orders_multi_cross_ref(...)
 ```
 
+## Client Utility Methods
+
+The client provides convenience methods for address derivation and order management:
+
+### Address Derivation
+
+```python
+# Get PDA addresses without making RPC calls
+exchange_addr = client.get_exchange_address()
+market_addr = client.get_market_address(market_id=0)
+position_addr = client.get_position_address(owner_pubkey, market_pubkey)
+order_status_addr = client.get_order_status_address(order_hash_bytes)
+user_nonce_addr = client.get_user_nonce_address(user_pubkey)
+
+# Get market by address (makes RPC call)
+market = await client.get_market_by_address(market_pubkey)
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `get_exchange_address()` | Pubkey | Exchange PDA |
+| `get_market_address(market_id)` | Pubkey | Market PDA for given ID |
+| `get_position_address(owner, market)` | Pubkey | Position PDA |
+| `get_order_status_address(order_hash)` | Pubkey | Order status PDA |
+| `get_user_nonce_address(user)` | Pubkey | User nonce PDA |
+| `get_market_by_address(address)` | Market | Fetch and deserialize market |
+
+### Order Helpers
+
+```python
+from lightcone_sdk.program import BidOrderParams, AskOrderParams
+from solders.keypair import Keypair
+
+keypair = Keypair()
+
+# Create unsigned orders
+bid = client.create_bid_order(BidOrderParams(...))
+ask = client.create_ask_order(AskOrderParams(...))
+
+# Create and sign in one step
+signed_bid = client.create_signed_bid_order(BidOrderParams(...), keypair)
+signed_ask = client.create_signed_ask_order(AskOrderParams(...), keypair)
+
+# Manual hash and sign
+order_hash = client.hash_order(order)  # Returns 32 bytes
+signature = client.sign_order(order, keypair)  # Returns 64 bytes
+```
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `create_bid_order(params)` | FullOrder | Create unsigned bid |
+| `create_ask_order(params)` | FullOrder | Create unsigned ask |
+| `create_signed_bid_order(params, keypair)` | FullOrder | Create and sign bid |
+| `create_signed_ask_order(params, keypair)` | FullOrder | Create and sign ask |
+| `hash_order(order)` | bytes | Keccak256 hash (32 bytes) |
+| `sign_order(order, keypair)` | bytes | Ed25519 signature (64 bytes) |
+
+### Condition Helpers
+
+```python
+# Derive condition ID
+condition_id = client.derive_condition_id(
+    oracle=oracle_pubkey,
+    question_id=question_id_bytes,  # 32 bytes
+    num_outcomes=2,
+)
+
+# Get all conditional mint addresses
+mints = client.get_conditional_mints(
+    market=market_pubkey,
+    deposit_mint=usdc_mint,
+    num_outcomes=2,
+)  # Returns list[Pubkey]
+```
+
 ## Ed25519 Verification
 
 ```python
@@ -538,6 +625,8 @@ from lightcone_sdk.program import (
     build_ed25519_verify_instruction_for_order,
     build_ed25519_batch_verify_instruction,
     create_cross_ref_ed25519_instructions,
+    CrossRefEd25519Params,
+    MatchIxOffsets,
 )
 
 # Individual verification
@@ -550,6 +639,35 @@ ix = build_ed25519_batch_verify_instruction(orders)
 # Cross-reference verification (smallest tx size)
 ed25519_ixs = create_cross_ref_ed25519_instructions(num_makers, match_ix_index)
 ```
+
+### Ed25519 Types
+
+#### CrossRefEd25519Params
+
+Parameters for cross-reference Ed25519 verification:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `num_signatures` | int | Number of signatures to verify |
+| `signature_offset` | int | Offset to signature in instruction data |
+| `signature_instruction_index` | int | Index of instruction containing signature |
+| `public_key_offset` | int | Offset to public key in instruction data |
+| `public_key_instruction_index` | int | Index of instruction containing public key |
+| `message_data_offset` | int | Offset to message in instruction data |
+| `message_data_size` | int | Size of message data |
+| `message_instruction_index` | int | Index of instruction containing message |
+
+#### MatchIxOffsets
+
+Offsets for signature data within match instruction:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `taker_pubkey` | int | Offset to taker public key |
+| `taker_signature` | int | Offset to taker signature |
+| `taker_message` | int | Offset to taker message |
+| `taker_message_len` | int | Length of taker message |
+| `maker_offsets` | list | List of maker offset tuples |
 
 ## Account Deserialization
 

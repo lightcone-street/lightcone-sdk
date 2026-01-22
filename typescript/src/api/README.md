@@ -28,6 +28,32 @@ const url = client.baseUrl;
 | `baseUrl` | `https://lightcone.xyz/api` | API base URL |
 | `timeout` | 30000 ms | Request timeout |
 | `headers` | Content-Type: application/json | Custom headers |
+| `retry` | disabled | Retry configuration (see below) |
+
+### Retry Configuration
+
+Configure automatic retry with exponential backoff for transient failures.
+
+```typescript
+const client = new api.LightconeApiClient({
+  retry: {
+    maxRetries: 3,
+    baseDelayMs: 100,
+    maxDelayMs: 10000,
+  },
+});
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `maxRetries` | 0 (disabled) | Maximum retry attempts |
+| `baseDelayMs` | 100 | Initial delay in milliseconds |
+| `maxDelayMs` | 10000 | Maximum delay cap in milliseconds |
+
+Retryable errors:
+- `ServerError` (5xx)
+- `RateLimited` (429)
+- `Http` (network errors)
 
 ## Endpoints
 
@@ -98,8 +124,8 @@ const response = await client.submitOrder({
   base_token: "base_token_mint",
   quote_token: "quote_token_mint",
   side: 0, // 0=BID, 1=ASK
-  maker_amount: 1000000,
-  taker_amount: 500000,
+  maker_amount: "1000000",
+  taker_amount: "500000",
   expiration: 0, // 0 = no expiration
   signature: "hex_signature_128_chars",
   orderbook_id: "orderbook_id",
@@ -152,6 +178,7 @@ Returns user's open orders and balances.
 
 ```typescript
 const response = await client.getUserOrders("user_pubkey");
+// response.user_pubkey: string
 // response.orders: UserOrder[]
 // response.balances: UserBalance[]
 ```
@@ -216,7 +243,7 @@ const response = await client.getPriceHistory({
 | `from` | number | No | Start timestamp (ms) |
 | `to` | number | No | End timestamp (ms) |
 | `cursor` | number | No | Pagination cursor |
-| `limit` | number | No | Results per page (1-1000) |
+| `limit` | number | No | Results per page (1-500) |
 | `include_ohlcv` | boolean | No | Include OHLCV data |
 
 ### Admin
@@ -262,8 +289,8 @@ const response = await client.adminHealthCheck();
 | `base_token` | string | Base token mint |
 | `quote_token` | string | Quote token mint |
 | `side` | number | 0=BID, 1=ASK |
-| `maker_amount` | number | Amount maker gives (raw units) |
-| `taker_amount` | number | Amount maker receives (raw units) |
+| `maker_amount` | string | Amount maker gives (decimal string) |
+| `taker_amount` | string | Amount maker receives (decimal string) |
 | `expiration` | number | Unix timestamp (0 = no expiration) |
 | `signature` | string | Hex-encoded Ed25519 signature (128 chars) |
 | `orderbook_id` | string | Target orderbook |
@@ -371,6 +398,7 @@ interface MarketsResponse {
 |-------|------|-------------|
 | `status` | string | Status |
 | `user_pubkey` | string | User pubkey |
+| `market_pubkey` | string? | Market filter (if specified) |
 | `cancelled_order_hashes` | string[] | Cancelled hashes |
 | `count` | number | Orders cancelled |
 | `message` | string | Status message |
@@ -379,6 +407,8 @@ interface MarketsResponse {
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `owner` | string | Position owner pubkey |
+| `total_markets` | number | Total markets with positions |
 | `positions` | Position[] | User positions |
 
 ### Position
@@ -392,6 +422,14 @@ interface MarketsResponse {
 | `outcomes` | OutcomeBalance[] | Balances per outcome |
 | `created_at` | string | ISO timestamp |
 | `updated_at` | string | ISO timestamp |
+
+### MarketPositionsResponse
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `owner` | string | Position owner pubkey |
+| `market_pubkey` | string | Market pubkey |
+| `positions` | Position[] | Positions in this market |
 
 ### TradesResponse
 
@@ -410,12 +448,20 @@ interface MarketsResponse {
 | `orderbook_id` | string | Orderbook ID |
 | `taker_pubkey` | string | Taker pubkey |
 | `maker_pubkey` | string | Maker pubkey |
-| `side` | string | "buy" or "sell" |
+| `side` | TradeSide | "BID" or "ASK" |
 | `size` | string | Trade size |
 | `price` | string | Trade price |
 | `taker_fee` | string | Taker fee |
 | `maker_fee` | string | Maker fee |
 | `executed_at` | number | Unix timestamp (ms) |
+
+### UserOrdersResponse
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_pubkey` | string | User's public key |
+| `orders` | UserOrder[] | Open orders |
+| `balances` | UserBalance[] | User balances |
 
 ### PriceHistoryResponse
 
@@ -458,11 +504,17 @@ try {
       case "BadRequest":
         console.log(`Bad request: ${error.message}`);
         break;
+      case "Unauthorized":
+        console.log(`Unauthorized: ${error.message}`);
+        break;
       case "Forbidden":
         console.log(`Forbidden: ${error.message}`);
         break;
       case "Conflict":
         console.log(`Conflict: ${error.message}`);
+        break;
+      case "RateLimited":
+        console.log(`Rate limited: ${error.message}`);
         break;
       case "ServerError":
         console.log(`Server error: ${error.message}`);
@@ -489,10 +541,12 @@ try {
 | Variant | HTTP Status | Description |
 |---------|-------------|-------------|
 | `Http` | - | Network/connection error |
+| `Unauthorized` | 401 | Invalid or missing authentication |
 | `NotFound` | 404 | Resource not found |
 | `BadRequest` | 400 | Invalid parameters |
 | `Forbidden` | 403 | Permission denied |
 | `Conflict` | 409 | Resource conflict |
+| `RateLimited` | 429 | Rate limit exceeded |
 | `ServerError` | 5xx | Server error |
 | `Deserialize` | - | JSON parsing error |
 | `InvalidParameter` | - | Client-side validation |

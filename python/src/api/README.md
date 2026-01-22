@@ -33,6 +33,39 @@ url = client.base_url
 | `timeout` | 30 seconds | Request timeout |
 | `headers` | Content-Type, Accept: application/json | Custom headers |
 
+### Retry Configuration
+
+The client supports automatic retries with exponential backoff for transient errors.
+
+```python
+from lightcone_sdk.api import LightconeApiClient, RetryConfig
+
+# Create client with retries enabled
+client = LightconeApiClient(
+    "https://api.lightcone.xyz",
+    retry_config=RetryConfig.with_retries(3),  # Up to 3 retries
+)
+
+# Customize backoff behavior
+retry_config = (
+    RetryConfig.with_retries(5)
+    .with_base_delay_ms(100)   # Initial delay
+    .with_max_delay_ms(10000)  # Cap at 10 seconds
+)
+```
+
+**RetryConfig Options:**
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `max_retries` | 0 (disabled) | Maximum retry attempts |
+| `base_delay_ms` | 100 | Initial backoff delay in ms |
+| `max_delay_ms` | 10000 | Maximum backoff delay in ms |
+
+**Retry Behavior:**
+- Retries on: `ServerError` (5xx), `RateLimitedError` (429), `HttpError`, connection errors
+- Backoff formula: `base_delay_ms * 2^attempt` with 75-100% jitter, capped at `max_delay_ms`
+
 ## Endpoints
 
 ### Markets
@@ -190,6 +223,8 @@ response = await client.get_trades(
 | `to_timestamp` | Optional[int] | No | End timestamp (ms) |
 | `cursor` | Optional[int] | No | Pagination cursor |
 | `limit` | Optional[int] | No | Results per page (1-500) |
+
+**Note:** Query parameters `from_timestamp` and `to_timestamp` are translated to `from` and `to` in the wire format.
 
 ### Price History
 
@@ -387,6 +422,8 @@ class MarketsResponse:
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `owner` | str | Owner public key |
+| `total_markets` | int | Total number of markets with positions |
 | `positions` | list[Position] | User positions |
 
 ### Position
@@ -418,12 +455,21 @@ class MarketsResponse:
 | `orderbook_id` | str | Orderbook ID |
 | `taker_pubkey` | str | Taker pubkey |
 | `maker_pubkey` | str | Maker pubkey |
-| `side` | str | "buy" or "sell" |
+| `side` | ApiTradeSide | "BID" or "ASK" |
 | `size` | str | Trade size |
 | `price` | str | Trade price |
 | `taker_fee` | str | Taker fee |
 | `maker_fee` | str | Maker fee |
 | `executed_at` | int | Unix timestamp (ms) |
+
+### ApiTradeSide
+
+Enum representing the trade side:
+
+| Value | Description |
+|-------|-------------|
+| `BID` | Buy side (taker was buying) |
+| `ASK` | Sell side (taker was selling) |
 
 ### PriceHistoryResponse
 
@@ -450,14 +496,50 @@ class MarketsResponse:
 | `best_bid` | Optional[str] | Best bid |
 | `best_ask` | Optional[str] | Best ask |
 
+### UserOrder
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `order_hash` | str | Order hash |
+| `market_pubkey` | str | Market pubkey |
+| `orderbook_id` | str | Orderbook ID |
+| `side` | int | 0=BID, 1=ASK |
+| `maker_amount` | str | Maker amount |
+| `taker_amount` | str | Taker amount |
+| `remaining` | str | Remaining size |
+| `filled` | str | Filled size |
+| `price` | str | Order price |
+| `created_at` | str | ISO timestamp |
+| `expiration` | int | Expiration timestamp |
+
+### UserBalance
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_pubkey` | str | Market pubkey |
+| `deposit_asset` | str | Deposit mint |
+| `outcomes` | list[UserOrderOutcomeBalance] | Outcome balances |
+
+### UserOrderOutcomeBalance
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `outcome_index` | int | Outcome index |
+| `conditional_token` | str | Conditional mint |
+| `idle` | str | Available balance |
+| `on_book` | str | Locked in orders |
+
 ## Error Handling
 
 ```python
 from lightcone_sdk.api import (
     ApiError,
+    HttpError,
     NotFoundError,
     BadRequestError,
+    UnauthorizedError,
     ForbiddenError,
+    RateLimitedError,
     ConflictError,
     ServerError,
     DeserializeError,
@@ -471,12 +553,18 @@ except NotFoundError as e:
     print(f"Not found: {e.message}")
 except BadRequestError as e:
     print(f"Bad request: {e.message}")
+except UnauthorizedError as e:
+    print(f"Unauthorized: {e.message}")
 except ForbiddenError as e:
     print(f"Forbidden: {e.message}")
+except RateLimitedError as e:
+    print(f"Rate limited: {e.message}")
 except ConflictError as e:
     print(f"Conflict: {e.message}")
 except ServerError as e:
     print(f"Server error: {e.message}")
+except HttpError as e:
+    print(f"HTTP error: {e.message}")
 except DeserializeError as e:
     print(f"Parse error: {e.message}")
 except InvalidParameterError as e:
@@ -494,7 +582,9 @@ except ApiError as e:
 | `HttpError` | - | Network/connection error |
 | `NotFoundError` | 404 | Resource not found |
 | `BadRequestError` | 400 | Invalid parameters |
+| `UnauthorizedError` | 401 | Authentication failed |
 | `ForbiddenError` | 403 | Permission denied |
+| `RateLimitedError` | 429 | Rate limit exceeded |
 | `ConflictError` | 409 | Resource conflict |
 | `ServerError` | 5xx | Server error |
 | `DeserializeError` | - | JSON parsing error |

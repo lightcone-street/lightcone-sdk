@@ -276,7 +276,7 @@ let response = client.admin_health_check().await?;
 | `market_pubkey` | String | Market public key |
 | `base_token` | String | Base token mint |
 | `quote_token` | String | Quote token mint |
-| `tick_size` | Option\<i32\> | Minimum price increment |
+| `tick_size` | Option\<u32\> | Minimum price increment (default: 1000) |
 
 ## Response Types
 
@@ -285,7 +285,7 @@ let response = client.admin_health_check().await?;
 ```rust
 pub struct MarketsResponse {
     pub markets: Vec<Market>,
-    pub total: u32,
+    pub total: u64,
 }
 ```
 
@@ -348,10 +348,21 @@ pub struct MarketsResponse {
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `id` | i64 | Database ID |
 | `outcome_index` | u32 | Outcome index |
-| `mint` | String | Conditional mint pubkey |
-| `name` | String | Token name |
-| `symbol` | String | Token symbol |
+| `token_address` | String | Token mint address |
+| `name` | Option\<String\> | Token name |
+| `symbol` | Option\<String\> | Token symbol |
+| `uri` | Option\<String\> | Token metadata URI |
+| `display_name` | Option\<String\> | Display name for UI |
+| `outcome` | Option\<String\> | Outcome name |
+| `deposit_symbol` | Option\<String\> | Associated deposit symbol |
+| `short_name` | Option\<String\> | Short name for display |
+| `description` | Option\<String\> | Token description |
+| `icon_url` | Option\<String\> | Icon URL |
+| `metadata_uri` | Option\<String\> | Metadata URI |
+| `decimals` | u8 | Token decimals |
+| `created_at` | String | ISO timestamp |
 
 ### OrderbookResponse
 
@@ -379,10 +390,21 @@ pub struct MarketsResponse {
 | Field | Type | Description |
 |-------|------|-------------|
 | `order_hash` | String | Order hash (hex) |
-| `status` | String | Order status |
+| `status` | OrderStatus | Order status enum |
 | `remaining` | String | Remaining amount |
 | `filled` | String | Filled amount |
 | `fills` | Vec\<Fill\> | Immediate fills |
+
+### OrderStatus
+
+```rust
+pub enum OrderStatus {
+    Accepted,    // Order placed on book
+    PartialFill, // Partially filled, remainder on book
+    Filled,      // Completely filled
+    Rejected,    // Order rejected
+}
+```
 
 ### Fill
 
@@ -398,17 +420,20 @@ pub struct MarketsResponse {
 
 | Field | Type | Description |
 |-------|------|-------------|
+| `status` | String | Cancellation status |
 | `order_hash` | String | Cancelled order hash |
-| `success` | bool | Cancellation success |
-| `message` | Option\<String\> | Status message |
+| `remaining` | String | Remaining amount that was cancelled |
 
 ### CancelAllResponse
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `cancelled_count` | u32 | Orders cancelled |
-| `failed_count` | u32 | Failed cancellations |
-| `order_hashes` | Vec\<String\> | Cancelled hashes |
+| `status` | String | Status ("success") |
+| `user_pubkey` | String | User public key |
+| `market_pubkey` | Option\<String\> | Market pubkey if specified |
+| `cancelled_order_hashes` | Vec\<String\> | List of cancelled order hashes |
+| `count` | u64 | Count of cancelled orders |
+| `message` | String | Human-readable message |
 
 ### PositionsResponse
 
@@ -442,7 +467,9 @@ pub struct MarketsResponse {
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `orders` | Vec\<UserOrder\> | User's orders |
+| `user_pubkey` | String | User public key |
+| `orders` | Vec\<UserOrder\> | User's open orders |
+| `balances` | Vec\<UserBalance\> | User's balances |
 
 ### UserOrder
 
@@ -451,7 +478,7 @@ pub struct MarketsResponse {
 | `order_hash` | String | Order hash |
 | `market_pubkey` | String | Market pubkey |
 | `orderbook_id` | String | Orderbook ID |
-| `side` | u32 | 0=BID, 1=ASK |
+| `side` | ApiOrderSide | Order side enum |
 | `maker_amount` | String | Maker amount |
 | `taker_amount` | String | Taker amount |
 | `remaining` | String | Remaining |
@@ -459,6 +486,33 @@ pub struct MarketsResponse {
 | `price` | String | Order price |
 | `created_at` | String | ISO timestamp |
 | `expiration` | i64 | Expiration timestamp |
+
+### ApiOrderSide
+
+```rust
+#[repr(u32)]
+pub enum ApiOrderSide {
+    Bid = 0, // Buy base token with quote token
+    Ask = 1, // Sell base token for quote token
+}
+```
+
+### UserBalance
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_pubkey` | String | Market pubkey |
+| `deposit_asset` | String | Deposit asset mint |
+| `outcomes` | Vec\<UserOrderOutcomeBalance\> | Outcome balances |
+
+### UserOrderOutcomeBalance
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `outcome_index` | u32 | Outcome index |
+| `conditional_token` | String | Conditional token address |
+| `idle` | String | Available balance |
+| `on_book` | String | Balance locked in orders |
 
 ### TradesResponse
 
@@ -477,12 +531,22 @@ pub struct MarketsResponse {
 | `orderbook_id` | String | Orderbook ID |
 | `taker_pubkey` | String | Taker pubkey |
 | `maker_pubkey` | String | Maker pubkey |
-| `side` | String | "buy" or "sell" |
+| `side` | ApiTradeSide | Trade side enum |
 | `size` | String | Trade size |
 | `price` | String | Trade price |
 | `taker_fee` | String | Taker fee |
 | `maker_fee` | String | Maker fee |
 | `executed_at` | i64 | Unix timestamp (ms) |
+
+### ApiTradeSide
+
+```rust
+#[serde(rename_all = "UPPERCASE")]
+pub enum ApiTradeSide {
+    Bid, // "BID"
+    Ask, // "ASK"
+}
+```
 
 ### PriceHistoryResponse
 
@@ -515,10 +579,12 @@ pub struct MarketsResponse {
 use lightcone_sdk::api::ApiError;
 
 match client.get_market("invalid").await {
-    Ok(market) => println!("Found: {}", market.market.market_name),
+    Ok(market) => println!("Found: {:?}", market.market.market_name),
     Err(ApiError::NotFound(msg)) => println!("Not found: {}", msg),
     Err(ApiError::BadRequest(msg)) => println!("Bad request: {}", msg),
+    Err(ApiError::Unauthorized(msg)) => println!("Unauthorized: {}", msg),
     Err(ApiError::Forbidden(msg)) => println!("Forbidden: {}", msg),
+    Err(ApiError::RateLimited(msg)) => println!("Rate limited: {}", msg),
     Err(ApiError::Conflict(msg)) => println!("Conflict: {}", msg),
     Err(ApiError::ServerError(msg)) => println!("Server error: {}", msg),
     Err(ApiError::Http(e)) => println!("Network error: {}", e),
@@ -537,7 +603,9 @@ match client.get_market("invalid").await {
 | `Http(reqwest::Error)` | - | Network/connection error |
 | `NotFound(String)` | 404 | Resource not found |
 | `BadRequest(String)` | 400 | Invalid parameters |
+| `Unauthorized(String)` | 401 | Authentication required |
 | `Forbidden(String)` | 403 | Permission denied |
+| `RateLimited(String)` | 429 | Rate limit exceeded |
 | `Conflict(String)` | 409 | Resource conflict |
 | `ServerError(String)` | 5xx | Server error |
 | `Deserialize(String)` | - | JSON parsing error |

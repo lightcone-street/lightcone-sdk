@@ -84,7 +84,7 @@ Functions for converting between string decimals and numeric types.
 
 ### parse_decimal
 
-Parses a decimal string to `f64`.
+Parses a decimal string to `f64`. Returns `Result<f64, std::num::ParseFloatError>`.
 
 ```rust
 use lightcone_sdk::shared::parse_decimal;
@@ -93,7 +93,7 @@ let price: f64 = parse_decimal("0.500000")?;
 let size: f64 = parse_decimal("1000.123456")?;
 
 // Error on invalid input
-let result = parse_decimal("invalid");  // Err
+let result = parse_decimal("invalid");  // Err(ParseFloatError)
 ```
 
 ### format_decimal
@@ -180,14 +180,22 @@ fn format_order_price(price: f64, decimals: u8) -> String {
 
 The on-chain program uses raw `u64` units (no decimals). The API returns human-readable decimal strings.
 
+**Note:** The SDK does not provide raw unit conversion functions. You must implement conversion based on the token's decimal places.
+
 ```rust
+// Example: Converting between decimal strings and raw units
+// This is application code - you must implement based on your token's decimals
+
 // API response: "1.500000" USDC (6 decimals)
 let price_string = "1.500000";
 
-// Convert to raw units for on-chain
+// Convert to raw units for on-chain (user implementation)
 let price_decimal = parse_decimal(price_string)?;  // 1.5
-let raw_units = (price_decimal * 1_000_000.0) as u64;  // 1_500_000
+let decimals = 6;  // USDC has 6 decimals
+let multiplier = 10_u64.pow(decimals);
+let raw_units = (price_decimal * multiplier as f64) as u64;  // 1_500_000
 
-// Convert raw units back to string
-let back_to_string = format_decimal(raw_units as f64 / 1_000_000.0, 6);  // "1.500000"
+// Convert raw units back to string (user implementation)
+let back_to_string = format_decimal(raw_units as f64 / multiplier as f64, decimals as usize);
+// "1.500000"
 ```
