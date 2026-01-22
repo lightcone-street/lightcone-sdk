@@ -63,7 +63,7 @@ export interface OrderResponse {
   /** Order hash (hex) */
   order_hash: string;
   /** Order status */
-  status: string;
+  status: OrderStatusValue;
   /** Remaining amount as decimal string */
   remaining: string;
   /** Filled amount as decimal string */
@@ -133,7 +133,7 @@ export interface UserOrder {
   /** Orderbook ID */
   orderbook_id: string;
   /** Order side (0=BID, 1=ASK) */
-  side: number;
+  side: ApiOrderSide;
   /** Maker amount as decimal string */
   maker_amount: string;
   /** Taker amount as decimal string */

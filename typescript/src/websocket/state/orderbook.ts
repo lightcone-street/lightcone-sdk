@@ -10,6 +10,7 @@
 
 import { WebSocketError } from "../error";
 import type { BookUpdateData, PriceLevel } from "../types";
+import { isZero } from "../../shared/price";
 
 /**
  * Local orderbook state.
@@ -42,13 +43,13 @@ export class LocalOrderbook {
 
     // Apply all levels
     for (const level of update.bids) {
-      if (parseFloat(level.size) !== 0) {
+      if (!isZero(level.size)) {
         this.bids.set(level.price, level.size);
       }
     }
 
     for (const level of update.asks) {
-      if (parseFloat(level.size) !== 0) {
+      if (!isZero(level.size)) {
         this.asks.set(level.price, level.size);
       }
     }
@@ -71,7 +72,7 @@ export class LocalOrderbook {
 
     // Apply bid updates
     for (const level of update.bids) {
-      if (parseFloat(level.size) === 0) {
+      if (isZero(level.size)) {
         this.bids.delete(level.price);
       } else {
         this.bids.set(level.price, level.size);
@@ -80,7 +81,7 @@ export class LocalOrderbook {
 
     // Apply ask updates
     for (const level of update.asks) {
-      if (parseFloat(level.size) === 0) {
+      if (isZero(level.size)) {
         this.asks.delete(level.price);
       } else {
         this.asks.set(level.price, level.size);

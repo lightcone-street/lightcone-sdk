@@ -44,12 +44,32 @@ describe("ApiError", () => {
       const err = ApiError.deserialize("JSON parse failed");
       expect(err.variant).toBe("Deserialize");
     });
+
+    it("creates rateLimited error", () => {
+      const err = ApiError.rateLimited("too many requests");
+      expect(err.variant).toBe("RateLimited");
+      expect(err.statusCode).toBe(429);
+      expect(err.message).toContain("too many requests");
+    });
+
+    it("creates unauthorized error", () => {
+      const err = ApiError.unauthorized("invalid token");
+      expect(err.variant).toBe("Unauthorized");
+      expect(err.statusCode).toBe(401);
+      expect(err.message).toContain("invalid token");
+    });
   });
 
   describe("fromStatus", () => {
     it("maps 400 to BadRequest", () => {
       const err = ApiError.fromStatus(400, "bad");
       expect(err.variant).toBe("BadRequest");
+    });
+
+    it("maps 401 to Unauthorized", () => {
+      const err = ApiError.fromStatus(401, "unauthorized");
+      expect(err.variant).toBe("Unauthorized");
+      expect(err.statusCode).toBe(401);
     });
 
     it("maps 403 to Forbidden", () => {
@@ -65,6 +85,12 @@ describe("ApiError", () => {
     it("maps 409 to Conflict", () => {
       const err = ApiError.fromStatus(409, "conflict");
       expect(err.variant).toBe("Conflict");
+    });
+
+    it("maps 429 to RateLimited", () => {
+      const err = ApiError.fromStatus(429, "too many requests");
+      expect(err.variant).toBe("RateLimited");
+      expect(err.statusCode).toBe(429);
     });
 
     it("maps 500 to ServerError", () => {

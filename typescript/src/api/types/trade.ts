@@ -3,6 +3,11 @@
  */
 
 /**
+ * Trade side (API returns uppercase strings).
+ */
+export type TradeSide = "BID" | "ASK";
+
+/**
  * Executed trade information.
  */
 export interface Trade {
@@ -15,7 +20,7 @@ export interface Trade {
   /** Maker's pubkey */
   maker_pubkey: string;
   /** Trade side ("BID" or "ASK") */
-  side: string;
+  side: TradeSide;
   /** Trade size as decimal string */
   size: string;
   /** Trade price as decimal string */

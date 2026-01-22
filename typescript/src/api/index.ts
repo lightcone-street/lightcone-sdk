@@ -16,12 +16,25 @@
  */
 
 // Client
-export { LightconeApiClient, DEFAULT_API_URL } from "./client";
-export type { LightconeApiClientConfig } from "./client";
+export {
+  LightconeApiClient,
+  DEFAULT_API_URL,
+  DEFAULT_RETRY_CONFIG,
+} from "./client";
+export type { LightconeApiClientConfig, RetryConfig } from "./client";
 
 // Error types
 export { ApiError } from "./error";
 export type { ApiErrorVariant, ApiResult, ErrorResponse } from "./error";
+
+// Validation utilities
+export {
+  validatePubkey,
+  validateSignature,
+  validateLimit,
+  MAX_PAGINATION_LIMIT,
+  DEFAULT_TIMEOUT_MS,
+} from "./validation";
 
 // All types
 export * from "./types";

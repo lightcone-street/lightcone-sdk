@@ -46,6 +46,8 @@ export interface WebSocketConfig {
   autoResubscribe?: boolean;
   /** Optional authentication token for private user streams */
   authToken?: string;
+  /** Connection timeout in milliseconds (default: 30000) */
+  connectionTimeoutMs?: number;
 }
 
 /**
@@ -109,6 +111,7 @@ export class LightconeWebSocketClient {
       autoReconnect: config.autoReconnect ?? true,
       autoResubscribe: config.autoResubscribe ?? true,
       authToken: config.authToken ?? "",
+      connectionTimeoutMs: config.connectionTimeoutMs ?? 30000,
     };
   }
 
@@ -180,6 +183,23 @@ export class LightconeWebSocketClient {
    */
   private async establishConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
+      const timeoutMs = this.config.connectionTimeoutMs;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let resolved = false;
+
+      // Set up connection timeout
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          this.state = "Disconnected";
+          if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+          }
+          reject(WebSocketError.connectionTimeout());
+        }
+      }, timeoutMs);
+
       try {
         // Build WebSocket options with Cookie header if authenticated
         const options: WebSocket.ClientOptions = {};
@@ -191,12 +211,16 @@ export class LightconeWebSocketClient {
 
         this.ws = new WebSocket(this.url, options);
       } catch (e) {
+        if (timeoutId) clearTimeout(timeoutId);
         this.state = "Disconnected";
         reject(WebSocketError.connectionFailed(String(e)));
         return;
       }
 
       this.ws.onopen = () => {
+        if (resolved) return;
+        resolved = true;
+        if (timeoutId) clearTimeout(timeoutId);
         this.state = "Connected";
         this.reconnectAttempt = 0;
         this.startPingInterval();
@@ -217,14 +241,16 @@ export class LightconeWebSocketClient {
       };
 
       this.ws.onerror = (event) => {
+        if (resolved) return;
+        resolved = true;
+        if (timeoutId) clearTimeout(timeoutId);
         console.error("WebSocket error:", event);
-        this.emitEvent({
-          type: "Error",
-          error: WebSocketError.connectionFailed("WebSocket error"),
-        });
+        this.state = "Disconnected";
+        reject(WebSocketError.connectionFailed("WebSocket error"));
       };
 
       this.ws.onclose = (event) => {
+        if (timeoutId) clearTimeout(timeoutId);
         this.stopPingInterval();
         const reason = `code: ${event.code}, reason: ${event.reason || "no reason"}`;
         this.emitEvent({ type: "Disconnected", reason });
@@ -504,7 +530,8 @@ export class LightconeWebSocketClient {
    * Returns a Promise that resolves when the connection is fully closed.
    */
   async disconnect(): Promise<void> {
-    if (!this.ws || this.state === "Disconnected") {
+    const ws = this.ws;
+    if (!ws || this.state === "Disconnected") {
       return;
     }
 
@@ -512,7 +539,6 @@ export class LightconeWebSocketClient {
     this.stopPingInterval();
 
     return new Promise((resolve) => {
-      const ws = this.ws!;
       const onClose = () => {
         ws.removeEventListener("close", onClose);
         this.ws = null;
@@ -536,6 +562,48 @@ export class LightconeWebSocketClient {
    */
   isAuthenticated(): boolean {
     return !!this.config.authToken;
+  }
+
+  /**
+   * Check if the WebSocket connection is healthy.
+   */
+  isHealthy(): boolean {
+    if (this.state !== "Connected") {
+      return false;
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    // Check if we're waiting for a pong that's overdue
+    if (this.awaitingPong) {
+      const elapsed = (Date.now() - this.lastPong) / 1000;
+      if (elapsed > this.config.pongTimeoutSecs) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Get detailed connection status.
+   */
+  getConnectionStatus(): {
+    state: ConnectionState;
+    isHealthy: boolean;
+    lastPongMs: number;
+    awaitingPong: boolean;
+    wsReadyState: number | null;
+  } {
+    return {
+      state: this.state,
+      isHealthy: this.isHealthy(),
+      lastPongMs: Date.now() - this.lastPong,
+      awaitingPong: this.awaitingPong,
+      wsReadyState: this.ws?.readyState ?? null,
+    };
   }
 
   /**

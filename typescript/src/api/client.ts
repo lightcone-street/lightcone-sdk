@@ -3,6 +3,12 @@
  */
 
 import { ApiError, getErrorMessage, type ErrorResponse } from "./error";
+import {
+  validatePubkey,
+  validateSignature,
+  validateLimit,
+  DEFAULT_TIMEOUT_MS,
+} from "./validation";
 import type {
   MarketsResponse,
   MarketInfoResponse,
@@ -47,6 +53,25 @@ function toQueryParams(
 export const DEFAULT_API_URL = "https://lightcone.xyz/api";
 
 /**
+ * Configuration for retry behavior.
+ */
+export interface RetryConfig {
+  /** Maximum number of retry attempts (default: 0 = disabled) */
+  maxRetries: number;
+  /** Initial delay in milliseconds (default: 100) */
+  baseDelayMs: number;
+  /** Maximum delay cap in milliseconds (default: 10000) */
+  maxDelayMs: number;
+}
+
+/** Default retry configuration (disabled) */
+export const DEFAULT_RETRY_CONFIG: RetryConfig = {
+  maxRetries: 0,
+  baseDelayMs: 100,
+  maxDelayMs: 10000,
+};
+
+/**
  * Configuration for the Lightcone API client.
  */
 export interface LightconeApiClientConfig {
@@ -56,6 +81,37 @@ export interface LightconeApiClientConfig {
   timeout?: number;
   /** Additional headers to include in requests */
   headers?: Record<string, string>;
+  /** Retry configuration for transient failures */
+  retry?: Partial<RetryConfig>;
+}
+
+/**
+ * Calculate delay with exponential backoff and jitter.
+ * Jitter: 75-100% of calculated delay (prevents thundering herd)
+ */
+function calculateRetryDelay(attempt: number, config: RetryConfig): number {
+  const expDelay = config.baseDelayMs * Math.pow(2, Math.min(attempt, 10));
+  const cappedDelay = Math.min(expDelay, config.maxDelayMs);
+  const jitterRange = cappedDelay * 0.25;
+  const jitter = Math.random() * jitterRange;
+  return cappedDelay - jitterRange + jitter;
+}
+
+/**
+ * Check if error is retryable.
+ */
+function isRetryable(error: ApiError): boolean {
+  if (error.variant === "ServerError") return true;
+  if (error.variant === "RateLimited") return true;
+  if (error.variant === "Http") return true; // Network errors
+  return false;
+}
+
+/**
+ * Sleep for a duration.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -78,13 +134,18 @@ export class LightconeApiClient {
   private readonly baseUrl: string;
   private readonly timeout: number;
   private readonly headers: Record<string, string>;
+  private readonly retryConfig: RetryConfig;
 
   constructor(config: LightconeApiClientConfig = {}) {
     this.baseUrl = config.baseUrl || DEFAULT_API_URL;
-    this.timeout = config.timeout || 30000;
+    this.timeout = config.timeout || DEFAULT_TIMEOUT_MS;
     this.headers = {
       "Content-Type": "application/json",
       ...config.headers,
+    };
+    this.retryConfig = {
+      ...DEFAULT_RETRY_CONFIG,
+      ...config.retry,
     };
   }
 
@@ -93,7 +154,7 @@ export class LightconeApiClient {
   // ============================================================================
 
   /**
-   * Make an HTTP request.
+   * Make an HTTP request with retry support.
    */
   private async request<T>(
     method: string,
@@ -109,48 +170,82 @@ export class LightconeApiClient {
       url += `?${params.toString()}`;
     }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+    let lastError: ApiError | undefined;
 
-    try {
-      const response = await fetch(url, {
-        method,
-        headers: this.headers,
-        body: body ? JSON.stringify(body) : undefined,
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt <= this.retryConfig.maxRetries; attempt++) {
+      // Delay before retry (not on first attempt)
+      if (attempt > 0) {
+        const delay = calculateRetryDelay(attempt - 1, this.retryConfig);
+        await sleep(delay);
+      }
 
-      clearTimeout(timeoutId);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.timeout);
 
-      if (!response.ok) {
-        let errorMessage = `HTTP ${response.status}`;
-        try {
-          const errorData = (await response.json()) as ErrorResponse;
-          errorMessage = getErrorMessage(errorData);
-        } catch {
-          // Ignore JSON parse errors
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: this.headers,
+          body: body ? JSON.stringify(body) : undefined,
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          let errorMessage = `HTTP ${response.status}`;
+          try {
+            const errorData = (await response.json()) as ErrorResponse;
+            errorMessage = getErrorMessage(errorData);
+          } catch {
+            // Ignore JSON parse errors
+          }
+          const error = ApiError.fromStatus(response.status, errorMessage);
+
+          // Check if retryable
+          if (isRetryable(error) && attempt < this.retryConfig.maxRetries) {
+            lastError = error;
+            continue;
+          }
+          throw error;
         }
-        throw ApiError.fromStatus(response.status, errorMessage);
-      }
 
-      const data = (await response.json()) as T;
-      return data;
-    } catch (error) {
-      clearTimeout(timeoutId);
+        const data = (await response.json()) as T;
+        return data;
+      } catch (error) {
+        clearTimeout(timeoutId);
 
-      if (error instanceof ApiError) {
-        throw error;
-      }
-
-      if (error instanceof Error) {
-        if (error.name === "AbortError") {
-          throw ApiError.http("Request timeout");
+        if (error instanceof ApiError) {
+          // Already an ApiError - check if retryable
+          if (isRetryable(error) && attempt < this.retryConfig.maxRetries) {
+            lastError = error;
+            continue;
+          }
+          throw error;
         }
-        throw ApiError.http(error.message);
-      }
 
-      throw ApiError.http("Unknown error");
+        let apiError: ApiError;
+        if (error instanceof Error) {
+          if (error.name === "AbortError") {
+            apiError = ApiError.http("Request timeout");
+          } else {
+            apiError = ApiError.http(error.message);
+          }
+        } else {
+          apiError = ApiError.http("Unknown error");
+        }
+
+        // Network errors are retryable
+        if (isRetryable(apiError) && attempt < this.retryConfig.maxRetries) {
+          lastError = apiError;
+          continue;
+        }
+        throw apiError;
+      }
     }
+
+    // Should not reach here, but throw last error if we do
+    throw lastError || ApiError.http("Unknown error");
   }
 
   // ============================================================================
@@ -184,8 +279,10 @@ export class LightconeApiClient {
    *
    * @param marketPubkey - Market PDA address (Base58)
    * @returns Market details
+   * @throws {ApiError} If marketPubkey is invalid
    */
   async getMarket(marketPubkey: string): Promise<MarketInfoResponse> {
+    validatePubkey(marketPubkey, "marketPubkey");
     return this.request<MarketInfoResponse>(
       "GET",
       `/markets/${encodeURIComponent(marketPubkey)}`
@@ -210,8 +307,10 @@ export class LightconeApiClient {
    *
    * @param marketPubkey - Market PDA address (Base58)
    * @returns Deposit assets
+   * @throws {ApiError} If marketPubkey is invalid
    */
   async getDepositAssets(marketPubkey: string): Promise<DepositAssetsResponse> {
+    validatePubkey(marketPubkey, "marketPubkey");
     return this.request<DepositAssetsResponse>(
       "GET",
       `/markets/${encodeURIComponent(marketPubkey)}/deposit-assets`
@@ -250,8 +349,14 @@ export class LightconeApiClient {
    *
    * @param request - Order details
    * @returns Order response with hash and fill info
+   * @throws {ApiError} If any pubkey or signature is invalid
    */
   async submitOrder(request: SubmitOrderRequest): Promise<OrderResponse> {
+    validatePubkey(request.maker, "maker");
+    validatePubkey(request.market_pubkey, "market_pubkey");
+    validatePubkey(request.base_token, "base_token");
+    validatePubkey(request.quote_token, "quote_token");
+    validateSignature(request.signature);
     return this.request<OrderResponse>("POST", "/orders/submit", request);
   }
 
@@ -261,8 +366,10 @@ export class LightconeApiClient {
    * @param orderHash - Hash of the order to cancel (hex)
    * @param maker - Order creator's pubkey (Base58)
    * @returns Cancel response
+   * @throws {ApiError} If maker pubkey is invalid
    */
   async cancelOrder(orderHash: string, maker: string): Promise<CancelResponse> {
+    validatePubkey(maker, "maker");
     const request: CancelOrderRequest = { order_hash: orderHash, maker };
     return this.request<CancelResponse>("POST", "/orders/cancel", request);
   }
@@ -273,11 +380,16 @@ export class LightconeApiClient {
    * @param userPubkey - User's public key (Base58)
    * @param marketPubkey - Optional market filter (Base58)
    * @returns Cancel all response
+   * @throws {ApiError} If any pubkey is invalid
    */
   async cancelAllOrders(
     userPubkey: string,
     marketPubkey?: string
   ): Promise<CancelAllResponse> {
+    validatePubkey(userPubkey, "userPubkey");
+    if (marketPubkey) {
+      validatePubkey(marketPubkey, "marketPubkey");
+    }
     const request: CancelAllOrdersRequest = {
       user_pubkey: userPubkey,
       market_pubkey: marketPubkey,
@@ -294,8 +406,10 @@ export class LightconeApiClient {
    *
    * @param userPubkey - User's public key (Base58)
    * @returns User positions
+   * @throws {ApiError} If userPubkey is invalid
    */
   async getUserPositions(userPubkey: string): Promise<PositionsResponse> {
+    validatePubkey(userPubkey, "userPubkey");
     return this.request<PositionsResponse>(
       "GET",
       `/users/${encodeURIComponent(userPubkey)}/positions`
@@ -308,11 +422,14 @@ export class LightconeApiClient {
    * @param userPubkey - User's public key (Base58)
    * @param marketPubkey - Market PDA address (Base58)
    * @returns Market positions
+   * @throws {ApiError} If any pubkey is invalid
    */
   async getUserMarketPositions(
     userPubkey: string,
     marketPubkey: string
   ): Promise<MarketPositionsResponse> {
+    validatePubkey(userPubkey, "userPubkey");
+    validatePubkey(marketPubkey, "marketPubkey");
     return this.request<MarketPositionsResponse>(
       "GET",
       `/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`
@@ -328,8 +445,10 @@ export class LightconeApiClient {
    *
    * @param userPubkey - User's public key (Base58)
    * @returns User orders and balances
+   * @throws {ApiError} If userPubkey is invalid
    */
   async getUserOrders(userPubkey: string): Promise<UserOrdersResponse> {
+    validatePubkey(userPubkey, "userPubkey");
     return this.request<UserOrdersResponse>("POST", "/users/orders", {
       user_pubkey: userPubkey,
     });
@@ -344,8 +463,10 @@ export class LightconeApiClient {
    *
    * @param params - Query parameters
    * @returns Price history data
+   * @throws {ApiError} If limit is out of bounds (1-500)
    */
   async getPriceHistory(params: PriceHistoryParams): Promise<PriceHistoryResponse> {
+    validateLimit(params.limit);
     return this.request<PriceHistoryResponse>(
       "GET",
       "/price-history",
@@ -363,8 +484,10 @@ export class LightconeApiClient {
    *
    * @param params - Query parameters
    * @returns Trade history
+   * @throws {ApiError} If limit is out of bounds (1-500)
    */
   async getTrades(params: TradesParams): Promise<TradesResponse> {
+    validateLimit(params.limit);
     return this.request<TradesResponse>(
       "GET",
       "/trades",

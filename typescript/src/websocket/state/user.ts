@@ -10,6 +10,7 @@ import type {
   BalanceEntry,
   UserEventData,
 } from "../types";
+import { isZero } from "../../shared/price";
 
 /**
  * User state tracking orders and balances.
@@ -62,7 +63,7 @@ export class UserState {
     const orderHash = update.order_hash;
 
     // If remaining is 0, the order is fully filled or cancelled - remove it
-    if (parseFloat(update.remaining) === 0) {
+    if (isZero(update.remaining)) {
       this.orders.delete(orderHash);
     } else {
       const existing = this.orders.get(orderHash);

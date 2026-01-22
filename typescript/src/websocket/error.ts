@@ -8,6 +8,7 @@
 export type WebSocketErrorVariant =
   | "ConnectionFailed"
   | "ConnectionClosed"
+  | "ConnectionTimeout"
   | "RateLimited"
   | "MessageParseError"
   | "SequenceGap"
@@ -45,6 +46,14 @@ export class WebSocketError extends Error {
   /** Failed to establish connection */
   static connectionFailed(message: string): WebSocketError {
     return new WebSocketError("ConnectionFailed", `Connection failed: ${message}`);
+  }
+
+  /** Connection timeout */
+  static connectionTimeout(): WebSocketError {
+    return new WebSocketError(
+      "ConnectionTimeout",
+      "Connection timeout - server did not respond"
+    );
   }
 
   /** Connection was closed */
