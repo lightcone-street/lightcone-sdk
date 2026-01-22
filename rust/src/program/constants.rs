@@ -13,28 +13,28 @@ use std::str::FromStr;
 lazy_static::lazy_static! {
     /// Lightcone Pinocchio Program ID
     pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk").unwrap();
-
-    /// SPL Token Program ID
-    pub static ref TOKEN_PROGRAM_ID: Pubkey = Pubkey::from_str("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA").unwrap();
-
-    /// Token-2022 Program ID (for conditional tokens)
-    pub static ref TOKEN_2022_PROGRAM_ID: Pubkey = Pubkey::from_str("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb").unwrap();
-
-    /// Associated Token Account Program ID
-    pub static ref ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = Pubkey::from_str("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL").unwrap();
-
-    /// System Program ID
-    pub static ref SYSTEM_PROGRAM_ID: Pubkey = Pubkey::from_str("11111111111111111111111111111111").unwrap();
-
-    /// Rent Sysvar ID
-    pub static ref RENT_SYSVAR_ID: Pubkey = Pubkey::from_str("SysvarRent111111111111111111111111111111111").unwrap();
-
-    /// Instructions Sysvar ID (for Ed25519 verification)
-    pub static ref INSTRUCTIONS_SYSVAR_ID: Pubkey = Pubkey::from_str("Sysvar1nstructions1111111111111111111111111").unwrap();
-
-    /// Ed25519 Program ID (for signature verification)
-    pub static ref ED25519_PROGRAM_ID: Pubkey = Pubkey::from_str("Ed25519SigVerify111111111111111111111111111").unwrap();
 }
+
+/// SPL Token Program ID
+pub const TOKEN_PROGRAM_ID: Pubkey = spl_token::ID;
+
+/// Token-2022 Program ID (for conditional tokens)
+pub const TOKEN_2022_PROGRAM_ID: Pubkey = spl_token_2022::ID;
+
+/// Associated Token Account Program ID
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account::ID;
+
+/// System Program ID
+pub const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk_ids::system_program::ID;
+
+/// Rent Sysvar ID
+pub const RENT_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::rent::ID;
+
+/// Instructions Sysvar ID (for Ed25519 verification)
+pub const INSTRUCTIONS_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::instructions::ID;
+
+/// Ed25519 Program ID (for signature verification)
+pub const ED25519_PROGRAM_ID: Pubkey = solana_sdk_ids::ed25519_program::ID;
 
 // ============================================================================
 // Instruction Discriminators

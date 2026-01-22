@@ -99,7 +99,7 @@ pub fn create_ed25519_verify_instruction(params: &Ed25519VerifyParams) -> Instru
     data[112..144].copy_from_slice(&params.message);
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -189,7 +189,7 @@ pub fn create_batch_ed25519_verify_instruction(params: &[Ed25519VerifyParams]) -
     }
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -288,7 +288,7 @@ pub fn create_cross_ref_ed25519_instruction(params: &CrossRefEd25519Params) -> I
     data[14..16].copy_from_slice(&params.message_ix_index.to_le_bytes());
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -357,7 +357,7 @@ mod tests {
 
         let ix = create_ed25519_verify_instruction(&params);
         assert_eq!(ix.data.len(), 144);
-        assert_eq!(ix.program_id, *ED25519_PROGRAM_ID);
+        assert_eq!(ix.program_id, ED25519_PROGRAM_ID);
         assert!(ix.accounts.is_empty());
     }
 

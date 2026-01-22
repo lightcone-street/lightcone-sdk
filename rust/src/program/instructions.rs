@@ -155,8 +155,8 @@ pub fn build_add_deposit_mint_ix(
         readonly(params.deposit_mint),
         writable(vault),
         readonly(mint_authority),
-        readonly(*TOKEN_PROGRAM_ID),
-        readonly(*TOKEN_2022_PROGRAM_ID),
+        readonly(TOKEN_PROGRAM_ID),
+        readonly(TOKEN_2022_PROGRAM_ID),
         readonly(system_program_id()),
     ];
 
@@ -228,9 +228,9 @@ pub fn build_mint_complete_set_ix(
         writable(position),
         writable(position_collateral_ata),
         readonly(mint_authority),
-        readonly(*TOKEN_PROGRAM_ID),
-        readonly(*TOKEN_2022_PROGRAM_ID),
-        readonly(*ASSOCIATED_TOKEN_PROGRAM_ID),
+        readonly(TOKEN_PROGRAM_ID),
+        readonly(TOKEN_2022_PROGRAM_ID),
+        readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
         readonly(system_program_id()),
     ];
 
@@ -278,8 +278,8 @@ pub fn build_merge_complete_set_ix(
         writable(position),
         writable(user_deposit_ata),
         readonly(mint_authority),
-        readonly(*TOKEN_PROGRAM_ID),
-        readonly(*TOKEN_2022_PROGRAM_ID),
+        readonly(TOKEN_PROGRAM_ID),
+        readonly(TOKEN_2022_PROGRAM_ID),
     ];
 
     // Add conditional mint and position ATA pairs
@@ -405,8 +405,8 @@ pub fn build_redeem_winnings_ix(
         writable(position_winning_ata),
         writable(user_deposit_ata),
         readonly(mint_authority),
-        readonly(*TOKEN_PROGRAM_ID),
-        readonly(*TOKEN_2022_PROGRAM_ID),
+        readonly(TOKEN_PROGRAM_ID),
+        readonly(TOKEN_2022_PROGRAM_ID),
     ];
 
     let mut data = Vec::with_capacity(9);
@@ -484,9 +484,9 @@ pub fn build_withdraw_from_position_ix(
         get_deposit_token_ata(&params.user, &params.mint)
     };
     let token_program = if is_token_2022 {
-        *TOKEN_2022_PROGRAM_ID
+        TOKEN_2022_PROGRAM_ID
     } else {
-        *TOKEN_PROGRAM_ID
+        TOKEN_PROGRAM_ID
     };
 
     let keys = vec![
@@ -588,9 +588,9 @@ pub fn build_match_orders_multi_ix(
         readonly(params.quote_mint),
         writable(taker_base_ata),
         writable(taker_quote_ata),
-        readonly(*TOKEN_2022_PROGRAM_ID),
+        readonly(TOKEN_2022_PROGRAM_ID),
         readonly(system_program_id()),
-        readonly(*INSTRUCTIONS_SYSVAR_ID),
+        readonly(INSTRUCTIONS_SYSVAR_ID),
     ];
 
     // Add maker accounts
