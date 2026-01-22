@@ -2,6 +2,16 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Trade side enum for API responses (uses uppercase string format: "BID"/"ASK").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum ApiTradeSide {
+    /// Buy side
+    Bid,
+    /// Sell side
+    Ask,
+}
+
 /// Executed trade information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Trade {
@@ -13,8 +23,8 @@ pub struct Trade {
     pub taker_pubkey: String,
     /// Maker's pubkey
     pub maker_pubkey: String,
-    /// Trade side ("BID" or "ASK")
-    pub side: String,
+    /// Trade side
+    pub side: ApiTradeSide,
     /// Trade size as decimal string
     pub size: String,
     /// Trade price as decimal string

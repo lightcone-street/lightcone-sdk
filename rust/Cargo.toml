@@ -29,6 +29,7 @@ spl-associated-token-account = "8.0"
 
 # Utilities
 thiserror = "2.0"
+rust_decimal = "1"
 bs58 = "0.5"
 lazy_static = "1.5"
 rand = "0.8"

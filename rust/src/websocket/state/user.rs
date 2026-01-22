@@ -3,12 +3,22 @@
 //! Maintains local state for user orders and balances.
 
 use std::collections::HashMap;
+use std::str::FromStr;
+
+use rust_decimal::Decimal;
 
 use crate::websocket::types::{Balance, BalanceEntry, Order, UserEventData};
 
-/// Check if a string represents zero
+/// Check if a string represents zero using precise decimal comparison.
 fn is_zero(s: &str) -> bool {
-    s == "0" || s == "0.0" || s == "0.000000" || s.parse::<f64>().map(|v| v == 0.0).unwrap_or(false)
+    // Fast path for common string representations
+    if s == "0" || s == "0.0" || s == "0.000000" {
+        return true;
+    }
+    // Parse with Decimal for precision
+    Decimal::from_str(s)
+        .map(|v| v.is_zero())
+        .unwrap_or(false)
 }
 
 /// User state tracking orders and balances

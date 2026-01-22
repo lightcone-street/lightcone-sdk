@@ -66,13 +66,17 @@ struct LoginResponse {
 ///
 /// Timestamp: {unix_ms}
 /// ```
-pub fn generate_signin_message() -> String {
+///
+/// # Errors
+///
+/// Returns an error if the system time is before the UNIX epoch.
+pub fn generate_signin_message() -> WsResult<String> {
     let timestamp_ms = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .expect("Time went backwards")
+        .map_err(|_| WebSocketError::Protocol("System time before UNIX epoch".to_string()))?
         .as_millis();
 
-    format!("Sign in to Lightcone\n\nTimestamp: {}", timestamp_ms)
+    Ok(format!("Sign in to Lightcone\n\nTimestamp: {}", timestamp_ms))
 }
 
 /// Generate the sign-in message with a specific timestamp.
@@ -110,7 +114,7 @@ pub fn generate_signin_message_with_timestamp(timestamp_ms: u128) -> String {
 /// ```
 pub async fn authenticate(signing_key: &SigningKey) -> WsResult<AuthCredentials> {
     // Generate the message
-    let message = generate_signin_message();
+    let message = generate_signin_message()?;
 
     // Sign the message
     let signature = signing_key.sign(message.as_bytes());
@@ -186,7 +190,7 @@ mod tests {
 
     #[test]
     fn test_generate_signin_message() {
-        let message = generate_signin_message();
+        let message = generate_signin_message().unwrap();
         assert!(message.starts_with("Sign in to Lightcone\n\nTimestamp: "));
     }
 

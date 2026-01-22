@@ -182,7 +182,7 @@ mod order_types {
         }"#;
         let response: OrderResponse = serde_json::from_str(json).unwrap();
         assert_eq!(response.order_hash, "abc123def456");
-        assert_eq!(response.status, "accepted");
+        assert_eq!(response.status, OrderStatus::Accepted);
         assert_eq!(response.remaining, "1.000000");
         assert_eq!(response.filled, "0.000000");
     }
@@ -253,7 +253,7 @@ mod order_types {
             "expiration": 0
         }"#;
         let order: UserOrder = serde_json::from_str(json).unwrap();
-        assert_eq!(order.side, 0);
+        assert_eq!(order.side, ApiOrderSide::Bid);
         assert_eq!(order.price, "0.500000");
     }
 }
@@ -324,7 +324,7 @@ mod trade_types {
         }"#;
         let trade: Trade = serde_json::from_str(json).unwrap();
         assert_eq!(trade.id, 123);
-        assert_eq!(trade.side, "BID");
+        assert_eq!(trade.side, ApiTradeSide::Bid);
         assert_eq!(trade.size, "1.000000");
     }
 

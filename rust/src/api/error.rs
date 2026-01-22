@@ -21,6 +21,14 @@ pub enum ApiError {
     #[error("Permission denied: {0}")]
     Forbidden(String),
 
+    /// Rate limited (429)
+    #[error("Rate limited: {0}")]
+    RateLimited(String),
+
+    /// Authentication required (401)
+    #[error("Unauthorized: {0}")]
+    Unauthorized(String),
+
     /// Resource already exists (409)
     #[error("Conflict: {0}")]
     Conflict(String),

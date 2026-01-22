@@ -40,7 +40,7 @@ pub struct OrderbookSummary {
     /// Quote token address
     pub quote_token: String,
     /// Tick size for price granularity
-    pub tick_size: i64,
+    pub tick_size: u64,
     /// Creation timestamp
     pub created_at: String,
 }

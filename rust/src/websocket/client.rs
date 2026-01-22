@@ -39,6 +39,9 @@ type WsSource = SplitStream<WsStream>;
 /// Default WebSocket URL for Lightcone
 pub const DEFAULT_WS_URL: &str = "wss://ws.lightcone.xyz/ws";
 
+/// Connection timeout duration for WebSocket connections
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// WebSocket client configuration
 #[derive(Debug, Clone)]
 pub struct WebSocketConfig {
@@ -135,8 +138,7 @@ pin_project! {
         event_rx: mpsc::Receiver<WsEvent>,
         event_tx: mpsc::Sender<WsEvent>,
         reconnect_attempt: u32,
-        last_ping: Option<Instant>,
-        last_pong: Option<Instant>,
+        connection_task_handle: Option<tokio::task::JoinHandle<()>>,
         auth_credentials: Option<AuthCredentials>,
     }
 }
@@ -258,8 +260,7 @@ impl LightconeWebSocketClient {
             event_rx,
             event_tx,
             reconnect_attempt: 0,
-            last_ping: None,
-            last_pong: None,
+            connection_task_handle: None,
             auth_credentials,
         };
 
@@ -286,13 +287,15 @@ impl LightconeWebSocketClient {
                     .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
             );
 
-            let (stream, _) = connect_async(request)
+            let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(request))
                 .await
+                .map_err(|_| WebSocketError::Timeout)?
                 .map_err(WebSocketError::from)?;
             stream
         } else {
-            let (stream, _) = connect_async(&self.url)
+            let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(&self.url))
                 .await
+                .map_err(|_| WebSocketError::Timeout)?
                 .map_err(WebSocketError::from)?;
             stream
         };
@@ -313,7 +316,8 @@ impl LightconeWebSocketClient {
             url: self.url.clone(),
         };
 
-        tokio::spawn(connection_task(sink, source, cmd_rx, ctx));
+        let handle = tokio::spawn(connection_task(sink, source, cmd_rx, ctx));
+        self.connection_task_handle = Some(handle);
 
         // Send connected event
         let _ = self.event_tx.send(WsEvent::Connected).await;
@@ -433,7 +437,6 @@ impl LightconeWebSocketClient {
 
     /// Send a ping request
     pub async fn ping(&mut self) -> WsResult<()> {
-        self.last_ping = Some(Instant::now());
         if let Some(tx) = &self.cmd_tx {
             tx.send(ConnectionCommand::Ping)
                 .await
@@ -463,12 +466,27 @@ impl LightconeWebSocketClient {
     /// Disconnect from the server
     pub async fn disconnect(&mut self) -> WsResult<()> {
         self.state = ConnectionState::Disconnecting;
-        if let Some(tx) = &self.cmd_tx {
+
+        // Send disconnect command to the connection task
+        if let Some(tx) = self.cmd_tx.take() {
             let _ = tx.send(ConnectionCommand::Disconnect).await;
         }
-        self.cmd_tx = None;
+
+        // Wait for the connection task to finish
+        if let Some(handle) = self.connection_task_handle.take() {
+            let _ = handle.await;
+        }
+
         self.state = ConnectionState::Disconnected;
         Ok(())
+    }
+
+    /// Check if the connection task is still running
+    pub fn is_task_running(&self) -> bool {
+        self.connection_task_handle
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
     }
 
     /// Get the current connection state
@@ -579,9 +597,19 @@ async fn connection_task(
                     Some(Ok(Message::Text(text))) => {
                         let events = handler.handle_message(&text).await;
                         for event in events {
-                            if event_tx.send(event).await.is_err() {
-                                tracing::debug!("Event receiver dropped");
-                                return;
+                            // Use try_send to avoid blocking the connection task if consumer is slow
+                            match event_tx.try_send(event) {
+                                Ok(_) => {}
+                                Err(mpsc::error::TrySendError::Full(dropped_event)) => {
+                                    tracing::warn!(
+                                        "Event channel full, dropping event: {:?}",
+                                        std::mem::discriminant(&dropped_event)
+                                    );
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    tracing::debug!("Event receiver dropped");
+                                    return;
+                                }
                             }
                         }
                     }
@@ -632,6 +660,8 @@ async fn connection_task(
                                     sink = new_sink;
                                     source = new_source;
                                     reconnect_attempt = 0;
+                                    last_pong = Instant::now();
+                                    awaiting_pong = false;
                                     let _ = event_tx.send(WsEvent::Connected).await;
                                 }
                                 Err(e) => {
@@ -773,13 +803,15 @@ async fn reconnect(
                 .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
         );
 
-        let (stream, _) = connect_async(request)
+        let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(request))
             .await
+            .map_err(|_| WebSocketError::Timeout)?
             .map_err(WebSocketError::from)?;
         stream
     } else {
-        let (stream, _) = connect_async(url)
+        let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(url))
             .await
+            .map_err(|_| WebSocketError::Timeout)?
             .map_err(WebSocketError::from)?;
         stream
     };

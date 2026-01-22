@@ -90,6 +90,6 @@ pub mod error;
 pub mod types;
 
 // Re-export main types for convenience
-pub use client::{LightconeApiClient, LightconeApiClientBuilder};
+pub use client::{LightconeApiClient, LightconeApiClientBuilder, RetryConfig};
 pub use error::{ApiError, ApiResult, ErrorResponse};
 pub use types::*;
