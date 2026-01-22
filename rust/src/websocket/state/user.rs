@@ -11,11 +11,6 @@ use crate::websocket::types::{Balance, BalanceEntry, Order, UserEventData};
 
 /// Check if a string represents zero using precise decimal comparison.
 fn is_zero(s: &str) -> bool {
-    // Fast path for common string representations
-    if s == "0" || s == "0.0" || s == "0.000000" {
-        return true;
-    }
-    // Parse with Decimal for precision
     Decimal::from_str(s)
         .map(|v| v.is_zero())
         .unwrap_or(false)

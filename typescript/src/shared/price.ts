@@ -39,7 +39,6 @@ export function formatDecimal(value: number, precision: number): string {
 
 /**
  * Check if a decimal string represents zero.
- * Uses string comparison for common cases and falls back to numeric check.
  *
  * @example
  * ```typescript
@@ -50,25 +49,7 @@ export function formatDecimal(value: number, precision: number): string {
  * ```
  */
 export function isZero(s: string): boolean {
-  // Fast path for common string representations
-  if (s === "0" || s === "0.0" || s === "0.000000") {
-    return true;
-  }
-
-  // Check if string consists only of zeros and decimal point
-  // This handles any precision like "0.00000000000"
-  const trimmed = s.replace(/^-/, ""); // Remove negative sign
-  if (/^0*\.?0*$/.test(trimmed)) {
-    return true;
-  }
-
-  // Fallback to numeric comparison with small tolerance
   const parsed = parseFloat(s);
-  if (isNaN(parsed)) {
-    return false;
-  }
-
-  // Use a tolerance based on typical financial precision (1e-12)
-  return Math.abs(parsed) < 1e-12;
+  return !isNaN(parsed) && parsed === 0;
 }
 

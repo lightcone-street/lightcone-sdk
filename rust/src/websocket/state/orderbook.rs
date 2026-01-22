@@ -48,11 +48,6 @@ impl PartialOrd for PriceKey {
 
 /// Check if a size string represents zero using precise decimal comparison.
 fn is_zero_size(s: &str) -> bool {
-    // Fast path for common string representations
-    if s == "0" || s == "0.0" || s == "0.000000" {
-        return true;
-    }
-    // Parse with Decimal for precision
     Decimal::from_str(s)
         .map(|v| v.is_zero())
         .unwrap_or(false)
