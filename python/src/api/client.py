@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-import warnings
 from typing import Any, Optional
 from urllib.parse import quote
 
@@ -120,15 +119,6 @@ class LightconeApiClient:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
-
-    def __del__(self):
-        """Warn if session was not properly closed."""
-        if self._session and not self._session.closed:
-            warnings.warn(
-                "LightconeApiClient session not closed. Use 'async with' or call close()",
-                ResourceWarning,
-                stacklevel=2,
-            )
 
     def _map_status_error(self, status: int, message: str) -> ApiError:
         """Map HTTP status code to ApiError."""

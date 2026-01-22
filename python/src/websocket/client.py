@@ -26,7 +26,15 @@ from .error import (
 from .handlers import MessageHandler
 from .subscriptions import SubscriptionManager
 from .state import LocalOrderbook, PriceHistory, UserState
-from .types import WsEvent, WsRequest
+from .types import (
+    WsEvent,
+    WsRequest,
+    book_update_params,
+    trades_params,
+    user_params,
+    price_history_params,
+    market_params,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -447,8 +455,6 @@ class LightconeWebSocketClient:
             if ":" not in ob_id:
                 raise ValueError(f"Invalid orderbook_id format: {ob_id} (expected 'market:id')")
 
-        from .types import book_update_params
-
         # Initialize state
         for ob_id in orderbook_ids:
             self._handler.init_orderbook(ob_id)
@@ -474,8 +480,6 @@ class LightconeWebSocketClient:
             if not ob_id or not ob_id.strip():
                 raise ValueError(f"Invalid orderbook_id: empty string")
 
-        from .types import trades_params
-
         self._subscriptions.add_trades(orderbook_ids)
         await self._send_subscribe(trades_params(orderbook_ids))
 
@@ -490,8 +494,6 @@ class LightconeWebSocketClient:
         """
         if not user or not user.strip():
             raise ValueError("user cannot be empty")
-
-        from .types import user_params
 
         self._handler.init_user_state(user)
         self._subscriptions.add_user(user)
@@ -519,8 +521,6 @@ class LightconeWebSocketClient:
         if resolution not in valid_resolutions:
             raise ValueError(f"Invalid resolution: {resolution}. Must be one of {valid_resolutions}")
 
-        from .types import price_history_params
-
         self._handler.init_price_history(orderbook_id, resolution, include_ohlcv)
         self._subscriptions.add_price_history(orderbook_id, resolution, include_ohlcv)
         await self._send_subscribe(
@@ -539,8 +539,6 @@ class LightconeWebSocketClient:
         if not market_pubkey or not market_pubkey.strip():
             raise ValueError("market_pubkey cannot be empty")
 
-        from .types import market_params
-
         self._subscriptions.add_market(market_pubkey)
         await self._send_subscribe(market_params(market_pubkey))
 
@@ -554,8 +552,6 @@ class LightconeWebSocketClient:
         Args:
             orderbook_ids: List of orderbook identifiers
         """
-        from .types import book_update_params
-
         self._subscriptions.remove_book_update(orderbook_ids)
         await self._send_unsubscribe(book_update_params(orderbook_ids))
 
@@ -565,8 +561,6 @@ class LightconeWebSocketClient:
         Args:
             orderbook_ids: List of orderbook identifiers
         """
-        from .types import trades_params
-
         self._subscriptions.remove_trades(orderbook_ids)
         await self._send_unsubscribe(trades_params(orderbook_ids))
 
@@ -576,8 +570,6 @@ class LightconeWebSocketClient:
         Args:
             user: User's public key
         """
-        from .types import user_params
-
         self._handler.clear_subscribed_user(user)
         self._subscriptions.remove_user(user)
         await self._send_unsubscribe(user_params(user))
@@ -593,8 +585,6 @@ class LightconeWebSocketClient:
             orderbook_id: Orderbook identifier
             resolution: Candle resolution
         """
-        from .types import price_history_params
-
         self._subscriptions.remove_price_history(orderbook_id, resolution)
         await self._send_unsubscribe(
             price_history_params(orderbook_id, resolution, False)
@@ -606,8 +596,6 @@ class LightconeWebSocketClient:
         Args:
             market_pubkey: Market's public key
         """
-        from .types import market_params
-
         self._subscriptions.remove_market(market_pubkey)
         await self._send_unsubscribe(market_params(market_pubkey))
 

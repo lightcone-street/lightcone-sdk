@@ -127,7 +127,7 @@ class InvalidUrlError(WebSocketError):
         super().__init__(f"Invalid WebSocket URL: {url}")
 
 
-class TimeoutError(WebSocketError):
+class OperationTimeoutError(WebSocketError):
     """Operation timed out."""
 
     def __init__(self):

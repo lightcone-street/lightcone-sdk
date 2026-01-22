@@ -42,6 +42,9 @@ from .utils import (
     keccak256,
 )
 
+# Maximum value for a u64 integer
+MAX_U64 = 2**64 - 1
+
 
 def create_bid_order(params: BidOrderParams) -> FullOrder:
     """Create a bid order (buyer wants base tokens, gives quote tokens).
@@ -263,10 +266,9 @@ def validate_order(order: FullOrder, check_expiration: bool = False) -> None:
         raise InvalidOrderError("taker_amount cannot be zero")
 
     # Validate u64 bounds
-    max_u64 = 2**64 - 1
-    if order.maker_amount > max_u64:
+    if order.maker_amount > MAX_U64:
         raise InvalidOrderError(f"maker_amount exceeds u64 max: {order.maker_amount}")
-    if order.taker_amount > max_u64:
+    if order.taker_amount > MAX_U64:
         raise InvalidOrderError(f"taker_amount exceeds u64 max: {order.taker_amount}")
 
     # Validate side

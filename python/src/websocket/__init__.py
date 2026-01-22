@@ -39,7 +39,7 @@ from .error import (
     SendFailedError,
     ChannelClosedError,
     InvalidUrlError,
-    TimeoutError,
+    OperationTimeoutError,
     AuthenticationFailedError,
     AuthRequiredError,
 )
@@ -122,7 +122,7 @@ __all__ = [
     "SendFailedError",
     "ChannelClosedError",
     "InvalidUrlError",
-    "TimeoutError",
+    "OperationTimeoutError",
     "AuthenticationFailedError",
     "AuthRequiredError",
     # Request types

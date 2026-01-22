@@ -538,7 +538,7 @@ from lightcone_sdk.websocket import (
     SendFailedError,
     ChannelClosedError,
     InvalidUrlError,
-    TimeoutError,
+    OperationTimeoutError,
     AuthenticationFailedError,
     AuthRequiredError,
 )
@@ -578,6 +578,6 @@ except WebSocketError as e:
 | `SendFailedError(message)` | Failed to send message |
 | `ChannelClosedError` | Internal channel closed |
 | `InvalidUrlError(url)` | Invalid WebSocket URL |
-| `TimeoutError` | Operation timed out |
+| `OperationTimeoutError` | Operation timed out |
 | `AuthenticationFailedError(message)` | Authentication failed |
 | `AuthRequiredError` | Authentication required |
