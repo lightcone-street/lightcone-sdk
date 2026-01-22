@@ -14,7 +14,9 @@ export type ApiErrorVariant =
   | "ServerError"
   | "Deserialize"
   | "InvalidParameter"
-  | "UnexpectedStatus";
+  | "UnexpectedStatus"
+  | "RateLimited"
+  | "Unauthorized";
 
 /**
  * API-specific error class for the Lightcone REST API client.
@@ -77,9 +79,21 @@ export class ApiError extends Error {
     return new ApiError("UnexpectedStatus", `Unexpected status ${statusCode}: ${message}`, statusCode);
   }
 
+  /** Rate limited (429) */
+  static rateLimited(message: string): ApiError {
+    return new ApiError("RateLimited", `Rate limited: ${message}`, 429);
+  }
+
+  /** Unauthorized - invalid or missing authentication (401) */
+  static unauthorized(message: string): ApiError {
+    return new ApiError("Unauthorized", `Unauthorized: ${message}`, 401);
+  }
+
   /** Create from HTTP status code */
   static fromStatus(statusCode: number, message: string): ApiError {
     switch (statusCode) {
+      case 401:
+        return ApiError.unauthorized(message);
       case 400:
         return ApiError.badRequest(message);
       case 403:
@@ -88,6 +102,8 @@ export class ApiError extends Error {
         return ApiError.notFound(message);
       case 409:
         return ApiError.conflict(message);
+      case 429:
+        return ApiError.rateLimited(message);
       case 500:
       case 502:
       case 503:

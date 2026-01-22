@@ -21,27 +21,57 @@ def keccak256(data: bytes) -> bytes:
 
 
 def encode_u8(value: int) -> bytes:
-    """Encode an unsigned 8-bit integer."""
+    """Encode an unsigned 8-bit integer.
+
+    Raises:
+        ValueError: If value is out of range [0, 255]
+    """
+    if not 0 <= value <= 255:
+        raise ValueError(f"u8 value out of range: {value} (must be 0-255)")
     return struct.pack("<B", value)
 
 
 def encode_u16(value: int) -> bytes:
-    """Encode an unsigned 16-bit integer (little-endian)."""
+    """Encode an unsigned 16-bit integer (little-endian).
+
+    Raises:
+        ValueError: If value is out of range [0, 65535]
+    """
+    if not 0 <= value <= 65535:
+        raise ValueError(f"u16 value out of range: {value} (must be 0-65535)")
     return struct.pack("<H", value)
 
 
 def encode_u32(value: int) -> bytes:
-    """Encode an unsigned 32-bit integer (little-endian)."""
+    """Encode an unsigned 32-bit integer (little-endian).
+
+    Raises:
+        ValueError: If value is out of range [0, 4294967295]
+    """
+    if not 0 <= value <= 4294967295:
+        raise ValueError(f"u32 value out of range: {value} (must be 0-4294967295)")
     return struct.pack("<I", value)
 
 
 def encode_u64(value: int) -> bytes:
-    """Encode an unsigned 64-bit integer (little-endian)."""
+    """Encode an unsigned 64-bit integer (little-endian).
+
+    Raises:
+        ValueError: If value is out of range [0, 2^64-1]
+    """
+    if not 0 <= value <= 18446744073709551615:
+        raise ValueError(f"u64 value out of range: {value} (must be 0-18446744073709551615)")
     return struct.pack("<Q", value)
 
 
 def encode_i64(value: int) -> bytes:
-    """Encode a signed 64-bit integer (little-endian)."""
+    """Encode a signed 64-bit integer (little-endian).
+
+    Raises:
+        ValueError: If value is out of range [-2^63, 2^63-1]
+    """
+    if not -9223372036854775808 <= value <= 9223372036854775807:
+        raise ValueError(f"i64 value out of range: {value}")
     return struct.pack("<q", value)
 
 
@@ -71,12 +101,27 @@ def decode_i64(data: bytes, offset: int = 0) -> int:
 
 
 def decode_pubkey(data: bytes, offset: int = 0) -> Pubkey:
-    """Decode a Pubkey from 32 bytes."""
+    """Decode a Pubkey from 32 bytes.
+
+    Raises:
+        ValueError: If not enough bytes available for Pubkey
+    """
+    if offset + 32 > len(data):
+        raise ValueError(
+            f"Not enough bytes for Pubkey at offset {offset}: "
+            f"need 32 bytes, have {len(data) - offset}"
+        )
     return Pubkey.from_bytes(data[offset : offset + 32])
 
 
 def decode_bool(data: bytes, offset: int = 0) -> bool:
-    """Decode a boolean from a single byte."""
+    """Decode a boolean from a single byte.
+
+    Raises:
+        ValueError: If not enough bytes available
+    """
+    if offset >= len(data):
+        raise ValueError(f"Not enough bytes for bool at offset {offset}")
     return data[offset] != 0
 
 

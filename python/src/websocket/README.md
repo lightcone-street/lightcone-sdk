@@ -42,6 +42,8 @@ client = await LightconeWebSocketClient.connect_authenticated(signing_key)
 
 ## Configuration
 
+### Connection Parameters
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `url` | str | Required | WebSocket URL |
@@ -50,8 +52,41 @@ client = await LightconeWebSocketClient.connect_authenticated(signing_key)
 | `reconnect_delay` | float | 1.0 | Initial backoff delay (seconds) |
 | `max_delay` | float | 30.0 | Maximum backoff delay (seconds) |
 | `auth_token` | Optional[str] | None | Pre-obtained auth token |
+| `config` | Optional[WebSocketConfig] | None | Advanced configuration |
 
 **Backoff Formula:** Full jitter: `delay = random(0, base_delay * 2^attempt)` capped at max_delay
+
+### WebSocketConfig
+
+Advanced configuration options for WebSocket behavior:
+
+```python
+from lightcone_sdk.websocket import WebSocketConfig
+
+config = WebSocketConfig(
+    ping_interval_secs=30.0,
+    ping_timeout_secs=10.0,
+    pong_timeout_secs=60.0,
+    close_timeout_secs=5.0,
+    event_queue_size=10000,
+)
+
+client = await LightconeWebSocketClient.connect(
+    "wss://ws.lightcone.xyz/ws",
+    config=config,
+)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `ping_interval_secs` | float | 30.0 | Interval between pings |
+| `ping_timeout_secs` | float | 10.0 | Timeout waiting for ping response |
+| `pong_timeout_secs` | float | 60.0 | Timeout for pong from server |
+| `close_timeout_secs` | float | 5.0 | Timeout for graceful close |
+| `max_reconnect_attempts` | int | 5 | Maximum reconnection attempts |
+| `reconnect_delay` | float | 1.0 | Initial backoff delay |
+| `max_delay` | float | 30.0 | Maximum backoff delay |
+| `event_queue_size` | int | 10000 | Event queue capacity |
 
 ## Subscription Types
 
@@ -74,6 +109,8 @@ await client.unsubscribe_book_updates(["market1:orderbook1"])
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `orderbook_ids` | list[str] | List of orderbook identifiers |
+
+**Note:** Orderbook IDs must contain a `:` separator (e.g., `"market:orderbook"`). A `ValueError` is raised for invalid formats.
 
 ### trades
 
@@ -215,9 +252,42 @@ async for event in client:
 event = await client.recv()
 ```
 
+## Reconnection Behavior
+
+When `reconnect=True` (default), the client automatically handles disconnections:
+
+1. **Automatic Reconnection:** On disconnect, the client attempts to reconnect with exponential backoff
+2. **Subscription Restoration:** All active subscriptions are automatically re-subscribed after reconnection
+3. **State Preservation:** Local orderbook, user state, and price history are preserved during reconnection
+4. **Event Queue:** Events continue to be queued during reconnection (up to `event_queue_size`)
+
+```python
+async for event in client:
+    if event.type == WsEventType.RECONNECTING:
+        print(f"Reconnecting... attempt {event.attempt}")
+    elif event.type == WsEventType.CONNECTED:
+        print("Connected/reconnected successfully")
+    elif event.type == WsEventType.DISCONNECTED:
+        print(f"Disconnected: {event.reason}")
+```
+
+**Note:** After reconnection, you may receive fresh snapshots for subscribed orderbooks. The state is updated automatically.
+
 ## State Management
 
 The client automatically maintains local state for subscribed streams.
+
+**Important:** State accessors (`get_orderbook()`, `get_user_state()`, `get_price_history()`) return `None` if:
+- You haven't subscribed to the corresponding stream
+- The subscription hasn't received its initial snapshot yet
+
+Always check for `None` before accessing state:
+
+```python
+book = client.get_orderbook("market:orderbook")
+if book and book.has_snapshot():
+    print(f"Best bid: {book.best_bid()}")
+```
 
 ### LocalOrderbook
 
@@ -504,9 +574,19 @@ signature = sign_message(message, signing_key)
 # Connection state
 connected = client.is_connected
 
+# Check if receive task is running
+running = client.is_task_running()
+
 # URL
 url = client._url
 ```
+
+**Client Status Methods:**
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `is_connected` | bool | Whether connected to server |
+| `is_task_running()` | bool | Whether receive task is active |
 
 ### Control Methods
 
@@ -538,7 +618,7 @@ from lightcone_sdk.websocket import (
     SendFailedError,
     ChannelClosedError,
     InvalidUrlError,
-    TimeoutError,
+    OperationTimeoutError,
     AuthenticationFailedError,
     AuthRequiredError,
 )
@@ -578,6 +658,6 @@ except WebSocketError as e:
 | `SendFailedError(message)` | Failed to send message |
 | `ChannelClosedError` | Internal channel closed |
 | `InvalidUrlError(url)` | Invalid WebSocket URL |
-| `TimeoutError` | Operation timed out |
+| `OperationTimeoutError` | Operation timed out |
 | `AuthenticationFailedError(message)` | Authentication failed |
 | `AuthRequiredError` | Authentication required |

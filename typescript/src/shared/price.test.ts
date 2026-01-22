@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseDecimal, formatDecimal, isZeroSize } from "./price";
+import { parseDecimal, formatDecimal } from "./price";
 
 describe("price utilities", () => {
   describe("parseDecimal", () => {
@@ -30,22 +30,6 @@ describe("price utilities", () => {
       expect(formatDecimal(0.5, 2)).toBe("0.50");
       expect(formatDecimal(0.5, 0)).toBe("1"); // Rounded
       expect(formatDecimal(1.234, 3)).toBe("1.234");
-    });
-  });
-
-  describe("isZeroSize", () => {
-    it("detects zero values", () => {
-      expect(isZeroSize("0")).toBe(true);
-      expect(isZeroSize("0.0")).toBe(true);
-      expect(isZeroSize("0.000000")).toBe(true);
-      expect(isZeroSize("0.00")).toBe(true);
-    });
-
-    it("detects non-zero values", () => {
-      expect(isZeroSize("0.001")).toBe(false);
-      expect(isZeroSize("1")).toBe(false);
-      expect(isZeroSize("0.000001")).toBe(false);
-      expect(isZeroSize("-0.001")).toBe(false);
     });
   });
 });

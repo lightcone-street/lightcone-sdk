@@ -151,8 +151,8 @@ export async function authenticateWithKeypair(
   let authToken: string | undefined;
   if (cookies) {
     const match = cookies.match(/auth_token=([^;]+)/);
-    if (match) {
-      authToken = match[1];
+    if (match && match[1]?.trim().length > 0) {
+      authToken = decodeURIComponent(match[1].trim());
     }
   }
 

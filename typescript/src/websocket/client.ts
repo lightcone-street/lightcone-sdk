@@ -38,12 +38,16 @@ export interface WebSocketConfig {
   maxDelayMs?: number;
   /** Interval for client ping (seconds) */
   pingIntervalSecs?: number;
+  /** Timeout for pong response (seconds) - if no pong received within this time, reconnect */
+  pongTimeoutSecs?: number;
   /** Whether to automatically reconnect on disconnect */
   autoReconnect?: boolean;
   /** Whether to automatically re-subscribe after reconnect */
   autoResubscribe?: boolean;
   /** Optional authentication token for private user streams */
   authToken?: string;
+  /** Connection timeout in milliseconds (default: 30000) */
+  connectionTimeoutMs?: number;
 }
 
 /**
@@ -59,7 +63,7 @@ export type ConnectionState =
 /**
  * Event callback type.
  */
-export type EventCallback = (event: WsEvent) => void;
+export type EventCallback = (event: WsEvent) => void | Promise<void>;
 
 /**
  * Main WebSocket client for Lightcone.
@@ -93,6 +97,9 @@ export class LightconeWebSocketClient {
   private eventCallbacks: EventCallback[] = [];
   private authCredentials?: AuthCredentials;
   private subscribedUser: string | null = null;
+  private lastPong: number = Date.now();
+  private awaitingPong: boolean = false;
+  private isReconnecting: boolean = false;
 
   constructor(url: string = DEFAULT_WS_URL, config: WebSocketConfig = {}) {
     this.url = url;
@@ -101,9 +108,11 @@ export class LightconeWebSocketClient {
       baseDelayMs: config.baseDelayMs ?? 1000,
       maxDelayMs: config.maxDelayMs ?? 30000,
       pingIntervalSecs: config.pingIntervalSecs ?? 30,
+      pongTimeoutSecs: config.pongTimeoutSecs ?? 60,
       autoReconnect: config.autoReconnect ?? true,
       autoResubscribe: config.autoResubscribe ?? true,
       authToken: config.authToken ?? "",
+      connectionTimeoutMs: config.connectionTimeoutMs ?? 30000,
     };
   }
 
@@ -175,6 +184,23 @@ export class LightconeWebSocketClient {
    */
   private async establishConnection(): Promise<void> {
     return new Promise((resolve, reject) => {
+      const timeoutMs = this.config.connectionTimeoutMs;
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let resolved = false;
+
+      // Set up connection timeout
+      timeoutId = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          this.state = "Disconnected";
+          if (this.ws) {
+            this.ws.close();
+            this.ws = null;
+          }
+          reject(WebSocketError.connectionTimeout());
+        }
+      }, timeoutMs);
+
       try {
         // Build WebSocket options with Cookie header if authenticated
         const options: WebSocket.ClientOptions = {};
@@ -186,12 +212,16 @@ export class LightconeWebSocketClient {
 
         this.ws = new WebSocket(this.url, options);
       } catch (e) {
+        if (timeoutId) clearTimeout(timeoutId);
         this.state = "Disconnected";
         reject(WebSocketError.connectionFailed(String(e)));
         return;
       }
 
       this.ws.onopen = () => {
+        if (resolved) return;
+        resolved = true;
+        if (timeoutId) clearTimeout(timeoutId);
         this.state = "Connected";
         this.reconnectAttempt = 0;
         this.startPingInterval();
@@ -202,19 +232,26 @@ export class LightconeWebSocketClient {
       this.ws.onmessage = (event) => {
         const events = this.handler.handleMessage(event.data as string);
         for (const wsEvent of events) {
+          // Track pong responses for timeout detection
+          if (wsEvent.type === "Pong") {
+            this.lastPong = Date.now();
+            this.awaitingPong = false;
+          }
           this.emitEvent(wsEvent);
         }
       };
 
       this.ws.onerror = (event) => {
+        if (resolved) return;
+        resolved = true;
+        if (timeoutId) clearTimeout(timeoutId);
         console.error("WebSocket error:", event);
-        this.emitEvent({
-          type: "Error",
-          error: WebSocketError.connectionFailed("WebSocket error"),
-        });
+        this.state = "Disconnected";
+        reject(WebSocketError.connectionFailed("WebSocket error"));
       };
 
       this.ws.onclose = (event) => {
+        if (timeoutId) clearTimeout(timeoutId);
         this.stopPingInterval();
         const reason = `code: ${event.code}, reason: ${event.reason || "no reason"}`;
         this.emitEvent({ type: "Disconnected", reason });
@@ -231,10 +268,11 @@ export class LightconeWebSocketClient {
         if (
           this.config.autoReconnect &&
           this.reconnectAttempt < this.config.reconnectAttempts &&
-          this.state !== "Disconnecting"
+          this.state !== "Disconnecting" &&
+          !this.isReconnecting
         ) {
           this.attemptReconnect();
-        } else {
+        } else if (!this.isReconnecting) {
           this.state = "Disconnected";
         }
       };
@@ -245,20 +283,23 @@ export class LightconeWebSocketClient {
    * Attempt to reconnect.
    */
   private async attemptReconnect(): Promise<void> {
-    this.reconnectAttempt++;
-    this.state = "Reconnecting";
-    this.emitEvent({ type: "Reconnecting", attempt: this.reconnectAttempt });
-
-    // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
-    const maxDelay =
-      this.config.baseDelayMs *
-      Math.pow(2, this.reconnectAttempt - 1);
-    const jitteredDelay = Math.random() * maxDelay;
-    const cappedDelay = Math.min(jitteredDelay, this.config.maxDelayMs);
-
-    await this.sleep(cappedDelay);
+    if (this.isReconnecting) return;
+    this.isReconnecting = true;
 
     try {
+      this.reconnectAttempt++;
+      this.state = "Reconnecting";
+      this.emitEvent({ type: "Reconnecting", attempt: this.reconnectAttempt });
+
+      // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
+      const maxDelay =
+        this.config.baseDelayMs *
+        Math.pow(2, this.reconnectAttempt - 1);
+      const jitteredDelay = Math.random() * maxDelay;
+      const cappedDelay = Math.min(jitteredDelay, this.config.maxDelayMs);
+
+      await this.sleep(cappedDelay);
+
       await this.establishConnection();
 
       // Re-subscribe if enabled
@@ -278,6 +319,8 @@ export class LightconeWebSocketClient {
           ? e
           : WebSocketError.connectionFailed(String(e)),
       });
+    } finally {
+      this.isReconnecting = false;
     }
   }
 
@@ -286,7 +329,29 @@ export class LightconeWebSocketClient {
    */
   private startPingInterval(): void {
     this.stopPingInterval();
+    // Reset pong tracking state on new connection
+    this.lastPong = Date.now();
+    this.awaitingPong = false;
+
     this.pingInterval = setInterval(() => {
+      // Check if we're still waiting for a pong from a previous ping
+      if (this.awaitingPong) {
+        const elapsed = (Date.now() - this.lastPong) / 1000;
+        if (elapsed > this.config.pongTimeoutSecs) {
+          console.warn(
+            `Pong timeout: no response in ${elapsed.toFixed(1)}s (limit: ${this.config.pongTimeoutSecs}s)`
+          );
+          this.emitEvent({
+            type: "Error",
+            error: WebSocketError.connectionFailed("Pong timeout - connection appears dead"),
+          });
+          // Trigger reconnection by closing the socket
+          if (this.ws && this.state === "Connected") {
+            this.ws.close(4000, "Pong timeout");
+          }
+          return;
+        }
+      }
       this.ping();
     }, this.config.pingIntervalSecs * 1000);
   }
@@ -324,7 +389,12 @@ export class LightconeWebSocketClient {
   private emitEvent(event: WsEvent): void {
     for (const callback of this.eventCallbacks) {
       try {
-        callback(event);
+        const result = callback(event);
+        if (result instanceof Promise) {
+          result.catch((e) => {
+            console.error("Event callback promise rejected:", e);
+          });
+        }
       } catch (e) {
         console.error("Event callback error:", e);
       }
@@ -463,20 +533,34 @@ export class LightconeWebSocketClient {
    * Send a ping request.
    */
   ping(): void {
+    this.awaitingPong = true;
     this.send(createPingRequest());
   }
 
   /**
    * Disconnect from the server.
+   * Returns a Promise that resolves when the connection is fully closed.
    */
   async disconnect(): Promise<void> {
+    const ws = this.ws;
+    if (!ws || this.state === "Disconnected") {
+      return;
+    }
+
     this.state = "Disconnecting";
     this.stopPingInterval();
-    if (this.ws) {
-      this.ws.close(1000, "Client disconnect");
-      this.ws = null;
-    }
-    this.state = "Disconnected";
+    this.subscribedUser = null;
+
+    return new Promise((resolve) => {
+      const onClose = () => {
+        ws.removeEventListener("close", onClose);
+        this.ws = null;
+        this.state = "Disconnected";
+        resolve();
+      };
+      ws.addEventListener("close", onClose);
+      ws.close(1000, "Client disconnect");
+    });
   }
 
   /**
@@ -491,6 +575,48 @@ export class LightconeWebSocketClient {
    */
   isAuthenticated(): boolean {
     return !!this.config.authToken;
+  }
+
+  /**
+   * Check if the WebSocket connection is healthy.
+   */
+  isHealthy(): boolean {
+    if (this.state !== "Connected") {
+      return false;
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+
+    // Check if we're waiting for a pong that's overdue
+    if (this.awaitingPong) {
+      const elapsed = (Date.now() - this.lastPong) / 1000;
+      if (elapsed > this.config.pongTimeoutSecs) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  /**
+   * Get detailed connection status.
+   */
+  getConnectionStatus(): {
+    state: ConnectionState;
+    isHealthy: boolean;
+    lastPongMs: number;
+    awaitingPong: boolean;
+    wsReadyState: number | null;
+  } {
+    return {
+      state: this.state,
+      isHealthy: this.isHealthy(),
+      lastPongMs: Date.now() - this.lastPong,
+      awaitingPong: this.awaitingPong,
+      wsReadyState: this.ws?.readyState ?? null,
+    };
   }
 
   /**

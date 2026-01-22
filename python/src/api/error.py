@@ -42,6 +42,22 @@ class ForbiddenError(ApiError):
         super().__init__(f"Permission denied: {message}")
 
 
+class UnauthorizedError(ApiError):
+    """Authentication failed (401)."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(f"Unauthorized: {message}")
+
+
+class RateLimitedError(ApiError):
+    """Rate limit exceeded (429)."""
+
+    def __init__(self, message: str):
+        self.message = message
+        super().__init__(f"Rate limited: {message}")
+
+
 class ConflictError(ApiError):
     """Resource already exists (409)."""
 

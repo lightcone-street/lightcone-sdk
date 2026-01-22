@@ -10,6 +10,7 @@ This module exports:
 - `Resolution` - Price history candle intervals
 - `parseDecimal()` - Parse decimal strings
 - `formatDecimal()` - Format decimal strings
+- `isZero()` - Check if decimal string is zero
 
 ## Resolution
 
@@ -56,13 +57,17 @@ client.subscribePriceHistory("orderbook_id", Resolution.OneHour, true);
 ## Price Utilities
 
 ```typescript
-import { parseDecimal, formatDecimal } from "@lightcone/sdk";
+import { parseDecimal, formatDecimal, isZero } from "@lightcone/sdk";
 
 // Parse decimal string to number
 const price = parseDecimal("0.500000");  // 0.5
 
 // Format number as decimal string
 const priceStr = formatDecimal(0.5, 6);  // "0.500000"
+
+// Check if decimal string is zero
+isZero("0.000000");  // true
+isZero("0.001");     // false
 ```
 
 ## For Program-Specific Code

@@ -2,8 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Order side enum.
+/// Order side enum (serializes as integer: 0=Bid, 1=Ask).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "u32", into = "u32")]
 #[repr(u32)]
 pub enum ApiOrderSide {
     /// Buy base token with quote token
@@ -12,12 +13,26 @@ pub enum ApiOrderSide {
     Ask = 1,
 }
 
-impl From<u32> for ApiOrderSide {
-    fn from(value: u32) -> Self {
+/// Error returned when trying to convert an invalid value to ApiOrderSide.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidOrderSideError(pub u32);
+
+impl std::fmt::Display for InvalidOrderSideError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "invalid order side value: {} (expected 0 for Bid or 1 for Ask)", self.0)
+    }
+}
+
+impl std::error::Error for InvalidOrderSideError {}
+
+impl TryFrom<u32> for ApiOrderSide {
+    type Error = InvalidOrderSideError;
+
+    fn try_from(value: u32) -> Result<Self, Self::Error> {
         match value {
-            0 => Self::Bid,
-            1 => Self::Ask,
-            _ => Self::Bid, // Default to Bid for unknown values
+            0 => Ok(Self::Bid),
+            1 => Ok(Self::Ask),
+            _ => Err(InvalidOrderSideError(value)),
         }
     }
 }
@@ -91,7 +106,7 @@ pub struct OrderResponse {
     /// Order hash (hex)
     pub order_hash: String,
     /// Order status
-    pub status: String,
+    pub status: OrderStatus,
     /// Remaining amount as decimal string
     pub remaining: String,
     /// Filled amount as decimal string
@@ -158,8 +173,8 @@ pub struct UserOrder {
     pub market_pubkey: String,
     /// Orderbook ID
     pub orderbook_id: String,
-    /// Order side (0=BID, 1=ASK)
-    pub side: u32,
+    /// Order side
+    pub side: ApiOrderSide,
     /// Maker amount as decimal string
     pub maker_amount: String,
     /// Taker amount as decimal string

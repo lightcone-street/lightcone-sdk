@@ -34,12 +34,69 @@ use crate::api::types::*;
 /// Default request timeout in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
+/// Maximum allowed limit for paginated API requests.
+const MAX_PAGINATION_LIMIT: u32 = 500;
+
+/// Retry configuration for the API client.
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    /// Maximum number of retry attempts (0 = disabled)
+    pub max_retries: u32,
+    /// Base delay before first retry (ms)
+    pub base_delay_ms: u64,
+    /// Maximum delay between retries (ms)
+    pub max_delay_ms: u64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 0,
+            base_delay_ms: 100,
+            max_delay_ms: 10_000,
+        }
+    }
+}
+
+impl RetryConfig {
+    /// Create a new retry config with the given max retries.
+    pub fn new(max_retries: u32) -> Self {
+        Self {
+            max_retries,
+            ..Default::default()
+        }
+    }
+
+    /// Set the base delay in milliseconds.
+    pub fn with_base_delay_ms(mut self, ms: u64) -> Self {
+        self.base_delay_ms = ms;
+        self
+    }
+
+    /// Set the maximum delay in milliseconds.
+    pub fn with_max_delay_ms(mut self, ms: u64) -> Self {
+        self.max_delay_ms = ms;
+        self
+    }
+
+    /// Calculate delay for a given attempt with exponential backoff and jitter.
+    fn delay_for_attempt(&self, attempt: u32) -> Duration {
+        let exp_delay = self.base_delay_ms.saturating_mul(1 << attempt.min(10));
+        let capped_delay = exp_delay.min(self.max_delay_ms);
+        // Add jitter: 75-100% of calculated delay
+        let jitter_range = capped_delay / 4;
+        let jitter = rand::random::<u64>() % (jitter_range + 1);
+        Duration::from_millis(capped_delay - jitter_range + jitter)
+    }
+}
+
 /// Builder for configuring [`LightconeApiClient`].
 #[derive(Debug, Clone)]
 pub struct LightconeApiClientBuilder {
     base_url: String,
     timeout: Duration,
     default_headers: Vec<(String, String)>,
+    retry_config: RetryConfig,
 }
 
 impl LightconeApiClientBuilder {
@@ -49,6 +106,7 @@ impl LightconeApiClientBuilder {
             base_url: base_url.into().trim_end_matches('/').to_string(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             default_headers: Vec::new(),
+            retry_config: RetryConfig::default(),
         }
     }
 
@@ -70,6 +128,16 @@ impl LightconeApiClientBuilder {
         self
     }
 
+    /// Enable retries with exponential backoff.
+    ///
+    /// # Arguments
+    ///
+    /// * `config` - Retry configuration (use `RetryConfig::new(3)` for 3 retries with defaults)
+    pub fn with_retry(mut self, config: RetryConfig) -> Self {
+        self.retry_config = config;
+        self
+    }
+
     /// Build the client.
     pub fn build(self) -> ApiResult<LightconeApiClient> {
         let mut builder = Client::builder()
@@ -88,12 +156,11 @@ impl LightconeApiClientBuilder {
         );
 
         for (name, value) in self.default_headers {
-            if let (Ok(header_name), Ok(header_value)) = (
-                reqwest::header::HeaderName::try_from(name.as_str()),
-                reqwest::header::HeaderValue::from_str(&value),
-            ) {
-                headers.insert(header_name, header_value);
-            }
+            let header_name = reqwest::header::HeaderName::try_from(name.as_str())
+                .map_err(|e| ApiError::InvalidParameter(format!("Invalid header name '{}': {}", name, e)))?;
+            let header_value = reqwest::header::HeaderValue::from_str(&value)
+                .map_err(|e| ApiError::InvalidParameter(format!("Invalid header value for '{}': {}", name, e)))?;
+            headers.insert(header_name, header_value);
         }
 
         builder = builder.default_headers(headers);
@@ -103,6 +170,7 @@ impl LightconeApiClientBuilder {
         Ok(LightconeApiClient {
             http_client,
             base_url: self.base_url,
+            retry_config: self.retry_config,
         })
     }
 }
@@ -115,16 +183,19 @@ impl LightconeApiClientBuilder {
 pub struct LightconeApiClient {
     http_client: Client,
     base_url: String,
+    retry_config: RetryConfig,
 }
 
 impl LightconeApiClient {
     /// Create a new client with the given base URL.
     ///
     /// Uses default settings (30s timeout, connection pooling).
-    pub fn new(base_url: impl Into<String>) -> Self {
-        LightconeApiClientBuilder::new(base_url)
-            .build()
-            .expect("Failed to build default HTTP client")
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be initialized.
+    pub fn new(base_url: impl Into<String>) -> ApiResult<Self> {
+        LightconeApiClientBuilder::new(base_url).build()
     }
 
     /// Create a new client builder for custom configuration.
@@ -141,40 +212,159 @@ impl LightconeApiClient {
     // Internal helpers
     // =========================================================================
 
-    /// Handle HTTP response and map errors.
-    async fn handle_response<T: serde::de::DeserializeOwned>(
+    /// Execute a GET request with optional retry logic.
+    async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> ApiResult<T> {
+        self.execute_with_retry(|| self.http_client.get(url).send()).await
+    }
+
+    /// Execute a POST request with JSON body and optional retry logic.
+    async fn post<T: serde::de::DeserializeOwned, B: serde::Serialize + Clone>(
         &self,
-        response: reqwest::Response,
+        url: &str,
+        body: &B,
     ) -> ApiResult<T> {
-        let status = response.status();
+        self.execute_with_retry(|| self.http_client.post(url).json(body).send()).await
+    }
 
-        if status.is_success() {
-            response.json::<T>().await.map_err(|e| {
-                ApiError::Deserialize(format!("Failed to deserialize response: {}", e))
-            })
-        } else {
-            // Try to parse error response
-            let error_text = response.text().await.unwrap_or_default();
-            let error_msg = if let Ok(err) = serde_json::from_str::<ErrorResponse>(&error_text) {
-                err.get_message()
-            } else {
-                error_text
-            };
+    /// Execute a request with retry logic.
+    async fn execute_with_retry<T, F, Fut>(&self, request_fn: F) -> ApiResult<T>
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = Result<reqwest::Response, reqwest::Error>>,
+        T: serde::de::DeserializeOwned,
+    {
+        let mut attempt = 0;
 
-            Err(Self::map_status_error(status, error_msg))
+        loop {
+            let result = request_fn().await;
+
+            match result {
+                Ok(response) => {
+                    let status = response.status();
+
+                    if status.is_success() {
+                        return response.json::<T>().await.map_err(|e| {
+                            ApiError::Deserialize(format!("Failed to deserialize response: {}", e))
+                        });
+                    }
+
+                    // Parse error response
+                    let error = self.parse_error_response(response).await;
+
+                    // Check if we should retry
+                    if attempt < self.retry_config.max_retries && Self::is_retryable_status(status) {
+                        let delay = self.retry_config.delay_for_attempt(attempt);
+                        tracing::debug!(
+                            attempt = attempt + 1,
+                            max_retries = self.retry_config.max_retries,
+                            delay_ms = delay.as_millis(),
+                            status = %status,
+                            "Retrying request after error"
+                        );
+                        tokio::time::sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+
+                    return Err(error);
+                }
+                Err(e) => {
+                    let is_retryable = e.is_connect() || e.is_timeout() || e.is_request();
+
+                    if attempt < self.retry_config.max_retries && is_retryable {
+                        let delay = self.retry_config.delay_for_attempt(attempt);
+                        tracing::debug!(
+                            attempt = attempt + 1,
+                            max_retries = self.retry_config.max_retries,
+                            delay_ms = delay.as_millis(),
+                            error = %e,
+                            "Retrying request after network error"
+                        );
+                        tokio::time::sleep(delay).await;
+                        attempt += 1;
+                        continue;
+                    }
+
+                    return Err(ApiError::Http(e));
+                }
+            }
         }
+    }
+
+    /// Parse an error response into an ApiError.
+    async fn parse_error_response(&self, response: reqwest::Response) -> ApiError {
+        let status = response.status();
+        let error_text = match response.text().await {
+            Ok(text) => text,
+            Err(e) => {
+                tracing::warn!("Failed to read error response body: {}", e);
+                format!("HTTP {} (body unreadable: {})", status, e)
+            }
+        };
+
+        let error_msg = serde_json::from_str::<ErrorResponse>(&error_text)
+            .map(|err| err.get_message())
+            .unwrap_or(error_text);
+
+        Self::map_status_error(status, error_msg)
     }
 
     /// Map HTTP status code to ApiError.
     fn map_status_error(status: StatusCode, message: String) -> ApiError {
         match status {
+            StatusCode::UNAUTHORIZED => ApiError::Unauthorized(message),
             StatusCode::NOT_FOUND => ApiError::NotFound(message),
             StatusCode::BAD_REQUEST => ApiError::BadRequest(message),
             StatusCode::FORBIDDEN => ApiError::Forbidden(message),
             StatusCode::CONFLICT => ApiError::Conflict(message),
+            StatusCode::TOO_MANY_REQUESTS => ApiError::RateLimited(message),
             _ if status.is_server_error() => ApiError::ServerError(message),
             _ => ApiError::UnexpectedStatus(status.as_u16(), message),
         }
+    }
+
+    /// Check if a status code is retryable.
+    fn is_retryable_status(status: StatusCode) -> bool {
+        status.is_server_error() || status == StatusCode::TOO_MANY_REQUESTS
+    }
+
+    // =========================================================================
+    // Validation helpers
+    // =========================================================================
+
+    /// Validate that a string is valid Base58 (Solana pubkey format).
+    fn validate_base58(value: &str, field_name: &str) -> ApiResult<()> {
+        if value.is_empty() {
+            return Err(ApiError::InvalidParameter(format!("{} cannot be empty", field_name)));
+        }
+        bs58::decode(value)
+            .into_vec()
+            .map_err(|_| ApiError::InvalidParameter(format!("{} is not valid Base58", field_name)))?;
+        Ok(())
+    }
+
+    /// Validate that a signature is 128 hex characters (64 bytes).
+    fn validate_signature(sig: &str) -> ApiResult<()> {
+        if sig.len() != 128 {
+            return Err(ApiError::InvalidParameter(
+                format!("Signature must be 128 hex characters, got {}", sig.len())
+            ));
+        }
+        // Validate hex by attempting to decode
+        for chunk in sig.as_bytes().chunks(2) {
+            let hex_str = std::str::from_utf8(chunk).unwrap_or("");
+            u8::from_str_radix(hex_str, 16)
+                .map_err(|_| ApiError::InvalidParameter("Signature must contain only hex characters".to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Validate that a limit is within bounds.
+    fn validate_limit(limit: u32, max: u32) -> ApiResult<()> {
+        if limit == 0 || limit > max {
+            return Err(ApiError::InvalidParameter(format!("Limit must be 1-{}", max)));
+        }
+        Ok(())
     }
 
     // =========================================================================
@@ -186,8 +376,8 @@ impl LightconeApiClient {
     /// Returns `Ok(())` if the API is healthy.
     pub async fn health_check(&self) -> ApiResult<()> {
         let url = format!("{}/health", self.base_url);
+        // Health check is special - we just need success status, not JSON parsing
         let response = self.http_client.get(&url).send().await?;
-
         if response.status().is_success() {
             Ok(())
         } else {
@@ -204,34 +394,32 @@ impl LightconeApiClient {
     /// Returns a list of all markets with their metadata.
     pub async fn get_markets(&self) -> ApiResult<MarketsResponse> {
         let url = format!("{}/api/markets", self.base_url);
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     /// Get market details by pubkey.
     ///
     /// Returns complete market information including deposit assets.
     pub async fn get_market(&self, market_pubkey: &str) -> ApiResult<MarketInfoResponse> {
-        let url = format!("{}/api/markets/{}", self.base_url, market_pubkey);
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        Self::validate_base58(market_pubkey, "market_pubkey")?;
+        let url = format!("{}/api/markets/{}", self.base_url, urlencoding::encode(market_pubkey));
+        self.get(&url).await
     }
 
     /// Get market by URL-friendly slug.
     pub async fn get_market_by_slug(&self, slug: &str) -> ApiResult<MarketInfoResponse> {
-        let url = format!("{}/api/markets/by-slug/{}", self.base_url, slug);
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        if slug.is_empty() {
+            return Err(ApiError::InvalidParameter("slug cannot be empty".to_string()));
+        }
+        let url = format!("{}/api/markets/by-slug/{}", self.base_url, urlencoding::encode(slug));
+        self.get(&url).await
     }
 
     /// Get deposit assets for a market.
     pub async fn get_deposit_assets(&self, market_pubkey: &str) -> ApiResult<DepositAssetsResponse> {
-        let url = format!(
-            "{}/api/markets/{}/deposit-assets",
-            self.base_url, market_pubkey
-        );
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        Self::validate_base58(market_pubkey, "market_pubkey")?;
+        let url = format!("{}/api/markets/{}/deposit-assets", self.base_url, urlencoding::encode(market_pubkey));
+        self.get(&url).await
     }
 
     // =========================================================================
@@ -251,14 +439,11 @@ impl LightconeApiClient {
         orderbook_id: &str,
         depth: Option<u32>,
     ) -> ApiResult<OrderbookResponse> {
-        let mut url = format!("{}/api/orderbook/{}", self.base_url, orderbook_id);
-
+        let mut url = format!("{}/api/orderbook/{}", self.base_url, urlencoding::encode(orderbook_id));
         if let Some(d) = depth {
             url.push_str(&format!("?depth={}", d));
         }
-
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     // =========================================================================
@@ -269,22 +454,28 @@ impl LightconeApiClient {
     ///
     /// The order must be pre-signed with the maker's Ed25519 key.
     pub async fn submit_order(&self, request: SubmitOrderRequest) -> ApiResult<OrderResponse> {
+        Self::validate_base58(&request.maker, "maker")?;
+        Self::validate_base58(&request.market_pubkey, "market_pubkey")?;
+        Self::validate_base58(&request.base_token, "base_token")?;
+        Self::validate_base58(&request.quote_token, "quote_token")?;
+        Self::validate_signature(&request.signature)?;
+
         let url = format!("{}/api/orders/submit", self.base_url);
-        let response = self.http_client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        self.post(&url, &request).await
     }
 
     /// Cancel a specific order.
     ///
     /// The maker must match the order creator.
     pub async fn cancel_order(&self, order_hash: &str, maker: &str) -> ApiResult<CancelResponse> {
+        Self::validate_base58(maker, "maker")?;
+
         let url = format!("{}/api/orders/cancel", self.base_url);
         let request = CancelOrderRequest {
             order_hash: order_hash.to_string(),
             maker: maker.to_string(),
         };
-        let response = self.http_client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        self.post(&url, &request).await
     }
 
     /// Cancel all orders for a user.
@@ -295,13 +486,17 @@ impl LightconeApiClient {
         user_pubkey: &str,
         market_pubkey: Option<&str>,
     ) -> ApiResult<CancelAllResponse> {
+        Self::validate_base58(user_pubkey, "user_pubkey")?;
+        if let Some(market) = market_pubkey {
+            Self::validate_base58(market, "market_pubkey")?;
+        }
+
         let url = format!("{}/api/orders/cancel-all", self.base_url);
         let request = CancelAllOrdersRequest {
             user_pubkey: user_pubkey.to_string(),
             market_pubkey: market_pubkey.map(|s| s.to_string()),
         };
-        let response = self.http_client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        self.post(&url, &request).await
     }
 
     // =========================================================================
@@ -310,9 +505,9 @@ impl LightconeApiClient {
 
     /// Get all positions for a user.
     pub async fn get_user_positions(&self, user_pubkey: &str) -> ApiResult<PositionsResponse> {
-        let url = format!("{}/api/users/{}/positions", self.base_url, user_pubkey);
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        Self::validate_base58(user_pubkey, "user_pubkey")?;
+        let url = format!("{}/api/users/{}/positions", self.base_url, urlencoding::encode(user_pubkey));
+        self.get(&url).await
     }
 
     /// Get user positions in a specific market.
@@ -321,22 +516,27 @@ impl LightconeApiClient {
         user_pubkey: &str,
         market_pubkey: &str,
     ) -> ApiResult<MarketPositionsResponse> {
+        Self::validate_base58(user_pubkey, "user_pubkey")?;
+        Self::validate_base58(market_pubkey, "market_pubkey")?;
+
         let url = format!(
             "{}/api/users/{}/markets/{}/positions",
-            self.base_url, user_pubkey, market_pubkey
+            self.base_url,
+            urlencoding::encode(user_pubkey),
+            urlencoding::encode(market_pubkey)
         );
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     /// Get all open orders and balances for a user.
     pub async fn get_user_orders(&self, user_pubkey: &str) -> ApiResult<UserOrdersResponse> {
+        Self::validate_base58(user_pubkey, "user_pubkey")?;
+
         let url = format!("{}/api/users/orders", self.base_url);
         let request = GetUserOrdersRequest {
             user_pubkey: user_pubkey.to_string(),
         };
-        let response = self.http_client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        self.post(&url, &request).await
     }
 
     // =========================================================================
@@ -348,13 +548,18 @@ impl LightconeApiClient {
         &self,
         params: PriceHistoryParams,
     ) -> ApiResult<PriceHistoryResponse> {
+        if let Some(limit) = params.limit {
+            Self::validate_limit(limit, MAX_PAGINATION_LIMIT)?;
+        }
+
         let mut url = format!(
             "{}/api/price-history?orderbook_id={}",
-            self.base_url, params.orderbook_id
+            self.base_url,
+            urlencoding::encode(&params.orderbook_id)
         );
 
         if let Some(resolution) = params.resolution {
-            url.push_str(&format!("&resolution={}", resolution));
+            url.push_str(&format!("&resolution={}", urlencoding::encode(&resolution.to_string())));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -372,8 +577,7 @@ impl LightconeApiClient {
             url.push_str(&format!("&include_ohlcv={}", include_ohlcv));
         }
 
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     // =========================================================================
@@ -382,13 +586,21 @@ impl LightconeApiClient {
 
     /// Get executed trades.
     pub async fn get_trades(&self, params: TradesParams) -> ApiResult<TradesResponse> {
+        if let Some(ref user_pubkey) = params.user_pubkey {
+            Self::validate_base58(user_pubkey, "user_pubkey")?;
+        }
+        if let Some(limit) = params.limit {
+            Self::validate_limit(limit, MAX_PAGINATION_LIMIT)?;
+        }
+
         let mut url = format!(
             "{}/api/trades?orderbook_id={}",
-            self.base_url, params.orderbook_id
+            self.base_url,
+            urlencoding::encode(&params.orderbook_id)
         );
 
         if let Some(user_pubkey) = params.user_pubkey {
-            url.push_str(&format!("&user_pubkey={}", user_pubkey));
+            url.push_str(&format!("&user_pubkey={}", urlencoding::encode(&user_pubkey)));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -403,8 +615,7 @@ impl LightconeApiClient {
             url.push_str(&format!("&limit={}", limit));
         }
 
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     // =========================================================================
@@ -414,8 +625,7 @@ impl LightconeApiClient {
     /// Admin health check endpoint.
     pub async fn admin_health_check(&self) -> ApiResult<AdminResponse> {
         let url = format!("{}/api/admin/test", self.base_url);
-        let response = self.http_client.get(&url).send().await?;
-        self.handle_response(response).await
+        self.get(&url).await
     }
 
     /// Create a new orderbook for a market.
@@ -423,9 +633,12 @@ impl LightconeApiClient {
         &self,
         request: CreateOrderbookRequest,
     ) -> ApiResult<CreateOrderbookResponse> {
+        Self::validate_base58(&request.market_pubkey, "market_pubkey")?;
+        Self::validate_base58(&request.base_token, "base_token")?;
+        Self::validate_base58(&request.quote_token, "quote_token")?;
+
         let url = format!("{}/api/admin/create-orderbook", self.base_url);
-        let response = self.http_client.post(&url).json(&request).send().await?;
-        self.handle_response(response).await
+        self.post(&url, &request).await
     }
 }
 
@@ -436,7 +649,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = LightconeApiClient::new("https://api.lightcone.xyz");
+        let client = LightconeApiClient::new("https://api.lightcone.xyz").unwrap();
         assert_eq!(client.base_url(), "https://api.lightcone.xyz");
     }
 
@@ -492,5 +705,51 @@ mod tests {
         assert_eq!(request.base_token, "base1");
         assert_eq!(request.quote_token, "quote1");
         assert_eq!(request.tick_size, Some(500));
+    }
+
+    #[test]
+    fn test_retry_config() {
+        let config = RetryConfig::new(3)
+            .with_base_delay_ms(200)
+            .with_max_delay_ms(5000);
+
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.base_delay_ms, 200);
+        assert_eq!(config.max_delay_ms, 5000);
+    }
+
+    #[test]
+    fn test_client_with_retry() {
+        let client = LightconeApiClient::builder("https://api.lightcone.xyz")
+            .with_retry(RetryConfig::new(3))
+            .build()
+            .unwrap();
+
+        assert_eq!(client.retry_config.max_retries, 3);
+    }
+
+    #[test]
+    fn test_retry_delay_calculation() {
+        let config = RetryConfig {
+            max_retries: 5,
+            base_delay_ms: 100,
+            max_delay_ms: 1000,
+        };
+
+        // First attempt: ~100ms (75-100ms with jitter)
+        let delay0 = config.delay_for_attempt(0);
+        assert!(delay0.as_millis() >= 75 && delay0.as_millis() <= 100);
+
+        // Second attempt: ~200ms (150-200ms with jitter)
+        let delay1 = config.delay_for_attempt(1);
+        assert!(delay1.as_millis() >= 150 && delay1.as_millis() <= 200);
+
+        // Fourth attempt would be 800ms, but capped at 1000ms max
+        let delay3 = config.delay_for_attempt(3);
+        assert!(delay3.as_millis() >= 600 && delay3.as_millis() <= 800);
+
+        // Large attempt: should be capped at max_delay
+        let delay10 = config.delay_for_attempt(10);
+        assert!(delay10.as_millis() >= 750 && delay10.as_millis() <= 1000);
     }
 }

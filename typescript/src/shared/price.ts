@@ -37,3 +37,19 @@ export function formatDecimal(value: number, precision: number): string {
   return value.toFixed(precision);
 }
 
+/**
+ * Check if a decimal string represents zero.
+ *
+ * @example
+ * ```typescript
+ * isZero("0");        // true
+ * isZero("0.0");      // true
+ * isZero("0.000000"); // true
+ * isZero("0.001");    // false
+ * ```
+ */
+export function isZero(s: string): boolean {
+  const parsed = parseFloat(s);
+  return !isNaN(parsed) && parsed === 0;
+}
+

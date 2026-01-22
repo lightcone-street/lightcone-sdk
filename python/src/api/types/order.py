@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Optional
 
+from ..error import DeserializeError
+
 
 class ApiOrderSide(IntEnum):
     """Order side enum."""
@@ -33,13 +35,16 @@ class Fill:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Fill":
-        return cls(
-            counterparty=data["counterparty"],
-            counterparty_order_hash=data["counterparty_order_hash"],
-            fill_amount=data["fill_amount"],
-            price=data["price"],
-            is_maker=data["is_maker"],
-        )
+        try:
+            return cls(
+                counterparty=data["counterparty"],
+                counterparty_order_hash=data["counterparty_order_hash"],
+                fill_amount=data["fill_amount"],
+                price=data["price"],
+                is_maker=data["is_maker"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in Fill: {e}")
 
 
 @dataclass
@@ -86,13 +91,16 @@ class OrderResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "OrderResponse":
-        return cls(
-            order_hash=data["order_hash"],
-            status=data["status"],
-            remaining=data["remaining"],
-            filled=data["filled"],
-            fills=[Fill.from_dict(f) for f in data.get("fills", [])],
-        )
+        try:
+            return cls(
+                order_hash=data["order_hash"],
+                status=data["status"],
+                remaining=data["remaining"],
+                filled=data["filled"],
+                fills=[Fill.from_dict(f) for f in data.get("fills", [])],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in OrderResponse: {e}")
 
 
 @dataclass
@@ -119,11 +127,14 @@ class CancelResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CancelResponse":
-        return cls(
-            status=data["status"],
-            order_hash=data["order_hash"],
-            remaining=data["remaining"],
-        )
+        try:
+            return cls(
+                status=data["status"],
+                order_hash=data["order_hash"],
+                remaining=data["remaining"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in CancelResponse: {e}")
 
 
 @dataclass
@@ -153,14 +164,17 @@ class CancelAllResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CancelAllResponse":
-        return cls(
-            status=data["status"],
-            user_pubkey=data["user_pubkey"],
-            cancelled_order_hashes=data.get("cancelled_order_hashes", []),
-            count=data["count"],
-            message=data["message"],
-            market_pubkey=data.get("market_pubkey"),
-        )
+        try:
+            return cls(
+                status=data["status"],
+                user_pubkey=data["user_pubkey"],
+                cancelled_order_hashes=data.get("cancelled_order_hashes", []),
+                count=data["count"],
+                message=data["message"],
+                market_pubkey=data.get("market_pubkey"),
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in CancelAllResponse: {e}")
 
 
 @dataclass
@@ -181,19 +195,22 @@ class UserOrder:
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserOrder":
-        return cls(
-            order_hash=data["order_hash"],
-            market_pubkey=data["market_pubkey"],
-            orderbook_id=data["orderbook_id"],
-            side=data["side"],
-            maker_amount=data["maker_amount"],
-            taker_amount=data["taker_amount"],
-            remaining=data["remaining"],
-            filled=data["filled"],
-            price=data["price"],
-            created_at=data["created_at"],
-            expiration=data["expiration"],
-        )
+        try:
+            return cls(
+                order_hash=data["order_hash"],
+                market_pubkey=data["market_pubkey"],
+                orderbook_id=data["orderbook_id"],
+                side=data["side"],
+                maker_amount=data["maker_amount"],
+                taker_amount=data["taker_amount"],
+                remaining=data["remaining"],
+                filled=data["filled"],
+                price=data["price"],
+                created_at=data["created_at"],
+                expiration=data["expiration"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in UserOrder: {e}")
 
 
 @dataclass
@@ -207,12 +224,15 @@ class UserOrderOutcomeBalance:
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserOrderOutcomeBalance":
-        return cls(
-            outcome_index=data["outcome_index"],
-            conditional_token=data["conditional_token"],
-            idle=data["idle"],
-            on_book=data["on_book"],
-        )
+        try:
+            return cls(
+                outcome_index=data["outcome_index"],
+                conditional_token=data["conditional_token"],
+                idle=data["idle"],
+                on_book=data["on_book"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in UserOrderOutcomeBalance: {e}")
 
 
 @dataclass
@@ -225,13 +245,16 @@ class UserBalance:
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserBalance":
-        return cls(
-            market_pubkey=data["market_pubkey"],
-            deposit_asset=data["deposit_asset"],
-            outcomes=[
-                UserOrderOutcomeBalance.from_dict(o) for o in data.get("outcomes", [])
-            ],
-        )
+        try:
+            return cls(
+                market_pubkey=data["market_pubkey"],
+                deposit_asset=data["deposit_asset"],
+                outcomes=[
+                    UserOrderOutcomeBalance.from_dict(o) for o in data.get("outcomes", [])
+                ],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in UserBalance: {e}")
 
 
 @dataclass
@@ -254,8 +277,11 @@ class UserOrdersResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserOrdersResponse":
-        return cls(
-            user_pubkey=data["user_pubkey"],
-            orders=[UserOrder.from_dict(o) for o in data.get("orders", [])],
-            balances=[UserBalance.from_dict(b) for b in data.get("balances", [])],
-        )
+        try:
+            return cls(
+                user_pubkey=data["user_pubkey"],
+                orders=[UserOrder.from_dict(o) for o in data.get("orders", [])],
+                balances=[UserBalance.from_dict(b) for b in data.get("balances", [])],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in UserOrdersResponse: {e}")

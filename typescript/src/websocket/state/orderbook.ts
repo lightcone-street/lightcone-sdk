@@ -10,11 +10,15 @@
 
 import { WebSocketError } from "../error";
 import type { BookUpdateData, PriceLevel } from "../types";
+import { isZero } from "../../shared/price";
 
 /**
  * Local orderbook state.
  */
 export class LocalOrderbook {
+  /** Maximum number of price levels to maintain per side */
+  private static readonly MAX_LEVELS = 1000;
+
   /** Orderbook identifier */
   readonly orderbookId: string;
   /** Bid levels (price string -> size string) */
@@ -36,19 +40,31 @@ export class LocalOrderbook {
    * Apply a snapshot (full orderbook state).
    */
   applySnapshot(update: BookUpdateData): void {
+    // Validate sequence number
+    if (typeof update.seq !== 'number' || update.seq < 0 || !Number.isFinite(update.seq)) {
+      console.warn(`Invalid sequence number in snapshot: ${update.seq}`);
+      return;
+    }
+
     // Clear existing state
     this.bids.clear();
     this.asks.clear();
 
-    // Apply all levels
+    // Apply all levels (respecting max depth)
     for (const level of update.bids) {
-      if (parseFloat(level.size) !== 0) {
+      if (!isZero(level.size)) {
+        if (this.bids.size >= LocalOrderbook.MAX_LEVELS && !this.bids.has(level.price)) {
+          continue; // Skip if at limit and new level
+        }
         this.bids.set(level.price, level.size);
       }
     }
 
     for (const level of update.asks) {
-      if (parseFloat(level.size) !== 0) {
+      if (!isZero(level.size)) {
+        if (this.asks.size >= LocalOrderbook.MAX_LEVELS && !this.asks.has(level.price)) {
+          continue; // Skip if at limit and new level
+        }
         this.asks.set(level.price, level.size);
       }
     }
@@ -64,25 +80,37 @@ export class LocalOrderbook {
    * @throws {WebSocketError} If a sequence gap is detected
    */
   applyDelta(update: BookUpdateData): void {
+    // Validate sequence number
+    if (typeof update.seq !== 'number' || update.seq < 0 || !Number.isFinite(update.seq)) {
+      console.warn(`Invalid sequence number in delta: ${update.seq}`);
+      return;
+    }
+
     // Check sequence number
     if (update.seq !== this.expectedSeq) {
       throw WebSocketError.sequenceGap(this.expectedSeq, update.seq);
     }
 
-    // Apply bid updates
+    // Apply bid updates (respecting max depth)
     for (const level of update.bids) {
-      if (parseFloat(level.size) === 0) {
+      if (isZero(level.size)) {
         this.bids.delete(level.price);
       } else {
+        if (this.bids.size >= LocalOrderbook.MAX_LEVELS && !this.bids.has(level.price)) {
+          continue; // Skip if at limit and new level
+        }
         this.bids.set(level.price, level.size);
       }
     }
 
-    // Apply ask updates
+    // Apply ask updates (respecting max depth)
     for (const level of update.asks) {
-      if (parseFloat(level.size) === 0) {
+      if (isZero(level.size)) {
         this.asks.delete(level.price);
       } else {
+        if (this.asks.size >= LocalOrderbook.MAX_LEVELS && !this.asks.has(level.price)) {
+          continue; // Skip if at limit and new level
+        }
         this.asks.set(level.price, level.size);
       }
     }

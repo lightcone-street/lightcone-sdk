@@ -1,10 +1,19 @@
 """Local orderbook state management."""
 
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 from collections import OrderedDict
 
 from ..types import BookUpdateData, PriceLevel
 from ..error import SequenceGapError
+
+
+def _is_zero_size(s: str) -> bool:
+    """Check if size string represents zero with decimal precision."""
+    try:
+        return Decimal(s) == 0
+    except InvalidOperation:
+        return False
 
 
 class LocalOrderbook:
@@ -29,11 +38,11 @@ class LocalOrderbook:
         self._asks.clear()
 
         for level in update.bids:
-            if float(level.size) != 0:
+            if not _is_zero_size(level.size):
                 self._bids[level.price] = level.size
 
         for level in update.asks:
-            if float(level.size) != 0:
+            if not _is_zero_size(level.size):
                 self._asks[level.price] = level.size
 
         self._expected_seq = update.seq + 1
@@ -50,13 +59,13 @@ class LocalOrderbook:
             raise SequenceGapError(self._expected_seq, update.seq)
 
         for level in update.bids:
-            if float(level.size) == 0:
+            if _is_zero_size(level.size):
                 self._bids.pop(level.price, None)
             else:
                 self._bids[level.price] = level.size
 
         for level in update.asks:
-            if float(level.size) == 0:
+            if _is_zero_size(level.size):
                 self._asks.pop(level.price, None)
             else:
                 self._asks[level.price] = level.size
@@ -78,7 +87,7 @@ class LocalOrderbook:
     def get_bids(self) -> list[PriceLevel]:
         """Get all bid levels sorted by price (descending)."""
         # Sort by price descending (highest first)
-        sorted_prices = sorted(self._bids.keys(), key=float, reverse=True)
+        sorted_prices = sorted(self._bids.keys(), key=Decimal, reverse=True)
         return [
             PriceLevel(side="bid", price=price, size=self._bids[price])
             for price in sorted_prices
@@ -87,7 +96,7 @@ class LocalOrderbook:
     def get_asks(self) -> list[PriceLevel]:
         """Get all ask levels sorted by price (ascending)."""
         # Sort by price ascending (lowest first)
-        sorted_prices = sorted(self._asks.keys(), key=float)
+        sorted_prices = sorted(self._asks.keys(), key=Decimal)
         return [
             PriceLevel(side="ask", price=price, size=self._asks[price])
             for price in sorted_prices
@@ -105,14 +114,14 @@ class LocalOrderbook:
         """Get the best bid (highest bid price) as (price, size)."""
         if not self._bids:
             return None
-        price = max(self._bids.keys(), key=float)
+        price = max(self._bids.keys(), key=Decimal)
         return (price, self._bids[price])
 
     def best_ask(self) -> Optional[tuple[str, str]]:
         """Get the best ask (lowest ask price) as (price, size)."""
         if not self._asks:
             return None
-        price = min(self._asks.keys(), key=float)
+        price = min(self._asks.keys(), key=Decimal)
         return (price, self._asks[price])
 
     def spread(self) -> Optional[str]:

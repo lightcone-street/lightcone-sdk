@@ -22,7 +22,7 @@ pub struct CreateOrderbookRequest {
     pub quote_token: String,
     /// Price granularity (default: 1000)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tick_size: Option<i32>,
+    pub tick_size: Option<u32>,
 }
 
 impl CreateOrderbookRequest {
@@ -41,7 +41,7 @@ impl CreateOrderbookRequest {
     }
 
     /// Set custom tick size.
-    pub fn with_tick_size(mut self, tick_size: i32) -> Self {
+    pub fn with_tick_size(mut self, tick_size: u32) -> Self {
         self.tick_size = Some(tick_size);
         self
     }
@@ -61,7 +61,7 @@ pub struct CreateOrderbookResponse {
     /// Quote token address
     pub quote_token: String,
     /// Tick size
-    pub tick_size: i32,
+    pub tick_size: u32,
     /// Human-readable message
     pub message: String,
 }

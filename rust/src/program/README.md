@@ -135,27 +135,32 @@ let tx = client.set_operator(&authority, &new_operator).await?;
 
 **Market Lifecycle:**
 ```rust
+// market_id is automatically fetched via get_next_market_id()
 let tx = client.create_market(CreateMarketParams {
-    authority: &authority,
-    market_id,
-    oracle: &oracle,
-    question_id: &question_id,
+    authority,
+    oracle,
+    question_id,
     num_outcomes,
 }).await?;
 
 let tx = client.add_deposit_mint(AddDepositMintParams {
-    authority: &authority,
-    deposit_mint: &usdc_mint,
+    payer,
+    market_id,
+    deposit_mint: usdc_mint,
+    outcome_metadata: vec![
+        OutcomeMetadata { name: "Yes".into(), symbol: "YES".into(), uri: "".into() },
+        OutcomeMetadata { name: "No".into(), symbol: "NO".into(), uri: "".into() },
+    ],
 }, &market, num_outcomes).await?;
 
 let tx = client.activate_market(ActivateMarketParams {
-    authority: &authority,
-    market: &market,
+    authority,
+    market_id,
 }).await?;
 
 let tx = client.settle_market(SettleMarketParams {
-    oracle: &oracle,
-    market: &market,
+    oracle,
+    market_id,
     winning_outcome,
 }).await?;
 ```
@@ -163,29 +168,30 @@ let tx = client.settle_market(SettleMarketParams {
 **Position Operations:**
 ```rust
 let tx = client.mint_complete_set(MintCompleteSetParams {
-    user: &user,
-    market: &market,
-    deposit_mint: &usdc_mint,
+    user,
+    market,
+    deposit_mint: usdc_mint,
     amount,
 }, num_outcomes).await?;
 
 let tx = client.merge_complete_set(MergeCompleteSetParams {
-    user: &user,
-    market: &market,
-    deposit_mint: &usdc_mint,
+    user,
+    market,
+    deposit_mint: usdc_mint,
     amount,
 }, num_outcomes).await?;
 
 let tx = client.redeem_winnings(RedeemWinningsParams {
-    user: &user,
-    market: &market,
-    deposit_mint: &usdc_mint,
+    user,
+    market,
+    deposit_mint: usdc_mint,
+    amount,
 }, winning_outcome).await?;
 
 let tx = client.withdraw_from_position(WithdrawFromPositionParams {
-    user: &user,
-    market: &market,
-    mint: &conditional_mint,
+    user,
+    market,
+    mint: conditional_mint,
     amount,
 }, is_token_2022).await?;
 ```
@@ -197,13 +203,13 @@ let tx = client.increment_nonce(&user).await?;
 
 // With individual Ed25519 verification
 let tx = client.match_orders_multi(MatchOrdersMultiParams {
-    operator: &operator,
-    market: &market,
-    base_mint: &yes_token,
-    quote_mint: &no_token,
-    taker_order: &taker,
-    maker_orders: &makers,
-    fill_amounts: &fills,
+    operator,
+    market,
+    base_mint: yes_token,
+    quote_mint: no_token,
+    taker_order: taker,
+    maker_orders: makers,
+    fill_amounts: fills,
 }).await?;
 
 // With batch Ed25519 verification
@@ -488,33 +494,90 @@ pub enum OrderSide {
 
 ### Parameter Structs
 
+All parameter structs use owned types (no lifetimes):
+
 ```rust
-pub struct CreateMarketParams<'a> {
-    pub authority: &'a Pubkey,
-    pub market_id: u64,
-    pub oracle: &'a Pubkey,
-    pub question_id: &'a [u8; 32],
+pub struct CreateMarketParams {
+    pub authority: Pubkey,
     pub num_outcomes: u8,
+    pub oracle: Pubkey,
+    pub question_id: [u8; 32],
 }
 
-pub struct MintCompleteSetParams<'a> {
-    pub user: &'a Pubkey,
-    pub market: &'a Pubkey,
-    pub deposit_mint: &'a Pubkey,
+pub struct AddDepositMintParams {
+    pub payer: Pubkey,
+    pub market_id: u64,
+    pub deposit_mint: Pubkey,
+    pub outcome_metadata: Vec<OutcomeMetadata>,
+}
+
+pub struct OutcomeMetadata {
+    pub name: String,    // max 32 chars
+    pub symbol: String,  // max 10 chars
+    pub uri: String,     // max 200 chars
+}
+
+pub struct ActivateMarketParams {
+    pub authority: Pubkey,
+    pub market_id: u64,
+}
+
+pub struct SettleMarketParams {
+    pub oracle: Pubkey,
+    pub market_id: u64,
+    pub winning_outcome: u8,
+}
+
+pub struct MintCompleteSetParams {
+    pub user: Pubkey,
+    pub market: Pubkey,
+    pub deposit_mint: Pubkey,
     pub amount: u64,
 }
 
-pub struct MatchOrdersMultiParams<'a> {
-    pub operator: &'a Pubkey,
-    pub market: &'a Pubkey,
-    pub base_mint: &'a Pubkey,
-    pub quote_mint: &'a Pubkey,
-    pub taker_order: &'a FullOrder,
-    pub maker_orders: &'a [FullOrder],
-    pub fill_amounts: &'a [u64],
+pub struct MergeCompleteSetParams {
+    pub user: Pubkey,
+    pub market: Pubkey,
+    pub deposit_mint: Pubkey,
+    pub amount: u64,
+}
+
+pub struct RedeemWinningsParams {
+    pub user: Pubkey,
+    pub market: Pubkey,
+    pub deposit_mint: Pubkey,
+    pub amount: u64,
+}
+
+pub struct WithdrawFromPositionParams {
+    pub user: Pubkey,
+    pub market: Pubkey,
+    pub mint: Pubkey,
+    pub amount: u64,
+}
+
+pub struct MatchOrdersMultiParams {
+    pub operator: Pubkey,
+    pub market: Pubkey,
+    pub base_mint: Pubkey,
+    pub quote_mint: Pubkey,
+    pub taker_order: FullOrder,
+    pub maker_orders: Vec<FullOrder>,
+    pub fill_amounts: Vec<u64>,
 }
 
 pub struct BidOrderParams {
+    pub nonce: u64,
+    pub maker: Pubkey,
+    pub market: Pubkey,
+    pub base_mint: Pubkey,
+    pub quote_mint: Pubkey,
+    pub maker_amount: u64,
+    pub taker_amount: u64,
+    pub expiration: i64,
+}
+
+pub struct AskOrderParams {
     pub nonce: u64,
     pub maker: Pubkey,
     pub market: Pubkey,

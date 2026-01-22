@@ -1,4 +1,15 @@
-import { PublicKey } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  SYSVAR_RENT_PUBKEY,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
+  Ed25519Program,
+} from "@solana/web3.js";
+import {
+  TOKEN_PROGRAM_ID as SPL_TOKEN_PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID as SPL_TOKEN_2022_PROGRAM_ID,
+  ASSOCIATED_TOKEN_PROGRAM_ID as SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 
 /**
  * Lightcone Pinocchio Program ID (Devnet deployment)
@@ -10,51 +21,37 @@ export const PROGRAM_ID = new PublicKey(
 /**
  * SPL Token Program ID
  */
-export const TOKEN_PROGRAM_ID = new PublicKey(
-  "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
-);
+export const TOKEN_PROGRAM_ID = SPL_TOKEN_PROGRAM_ID;
 
 /**
  * Token-2022 Program ID (for conditional tokens)
  */
-export const TOKEN_2022_PROGRAM_ID = new PublicKey(
-  "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"
-);
+export const TOKEN_2022_PROGRAM_ID = SPL_TOKEN_2022_PROGRAM_ID;
 
 /**
  * Associated Token Account Program ID
  */
-export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey(
-  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
-);
+export const ASSOCIATED_TOKEN_PROGRAM_ID = SPL_ASSOCIATED_TOKEN_PROGRAM_ID;
 
 /**
  * System Program ID
  */
-export const SYSTEM_PROGRAM_ID = new PublicKey(
-  "11111111111111111111111111111111"
-);
+export const SYSTEM_PROGRAM_ID = SystemProgram.programId;
 
 /**
  * Rent Sysvar ID
  */
-export const RENT_SYSVAR_ID = new PublicKey(
-  "SysvarRent111111111111111111111111111111111"
-);
+export const RENT_SYSVAR_ID = SYSVAR_RENT_PUBKEY;
 
 /**
  * Instructions Sysvar ID (for Ed25519 verification)
  */
-export const INSTRUCTIONS_SYSVAR_ID = new PublicKey(
-  "Sysvar1nstructions1111111111111111111111111"
-);
+export const INSTRUCTIONS_SYSVAR_ID = SYSVAR_INSTRUCTIONS_PUBKEY;
 
 /**
  * Ed25519 Program ID (for signature verification)
  */
-export const ED25519_PROGRAM_ID = new PublicKey(
-  "Ed25519SigVerify111111111111111111111111111"
-);
+export const ED25519_PROGRAM_ID = Ed25519Program.programId;
 
 /**
  * Instruction discriminators (single byte indices)

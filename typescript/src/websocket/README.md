@@ -29,6 +29,15 @@ const client = await websocket.LightconeWebSocketClient.connect(
 import { Keypair } from "@solana/web3.js";
 const keypair = Keypair.generate();
 const client = await websocket.LightconeWebSocketClient.connectAuthenticated(keypair);
+
+// Authenticated connection with custom config
+const clientWithConfig = await websocket.LightconeWebSocketClient.connectAuthenticatedWithConfig(
+  keypair,
+  {
+    reconnectAttempts: 5,
+    pingIntervalSecs: 15,
+  }
+);
 ```
 
 | Option | Default | Description |
@@ -37,6 +46,8 @@ const client = await websocket.LightconeWebSocketClient.connectAuthenticated(key
 | `baseDelayMs` | 1000 | Base delay for exponential backoff |
 | `maxDelayMs` | 30000 | Maximum reconnection delay |
 | `pingIntervalSecs` | 30 | Client ping interval |
+| `pongTimeoutSecs` | 60 | Pong response timeout (triggers reconnect) |
+| `connectionTimeoutMs` | 30000 | Connection establishment timeout |
 | `autoReconnect` | true | Auto-reconnect on disconnect |
 | `autoResubscribe` | true | Restore subscriptions after reconnect |
 | `authToken` | - | Authentication token for user streams |
@@ -593,4 +604,17 @@ const config = client.getConfig();
 // Get auth info
 const credentials = client.getAuthCredentials();
 const userPubkey = client.userPubkey();
+
+// Connection health
+const healthy = client.isHealthy();
+
+// Detailed connection status
+const status = client.getConnectionStatus();
+// {
+//   state: ConnectionState,
+//   isHealthy: boolean,
+//   lastPongMs: number,
+//   awaitingPong: boolean,
+//   wsReadyState: number | null
+// }
 ```

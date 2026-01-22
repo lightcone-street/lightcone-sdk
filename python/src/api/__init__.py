@@ -21,6 +21,8 @@ from .error import (
     NotFoundError,
     BadRequestError,
     ForbiddenError,
+    UnauthorizedError,
+    RateLimitedError,
     ConflictError,
     ServerError,
     DeserializeError,
@@ -28,6 +30,10 @@ from .error import (
     UnexpectedStatusError,
     ErrorResponse,
 )
+
+from .validation import MAX_PAGINATION_LIMIT
+
+from .retry import RetryConfig
 
 from .types import (
     # Market types
@@ -68,6 +74,7 @@ from .types import (
     PriceHistoryParams,
     PriceHistoryResponse,
     # Trade types
+    ApiTradeSide,
     Trade,
     TradesParams,
     TradesResponse,
@@ -86,12 +93,18 @@ __all__ = [
     "NotFoundError",
     "BadRequestError",
     "ForbiddenError",
+    "UnauthorizedError",
+    "RateLimitedError",
     "ConflictError",
     "ServerError",
     "DeserializeError",
     "InvalidParameterError",
     "UnexpectedStatusError",
     "ErrorResponse",
+    # Constants
+    "MAX_PAGINATION_LIMIT",
+    # Retry
+    "RetryConfig",
     # Market types
     "ApiMarketStatus",
     "Outcome",
@@ -130,6 +143,7 @@ __all__ = [
     "PriceHistoryParams",
     "PriceHistoryResponse",
     # Trade types
+    "ApiTradeSide",
     "Trade",
     "TradesParams",
     "TradesResponse",

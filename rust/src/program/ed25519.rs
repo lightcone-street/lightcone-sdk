@@ -99,7 +99,7 @@ pub fn create_ed25519_verify_instruction(params: &Ed25519VerifyParams) -> Instru
     data[112..144].copy_from_slice(&params.message);
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -189,7 +189,7 @@ pub fn create_batch_ed25519_verify_instruction(params: &[Ed25519VerifyParams]) -
     }
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -211,6 +211,7 @@ pub fn create_batch_ed25519_verify_instruction(params: &[Ed25519VerifyParams]) -
 /// - `[195..260]`: maker_compact (65 bytes)     <- maker pubkey at offset 195+8=203
 /// - `[260..324]`: maker_signature (64 bytes)   <- maker signature
 /// - `[324..332]`: maker_fill_amount (8 bytes)
+#[derive(Debug)]
 pub struct MatchIxOffsets;
 
 impl MatchIxOffsets {
@@ -236,6 +237,7 @@ impl MatchIxOffsets {
 }
 
 /// Offsets for a maker order within the match instruction data.
+#[derive(Debug)]
 pub struct MakerOffsets {
     /// Offset of maker hash (message)
     pub message: u16,
@@ -286,7 +288,7 @@ pub fn create_cross_ref_ed25519_instruction(params: &CrossRefEd25519Params) -> I
     data[14..16].copy_from_slice(&params.message_ix_index.to_le_bytes());
 
     Instruction {
-        program_id: *ED25519_PROGRAM_ID,
+        program_id: ED25519_PROGRAM_ID,
         accounts: vec![],
         data,
     }
@@ -355,7 +357,7 @@ mod tests {
 
         let ix = create_ed25519_verify_instruction(&params);
         assert_eq!(ix.data.len(), 144);
-        assert_eq!(ix.program_id, *ED25519_PROGRAM_ID);
+        assert_eq!(ix.program_id, ED25519_PROGRAM_ID);
         assert!(ix.accounts.is_empty());
     }
 

@@ -1,6 +1,10 @@
 """Lightcone REST API client implementation."""
 
-from typing import Optional
+import asyncio
+import json
+from typing import Any, Optional
+from urllib.parse import quote
+
 import aiohttp
 
 from .error import (
@@ -9,12 +13,20 @@ from .error import (
     NotFoundError,
     BadRequestError,
     ForbiddenError,
+    UnauthorizedError,
+    RateLimitedError,
     ConflictError,
     ServerError,
     DeserializeError,
     UnexpectedStatusError,
     ErrorResponse,
 )
+from .validation import (
+    validate_pubkey,
+    validate_signature,
+    validate_limit,
+)
+from .retry import RetryConfig, is_retryable, calculate_delay
 from .types import (
     MarketsResponse,
     MarketInfoResponse,
@@ -58,6 +70,7 @@ class LightconeApiClient:
         base_url: str,
         timeout: int = DEFAULT_TIMEOUT_SECS,
         headers: Optional[dict[str, str]] = None,
+        retry_config: Optional[RetryConfig] = None,
     ):
         """Create a new client with the given base URL.
 
@@ -65,6 +78,7 @@ class LightconeApiClient:
             base_url: The base URL of the Lightcone API
             timeout: Request timeout in seconds
             headers: Optional additional headers for all requests
+            retry_config: Optional retry configuration for failed requests
         """
         self._base_url = base_url.rstrip("/")
         self._timeout = aiohttp.ClientTimeout(total=timeout)
@@ -75,6 +89,7 @@ class LightconeApiClient:
         if headers:
             self._headers.update(headers)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._retry_config = retry_config or RetryConfig.default()
 
     @property
     def base_url(self) -> str:
@@ -107,14 +122,18 @@ class LightconeApiClient:
 
     def _map_status_error(self, status: int, message: str) -> ApiError:
         """Map HTTP status code to ApiError."""
-        if status == 404:
-            return NotFoundError(message)
+        if status == 401:
+            return UnauthorizedError(message)
         elif status == 400:
             return BadRequestError(message)
         elif status == 403:
             return ForbiddenError(message)
+        elif status == 404:
+            return NotFoundError(message)
         elif status == 409:
             return ConflictError(message)
+        elif status == 429:
+            return RateLimitedError(message)
         elif status >= 500:
             return ServerError(message)
         else:
@@ -125,19 +144,58 @@ class LightconeApiClient:
         if response.status >= 200 and response.status < 300:
             try:
                 return await response.json()
-            except Exception as e:
+            except (ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
                 raise DeserializeError(f"Failed to deserialize response: {e}")
         else:
             error_text = await response.text()
             try:
-                import json
                 error_data = json.loads(error_text)
                 error_resp = ErrorResponse.from_dict(error_data)
                 error_msg = error_resp.get_message()
-            except Exception:
+            except (ValueError, KeyError, json.JSONDecodeError):
                 error_msg = error_text or "Unknown error"
 
             raise self._map_status_error(response.status, error_msg)
+
+    async def _request_with_retry(
+        self,
+        method: str,
+        url: str,
+        **kwargs: Any,
+    ) -> dict:
+        """Make request with retry logic.
+
+        Args:
+            method: HTTP method (GET, POST, etc.)
+            url: Request URL
+            **kwargs: Additional arguments for the request
+
+        Returns:
+            JSON response data
+
+        Raises:
+            ApiError: If all retries fail
+        """
+        session = await self._ensure_session()
+        last_error: Optional[Exception] = None
+
+        for attempt in range(self._retry_config.max_retries + 1):
+            try:
+                async with session.request(method, url, **kwargs) as response:
+                    return await self._handle_response(response)
+            except Exception as e:
+                last_error = e
+
+                # Don't retry if not retryable or last attempt
+                if not is_retryable(e) or attempt >= self._retry_config.max_retries:
+                    raise
+
+                # Calculate and apply delay
+                delay = calculate_delay(attempt, self._retry_config)
+                await asyncio.sleep(delay)
+
+        # Should not reach here, but satisfy type checker
+        raise last_error or RuntimeError("Unexpected retry loop exit")
 
     # =========================================================================
     # Health endpoints
@@ -179,9 +237,13 @@ class LightconeApiClient:
 
         Returns:
             MarketInfoResponse containing market details and deposit assets
+
+        Raises:
+            InvalidParameterError: If market_pubkey is invalid
         """
+        validate_pubkey(market_pubkey, "market_pubkey")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/{market_pubkey}"
+        url = f"{self._base_url}/api/markets/{quote(market_pubkey, safe='')}"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketInfoResponse.from_dict(data)
@@ -194,9 +256,14 @@ class LightconeApiClient:
 
         Returns:
             MarketInfoResponse containing market details
+
+        Raises:
+            ValueError: If slug is empty
         """
+        if not slug or not slug.strip():
+            raise ValueError("slug cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/by-slug/{slug}"
+        url = f"{self._base_url}/api/markets/by-slug/{quote(slug, safe='')}"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketInfoResponse.from_dict(data)
@@ -209,9 +276,13 @@ class LightconeApiClient:
 
         Returns:
             DepositAssetsResponse containing deposit assets
+
+        Raises:
+            InvalidParameterError: If market_pubkey is invalid
         """
+        validate_pubkey(market_pubkey, "market_pubkey")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/markets/{market_pubkey}/deposit-assets"
+        url = f"{self._base_url}/api/markets/{quote(market_pubkey, safe='')}/deposit-assets"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return DepositAssetsResponse.from_dict(data)
@@ -233,9 +304,14 @@ class LightconeApiClient:
 
         Returns:
             OrderbookResponse containing bids and asks
+
+        Raises:
+            ValueError: If orderbook_id is empty
         """
+        if not orderbook_id or not orderbook_id.strip():
+            raise ValueError("orderbook_id cannot be empty")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/orderbook/{orderbook_id}"
+        url = f"{self._base_url}/api/orderbook/{quote(orderbook_id, safe='')}"
         params = {}
         if depth is not None:
             params["depth"] = depth
@@ -258,7 +334,17 @@ class LightconeApiClient:
 
         Returns:
             OrderResponse with order hash, status, and fills
+
+        Raises:
+            InvalidParameterError: If any pubkey or signature is invalid
         """
+        # Validate inputs
+        validate_pubkey(request.maker, "maker")
+        validate_pubkey(request.market_pubkey, "market_pubkey")
+        validate_pubkey(request.base_token, "base_token")
+        validate_pubkey(request.quote_token, "quote_token")
+        validate_signature(request.signature)
+
         session = await self._ensure_session()
         url = f"{self._base_url}/api/orders/submit"
         async with session.post(url, json=request.to_dict()) as response:
@@ -274,7 +360,11 @@ class LightconeApiClient:
 
         Returns:
             CancelResponse with cancellation status
+
+        Raises:
+            InvalidParameterError: If maker pubkey is invalid
         """
+        validate_pubkey(maker, "maker")
         session = await self._ensure_session()
         url = f"{self._base_url}/api/orders/cancel"
         request = {"order_hash": order_hash, "maker": maker}
@@ -295,7 +385,14 @@ class LightconeApiClient:
 
         Returns:
             CancelAllResponse with cancelled order hashes
+
+        Raises:
+            InvalidParameterError: If any pubkey is invalid
         """
+        validate_pubkey(user_pubkey, "user_pubkey")
+        if market_pubkey:
+            validate_pubkey(market_pubkey, "market_pubkey")
+
         session = await self._ensure_session()
         url = f"{self._base_url}/api/orders/cancel-all"
         request: dict = {"user_pubkey": user_pubkey}
@@ -318,9 +415,13 @@ class LightconeApiClient:
 
         Returns:
             PositionsResponse containing user positions
+
+        Raises:
+            InvalidParameterError: If user_pubkey is invalid
         """
+        validate_pubkey(user_pubkey, "user_pubkey")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/users/{user_pubkey}/positions"
+        url = f"{self._base_url}/api/users/{quote(user_pubkey, safe='')}/positions"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return PositionsResponse.from_dict(data)
@@ -338,9 +439,14 @@ class LightconeApiClient:
 
         Returns:
             MarketPositionsResponse containing positions in the market
+
+        Raises:
+            InvalidParameterError: If user_pubkey or market_pubkey is invalid
         """
+        validate_pubkey(user_pubkey, "user_pubkey")
+        validate_pubkey(market_pubkey, "market_pubkey")
         session = await self._ensure_session()
-        url = f"{self._base_url}/api/users/{user_pubkey}/markets/{market_pubkey}/positions"
+        url = f"{self._base_url}/api/users/{quote(user_pubkey, safe='')}/markets/{quote(market_pubkey, safe='')}/positions"
         async with session.get(url) as response:
             data = await self._handle_response(response)
             return MarketPositionsResponse.from_dict(data)
@@ -353,7 +459,11 @@ class LightconeApiClient:
 
         Returns:
             UserOrdersResponse containing orders and balances
+
+        Raises:
+            InvalidParameterError: If user_pubkey is invalid
         """
+        validate_pubkey(user_pubkey, "user_pubkey")
         session = await self._ensure_session()
         url = f"{self._base_url}/api/users/orders"
         request = {"user_pubkey": user_pubkey}
@@ -376,7 +486,13 @@ class LightconeApiClient:
 
         Returns:
             PriceHistoryResponse containing price points
+
+        Raises:
+            InvalidParameterError: If limit is out of bounds
         """
+        if params.limit is not None:
+            validate_limit(params.limit)
+
         session = await self._ensure_session()
         url = f"{self._base_url}/api/price-history"
         query_params = params.to_query_params()
@@ -397,7 +513,13 @@ class LightconeApiClient:
 
         Returns:
             TradesResponse containing trades
+
+        Raises:
+            InvalidParameterError: If limit is out of bounds
         """
+        if params.limit is not None:
+            validate_limit(params.limit)
+
         session = await self._ensure_session()
         url = f"{self._base_url}/api/trades"
         query_params = params.to_query_params()

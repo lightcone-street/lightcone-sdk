@@ -81,11 +81,14 @@ let mut client = LightconeWebSocketClient::connect_with_auth(
 | `base_delay_ms` | u64 | 1000 | Initial backoff delay (ms) |
 | `max_delay_ms` | u64 | 30000 | Maximum backoff delay (ms) |
 | `ping_interval_secs` | u64 | 30 | Keepalive ping interval (seconds) |
+| `pong_timeout_secs` | u64 | 60 | Timeout for pong response (seconds) |
 | `auto_reconnect` | bool | true | Auto-reconnect on disconnect |
 | `auto_resubscribe` | bool | true | Re-subscribe after reconnect |
 | `auth_token` | Option\<String\> | None | Pre-obtained auth token |
+| `event_channel_capacity` | usize | 1000 | Capacity of the event channel |
+| `command_channel_capacity` | usize | 100 | Capacity of the command channel |
 
-**Backoff Formula:** `delay = min(base_delay * 2^(attempt-1), max_delay)`
+**Backoff Formula:** `delay = min(base_delay * 2^(attempt-1), max_delay)` with full jitter
 
 ## Subscription Types
 
@@ -208,23 +211,23 @@ while let Some(event) = client.next().await {
             println!("Connected");
         }
         WsEvent::BookUpdate { orderbook_id, is_snapshot } => {
-            if let Some(book) = client.get_orderbook(&orderbook_id) {
+            if let Some(book) = client.get_orderbook(&orderbook_id).await {
                 println!("Best bid: {:?}", book.best_bid());
                 println!("Spread: {:?}", book.spread());
             }
         }
         WsEvent::Trade { orderbook_id, trade } => {
-            println!("{}: {} @ {} size {}",
+            println!("{}: {:?} @ {} size {}",
                 orderbook_id, trade.side, trade.price, trade.size);
         }
         WsEvent::UserUpdate { event_type, user } => {
-            if let Some(state) = client.get_user_state(&user) {
+            if let Some(state) = client.get_user_state(&user).await {
                 println!("Orders: {}", state.orders.len());
             }
         }
         WsEvent::PriceUpdate { orderbook_id, resolution } => {
-            if let Some(history) = client.get_price_history(&orderbook_id, &resolution) {
-                if let Some(candle) = history.last_candle() {
+            if let Some(history) = client.get_price_history(&orderbook_id, &resolution).await {
+                if let Some(candle) = history.latest_candle() {
                     println!("Latest close: {:?}", candle.c);
                 }
             }
@@ -259,26 +262,37 @@ The client automatically maintains local state for subscribed streams.
 Maintains a local copy of the orderbook with automatic delta application.
 
 ```rust
-if let Some(book) = client.get_orderbook("orderbook_id") {
+if let Some(book) = client.get_orderbook("orderbook_id").await {
     // Price levels
     let bids = book.get_bids();       // All bids (descending price)
     let asks = book.get_asks();       // All asks (ascending price)
     let top_bids = book.get_top_bids(5);  // Top 5 bids
     let top_asks = book.get_top_asks(5);  // Top 5 asks
 
-    // Best prices
-    let best_bid = book.best_bid();   // Option<String>
-    let best_ask = book.best_ask();   // Option<String>
-    let mid = book.mid_price();       // Option<String>
+    // Best prices - returns (price, size) tuple
+    let best_bid = book.best_bid();   // Option<(String, String)>
+    let best_ask = book.best_ask();   // Option<(String, String)>
+    let mid = book.midpoint();        // Option<String>
     let spread = book.spread();       // Option<String>
+
+    // Size at specific price
+    let bid_size = book.bid_size_at("0.500000");  // Option<String>
+    let ask_size = book.ask_size_at("0.510000");  // Option<String>
+
+    // Depth totals (returns Decimal for precision)
+    let total_bids = book.total_bid_depth();
+    let total_asks = book.total_ask_depth();
+
+    // Level counts
+    let bid_levels = book.bid_count();
+    let ask_levels = book.ask_count();
 
     // Metadata
     let id = &book.orderbook_id;
-    let has_data = book.has_snapshot;
+    let has_data = book.has_snapshot();
+    let seq = book.expected_sequence();
+    let ts = book.last_timestamp();
 }
-
-// Async version (waits for lock)
-let book = client.get_orderbook_async("orderbook_id").await;
 ```
 
 **LocalOrderbook Fields:**
@@ -286,11 +300,8 @@ let book = client.get_orderbook_async("orderbook_id").await;
 | Field | Type | Description |
 |-------|------|-------------|
 | `orderbook_id` | String | Orderbook identifier |
-| `bids` | BTreeMap\<String, String\> | Price → Size (descending) |
-| `asks` | BTreeMap\<String, String\> | Price → Size (ascending) |
-| `expected_seq` | u64 | Expected sequence number |
-| `has_snapshot` | bool | Has received initial snapshot |
-| `last_timestamp` | Option\<String\> | Last update timestamp |
+| `bids` | BTreeMap | Price → Size (descending by numeric value) |
+| `asks` | BTreeMap | Price → Size (ascending by numeric value) |
 
 **LocalOrderbook Methods:**
 
@@ -300,34 +311,53 @@ let book = client.get_orderbook_async("orderbook_id").await;
 | `apply_snapshot(update)` | () | Apply full snapshot |
 | `apply_delta(update)` | Result\<(), WebSocketError\> | Apply incremental update |
 | `apply_update(update)` | Result\<(), WebSocketError\> | Apply any update type |
-| `get_bids()` | Vec\<PriceLevel\> | All bids |
-| `get_asks()` | Vec\<PriceLevel\> | All asks |
+| `get_bids()` | Vec\<PriceLevel\> | All bids (descending price) |
+| `get_asks()` | Vec\<PriceLevel\> | All asks (ascending price) |
 | `get_top_bids(n)` | Vec\<PriceLevel\> | Top n bids |
 | `get_top_asks(n)` | Vec\<PriceLevel\> | Top n asks |
-| `best_bid()` | Option\<String\> | Best bid price |
-| `best_ask()` | Option\<String\> | Best ask price |
-| `mid_price()` | Option\<String\> | Midpoint price |
+| `best_bid()` | Option\<(String, String)\> | Best bid (price, size) |
+| `best_ask()` | Option\<(String, String)\> | Best ask (price, size) |
+| `midpoint()` | Option\<String\> | Midpoint price |
 | `spread()` | Option\<String\> | Bid-ask spread |
+| `bid_size_at(price)` | Option\<String\> | Size at bid price |
+| `ask_size_at(price)` | Option\<String\> | Size at ask price |
+| `total_bid_depth()` | Decimal | Sum of all bid sizes |
+| `total_ask_depth()` | Decimal | Sum of all ask sizes |
+| `bid_count()` | usize | Number of bid levels |
+| `ask_count()` | usize | Number of ask levels |
+| `has_snapshot()` | bool | Has received initial snapshot |
+| `expected_sequence()` | u64 | Expected next sequence number |
+| `last_timestamp()` | Option\<&str\> | Last update timestamp |
+| `clear()` | () | Clear state for resync |
 
 ### UserState
 
 Maintains user's orders and balances.
 
 ```rust
-if let Some(state) = client.get_user_state("user_pubkey") {
+if let Some(state) = client.get_user_state("user_pubkey").await {
     // Orders
     for (hash, order) in &state.orders {
         println!("{}: {} remaining", hash, order.remaining);
     }
     let order = state.get_order("order_hash");
+    let open = state.open_orders();
+    let market_orders = state.orders_for_market("market_pubkey");
+    let ob_orders = state.orders_for_orderbook("orderbook_id");
+    let count = state.order_count();
 
     // Balances
     let balance = state.get_balance("market_pubkey", "deposit_mint");
-    let total = state.total_balance("market_pubkey", "deposit_mint", 0);
-}
+    let all = state.all_balances();
 
-// Async version
-let state = client.get_user_state_async("user_pubkey").await;
+    // Outcome-specific balances
+    let idle = state.idle_balance_for_outcome("market", "mint", 0);
+    let on_book = state.on_book_balance_for_outcome("market", "mint", 0);
+
+    // State info
+    let has_snap = state.has_snapshot();
+    let ts = state.last_timestamp();
+}
 ```
 
 **UserState Fields:**
@@ -337,8 +367,6 @@ let state = client.get_user_state_async("user_pubkey").await;
 | `user` | String | User public key |
 | `orders` | HashMap\<String, Order\> | Order hash → Order |
 | `balances` | HashMap\<String, BalanceEntry\> | Key → Balance |
-| `has_snapshot` | bool | Has received initial snapshot |
-| `last_timestamp` | Option\<String\> | Last update timestamp |
 
 **UserState Methods:**
 
@@ -350,31 +378,56 @@ let state = client.get_user_state_async("user_pubkey").await;
 | `apply_balance_update(data)` | () | Apply balance update |
 | `apply_event(data)` | () | Apply any event type |
 | `get_order(hash)` | Option\<&Order\> | Get order by hash |
+| `open_orders()` | Vec\<&Order\> | All open orders |
+| `orders_for_market(market)` | Vec\<&Order\> | Orders for specific market |
+| `orders_for_orderbook(ob_id)` | Vec\<&Order\> | Orders for specific orderbook |
+| `order_count()` | usize | Number of open orders |
 | `get_balance(market, mint)` | Option\<&BalanceEntry\> | Get balance entry |
-| `total_balance(market, mint, outcome)` | String | Total balance for outcome |
+| `all_balances()` | Vec\<&BalanceEntry\> | All balance entries |
+| `idle_balance_for_outcome(market, mint, idx)` | Option\<String\> | Idle balance for outcome |
+| `on_book_balance_for_outcome(market, mint, idx)` | Option\<String\> | On-book balance for outcome |
+| `has_snapshot()` | bool | Has received initial snapshot |
+| `last_timestamp()` | Option\<&str\> | Last update timestamp |
+| `clear()` | () | Clear state for resync |
 
 ### PriceHistory
 
 Maintains candle data for an orderbook.
 
 ```rust
-if let Some(history) = client.get_price_history("orderbook_id", "1h") {
-    // All candles
+if let Some(history) = client.get_price_history("orderbook_id", "1h").await {
+    // All candles (newest first)
     for candle in history.candles() {
         println!("t={} c={:?}", candle.t, candle.c);
     }
 
-    // Latest candle
-    if let Some(candle) = history.last_candle() {
+    // Most recent candle
+    if let Some(candle) = history.latest_candle() {
         println!("Latest: {:?}", candle);
     }
 
-    // Specific timestamp
-    let candle = history.get_candle(timestamp);
-}
+    // Oldest candle
+    if let Some(candle) = history.oldest_candle() {
+        println!("Oldest: {:?}", candle);
+    }
 
-// Async version
-let history = client.get_price_history_async("orderbook_id", "1h").await;
+    // N most recent candles
+    let recent = history.recent_candles(10);
+
+    // Candle at specific timestamp
+    let candle = history.get_candle(timestamp);
+
+    // Current prices from most recent candle
+    let mid = history.current_midpoint();
+    let bid = history.current_best_bid();
+    let ask = history.current_best_ask();
+
+    // State info
+    let count = history.candle_count();
+    let res = history.resolution_enum();
+    let server_t = history.server_time();
+    let has_snap = history.has_snapshot();
+}
 ```
 
 **PriceHistory Fields:**
@@ -384,11 +437,6 @@ let history = client.get_price_history_async("orderbook_id", "1h").await;
 | `orderbook_id` | String | Orderbook identifier |
 | `resolution` | String | Candle resolution |
 | `include_ohlcv` | bool | OHLCV enabled |
-| `candles` | Vec\<Candle\> | Candle data |
-| `candle_index` | HashMap\<i64, usize\> | Timestamp → Index |
-| `last_timestamp` | Option\<i64\> | Last candle timestamp |
-| `server_time` | Option\<i64\> | Server time reference |
-| `has_snapshot` | bool | Has received snapshot |
 
 **PriceHistory Methods:**
 
@@ -399,9 +447,20 @@ let history = client.get_price_history_async("orderbook_id", "1h").await;
 | `apply_update(data)` | () | Apply candle update |
 | `apply_heartbeat(data)` | () | Apply heartbeat |
 | `apply_event(data)` | () | Apply any event type |
-| `candles()` | &[Candle] | All candles |
-| `last_candle()` | Option\<&Candle\> | Most recent candle |
+| `candles()` | &[Candle] | All candles (newest first) |
+| `recent_candles(n)` | &[Candle] | N most recent candles |
 | `get_candle(timestamp)` | Option\<&Candle\> | Candle at timestamp |
+| `latest_candle()` | Option\<&Candle\> | Most recent candle |
+| `oldest_candle()` | Option\<&Candle\> | Oldest candle |
+| `current_midpoint()` | Option\<String\> | Midpoint from latest candle |
+| `current_best_bid()` | Option\<String\> | Best bid from latest candle |
+| `current_best_ask()` | Option\<String\> | Best ask from latest candle |
+| `candle_count()` | usize | Number of candles |
+| `has_snapshot()` | bool | Has received snapshot |
+| `last_timestamp()` | Option\<i64\> | Last candle timestamp |
+| `server_time()` | Option\<i64\> | Server time reference |
+| `resolution_enum()` | Option\<Resolution\> | Resolution as enum |
+| `clear()` | () | Clear state for resync |
 
 ## Data Types
 
@@ -537,10 +596,13 @@ let creds = client.auth_credentials();
 ### Manual Authentication
 
 ```rust
-use lightcone_sdk::websocket::{generate_signin_message, authenticate};
+use lightcone_sdk::websocket::{generate_signin_message, generate_signin_message_with_timestamp, authenticate};
 
-// Generate sign-in message
-let message = generate_signin_message();
+// Generate sign-in message with current timestamp
+let message = generate_signin_message()?;
+
+// Or with a specific timestamp (milliseconds)
+let message = generate_signin_message_with_timestamp(1704067200000);
 
 // Sign message
 let signature = signing_key.sign(message.as_bytes());
@@ -549,7 +611,14 @@ let signature = signing_key.sign(message.as_bytes());
 let auth_token = authenticate(&signing_key).await?;
 
 // Connect with token
-let client = LightconeWebSocketClient::connect_with_auth(url, auth_token).await?;
+let client = LightconeWebSocketClient::connect_with_auth(url, auth_token.auth_token).await?;
+```
+
+**Sign-in Message Format:**
+```text
+Sign in to Lightcone
+
+Timestamp: {unix_ms}
 ```
 
 ## Status & Control
@@ -686,6 +755,7 @@ match result {
 | `AuthenticationFailed(String)` | Authentication failed |
 | `AuthRequired` | Authentication required |
 | `HttpError(String)` | HTTP request error |
+| `InvalidAuthToken(String)` | Invalid or empty auth token |
 
 ### WsResult
 

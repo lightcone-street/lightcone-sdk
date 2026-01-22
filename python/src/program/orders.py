@@ -1,5 +1,8 @@
 """Order creation, hashing, signing, and serialization for the Lightcone SDK."""
 
+import time
+
+import nacl.exceptions
 from nacl.signing import SigningKey, VerifyKey
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -38,6 +41,9 @@ from .utils import (
     encode_u8,
     keccak256,
 )
+
+# Maximum value for a u64 integer
+MAX_U64 = 2**64 - 1
 
 
 def create_bid_order(params: BidOrderParams) -> FullOrder:
@@ -134,6 +140,9 @@ def verify_order_signature(order: FullOrder) -> bool:
     """Verify the Ed25519 signature on an order.
 
     Returns True if the signature is valid, False otherwise.
+
+    Raises:
+        InvalidOrderError: If the maker public key is invalid
     """
     if len(order.signature) != SIGNATURE_SIZE:
         return False
@@ -145,8 +154,10 @@ def verify_order_signature(order: FullOrder) -> bool:
         verify_key = VerifyKey(bytes(order.maker))
         verify_key.verify(order_hash, order.signature)
         return True
-    except Exception:
+    except nacl.exceptions.BadSignatureError:
         return False
+    except (nacl.exceptions.ValueError, ValueError) as e:
+        raise InvalidOrderError(f"Invalid maker public key: {e}")
 
 
 def serialize_full_order(order: FullOrder) -> bytes:
@@ -239,17 +250,38 @@ def create_signed_ask_order(params: AskOrderParams, keypair: Keypair) -> FullOrd
     return order
 
 
-def validate_order(order: FullOrder) -> None:
+def validate_order(order: FullOrder, check_expiration: bool = False) -> None:
     """Validate an order's fields.
+
+    Args:
+        order: The order to validate
+        check_expiration: If True, also check that the order hasn't expired
 
     Raises InvalidOrderError if any field is invalid.
     """
+    # Validate amounts
     if order.maker_amount == 0:
         raise InvalidOrderError("maker_amount cannot be zero")
     if order.taker_amount == 0:
         raise InvalidOrderError("taker_amount cannot be zero")
+
+    # Validate u64 bounds
+    if order.maker_amount > MAX_U64:
+        raise InvalidOrderError(f"maker_amount exceeds u64 max: {order.maker_amount}")
+    if order.taker_amount > MAX_U64:
+        raise InvalidOrderError(f"taker_amount exceeds u64 max: {order.taker_amount}")
+
+    # Validate side
     if order.side not in (OrderSide.BID, OrderSide.ASK):
         raise InvalidOrderError(f"Invalid side: {order.side}")
+
+    # Validate expiration (if set and check enabled, must be in the future)
+    if check_expiration and order.expiration != 0 and order.expiration < int(time.time()):
+        raise InvalidOrderError(f"Order already expired: expiration={order.expiration}")
+
+    # Validate maker is not zero pubkey
+    if bytes(order.maker) == bytes(32):
+        raise InvalidOrderError("maker cannot be zero pubkey")
 
 
 def validate_signed_order(order: FullOrder) -> None:

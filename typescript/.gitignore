@@ -36,3 +36,5 @@ keypairs/*.json
 # Coverage
 coverage/
 .nyc_output/
+
+.pytest_cache

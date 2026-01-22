@@ -1,17 +1,16 @@
 """User state management."""
 
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 from ..types import Balance, BalanceEntry, Order, UserEventData
 
 
 def is_zero(s: str) -> bool:
-    """Check if a string represents zero."""
-    if s in ("0", "0.0", "0.000000"):
-        return True
+    """Check if a string represents zero with decimal precision."""
     try:
-        return float(s) == 0.0
-    except (ValueError, TypeError):
+        return Decimal(s) == 0
+    except InvalidOperation:
         return False
 
 

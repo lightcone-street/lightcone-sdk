@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ..error import DeserializeError
+
 
 @dataclass
 class AdminResponse:
@@ -13,10 +15,13 @@ class AdminResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "AdminResponse":
-        return cls(
-            status=data["status"],
-            message=data["message"],
-        )
+        try:
+            return cls(
+                status=data["status"],
+                message=data["message"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in AdminResponse: {e}")
 
 
 @dataclass
@@ -72,12 +77,15 @@ class CreateOrderbookResponse:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CreateOrderbookResponse":
-        return cls(
-            status=data["status"],
-            orderbook_id=data["orderbook_id"],
-            market_pubkey=data["market_pubkey"],
-            base_token=data["base_token"],
-            quote_token=data["quote_token"],
-            tick_size=data["tick_size"],
-            message=data["message"],
-        )
+        try:
+            return cls(
+                status=data["status"],
+                orderbook_id=data["orderbook_id"],
+                market_pubkey=data["market_pubkey"],
+                base_token=data["base_token"],
+                quote_token=data["quote_token"],
+                tick_size=data["tick_size"],
+                message=data["message"],
+            )
+        except KeyError as e:
+            raise DeserializeError(f"Missing required field in CreateOrderbookResponse: {e}")

@@ -53,7 +53,7 @@ export type {
 export { createPriceHistoryParams } from "./price_history";
 
 // Trade types
-export type { Trade, TradesParams, TradesResponse } from "./trade";
+export type { TradeSide, Trade, TradesParams, TradesResponse } from "./trade";
 export { createTradesParams } from "./trade";
 
 // Admin types

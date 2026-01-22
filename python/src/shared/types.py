@@ -15,30 +15,26 @@ class Resolution(IntEnum):
 
     def as_str(self) -> str:
         """Get the string representation for API calls."""
-        mapping = {
-            Resolution.ONE_MINUTE: "1m",
-            Resolution.FIVE_MINUTES: "5m",
-            Resolution.FIFTEEN_MINUTES: "15m",
-            Resolution.ONE_HOUR: "1h",
-            Resolution.FOUR_HOURS: "4h",
-            Resolution.ONE_DAY: "1d",
-        }
-        return mapping[self]
+        return _RESOLUTION_TO_STR[self.value]
 
     @classmethod
     def from_str(cls, s: str) -> "Resolution":
         """Parse a resolution string."""
-        mapping = {
-            "1m": cls.ONE_MINUTE,
-            "5m": cls.FIVE_MINUTES,
-            "15m": cls.FIFTEEN_MINUTES,
-            "1h": cls.ONE_HOUR,
-            "4h": cls.FOUR_HOURS,
-            "1d": cls.ONE_DAY,
-        }
-        if s not in mapping:
+        if s not in _STR_TO_RESOLUTION:
             raise ValueError(f"Invalid resolution: {s}")
-        return mapping[s]
+        return cls(_STR_TO_RESOLUTION[s])
 
     def __str__(self) -> str:
         return self.as_str()
+
+
+# Mappings defined outside enum to avoid IntEnum treating them as members
+_RESOLUTION_TO_STR: dict[int, str] = {
+    0: "1m",
+    1: "5m",
+    2: "15m",
+    3: "1h",
+    4: "4h",
+    5: "1d",
+}
+_STR_TO_RESOLUTION: dict[str, int] = {v: k for k, v in _RESOLUTION_TO_STR.items()}

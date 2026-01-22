@@ -39,6 +39,9 @@ type WsSource = SplitStream<WsStream>;
 /// Default WebSocket URL for Lightcone
 pub const DEFAULT_WS_URL: &str = "wss://ws.lightcone.xyz/ws";
 
+/// Connection timeout duration for WebSocket connections
+const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);
+
 /// WebSocket client configuration
 #[derive(Debug, Clone)]
 pub struct WebSocketConfig {
@@ -50,12 +53,18 @@ pub struct WebSocketConfig {
     pub max_delay_ms: u64,
     /// Interval for client ping (seconds)
     pub ping_interval_secs: u64,
+    /// Timeout for pong response (seconds). Connection is considered dead if no pong received within this time.
+    pub pong_timeout_secs: u64,
     /// Whether to automatically reconnect on disconnect
     pub auto_reconnect: bool,
     /// Whether to automatically re-subscribe after reconnect
     pub auto_resubscribe: bool,
     /// Optional authentication token for private user streams
     pub auth_token: Option<String>,
+    /// Capacity of the event channel. Default: 1000
+    pub event_channel_capacity: usize,
+    /// Capacity of the command channel. Default: 100
+    pub command_channel_capacity: usize,
 }
 
 impl Default for WebSocketConfig {
@@ -65,9 +74,12 @@ impl Default for WebSocketConfig {
             base_delay_ms: 1000,
             max_delay_ms: 30000,
             ping_interval_secs: 30,
+            pong_timeout_secs: 60,
             auto_reconnect: true,
             auto_resubscribe: true,
             auth_token: None,
+            event_channel_capacity: 1000,
+            command_channel_capacity: 100,
         }
     }
 }
@@ -132,8 +144,7 @@ pin_project! {
         event_rx: mpsc::Receiver<WsEvent>,
         event_tx: mpsc::Sender<WsEvent>,
         reconnect_attempt: u32,
-        last_ping: Option<Instant>,
-        last_pong: Option<Instant>,
+        connection_task_handle: Option<tokio::task::JoinHandle<()>>,
         auth_credentials: Option<AuthCredentials>,
     }
 }
@@ -208,8 +219,14 @@ impl LightconeWebSocketClient {
     /// * `url` - The WebSocket URL to connect to
     /// * `auth_token` - The auth token obtained from authentication
     pub async fn connect_with_auth(url: &str, auth_token: String) -> WsResult<Self> {
+        let trimmed = auth_token.trim();
+        if trimmed.is_empty() {
+            return Err(WebSocketError::InvalidAuthToken(
+                "Auth token cannot be empty".to_string()
+            ));
+        }
         let config = WebSocketConfig {
-            auth_token: Some(auth_token),
+            auth_token: Some(trimmed.to_string()),
             ..Default::default()
         };
         Self::connect_with_config(url, config).await
@@ -226,7 +243,7 @@ impl LightconeWebSocketClient {
         config: WebSocketConfig,
         auth_credentials: Option<AuthCredentials>,
     ) -> WsResult<Self> {
-        let (event_tx, event_rx) = mpsc::channel(1000);
+        let (event_tx, event_rx) = mpsc::channel(config.event_channel_capacity);
 
         let orderbooks = Arc::new(RwLock::new(HashMap::new()));
         let user_states = Arc::new(RwLock::new(HashMap::new()));
@@ -255,8 +272,7 @@ impl LightconeWebSocketClient {
             event_rx,
             event_tx,
             reconnect_attempt: 0,
-            last_ping: None,
-            last_pong: None,
+            connection_task_handle: None,
             auth_credentials,
         };
 
@@ -283,13 +299,15 @@ impl LightconeWebSocketClient {
                     .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
             );
 
-            let (stream, _) = connect_async(request)
+            let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(request))
                 .await
+                .map_err(|_| WebSocketError::Timeout)?
                 .map_err(WebSocketError::from)?;
             stream
         } else {
-            let (stream, _) = connect_async(&self.url)
+            let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(&self.url))
                 .await
+                .map_err(|_| WebSocketError::Timeout)?
                 .map_err(WebSocketError::from)?;
             stream
         };
@@ -298,7 +316,7 @@ impl LightconeWebSocketClient {
         self.reconnect_attempt = 0;
 
         let (sink, source) = ws_stream.split();
-        let (cmd_tx, cmd_rx) = mpsc::channel(100);
+        let (cmd_tx, cmd_rx) = mpsc::channel(self.config.command_channel_capacity);
         self.cmd_tx = Some(cmd_tx);
 
         // Spawn the connection task
@@ -310,7 +328,8 @@ impl LightconeWebSocketClient {
             url: self.url.clone(),
         };
 
-        tokio::spawn(connection_task(sink, source, cmd_rx, ctx));
+        let handle = tokio::spawn(connection_task(sink, source, cmd_rx, ctx));
+        self.connection_task_handle = Some(handle);
 
         // Send connected event
         let _ = self.event_tx.send(WsEvent::Connected).await;
@@ -430,7 +449,6 @@ impl LightconeWebSocketClient {
 
     /// Send a ping request
     pub async fn ping(&mut self) -> WsResult<()> {
-        self.last_ping = Some(Instant::now());
         if let Some(tx) = &self.cmd_tx {
             tx.send(ConnectionCommand::Ping)
                 .await
@@ -460,12 +478,27 @@ impl LightconeWebSocketClient {
     /// Disconnect from the server
     pub async fn disconnect(&mut self) -> WsResult<()> {
         self.state = ConnectionState::Disconnecting;
-        if let Some(tx) = &self.cmd_tx {
+
+        // Send disconnect command to the connection task
+        if let Some(tx) = self.cmd_tx.take() {
             let _ = tx.send(ConnectionCommand::Disconnect).await;
         }
-        self.cmd_tx = None;
+
+        // Wait for the connection task to finish
+        if let Some(handle) = self.connection_task_handle.take() {
+            let _ = handle.await;
+        }
+
         self.state = ConnectionState::Disconnected;
         Ok(())
+    }
+
+    /// Check if the connection task is still running
+    pub fn is_task_running(&self) -> bool {
+        self.connection_task_handle
+            .as_ref()
+            .map(|h| !h.is_finished())
+            .unwrap_or(false)
     }
 
     /// Get the current connection state
@@ -493,40 +526,20 @@ impl LightconeWebSocketClient {
         self.auth_credentials.as_ref().map(|c| c.user_pubkey.as_str())
     }
 
-    /// Get a reference to the local orderbook state
-    pub fn get_orderbook(&self, orderbook_id: &str) -> Option<LocalOrderbook> {
-        // Note: This blocks briefly on the RwLock
-        let orderbooks = self.orderbooks.blocking_read();
-        orderbooks.get(orderbook_id).cloned()
-    }
-
-    /// Get a reference to the local orderbook state (async version)
-    pub async fn get_orderbook_async(&self, orderbook_id: &str) -> Option<LocalOrderbook> {
+    /// Get a reference to the local orderbook state.
+    pub async fn get_orderbook(&self, orderbook_id: &str) -> Option<LocalOrderbook> {
         let orderbooks = self.orderbooks.read().await;
         orderbooks.get(orderbook_id).cloned()
     }
 
-    /// Get a reference to the local user state
-    pub fn get_user_state(&self, user: &str) -> Option<UserState> {
-        let states = self.user_states.blocking_read();
-        states.get(user).cloned()
-    }
-
-    /// Get a reference to the local user state (async version)
-    pub async fn get_user_state_async(&self, user: &str) -> Option<UserState> {
+    /// Get a reference to the local user state.
+    pub async fn get_user_state(&self, user: &str) -> Option<UserState> {
         let states = self.user_states.read().await;
         states.get(user).cloned()
     }
 
-    /// Get a reference to the price history state
-    pub fn get_price_history(&self, orderbook_id: &str, resolution: &str) -> Option<PriceHistory> {
-        let key = PriceHistoryKey::new(orderbook_id.to_string(), resolution.to_string());
-        let histories = self.price_histories.blocking_read();
-        histories.get(&key).cloned()
-    }
-
-    /// Get a reference to the price history state (async version)
-    pub async fn get_price_history_async(
+    /// Get a reference to the price history state.
+    pub async fn get_price_history(
         &self,
         orderbook_id: &str,
         resolution: &str,
@@ -580,10 +593,13 @@ async fn connection_task(
         url,
     } = ctx;
     let ping_interval_duration = Duration::from_secs(config.ping_interval_secs);
+    let pong_timeout_duration = Duration::from_secs(config.pong_timeout_secs);
     let mut ping_interval = interval(ping_interval_duration);
     ping_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     let mut reconnect_attempt = 0u32;
+    let mut last_pong = Instant::now();
+    let mut awaiting_pong = false;
 
     loop {
         tokio::select! {
@@ -593,19 +609,31 @@ async fn connection_task(
                     Some(Ok(Message::Text(text))) => {
                         let events = handler.handle_message(&text).await;
                         for event in events {
-                            if event_tx.send(event).await.is_err() {
-                                tracing::debug!("Event receiver dropped");
-                                return;
+                            // Use try_send to avoid blocking the connection task if consumer is slow
+                            match event_tx.try_send(event) {
+                                Ok(_) => {}
+                                Err(mpsc::error::TrySendError::Full(dropped_event)) => {
+                                    tracing::warn!(
+                                        "Event channel full, dropping event: {:?}",
+                                        std::mem::discriminant(&dropped_event)
+                                    );
+                                }
+                                Err(mpsc::error::TrySendError::Closed(_)) => {
+                                    tracing::debug!("Event receiver dropped");
+                                    return;
+                                }
                             }
                         }
                     }
                     Some(Ok(Message::Ping(data))) => {
-                        if sink.send(Message::Pong(data)).await.is_err() {
-                            tracing::warn!("Failed to send pong");
+                        if let Err(e) = sink.send(Message::Pong(data)).await {
+                            tracing::warn!("Failed to send pong: {}", e);
                         }
                     }
                     Some(Ok(Message::Pong(_))) => {
-                        // Received pong response
+                        // Received pong response - update tracking
+                        last_pong = Instant::now();
+                        awaiting_pong = false;
                         let _ = event_tx.send(WsEvent::Pong).await;
                     }
                     Some(Ok(Message::Close(frame))) => {
@@ -639,11 +667,13 @@ async fn connection_task(
                             tokio::time::sleep(Duration::from_millis(delay)).await;
 
                             // Try to reconnect
-                            match reconnect(&url, &event_tx, &handler, &subscriptions, &config).await {
+                            match reconnect(&url, &handler, &subscriptions, &config).await {
                                 Ok((new_sink, new_source)) => {
                                     sink = new_sink;
                                     source = new_source;
                                     reconnect_attempt = 0;
+                                    last_pong = Instant::now();
+                                    awaiting_pong = false;
                                     let _ = event_tx.send(WsEvent::Connected).await;
                                 }
                                 Err(e) => {
@@ -681,15 +711,15 @@ async fn connection_task(
             cmd = cmd_rx.recv() => {
                 match cmd {
                     Some(ConnectionCommand::Send(text)) => {
-                        if sink.send(Message::Text(text.into())).await.is_err() {
-                            tracing::warn!("Failed to send message");
+                        if let Err(e) = sink.send(Message::Text(text.into())).await {
+                            tracing::warn!("Failed to send message: {}", e);
                         }
                     }
                     Some(ConnectionCommand::Ping) => {
                         let request = WsRequest::ping();
                         if let Ok(json) = serde_json::to_string(&request) {
-                            if sink.send(Message::Text(json.into())).await.is_err() {
-                                tracing::warn!("Failed to send ping");
+                            if let Err(e) = sink.send(Message::Text(json.into())).await {
+                                tracing::warn!("Failed to send ping: {}", e);
                             }
                         }
                     }
@@ -707,12 +737,57 @@ async fn connection_task(
                 }
             }
 
-            // Periodic ping
+            // Periodic ping with timeout check
             _ = ping_interval.tick() => {
-                let request = WsRequest::ping();
-                if let Ok(json) = serde_json::to_string(&request) {
-                    if sink.send(Message::Text(json.into())).await.is_err() {
-                        tracing::warn!("Failed to send periodic ping");
+                // Check if we're still waiting for a pong from the previous ping
+                if awaiting_pong && last_pong.elapsed() > pong_timeout_duration {
+                    tracing::warn!("Pong timeout: no response received within {:?}", pong_timeout_duration);
+                    let _ = event_tx.send(WsEvent::Error {
+                        error: WebSocketError::PingTimeout,
+                    }).await;
+
+                    // Treat this as a disconnect and try to reconnect
+                    let _ = event_tx.send(WsEvent::Disconnected {
+                        reason: "Ping timeout".to_string(),
+                    }).await;
+
+                    if config.auto_reconnect && reconnect_attempt < config.reconnect_attempts {
+                        reconnect_attempt += 1;
+                        let _ = event_tx.send(WsEvent::Reconnecting {
+                            attempt: reconnect_attempt,
+                        }).await;
+
+                        let max_delay = config.base_delay_ms * 2u64.pow(reconnect_attempt.saturating_sub(1));
+                        let jittered_delay = rand::thread_rng().gen_range(0..=max_delay);
+                        let delay = jittered_delay.min(config.max_delay_ms);
+                        tokio::time::sleep(Duration::from_millis(delay)).await;
+
+                        match reconnect(&url, &handler, &subscriptions, &config).await {
+                            Ok((new_sink, new_source)) => {
+                                sink = new_sink;
+                                source = new_source;
+                                reconnect_attempt = 0;
+                                last_pong = Instant::now();
+                                awaiting_pong = false;
+                                let _ = event_tx.send(WsEvent::Connected).await;
+                            }
+                            Err(e) => {
+                                tracing::error!("Reconnect failed: {:?}", e);
+                                let _ = event_tx.send(WsEvent::Error { error: e }).await;
+                            }
+                        }
+                    } else {
+                        return;
+                    }
+                } else {
+                    // Send ping
+                    let request = WsRequest::ping();
+                    if let Ok(json) = serde_json::to_string(&request) {
+                        if let Err(e) = sink.send(Message::Text(json.into())).await {
+                            tracing::warn!("Failed to send periodic ping: {}", e);
+                        } else {
+                            awaiting_pong = true;
+                        }
                     }
                 }
             }
@@ -723,7 +798,6 @@ async fn connection_task(
 /// Reconnect to the WebSocket server
 async fn reconnect(
     url: &str,
-    _event_tx: &mpsc::Sender<WsEvent>,
     handler: &Arc<MessageHandler>,
     subscriptions: &Arc<RwLock<SubscriptionManager>>,
     config: &WebSocketConfig,
@@ -741,13 +815,15 @@ async fn reconnect(
                 .map_err(|e| WebSocketError::Protocol(format!("Invalid cookie header: {}", e)))?,
         );
 
-        let (stream, _) = connect_async(request)
+        let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(request))
             .await
+            .map_err(|_| WebSocketError::Timeout)?
             .map_err(WebSocketError::from)?;
         stream
     } else {
-        let (stream, _) = connect_async(url)
+        let (stream, _) = tokio::time::timeout(CONNECTION_TIMEOUT, connect_async(url))
             .await
+            .map_err(|_| WebSocketError::Timeout)?
             .map_err(WebSocketError::from)?;
         stream
     };
@@ -763,8 +839,8 @@ async fn reconnect(
         for sub in subs {
             let request = WsRequest::subscribe(sub.to_params());
             if let Ok(json) = serde_json::to_string(&request) {
-                if sink.send(Message::Text(json.into())).await.is_err() {
-                    tracing::warn!("Failed to re-subscribe after reconnect");
+                if let Err(e) = sink.send(Message::Text(json.into())).await {
+                    tracing::warn!("Failed to re-subscribe after reconnect: {}", e);
                 }
             }
         }
@@ -784,8 +860,11 @@ mod tests {
         assert_eq!(config.base_delay_ms, 1000);
         assert_eq!(config.max_delay_ms, 30000);
         assert_eq!(config.ping_interval_secs, 30);
+        assert_eq!(config.pong_timeout_secs, 60);
         assert!(config.auto_reconnect);
         assert!(config.auto_resubscribe);
+        assert_eq!(config.event_channel_capacity, 1000);
+        assert_eq!(config.command_channel_capacity, 100);
     }
 
     #[test]
