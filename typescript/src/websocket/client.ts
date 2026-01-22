@@ -63,7 +63,7 @@ export type ConnectionState =
 /**
  * Event callback type.
  */
-export type EventCallback = (event: WsEvent) => void;
+export type EventCallback = (event: WsEvent) => void | Promise<void>;
 
 /**
  * Main WebSocket client for Lightcone.
@@ -99,6 +99,7 @@ export class LightconeWebSocketClient {
   private subscribedUser: string | null = null;
   private lastPong: number = Date.now();
   private awaitingPong: boolean = false;
+  private isReconnecting: boolean = false;
 
   constructor(url: string = DEFAULT_WS_URL, config: WebSocketConfig = {}) {
     this.url = url;
@@ -267,10 +268,11 @@ export class LightconeWebSocketClient {
         if (
           this.config.autoReconnect &&
           this.reconnectAttempt < this.config.reconnectAttempts &&
-          this.state !== "Disconnecting"
+          this.state !== "Disconnecting" &&
+          !this.isReconnecting
         ) {
           this.attemptReconnect();
-        } else {
+        } else if (!this.isReconnecting) {
           this.state = "Disconnected";
         }
       };
@@ -281,20 +283,23 @@ export class LightconeWebSocketClient {
    * Attempt to reconnect.
    */
   private async attemptReconnect(): Promise<void> {
-    this.reconnectAttempt++;
-    this.state = "Reconnecting";
-    this.emitEvent({ type: "Reconnecting", attempt: this.reconnectAttempt });
-
-    // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
-    const maxDelay =
-      this.config.baseDelayMs *
-      Math.pow(2, this.reconnectAttempt - 1);
-    const jitteredDelay = Math.random() * maxDelay;
-    const cappedDelay = Math.min(jitteredDelay, this.config.maxDelayMs);
-
-    await this.sleep(cappedDelay);
+    if (this.isReconnecting) return;
+    this.isReconnecting = true;
 
     try {
+      this.reconnectAttempt++;
+      this.state = "Reconnecting";
+      this.emitEvent({ type: "Reconnecting", attempt: this.reconnectAttempt });
+
+      // Full jitter: randomize between 0 and exponential delay to prevent thundering herd
+      const maxDelay =
+        this.config.baseDelayMs *
+        Math.pow(2, this.reconnectAttempt - 1);
+      const jitteredDelay = Math.random() * maxDelay;
+      const cappedDelay = Math.min(jitteredDelay, this.config.maxDelayMs);
+
+      await this.sleep(cappedDelay);
+
       await this.establishConnection();
 
       // Re-subscribe if enabled
@@ -314,6 +319,8 @@ export class LightconeWebSocketClient {
           ? e
           : WebSocketError.connectionFailed(String(e)),
       });
+    } finally {
+      this.isReconnecting = false;
     }
   }
 
@@ -382,7 +389,12 @@ export class LightconeWebSocketClient {
   private emitEvent(event: WsEvent): void {
     for (const callback of this.eventCallbacks) {
       try {
-        callback(event);
+        const result = callback(event);
+        if (result instanceof Promise) {
+          result.catch((e) => {
+            console.error("Event callback promise rejected:", e);
+          });
+        }
       } catch (e) {
         console.error("Event callback error:", e);
       }
@@ -537,6 +549,7 @@ export class LightconeWebSocketClient {
 
     this.state = "Disconnecting";
     this.stopPingInterval();
+    this.subscribedUser = null;
 
     return new Promise((resolve) => {
       const onClose = () => {

@@ -176,8 +176,8 @@ describe("LightconeApiClient", () => {
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,
         side: 0,
-        maker_amount: 1000,
-        taker_amount: 500,
+        maker_amount: "1000",
+        taker_amount: "500",
         signature: TEST_SIGNATURE,
         orderbook_id: "ob1",
       };
@@ -213,8 +213,8 @@ describe("LightconeApiClient", () => {
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,
         side: 0,
-        maker_amount: 1000,
-        taker_amount: 500,
+        maker_amount: "1000",
+        taker_amount: "500",
         signature: TEST_SIGNATURE,
         orderbook_id: "ob1",
       };
@@ -231,8 +231,8 @@ describe("LightconeApiClient", () => {
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,
         side: 0,
-        maker_amount: 1000,
-        taker_amount: 500,
+        maker_amount: "1000",
+        taker_amount: "500",
         signature: "tooshort",
         orderbook_id: "ob1",
       };

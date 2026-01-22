@@ -74,20 +74,28 @@ export class UserState {
       } else {
         // New order - construct it from the update
         if (data.market_pubkey && data.orderbook_id) {
+          console.warn(
+            `Creating order from update (order ${orderHash} not in local state). ` +
+            `Some fields may have default values.`
+          );
           const order: Order = {
             order_hash: orderHash,
             market_pubkey: data.market_pubkey,
             orderbook_id: data.orderbook_id,
             side: update.side,
-            maker_amount: update.remaining, // Approximate
-            taker_amount: "0", // Unknown
+            maker_amount: update.remaining, // Best approximation from available data
+            taker_amount: update.remaining, // Use remaining as approximation
             remaining: update.remaining,
             filled: update.filled,
             price: update.price,
             created_at: update.created_at,
-            expiration: 0,
+            expiration: 0, // Unknown from order updates
           };
           this.orders.set(orderHash, order);
+        } else {
+          console.warn(
+            `Cannot create order ${orderHash}: missing market_pubkey or orderbook_id`
+          );
         }
       }
     }
@@ -130,11 +138,10 @@ export class UserState {
       };
       this.balances.set(key, entry);
     } else if (data.market_pubkey) {
-      // If no deposit_mint, update existing entry with matching market
+      // If no deposit_mint, update all existing entries with matching market
       for (const [key, entry] of this.balances.entries()) {
         if (key.startsWith(data.market_pubkey)) {
           entry.outcomes = balance.outcomes;
-          break;
         }
       }
     }

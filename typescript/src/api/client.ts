@@ -197,8 +197,10 @@ export class LightconeApiClient {
           try {
             const errorData = (await response.json()) as ErrorResponse;
             errorMessage = getErrorMessage(errorData);
-          } catch {
-            // Ignore JSON parse errors
+          } catch (parseError) {
+            console.warn(
+              `Failed to parse error response: ${parseError instanceof Error ? parseError.message : String(parseError)}`
+            );
           }
           const error = ApiError.fromStatus(response.status, errorMessage);
 

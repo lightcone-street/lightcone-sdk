@@ -36,6 +36,9 @@ export class PriceHistoryKey {
  * Price history state for a single orderbook/resolution pair.
  */
 export class PriceHistory {
+  /** Maximum number of candles to maintain */
+  private static readonly MAX_CANDLES = 1000;
+
   /** Orderbook identifier */
   readonly orderbookId: string;
   /** Resolution (1m, 5m, 15m, 1h, 4h, 1d) */
@@ -117,8 +120,8 @@ export class PriceHistory {
       this.candleIndex.set(candle.t, pos);
       this._candles.splice(pos, 0, candle);
 
-      // Trim to max 1000 candles
-      while (this._candles.length > 1000) {
+      // Trim to max candles limit
+      while (this._candles.length > PriceHistory.MAX_CANDLES) {
         const removed = this._candles.pop();
         if (removed) {
           this.candleIndex.delete(removed.t);

@@ -18,6 +18,95 @@ import type {
 } from "./types";
 import { parseMessageType } from "./types";
 
+// ============================================================================
+// RUNTIME TYPE VALIDATORS
+// ============================================================================
+
+/**
+ * Validate that data is a valid BookUpdateData object.
+ * Note: Resync messages may have fewer fields, so we check for resync first.
+ */
+function isValidBookUpdateData(data: unknown): data is BookUpdateData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  // Resync messages have minimal fields
+  if (d.resync === true) {
+    return typeof d.orderbook_id === 'string';
+  }
+  // Normal messages need all fields
+  return (
+    typeof d.orderbook_id === 'string' &&
+    typeof d.seq === 'number' &&
+    Array.isArray(d.bids) &&
+    Array.isArray(d.asks)
+  );
+}
+
+/**
+ * Validate that data is a valid TradeData object.
+ */
+function isValidTradeData(data: unknown): data is TradeData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.orderbook_id === 'string' &&
+    typeof d.price === 'string' &&
+    typeof d.size === 'string' &&
+    typeof d.side === 'string' &&
+    typeof d.timestamp === 'string'
+  );
+}
+
+/**
+ * Validate that data is a valid UserEventData object.
+ */
+function isValidUserEventData(data: unknown): data is UserEventData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.event_type === 'string' &&
+    Array.isArray(d.orders) &&
+    typeof d.balances === 'object'
+  );
+}
+
+/**
+ * Validate that data is a valid PriceHistoryData object.
+ */
+function isValidPriceHistoryData(data: unknown): data is PriceHistoryData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.event_type === 'string' &&
+    Array.isArray(d.prices)
+  );
+}
+
+/**
+ * Validate that data is a valid MarketEventData object.
+ */
+function isValidMarketEventData(data: unknown): data is MarketEventData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.event_type === 'string' &&
+    typeof d.market_pubkey === 'string' &&
+    typeof d.timestamp === 'string'
+  );
+}
+
+/**
+ * Validate that data is a valid ErrorData object.
+ */
+function isValidErrorData(data: unknown): data is ErrorData {
+  if (typeof data !== 'object' || data === null) return false;
+  const d = data as Record<string, unknown>;
+  return (
+    typeof d.error === 'string' &&
+    typeof d.code === 'string'
+  );
+}
+
 /**
  * Handles incoming WebSocket messages.
  */
@@ -76,7 +165,10 @@ export class MessageHandler {
    * Handle book update message.
    */
   private handleBookUpdate(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as BookUpdateData;
+    const data = rawMsg.data as unknown;
+    if (!isValidBookUpdateData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid BookUpdateData") }];
+    }
 
     // Check for resync signal
     if (data.resync) {
@@ -115,7 +207,10 @@ export class MessageHandler {
    * Handle trade message.
    */
   private handleTrade(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as TradeData;
+    const data = rawMsg.data as unknown;
+    if (!isValidTradeData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid TradeData") }];
+    }
     return [{ type: "Trade", orderbookId: data.orderbook_id, trade: data }];
   }
 
@@ -123,7 +218,10 @@ export class MessageHandler {
    * Handle user event message.
    */
   private handleUserEvent(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as UserEventData;
+    const data = rawMsg.data as unknown;
+    if (!isValidUserEventData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid UserEventData") }];
+    }
     const eventType = data.event_type;
 
     // Use the tracked subscribed user (single user per connection)
@@ -149,7 +247,10 @@ export class MessageHandler {
    * Handle price history message.
    */
   private handlePriceHistory(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as PriceHistoryData;
+    const data = rawMsg.data as unknown;
+    if (!isValidPriceHistoryData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid PriceHistoryData") }];
+    }
 
     // Heartbeats don't have orderbook_id
     if (data.event_type === "heartbeat") {
@@ -190,7 +291,10 @@ export class MessageHandler {
    * Handle market event message.
    */
   private handleMarketEvent(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as MarketEventData;
+    const data = rawMsg.data as unknown;
+    if (!isValidMarketEventData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid MarketEventData") }];
+    }
     return [
       {
         type: "MarketEvent",
@@ -204,7 +308,10 @@ export class MessageHandler {
    * Handle error message from server.
    */
   private handleError(rawMsg: RawWsMessage): WsEvent[] {
-    const data = rawMsg.data as ErrorData;
+    const data = rawMsg.data as unknown;
+    if (!isValidErrorData(data)) {
+      return [{ type: "Error", error: WebSocketError.messageParseError("Invalid ErrorData") }];
+    }
     console.error(`Server error: ${data.error} (code: ${data.code})`);
     return [
       {

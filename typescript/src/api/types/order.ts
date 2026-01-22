@@ -44,10 +44,10 @@ export interface SubmitOrderRequest {
   quote_token: string;
   /** Order side (0=BID, 1=ASK) */
   side: number;
-  /** Amount maker gives */
-  maker_amount: number;
-  /** Amount maker wants to receive */
-  taker_amount: number;
+  /** Amount maker gives (as decimal string for precision) */
+  maker_amount: string;
+  /** Amount maker wants to receive (as decimal string for precision) */
+  taker_amount: string;
   /** Unix timestamp, 0=no expiration */
   expiration?: number;
   /** Ed25519 signature (hex, 128 chars) */
