@@ -48,6 +48,7 @@ from .price_history import (
 )
 
 from .trade import (
+    ApiTradeSide,
     Trade,
     TradesParams,
     TradesResponse,
@@ -98,6 +99,7 @@ __all__ = [
     "PriceHistoryParams",
     "PriceHistoryResponse",
     # Trade types
+    "ApiTradeSide",
     "Trade",
     "TradesParams",
     "TradesResponse",

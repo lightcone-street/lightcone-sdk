@@ -1,9 +1,17 @@
 """Trade-related types for the Lightcone REST API."""
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import Optional
 
 from ..error import DeserializeError
+
+
+class ApiTradeSide(str, Enum):
+    """Trade side enum (serializes as UPPERCASE string)."""
+
+    BID = "BID"
+    ASK = "ASK"
 
 
 @dataclass
@@ -14,7 +22,7 @@ class Trade:
     orderbook_id: str
     taker_pubkey: str
     maker_pubkey: str
-    side: str
+    side: ApiTradeSide
     size: str
     price: str
     taker_fee: str
@@ -24,20 +32,24 @@ class Trade:
     @classmethod
     def from_dict(cls, data: dict) -> "Trade":
         try:
+            # Parse side as enum
+            side_str = data["side"].upper()
+            side = ApiTradeSide(side_str)
+
             return cls(
                 id=data["id"],
                 orderbook_id=data["orderbook_id"],
                 taker_pubkey=data["taker_pubkey"],
                 maker_pubkey=data["maker_pubkey"],
-                side=data["side"],
+                side=side,
                 size=data["size"],
                 price=data["price"],
                 taker_fee=data["taker_fee"],
                 maker_fee=data["maker_fee"],
                 executed_at=data["executed_at"],
             )
-        except KeyError as e:
-            raise DeserializeError(f"Missing required field in Trade: {e}")
+        except (KeyError, ValueError) as e:
+            raise DeserializeError(f"Invalid field in Trade: {e}")
 
 
 @dataclass

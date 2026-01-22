@@ -46,8 +46,13 @@ def generate_signin_message() -> str:
 
     Returns:
         The message to be signed.
+
+    Raises:
+        WebSocketError: If system time is before UNIX epoch.
     """
     timestamp_ms = int(time.time() * 1000)
+    if timestamp_ms < 0:
+        raise WebSocketError("System time before UNIX epoch")
     return f"Sign in to Lightcone\n\nTimestamp: {timestamp_ms}"
 
 

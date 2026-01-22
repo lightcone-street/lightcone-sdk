@@ -30,6 +30,9 @@ from .types import WsEvent, WsRequest
 
 logger = logging.getLogger(__name__)
 
+# Connection timeout in seconds
+CONNECTION_TIMEOUT_SECS = 30
+
 
 @dataclass
 class WebSocketConfig:
@@ -206,13 +209,19 @@ class LightconeWebSocketClient:
             if self._auth_token:
                 extra_headers["Cookie"] = f"auth_token={quote(self._auth_token, safe='')}"
 
-            self._ws = await ws_connect(
-                self._url,
-                ping_interval=self._config.ping_interval_secs,
-                ping_timeout=self._config.ping_timeout_secs,
-                close_timeout=self._config.close_timeout_secs,
-                additional_headers=extra_headers if extra_headers else None,
-            )
+            try:
+                self._ws = await asyncio.wait_for(
+                    ws_connect(
+                        self._url,
+                        ping_interval=self._config.ping_interval_secs,
+                        ping_timeout=self._config.ping_timeout_secs,
+                        close_timeout=self._config.close_timeout_secs,
+                        additional_headers=extra_headers if extra_headers else None,
+                    ),
+                    timeout=CONNECTION_TIMEOUT_SECS,
+                )
+            except asyncio.TimeoutError:
+                raise ConnectionFailedError("Connection timed out")
             async with self._state_lock:
                 self._connected = True
                 self._running = True
@@ -362,13 +371,20 @@ class LightconeWebSocketClient:
             if self._auth_token:
                 extra_headers["Cookie"] = f"auth_token={quote(self._auth_token, safe='')}"
 
-            self._ws = await ws_connect(
-                self._url,
-                ping_interval=self._config.ping_interval_secs,
-                ping_timeout=self._config.ping_timeout_secs,
-                close_timeout=self._config.close_timeout_secs,
-                additional_headers=extra_headers if extra_headers else None,
-            )
+            try:
+                self._ws = await asyncio.wait_for(
+                    ws_connect(
+                        self._url,
+                        ping_interval=self._config.ping_interval_secs,
+                        ping_timeout=self._config.ping_timeout_secs,
+                        close_timeout=self._config.close_timeout_secs,
+                        additional_headers=extra_headers if extra_headers else None,
+                    ),
+                    timeout=CONNECTION_TIMEOUT_SECS,
+                )
+            except asyncio.TimeoutError:
+                logger.warning("Reconnect timed out")
+                return
             async with self._state_lock:
                 self._connected = True
                 self._last_pong = time.time()
@@ -650,6 +666,14 @@ class LightconeWebSocketClient:
     def is_connected(self) -> bool:
         """Check if connected to the server."""
         return self._connected
+
+    def is_task_running(self) -> bool:
+        """Check if the receive task is still running.
+
+        Returns:
+            True if the task exists and is not done, False otherwise.
+        """
+        return self._receive_task is not None and not self._receive_task.done()
 
     # =========================================================================
     # Async iteration
