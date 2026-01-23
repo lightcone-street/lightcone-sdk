@@ -10,6 +10,7 @@ use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
+use crate::shared::SubmitOrderRequest;
 
 // ============================================================================
 // Full Order (225 bytes)
@@ -228,6 +229,77 @@ impl FullOrder {
             taker_amount: self.taker_amount,
             expiration: self.expiration,
         }
+    }
+
+    // =========================================================================
+    // API Bridge Methods
+    // =========================================================================
+
+    /// Convert a signed order to an API SubmitOrderRequest.
+    ///
+    /// This bridges on-chain order creation with REST API submission.
+    ///
+    /// # Arguments
+    ///
+    /// * `orderbook_id` - Target orderbook (get from market API or use `derive_orderbook_id()`)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the order has not been signed (signature is all zeros).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut order = FullOrder::new_bid(params);
+    /// order.sign(&keypair);
+    ///
+    /// let request = order.to_submit_request(order.derive_orderbook_id());
+    /// let response = api_client.submit_order(request).await?;
+    /// ```
+    pub fn to_submit_request(&self, orderbook_id: impl Into<String>) -> SubmitOrderRequest {
+        assert!(
+            self.signature != [0u8; 64],
+            "Order must be signed before converting to submit request"
+        );
+
+        SubmitOrderRequest {
+            maker: self.maker.to_string(),
+            nonce: self.nonce,
+            market_pubkey: self.market.to_string(),
+            base_token: self.base_mint.to_string(),
+            quote_token: self.quote_mint.to_string(),
+            side: self.side as u32,
+            maker_amount: self.maker_amount,
+            taker_amount: self.taker_amount,
+            expiration: self.expiration,
+            signature: hex::encode(self.signature),
+            orderbook_id: orderbook_id.into(),
+        }
+    }
+
+    /// Derive the orderbook ID for this order.
+    ///
+    /// Format: `{base_token[0:8]}_{quote_token[0:8]}`
+    pub fn derive_orderbook_id(&self) -> String {
+        crate::shared::derive_orderbook_id(
+            &self.base_mint.to_string(),
+            &self.quote_mint.to_string(),
+        )
+    }
+
+    /// Get the signature as a hex string (128 chars).
+    pub fn signature_hex(&self) -> String {
+        hex::encode(self.signature)
+    }
+
+    /// Get the order hash as a hex string (64 chars).
+    pub fn hash_hex(&self) -> String {
+        hex::encode(self.hash())
+    }
+
+    /// Check if the order has been signed.
+    pub fn is_signed(&self) -> bool {
+        self.signature != [0u8; 64]
     }
 }
 
@@ -561,5 +633,148 @@ mod tests {
         // If filling 50 maker_amount, taker should get 50 * 200 / 100 = 100
         let taker_fill = calculate_taker_fill(&maker_order, 50).unwrap();
         assert_eq!(taker_fill, 100);
+    }
+
+    #[test]
+    fn test_to_submit_request() {
+        use solana_sdk::signature::Keypair;
+        use solana_sdk::signer::Signer;
+
+        let keypair = Keypair::new();
+        let maker = keypair.pubkey();
+        let market = Pubkey::new_unique();
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let mut order = FullOrder {
+            nonce: 42,
+            maker,
+            market,
+            base_mint,
+            quote_mint,
+            side: OrderSide::Bid,
+            maker_amount: 1_000_000,
+            taker_amount: 500_000,
+            expiration: 1234567890,
+            signature: [0u8; 64],
+        };
+
+        order.sign(&keypair);
+
+        let request = order.to_submit_request("test_orderbook");
+
+        assert_eq!(request.maker, maker.to_string());
+        assert_eq!(request.nonce, 42);
+        assert_eq!(request.market_pubkey, market.to_string());
+        assert_eq!(request.base_token, base_mint.to_string());
+        assert_eq!(request.quote_token, quote_mint.to_string());
+        assert_eq!(request.side, 0); // Bid
+        assert_eq!(request.maker_amount, 1_000_000);
+        assert_eq!(request.taker_amount, 500_000);
+        assert_eq!(request.expiration, 1234567890);
+        assert_eq!(request.orderbook_id, "test_orderbook");
+        assert_eq!(request.signature.len(), 128); // 64 bytes = 128 hex chars
+    }
+
+    #[test]
+    fn test_derive_orderbook_id() {
+        let order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_from_array([1u8; 32]),
+            market: Pubkey::new_from_array([2u8; 32]),
+            base_mint: Pubkey::new_from_array([3u8; 32]),
+            quote_mint: Pubkey::new_from_array([4u8; 32]),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        let orderbook_id = order.derive_orderbook_id();
+        // The orderbook ID should be first 8 chars of each pubkey string
+        let base_str = order.base_mint.to_string();
+        let quote_str = order.quote_mint.to_string();
+        let expected = format!("{}_{}", &base_str[..8], &quote_str[..8]);
+        assert_eq!(orderbook_id, expected);
+    }
+
+    #[test]
+    fn test_is_signed() {
+        use solana_sdk::signature::Keypair;
+        use solana_sdk::signer::Signer;
+
+        let keypair = Keypair::new();
+        let mut order = FullOrder {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        assert!(!order.is_signed());
+
+        order.sign(&keypair);
+
+        assert!(order.is_signed());
+    }
+
+    #[test]
+    fn test_signature_and_hash_hex() {
+        use solana_sdk::signature::Keypair;
+        use solana_sdk::signer::Signer;
+
+        let keypair = Keypair::new();
+        let mut order = FullOrder {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        order.sign(&keypair);
+
+        let sig_hex = order.signature_hex();
+        let hash_hex = order.hash_hex();
+
+        // Signature should be 128 hex chars (64 bytes)
+        assert_eq!(sig_hex.len(), 128);
+        // Hash should be 64 hex chars (32 bytes)
+        assert_eq!(hash_hex.len(), 64);
+
+        // Verify they are valid hex
+        assert!(hex::decode(&sig_hex).is_ok());
+        assert!(hex::decode(&hash_hex).is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "Order must be signed before converting to submit request")]
+    fn test_to_submit_request_panics_unsigned() {
+        let order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        order.to_submit_request("test_orderbook");
     }
 }

@@ -4,6 +4,7 @@
 //! the Lightcone smart contract on Solana.
 
 pub mod accounts;
+pub mod builder;
 pub mod client;
 pub mod constants;
 pub mod ed25519;
@@ -16,6 +17,7 @@ pub mod utils;
 
 // Re-export commonly used items
 pub use accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
+pub use builder::OrderBuilder;
 pub use client::LightconePinocchioClient;
 pub use constants::*;
 pub use ed25519::{

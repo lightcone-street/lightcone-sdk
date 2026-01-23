@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 
+// Re-export SubmitOrderRequest from shared module for backwards compatibility
+pub use crate::shared::SubmitOrderRequest;
+
 /// Order side enum (serializes as integer: 0=Bid, 1=Ask).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(try_from = "u32", into = "u32")]
@@ -70,34 +73,6 @@ pub struct Fill {
     pub price: String,
     /// Whether this order was the maker
     pub is_maker: bool,
-}
-
-/// Request for POST /api/orders/submit.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubmitOrderRequest {
-    /// Order creator's pubkey (Base58)
-    pub maker: String,
-    /// User's nonce for uniqueness
-    pub nonce: u64,
-    /// Market address (Base58)
-    pub market_pubkey: String,
-    /// Token being bought/sold (Base58)
-    pub base_token: String,
-    /// Token used for payment (Base58)
-    pub quote_token: String,
-    /// Order side (0=BID, 1=ASK)
-    pub side: u32,
-    /// Amount maker gives
-    pub maker_amount: u64,
-    /// Amount maker wants to receive
-    pub taker_amount: u64,
-    /// Unix timestamp, 0=no expiration
-    #[serde(default)]
-    pub expiration: i64,
-    /// Ed25519 signature (hex, 128 chars)
-    pub signature: String,
-    /// Target orderbook
-    pub orderbook_id: String,
 }
 
 /// Response for POST /api/orders/submit.

@@ -30,6 +30,7 @@ use reqwest::{Client, StatusCode};
 
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
+use crate::program::orders::FullOrder;
 
 /// Default request timeout in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -462,6 +463,35 @@ impl LightconeApiClient {
 
         let url = format!("{}/api/orders/submit", self.base_url);
         self.post(&url, &request).await
+    }
+
+    /// Submit a signed FullOrder to the API.
+    ///
+    /// Convenience method that converts the order and submits it.
+    /// This bridges on-chain order creation with REST API submission.
+    ///
+    /// # Arguments
+    ///
+    /// * `order` - A signed FullOrder (must have called `order.sign(&keypair)`)
+    /// * `orderbook_id` - Target orderbook (use `order.derive_orderbook_id()` or from market API)
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let mut order = FullOrder::new_bid(params);
+    /// order.sign(&keypair);
+    ///
+    /// let response = api_client
+    ///     .submit_full_order(&order, order.derive_orderbook_id())
+    ///     .await?;
+    /// ```
+    pub async fn submit_full_order(
+        &self,
+        order: &FullOrder,
+        orderbook_id: impl Into<String>,
+    ) -> ApiResult<OrderResponse> {
+        let request = order.to_submit_request(orderbook_id);
+        self.submit_order(request).await
     }
 
     /// Cancel a specific order.

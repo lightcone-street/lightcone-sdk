@@ -106,6 +106,8 @@ pub mod prelude {
         // Order utilities
         calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
         CompactOrder, FullOrder,
+        // Order builder
+        OrderBuilder,
         // PDA functions
         get_exchange_pda, get_market_pda, get_vault_pda, get_mint_authority_pda,
         get_conditional_mint_pda, get_order_status_pda, get_user_nonce_pda, get_position_pda,
@@ -132,7 +134,7 @@ pub mod prelude {
     };
 
     // Shared utilities (used by both API and WebSocket)
-    pub use crate::shared::{format_decimal, parse_decimal, Resolution};
+    pub use crate::shared::{derive_orderbook_id, format_decimal, parse_decimal, Resolution};
 
     // WebSocket module exports
     pub use crate::websocket::{
