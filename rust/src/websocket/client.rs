@@ -609,6 +609,12 @@ async fn connection_task(
                     Some(Ok(Message::Text(text))) => {
                         let events = handler.handle_message(&text).await;
                         for event in events {
+                            // Handle JSON pong - update timeout tracking
+                            if matches!(event, WsEvent::Pong) {
+                                last_pong = Instant::now();
+                                awaiting_pong = false;
+                            }
+
                             // Use try_send to avoid blocking the connection task if consumer is slow
                             match event_tx.try_send(event) {
                                 Ok(_) => {}
