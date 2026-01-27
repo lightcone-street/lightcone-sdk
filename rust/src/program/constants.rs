@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 lazy_static::lazy_static! {
     /// Lightcone Pinocchio Program ID
-    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk").unwrap();
+    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2").unwrap();
 }
 
 /// SPL Token Program ID

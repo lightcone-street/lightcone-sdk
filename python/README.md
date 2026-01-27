@@ -229,7 +229,7 @@ print(res.as_str())  # "1h"
 
 ## Program ID
 
-**Mainnet/Devnet**: `Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk`
+**Mainnet/Devnet**: `EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2`
 
 ## License
 

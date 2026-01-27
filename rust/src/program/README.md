@@ -414,7 +414,7 @@ All instructions use a single-byte discriminator.
 ### Program IDs
 
 ```rust
-PROGRAM_ID: Pubkey                    // "Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk"
+PROGRAM_ID: Pubkey                    // "EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2"
 TOKEN_PROGRAM_ID: Pubkey              // SPL Token
 TOKEN_2022_PROGRAM_ID: Pubkey         // Token-2022 (conditional tokens)
 ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey

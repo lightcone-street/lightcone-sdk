@@ -15,7 +15,7 @@ import {
  * Lightcone Pinocchio Program ID (Devnet deployment)
  */
 export const PROGRAM_ID = new PublicKey(
-  "Aumw7EC9nnxDjQFzr1fhvXvnG3Rn3Bb5E3kbcbLrBdEk"
+  "EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2"
 );
 
 /**
