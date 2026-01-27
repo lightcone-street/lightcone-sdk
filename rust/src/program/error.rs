@@ -2,12 +2,16 @@
 
 use thiserror::Error;
 
+#[cfg(feature = "client")]
+use solana_client::client_error::ClientError;
+
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
     /// RPC client error
+    #[cfg(feature = "client")]
     #[error("RPC error: {0}")]
-    Rpc(#[from] solana_client::client_error::ClientError),
+    Rpc(#[from] ClientError),
 
     /// Invalid account discriminator
     #[error("Invalid account discriminator: expected {expected}, got {actual}")]

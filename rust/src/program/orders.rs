@@ -5,7 +5,10 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha3::{Digest, Keccak256};
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use solana_sdk::pubkey::Pubkey;
+
+#[cfg(feature = "client")]
+use solana_sdk::signature::Keypair;
 
 use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
@@ -118,6 +121,7 @@ impl FullOrder {
     }
 
     /// Sign the order with the given keypair.
+    #[cfg(feature = "client")]
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash();
         let signing_key = SigningKey::from_bytes(keypair.secret_bytes());
@@ -126,6 +130,7 @@ impl FullOrder {
     }
 
     /// Create and sign an order in one step.
+    #[cfg(feature = "client")]
     pub fn new_bid_signed(params: BidOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_bid(params);
         order.sign(keypair);
@@ -133,6 +138,7 @@ impl FullOrder {
     }
 
     /// Create and sign an ask order in one step.
+    #[cfg(feature = "client")]
     pub fn new_ask_signed(params: AskOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_ask(params);
         order.sign(keypair);
@@ -700,6 +706,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_is_signed() {
         use solana_sdk::signature::Keypair;
         use solana_sdk::signer::Signer;
@@ -726,6 +733,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_signature_and_hash_hex() {
         use solana_sdk::signature::Keypair;
         use solana_sdk::signer::Signer;

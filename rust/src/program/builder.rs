@@ -1,7 +1,10 @@
 //! Fluent builder for creating and signing orders.
 
 use rust_decimal::Decimal;
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use solana_sdk::pubkey::Pubkey;
+
+#[cfg(feature = "client")]
+use solana_sdk::signature::Keypair;
 
 use crate::program::orders::FullOrder;
 use crate::program::types::OrderSide;
@@ -151,6 +154,7 @@ impl OrderBuilder {
     /// # Panics
     ///
     /// Panics if required fields are missing.
+    #[cfg(feature = "client")]
     pub fn build_and_sign(self, keypair: &Keypair) -> FullOrder {
         let mut order = self.build();
         order.sign(keypair);
@@ -167,6 +171,7 @@ impl OrderBuilder {
     /// # Panics
     ///
     /// Panics if required fields are missing.
+    #[cfg(feature = "client")]
     pub fn to_submit_request(
         self,
         keypair: &Keypair,
@@ -205,19 +210,21 @@ impl OrderBuilder {
             .as_deref()
             .expect("size() is required for apply_scaling");
 
-        let price: Decimal = price_str.parse().map_err(|e: rust_decimal::Error| {
-            ScalingError::InvalidDecimal {
-                input: price_str.to_string(),
-                reason: e.to_string(),
-            }
-        })?;
+        let price: Decimal =
+            price_str
+                .parse()
+                .map_err(|e: rust_decimal::Error| ScalingError::InvalidDecimal {
+                    input: price_str.to_string(),
+                    reason: e.to_string(),
+                })?;
 
-        let size: Decimal = size_str.parse().map_err(|e: rust_decimal::Error| {
-            ScalingError::InvalidDecimal {
-                input: size_str.to_string(),
-                reason: e.to_string(),
-            }
-        })?;
+        let size: Decimal =
+            size_str
+                .parse()
+                .map_err(|e: rust_decimal::Error| ScalingError::InvalidDecimal {
+                    input: size_str.to_string(),
+                    reason: e.to_string(),
+                })?;
 
         let side = self
             .side
@@ -233,9 +240,11 @@ impl OrderBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "client")]
     use solana_sdk::signer::Signer;
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_order_builder_basic() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -266,6 +275,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_order_builder_to_submit_request() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -298,10 +308,16 @@ mod tests {
 
     #[test]
     fn test_order_builder_unsigned() {
+        #[cfg(feature = "client")]
         let keypair = Keypair::new();
+        #[cfg(feature = "client")]
+        let maker = keypair.pubkey();
+        #[cfg(not(feature = "client"))]
+        let maker = Pubkey::new_unique();
+
         let order = OrderBuilder::new()
             .nonce(1)
-            .maker(keypair.pubkey())
+            .maker(maker)
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
@@ -314,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     #[should_panic(expected = "nonce is required")]
     fn test_order_builder_missing_nonce() {
         let keypair = Keypair::new();
@@ -329,6 +346,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     #[should_panic(expected = "side is required")]
     fn test_order_builder_missing_side() {
         let keypair = Keypair::new();
