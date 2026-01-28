@@ -56,8 +56,6 @@ struct LoginResponse {
     token: String,
     /// The user's ID
     user_id: String,
-    /// The user's wallet address
-    wallet_address: String,
     /// Token expiration timestamp (Unix seconds)
     expires_at: i64,
 }
