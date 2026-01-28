@@ -8,13 +8,12 @@
 //! 1. Generate a sign-in message with timestamp
 //! 2. Sign the message with an Ed25519 keypair
 //! 3. POST to the authentication endpoint
-//! 4. Extract `auth_token` from response cookie
+//! 4. Extract token from JSON response
 //! 5. Connect to WebSocket with the auth token
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use ed25519_dalek::{Signer, SigningKey};
-use reqwest::cookie::Jar;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
@@ -33,27 +32,34 @@ pub struct AuthCredentials {
     pub auth_token: String,
     /// The user's public key (Base58 encoded)
     pub user_pubkey: String,
+    /// The user's ID
+    pub user_id: String,
+    /// Token expiration timestamp (Unix seconds)
+    pub expires_at: i64,
 }
 
 /// Request body for login endpoint
 #[derive(Debug, Serialize)]
 struct LoginRequest {
-    /// Base58 encoded public key
-    public_key: String,
+    /// Raw 32-byte public key
+    pubkey_bytes: Vec<u8>,
     /// The message that was signed
     message: String,
     /// Base58 encoded signature
-    signature: String,
+    signature_bs58: String,
 }
 
 /// Response from login endpoint
 #[derive(Debug, Deserialize)]
 struct LoginResponse {
-    /// Whether the login was successful
-    success: bool,
-    /// Error message if login failed
-    #[serde(default)]
-    error: Option<String>,
+    /// The authentication token
+    token: String,
+    /// The user's ID
+    user_id: String,
+    /// The user's wallet address
+    wallet_address: String,
+    /// Token expiration timestamp (Unix seconds)
+    expires_at: i64,
 }
 
 /// Generate the sign-in message with current timestamp.
@@ -126,15 +132,13 @@ pub async fn authenticate(signing_key: &SigningKey) -> WsResult<AuthCredentials>
 
     // Create the request body
     let request = LoginRequest {
-        public_key: public_key_b58.clone(),
+        pubkey_bytes: public_key.to_bytes().to_vec(),
         message,
-        signature: signature_b58,
+        signature_bs58: signature_b58,
     };
 
-    // Create client with cookie jar to capture auth_token and timeout
-    let jar = std::sync::Arc::new(Jar::default());
+    // Create client with timeout
     let client = Client::builder()
-        .cookie_provider(jar.clone())
         .timeout(AUTH_TIMEOUT)
         .build()
         .map_err(|e| WebSocketError::HttpError(e.to_string()))?;
@@ -156,31 +160,16 @@ pub async fn authenticate(signing_key: &SigningKey) -> WsResult<AuthCredentials>
         )));
     }
 
-    // Extract auth_token from cookies
-    let auth_token = response
-        .cookies()
-        .find(|c| c.name() == "auth_token")
-        .map(|c| c.value().to_string())
-        .ok_or_else(|| {
-            WebSocketError::AuthenticationFailed("No auth_token cookie in response".to_string())
-        })?;
-
     // Parse the response body
     let login_response: LoginResponse = response.json().await.map_err(|e| {
         WebSocketError::AuthenticationFailed(format!("Failed to parse response: {}", e))
     })?;
 
-    if !login_response.success {
-        return Err(WebSocketError::AuthenticationFailed(
-            login_response
-                .error
-                .unwrap_or_else(|| "Unknown error".to_string()),
-        ));
-    }
-
     Ok(AuthCredentials {
-        auth_token,
+        auth_token: login_response.token,
         user_pubkey: public_key_b58,
+        user_id: login_response.user_id,
+        expires_at: login_response.expires_at,
     })
 }
 

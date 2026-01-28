@@ -7,14 +7,13 @@ Authentication Flow:
     1. Generate a sign-in message with timestamp
     2. Sign the message with an Ed25519 keypair
     3. POST to the authentication endpoint
-    4. Extract `auth_token` from response cookie
+    4. Extract token from JSON response
     5. Connect to WebSocket with the auth token
 """
 
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Optional
 
 import aiohttp
 from nacl.signing import SigningKey
@@ -39,6 +38,12 @@ class AuthCredentials:
 
     user_pubkey: str
     """The user's public key (Base58 encoded)."""
+
+    user_id: str
+    """The user's ID."""
+
+    expires_at: int
+    """Token expiration timestamp (Unix seconds)."""
 
 
 def generate_signin_message() -> str:
@@ -105,9 +110,9 @@ async def authenticate(signing_key: SigningKey) -> AuthCredentials:
 
     # Create the request body
     request_data = {
-        "public_key": public_key_b58,
+        "pubkey_bytes": list(bytes(verify_key)),
         "message": message,
-        "signature": signature_b58,
+        "signature_bs58": signature_b58,
     }
 
     # Send the authentication request with timeout
@@ -127,37 +132,14 @@ async def authenticate(signing_key: SigningKey) -> AuthCredentials:
                         f"Authentication failed: HTTP error {response.status}"
                     )
 
-                # Extract auth_token from cookies
-                auth_token: Optional[str] = None
-                cookies = response.cookies
-                if "auth_token" in cookies:
-                    auth_token = cookies["auth_token"].value
-
-                # Also check Set-Cookie header
-                if not auth_token:
-                    set_cookie = response.headers.get("Set-Cookie", "")
-                    if "auth_token=" in set_cookie:
-                        # Parse auth_token from Set-Cookie header
-                        for part in set_cookie.split(";"):
-                            if part.strip().startswith("auth_token="):
-                                auth_token = part.strip().split("=", 1)[1]
-                                break
-
-                if not auth_token:
-                    raise WebSocketError(
-                        "Authentication failed: No auth_token cookie in response"
-                    )
-
                 # Parse the response body
                 response_data = await response.json()
 
-                if not response_data.get("success", False):
-                    error_msg = response_data.get("error", "Unknown error")
-                    raise WebSocketError(f"Authentication failed: {error_msg}")
-
                 return AuthCredentials(
-                    auth_token=auth_token,
+                    auth_token=response_data["token"],
                     user_pubkey=public_key_b58,
+                    user_id=response_data["user_id"],
+                    expires_at=response_data["expires_at"],
                 )
 
     except asyncio.TimeoutError:

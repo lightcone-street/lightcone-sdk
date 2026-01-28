@@ -9,7 +9,7 @@
  * 1. Generate a sign-in message with timestamp
  * 2. Sign the message with an Ed25519 keypair
  * 3. POST to the authentication endpoint
- * 4. Extract `auth_token` from response cookie
+ * 4. Extract token from JSON response
  * 5. Connect to WebSocket with the auth token
  */
 
@@ -32,28 +32,36 @@ export interface AuthCredentials {
   authToken: string;
   /** The user's public key (Base58 encoded) */
   userPubkey: string;
+  /** The user's ID */
+  userId: string;
+  /** Token expiration timestamp (Unix seconds) */
+  expiresAt: number;
 }
 
 /**
  * Request body for login endpoint.
  */
 interface LoginRequest {
-  /** Base58 encoded public key */
-  public_key: string;
+  /** Raw 32-byte public key as array */
+  pubkey_bytes: number[];
   /** The message that was signed */
   message: string;
   /** Base58 encoded signature */
-  signature: string;
+  signature_bs58: string;
 }
 
 /**
  * Response from login endpoint.
  */
 interface LoginResponse {
-  /** Whether the login was successful */
-  success: boolean;
-  /** Error message if login failed */
-  error?: string;
+  /** The authentication token */
+  token: string;
+  /** The user's ID */
+  user_id: string;
+  /** The user's wallet address */
+  wallet_address: string;
+  /** Token expiration timestamp (Unix seconds) */
+  expires_at: number;
 }
 
 /**
@@ -108,9 +116,9 @@ export async function authenticateWithKeypair(
 
   // Create the request body
   const request: LoginRequest = {
-    public_key: publicKeyB58,
+    pubkey_bytes: Array.from(keypair.publicKey.toBytes()),
     message,
-    signature: signatureB58,
+    signature_bs58: signatureB58,
   };
 
   // Send the authentication request with timeout
@@ -126,7 +134,6 @@ export async function authenticateWithKeypair(
         "Content-Type": "application/json",
       },
       body: JSON.stringify(request),
-      credentials: "include",
       signal: controller.signal,
     });
   } catch (error) {
@@ -146,34 +153,14 @@ export async function authenticateWithKeypair(
     throw WebSocketError.authenticationFailed(`HTTP error: ${response.status}`);
   }
 
-  // Extract auth_token from cookies
-  const cookies = response.headers.get("set-cookie");
-  let authToken: string | undefined;
-  if (cookies) {
-    const match = cookies.match(/auth_token=([^;]+)/);
-    if (match && match[1]?.trim().length > 0) {
-      authToken = decodeURIComponent(match[1].trim());
-    }
-  }
-
-  if (!authToken) {
-    throw WebSocketError.authenticationFailed(
-      "No auth_token cookie in response"
-    );
-  }
-
   // Parse the response body
   const loginResponse = (await response.json()) as LoginResponse;
 
-  if (!loginResponse.success) {
-    throw WebSocketError.authenticationFailed(
-      loginResponse.error || "Unknown error"
-    );
-  }
-
   return {
-    authToken,
+    authToken: loginResponse.token,
     userPubkey: publicKeyB58,
+    userId: loginResponse.user_id,
+    expiresAt: loginResponse.expires_at,
   };
 }
 
