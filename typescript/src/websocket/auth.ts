@@ -19,7 +19,7 @@ import nacl from "tweetnacl";
 import { WebSocketError } from "./error";
 
 /** Authentication API base URL */
-export const AUTH_API_URL = "https://lightcone.xyz/api";
+export const AUTH_API_URL = "https://tapi.lightcone.xyz/api";
 
 /** Authentication timeout in milliseconds */
 const AUTH_TIMEOUT_MS = 10000;

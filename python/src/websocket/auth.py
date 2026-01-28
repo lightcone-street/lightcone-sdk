@@ -24,7 +24,7 @@ from .error import WebSocketError
 
 
 # Authentication API base URL
-AUTH_API_URL = "https://lightcone.xyz/api"
+AUTH_API_URL = "https://tapi.lightcone.xyz/api"
 
 # Authentication request timeout in seconds
 AUTH_TIMEOUT_SECS = 10

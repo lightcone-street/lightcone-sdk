@@ -14,7 +14,7 @@ const client = new api.LightconeApiClient();
 
 // With custom configuration
 const client = new api.LightconeApiClient({
-  baseUrl: "https://lightcone.xyz/api",
+  baseUrl: "https://tapi.lightcone.xyz/api",
   timeout: 60000, // milliseconds
   headers: { "X-Custom-Header": "value" },
 });
@@ -25,7 +25,7 @@ const url = client.baseUrl;
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `baseUrl` | `https://lightcone.xyz/api` | API base URL |
+| `baseUrl` | `https://tapi.lightcone.xyz/api` | API base URL |
 | `timeout` | 30000 ms | Request timeout |
 | `headers` | Content-Type: application/json | Custom headers |
 | `retry` | disabled | Retry configuration (see below) |

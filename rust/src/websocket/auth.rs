@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::websocket::error::{WebSocketError, WsResult};
 
 /// Authentication API base URL
-pub const AUTH_API_URL: &str = "https://lightcone.xyz/api";
+pub const AUTH_API_URL: &str = "https://tapi.lightcone.xyz/api";
 
 /// Authentication request timeout
 const AUTH_TIMEOUT: Duration = Duration::from_secs(10);

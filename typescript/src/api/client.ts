@@ -50,7 +50,7 @@ function toQueryParams(
 /**
  * Default API base URL for Lightcone.
  */
-export const DEFAULT_API_URL = "https://lightcone.xyz/api";
+export const DEFAULT_API_URL = "https://tapi.lightcone.xyz/api";
 
 /**
  * Configuration for retry behavior.
@@ -75,7 +75,7 @@ export const DEFAULT_RETRY_CONFIG: RetryConfig = {
  * Configuration for the Lightcone API client.
  */
 export interface LightconeApiClientConfig {
-  /** Base URL for the API (default: https://lightcone.xyz/api) */
+  /** Base URL for the API (default: https://tapi.lightcone.xyz/api) */
   baseUrl?: string;
   /** Request timeout in milliseconds (default: 30000) */
   timeout?: number;
