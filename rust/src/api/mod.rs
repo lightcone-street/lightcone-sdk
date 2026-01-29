@@ -53,8 +53,8 @@
 //!
 //! match client.get_market("invalid_pubkey").await {
 //!     Ok(market) => println!("Found market"),
-//!     Err(ApiError::NotFound(msg)) => println!("Market not found: {}", msg),
-//!     Err(ApiError::BadRequest(msg)) => println!("Invalid request: {}", msg),
+//!     Err(ApiError::NotFound(resp)) => println!("Market not found: {}", resp),
+//!     Err(ApiError::BadRequest(resp)) => println!("Invalid request: {}", resp),
 //!     Err(e) => println!("Other error: {}", e),
 //! }
 //! ```

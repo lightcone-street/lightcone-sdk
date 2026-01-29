@@ -80,7 +80,7 @@ mod market_types {
             "created_at": "2024-01-15T10:30:00Z"
         }"#;
         let asset: DepositAsset = serde_json::from_str(json).unwrap();
-        assert_eq!(asset.display_name, "USDC");
+        assert_eq!(asset.display_name.as_deref(), Some("USDC"));
         assert_eq!(asset.decimals, 6);
         assert_eq!(asset.num_outcomes, 2);
     }
@@ -567,14 +567,75 @@ mod client_tests {
 
     #[test]
     fn test_api_error_display() {
-        let err = ApiError::NotFound("Market xyz not found".to_string());
+        let err = ApiError::NotFound(ErrorResponse::from_text("Market xyz not found".to_string()));
         assert_eq!(format!("{}", err), "Not found: Market xyz not found");
 
-        let err = ApiError::BadRequest("Invalid pubkey".to_string());
-        assert_eq!(format!("{}", err), "Bad request: Invalid pubkey");
+        let err = ApiError::BadRequest(ErrorResponse {
+            status: None,
+            message: Some("Failed to submit order".to_string()),
+            details: Some("insufficient balance".to_string()),
+        });
+        assert_eq!(
+            format!("{}", err),
+            "Bad request: Failed to submit order: insufficient balance"
+        );
 
-        let err = ApiError::UnexpectedStatus(418, "I'm a teapot".to_string());
+        let err = ApiError::UnexpectedStatus(
+            418,
+            ErrorResponse::from_text("I'm a teapot".to_string()),
+        );
         assert_eq!(format!("{}", err), "Unexpected status 418: I'm a teapot");
+    }
+
+    #[test]
+    fn test_api_error_response_accessor() {
+        let err = ApiError::NotFound(ErrorResponse {
+            status: Some("error".to_string()),
+            message: Some("Market not found".to_string()),
+            details: Some("No market with pubkey xyz".to_string()),
+        });
+        let resp = err.error_response().unwrap();
+        assert_eq!(resp.message.as_deref(), Some("Market not found"));
+        assert_eq!(resp.details.as_deref(), Some("No market with pubkey xyz"));
+        assert_eq!(err.status_code(), Some(404));
+    }
+
+    #[test]
+    fn test_api_error_status_code() {
+        assert_eq!(
+            ApiError::NotFound(ErrorResponse::from_text("x".into())).status_code(),
+            Some(404)
+        );
+        assert_eq!(
+            ApiError::BadRequest(ErrorResponse::from_text("x".into())).status_code(),
+            Some(400)
+        );
+        assert_eq!(
+            ApiError::Forbidden(ErrorResponse::from_text("x".into())).status_code(),
+            Some(403)
+        );
+        assert_eq!(
+            ApiError::RateLimited(ErrorResponse::from_text("x".into())).status_code(),
+            Some(429)
+        );
+        assert_eq!(
+            ApiError::Unauthorized(ErrorResponse::from_text("x".into())).status_code(),
+            Some(401)
+        );
+        assert_eq!(
+            ApiError::Conflict(ErrorResponse::from_text("x".into())).status_code(),
+            Some(409)
+        );
+        assert_eq!(
+            ApiError::ServerError(ErrorResponse::from_text("x".into())).status_code(),
+            Some(500)
+        );
+        assert_eq!(
+            ApiError::UnexpectedStatus(418, ErrorResponse::from_text("x".into())).status_code(),
+            Some(418)
+        );
+        assert_eq!(ApiError::Deserialize("x".into()).status_code(), None);
+        assert_eq!(ApiError::InvalidParameter("x".into()).status_code(), None);
     }
 }
 

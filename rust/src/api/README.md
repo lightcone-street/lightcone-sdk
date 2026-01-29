@@ -580,18 +580,18 @@ use lightcone_sdk::api::ApiError;
 
 match client.get_market("invalid").await {
     Ok(market) => println!("Found: {:?}", market.market.market_name),
-    Err(ApiError::NotFound(msg)) => println!("Not found: {}", msg),
-    Err(ApiError::BadRequest(msg)) => println!("Bad request: {}", msg),
-    Err(ApiError::Unauthorized(msg)) => println!("Unauthorized: {}", msg),
-    Err(ApiError::Forbidden(msg)) => println!("Forbidden: {}", msg),
-    Err(ApiError::RateLimited(msg)) => println!("Rate limited: {}", msg),
-    Err(ApiError::Conflict(msg)) => println!("Conflict: {}", msg),
-    Err(ApiError::ServerError(msg)) => println!("Server error: {}", msg),
+    Err(ApiError::NotFound(resp)) => println!("Not found: {}", resp),
+    Err(ApiError::BadRequest(resp)) => println!("Bad request: {}", resp),
+    Err(ApiError::Unauthorized(resp)) => println!("Unauthorized: {}", resp),
+    Err(ApiError::Forbidden(resp)) => println!("Forbidden: {}", resp),
+    Err(ApiError::RateLimited(resp)) => println!("Rate limited: {}", resp),
+    Err(ApiError::Conflict(resp)) => println!("Conflict: {}", resp),
+    Err(ApiError::ServerError(resp)) => println!("Server error: {}", resp),
     Err(ApiError::Http(e)) => println!("Network error: {}", e),
     Err(ApiError::Deserialize(msg)) => println!("Parse error: {}", msg),
     Err(ApiError::InvalidParameter(msg)) => println!("Invalid param: {}", msg),
-    Err(ApiError::UnexpectedStatus(status, body)) => {
-        println!("Unexpected status {}: {}", status, body)
+    Err(ApiError::UnexpectedStatus(status, resp)) => {
+        println!("Unexpected status {}: {}", status, resp)
     }
 }
 ```
@@ -601,16 +601,16 @@ match client.get_market("invalid").await {
 | Variant | HTTP Status | Description |
 |---------|-------------|-------------|
 | `Http(reqwest::Error)` | - | Network/connection error |
-| `NotFound(String)` | 404 | Resource not found |
-| `BadRequest(String)` | 400 | Invalid parameters |
-| `Unauthorized(String)` | 401 | Authentication required |
-| `Forbidden(String)` | 403 | Permission denied |
-| `RateLimited(String)` | 429 | Rate limit exceeded |
-| `Conflict(String)` | 409 | Resource conflict |
-| `ServerError(String)` | 5xx | Server error |
+| `NotFound(ErrorResponse)` | 404 | Resource not found |
+| `BadRequest(ErrorResponse)` | 400 | Invalid parameters |
+| `Unauthorized(ErrorResponse)` | 401 | Authentication required |
+| `Forbidden(ErrorResponse)` | 403 | Permission denied |
+| `RateLimited(ErrorResponse)` | 429 | Rate limit exceeded |
+| `Conflict(ErrorResponse)` | 409 | Resource conflict |
+| `ServerError(ErrorResponse)` | 5xx | Server error |
 | `Deserialize(String)` | - | JSON parsing error |
 | `InvalidParameter(String)` | - | Client-side validation |
-| `UnexpectedStatus(u16, String)` | Other | Unexpected HTTP status |
+| `UnexpectedStatus(u16, ErrorResponse)` | Other | Unexpected HTTP status |
 
 ### ApiResult
 

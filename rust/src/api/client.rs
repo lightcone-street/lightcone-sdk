@@ -299,28 +299,30 @@ impl LightconeApiClient {
             Ok(text) => text,
             Err(e) => {
                 tracing::warn!("Failed to read error response body: {}", e);
-                format!("HTTP {} (body unreadable: {})", status, e)
+                return Self::map_status_error(
+                    status,
+                    ErrorResponse::from_text(format!("HTTP {} (body unreadable: {})", status, e)),
+                );
             }
         };
 
-        let error_msg = serde_json::from_str::<ErrorResponse>(&error_text)
-            .map(|err| err.get_message())
-            .unwrap_or(error_text);
+        let error_response = serde_json::from_str::<ErrorResponse>(&error_text)
+            .unwrap_or_else(|_| ErrorResponse::from_text(error_text));
 
-        Self::map_status_error(status, error_msg)
+        Self::map_status_error(status, error_response)
     }
 
     /// Map HTTP status code to ApiError.
-    fn map_status_error(status: StatusCode, message: String) -> ApiError {
+    fn map_status_error(status: StatusCode, response: ErrorResponse) -> ApiError {
         match status {
-            StatusCode::UNAUTHORIZED => ApiError::Unauthorized(message),
-            StatusCode::NOT_FOUND => ApiError::NotFound(message),
-            StatusCode::BAD_REQUEST => ApiError::BadRequest(message),
-            StatusCode::FORBIDDEN => ApiError::Forbidden(message),
-            StatusCode::CONFLICT => ApiError::Conflict(message),
-            StatusCode::TOO_MANY_REQUESTS => ApiError::RateLimited(message),
-            _ if status.is_server_error() => ApiError::ServerError(message),
-            _ => ApiError::UnexpectedStatus(status.as_u16(), message),
+            StatusCode::UNAUTHORIZED => ApiError::Unauthorized(response),
+            StatusCode::NOT_FOUND => ApiError::NotFound(response),
+            StatusCode::BAD_REQUEST => ApiError::BadRequest(response),
+            StatusCode::FORBIDDEN => ApiError::Forbidden(response),
+            StatusCode::CONFLICT => ApiError::Conflict(response),
+            StatusCode::TOO_MANY_REQUESTS => ApiError::RateLimited(response),
+            _ if status.is_server_error() => ApiError::ServerError(response),
+            _ => ApiError::UnexpectedStatus(status.as_u16(), response),
         }
     }
 
@@ -382,7 +384,7 @@ impl LightconeApiClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            Err(ApiError::ServerError("Health check failed".to_string()))
+            Err(ApiError::ServerError(ErrorResponse::from_text("Health check failed".to_string())))
         }
     }
 
