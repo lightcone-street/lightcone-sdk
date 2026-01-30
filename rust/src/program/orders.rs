@@ -5,10 +5,11 @@
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha3::{Digest, Keccak256};
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature as SolanaSignature;
 
 #[cfg(feature = "client")]
-use solana_sdk::signature::Keypair;
+use solana_keypair::Keypair;
 
 use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
@@ -145,10 +146,46 @@ impl FullOrder {
         order
     }
 
+    /// Verify a Solana wallet signature (ED25519).
+    pub fn verify_message_signature(
+        message: &str,
+        pubkey_bytes: &[u8; 32],
+        signature_bs58: &str,
+    ) -> SdkResult<()> {
+        let signature: SolanaSignature = signature_bs58
+            .parse()
+            .map_err(|_| SdkError::InvalidSignature)?;
+
+        if signature.verify(pubkey_bytes, message.as_bytes()) {
+            Ok(())
+        } else {
+            Err(SdkError::SignatureVerificationFailed)
+        }
+    }
+
+    /// Verify a Solana transaction signature (ED25519).
+    /// Verifies that the signature_bytes is a valid signature of message_bytes by pubkey_bytes.
+    pub fn verify_transaction_signature(
+        message_bytes: &[u8],
+        signature_bytes: &[u8; 64],
+        pubkey_bytes: &[u8; 32],
+    ) -> SdkResult<()> {
+        let signature = SolanaSignature::from(*signature_bytes);
+
+        if signature.verify(pubkey_bytes, message_bytes) {
+            Ok(())
+        } else {
+            Err(SdkError::SignatureVerificationFailed)
+        }
+    }
+
     /// Verify the signature against the maker's pubkey.
     pub fn verify_signature(&self) -> SdkResult<bool> {
-        let hash = self.hash();
-        let pubkey_bytes: &[u8; 32] = self.maker.as_ref().try_into()
+        let hash: [u8; 32] = self.hash();
+        let pubkey_bytes: &[u8; 32] = self
+            .maker
+            .as_ref()
+            .try_into()
             .map_err(|_| SdkError::InvalidPubkey("Invalid maker pubkey".to_string()))?;
         let verifying_key = VerifyingKey::from_bytes(pubkey_bytes)
             .map_err(|_| SdkError::InvalidPubkey("Invalid maker pubkey".to_string()))?;
@@ -301,6 +338,95 @@ impl FullOrder {
     /// Get the order hash as a hex string (64 chars).
     pub fn hash_hex(&self) -> String {
         hex::encode(self.hash())
+    }
+
+    /// Generate a human-readable message for signing.
+    ///
+    /// Returns bytes suitable for `wallet.sign_message()`.
+    /// The message includes order details for user verification
+    /// and the order hash for verification purposes.
+    pub fn message(&self) -> Vec<u8> {
+        let hash_hex = hex::encode(self.hash());
+        let side_str = match self.side {
+            OrderSide::Bid => "Bid",
+            OrderSide::Ask => "Ask",
+        };
+        let expiration_str = if self.expiration == 0 {
+            "None".to_string()
+        } else {
+            self.expiration.to_string()
+        };
+
+        format!(
+            "Lightcone Order\n\n\
+             Nonce: {}\n\
+             Market: {}\n\
+             Side: {}\n\
+             Maker Amount: {}\n\
+             Taker Amount: {}\n\
+             Expiration: {}\n\n\
+             Hash: {}",
+            self.nonce,
+            self.market,
+            side_str,
+            self.maker_amount,
+            self.taker_amount,
+            expiration_str,
+            hash_hex
+        )
+        .into_bytes()
+    }
+
+    /// Generate a transaction for hardware wallet signing.
+    ///
+    /// Creates a memo transaction containing the order hash.
+    /// Hardware wallets display transaction details for user verification.
+    ///
+    /// # Arguments
+    /// * `blockhash` - Recent blockhash for transaction validity
+    ///
+    /// # Returns
+    /// Serialized transaction bytes ready for `wallet.sign_transaction()`
+    pub fn transaction(&self, blockhash: solana_hash::Hash) -> SdkResult<Vec<u8>> {
+        use crate::program::constants::MEMO_PROGRAM_ID;
+        use solana_instruction::{AccountMeta, Instruction};
+        use solana_transaction::Transaction;
+
+        let hash = self.hash();
+
+        let ix = Instruction {
+            program_id: *MEMO_PROGRAM_ID,
+            accounts: vec![AccountMeta::new_readonly(self.maker, true)],
+            data: hash.to_vec(),
+        };
+
+        let mut tx = Transaction::new_with_payer(&[ix], Some(&self.maker));
+        tx.message.recent_blockhash = blockhash;
+
+        bincode::serialize(&tx).map_err(|e| SdkError::Serialization(e.to_string()))
+    }
+
+    /// Extract signature bytes from a signed transaction.
+    ///
+    /// Use after hardware wallet signs the transaction returned by `transaction()`.
+    pub fn extract_transaction_signature(signed_tx_bytes: &[u8]) -> SdkResult<[u8; 64]> {
+        use solana_transaction::Transaction;
+
+        let tx: Transaction = bincode::deserialize(signed_tx_bytes)
+            .map_err(|e| SdkError::Serialization(e.to_string()))?;
+
+        if tx.signatures.is_empty() {
+            return Err(SdkError::InvalidSignature);
+        }
+
+        let sig_bytes = tx.signatures[0].as_ref();
+        if sig_bytes.len() != 64 {
+            return Err(SdkError::InvalidSignature);
+        }
+
+        let mut result = [0u8; 64];
+        result.copy_from_slice(sig_bytes);
+        Ok(result)
     }
 
     /// Check if the order has been signed.
@@ -579,8 +705,8 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            maker_amount: 50,  // 50 base
-            taker_amount: 90,  // for 90 quote (price = 1.8 quote/base)
+            maker_amount: 50, // 50 base
+            taker_amount: 90, // for 90 quote (price = 1.8 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -598,8 +724,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 50,  // 50 quote
-            taker_amount: 50,  // for 50 base (price = 1 quote/base)
+            maker_amount: 50, // 50 quote
+            taker_amount: 50, // for 50 base (price = 1 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -642,9 +768,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_to_submit_request() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -708,8 +834,7 @@ mod tests {
     #[test]
     #[cfg(feature = "client")]
     fn test_is_signed() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let mut order = FullOrder {
@@ -735,8 +860,7 @@ mod tests {
     #[test]
     #[cfg(feature = "client")]
     fn test_signature_and_hash_hex() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let mut order = FullOrder {
@@ -765,6 +889,172 @@ mod tests {
         // Verify they are valid hex
         assert!(hex::decode(&sig_hex).is_ok());
         assert!(hex::decode(&hash_hex).is_ok());
+    }
+
+    #[test]
+    fn test_message_generation() {
+        let order = FullOrder {
+            nonce: 12345,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 1000000,
+            taker_amount: 500000,
+            expiration: 1234567890,
+            signature: [0u8; 64],
+        };
+
+        let message = order.message();
+
+        // Verify message is non-empty and contains key elements
+        let message_str = String::from_utf8_lossy(&message);
+        assert!(!message.is_empty());
+        assert!(message_str.contains("Lightcone Order"));
+        assert!(message_str.contains("Nonce:"));
+        assert!(message_str.contains("Market:"));
+        assert!(message_str.contains("Side:"));
+        assert!(message_str.contains("Maker Amount:"));
+        assert!(message_str.contains("Taker Amount:"));
+        assert!(message_str.contains("Hash:"));
+        assert!(message_str.contains("12345")); // nonce
+        assert!(message_str.contains("Bid")); // side
+    }
+
+    #[test]
+    fn test_message_with_no_expiration() {
+        let order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Ask,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        let message = order.message();
+        let message_str = String::from_utf8_lossy(&message);
+        assert!(message_str.contains("Expiration: None"));
+        assert!(message_str.contains("Ask"));
+    }
+
+    #[test]
+    fn test_transaction_generation() {
+        use solana_hash::Hash;
+        use solana_transaction::Transaction;
+
+        let order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        let blockhash = Hash::new_unique();
+
+        let tx_bytes = order.transaction(blockhash).unwrap();
+        assert!(!tx_bytes.is_empty());
+
+        // Verify it can be deserialized back
+        let tx: Transaction = bincode::deserialize(&tx_bytes).unwrap();
+        assert_eq!(tx.message.recent_blockhash, blockhash);
+        assert_eq!(tx.message.account_keys.len(), 1);
+        assert_eq!(tx.message.account_keys[0], order.maker);
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_verify_message_signature_with_order() {
+        use solana_signer::{Keypair, Signer};
+
+        let keypair = Keypair::new();
+        let order = FullOrder::new_bid(BidOrderParams {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            maker_amount: 1000000,
+            taker_amount: 500000,
+            expiration: 0,
+        });
+
+        let message = order.message();
+        let message_str = String::from_utf8_lossy(&message).to_string();
+
+        // Sign the message (simulating what wallet adapter does)
+        let signature = keypair.sign_message(&message);
+        let sig_bs58 = bs58::encode(signature.as_ref()).into_string();
+
+        // Verify using SDK method
+        let result = FullOrder::verify_message_signature(
+            &message_str,
+            &keypair.pubkey().to_bytes(),
+            &sig_bs58,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_verify_transaction_signature_with_order() {
+        use solana_hash::Hash;
+        use solana_signer::{Keypair, Signer};
+        use solana_transaction::Transaction;
+
+        let keypair = Keypair::new();
+        let order = FullOrder::new_bid(BidOrderParams {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            maker_amount: 1000000,
+            taker_amount: 500000,
+            expiration: 0,
+        });
+
+        let blockhash = Hash::new_unique();
+        let tx_bytes = order.transaction(blockhash).unwrap();
+
+        // Deserialize, sign, re-serialize (simulating hardware wallet)
+        let mut tx: Transaction = bincode::deserialize(&tx_bytes).unwrap();
+        tx.sign(&[&keypair], blockhash);
+
+        // Extract and verify
+        let signed_bytes = bincode::serialize(&tx).unwrap();
+        let sig_bytes = FullOrder::extract_transaction_signature(&signed_bytes).unwrap();
+
+        let result = FullOrder::verify_transaction_signature(
+            &tx.message.serialize(),
+            &sig_bytes,
+            &keypair.pubkey().to_bytes(),
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_extract_transaction_signature_invalid() {
+        // Test with empty bytes
+        let result = FullOrder::extract_transaction_signature(&[]);
+        assert!(result.is_err());
+
+        // Test with invalid transaction bytes
+        let invalid_bytes = vec![0u8; 100];
+        let result = FullOrder::extract_transaction_signature(&invalid_bytes);
+        assert!(result.is_err());
     }
 
     #[test]

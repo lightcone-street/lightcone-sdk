@@ -3,10 +3,8 @@
 //! This module provides functions to build transaction instructions for interacting
 //! with the Lightcone Pinocchio program.
 
-use solana_sdk::{
-    instruction::{AccountMeta, Instruction},
-    pubkey::Pubkey,
-};
+use solana_instruction::{AccountMeta, Instruction};
+use solana_pubkey::Pubkey;
 
 // System program ID
 fn system_program_id() -> Pubkey {

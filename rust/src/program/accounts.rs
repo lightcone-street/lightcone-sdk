@@ -3,7 +3,7 @@
 //! This module contains all on-chain account structures with their exact
 //! byte layouts matching the program.
 
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE,

@@ -39,7 +39,7 @@
 //! ```rust,ignore
 //! use lightcone_sdk::program::LightconePinocchioClient;
 //! use lightcone_sdk::shared::types::*;
-//! use solana_sdk::pubkey::Pubkey;
+//! use solana_pubkey::Pubkey;
 //!
 //! #[tokio::main]
 //! async fn main() {

@@ -1,10 +1,10 @@
 //! Fluent builder for creating and signing orders.
 
 use rust_decimal::Decimal;
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 #[cfg(feature = "client")]
-use solana_sdk::signature::Keypair;
+use solana_keypair::Keypair;
 
 use crate::program::orders::FullOrder;
 use crate::program::types::OrderSide;
