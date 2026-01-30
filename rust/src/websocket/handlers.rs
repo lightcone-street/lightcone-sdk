@@ -428,7 +428,7 @@ mod tests {
             "data": {
                 "orderbook_id": "ob1",
                 "timestamp": "2024-01-01T00:00:00.000Z",
-                "seq": 0,
+                "sequence": 0,
                 "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
                 "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
                 "is_snapshot": true
@@ -485,7 +485,8 @@ mod tests {
                 "size": "0.000250",
                 "side": "bid",
                 "timestamp": "2024-01-01T00:00:00.000Z",
-                "trade_id": "trade123"
+                "trade_id": "trade123",
+                "sequence": 1
             }
         }"#;
 

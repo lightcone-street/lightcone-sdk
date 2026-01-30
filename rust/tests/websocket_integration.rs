@@ -32,6 +32,7 @@ async fn test_connect_with_config() {
         auto_reconnect: false,
         auto_resubscribe: false,
         auth_token: None,
+        ..Default::default()
     };
 
     let client = LightconeWebSocketClient::connect_with_config(TEST_WS_URL, config).await;
@@ -278,7 +279,7 @@ mod unit_tests {
         let json = r#"{
             "orderbook_id": "test_ob",
             "timestamp": "2024-01-01T00:00:00.000Z",
-            "seq": 42,
+            "sequence": 42,
             "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
             "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
             "is_snapshot": true
@@ -286,7 +287,7 @@ mod unit_tests {
 
         let data: BookUpdateData = serde_json::from_str(json).unwrap();
         assert_eq!(data.orderbook_id, "test_ob");
-        assert_eq!(data.seq, 42);
+        assert_eq!(data.sequence, 42);
         assert!(data.is_snapshot);
         assert_eq!(data.bids.len(), 1);
         assert_eq!(data.asks.len(), 1);
@@ -300,7 +301,8 @@ mod unit_tests {
             "size": "0.000250",
             "side": "bid",
             "timestamp": "2024-01-01T00:00:00.000Z",
-            "trade_id": "trade123"
+            "trade_id": "trade123",
+            "sequence": 1
         }"#;
 
         let data: TradeData = serde_json::from_str(json).unwrap();
@@ -308,6 +310,7 @@ mod unit_tests {
         assert_eq!(data.price, "0.505000");
         assert_eq!(data.size, "0.000250");
         assert_eq!(data.trade_id, "trade123");
+        assert_eq!(data.sequence, 1);
     }
 
     #[test]
@@ -327,7 +330,7 @@ mod unit_tests {
         let snapshot = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
-            seq: 0,
+            sequence: 0,
             bids: vec![PriceLevel {
                 side: "bid".to_string(),
                 price: "0.500000".to_string(),
@@ -348,6 +351,7 @@ mod unit_tests {
         assert!(book.has_snapshot());
         assert_eq!(book.best_bid(), Some(("0.500000".to_string(), "0.001000".to_string())));
         assert_eq!(book.best_ask(), Some(("0.510000".to_string(), "0.000500".to_string())));
+        // Decimal preserves precision from input strings
         assert_eq!(book.spread(), Some("0.010000".to_string()));
         assert_eq!(book.midpoint(), Some("0.505000".to_string()));
     }

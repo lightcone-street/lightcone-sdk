@@ -169,7 +169,7 @@ pub struct BookUpdateData {
     #[serde(default)]
     pub timestamp: String,
     #[serde(default)]
-    pub seq: u64,
+    pub sequence: u64,
     #[serde(default)]
     pub bids: Vec<PriceLevel>,
     #[serde(default)]
@@ -207,6 +207,7 @@ pub struct TradeData {
     pub side: String,
     pub timestamp: String,
     pub trade_id: String,
+    pub sequence: u64,
 }
 
 // ============================================================================
@@ -648,14 +649,14 @@ mod tests {
         let json = r#"{
             "orderbook_id": "ob1",
             "timestamp": "2024-01-01T00:00:00.000Z",
-            "seq": 42,
+            "sequence": 42,
             "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
             "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
             "is_snapshot": true
         }"#;
         let data: BookUpdateData = serde_json::from_str(json).unwrap();
         assert_eq!(data.orderbook_id, "ob1");
-        assert_eq!(data.seq, 42);
+        assert_eq!(data.sequence, 42);
         assert!(data.is_snapshot);
         assert_eq!(data.bids.len(), 1);
         assert_eq!(data.bids[0].price, "0.500000");
@@ -673,11 +674,13 @@ mod tests {
             "size": "0.000250",
             "side": "bid",
             "timestamp": "2024-01-01T00:00:00.000Z",
-            "trade_id": "trade123"
+            "trade_id": "trade123",
+            "sequence": 1
         }"#;
         let data: TradeData = serde_json::from_str(json).unwrap();
         assert_eq!(data.orderbook_id, "ob1");
         assert_eq!(data.price, "0.505000");
         assert_eq!(data.size, "0.000250");
+        assert_eq!(data.sequence, 1);
     }
 }

@@ -63,7 +63,7 @@ pub struct LocalOrderbook {
     /// Ask levels (price -> size), sorted numerically by price
     asks: BTreeMap<PriceKey, String>,
     /// Expected next sequence number
-    expected_seq: u64,
+    expected_sequence: u64,
     /// Whether initial snapshot has been received
     has_snapshot: bool,
     /// Last update timestamp
@@ -77,7 +77,7 @@ impl LocalOrderbook {
             orderbook_id,
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
-            expected_seq: 0,
+            expected_sequence: 0,
             has_snapshot: false,
             last_timestamp: None,
         }
@@ -104,7 +104,7 @@ impl LocalOrderbook {
             }
         }
 
-        self.expected_seq = update.seq + 1;
+        self.expected_sequence = update.sequence + 1;
         self.has_snapshot = true;
         self.last_timestamp = Some(update.timestamp.clone());
     }
@@ -114,10 +114,10 @@ impl LocalOrderbook {
     /// Returns an error if a sequence gap is detected.
     pub fn apply_delta(&mut self, update: &BookUpdateData) -> Result<(), WebSocketError> {
         // Check sequence number
-        if update.seq != self.expected_seq {
+        if update.sequence != self.expected_sequence {
             return Err(WebSocketError::SequenceGap {
-                expected: self.expected_seq,
-                received: update.seq,
+                expected: self.expected_sequence,
+                received: update.sequence,
             });
         }
 
@@ -141,7 +141,7 @@ impl LocalOrderbook {
             }
         }
 
-        self.expected_seq = update.seq + 1;
+        self.expected_sequence = update.sequence + 1;
         self.last_timestamp = Some(update.timestamp.clone());
         Ok(())
     }
@@ -300,7 +300,7 @@ impl LocalOrderbook {
 
     /// Current expected sequence number
     pub fn expected_sequence(&self) -> u64 {
-        self.expected_seq
+        self.expected_sequence
     }
 
     /// Last update timestamp
@@ -312,7 +312,7 @@ impl LocalOrderbook {
     pub fn clear(&mut self) {
         self.bids.clear();
         self.asks.clear();
-        self.expected_seq = 0;
+        self.expected_sequence = 0;
         self.has_snapshot = false;
         self.last_timestamp = None;
     }
@@ -326,7 +326,7 @@ mod tests {
         BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
-            seq: 0,
+            sequence: 0,
             bids: vec![
                 PriceLevel {
                     side: "bid".to_string(),
@@ -380,7 +380,7 @@ mod tests {
         let delta = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.050Z".to_string(),
-            seq: 1,
+            sequence: 1,
             bids: vec![PriceLevel {
                 side: "bid".to_string(),
                 price: "0.500000".to_string(),
@@ -411,7 +411,7 @@ mod tests {
         let delta = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.050Z".to_string(),
-            seq: 5, // Gap!
+            sequence: 5, // Gap!
             bids: vec![],
             asks: vec![],
             is_snapshot: false,
@@ -453,7 +453,7 @@ mod tests {
         let snapshot = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
-            seq: 0,
+            sequence: 0,
             bids: vec![
                 PriceLevel {
                     side: "bid".to_string(),
