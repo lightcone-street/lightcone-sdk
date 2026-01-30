@@ -3,10 +3,13 @@
 //! This module provides the full and compact order structures with
 //! Keccak256 hashing and Ed25519 signing functionality.
 
+use crate::program::constants::MEMO_PROGRAM_ID;
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use sha3::{Digest, Keccak256};
+use solana_instruction::{AccountMeta, Instruction};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature as SolanaSignature;
+use solana_transaction::Transaction;
 
 #[cfg(feature = "client")]
 use solana_keypair::Keypair;
@@ -330,23 +333,42 @@ impl FullOrder {
         )
     }
 
-    /// Get the signature as a hex string (128 chars).
-    pub fn signature_hex(&self) -> String {
-        hex::encode(self.signature)
-    }
-
-    /// Get the order hash as a hex string (64 chars).
-    pub fn hash_hex(&self) -> String {
-        hex::encode(self.hash())
-    }
-
     /// Generate a human-readable message for signing.
     ///
     /// Returns bytes suitable for `wallet.sign_message()`.
-    /// The message includes order details for user verification
-    /// and the order hash for verification purposes.
+    /// The message includes order details for user verification.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use lightcone_sdk::program::orders::FullOrder;
+    /// use lightcone_sdk::program::types::BidOrderParams;
+    /// use solana_pubkey::Pubkey;
+    ///
+    /// // Create an unsigned order
+    /// let mut order = FullOrder::new_bid(BidOrderParams {
+    ///     nonce: 1,
+    ///     maker: Pubkey::new_unique(),
+    ///     market: Pubkey::new_unique(),
+    ///     base_mint: Pubkey::new_unique(),
+    ///     quote_mint: Pubkey::new_unique(),
+    ///     maker_amount: 1000000,
+    ///     taker_amount: 500000,
+    ///     expiration: 0,
+    /// });
+    ///
+    /// // Get the message bytes and sign with wallet adapter
+    /// let message_bytes = order.message();
+    /// let sign_result = wallet.sign_message(&message_bytes).await?;
+    ///
+    /// // Set signature on order
+    /// let sig_bs58 = sign_result.base58_signature()?;
+    /// order.set_signature_from_message(&sig_bs58)?;
+    ///
+    /// // Order is now ready for submission
+    /// let request = order.to_submit_request(orderbook_id);
+    /// ```
     pub fn message(&self) -> Vec<u8> {
-        let hash_hex = hex::encode(self.hash());
         let side_str = match self.side {
             OrderSide::Bid => "Bid",
             OrderSide::Ask => "Ask",
@@ -359,20 +381,12 @@ impl FullOrder {
 
         format!(
             "Lightcone Order\n\n\
-             Nonce: {}\n\
              Market: {}\n\
              Side: {}\n\
              Maker Amount: {}\n\
              Taker Amount: {}\n\
-             Expiration: {}\n\n\
-             Hash: {}",
-            self.nonce,
-            self.market,
-            side_str,
-            self.maker_amount,
-            self.taker_amount,
-            expiration_str,
-            hash_hex
+             Expiration: {}",
+            self.market, side_str, self.maker_amount, self.taker_amount, expiration_str,
         )
         .into_bytes()
     }
@@ -380,18 +394,46 @@ impl FullOrder {
     /// Generate a transaction for hardware wallet signing.
     ///
     /// Creates a memo transaction containing the order hash.
-    /// Hardware wallets display transaction details for user verification.
-    ///
-    /// # Arguments
-    /// * `blockhash` - Recent blockhash for transaction validity
+    /// Use this for hardware wallets that don't support message signing.
     ///
     /// # Returns
-    /// Serialized transaction bytes ready for `wallet.sign_transaction()`
-    pub fn transaction(&self, blockhash: solana_hash::Hash) -> SdkResult<Vec<u8>> {
-        use crate::program::constants::MEMO_PROGRAM_ID;
-        use solana_instruction::{AccountMeta, Instruction};
-        use solana_transaction::Transaction;
-
+    /// A `Transaction` ready for signing. The caller must set the `recent_blockhash`
+    /// and serialize it before passing to `wallet.sign_transaction()`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use lightcone_sdk::program::orders::FullOrder;
+    /// use lightcone_sdk::program::types::BidOrderParams;
+    /// use solana_pubkey::Pubkey;
+    ///
+    /// // Create an unsigned order
+    /// let mut order = FullOrder::new_bid(BidOrderParams {
+    ///     nonce: 1,
+    ///     maker: Pubkey::new_unique(),
+    ///     market: Pubkey::new_unique(),
+    ///     base_mint: Pubkey::new_unique(),
+    ///     quote_mint: Pubkey::new_unique(),
+    ///     maker_amount: 1000000,
+    ///     taker_amount: 500000,
+    ///     expiration: 0,
+    /// });
+    ///
+    /// // Generate transaction, set blockhash, and serialize
+    /// let mut tx = order.transaction()?;
+    /// tx.message.recent_blockhash = rpc_client.get_latest_blockhash().await?;
+    /// let tx_bytes = bincode::serialize(&tx)?;
+    ///
+    /// // Sign with hardware wallet adapter
+    /// let signed_tx_bytes = wallet.sign_transaction(&tx_bytes, Some(cluster)).await?;
+    ///
+    /// // Set signature on order
+    /// order.set_signature_from_transaction(&signed_tx_bytes[0])?;
+    ///
+    /// // Order is now ready for submission
+    /// let request = order.to_submit_request(orderbook_id);
+    /// ```
+    pub fn transaction(&self) -> SdkResult<Transaction> {
         let hash = self.hash();
 
         let ix = Instruction {
@@ -400,15 +442,25 @@ impl FullOrder {
             data: hash.to_vec(),
         };
 
-        let mut tx = Transaction::new_with_payer(&[ix], Some(&self.maker));
-        tx.message.recent_blockhash = blockhash;
-
-        bincode::serialize(&tx).map_err(|e| SdkError::Serialization(e.to_string()))
+        let tx = Transaction::new_with_payer(&[ix], Some(&self.maker));
+        Ok(tx)
     }
 
     /// Extract signature bytes from a signed transaction.
     ///
-    /// Use after hardware wallet signs the transaction returned by `transaction()`.
+    /// Low-level helper used internally by `set_signature_from_transaction()`.
+    /// Prefer using `set_signature_from_transaction()` directly.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Prefer this:
+    /// order.set_signature_from_transaction(&signed_tx_bytes[0])?;
+    ///
+    /// // Instead of:
+    /// let sig_bytes = FullOrder::extract_transaction_signature(&signed_tx_bytes[0])?;
+    /// order.signature = sig_bytes;
+    /// ```
     pub fn extract_transaction_signature(signed_tx_bytes: &[u8]) -> SdkResult<[u8; 64]> {
         use solana_transaction::Transaction;
 
@@ -432,6 +484,62 @@ impl FullOrder {
     /// Check if the order has been signed.
     pub fn is_signed(&self) -> bool {
         self.signature != [0u8; 64]
+    }
+
+    /// Set signature from base58-encoded signature string.
+    ///
+    /// Use after wallet `sign_message()` to store the signature on the order.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Generate message and sign with wallet adapter
+    /// let message_bytes = order.message();
+    /// let sign_result = wallet.sign_message(&message_bytes).await?;
+    ///
+    /// // Extract base58 signature and set on order
+    /// let sig_bs58 = sign_result.base58_signature()?;
+    /// order.set_signature_from_message(&sig_bs58)?;
+    ///
+    /// // Order is now ready for submission
+    /// let request = order.to_submit_request(orderbook_id);
+    /// ```
+    pub fn set_signature_from_message(&mut self, signature_bs58: &str) -> SdkResult<()> {
+        let sig_bytes = bs58::decode(signature_bs58)
+            .into_vec()
+            .map_err(|_| SdkError::InvalidSignature)?;
+        if sig_bytes.len() != 64 {
+            return Err(SdkError::InvalidSignature);
+        }
+        self.signature.copy_from_slice(&sig_bytes);
+        Ok(())
+    }
+
+    /// Set signature from signed transaction bytes.
+    ///
+    /// Use after wallet `sign_transaction()` for hardware wallets that don't support message signing.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Generate transaction, set blockhash, serialize
+    /// let mut tx = order.transaction()?;
+    /// tx.message.recent_blockhash = rpc_client.get_latest_blockhash().await?;
+    /// let tx_bytes = bincode::serialize(&tx)?;
+    ///
+    /// // Sign with hardware wallet
+    /// let signed_tx_bytes = wallet.sign_transaction(&tx_bytes, Some(cluster)).await?;
+    ///
+    /// // Set signature on order (uses first element of result)
+    /// order.set_signature_from_transaction(&signed_tx_bytes[0])?;
+    ///
+    /// // Order is now ready for submission
+    /// let request = order.to_submit_request(orderbook_id);
+    /// ```
+    pub fn set_signature_from_transaction(&mut self, signed_tx_bytes: &[u8]) -> SdkResult<()> {
+        let sig_bytes = Self::extract_transaction_signature(signed_tx_bytes)?;
+        self.signature = sig_bytes;
+        Ok(())
     }
 }
 
@@ -961,16 +1069,25 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let blockhash = Hash::new_unique();
+        // Generate transaction (without blockhash)
+        let mut tx = order.transaction().unwrap();
 
-        let tx_bytes = order.transaction(blockhash).unwrap();
+        // Set blockhash
+        let blockhash = Hash::new_unique();
+        tx.message.recent_blockhash = blockhash;
+
+        // Verify transaction structure
+        assert_eq!(tx.message.account_keys.len(), 1);
+        assert_eq!(tx.message.account_keys[0], order.maker);
+        assert_eq!(tx.message.recent_blockhash, blockhash);
+
+        // Verify it can be serialized
+        let tx_bytes = bincode::serialize(&tx).unwrap();
         assert!(!tx_bytes.is_empty());
 
         // Verify it can be deserialized back
-        let tx: Transaction = bincode::deserialize(&tx_bytes).unwrap();
-        assert_eq!(tx.message.recent_blockhash, blockhash);
-        assert_eq!(tx.message.account_keys.len(), 1);
-        assert_eq!(tx.message.account_keys[0], order.maker);
+        let deserialized_tx: Transaction = bincode::deserialize(&tx_bytes).unwrap();
+        assert_eq!(deserialized_tx.message.recent_blockhash, blockhash);
     }
 
     #[test]
@@ -1025,14 +1142,15 @@ mod tests {
             expiration: 0,
         });
 
+        // Generate transaction and set blockhash
+        let mut tx = order.transaction().unwrap();
         let blockhash = Hash::new_unique();
-        let tx_bytes = order.transaction(blockhash).unwrap();
+        tx.message.recent_blockhash = blockhash;
 
-        // Deserialize, sign, re-serialize (simulating hardware wallet)
-        let mut tx: Transaction = bincode::deserialize(&tx_bytes).unwrap();
+        // Sign transaction (simulating hardware wallet)
         tx.sign(&[&keypair], blockhash);
 
-        // Extract and verify
+        // Serialize signed transaction and extract signature
         let signed_bytes = bincode::serialize(&tx).unwrap();
         let sig_bytes = FullOrder::extract_transaction_signature(&signed_bytes).unwrap();
 
@@ -1074,5 +1192,120 @@ mod tests {
         };
 
         order.to_submit_request("test_orderbook");
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_set_signature_from_message() {
+        use solana_signer::{Keypair, Signer};
+
+        let keypair = Keypair::new();
+        let mut order = FullOrder::new_bid(BidOrderParams {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            maker_amount: 1000000,
+            taker_amount: 500000,
+            expiration: 0,
+        });
+
+        assert!(!order.is_signed());
+
+        // Sign the message (simulating wallet adapter)
+        let message = order.message();
+        let signature = keypair.sign_message(&message);
+        let sig_bs58 = bs58::encode(signature.as_ref()).into_string();
+
+        // Set signature on order
+        let result = order.set_signature_from_message(&sig_bs58);
+        assert!(result.is_ok());
+        assert!(order.is_signed());
+        assert_eq!(order.signature, signature.as_ref());
+    }
+
+    #[test]
+    fn test_set_signature_from_message_invalid() {
+        let mut order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        // Invalid base58
+        let result = order.set_signature_from_message("not-valid-base58!");
+        assert!(result.is_err());
+
+        // Valid base58 but wrong length
+        let short_sig = bs58::encode(&[0u8; 32]).into_string();
+        let result = order.set_signature_from_message(&short_sig);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_set_signature_from_transaction() {
+        use solana_hash::Hash;
+        use solana_signer::{Keypair, Signer};
+
+        let keypair = Keypair::new();
+        let mut order = FullOrder::new_bid(BidOrderParams {
+            nonce: 1,
+            maker: keypair.pubkey(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            maker_amount: 1000000,
+            taker_amount: 500000,
+            expiration: 0,
+        });
+
+        assert!(!order.is_signed());
+
+        // Generate and sign transaction (simulating hardware wallet)
+        let mut tx = order.transaction().unwrap();
+        let blockhash = Hash::new_unique();
+        tx.message.recent_blockhash = blockhash;
+        tx.sign(&[&keypair], blockhash);
+
+        // Serialize signed transaction
+        let signed_bytes = bincode::serialize(&tx).unwrap();
+
+        // Set signature on order
+        let result = order.set_signature_from_transaction(&signed_bytes);
+        assert!(result.is_ok());
+        assert!(order.is_signed());
+    }
+
+    #[test]
+    fn test_set_signature_from_transaction_invalid() {
+        let mut order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        // Empty bytes
+        let result = order.set_signature_from_transaction(&[]);
+        assert!(result.is_err());
+
+        // Invalid transaction bytes
+        let result = order.set_signature_from_transaction(&[0u8; 100]);
+        assert!(result.is_err());
     }
 }
