@@ -304,15 +304,6 @@ order.hash() -> [u8; 32]           // Keccak256 of fields (excludes signature)
 order.sign(&keypair)               // Sign in place
 order.verify_signature() -> Result<bool>
 
-// Wallet signing (for wallet adapters)
-order.message() -> Vec<u8>         // Human-readable message for regular wallet signing
-order.transaction(blockhash) -> Result<Vec<u8>>  // Serialized transaction for hardware wallet signing (requires "client" feature)
-FullOrder::extract_transaction_signature(signed_tx_bytes) -> Result<[u8; 64]>  // Extract signature from signed transaction (requires "client" feature)
-
-// Signature verification
-FullOrder::verify_message_signature(message, pubkey_bytes, signature_bs58) -> Result<()>
-FullOrder::verify_transaction_signature(message_bytes, signature_bytes, pubkey_bytes) -> Result<()>
-
 // Serialization
 order.serialize() -> [u8; 225]
 FullOrder::deserialize(data) -> Result<FullOrder>
