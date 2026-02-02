@@ -302,7 +302,7 @@ FullOrder::new_ask_signed(params, &keypair) -> FullOrder
 // Hashing and signing
 order.hash() -> [u8; 32]           // Keccak256 of fields (excludes signature)
 order.sign(&keypair)               // Sign in place
-order.verify_signature() -> Result<bool>
+order.verify_signature() -> Result<()>
 
 // Serialization
 order.serialize() -> [u8; 225]

@@ -36,12 +36,6 @@ pub const INSTRUCTIONS_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::instructions:
 /// Ed25519 Program ID (for signature verification)
 pub const ED25519_PROGRAM_ID: Pubkey = solana_sdk_ids::ed25519_program::ID;
 
-// Memo Program ID (for human-readable message signing)
-lazy_static::lazy_static! {
-    pub static ref MEMO_PROGRAM_ID: Pubkey = 
-        Pubkey::from_str("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr").unwrap();
-}
-
 // ============================================================================
 // Instruction Discriminators
 // ============================================================================

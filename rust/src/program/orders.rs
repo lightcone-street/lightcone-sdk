@@ -247,6 +247,21 @@ impl FullOrder {
         }
     }
 
+    /// Get the signature as a hex string (128 chars).
+    pub fn signature_hex(&self) -> String {
+        hex::encode(self.signature)
+    }
+
+    /// Get the order hash as a hex string (64 chars).
+    pub fn hash_hex(&self) -> String {
+        hex::encode(self.hash())
+    }
+
+    /// Check if the order has been signed.
+    pub fn is_signed(&self) -> bool {
+        self.signature != [0u8; 64]
+    }
+
     // =========================================================================
     // API Bridge Methods
     // =========================================================================
@@ -758,5 +773,24 @@ mod tests {
         // Verify they are valid hex
         assert!(hex::decode(&sig_hex).is_ok());
         assert!(hex::decode(&hash_hex).is_ok());
+    }
+
+    #[test]
+    #[should_panic(expected = "Order must be signed before converting to submit request")]
+    fn test_to_submit_request_panics_unsigned() {
+        let order = FullOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        order.to_submit_request("test_orderbook");
     }
 }
