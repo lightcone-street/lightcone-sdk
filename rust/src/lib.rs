@@ -131,10 +131,14 @@ pub mod prelude {
         PositionsResponse, Position as ApiPosition, OutcomeBalance,
         PriceHistoryParams, PriceHistoryResponse,
         TradesParams, TradesResponse, Trade,
+        DecimalsResponse,
     };
 
     // Shared utilities (used by both API and WebSocket)
-    pub use crate::shared::{derive_orderbook_id, format_decimal, parse_decimal, Resolution};
+    pub use crate::shared::{
+        derive_orderbook_id, format_decimal, parse_decimal, scale_price_size, OrderbookDecimals,
+        Resolution, ScaledAmounts, ScalingError,
+    };
 
     // WebSocket module exports
     pub use crate::websocket::{

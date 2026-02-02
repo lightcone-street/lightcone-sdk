@@ -1,9 +1,11 @@
 //! Fluent builder for creating and signing orders.
 
+use rust_decimal::Decimal;
 use solana_sdk::{pubkey::Pubkey, signature::Keypair};
 
 use crate::program::orders::FullOrder;
 use crate::program::types::OrderSide;
+use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
 use crate::shared::SubmitOrderRequest;
 
 /// Builder for creating orders with a fluent API.
@@ -39,6 +41,8 @@ pub struct OrderBuilder {
     maker_amount: Option<u64>,
     taker_amount: Option<u64>,
     expiration: i64,
+    price_raw: Option<String>,
+    size_raw: Option<String>,
 }
 
 impl OrderBuilder {
@@ -169,6 +173,60 @@ impl OrderBuilder {
         orderbook_id: impl Into<String>,
     ) -> SubmitOrderRequest {
         self.build_and_sign(keypair).to_submit_request(orderbook_id)
+    }
+
+    // =========================================================================
+    // Auto-scaling: price/size -> maker_amount/taker_amount
+    // =========================================================================
+
+    /// Set price as a human-readable string (e.g., "0.65" quote per base).
+    pub fn price(mut self, price: &str) -> Self {
+        self.price_raw = Some(price.to_string());
+        self
+    }
+
+    /// Set size as a human-readable string (e.g., "100" base tokens).
+    pub fn size(mut self, size: &str) -> Self {
+        self.size_raw = Some(size.to_string());
+        self
+    }
+
+    /// Convert price/size strings into maker_amount/taker_amount using orderbook decimals.
+    ///
+    /// Call this after `.price()`, `.size()`, and `.bid()`/`.ask()`, then use
+    /// any existing build method (`build()`, `build_and_sign()`, `to_submit_request()`).
+    pub fn apply_scaling(mut self, decimals: &OrderbookDecimals) -> Result<Self, ScalingError> {
+        let price_str = self
+            .price_raw
+            .as_deref()
+            .expect("price() is required for apply_scaling");
+        let size_str = self
+            .size_raw
+            .as_deref()
+            .expect("size() is required for apply_scaling");
+
+        let price: Decimal = price_str.parse().map_err(|e: rust_decimal::Error| {
+            ScalingError::InvalidDecimal {
+                input: price_str.to_string(),
+                reason: e.to_string(),
+            }
+        })?;
+
+        let size: Decimal = size_str.parse().map_err(|e: rust_decimal::Error| {
+            ScalingError::InvalidDecimal {
+                input: size_str.to_string(),
+                reason: e.to_string(),
+            }
+        })?;
+
+        let side = self
+            .side
+            .expect("side is required (call .bid() or .ask()) for apply_scaling");
+
+        let scaled = scale_price_size(price, size, side, decimals)?;
+        self.maker_amount = Some(scaled.maker_amount);
+        self.taker_amount = Some(scaled.taker_amount);
+        Ok(self)
     }
 }
 

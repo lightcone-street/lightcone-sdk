@@ -4,6 +4,7 @@
 //! organized by category.
 
 pub mod admin;
+pub mod decimals;
 pub mod market;
 pub mod order;
 pub mod orderbook;
@@ -13,6 +14,7 @@ pub mod trade;
 
 // Re-export all types for convenience
 pub use admin::*;
+pub use decimals::*;
 pub use market::*;
 pub use order::*;
 pub use orderbook::*;

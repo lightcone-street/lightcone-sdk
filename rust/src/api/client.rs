@@ -24,13 +24,17 @@
 //! }
 //! ```
 
+use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use reqwest::{Client, StatusCode};
+use tokio::sync::RwLock;
 
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
 use crate::program::orders::FullOrder;
+use crate::shared::OrderbookDecimals;
 
 /// Default request timeout in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -172,6 +176,7 @@ impl LightconeApiClientBuilder {
             http_client,
             base_url: self.base_url,
             retry_config: self.retry_config,
+            decimals_cache: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 }
@@ -185,6 +190,7 @@ pub struct LightconeApiClient {
     http_client: Client,
     base_url: String,
     retry_config: RetryConfig,
+    decimals_cache: Arc<RwLock<HashMap<String, OrderbookDecimals>>>,
 }
 
 impl LightconeApiClient {
@@ -671,6 +677,58 @@ impl LightconeApiClient {
 
         let url = format!("{}/api/admin/create-orderbook", self.base_url);
         self.post(&url, &request).await
+    }
+
+    // =========================================================================
+    // Decimals / scaling helpers
+    // =========================================================================
+
+    /// Fetch and cache orderbook decimals. Cached permanently (decimals never change).
+    ///
+    /// On cache hit returns immediately. On miss, fetches from
+    /// `GET /api/orderbooks/{orderbook_id}/decimals` and caches the result.
+    pub async fn get_orderbook_decimals(
+        &self,
+        orderbook_id: &str,
+    ) -> ApiResult<OrderbookDecimals> {
+        // Fast path: read lock
+        {
+            let cache = self.decimals_cache.read().await;
+            if let Some(d) = cache.get(orderbook_id) {
+                return Ok(d.clone());
+            }
+        }
+
+        // Slow path: fetch + write lock
+        let url = format!(
+            "{}/api/orderbooks/{}/decimals",
+            self.base_url,
+            urlencoding::encode(orderbook_id)
+        );
+        let resp: DecimalsResponse = self.get(&url).await?;
+
+        let decimals = OrderbookDecimals {
+            orderbook_id: resp.orderbook_id.clone(),
+            base_decimals: resp.base_decimals,
+            quote_decimals: resp.quote_decimals,
+            price_decimals: resp.price_decimals,
+        };
+
+        let mut cache = self.decimals_cache.write().await;
+        cache.insert(orderbook_id.to_string(), decimals.clone());
+
+        Ok(decimals)
+    }
+
+    /// Pre-warm the decimals cache for multiple orderbooks.
+    ///
+    /// Fetches decimals for each orderbook that is not already cached.
+    /// Errors from individual fetches are propagated (fails on first error).
+    pub async fn prefetch_decimals(&self, orderbook_ids: &[&str]) -> ApiResult<()> {
+        for id in orderbook_ids {
+            self.get_orderbook_decimals(id).await?;
+        }
+        Ok(())
     }
 }
 

@@ -1,10 +1,12 @@
 //! Shared utilities and types used across API and WebSocket modules.
 
 pub mod price;
+pub mod scaling;
 pub mod types;
 
 // Re-export commonly used items
 pub use price::{format_decimal, parse_decimal};
+pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 pub use types::*;
 
 /// Derive orderbook ID from base and quote token pubkeys.

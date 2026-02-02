@@ -92,6 +92,10 @@ pub enum SdkError {
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),
+
+    /// Scaling error (price/size conversion)
+    #[error("Scaling error: {0}")]
+    Scaling(#[from] crate::shared::scaling::ScalingError),
 }
 
 /// Result type alias for SDK operations
