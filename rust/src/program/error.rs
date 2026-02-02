@@ -27,18 +27,6 @@ pub enum SdkError {
         actual: usize,
     },
 
-    /// Invalid order hash
-    #[error("Invalid order hash")]
-    InvalidOrderHash,
-
-    /// Invalid signature
-    #[error("Invalid signature")]
-    InvalidSignature,
-
-    /// Order expired
-    #[error("Order expired")]
-    OrderExpired,
-
     /// Invalid outcome count
     #[error("Invalid outcome count: {count} (must be {min}-{max})", min = crate::program::constants::MIN_OUTCOMES, max = crate::program::constants::MAX_OUTCOMES)]
     InvalidOutcomeCount { count: u8 },
@@ -66,24 +54,9 @@ pub enum SdkError {
     #[error("Invalid market status: {0}")]
     InvalidMarketStatus(u8),
 
-    /// Signature verification failed
-    #[error("Signature verification failed")]
-    SignatureVerificationFailed,
-
     /// Missing required field
     #[error("Missing required field: {0}")]
     MissingField(String),
-
-    /// Orders do not cross
-    #[error("Orders do not cross (prices incompatible)")]
-    OrdersDoNotCross,
-
-    /// Fill amount exceeds remaining
-    #[error("Fill amount {fill} exceeds remaining {remaining}")]
-    FillAmountExceedsRemaining {
-        fill: u64,
-        remaining: u64,
-    },
 
     /// Arithmetic overflow
     #[error("Arithmetic overflow")]
