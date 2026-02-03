@@ -39,7 +39,7 @@
 //! ```rust,ignore
 //! use lightcone_sdk::program::LightconePinocchioClient;
 //! use lightcone_sdk::shared::types::*;
-//! use solana_sdk::pubkey::Pubkey;
+//! use solana_pubkey::Pubkey;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -77,9 +77,11 @@ pub mod program;
 pub mod shared;
 
 /// REST API client module for market data, orders, and positions.
+#[cfg(feature = "api")]
 pub mod api;
 
 /// WebSocket client module for real-time data streaming.
+#[cfg(feature = "websocket")]
 pub mod websocket;
 
 // ============================================================================
@@ -96,8 +98,6 @@ pub mod prelude {
     pub use crate::program::{
         // Account types
         Exchange, Market, OrderStatus, Position, UserNonce,
-        // Client
-        LightconePinocchioClient,
         // Errors
         SdkError, SdkResult,
         // Ed25519 verification
@@ -121,7 +121,12 @@ pub mod prelude {
         PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
     };
 
+    // Client (conditionally exported)
+    #[cfg(feature = "client")]
+    pub use crate::program::LightconePinocchioClient;
+
     // API module exports
+    #[cfg(feature = "api")]
     pub use crate::api::{
         LightconeApiClient, LightconeApiClientBuilder, ApiError, ApiResult,
         // Common types
@@ -141,6 +146,7 @@ pub mod prelude {
     };
 
     // WebSocket module exports
+    #[cfg(feature = "websocket")]
     pub use crate::websocket::{
         LightconeWebSocketClient, WebSocketConfig, WebSocketError, WsResult,
         ConnectionState, WsEvent,

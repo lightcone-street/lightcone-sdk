@@ -2,19 +2,20 @@
 
 use thiserror::Error;
 
+#[cfg(feature = "client")]
+use solana_client::client_error::ClientError;
+
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
     /// RPC client error
+    #[cfg(feature = "client")]
     #[error("RPC error: {0}")]
-    Rpc(#[from] solana_client::client_error::ClientError),
+    Rpc(#[from] ClientError),
 
     /// Invalid account discriminator
     #[error("Invalid account discriminator: expected {expected}, got {actual}")]
-    InvalidDiscriminator {
-        expected: String,
-        actual: String,
-    },
+    InvalidDiscriminator { expected: String, actual: String },
 
     /// Account not found
     #[error("Account not found: {0}")]
@@ -22,10 +23,7 @@ pub enum SdkError {
 
     /// Invalid data length
     #[error("Invalid data length: expected {expected}, got {actual}")]
-    InvalidDataLength {
-        expected: usize,
-        actual: usize,
-    },
+    InvalidDataLength { expected: usize, actual: usize },
 
     /// Invalid outcome count
     #[error("Invalid outcome count: {count} (must be {min}-{max})", min = crate::program::constants::MIN_OUTCOMES, max = crate::program::constants::MAX_OUTCOMES)]
@@ -33,14 +31,17 @@ pub enum SdkError {
 
     /// Invalid outcome index
     #[error("Invalid outcome index: {index} (max {max})")]
-    InvalidOutcomeIndex {
-        index: u8,
-        max: u8,
-    },
+    InvalidOutcomeIndex { index: u8, max: u8 },
 
     /// Too many makers
     #[error("Too many makers: {count} (max {max})", max = crate::program::constants::MAX_MAKERS)]
     TooManyMakers { count: usize },
+
+    #[error("Signature verification failed")]
+    SignatureVerificationFailed,
+
+    #[error("Invalid signature")]
+    InvalidSignature,
 
     /// Serialization error
     #[error("Serialization error: {0}")]

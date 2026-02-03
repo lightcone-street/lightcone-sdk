@@ -2,7 +2,7 @@
 //!
 //! This module provides helper functions for ATA derivation, validation, and string serialization.
 
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::program::error::{SdkError, SdkResult};

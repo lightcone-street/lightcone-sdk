@@ -3,9 +3,13 @@
 //! This module provides the full and compact order structures with
 //! Keccak256 hashing and Ed25519 signing functionality.
 
-use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
+use ed25519_dalek::{Signer, SigningKey};
 use sha3::{Digest, Keccak256};
-use solana_sdk::{pubkey::Pubkey, signature::Keypair};
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+
+#[cfg(feature = "client")]
+use solana_keypair::Keypair;
 
 use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
@@ -118,6 +122,7 @@ impl FullOrder {
     }
 
     /// Sign the order with the given keypair.
+    #[cfg(feature = "client")]
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash();
         let signing_key = SigningKey::from_bytes(keypair.secret_bytes());
@@ -126,6 +131,7 @@ impl FullOrder {
     }
 
     /// Create and sign an order in one step.
+    #[cfg(feature = "client")]
     pub fn new_bid_signed(params: BidOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_bid(params);
         order.sign(keypair);
@@ -133,22 +139,32 @@ impl FullOrder {
     }
 
     /// Create and sign an ask order in one step.
+    #[cfg(feature = "client")]
     pub fn new_ask_signed(params: AskOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_ask(params);
         order.sign(keypair);
         order
     }
 
-    /// Verify the signature against the maker's pubkey.
-    pub fn verify_signature(&self) -> SdkResult<bool> {
-        let hash = self.hash();
-        let pubkey_bytes: &[u8; 32] = self.maker.as_ref().try_into()
-            .map_err(|_| SdkError::InvalidPubkey("Invalid maker pubkey".to_string()))?;
-        let verifying_key = VerifyingKey::from_bytes(pubkey_bytes)
-            .map_err(|_| SdkError::InvalidPubkey("Invalid maker pubkey".to_string()))?;
-        let signature = Signature::from_bytes(&self.signature);
+    /// Verify a hash signature against the maker's pubkey.
+    pub fn verify_signature(&self) -> SdkResult<()> {
+        let hash: [u8; 32] = self.hash();
 
-        Ok(verifying_key.verify(&hash, &signature).is_ok())
+        let sig = Signature::try_from(self.signature.as_slice())
+            .map_err(|_| SdkError::InvalidSignature)?;
+
+        if !sig.verify(self.maker.as_ref(), &hash) {
+            return Err(SdkError::SignatureVerificationFailed);
+        }
+        Ok(())
+    }
+
+    /// Apply a signature to the order.
+    pub fn apply_signature(&mut self, signature: &[u8]) -> SdkResult<()> {
+        self.signature = signature
+            .try_into()
+            .map_err(|_| SdkError::InvalidSignature)?;
+        Ok(())
     }
 
     /// Serialize to bytes (225 bytes).
@@ -231,6 +247,21 @@ impl FullOrder {
         }
     }
 
+    /// Get the signature as a hex string (128 chars).
+    pub fn signature_hex(&self) -> String {
+        hex::encode(self.signature)
+    }
+
+    /// Get the order hash as a hex string (64 chars).
+    pub fn hash_hex(&self) -> String {
+        hex::encode(self.hash())
+    }
+
+    /// Check if the order has been signed.
+    pub fn is_signed(&self) -> bool {
+        self.signature != [0u8; 64]
+    }
+
     // =========================================================================
     // API Bridge Methods
     // =========================================================================
@@ -285,21 +316,6 @@ impl FullOrder {
             &self.base_mint.to_string(),
             &self.quote_mint.to_string(),
         )
-    }
-
-    /// Get the signature as a hex string (128 chars).
-    pub fn signature_hex(&self) -> String {
-        hex::encode(self.signature)
-    }
-
-    /// Get the order hash as a hex string (64 chars).
-    pub fn hash_hex(&self) -> String {
-        hex::encode(self.hash())
-    }
-
-    /// Check if the order has been signed.
-    pub fn is_signed(&self) -> bool {
-        self.signature != [0u8; 64]
     }
 }
 
@@ -573,8 +589,8 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            maker_amount: 50,  // 50 base
-            taker_amount: 90,  // for 90 quote (price = 1.8 quote/base)
+            maker_amount: 50, // 50 base
+            taker_amount: 90, // for 90 quote (price = 1.8 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -592,8 +608,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 50,  // 50 quote
-            taker_amount: 50,  // for 50 base (price = 1 quote/base)
+            maker_amount: 50, // 50 quote
+            taker_amount: 50, // for 50 base (price = 1 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -636,9 +652,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_to_submit_request() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -700,9 +716,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_is_signed() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let mut order = FullOrder {
@@ -726,9 +742,9 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "client")]
     fn test_signature_and_hash_hex() {
-        use solana_sdk::signature::Keypair;
-        use solana_sdk::signer::Signer;
+        use solana_signer::{Keypair, Signer};
 
         let keypair = Keypair::new();
         let mut order = FullOrder {

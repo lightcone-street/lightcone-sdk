@@ -2,7 +2,7 @@
 //!
 //! This module provides all PDA derivation functions matching the on-chain program.
 
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     CONDITIONAL_MINT_SEED, EXCHANGE_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, ORDER_STATUS_SEED,

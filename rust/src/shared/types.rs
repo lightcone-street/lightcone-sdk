@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 /// This type bridges the program module (on-chain order signing) with the API module
 /// (REST order submission). Use `FullOrder::to_submit_request()` to convert a signed
 /// order to this format.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SubmitOrderRequest {
     /// Order creator's pubkey (Base58)
     pub maker: String,
@@ -47,7 +47,9 @@ pub struct SubmitOrderRequest {
 /// Price history candle resolution.
 ///
 /// Used by both REST API and WebSocket for price history queries.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum Resolution {
     /// 1 minute candles
     #[default]

@@ -5,16 +5,18 @@
 
 use solana_client::nonblocking::rpc_client::RpcClient;
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::{
-    hash::Hash,
-    pubkey::Pubkey,
-    signature::Keypair,
-    transaction::Transaction,
-};
+use solana_hash::Hash;
+use solana_pubkey::Pubkey;
+use solana_transaction::Transaction;
+
+#[cfg(feature = "client")]
+use solana_keypair::Keypair;
 
 use crate::program::accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
 use crate::program::constants::PROGRAM_ID;
-use crate::program::ed25519::{create_cross_ref_ed25519_instructions, create_order_verify_instruction};
+use crate::program::ed25519::{
+    create_cross_ref_ed25519_instructions, create_order_verify_instruction,
+};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
 use crate::program::orders::{derive_condition_id, FullOrder};
@@ -204,11 +206,7 @@ impl LightconePinocchioClient {
     }
 
     /// Build CancelOrder transaction.
-    pub async fn cancel_order(
-        &self,
-        maker: &Pubkey,
-        order: &FullOrder,
-    ) -> SdkResult<Transaction> {
+    pub async fn cancel_order(&self, maker: &Pubkey, order: &FullOrder) -> SdkResult<Transaction> {
         let ix = build_cancel_order_ix(maker, order, &self.program_id);
         Ok(Transaction::new_with_payer(&[ix], Some(maker)))
     }
@@ -236,11 +234,7 @@ impl LightconePinocchioClient {
     }
 
     /// Build SetPaused transaction.
-    pub async fn set_paused(
-        &self,
-        authority: &Pubkey,
-        paused: bool,
-    ) -> SdkResult<Transaction> {
+    pub async fn set_paused(&self, authority: &Pubkey, paused: bool) -> SdkResult<Transaction> {
         let ix = build_set_paused_ix(authority, paused, &self.program_id);
         Ok(Transaction::new_with_payer(&[ix], Some(authority)))
     }
@@ -351,11 +345,13 @@ impl LightconePinocchioClient {
     }
 
     /// Create and sign a bid order.
+    #[cfg(feature = "client")]
     pub fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> FullOrder {
         FullOrder::new_bid_signed(params, keypair)
     }
 
     /// Create and sign an ask order.
+    #[cfg(feature = "client")]
     pub fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> FullOrder {
         FullOrder::new_ask_signed(params, keypair)
     }
@@ -366,6 +362,7 @@ impl LightconePinocchioClient {
     }
 
     /// Sign an order with the given keypair.
+    #[cfg(feature = "client")]
     pub fn sign_order(&self, order: &mut FullOrder, keypair: &Keypair) {
         order.sign(keypair);
     }

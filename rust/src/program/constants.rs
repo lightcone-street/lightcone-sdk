@@ -3,7 +3,7 @@
 //! This module contains all program IDs, seeds, discriminators, and size constants
 //! matching the on-chain program exactly.
 
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 use std::str::FromStr;
 
 // ============================================================================

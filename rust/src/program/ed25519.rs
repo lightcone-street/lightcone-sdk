@@ -7,10 +7,8 @@
 //! 2. **Batch Verification** - One instruction for multiple signatures (more efficient)
 //! 3. **Cross-Instruction References** - References data in match instruction (most efficient)
 
-use solana_sdk::{
-    instruction::Instruction,
-    pubkey::Pubkey,
-};
+use solana_instruction::Instruction;
+use solana_pubkey::Pubkey;
 
 use crate::program::constants::ED25519_PROGRAM_ID;
 use crate::program::orders::FullOrder;

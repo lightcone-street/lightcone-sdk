@@ -3,7 +3,7 @@
 //! This module contains enums, parameter structs, and other type definitions
 //! used for on-chain program interaction.
 
-use solana_sdk::pubkey::Pubkey;
+use solana_pubkey::Pubkey;
 
 use crate::program::error::SdkError;
 

@@ -75,7 +75,10 @@ async fn airdrop_if_needed(client: &RpcClient, pubkey: &Pubkey, min_balance: u64
             }
         }
     } else {
-        println!("   Balance: {} SOL", balance as f64 / LAMPORTS_PER_SOL as f64);
+        println!(
+            "   Balance: {} SOL",
+            balance as f64 / LAMPORTS_PER_SOL as f64
+        );
         true
     }
 }
@@ -86,7 +89,10 @@ async fn sign_and_send(
     mut tx: Transaction,
     signers: &[&Keypair],
 ) -> Result<solana_sdk::signature::Signature, String> {
-    let blockhash = rpc.get_latest_blockhash().await.map_err(|e| e.to_string())?;
+    let blockhash = rpc
+        .get_latest_blockhash()
+        .await
+        .map_err(|e| e.to_string())?;
     tx.sign(signers, blockhash);
     rpc.send_and_confirm_transaction(&tx)
         .await
@@ -379,8 +385,12 @@ async fn test_full_devnet_flow() {
         &TOKEN_2022_PROGRAM_ID,
     );
     let blockhash = rpc.get_latest_blockhash().await.unwrap();
-    let create_ata_tx =
-        Transaction::new_signed_with_payer(&[create_ata_ix], Some(&authority.pubkey()), &[&authority], blockhash);
+    let create_ata_tx = Transaction::new_signed_with_payer(
+        &[create_ata_ix],
+        Some(&authority.pubkey()),
+        &[&authority],
+        blockhash,
+    );
     let _ = rpc.send_and_confirm_transaction(&create_ata_tx).await;
     println!(
         "   User2 Personal Conditional ATA: {}",
@@ -796,11 +806,16 @@ async fn create_and_fund_token_account(
     let ata = spl_associated_token_account::get_associated_token_address(owner, mint);
 
     // Create ATA
-    let create_ata_ix = create_associated_token_account(&payer.pubkey(), owner, mint, &spl_token::id());
+    let create_ata_ix =
+        create_associated_token_account(&payer.pubkey(), owner, mint, &spl_token::id());
 
     let blockhash = rpc.get_latest_blockhash().await.unwrap();
-    let tx =
-        Transaction::new_signed_with_payer(&[create_ata_ix], Some(&payer.pubkey()), &[payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &[create_ata_ix],
+        Some(&payer.pubkey()),
+        &[payer],
+        blockhash,
+    );
     let _ = rpc.send_and_confirm_transaction(&tx).await;
 
     // Mint tokens
