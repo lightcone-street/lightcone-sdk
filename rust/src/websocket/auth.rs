@@ -13,9 +13,10 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use ed25519_dalek::{Signer, SigningKey};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use solana_keypair::Keypair;
+use solana_signer::Signer;
 
 use crate::websocket::error::{WebSocketError, WsResult};
 
@@ -109,28 +110,28 @@ pub fn generate_signin_message_with_timestamp(timestamp_ms: u128) -> String {
 /// # Example
 ///
 /// ```ignore
-/// use ed25519_dalek::SigningKey;
+/// use solana_keypair::Keypair;
 /// use lightcone_sdk::websocket::auth::authenticate;
 ///
-/// let signing_key = SigningKey::from_bytes(&secret_key_bytes);
-/// let credentials = authenticate(&signing_key).await?;
+/// let keypair = Keypair::from_bytes(&keypair_bytes).unwrap();
+/// let credentials = authenticate(&keypair).await?;
 /// println!("Auth token: {}", credentials.auth_token);
 /// ```
-pub async fn authenticate(signing_key: &SigningKey) -> WsResult<AuthCredentials> {
+pub async fn authenticate(keypair: &Keypair) -> WsResult<AuthCredentials> {
     // Generate the message
     let message = generate_signin_message()?;
 
     // Sign the message
-    let signature = signing_key.sign(message.as_bytes());
-    let signature_b58 = bs58::encode(signature.to_bytes()).into_string();
+    let signature = keypair.sign_message(message.as_bytes());
+    let signature_b58 = bs58::encode(signature.as_ref()).into_string();
 
     // Get the public key
-    let public_key = signing_key.verifying_key();
-    let public_key_b58 = bs58::encode(public_key.to_bytes()).into_string();
+    let public_key = keypair.pubkey();
+    let public_key_b58 = public_key.to_string();
 
     // Create the request body
     let request = LoginRequest {
-        pubkey_bytes: public_key.to_bytes().to_vec(),
+        pubkey_bytes: public_key.as_ref().to_vec(),
         message,
         signature_bs58: signature_b58,
     };

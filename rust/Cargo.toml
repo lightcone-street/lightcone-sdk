@@ -1,6 +1,6 @@
 [package]
 name = "lightcone-sdk"
-version = "0.1.6"
+version = "0.1.7"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protcol"
 license = "MIT"
@@ -21,13 +21,13 @@ solana-system-interface = { version = "3.0", default-features = false, features 
 solana-client = { version = "3.1", optional = true }
 solana-commitment-config = { version = "3.1", optional = true }
 solana-keypair = { version = "3.0", optional = true }
+solana-signer = { version = "3.0", optional = true }
 
 # Async (non-WASM, optional)
 # When enabled, includes time, net, sync features needed by api/websocket/client
 tokio = { version = "1.49", default-features = false, features = ["time", "net", "sync"], optional = true }
 
 # Crypto (WASM-compatible)
-ed25519-dalek = { version = "2.2", features = ["std"] }
 sha3 = "0.10"
 
 # SPL - v9/v10 for solana-sdk 3.x compatibility (WASM-compatible)
@@ -69,9 +69,9 @@ serde_json = "1.0"
 [features]
 default = ["full"]
 full = ["client", "api", "websocket"]
-client = ["dep:solana-client", "dep:solana-commitment-config", "dep:solana-keypair", "dep:tokio"]
+client = ["dep:solana-client", "dep:solana-commitment-config", "dep:solana-keypair", "dep:solana-signer", "dep:tokio"]
 api = ["dep:reqwest", "dep:tokio"]
-websocket = ["dep:tokio-tungstenite", "dep:tokio"]
+websocket = ["dep:tokio-tungstenite", "dep:tokio", "dep:solana-keypair", "dep:solana-signer"]
 # Marker feature for WASM builds - enables nothing extra, just indicates WASM compatibility
 wasm = []
 live_tests = []

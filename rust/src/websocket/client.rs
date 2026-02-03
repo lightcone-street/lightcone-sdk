@@ -21,7 +21,7 @@ use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
-use ed25519_dalek::SigningKey;
+use solana_keypair::Keypair;
 
 use crate::websocket::auth::{authenticate, AuthCredentials};
 
@@ -172,34 +172,34 @@ impl LightconeWebSocketClient {
     /// Connect to the default Lightcone WebSocket server with authentication.
     ///
     /// This method:
-    /// 1. Authenticates with the Lightcone API using the provided signing key
+    /// 1. Authenticates with the Lightcone API using the provided keypair
     /// 2. Obtains an auth token
     /// 3. Connects to the WebSocket server with the auth token
     ///
     /// # Arguments
     ///
-    /// * `signing_key` - The Ed25519 signing key for authentication
+    /// * `keypair` - The Solana keypair for authentication
     ///
     /// # Example
     ///
     /// ```ignore
-    /// use ed25519_dalek::SigningKey;
+    /// use solana_keypair::Keypair;
     ///
-    /// let signing_key = SigningKey::from_bytes(&secret_key_bytes);
-    /// let client = LightconeWebSocketClient::connect_authenticated(&signing_key).await?;
+    /// let keypair = Keypair::from_bytes(&keypair_bytes).unwrap();
+    /// let client = LightconeWebSocketClient::connect_authenticated(&keypair).await?;
     /// client.subscribe_user(pubkey.to_string()).await?;
     /// ```
-    pub async fn connect_authenticated(signing_key: &SigningKey) -> WsResult<Self> {
-        Self::connect_authenticated_with_config(signing_key, WebSocketConfig::default()).await
+    pub async fn connect_authenticated(keypair: &Keypair) -> WsResult<Self> {
+        Self::connect_authenticated_with_config(keypair, WebSocketConfig::default()).await
     }
 
     /// Connect to the default Lightcone WebSocket server with authentication and custom config.
     pub async fn connect_authenticated_with_config(
-        signing_key: &SigningKey,
+        keypair: &Keypair,
         mut config: WebSocketConfig,
     ) -> WsResult<Self> {
         // Authenticate and get credentials
-        let credentials = authenticate(signing_key).await?;
+        let credentials = authenticate(keypair).await?;
         config.auth_token = Some(credentials.auth_token.clone());
 
         Self::connect_with_config_and_credentials(

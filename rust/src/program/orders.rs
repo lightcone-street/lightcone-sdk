@@ -3,13 +3,14 @@
 //! This module provides the full and compact order structures with
 //! Keccak256 hashing and Ed25519 signing functionality.
 
-use ed25519_dalek::{Signer, SigningKey};
 use sha3::{Digest, Keccak256};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
 #[cfg(feature = "client")]
 use solana_keypair::Keypair;
+#[cfg(feature = "client")]
+use solana_signer::Signer;
 
 use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
@@ -125,9 +126,8 @@ impl FullOrder {
     #[cfg(feature = "client")]
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash();
-        let signing_key = SigningKey::from_bytes(keypair.secret_bytes());
-        let signature = signing_key.sign(&hash);
-        self.signature = signature.to_bytes();
+        let sig = keypair.sign_message(&hash);
+        self.signature.copy_from_slice(sig.as_ref());
     }
 
     /// Create and sign an order in one step.
@@ -654,7 +654,8 @@ mod tests {
     #[test]
     #[cfg(feature = "client")]
     fn test_to_submit_request() {
-        use solana_signer::{Keypair, Signer};
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
 
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -718,7 +719,8 @@ mod tests {
     #[test]
     #[cfg(feature = "client")]
     fn test_is_signed() {
-        use solana_signer::{Keypair, Signer};
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
 
         let keypair = Keypair::new();
         let mut order = FullOrder {
@@ -744,7 +746,8 @@ mod tests {
     #[test]
     #[cfg(feature = "client")]
     fn test_signature_and_hash_hex() {
-        use solana_signer::{Keypair, Signer};
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
 
         let keypair = Keypair::new();
         let mut order = FullOrder {

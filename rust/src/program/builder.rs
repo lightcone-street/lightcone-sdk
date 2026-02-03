@@ -241,7 +241,7 @@ impl OrderBuilder {
 mod tests {
     use super::*;
     #[cfg(feature = "client")]
-    use solana_sdk::signer::Signer;
+    use solana_signer::Signer;
 
     #[test]
     #[cfg(feature = "client")]
