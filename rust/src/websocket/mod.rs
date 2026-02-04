@@ -93,7 +93,6 @@
 //! ).await?;
 //! ```
 
-pub mod auth;
 pub mod client;
 pub mod error;
 pub mod handlers;
@@ -101,8 +100,8 @@ pub mod state;
 pub mod subscriptions;
 pub mod types;
 
-// Re-export main types
-pub use auth::{
+// Re-export auth types from top-level auth module
+pub use crate::auth::{
     authenticate, generate_signin_message, AuthCredentials, AuthError, AuthResult, AUTH_API_URL,
 };
 pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig, DEFAULT_WS_URL};
