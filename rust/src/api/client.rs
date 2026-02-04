@@ -225,7 +225,25 @@ impl LightconeApiClient {
         &self.base_url
     }
 
-    /// Set the authentication token for authenticated endpoints.
+    /// Authenticate with Lightcone using a Solana keypair.
+    ///
+    /// Calls the `/auth/login_or_register_with_message` endpoint, stores the
+    /// returned JWT so that authenticated endpoints like `get_user_orders` work.
+    ///
+    /// Returns the full [`AuthCredentials`](crate::auth::AuthCredentials) (token, user_id, expiry).
+    #[cfg(feature = "auth")]
+    pub async fn login(
+        &mut self,
+        keypair: &solana_keypair::Keypair,
+    ) -> ApiResult<crate::auth::AuthCredentials> {
+        let credentials = crate::auth::authenticate(keypair)
+            .await
+            .map_err(|e| ApiError::InvalidParameter(e.to_string()))?;
+        self.auth_token = Some(credentials.auth_token.clone());
+        Ok(credentials)
+    }
+
+    /// Set the authentication token manually.
     pub fn set_auth_token(&mut self, token: impl Into<String>) {
         self.auth_token = Some(token.into());
     }
