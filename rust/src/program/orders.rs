@@ -62,6 +62,9 @@ impl FullOrder {
     /// Order size in bytes
     pub const LEN: usize = FULL_ORDER_SIZE;
 
+    /// Size of the signed portion of the order (for hashing)
+    pub const HASH_SIZE: usize = 161;
+
     /// Create a new bid order (maker buys base, gives quote)
     pub fn new_bid(params: BidOrderParams) -> Self {
         Self {
@@ -94,39 +97,40 @@ impl FullOrder {
         }
     }
 
-    /// Compute the Keccak256 hash of the order (excludes signature).
-    ///
-    /// Hash layout (161 bytes):
-    /// - nonce (8)
-    /// - maker (32)
-    /// - market (32)
-    /// - base_mint (32)
-    /// - quote_mint (32)
-    /// - side (1)
-    /// - maker_amount (8)
-    /// - taker_amount (8)
-    /// - expiration (8)
+    /// Build the raw 161-byte order message from the signed fields.
+    /// This is hashed (keccak256) and hex-encoded to produce the bytes that users sign.
+    fn signing_message(&self) -> [u8; Self::HASH_SIZE] {
+        let mut data = [0u8; Self::HASH_SIZE];
+
+        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
+        data[8..40].copy_from_slice(self.maker.as_ref());
+        data[40..72].copy_from_slice(self.market.as_ref());
+        data[72..104].copy_from_slice(self.base_mint.as_ref());
+        data[104..136].copy_from_slice(self.quote_mint.as_ref());
+        data[136] = self.side as u8;
+        data[137..145].copy_from_slice(&self.maker_amount.to_le_bytes());
+        data[145..153].copy_from_slice(&self.taker_amount.to_le_bytes());
+        data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
+
+        data
+    }
+
+    /// Compute the 32-byte Keccak256 hash of the signed fields.
     pub fn hash(&self) -> [u8; 32] {
-        let mut hasher = Keccak256::new();
+        Keccak256::digest(&self.signing_message()).into()
+    }
 
-        hasher.update(self.nonce.to_le_bytes());
-        hasher.update(self.maker.as_ref());
-        hasher.update(self.market.as_ref());
-        hasher.update(self.base_mint.as_ref());
-        hasher.update(self.quote_mint.as_ref());
-        hasher.update([self.side as u8]);
-        hasher.update(self.maker_amount.to_le_bytes());
-        hasher.update(self.taker_amount.to_le_bytes());
-        hasher.update(self.expiration.to_le_bytes());
-
-        hasher.finalize().into()
+    /// Compute the order hash as a hex string.
+    pub fn hash_hex(&self) -> String {
+        hex::encode(self.hash())
     }
 
     /// Sign the order with the given keypair.
     #[cfg(feature = "client")]
     pub fn sign(&mut self, keypair: &Keypair) {
-        let hash = self.hash();
-        let sig = keypair.sign_message(&hash);
+        let hash = self.hash_hex();
+        let sig = keypair.sign_message(hash.as_bytes());
+
         self.signature.copy_from_slice(sig.as_ref());
     }
 
@@ -146,21 +150,25 @@ impl FullOrder {
         order
     }
 
-    /// Verify a hash signature against the maker's pubkey.
+    /// Verify the Ed25519 signature over hex(keccak256(order_message)).
+    /// The signed payload is a 64-char ASCII hex string (UTF-8 safe for wallet compatibility).
     pub fn verify_signature(&self) -> SdkResult<()> {
-        let hash: [u8; 32] = self.hash();
-
+        let hash_hex = self.hash_hex();
         let sig = Signature::try_from(self.signature.as_slice())
             .map_err(|_| SdkError::InvalidSignature)?;
 
-        if !sig.verify(self.maker.as_ref(), &hash) {
+        if !sig.verify(self.maker.as_ref(), hash_hex.as_bytes()) {
             return Err(SdkError::SignatureVerificationFailed);
         }
         Ok(())
     }
 
     /// Apply a signature to the order.
-    pub fn apply_signature(&mut self, signature: &[u8]) -> SdkResult<()> {
+    pub fn apply_signature(&mut self, sig_bs58: String) -> SdkResult<()> {
+        let signature = sig_bs58
+            .parse::<Signature>()
+            .map_err(|_| SdkError::InvalidSignature)?;
+
         self.signature = signature
             .try_into()
             .map_err(|_| SdkError::InvalidSignature)?;
@@ -250,11 +258,6 @@ impl FullOrder {
     /// Get the signature as a hex string (128 chars).
     pub fn signature_hex(&self) -> String {
         hex::encode(self.signature)
-    }
-
-    /// Get the order hash as a hex string (64 chars).
-    pub fn hash_hex(&self) -> String {
-        hex::encode(self.hash())
     }
 
     /// Check if the order has been signed.
