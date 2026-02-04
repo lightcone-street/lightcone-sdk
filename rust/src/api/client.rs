@@ -102,6 +102,7 @@ pub struct LightconeApiClientBuilder {
     timeout: Duration,
     default_headers: Vec<(String, String)>,
     retry_config: RetryConfig,
+    auth_token: Option<String>,
 }
 
 impl LightconeApiClientBuilder {
@@ -112,6 +113,7 @@ impl LightconeApiClientBuilder {
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
             default_headers: Vec::new(),
             retry_config: RetryConfig::default(),
+            auth_token: None,
         }
     }
 
@@ -140,6 +142,12 @@ impl LightconeApiClientBuilder {
     /// * `config` - Retry configuration (use `RetryConfig::new(3)` for 3 retries with defaults)
     pub fn with_retry(mut self, config: RetryConfig) -> Self {
         self.retry_config = config;
+        self
+    }
+
+    /// Set the authentication token for authenticated endpoints (e.g. `get_user_orders`).
+    pub fn auth_token(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = Some(token.into());
         self
     }
 
@@ -177,6 +185,7 @@ impl LightconeApiClientBuilder {
             base_url: self.base_url,
             retry_config: self.retry_config,
             decimals_cache: Arc::new(RwLock::new(HashMap::new())),
+            auth_token: self.auth_token,
         })
     }
 }
@@ -191,6 +200,7 @@ pub struct LightconeApiClient {
     base_url: String,
     retry_config: RetryConfig,
     decimals_cache: Arc<RwLock<HashMap<String, OrderbookDecimals>>>,
+    auth_token: Option<String>,
 }
 
 impl LightconeApiClient {
@@ -213,6 +223,21 @@ impl LightconeApiClient {
     /// Get the base URL.
     pub fn base_url(&self) -> &str {
         &self.base_url
+    }
+
+    /// Set the authentication token for authenticated endpoints.
+    pub fn set_auth_token(&mut self, token: impl Into<String>) {
+        self.auth_token = Some(token.into());
+    }
+
+    /// Clear the authentication token.
+    pub fn clear_auth_token(&mut self) {
+        self.auth_token = None;
+    }
+
+    /// Check whether an authentication token is set.
+    pub fn has_auth_token(&self) -> bool {
+        self.auth_token.is_some()
     }
 
     // =========================================================================
@@ -567,14 +592,46 @@ impl LightconeApiClient {
     }
 
     /// Get all open orders and balances for a user.
-    pub async fn get_user_orders(&self, user_pubkey: &str) -> ApiResult<UserOrdersResponse> {
-        Self::validate_base58(user_pubkey, "user_pubkey")?;
+    ///
+    /// Requires an auth token to be set via [`set_auth_token`] or [`LightconeApiClientBuilder::auth_token`].
+    ///
+    /// # Arguments
+    ///
+    /// * `wallet_address` - The user's wallet address (Base58)
+    /// * `cursor` - Optional pagination cursor from a previous response's `next_cursor`
+    /// * `limit` - Optional page size limit
+    pub async fn get_user_orders(
+        &self,
+        wallet_address: &str,
+        cursor: Option<&str>,
+        limit: Option<u32>,
+    ) -> ApiResult<UserOrdersResponse> {
+        let token = self
+            .auth_token
+            .as_deref()
+            .ok_or(ApiError::AuthenticationRequired)?;
 
-        let url = format!("{}/api/users/orders", self.base_url);
-        let request = GetUserOrdersRequest {
-            user_pubkey: user_pubkey.to_string(),
-        };
-        self.post(&url, &request).await
+        Self::validate_base58(wallet_address, "wallet_address")?;
+
+        let mut url = format!(
+            "{}/api/users/orders?wallet_address={}",
+            self.base_url,
+            urlencoding::encode(wallet_address)
+        );
+        if let Some(c) = cursor {
+            url.push_str(&format!("&cursor={}", urlencoding::encode(c)));
+        }
+        if let Some(l) = limit {
+            url.push_str(&format!("&limit={}", l));
+        }
+
+        self.execute_with_retry(|| {
+            self.http_client
+                .post(&url)
+                .header("Cookie", format!("auth_token={}", token))
+                .send()
+        })
+        .await
     }
 
     // =========================================================================

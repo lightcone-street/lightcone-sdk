@@ -20,7 +20,7 @@
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     // Create API client
-//!     let api = LightconeApiClient::new("https://api.lightcone.io");
+//!     let api = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
 //!     // Get all markets
 //!     let markets = api.get_markets().await?;
@@ -75,6 +75,10 @@ pub mod program;
 /// Shared utilities, types, and constants.
 /// Used across all SDK modules.
 pub mod shared;
+
+/// Authentication module for obtaining JWT tokens.
+/// Types are always available; `authenticate()` requires the `auth` feature.
+pub mod auth;
 
 /// REST API client module for market data, orders, and positions.
 #[cfg(feature = "api")]
@@ -138,6 +142,11 @@ pub mod prelude {
         TradesParams, TradesResponse, Trade,
         DecimalsResponse,
     };
+
+    // Auth module exports
+    pub use crate::auth::{AuthCredentials, AuthError, AuthResult};
+    #[cfg(feature = "auth")]
+    pub use crate::auth::authenticate;
 
     // Shared utilities (used by both API and WebSocket)
     pub use crate::shared::{

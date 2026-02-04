@@ -123,6 +123,18 @@ impl From<reqwest::Error> for WebSocketError {
     }
 }
 
+impl From<crate::auth::AuthError> for WebSocketError {
+    fn from(err: crate::auth::AuthError) -> Self {
+        match err {
+            crate::auth::AuthError::SystemTime(msg) => WebSocketError::Protocol(msg),
+            crate::auth::AuthError::HttpError(msg) => WebSocketError::HttpError(msg),
+            crate::auth::AuthError::AuthenticationFailed(msg) => {
+                WebSocketError::AuthenticationFailed(msg)
+            }
+        }
+    }
+}
+
 impl<T> From<tokio::sync::mpsc::error::SendError<T>> for WebSocketError {
     fn from(_: tokio::sync::mpsc::error::SendError<T>) -> Self {
         WebSocketError::ChannelClosed

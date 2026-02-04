@@ -23,7 +23,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use solana_keypair::Keypair;
 
-use crate::websocket::auth::{authenticate, AuthCredentials};
+use crate::auth::{authenticate, AuthCredentials};
 
 use crate::websocket::error::{WebSocketError, WsResult};
 use crate::websocket::handlers::MessageHandler;

@@ -102,7 +102,9 @@ pub mod subscriptions;
 pub mod types;
 
 // Re-export main types
-pub use auth::{authenticate, generate_signin_message, AuthCredentials, AUTH_API_URL};
+pub use auth::{
+    authenticate, generate_signin_message, AuthCredentials, AuthError, AuthResult, AUTH_API_URL,
+};
 pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig, DEFAULT_WS_URL};
 pub use error::{WebSocketError, WsResult};
 pub use state::{LocalOrderbook, PriceHistory, UserState};

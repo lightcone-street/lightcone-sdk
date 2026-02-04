@@ -166,13 +166,6 @@ pub struct UserOrder {
     pub expiration: i64,
 }
 
-/// Request for POST /api/users/orders.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetUserOrdersRequest {
-    /// User's public key (Base58)
-    pub user_pubkey: String,
-}
-
 /// Outcome balance in user orders response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrderOutcomeBalance {
@@ -206,4 +199,7 @@ pub struct UserOrdersResponse {
     pub orders: Vec<UserOrder>,
     /// User balances
     pub balances: Vec<UserBalance>,
+    /// Cursor for next page (None when no more results)
+    #[serde(default)]
+    pub next_cursor: Option<String>,
 }
