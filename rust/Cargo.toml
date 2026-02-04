@@ -1,6 +1,6 @@
 [package]
 name = "lightcone-sdk"
-version = "0.1.7"
+version = "0.1.8"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protcol"
 license = "MIT"
@@ -71,7 +71,8 @@ default = ["full"]
 full = ["client", "api", "websocket"]
 client = ["dep:solana-client", "dep:solana-commitment-config", "dep:solana-keypair", "dep:solana-signer", "dep:tokio"]
 api = ["dep:reqwest", "dep:tokio"]
-websocket = ["dep:tokio-tungstenite", "dep:tokio", "dep:solana-keypair", "dep:solana-signer"]
+auth = ["dep:solana-keypair", "dep:solana-signer", "dep:reqwest", "dep:tokio"]
+websocket = ["auth", "dep:tokio-tungstenite", "dep:tokio", "dep:solana-keypair", "dep:solana-signer"]
 # Marker feature for WASM builds - enables nothing extra, just indicates WASM compatibility
 wasm = []
 live_tests = []

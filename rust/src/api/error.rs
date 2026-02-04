@@ -46,6 +46,10 @@ pub enum ApiError {
     #[error("Invalid parameter: {0}")]
     InvalidParameter(String),
 
+    /// Authentication required: call set_auth_token() or use builder().auth_token()
+    #[error("Authentication required: call set_auth_token() or use builder().auth_token()")]
+    AuthenticationRequired,
+
     /// Unexpected HTTP status code
     #[error("Unexpected status {0}: {1}")]
     UnexpectedStatus(u16, ErrorResponse),

@@ -14,6 +14,7 @@ let client = LightconeApiClient::builder("https://api.lightcone.xyz")
     .timeout(Duration::from_secs(60))
     .timeout_secs(60)  // Alternative
     .header("X-Custom-Header", "value")
+    .auth_token("jwt_token_here")  // For authenticated endpoints
     .build()?;
 ```
 
@@ -22,6 +23,7 @@ let client = LightconeApiClient::builder("https://api.lightcone.xyz")
 | `base_url` | Required | API base URL |
 | `timeout` | 30 seconds | Request timeout |
 | `default_headers` | Content-Type, Accept: application/json | Custom headers |
+| `auth_token` | None | JWT token for authenticated endpoints (e.g. `get_user_orders`) |
 
 ### Direct Creation
 
@@ -152,11 +154,20 @@ let response = client.get_user_market_positions("user_pubkey", "market_pubkey").
 
 #### get_user_orders
 
-Returns user's open orders.
+Returns user's open orders. Requires an auth token (set via `auth_token()` on the builder
+or `set_auth_token()` on the client).
 
 ```rust
-let response = client.get_user_orders("user_pubkey").await?;
+// Set auth token (obtain via lightcone_sdk::auth::authenticate)
+client.set_auth_token("jwt_token");
+
+// Basic call
+let response = client.get_user_orders("wallet_address", None, None).await?;
 // response.orders: Vec<UserOrder>
+
+// With pagination
+let response = client.get_user_orders("wallet_address", Some("cursor"), Some(50)).await?;
+// response.next_cursor: Option<String>
 ```
 
 ### Trades
@@ -470,6 +481,7 @@ pub enum OrderStatus {
 | `user_pubkey` | String | User public key |
 | `orders` | Vec\<UserOrder\> | User's open orders |
 | `balances` | Vec\<UserBalance\> | User's balances |
+| `next_cursor` | Option\<String\> | Cursor for next page (None when no more results) |
 
 ### UserOrder
 
@@ -587,6 +599,7 @@ match client.get_market("invalid").await {
     Err(ApiError::RateLimited(resp)) => println!("Rate limited: {}", resp),
     Err(ApiError::Conflict(resp)) => println!("Conflict: {}", resp),
     Err(ApiError::ServerError(resp)) => println!("Server error: {}", resp),
+    Err(ApiError::AuthenticationRequired) => println!("Auth token required"),
     Err(ApiError::Http(e)) => println!("Network error: {}", e),
     Err(ApiError::Deserialize(msg)) => println!("Parse error: {}", msg),
     Err(ApiError::InvalidParameter(msg)) => println!("Invalid param: {}", msg),
@@ -608,6 +621,7 @@ match client.get_market("invalid").await {
 | `RateLimited(ErrorResponse)` | 429 | Rate limit exceeded |
 | `Conflict(ErrorResponse)` | 409 | Resource conflict |
 | `ServerError(ErrorResponse)` | 5xx | Server error |
+| `AuthenticationRequired` | - | No auth token set (call `set_auth_token()`) |
 | `Deserialize(String)` | - | JSON parsing error |
 | `InvalidParameter(String)` | - | Client-side validation |
 | `UnexpectedStatus(u16, ErrorResponse)` | Other | Unexpected HTTP status |
