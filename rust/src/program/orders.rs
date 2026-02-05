@@ -1,6 +1,6 @@
 //! Order types, serialization, hashing, and signing.
 //!
-//! This module provides the full and compact order structures with
+//! This module provides the signed and compact order structures with
 //! Keccak256 hashing and Ed25519 signing functionality.
 
 use sha3::{Digest, Keccak256};
@@ -12,16 +12,16 @@ use solana_keypair::Keypair;
 #[cfg(feature = "client")]
 use solana_signer::Signer;
 
-use crate::program::constants::{COMPACT_ORDER_SIZE, FULL_ORDER_SIZE};
+use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
 use crate::shared::SubmitOrderRequest;
 
 // ============================================================================
-// Full Order (225 bytes)
+// Signed Order (225 bytes)
 // ============================================================================
 
-/// Full order structure with signature.
+/// Signed order structure with full context and signature.
 ///
 /// Layout (225 bytes):
 /// - [0..8]     nonce (8 bytes)
@@ -35,7 +35,7 @@ use crate::shared::SubmitOrderRequest;
 /// - [153..161] expiration (8 bytes)
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
-pub struct FullOrder {
+pub struct SignedOrder {
     /// Unique order ID and replay protection
     pub nonce: u64,
     /// Order maker's pubkey
@@ -58,9 +58,9 @@ pub struct FullOrder {
     pub signature: [u8; 64],
 }
 
-impl FullOrder {
+impl SignedOrder {
     /// Order size in bytes
-    pub const LEN: usize = FULL_ORDER_SIZE;
+    pub const LEN: usize = SIGNED_ORDER_SIZE;
 
     /// Size of the signed portion of the order (for hashing)
     pub const HASH_SIZE: usize = 161;
@@ -176,8 +176,8 @@ impl FullOrder {
     }
 
     /// Serialize to bytes (225 bytes).
-    pub fn serialize(&self) -> [u8; FULL_ORDER_SIZE] {
-        let mut data = [0u8; FULL_ORDER_SIZE];
+    pub fn serialize(&self) -> [u8; SIGNED_ORDER_SIZE] {
+        let mut data = [0u8; SIGNED_ORDER_SIZE];
 
         data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
         data[8..40].copy_from_slice(self.maker.as_ref());
@@ -195,9 +195,9 @@ impl FullOrder {
 
     /// Deserialize from bytes.
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < FULL_ORDER_SIZE {
+        if data.len() < SIGNED_ORDER_SIZE {
             return Err(SdkError::InvalidDataLength {
-                expected: FULL_ORDER_SIZE,
+                expected: SIGNED_ORDER_SIZE,
                 actual: data.len(),
             });
         }
@@ -243,11 +243,10 @@ impl FullOrder {
         })
     }
 
-    /// Convert to compact order format.
-    pub fn to_compact(&self) -> CompactOrder {
-        CompactOrder {
-            nonce: self.nonce,
-            maker: self.maker,
+    /// Convert to compact order format (29 bytes, no maker field).
+    pub fn to_order(&self) -> Order {
+        Order {
+            nonce: self.nonce as u32,
             side: self.side,
             maker_amount: self.maker_amount,
             taker_amount: self.taker_amount,
@@ -280,16 +279,6 @@ impl FullOrder {
     /// # Panics
     ///
     /// Panics if the order has not been signed (signature is all zeros).
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let mut order = FullOrder::new_bid(params);
-    /// order.sign(&keypair);
-    ///
-    /// let request = order.to_submit_request(order.derive_orderbook_id());
-    /// let response = api_client.submit_order(request).await?;
-    /// ```
     pub fn to_submit_request(&self, orderbook_id: impl Into<String>) -> SubmitOrderRequest {
         assert!(
             self.signature != [0u8; 64],
@@ -323,26 +312,23 @@ impl FullOrder {
 }
 
 // ============================================================================
-// Compact Order (65 bytes)
+// Order (29 bytes)
 // ============================================================================
 
-/// Compact order format for transaction size optimization.
+/// Compact order format for on-chain transaction data.
 ///
-/// Excludes market, base_mint, quote_mint which are passed via accounts.
+/// No `maker` field (derived from Position PDA on-chain).
 ///
-/// Layout (65 bytes):
-/// - [0..8]   nonce (8 bytes)
-/// - [8..40]  maker (32 bytes)
-/// - [40]     side (1 byte)
-/// - [41..49] maker_amount (8 bytes)
-/// - [49..57] taker_amount (8 bytes)
-/// - [57..65] expiration (8 bytes)
+/// Layout (29 bytes):
+/// - [0..4]   nonce (4 bytes, u32)
+/// - [4]      side (1 byte)
+/// - [5..13]  maker_amount (8 bytes)
+/// - [13..21] taker_amount (8 bytes)
+/// - [21..29] expiration (8 bytes)
 #[derive(Debug, Clone)]
-pub struct CompactOrder {
-    /// Unique order ID and replay protection
-    pub nonce: u64,
-    /// Order maker's pubkey
-    pub maker: Pubkey,
+pub struct Order {
+    /// Unique order ID and replay protection (truncated to u32)
+    pub nonce: u32,
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
     /// Amount maker gives
@@ -353,69 +339,66 @@ pub struct CompactOrder {
     pub expiration: i64,
 }
 
-impl CompactOrder {
+impl Order {
     /// Order size in bytes
-    pub const LEN: usize = COMPACT_ORDER_SIZE;
+    pub const LEN: usize = ORDER_SIZE;
 
-    /// Serialize to bytes (65 bytes).
-    pub fn serialize(&self) -> [u8; COMPACT_ORDER_SIZE] {
-        let mut data = [0u8; COMPACT_ORDER_SIZE];
+    /// Serialize to bytes (29 bytes).
+    pub fn serialize(&self) -> [u8; ORDER_SIZE] {
+        let mut data = [0u8; ORDER_SIZE];
 
-        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
-        data[8..40].copy_from_slice(self.maker.as_ref());
-        data[40] = self.side as u8;
-        data[41..49].copy_from_slice(&self.maker_amount.to_le_bytes());
-        data[49..57].copy_from_slice(&self.taker_amount.to_le_bytes());
-        data[57..65].copy_from_slice(&self.expiration.to_le_bytes());
+        data[0..4].copy_from_slice(&self.nonce.to_le_bytes());
+        data[4] = self.side as u8;
+        data[5..13].copy_from_slice(&self.maker_amount.to_le_bytes());
+        data[13..21].copy_from_slice(&self.taker_amount.to_le_bytes());
+        data[21..29].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
     }
 
     /// Deserialize from bytes.
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < COMPACT_ORDER_SIZE {
+        if data.len() < ORDER_SIZE {
             return Err(SdkError::InvalidDataLength {
-                expected: COMPACT_ORDER_SIZE,
+                expected: ORDER_SIZE,
                 actual: data.len(),
             });
         }
 
-        let mut nonce_bytes = [0u8; 8];
-        nonce_bytes.copy_from_slice(&data[0..8]);
-
-        let mut maker_bytes = [0u8; 32];
-        maker_bytes.copy_from_slice(&data[8..40]);
+        let mut nonce_bytes = [0u8; 4];
+        nonce_bytes.copy_from_slice(&data[0..4]);
 
         let mut maker_amount_bytes = [0u8; 8];
-        maker_amount_bytes.copy_from_slice(&data[41..49]);
+        maker_amount_bytes.copy_from_slice(&data[5..13]);
 
         let mut taker_amount_bytes = [0u8; 8];
-        taker_amount_bytes.copy_from_slice(&data[49..57]);
+        taker_amount_bytes.copy_from_slice(&data[13..21]);
 
         let mut expiration_bytes = [0u8; 8];
-        expiration_bytes.copy_from_slice(&data[57..65]);
+        expiration_bytes.copy_from_slice(&data[21..29]);
 
         Ok(Self {
-            nonce: u64::from_le_bytes(nonce_bytes),
-            maker: Pubkey::new_from_array(maker_bytes),
-            side: OrderSide::try_from(data[40])?,
+            nonce: u32::from_le_bytes(nonce_bytes),
+            side: OrderSide::try_from(data[4])?,
             maker_amount: u64::from_le_bytes(maker_amount_bytes),
             taker_amount: u64::from_le_bytes(taker_amount_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
         })
     }
 
-    /// Expand to full order using pubkeys from accounts.
-    pub fn to_full_order(
+    /// Expand to signed order using pubkeys from accounts.
+    /// Widens nonce u32 to u64.
+    pub fn to_signed(
         &self,
+        maker: Pubkey,
         market: Pubkey,
         base_mint: Pubkey,
         quote_mint: Pubkey,
         signature: [u8; 64],
-    ) -> FullOrder {
-        FullOrder {
-            nonce: self.nonce,
-            maker: self.maker,
+    ) -> SignedOrder {
+        SignedOrder {
+            nonce: self.nonce as u64,
+            maker,
             market,
             base_mint,
             quote_mint,
@@ -433,14 +416,14 @@ impl CompactOrder {
 // ============================================================================
 
 /// Check if an order is expired.
-pub fn is_order_expired(order: &FullOrder, current_time: i64) -> bool {
+pub fn is_order_expired(order: &SignedOrder, current_time: i64) -> bool {
     order.expiration != 0 && current_time >= order.expiration
 }
 
 /// Check if two orders can cross (prices are compatible).
 ///
 /// Returns true if the buyer's price >= seller's price.
-pub fn orders_can_cross(buy_order: &FullOrder, sell_order: &FullOrder) -> bool {
+pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bool {
     if buy_order.side != OrderSide::Bid || sell_order.side != OrderSide::Ask {
         return false;
     }
@@ -468,7 +451,7 @@ pub fn orders_can_cross(buy_order: &FullOrder, sell_order: &FullOrder) -> bool {
 }
 
 /// Calculate the taker fill amount given a maker fill amount.
-pub fn calculate_taker_fill(maker_order: &FullOrder, maker_fill_amount: u64) -> SdkResult<u64> {
+pub fn calculate_taker_fill(maker_order: &SignedOrder, maker_fill_amount: u64) -> SdkResult<u64> {
     if maker_order.maker_amount == 0 {
         return Err(SdkError::Overflow);
     }
@@ -500,8 +483,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_order_serialization_roundtrip() {
-        let order = FullOrder {
+    fn test_signed_order_serialization_roundtrip() {
+        let order = SignedOrder {
             nonce: 12345,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -515,7 +498,7 @@ mod tests {
         };
 
         let serialized = order.serialize();
-        let deserialized = FullOrder::deserialize(&serialized).unwrap();
+        let deserialized = SignedOrder::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.maker, deserialized.maker);
@@ -529,10 +512,9 @@ mod tests {
     }
 
     #[test]
-    fn test_compact_order_serialization_roundtrip() {
-        let order = CompactOrder {
+    fn test_order_serialization_roundtrip() {
+        let order = Order {
             nonce: 12345,
-            maker: Pubkey::new_unique(),
             side: OrderSide::Ask,
             maker_amount: 1000000,
             taker_amount: 500000,
@@ -540,10 +522,9 @@ mod tests {
         };
 
         let serialized = order.serialize();
-        let deserialized = CompactOrder::deserialize(&serialized).unwrap();
+        let deserialized = Order::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
-        assert_eq!(order.maker, deserialized.maker);
         assert_eq!(order.side, deserialized.side);
         assert_eq!(order.maker_amount, deserialized.maker_amount);
         assert_eq!(order.taker_amount, deserialized.taker_amount);
@@ -551,8 +532,21 @@ mod tests {
     }
 
     #[test]
+    fn test_order_size() {
+        assert_eq!(ORDER_SIZE, 29);
+        let order = Order {
+            nonce: 1,
+            side: OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+        };
+        assert_eq!(order.serialize().len(), 29);
+    }
+
+    #[test]
     fn test_order_hash_consistency() {
-        let order = FullOrder {
+        let order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -571,8 +565,42 @@ mod tests {
     }
 
     #[test]
+    fn test_signed_order_to_order_roundtrip() {
+        let signed = SignedOrder {
+            nonce: 42,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            maker_amount: 1000,
+            taker_amount: 500,
+            expiration: 12345,
+            signature: [7u8; 64],
+        };
+
+        let order = signed.to_order();
+        assert_eq!(order.nonce, 42);
+        assert_eq!(order.side, OrderSide::Bid);
+        assert_eq!(order.maker_amount, 1000);
+        assert_eq!(order.taker_amount, 500);
+        assert_eq!(order.expiration, 12345);
+
+        let back = order.to_signed(
+            signed.maker,
+            signed.market,
+            signed.base_mint,
+            signed.quote_mint,
+            signed.signature,
+        );
+        assert_eq!(back.nonce, 42);
+        assert_eq!(back.maker, signed.maker);
+        assert_eq!(back.maker_amount, 1000);
+    }
+
+    #[test]
     fn test_orders_can_cross() {
-        let buy_order = FullOrder {
+        let buy_order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -585,7 +613,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = FullOrder {
+        let sell_order = SignedOrder {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -604,7 +632,7 @@ mod tests {
 
     #[test]
     fn test_orders_cannot_cross() {
-        let buy_order = FullOrder {
+        let buy_order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -617,7 +645,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = FullOrder {
+        let sell_order = SignedOrder {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -636,7 +664,7 @@ mod tests {
 
     #[test]
     fn test_calculate_taker_fill() {
-        let maker_order = FullOrder {
+        let maker_order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -666,7 +694,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let mut order = FullOrder {
+        let mut order = SignedOrder {
             nonce: 42,
             maker,
             market,
@@ -698,7 +726,7 @@ mod tests {
 
     #[test]
     fn test_derive_orderbook_id() {
-        let order = FullOrder {
+        let order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -726,7 +754,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = FullOrder {
+        let mut order = SignedOrder {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -753,7 +781,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = FullOrder {
+        let mut order = SignedOrder {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -784,7 +812,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Order must be signed before converting to submit request")]
     fn test_to_submit_request_panics_unsigned() {
-        let order = FullOrder {
+        let order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),

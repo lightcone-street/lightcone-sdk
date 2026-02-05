@@ -33,7 +33,7 @@ use tokio::sync::RwLock;
 
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
-use crate::program::orders::FullOrder;
+use crate::program::orders::SignedOrder;
 use crate::shared::OrderbookDecimals;
 
 /// Default request timeout in seconds.
@@ -516,20 +516,20 @@ impl LightconeApiClient {
         self.post(&url, &request).await
     }
 
-    /// Submit a signed FullOrder to the API.
+    /// Submit a signed SignedOrder to the API.
     ///
     /// Convenience method that converts the order and submits it.
     /// This bridges on-chain order creation with REST API submission.
     ///
     /// # Arguments
     ///
-    /// * `order` - A signed FullOrder (must have called `order.sign(&keypair)`)
+    /// * `order` - A signed SignedOrder (must have called `order.sign(&keypair)`)
     /// * `orderbook_id` - Target orderbook (use `order.derive_orderbook_id()` or from market API)
     ///
     /// # Example
     ///
     /// ```rust,ignore
-    /// let mut order = FullOrder::new_bid(params);
+    /// let mut order = SignedOrder::new_bid(params);
     /// order.sign(&keypair);
     ///
     /// let response = api_client
@@ -538,7 +538,7 @@ impl LightconeApiClient {
     /// ```
     pub async fn submit_full_order(
         &self,
-        order: &FullOrder,
+        order: &SignedOrder,
         orderbook_id: impl Into<String>,
     ) -> ApiResult<OrderResponse> {
         let request = order.to_submit_request(orderbook_id);

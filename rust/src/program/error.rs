@@ -63,6 +63,38 @@ pub enum SdkError {
     #[error("Arithmetic overflow")]
     Overflow,
 
+    /// Invalid mint order
+    #[error("Invalid mint order")]
+    InvalidMintOrder,
+
+    /// Orderbook already exists
+    #[error("Orderbook already exists")]
+    OrderbookExists,
+
+    /// Invalid market
+    #[error("Invalid market")]
+    InvalidMarket,
+
+    /// Market already settled
+    #[error("Market already settled")]
+    MarketSettled,
+
+    /// Invalid program ID
+    #[error("Invalid program ID")]
+    InvalidProgramId,
+
+    /// Invalid orderbook
+    #[error("Invalid orderbook")]
+    InvalidOrderbook,
+
+    /// Full fill required
+    #[error("Full fill required")]
+    FullFillRequired,
+
+    /// Division by zero
+    #[error("Division by zero")]
+    DivisionByZero,
+
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),

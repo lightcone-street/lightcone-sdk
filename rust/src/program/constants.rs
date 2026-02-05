@@ -12,7 +12,10 @@ use std::str::FromStr;
 
 lazy_static::lazy_static! {
     /// Lightcone Pinocchio Program ID
-    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2").unwrap();
+    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("2epidV1UJUrUGNfHbJDtRKT4oad8FJU876Gq8HPHz7Qw").unwrap();
+
+    /// Address Lookup Table Program ID
+    pub static ref ALT_PROGRAM_ID: Pubkey = Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
 }
 
 /// SPL Token Program ID
@@ -29,12 +32,6 @@ pub const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk_ids::system_program::ID;
 
 /// Rent Sysvar ID
 pub const RENT_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::rent::ID;
-
-/// Instructions Sysvar ID (for Ed25519 verification)
-pub const INSTRUCTIONS_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::instructions::ID;
-
-/// Ed25519 Program ID (for signature verification)
-pub const ED25519_PROGRAM_ID: Pubkey = solana_sdk_ids::ed25519_program::ID;
 
 // ============================================================================
 // Instruction Discriminators
@@ -56,22 +53,26 @@ pub mod instruction {
     pub const WITHDRAW_FROM_POSITION: u8 = 11;
     pub const ACTIVATE_MARKET: u8 = 12;
     pub const MATCH_ORDERS_MULTI: u8 = 13;
+    pub const SET_AUTHORITY: u8 = 14;
+    pub const CREATE_ORDERBOOK: u8 = 15;
 }
 
 // ============================================================================
-// Account Discriminators (8 bytes each)
+// Account Discriminators (8 bytes each, SHA-256 hash bytes)
 // ============================================================================
 
 /// Exchange account discriminator
-pub const EXCHANGE_DISCRIMINATOR: [u8; 8] = *b"exchange";
+pub const EXCHANGE_DISCRIMINATOR: [u8; 8] = [0x1e, 0xc8, 0xdc, 0x95, 0x03, 0x3d, 0x68, 0x32];
 /// Market account discriminator
-pub const MARKET_DISCRIMINATOR: [u8; 8] = *b"market\0\0";
+pub const MARKET_DISCRIMINATOR: [u8; 8] = [0xdb, 0xbe, 0xd5, 0x37, 0x00, 0xe3, 0xc6, 0x9a];
 /// Order status account discriminator
-pub const ORDER_STATUS_DISCRIMINATOR: [u8; 8] = *b"ordstat\0";
+pub const ORDER_STATUS_DISCRIMINATOR: [u8; 8] = [0x2e, 0x5a, 0xf1, 0x49, 0xb2, 0x68, 0x41, 0x03];
 /// User nonce account discriminator
-pub const USER_NONCE_DISCRIMINATOR: [u8; 8] = *b"usrnonce";
+pub const USER_NONCE_DISCRIMINATOR: [u8; 8] = [0xeb, 0x85, 0x01, 0xf3, 0x12, 0x87, 0x58, 0xe0];
 /// Position account discriminator
-pub const POSITION_DISCRIMINATOR: [u8; 8] = *b"position";
+pub const POSITION_DISCRIMINATOR: [u8; 8] = [0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0];
+/// Orderbook account discriminator
+pub const ORDERBOOK_DISCRIMINATOR: [u8; 8] = [0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07];
 
 // ============================================================================
 // PDA Seeds
@@ -93,6 +94,8 @@ pub const ORDER_STATUS_SEED: &[u8] = b"order_status";
 pub const USER_NONCE_SEED: &[u8] = b"user_nonce";
 /// Position PDA seed
 pub const POSITION_SEED: &[u8] = b"position";
+/// Orderbook PDA seed
+pub const ORDERBOOK_SEED: &[u8] = b"orderbook";
 
 // ============================================================================
 // Account Sizes
@@ -108,15 +111,17 @@ pub const ORDER_STATUS_SIZE: usize = 24;
 pub const USER_NONCE_SIZE: usize = 16;
 /// Position account size in bytes
 pub const POSITION_SIZE: usize = 80;
+/// Orderbook account size in bytes
+pub const ORDERBOOK_SIZE: usize = 144;
 
 // ============================================================================
 // Order Sizes
 // ============================================================================
 
-/// Full order size in bytes
-pub const FULL_ORDER_SIZE: usize = 225;
-/// Compact order size in bytes
-pub const COMPACT_ORDER_SIZE: usize = 65;
+/// Signed order size in bytes
+pub const SIGNED_ORDER_SIZE: usize = 225;
+/// Order size in bytes (compact on-chain format)
+pub const ORDER_SIZE: usize = 29;
 /// Signature size in bytes
 pub const SIGNATURE_SIZE: usize = 64;
 
@@ -129,4 +134,4 @@ pub const MAX_OUTCOMES: u8 = 6;
 /// Minimum outcomes per market
 pub const MIN_OUTCOMES: u8 = 2;
 /// Maximum makers in a single match_orders_multi instruction
-pub const MAX_MAKERS: usize = 5;
+pub const MAX_MAKERS: usize = 3;

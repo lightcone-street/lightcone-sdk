@@ -6,9 +6,10 @@ use solana_pubkey::Pubkey;
 #[cfg(feature = "client")]
 use solana_keypair::Keypair;
 
-use crate::program::orders::FullOrder;
+use crate::program::orders::SignedOrder;
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
+#[cfg(feature = "client")]
 use crate::shared::SubmitOrderRequest;
 
 /// Builder for creating orders with a fluent API.
@@ -124,7 +125,7 @@ impl OrderBuilder {
         self
     }
 
-    /// Build an unsigned FullOrder.
+    /// Build an unsigned SignedOrder.
     ///
     /// The returned order has an all-zero signature and must be signed
     /// before submission.
@@ -132,8 +133,8 @@ impl OrderBuilder {
     /// # Panics
     ///
     /// Panics if required fields are missing.
-    pub fn build(self) -> FullOrder {
-        FullOrder {
+    pub fn build(self) -> SignedOrder {
+        SignedOrder {
             nonce: self.nonce.expect("nonce is required"),
             maker: self.maker.expect("maker is required"),
             market: self.market.expect("market is required"),
@@ -149,13 +150,13 @@ impl OrderBuilder {
 
     /// Build and sign the order with the given keypair.
     ///
-    /// Returns a signed FullOrder ready for API submission.
+    /// Returns a signed SignedOrder ready for API submission.
     ///
     /// # Panics
     ///
     /// Panics if required fields are missing.
     #[cfg(feature = "client")]
-    pub fn build_and_sign(self, keypair: &Keypair) -> FullOrder {
+    pub fn build_and_sign(self, keypair: &Keypair) -> SignedOrder {
         let mut order = self.build();
         order.sign(keypair);
         order

@@ -163,6 +163,8 @@ pub struct WithdrawFromPositionParams {
     pub mint: Pubkey,
     /// Amount to withdraw
     pub amount: u64,
+    /// Outcome index (255 for collateral)
+    pub outcome_index: u8,
 }
 
 /// Parameters for activating a market
@@ -228,9 +230,37 @@ pub struct MatchOrdersMultiParams {
     /// Quote mint pubkey
     pub quote_mint: Pubkey,
     /// Taker order (signed)
-    pub taker_order: crate::program::orders::FullOrder,
+    pub taker_order: crate::program::orders::SignedOrder,
     /// Maker orders (signed)
-    pub maker_orders: Vec<crate::program::orders::FullOrder>,
-    /// Fill amounts for each maker
-    pub fill_amounts: Vec<u64>,
+    pub maker_orders: Vec<crate::program::orders::SignedOrder>,
+    /// Fill amounts for each maker (maker side)
+    pub maker_fill_amounts: Vec<u64>,
+    /// Fill amounts for each maker (taker side)
+    pub taker_fill_amounts: Vec<u64>,
+    /// Bitmask indicating which orders require full fill (bit i = maker i, bit 7 = taker)
+    pub full_fill_bitmask: u8,
+}
+
+/// Parameters for creating an on-chain orderbook
+#[derive(Debug, Clone)]
+pub struct CreateOrderbookParams {
+    /// Payer for account creation
+    pub payer: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// Mint A pubkey
+    pub mint_a: Pubkey,
+    /// Mint B pubkey
+    pub mint_b: Pubkey,
+    /// Recent slot for ALT creation
+    pub recent_slot: u64,
+}
+
+/// Parameters for setting a new authority
+#[derive(Debug, Clone)]
+pub struct SetAuthorityParams {
+    /// Current authority pubkey
+    pub current_authority: Pubkey,
+    /// New authority pubkey
+    pub new_authority: Pubkey,
 }

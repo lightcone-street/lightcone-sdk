@@ -7,8 +7,8 @@ use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE,
-    ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR, POSITION_SIZE,
-    USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
+    ORDERBOOK_DISCRIMINATOR, ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE,
+    POSITION_DISCRIMINATOR, POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::MarketStatus;
@@ -79,8 +79,8 @@ impl Exchange {
         let discriminator = read_bytes::<8>(data, 0);
         if discriminator != EXCHANGE_DISCRIMINATOR {
             return Err(SdkError::InvalidDiscriminator {
-                expected: String::from_utf8_lossy(&EXCHANGE_DISCRIMINATOR).to_string(),
-                actual: String::from_utf8_lossy(&discriminator).to_string(),
+                expected: hex::encode(EXCHANGE_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
             });
         }
 
@@ -158,8 +158,8 @@ impl Market {
         let discriminator = read_bytes::<8>(data, 0);
         if discriminator != MARKET_DISCRIMINATOR {
             return Err(SdkError::InvalidDiscriminator {
-                expected: String::from_utf8_lossy(&MARKET_DISCRIMINATOR).to_string(),
-                actual: String::from_utf8_lossy(&discriminator).to_string(),
+                expected: hex::encode(MARKET_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
             });
         }
 
@@ -223,8 +223,8 @@ impl Position {
         let discriminator = read_bytes::<8>(data, 0);
         if discriminator != POSITION_DISCRIMINATOR {
             return Err(SdkError::InvalidDiscriminator {
-                expected: String::from_utf8_lossy(&POSITION_DISCRIMINATOR).to_string(),
-                actual: String::from_utf8_lossy(&discriminator).to_string(),
+                expected: hex::encode(POSITION_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
             });
         }
 
@@ -279,8 +279,8 @@ impl OrderStatus {
         let discriminator = read_bytes::<8>(data, 0);
         if discriminator != ORDER_STATUS_DISCRIMINATOR {
             return Err(SdkError::InvalidDiscriminator {
-                expected: String::from_utf8_lossy(&ORDER_STATUS_DISCRIMINATOR).to_string(),
-                actual: String::from_utf8_lossy(&discriminator).to_string(),
+                expected: hex::encode(ORDER_STATUS_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
             });
         }
 
@@ -330,8 +330,8 @@ impl UserNonce {
         let discriminator = read_bytes::<8>(data, 0);
         if discriminator != USER_NONCE_DISCRIMINATOR {
             return Err(SdkError::InvalidDiscriminator {
-                expected: String::from_utf8_lossy(&USER_NONCE_DISCRIMINATOR).to_string(),
-                actual: String::from_utf8_lossy(&discriminator).to_string(),
+                expected: hex::encode(USER_NONCE_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
             });
         }
 
@@ -344,6 +344,73 @@ impl UserNonce {
     /// Check if account data has the user nonce discriminator
     pub fn is_user_nonce_account(data: &[u8]) -> bool {
         data.len() >= 8 && data[0..8] == USER_NONCE_DISCRIMINATOR
+    }
+}
+
+// ============================================================================
+// Orderbook Account (144 bytes)
+// ============================================================================
+
+/// Orderbook account - on-chain orderbook with lookup table
+///
+/// Layout:
+/// - [0..8]     discriminator (8 bytes)
+/// - [8..40]    market (32 bytes)
+/// - [40..72]   mint_a (32 bytes)
+/// - [72..104]  mint_b (32 bytes)
+/// - [104..136] lookup_table (32 bytes)
+/// - [136]      bump (1 byte)
+/// - [137..144] _padding (7 bytes)
+#[derive(Debug, Clone)]
+pub struct Orderbook {
+    /// Account discriminator
+    pub discriminator: [u8; 8],
+    /// Market this orderbook is for
+    pub market: Pubkey,
+    /// Mint A
+    pub mint_a: Pubkey,
+    /// Mint B
+    pub mint_b: Pubkey,
+    /// Address lookup table
+    pub lookup_table: Pubkey,
+    /// PDA bump seed
+    pub bump: u8,
+}
+
+impl Orderbook {
+    /// Account size in bytes
+    pub const LEN: usize = ORDERBOOK_SIZE;
+
+    /// Deserialize from account data
+    pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
+        if data.len() < Self::LEN {
+            return Err(SdkError::InvalidDataLength {
+                expected: Self::LEN,
+                actual: data.len(),
+            });
+        }
+
+        let discriminator = read_bytes::<8>(data, 0);
+        if discriminator != ORDERBOOK_DISCRIMINATOR {
+            return Err(SdkError::InvalidDiscriminator {
+                expected: hex::encode(ORDERBOOK_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
+            });
+        }
+
+        Ok(Self {
+            discriminator,
+            market: read_pubkey(data, 8),
+            mint_a: read_pubkey(data, 40),
+            mint_b: read_pubkey(data, 72),
+            lookup_table: read_pubkey(data, 104),
+            bump: data[136],
+        })
+    }
+
+    /// Check if account data has the orderbook discriminator
+    pub fn is_orderbook_account(data: &[u8]) -> bool {
+        data.len() >= 8 && data[0..8] == ORDERBOOK_DISCRIMINATOR
     }
 }
 
@@ -435,5 +502,38 @@ mod tests {
 
         let user_nonce = UserNonce::deserialize(&data).unwrap();
         assert_eq!(user_nonce.nonce, 99);
+    }
+
+    #[test]
+    fn test_orderbook_deserialization() {
+        let mut data = vec![0u8; ORDERBOOK_SIZE];
+        data[0..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        // market at offset 8
+        data[8..40].copy_from_slice(&[1u8; 32]);
+        // mint_a at offset 40
+        data[40..72].copy_from_slice(&[2u8; 32]);
+        // mint_b at offset 72
+        data[72..104].copy_from_slice(&[3u8; 32]);
+        // lookup_table at offset 104
+        data[104..136].copy_from_slice(&[4u8; 32]);
+        // bump at offset 136
+        data[136] = 252;
+
+        let orderbook = Orderbook::deserialize(&data).unwrap();
+        assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
+        assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
+        assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
+        assert_eq!(orderbook.lookup_table, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(orderbook.bump, 252);
+    }
+
+    #[test]
+    fn test_orderbook_is_orderbook_account() {
+        let mut data = vec![0u8; ORDERBOOK_SIZE];
+        data[0..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        assert!(Orderbook::is_orderbook_account(&data));
+
+        let bad_data = vec![0u8; ORDERBOOK_SIZE];
+        assert!(!Orderbook::is_orderbook_account(&bad_data));
     }
 }
