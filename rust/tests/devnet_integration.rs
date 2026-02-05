@@ -1,29 +1,44 @@
 //! Devnet Integration Tests for Lightcone Pinocchio Rust SDK
 //!
-//! These tests run against the deployed Pinocchio program on devnet.
+//! These tests run against a deployed Pinocchio program on devnet.
 //! Requires:
 //! 1. Program deployed to devnet
 //! 2. Funded wallet (~0.5 SOL minimum)
 //! 3. RPC_URL in .env file
+//! 4. TEST_PROGRAM_ID in .env file (optional, defaults to SDK PROGRAM_ID)
+//!
+//! Setup:
+//!   # Generate a fresh program keypair
+//!   solana-keygen new -o test-program-keypair.json --no-bip39-passphrase
+//!
+//!   # Deploy to devnet
+//!   solana program deploy --program-id test-program-keypair.json \
+//!     target/deploy/lightcone_pinocchio.so --url devnet
+//!
+//!   # Add to .env
+//!   echo "TEST_PROGRAM_ID=<program id from deploy output>" >> .env
 //!
 //! Run: cargo test --test devnet_integration -- --nocapture --ignored
 
 use lightcone_sdk::prelude::*;
 use solana_client::nonblocking::rpc_client::RpcClient;
+use solana_client::rpc_config::RpcSendTransactionConfig;
 use solana_commitment_config::CommitmentConfig;
-use solana_sdk::{
-    native_token::LAMPORTS_PER_SOL,
-    pubkey::Pubkey,
-    signature::{Keypair, Signer},
-    transaction::Transaction,
-};
+use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+use solana_signature::Signature;
+use solana_signer::Signer;
 use solana_system_interface::instruction as system_instruction;
+use solana_transaction::Transaction;
 use spl_associated_token_account::get_associated_token_address_with_program_id;
 use spl_token_2022::ID as TOKEN_2022_PROGRAM_ID;
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::str::FromStr;
 use std::time::Duration;
+
+const LAMPORTS_PER_SOL: u64 = 1_000_000_000;
 
 // ============================================================================
 // Test Helpers
@@ -43,11 +58,19 @@ fn get_rpc_url() -> String {
     env::var("RPC_URL").unwrap_or_else(|_| "https://api.devnet.solana.com".to_string())
 }
 
+fn get_test_program_id() -> Pubkey {
+    dotenvy::dotenv().ok();
+    match env::var("TEST_PROGRAM_ID") {
+        Ok(id) => Pubkey::from_str(&id).expect("Invalid TEST_PROGRAM_ID"),
+        Err(_) => *PROGRAM_ID,
+    }
+}
+
 async fn sleep_ms(ms: u64) {
     tokio::time::sleep(Duration::from_millis(ms)).await;
 }
 
-async fn confirm_tx(client: &RpcClient, signature: &solana_sdk::signature::Signature) {
+async fn confirm_tx(client: &RpcClient, signature: &Signature) {
     let blockhash = client.get_latest_blockhash().await.unwrap();
     client
         .confirm_transaction_with_spinner(signature, &blockhash, CommitmentConfig::confirmed())
@@ -87,8 +110,8 @@ async fn airdrop_if_needed(client: &RpcClient, pubkey: &Pubkey, min_balance: u64
 async fn sign_and_send(
     rpc: &RpcClient,
     mut tx: Transaction,
-    signers: &[&Keypair],
-) -> Result<solana_sdk::signature::Signature, String> {
+    signers: &[&dyn Signer],
+) -> Result<Signature, String> {
     let blockhash = rpc
         .get_latest_blockhash()
         .await
@@ -112,9 +135,10 @@ async fn test_full_devnet_flow() {
 
     // Load configuration
     let rpc_url = get_rpc_url();
+    let program_id = get_test_program_id();
     println!("Configuration:");
     println!("   RPC URL: {}", rpc_url);
-    println!("   Program ID: {}", PROGRAM_ID.to_string());
+    println!("   Program ID: {}", program_id);
 
     // Load authority keypair
     let keypair_paths = [
@@ -132,13 +156,13 @@ async fn test_full_devnet_flow() {
 
     println!("   Authority: {}\n", authority.pubkey());
 
-    // Create SDK client
-    let client = LightconePinocchioClient::new(&rpc_url);
+    // Create SDK client with test program ID
+    let client = LightconePinocchioClient::with_program_id(&rpc_url, program_id);
     let rpc = &client.rpc_client;
 
     // Check balance
     println!("Checking wallet balance...");
-    if !airdrop_if_needed(rpc, &authority.pubkey(), LAMPORTS_PER_SOL / 6).await {
+    if !airdrop_if_needed(rpc, &authority.pubkey(), LAMPORTS_PER_SOL / 4).await {
         println!("   WARNING: Low balance, tests may fail\n");
     }
     println!();
@@ -161,7 +185,7 @@ async fn test_full_devnet_flow() {
             (false, 0u64)
         }
     };
-    let _ = initial_market_count; // Used after initialization
+    let _ = initial_market_count;
     println!();
 
     // ========================================================================
@@ -170,7 +194,9 @@ async fn test_full_devnet_flow() {
     if !is_initialized {
         println!("2. Initializing protocol...");
         let tx = client.initialize(&authority.pubkey()).await.unwrap();
-        let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+        let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+            .await
+            .unwrap();
         println!("   Signature: {}", sig);
         println!("   SUCCESS: Protocol initialized\n");
     } else {
@@ -201,16 +227,19 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("   Signature: {}", sig);
 
-    let (market_pda, _) = get_market_pda(next_market_id, &PROGRAM_ID);
+    let (market_pda, _) = get_market_pda(next_market_id, &program_id);
     println!("   Market PDA: {}", market_pda);
 
     let market = client.get_market(next_market_id).await.unwrap();
     println!("   Market ID: {}", market.market_id);
     println!("   Num Outcomes: {}", market.num_outcomes);
     println!("   Status: {:?}", market.status);
+    assert_eq!(market.status, MarketStatus::Pending);
     println!("   SUCCESS: Market created\n");
 
     // ========================================================================
@@ -218,7 +247,6 @@ async fn test_full_devnet_flow() {
     // ========================================================================
     println!("4. Creating test mint and adding deposit configuration...");
 
-    // Create a test SPL token mint
     let deposit_mint = create_test_mint(rpc, &authority).await;
     println!("   Deposit Mint: {}", deposit_mint);
 
@@ -247,19 +275,83 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("   Signature: {}", sig);
 
-    // Get conditional mints
     let conditional_mints = client.get_conditional_mints(&market_pda, &deposit_mint, 2);
     println!("   Conditional Mint 0 (YES): {}", conditional_mints[0]);
     println!("   Conditional Mint 1 (NO): {}", conditional_mints[1]);
     println!("   SUCCESS: Deposit mint added\n");
 
     // ========================================================================
-    // Test 5: Activate Market
+    // Test 5: Create Orderbook
     // ========================================================================
-    println!("5. Activating market...");
+    println!("5. Creating orderbook...");
+
+    // Determine canonical order: mint_a < mint_b
+    let (mint_a, mint_b) = if conditional_mints[0].as_ref() < conditional_mints[1].as_ref() {
+        (conditional_mints[0], conditional_mints[1])
+    } else {
+        (conditional_mints[1], conditional_mints[0])
+    };
+
+    // The ALT program validates `recent_slot` against the `slot_hashes` sysvar (~150 slots).
+    // RPC pool endpoints can have a stale view of slot_hashes, causing preflight simulation
+    // to reject valid slots. We skip preflight so the transaction goes directly to the
+    // validator leader, which has the most current slot_hashes view.
+    let recent_slot = rpc
+        .get_slot_with_commitment(CommitmentConfig::finalized())
+        .await
+        .unwrap();
+    println!("   Using slot: {} (finalized)", recent_slot);
+
+    let params = CreateOrderbookParams {
+        payer: authority.pubkey(),
+        market: market_pda,
+        mint_a,
+        mint_b,
+        recent_slot,
+    };
+    let tx = client.create_orderbook(params).await.unwrap();
+
+    let blockhash = rpc.get_latest_blockhash().await.unwrap();
+    let mut signed_tx = tx;
+    signed_tx.sign(&[&authority as &dyn Signer], blockhash);
+
+    let sig = rpc
+        .send_transaction_with_config(
+            &signed_tx,
+            RpcSendTransactionConfig {
+                skip_preflight: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    println!("   Sent tx (skip_preflight): {}", sig);
+
+    // Wait and confirm manually
+    sleep_ms(3000).await;
+    confirm_tx(rpc, &sig).await;
+    println!("   Signature: {}", sig);
+
+    // Verify orderbook was created
+    let orderbook = client.get_orderbook(&mint_a, &mint_b).await.unwrap();
+    println!("   Orderbook Market: {}", orderbook.market);
+    println!("   Orderbook Mint A: {}", orderbook.mint_a);
+    println!("   Orderbook Mint B: {}", orderbook.mint_b);
+    println!("   Orderbook Lookup Table: {}", orderbook.lookup_table);
+    assert_eq!(orderbook.market, market_pda);
+    assert_eq!(orderbook.mint_a, mint_a);
+    assert_eq!(orderbook.mint_b, mint_b);
+    println!("   SUCCESS: Orderbook created\n");
+
+    // ========================================================================
+    // Test 6: Activate Market
+    // ========================================================================
+    println!("6. Activating market...");
     let tx = client
         .activate_market(ActivateMarketParams {
             authority: authority.pubkey(),
@@ -268,32 +360,31 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("   Signature: {}", sig);
 
     let market = client.get_market(next_market_id).await.unwrap();
     println!("   Status: {:?}", market.status);
+    assert_eq!(market.status, MarketStatus::Active);
     println!("   SUCCESS: Market activated\n");
 
     // ========================================================================
-    // Test 6: User Deposit Flow (Mint Complete Set)
+    // Test 7: User Deposit Flow (Mint Complete Set)
     // ========================================================================
-    println!("6. Testing user deposit flow...");
+    println!("7. Testing user deposit flow...");
     let user = Keypair::new();
     println!("   Test User: {}", user.pubkey());
 
-    // Fund user
     fund_account(rpc, &authority, &user.pubkey(), LAMPORTS_PER_SOL / 10).await;
     println!("   Funded user with 0.1 SOL");
 
-    // Create user's deposit token account and mint tokens
-    let user_deposit_ata =
+    let _user_deposit_ata =
         create_and_fund_token_account(rpc, &authority, &deposit_mint, &user.pubkey(), 10_000_000)
             .await;
-    println!("   User ATA: {}", user_deposit_ata);
     println!("   Minted 10 test tokens to user");
 
-    // Mint complete set
     let tx = client
         .mint_complete_set(
             MintCompleteSetParams {
@@ -307,14 +398,16 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&user]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&user as &dyn Signer])
+        .await
+        .unwrap();
     println!("   Signature: {}", sig);
     println!("   SUCCESS: User deposited and received conditional tokens\n");
 
     // ========================================================================
-    // Test 7: Second User Setup
+    // Test 8: Second User Setup
     // ========================================================================
-    println!("7. Setting up second user...");
+    println!("8. Setting up second user...");
     let user2 = Keypair::new();
     println!("   Test User 2: {}", user2.pubkey());
 
@@ -326,7 +419,6 @@ async fn test_full_devnet_flow() {
             .await;
     println!("   Minted 20 test tokens to user2");
 
-    // Mint complete set for user2
     let tx = client
         .mint_complete_set(
             MintCompleteSetParams {
@@ -340,14 +432,50 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&user2]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&user2 as &dyn Signer])
+        .await
+        .unwrap();
     println!("   Signature: {}", sig);
     println!("   SUCCESS: User2 setup completed\n");
 
     // ========================================================================
-    // Test 8: Merge Complete Set
+    // Test 9: Third User Setup (for multi-maker matching)
     // ========================================================================
-    println!("8. Testing merge complete set...");
+    println!("9. Setting up third user...");
+    let user3 = Keypair::new();
+    println!("   Test User 3: {}", user3.pubkey());
+
+    fund_account(rpc, &authority, &user3.pubkey(), LAMPORTS_PER_SOL / 10).await;
+    println!("   Funded user3 with 0.1 SOL");
+
+    let _user3_deposit_ata =
+        create_and_fund_token_account(rpc, &authority, &deposit_mint, &user3.pubkey(), 20_000_000)
+            .await;
+    println!("   Minted 20 test tokens to user3");
+
+    let tx = client
+        .mint_complete_set(
+            MintCompleteSetParams {
+                user: user3.pubkey(),
+                market: market_pda,
+                deposit_mint,
+                amount: 5_000_000,
+            },
+            2,
+        )
+        .await
+        .unwrap();
+
+    let sig = sign_and_send(rpc, tx, &[&user3 as &dyn Signer])
+        .await
+        .unwrap();
+    println!("   Signature: {}", sig);
+    println!("   SUCCESS: User3 setup completed\n");
+
+    // ========================================================================
+    // Test 10: Merge Complete Set
+    // ========================================================================
+    println!("10. Testing merge complete set...");
     let tx = client
         .merge_complete_set(
             MergeCompleteSetParams {
@@ -361,14 +489,16 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&user2]).await.unwrap();
-    println!("   Signature: {}", sig);
-    println!("   SUCCESS: Merge complete set completed\n");
+    let sig = sign_and_send(rpc, tx, &[&user2 as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Signature: {}", sig);
+    println!("    SUCCESS: Merge complete set completed\n");
 
     // ========================================================================
-    // Test 9: Withdraw From Position
+    // Test 11: Withdraw From Position
     // ========================================================================
-    println!("9. Testing withdraw from position...");
+    println!("11. Testing withdraw from position...");
 
     // Create user2's personal ATA for conditional token (Token-2022)
     let user2_conditional_ata = get_associated_token_address_with_program_id(
@@ -377,7 +507,6 @@ async fn test_full_devnet_flow() {
         &TOKEN_2022_PROGRAM_ID,
     );
 
-    // Create the ATA
     let create_ata_ix = spl_associated_token_account::instruction::create_associated_token_account(
         &authority.pubkey(),
         &user2.pubkey(),
@@ -388,12 +517,12 @@ async fn test_full_devnet_flow() {
     let create_ata_tx = Transaction::new_signed_with_payer(
         &[create_ata_ix],
         Some(&authority.pubkey()),
-        &[&authority],
+        &[&authority as &dyn Signer],
         blockhash,
     );
     let _ = rpc.send_and_confirm_transaction(&create_ata_tx).await;
     println!(
-        "   User2 Personal Conditional ATA: {}",
+        "    User2 Personal Conditional ATA: {}",
         user2_conditional_ata
     );
 
@@ -404,21 +533,27 @@ async fn test_full_devnet_flow() {
                 market: market_pda,
                 mint: conditional_mints[0],
                 amount: 100_000,
+                outcome_index: 0,
             },
             true,
         )
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&user2]).await.unwrap();
-    println!("   Signature: {}", sig);
-    println!("   SUCCESS: Withdraw from position completed\n");
+    let sig = sign_and_send(rpc, tx, &[&user2 as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Signature: {}", sig);
+    println!("    SUCCESS: Withdraw from position completed\n");
 
     // ========================================================================
-    // Test 10: Order Creation and Signing
+    // Test 12: Order Creation and Signing
     // ========================================================================
-    println!("10. Testing order creation and signing...");
-    let user_nonce = client.get_next_nonce(&user.pubkey()).await.unwrap_or(0);
+    println!("12. Testing order creation and signing...");
+    let user_nonce = client
+        .get_next_nonce(&user.pubkey())
+        .await
+        .unwrap_or(0);
     println!("    User Nonce: {}", user_nonce);
 
     let mut bid_order = client.create_bid_order(BidOrderParams {
@@ -454,27 +589,57 @@ async fn test_full_devnet_flow() {
     );
 
     // Verify signatures
-    assert!(
-        bid_order.verify_signature().unwrap(),
-        "BID signature should be valid"
+    bid_order
+        .verify_signature()
+        .expect("BID signature should be valid");
+    ask_order
+        .verify_signature()
+        .expect("ASK signature should be valid");
+
+    // Test Order <-> SignedOrder roundtrip
+    let compact = bid_order.to_order();
+    assert_eq!(compact.nonce, bid_order.nonce as u32);
+    assert_eq!(compact.maker_amount, bid_order.maker_amount);
+    let back = compact.to_signed(
+        bid_order.maker,
+        bid_order.market,
+        bid_order.base_mint,
+        bid_order.quote_mint,
+        bid_order.signature,
     );
-    assert!(
-        ask_order.verify_signature().unwrap(),
-        "ASK signature should be valid"
-    );
+    assert_eq!(back.hash(), bid_order.hash());
+    println!("    Order <-> SignedOrder roundtrip verified");
+
+    // Test OrderBuilder
+    let built = OrderBuilder::new()
+        .nonce(user_nonce + 10)
+        .side(OrderSide::Bid)
+        .maker(user.pubkey())
+        .market(market_pda)
+        .base_mint(conditional_mints[0])
+        .quote_mint(conditional_mints[1])
+        .maker_amount(1000)
+        .taker_amount(500)
+        .expiration(chrono_timestamp() + 3600)
+        .build_and_sign(&user);
+    assert!(built.is_signed());
+    built.verify_signature().expect("Builder order sig valid");
+    println!("    OrderBuilder verified");
     println!("    SUCCESS: Orders created and signed\n");
 
     // ========================================================================
-    // Test 11: Cancel Order
+    // Test 13: Cancel Order
     // ========================================================================
-    println!("11. Testing cancel order...");
+    println!("13. Testing cancel order...");
 
-    // Increment nonce first
     let tx = client.increment_nonce(&user.pubkey()).await.unwrap();
-    let _ = sign_and_send(rpc, tx, &[&user]).await;
+    let _ = sign_and_send(rpc, tx, &[&user as &dyn Signer]).await;
     sleep_ms(2000).await;
 
-    let nonce = client.get_next_nonce(&user.pubkey()).await.unwrap_or(0);
+    let nonce = client
+        .get_next_nonce(&user.pubkey())
+        .await
+        .unwrap_or(0);
     let mut order_to_cancel = client.create_bid_order(BidOrderParams {
         nonce,
         maker: user.pubkey(),
@@ -488,38 +653,45 @@ async fn test_full_devnet_flow() {
     order_to_cancel.sign(&user);
 
     let tx = client
-        .cancel_order(&user.pubkey(), &order_to_cancel)
+        .cancel_order(&user.pubkey(), &market_pda, &order_to_cancel)
         .await
         .unwrap();
-    let sig = sign_and_send(rpc, tx, &[&user]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&user as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Signature: {}", sig);
 
-    // Verify cancellation
     let order_status = client
         .get_order_status(&order_to_cancel.hash())
         .await
         .unwrap();
     if let Some(status) = order_status {
         println!("    Order Cancelled: {}", status.is_cancelled);
+        assert!(status.is_cancelled);
     }
     println!("    SUCCESS: Cancel order completed\n");
 
     // ========================================================================
-    // Test 12: Match Orders Multi
+    // Test 14: Match Orders Multi (partial fill, bitmask=0)
     // ========================================================================
-    println!("12. Testing on-chain order matching...");
+    println!("14. Testing on-chain order matching (partial fill)...");
 
-    // Increment nonces for fresh orders
     let tx1 = client.increment_nonce(&user.pubkey()).await.unwrap();
-    let _ = sign_and_send(rpc, tx1, &[&user]).await;
+    let _ = sign_and_send(rpc, tx1, &[&user as &dyn Signer]).await;
 
     let tx2 = client.increment_nonce(&user2.pubkey()).await.unwrap();
-    let _ = sign_and_send(rpc, tx2, &[&user2]).await;
+    let _ = sign_and_send(rpc, tx2, &[&user2 as &dyn Signer]).await;
 
     sleep_ms(2000).await;
 
-    let user1_nonce = client.get_next_nonce(&user.pubkey()).await.unwrap_or(0);
-    let user2_nonce = client.get_next_nonce(&user2.pubkey()).await.unwrap_or(0);
+    let user1_nonce = client
+        .get_next_nonce(&user.pubkey())
+        .await
+        .unwrap_or(0);
+    let user2_nonce = client
+        .get_next_nonce(&user2.pubkey())
+        .await
+        .unwrap_or(0);
     println!("    User1 Nonce: {}", user1_nonce);
     println!("    User2 Nonce: {}", user2_nonce);
 
@@ -557,42 +729,203 @@ async fn test_full_devnet_flow() {
         hex_encode(&ask_order.hash()[..16])
     );
 
-    // Match orders (using cross-ref Ed25519 for smaller tx size)
+    // Partial fill: 50_000 out of 100_000 (bitmask=0 means order_status tracked)
     let tx = client
-        .match_orders_multi_cross_ref(MatchOrdersMultiParams {
+        .match_orders_multi(MatchOrdersMultiParams {
             operator: authority.pubkey(),
             market: market_pda,
             base_mint: conditional_mints[0],
             quote_mint: conditional_mints[1],
             taker_order: bid_order.clone(),
             maker_orders: vec![ask_order.clone()],
-            fill_amounts: vec![100_000],
+            maker_fill_amounts: vec![50_000],
+            taker_fill_amounts: vec![50_000],
+            full_fill_bitmask: 0,
         })
         .await
         .unwrap();
 
-    match sign_and_send(rpc, tx, &[&authority]).await {
-        Ok(sig) => {
-            println!("    Signature: {}", sig);
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Signature: {}", sig);
 
-            // Verify order statuses
-            if let Ok(Some(taker_status)) = client.get_order_status(&bid_order.hash()).await {
-                println!("    Taker Remaining: {}", taker_status.remaining);
-            }
-            if let Ok(Some(maker_status)) = client.get_order_status(&ask_order.hash()).await {
-                println!("    Maker Remaining: {}", maker_status.remaining);
-            }
-            println!("    SUCCESS: Match orders completed\n");
-        }
-        Err(e) => {
-            println!("    Match failed: {} - continuing with tests\n", e);
-        }
+    // Verify partial fill remaining
+    if let Ok(Some(taker_status)) = client.get_order_status(&bid_order.hash()).await {
+        println!("    Taker Remaining: {}", taker_status.remaining);
+        assert_eq!(taker_status.remaining, 50_000);
     }
+    if let Ok(Some(maker_status)) = client.get_order_status(&ask_order.hash()).await {
+        println!("    Maker Remaining: {}", maker_status.remaining);
+        assert_eq!(maker_status.remaining, 50_000);
+    }
+    println!("    SUCCESS: Partial fill match completed\n");
 
     // ========================================================================
-    // Test 13: Settle Market
+    // Test 15: Match Orders Multi (full fill with bitmask)
     // ========================================================================
-    println!("13. Testing market settlement...");
+    println!("15. Testing on-chain order matching (full fill with bitmask)...");
+
+    // Full fill bitmask means NO order_status account is created/tracked.
+    // The program requires fill amounts to equal the FULL order maker_amount.
+    // We need fresh orders (not the partially-filled ones from test 14).
+    let tx1 = client.increment_nonce(&user.pubkey()).await.unwrap();
+    let _ = sign_and_send(rpc, tx1, &[&user as &dyn Signer]).await;
+
+    let tx2 = client.increment_nonce(&user2.pubkey()).await.unwrap();
+    let _ = sign_and_send(rpc, tx2, &[&user2 as &dyn Signer]).await;
+
+    sleep_ms(2000).await;
+
+    let u1n = client.get_next_nonce(&user.pubkey()).await.unwrap_or(0);
+    let u2n = client.get_next_nonce(&user2.pubkey()).await.unwrap_or(0);
+
+    let mut ff_bid = client.create_bid_order(BidOrderParams {
+        nonce: u1n,
+        maker: user.pubkey(),
+        market: market_pda,
+        base_mint: conditional_mints[0],
+        quote_mint: conditional_mints[1],
+        maker_amount: 80_000,
+        taker_amount: 80_000,
+        expiration: chrono_timestamp() + 3600,
+    });
+    ff_bid.sign(&user);
+
+    let mut ff_ask = client.create_ask_order(AskOrderParams {
+        nonce: u2n,
+        maker: user2.pubkey(),
+        market: market_pda,
+        base_mint: conditional_mints[0],
+        quote_mint: conditional_mints[1],
+        maker_amount: 80_000,
+        taker_amount: 80_000,
+        expiration: chrono_timestamp() + 3600,
+    });
+    ff_ask.sign(&user2);
+
+    // bit 0 = 1 (maker full fill), bit 7 = 1 (taker full fill) = 0x81
+    // Fill amounts must equal the order maker_amounts exactly.
+    let tx = client
+        .match_orders_multi(MatchOrdersMultiParams {
+            operator: authority.pubkey(),
+            market: market_pda,
+            base_mint: conditional_mints[0],
+            quote_mint: conditional_mints[1],
+            taker_order: ff_bid.clone(),
+            maker_orders: vec![ff_ask.clone()],
+            maker_fill_amounts: vec![80_000],
+            taker_fill_amounts: vec![80_000],
+            full_fill_bitmask: 0b10000001,
+        })
+        .await
+        .unwrap();
+
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Signature: {}", sig);
+    println!("    SUCCESS: Full fill match with bitmask completed\n");
+
+    // ========================================================================
+    // Test 16: Match Orders Multi (multiple makers)
+    // ========================================================================
+    println!("16. Testing on-chain order matching (2 makers)...");
+
+    // Increment nonces for all users
+    let tx1 = client.increment_nonce(&user.pubkey()).await.unwrap();
+    let _ = sign_and_send(rpc, tx1, &[&user as &dyn Signer]).await;
+
+    let tx2 = client.increment_nonce(&user2.pubkey()).await.unwrap();
+    let _ = sign_and_send(rpc, tx2, &[&user2 as &dyn Signer]).await;
+
+    let tx3 = client.increment_nonce(&user3.pubkey()).await.unwrap();
+    let _ = sign_and_send(rpc, tx3, &[&user3 as &dyn Signer]).await;
+
+    sleep_ms(2000).await;
+
+    let u1_nonce = client
+        .get_next_nonce(&user.pubkey())
+        .await
+        .unwrap_or(0);
+    let u2_nonce = client
+        .get_next_nonce(&user2.pubkey())
+        .await
+        .unwrap_or(0);
+    let u3_nonce = client
+        .get_next_nonce(&user3.pubkey())
+        .await
+        .unwrap_or(0);
+    println!("    User1 Nonce: {}", u1_nonce);
+    println!("    User2 Nonce: {}", u2_nonce);
+    println!("    User3 Nonce: {}", u3_nonce);
+
+    // User1 BID: wants 200_000 YES
+    let mut taker_bid = client.create_bid_order(BidOrderParams {
+        nonce: u1_nonce,
+        maker: user.pubkey(),
+        market: market_pda,
+        base_mint: conditional_mints[0],
+        quote_mint: conditional_mints[1],
+        maker_amount: 200_000,
+        taker_amount: 200_000,
+        expiration: chrono_timestamp() + 3600,
+    });
+    taker_bid.sign(&user);
+
+    // User2 ASK: sells 100_000 YES
+    let mut maker1_ask = client.create_ask_order(AskOrderParams {
+        nonce: u2_nonce,
+        maker: user2.pubkey(),
+        market: market_pda,
+        base_mint: conditional_mints[0],
+        quote_mint: conditional_mints[1],
+        maker_amount: 100_000,
+        taker_amount: 100_000,
+        expiration: chrono_timestamp() + 3600,
+    });
+    maker1_ask.sign(&user2);
+
+    // User3 ASK: sells 100_000 YES
+    let mut maker2_ask = client.create_ask_order(AskOrderParams {
+        nonce: u3_nonce,
+        maker: user3.pubkey(),
+        market: market_pda,
+        base_mint: conditional_mints[0],
+        quote_mint: conditional_mints[1],
+        maker_amount: 100_000,
+        taker_amount: 100_000,
+        expiration: chrono_timestamp() + 3600,
+    });
+    maker2_ask.sign(&user3);
+
+    // Match taker against 2 makers, all full fills
+    // bit 0 = maker0 full, bit 1 = maker1 full, bit 7 = taker full = 0b10000011 = 0x83
+    let tx = client
+        .match_orders_multi(MatchOrdersMultiParams {
+            operator: authority.pubkey(),
+            market: market_pda,
+            base_mint: conditional_mints[0],
+            quote_mint: conditional_mints[1],
+            taker_order: taker_bid.clone(),
+            maker_orders: vec![maker1_ask.clone(), maker2_ask.clone()],
+            maker_fill_amounts: vec![100_000, 100_000],
+            taker_fill_amounts: vec![100_000, 100_000],
+            full_fill_bitmask: 0b10000011,
+        })
+        .await
+        .unwrap();
+
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Signature: {}", sig);
+    println!("    SUCCESS: Multi-maker match completed\n");
+
+    // ========================================================================
+    // Test 17: Settle Market
+    // ========================================================================
+    println!("17. Testing market settlement...");
     let tx = client
         .settle_market(SettleMarketParams {
             oracle: authority.pubkey(),
@@ -602,18 +935,22 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Signature: {}", sig);
 
     let market = client.get_market(next_market_id).await.unwrap();
     println!("    Status: {:?}", market.status);
     println!("    Winning Outcome: {}", market.winning_outcome);
+    assert_eq!(market.status, MarketStatus::Resolved);
+    assert_eq!(market.winning_outcome, 0);
     println!("    SUCCESS: Market settled\n");
 
     // ========================================================================
-    // Test 14: Redeem Winnings
+    // Test 18: Redeem Winnings
     // ========================================================================
-    println!("14. Testing redeem winnings...");
+    println!("18. Testing redeem winnings...");
     let tx = client
         .redeem_winnings(
             RedeemWinningsParams {
@@ -627,27 +964,37 @@ async fn test_full_devnet_flow() {
         .await
         .unwrap();
 
-    let sig = sign_and_send(rpc, tx, &[&user]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&user as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Signature: {}", sig);
     println!("    SUCCESS: Winnings redeemed\n");
 
     // ========================================================================
-    // Test 15: Set Paused
+    // Test 19: Set Paused
     // ========================================================================
-    println!("15. Testing set paused...");
+    println!("19. Testing set paused...");
 
-    // Pause
-    let tx = client.set_paused(&authority.pubkey(), true).await.unwrap();
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let tx = client
+        .set_paused(&authority.pubkey(), true)
+        .await
+        .unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Pause Signature: {}", sig);
 
     let exchange = client.get_exchange().await.unwrap();
     println!("    Exchange Paused: {}", exchange.paused);
     assert!(exchange.paused, "Exchange should be paused");
 
-    // Unpause
-    let tx = client.set_paused(&authority.pubkey(), false).await.unwrap();
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let tx = client
+        .set_paused(&authority.pubkey(), false)
+        .await
+        .unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Unpause Signature: {}", sig);
 
     let exchange = client.get_exchange().await.unwrap();
@@ -656,9 +1003,9 @@ async fn test_full_devnet_flow() {
     println!("    SUCCESS: Set paused completed\n");
 
     // ========================================================================
-    // Test 16: Set Operator
+    // Test 20: Set Operator
     // ========================================================================
-    println!("16. Testing set operator...");
+    println!("20. Testing set operator...");
     let exchange = client.get_exchange().await.unwrap();
     let original_operator = exchange.operator;
     println!("    Original Operator: {}", original_operator);
@@ -666,33 +1013,73 @@ async fn test_full_devnet_flow() {
     let new_operator = Keypair::new();
     println!("    New Operator: {}", new_operator.pubkey());
 
-    // Change operator
     let tx = client
         .set_operator(&authority.pubkey(), &new_operator.pubkey())
         .await
         .unwrap();
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Set Operator Signature: {}", sig);
 
     let exchange = client.get_exchange().await.unwrap();
-    println!("    Updated Operator: {}", exchange.operator);
-    assert_eq!(
-        exchange.operator,
-        new_operator.pubkey(),
-        "Operator should be changed"
-    );
+    assert_eq!(exchange.operator, new_operator.pubkey());
 
-    // Revert operator
+    // Revert
     let tx = client
         .set_operator(&authority.pubkey(), &original_operator)
         .await
         .unwrap();
-    let sig = sign_and_send(rpc, tx, &[&authority]).await.unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Revert Signature: {}", sig);
+    println!("    SUCCESS: Set operator completed\n");
+
+    // ========================================================================
+    // Test 21: Set Authority
+    // ========================================================================
+    println!("21. Testing set authority...");
+
+    let new_authority_kp = Keypair::new();
+    println!("    New Authority: {}", new_authority_kp.pubkey());
+
+    // Transfer authority
+    let tx = client
+        .set_authority(SetAuthorityParams {
+            current_authority: authority.pubkey(),
+            new_authority: new_authority_kp.pubkey(),
+        })
+        .await
+        .unwrap();
+    let sig = sign_and_send(rpc, tx, &[&authority as &dyn Signer])
+        .await
+        .unwrap();
+    println!("    Set Authority Signature: {}", sig);
+
+    let exchange = client.get_exchange().await.unwrap();
+    assert_eq!(exchange.authority, new_authority_kp.pubkey());
+    println!("    Authority changed to: {}", exchange.authority);
+
+    // Transfer authority back (need to fund the new authority first)
+    fund_account(rpc, &authority, &new_authority_kp.pubkey(), LAMPORTS_PER_SOL / 100).await;
+
+    let tx = client
+        .set_authority(SetAuthorityParams {
+            current_authority: new_authority_kp.pubkey(),
+            new_authority: authority.pubkey(),
+        })
+        .await
+        .unwrap();
+    let sig = sign_and_send(rpc, tx, &[&new_authority_kp as &dyn Signer])
+        .await
+        .unwrap();
     println!("    Revert Signature: {}", sig);
 
     let exchange = client.get_exchange().await.unwrap();
-    println!("    Reverted Operator: {}", exchange.operator);
-    println!("    SUCCESS: Set operator completed\n");
+    assert_eq!(exchange.authority, authority.pubkey());
+    println!("    Authority reverted to: {}", exchange.authority);
+    println!("    SUCCESS: Set authority completed\n");
 
     // ========================================================================
     // Summary
@@ -701,37 +1088,29 @@ async fn test_full_devnet_flow() {
     println!("ALL DEVNET TESTS PASSED!");
     println!("{}", "=".repeat(70));
     println!("\nSummary:");
-    println!("   Protocol Initialization");
-    println!("   Market Creation");
-    println!("   Deposit Mint Configuration");
-    println!("   Market Activation");
-    println!("   User Deposit Flow (Mint Complete Set)");
-    println!("   Merge Complete Set");
-    println!("   Withdraw From Position");
-    println!("   Order Creation & Signing");
-    println!("   Order Cancellation");
-    println!("   Match Orders Multi");
-    println!("   Market Settlement");
-    println!("   Winnings Redemption");
-    println!("   Set Paused (Admin)");
-    println!("   Set Operator (Admin)");
-    println!("\nAll 14 Instructions Tested:");
-    println!("    0. INITIALIZE");
-    println!("    1. CREATE_MARKET");
-    println!("    2. ADD_DEPOSIT_MINT");
-    println!("    3. MINT_COMPLETE_SET");
-    println!("    4. MERGE_COMPLETE_SET");
-    println!("    5. CANCEL_ORDER");
-    println!("    6. INCREMENT_NONCE");
-    println!("    7. SETTLE_MARKET");
-    println!("    8. REDEEM_WINNINGS");
-    println!("    9. SET_PAUSED");
-    println!("   10. SET_OPERATOR");
-    println!("   11. WITHDRAW_FROM_POSITION");
-    println!("   12. ACTIVATE_MARKET");
-    println!("   13. MATCH_ORDERS_MULTI");
+    println!("   1.  Protocol Initialization");
+    println!("   2.  Market Creation");
+    println!("   3.  Deposit Mint Configuration");
+    println!("   4.  Create Orderbook (NEW)");
+    println!("   5.  Market Activation");
+    println!("   6.  User Deposit Flow (Mint Complete Set)");
+    println!("   7.  Second User Setup");
+    println!("   8.  Third User Setup");
+    println!("   9.  Merge Complete Set");
+    println!("   10. Withdraw From Position");
+    println!("   11. Order Creation, Signing & Roundtrip");
+    println!("   12. OrderBuilder");
+    println!("   13. Order Cancellation");
+    println!("   14. Match Orders - Partial Fill (bitmask=0)");
+    println!("   15. Match Orders - Full Fill (bitmask=0x81) (NEW)");
+    println!("   16. Match Orders - Multi-Maker (2 makers) (NEW)");
+    println!("   17. Market Settlement");
+    println!("   18. Winnings Redemption");
+    println!("   19. Set Paused (Admin)");
+    println!("   20. Set Operator (Admin)");
+    println!("   21. Set Authority (Admin) (NEW)");
     println!("\nTest Market ID: {}", next_market_id);
-    println!("Program: {}\n", PROGRAM_ID.to_string());
+    println!("Program: {}\n", program_id);
 }
 
 // ============================================================================
@@ -752,12 +1131,17 @@ fn hex_encode(bytes: &[u8]) -> String {
 async fn fund_account(rpc: &RpcClient, payer: &Keypair, recipient: &Pubkey, amount: u64) {
     let ix = system_instruction::transfer(&payer.pubkey(), recipient, amount);
     let blockhash = rpc.get_latest_blockhash().await.unwrap();
-    let tx = Transaction::new_signed_with_payer(&[ix], Some(&payer.pubkey()), &[payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &[ix],
+        Some(&payer.pubkey()),
+        &[payer as &dyn Signer],
+        blockhash,
+    );
     rpc.send_and_confirm_transaction(&tx).await.unwrap();
 }
 
 async fn create_test_mint(rpc: &RpcClient, authority: &Keypair) -> Pubkey {
-    use solana_sdk::program_pack::Pack;
+    use spl_token::solana_program::program_pack::Pack;
 
     let mint = Keypair::new();
     let rent = rpc
@@ -786,7 +1170,7 @@ async fn create_test_mint(rpc: &RpcClient, authority: &Keypair) -> Pubkey {
     let tx = Transaction::new_signed_with_payer(
         &[create_account_ix, init_mint_ix],
         Some(&authority.pubkey()),
-        &[authority, &mint],
+        &[authority as &dyn Signer, &mint as &dyn Signer],
         blockhash,
     );
     rpc.send_and_confirm_transaction(&tx).await.unwrap();
@@ -805,7 +1189,6 @@ async fn create_and_fund_token_account(
 
     let ata = spl_associated_token_account::get_associated_token_address(owner, mint);
 
-    // Create ATA
     let create_ata_ix =
         create_associated_token_account(&payer.pubkey(), owner, mint, &spl_token::id());
 
@@ -813,19 +1196,22 @@ async fn create_and_fund_token_account(
     let tx = Transaction::new_signed_with_payer(
         &[create_ata_ix],
         Some(&payer.pubkey()),
-        &[payer],
+        &[payer as &dyn Signer],
         blockhash,
     );
     let _ = rpc.send_and_confirm_transaction(&tx).await;
 
-    // Mint tokens
     let mint_ix =
         spl_token::instruction::mint_to(&spl_token::id(), mint, &ata, &payer.pubkey(), &[], amount)
             .unwrap();
 
     let blockhash = rpc.get_latest_blockhash().await.unwrap();
-    let tx =
-        Transaction::new_signed_with_payer(&[mint_ix], Some(&payer.pubkey()), &[payer], blockhash);
+    let tx = Transaction::new_signed_with_payer(
+        &[mint_ix],
+        Some(&payer.pubkey()),
+        &[payer as &dyn Signer],
+        blockhash,
+    );
     rpc.send_and_confirm_transaction(&tx).await.unwrap();
 
     ata

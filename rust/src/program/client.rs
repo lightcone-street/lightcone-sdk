@@ -12,17 +12,14 @@ use solana_transaction::Transaction;
 #[cfg(feature = "client")]
 use solana_keypair::Keypair;
 
-use crate::program::accounts::{Exchange, Market, OrderStatus, Position, UserNonce};
+use crate::program::accounts::{Exchange, Market, Orderbook, OrderStatus, Position, UserNonce};
 use crate::program::constants::PROGRAM_ID;
-use crate::program::ed25519::{
-    create_cross_ref_ed25519_instructions, create_order_verify_instruction,
-};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
-use crate::program::orders::{derive_condition_id, FullOrder};
+use crate::program::orders::{derive_condition_id, SignedOrder};
 use crate::program::pda::{
     get_all_conditional_mint_pdas, get_exchange_pda, get_market_pda, get_order_status_pda,
-    get_position_pda, get_user_nonce_pda, Pda,
+    get_orderbook_pda, get_position_pda, get_user_nonce_pda, Pda,
 };
 use crate::program::types::*;
 
@@ -149,6 +146,21 @@ impl LightconePinocchioClient {
         Ok(exchange.market_count)
     }
 
+    /// Fetch an Orderbook account by mint pair.
+    pub async fn get_orderbook(
+        &self,
+        mint_a: &Pubkey,
+        mint_b: &Pubkey,
+    ) -> SdkResult<Orderbook> {
+        let (pda, _) = get_orderbook_pda(mint_a, mint_b, &self.program_id);
+        let account = self
+            .rpc_client
+            .get_account(&pda)
+            .await
+            .map_err(|e| SdkError::AccountNotFound(format!("Orderbook: {}", e)))?;
+        Orderbook::deserialize(&account.data)
+    }
+
     // ========================================================================
     // Transaction Builders
     // ========================================================================
@@ -206,8 +218,13 @@ impl LightconePinocchioClient {
     }
 
     /// Build CancelOrder transaction.
-    pub async fn cancel_order(&self, maker: &Pubkey, order: &FullOrder) -> SdkResult<Transaction> {
-        let ix = build_cancel_order_ix(maker, order, &self.program_id);
+    pub async fn cancel_order(
+        &self,
+        maker: &Pubkey,
+        market: &Pubkey,
+        order: &SignedOrder,
+    ) -> SdkResult<Transaction> {
+        let ix = build_cancel_order_ix(maker, market, order, &self.program_id);
         Ok(Transaction::new_with_payer(&[ix], Some(maker)))
     }
 
@@ -265,10 +282,7 @@ impl LightconePinocchioClient {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
-    /// Build MatchOrdersMulti transaction without Ed25519 verify instructions.
-    ///
-    /// Note: This requires Ed25519 verification instructions to be added separately
-    /// before the match instruction.
+    /// Build MatchOrdersMulti transaction.
     pub async fn match_orders_multi(
         &self,
         params: MatchOrdersMultiParams,
@@ -277,56 +291,21 @@ impl LightconePinocchioClient {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
-    /// Build MatchOrdersMulti transaction with Ed25519 verify instructions.
-    ///
-    /// Uses individual Ed25519 verify instructions (one per signature).
-    pub async fn match_orders_multi_with_verify(
+    /// Build CreateOrderbook transaction.
+    pub async fn create_orderbook(
         &self,
-        params: MatchOrdersMultiParams,
+        params: CreateOrderbookParams,
     ) -> SdkResult<Transaction> {
-        let mut instructions = Vec::new();
-
-        // Add taker Ed25519 verify instruction
-        instructions.push(create_order_verify_instruction(&params.taker_order));
-
-        // Add maker Ed25519 verify instructions
-        for maker_order in &params.maker_orders {
-            instructions.push(create_order_verify_instruction(maker_order));
-        }
-
-        // Add match orders instruction
-        let match_ix = build_match_orders_multi_ix(&params, &self.program_id)?;
-        instructions.push(match_ix);
-
-        Ok(Transaction::new_with_payer(
-            &instructions,
-            Some(&params.operator),
-        ))
+        let ix = build_create_orderbook_ix(&params, &self.program_id);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
 
-    /// Build MatchOrdersMulti transaction with cross-reference Ed25519 verification.
-    ///
-    /// This is the most space-efficient approach - Ed25519 instructions reference
-    /// data in the match instruction instead of duplicating it.
-    pub async fn match_orders_multi_cross_ref(
-        &self,
-        params: MatchOrdersMultiParams,
-    ) -> SdkResult<Transaction> {
-        let num_makers = params.maker_orders.len();
-
-        // Match instruction will be at index (1 + num_makers)
-        let match_ix_index = (1 + num_makers) as u16;
-
-        // Add Ed25519 cross-ref verify instructions
-        let mut instructions = create_cross_ref_ed25519_instructions(num_makers, match_ix_index);
-
-        // Add match orders instruction
-        let match_ix = build_match_orders_multi_ix(&params, &self.program_id)?;
-        instructions.push(match_ix);
-
+    /// Build SetAuthority transaction.
+    pub async fn set_authority(&self, params: SetAuthorityParams) -> SdkResult<Transaction> {
+        let ix = build_set_authority_ix(&params, &self.program_id);
         Ok(Transaction::new_with_payer(
-            &instructions,
-            Some(&params.operator),
+            &[ix],
+            Some(&params.current_authority),
         ))
     }
 
@@ -335,35 +314,43 @@ impl LightconePinocchioClient {
     // ========================================================================
 
     /// Create an unsigned bid order.
-    pub fn create_bid_order(&self, params: BidOrderParams) -> FullOrder {
-        FullOrder::new_bid(params)
+    pub fn create_bid_order(&self, params: BidOrderParams) -> SignedOrder {
+        SignedOrder::new_bid(params)
     }
 
     /// Create an unsigned ask order.
-    pub fn create_ask_order(&self, params: AskOrderParams) -> FullOrder {
-        FullOrder::new_ask(params)
+    pub fn create_ask_order(&self, params: AskOrderParams) -> SignedOrder {
+        SignedOrder::new_ask(params)
     }
 
     /// Create and sign a bid order.
     #[cfg(feature = "client")]
-    pub fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> FullOrder {
-        FullOrder::new_bid_signed(params, keypair)
+    pub fn create_signed_bid_order(
+        &self,
+        params: BidOrderParams,
+        keypair: &Keypair,
+    ) -> SignedOrder {
+        SignedOrder::new_bid_signed(params, keypair)
     }
 
     /// Create and sign an ask order.
     #[cfg(feature = "client")]
-    pub fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> FullOrder {
-        FullOrder::new_ask_signed(params, keypair)
+    pub fn create_signed_ask_order(
+        &self,
+        params: AskOrderParams,
+        keypair: &Keypair,
+    ) -> SignedOrder {
+        SignedOrder::new_ask_signed(params, keypair)
     }
 
     /// Compute the hash of an order.
-    pub fn hash_order(&self, order: &FullOrder) -> [u8; 32] {
+    pub fn hash_order(&self, order: &SignedOrder) -> [u8; 32] {
         order.hash()
     }
 
     /// Sign an order with the given keypair.
     #[cfg(feature = "client")]
-    pub fn sign_order(&self, order: &mut FullOrder, keypair: &Keypair) {
+    pub fn sign_order(&self, order: &mut SignedOrder, keypair: &Keypair) {
         order.sign(keypair);
     }
 
@@ -418,6 +405,11 @@ impl LightconePinocchioClient {
     pub fn get_user_nonce_pda(&self, user: &Pubkey) -> Pubkey {
         get_user_nonce_pda(user, &self.program_id).0
     }
+
+    /// Get an Orderbook PDA.
+    pub fn get_orderbook_pda(&self, mint_a: &Pubkey, mint_b: &Pubkey) -> Pubkey {
+        get_orderbook_pda(mint_a, mint_b, &self.program_id).0
+    }
 }
 
 #[cfg(test)]
@@ -452,6 +444,11 @@ mod tests {
         let market = Pubkey::new_unique();
         let position_pda = client.get_position_pda(&owner, &market);
         assert_ne!(position_pda, Pubkey::default());
+
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
+        let orderbook_pda = client.get_orderbook_pda(&mint_a, &mint_b);
+        assert_ne!(orderbook_pda, Pubkey::default());
     }
 
     #[test]

@@ -1,4 +1,4 @@
-//! Instruction builders for all 14 Lightcone Pinocchio instructions.
+//! Instruction builders for all Lightcone Pinocchio instructions.
 //!
 //! This module provides functions to build transaction instructions for interacting
 //! with the Lightcone Pinocchio program.
@@ -12,19 +12,20 @@ fn system_program_id() -> Pubkey {
 }
 
 use crate::program::constants::{
-    instruction, ASSOCIATED_TOKEN_PROGRAM_ID, INSTRUCTIONS_SYSVAR_ID, MAX_MAKERS,
-    TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
+    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, TOKEN_2022_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
-use crate::program::orders::FullOrder;
+use crate::program::orders::SignedOrder;
 use crate::program::pda::{
     get_conditional_mint_pda, get_exchange_pda, get_market_pda, get_mint_authority_pda,
-    get_order_status_pda, get_position_pda, get_user_nonce_pda, get_vault_pda,
+    get_order_status_pda, get_orderbook_pda, get_alt_pda, get_position_pda, get_user_nonce_pda,
+    get_vault_pda,
 };
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, MatchOrdersMultiParams,
-    MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams,
-    SettleMarketParams, WithdrawFromPositionParams,
+    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
+    MatchOrdersMultiParams, MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams,
+    SetAuthorityParams, SettleMarketParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_outcome_metadata,
@@ -303,9 +304,16 @@ pub fn build_merge_complete_set_ix(
 /// Build CancelOrder instruction.
 ///
 /// Marks an order as cancelled.
+///
+/// Accounts:
+/// 0. maker (signer)
+/// 1. market (readonly)
+/// 2. order_status (mut)
+/// 3. system_program (readonly)
 pub fn build_cancel_order_ix(
     maker: &Pubkey,
-    order: &FullOrder,
+    market: &Pubkey,
+    order: &SignedOrder,
     program_id: &Pubkey,
 ) -> Instruction {
     let order_hash = order.hash();
@@ -313,11 +321,12 @@ pub fn build_cancel_order_ix(
 
     let keys = vec![
         signer_mut(*maker),
+        readonly(*market),
         writable(order_status),
         readonly(system_program_id()),
     ];
 
-    // Data: [discriminator, order_hash (32), full_order (225)]
+    // Data: [discriminator(1), order_hash(32), SignedOrder(225)] = 258 bytes
     let mut data = Vec::with_capacity(258);
     data.push(instruction::CANCEL_ORDER);
     data.extend_from_slice(&order_hash);
@@ -465,6 +474,15 @@ pub fn build_set_operator_ix(
 /// Build WithdrawFromPosition instruction.
 ///
 /// Withdraw tokens from Position ATA to user's ATA.
+///
+/// Accounts (7):
+/// 0. user (signer)
+/// 1. market (readonly)
+/// 2. position (mut)
+/// 3. mint (readonly)
+/// 4. position_ata (mut)
+/// 5. user_ata (mut)
+/// 6. token_program (readonly)
 pub fn build_withdraw_from_position_ix(
     params: &WithdrawFromPositionParams,
     is_token_2022: bool,
@@ -489,6 +507,7 @@ pub fn build_withdraw_from_position_ix(
 
     let keys = vec![
         signer_mut(params.user),
+        readonly(params.market),
         writable(position),
         readonly(params.mint),
         writable(position_ata),
@@ -496,9 +515,11 @@ pub fn build_withdraw_from_position_ix(
         readonly(token_program),
     ];
 
-    let mut data = Vec::with_capacity(9);
+    // Data: [discriminator(1), amount(8), outcome_index(1)] = 10 bytes
+    let mut data = Vec::with_capacity(10);
     data.push(instruction::WITHDRAW_FROM_POSITION);
     data.extend_from_slice(&params.amount.to_le_bytes());
+    data.push(params.outcome_index);
 
     Instruction {
         program_id: *program_id,
@@ -534,24 +555,21 @@ pub fn build_activate_market_ix(
 
 /// Build MatchOrdersMulti instruction.
 ///
-/// Match taker against up to 5 makers.
+/// Match taker against up to 3 makers.
 ///
-/// Accounts (13 fixed + 5 per maker):
-/// 0. operator (signer)
-/// 1. exchange (readonly)
-/// 2. market (readonly)
-/// 3. taker_order_status (mut)
-/// 4. taker_nonce (readonly)
-/// 5. taker_position (mut)
-/// 6. base_mint (readonly)
-/// 7. quote_mint (readonly)
-/// 8. taker_position_base_ata (mut)
-/// 9. taker_position_quote_ata (mut)
-/// 10. token_2022_program (readonly)
-/// 11. system_program (readonly)
-/// 12. instructions_sysvar (readonly)
+/// Data format:
+/// [0]       discriminator
+/// [1..30]   taker Order (29 bytes)
+/// [30..94]  taker_signature (64 bytes)
+/// [94]      num_makers
+/// [95]      full_fill_bitmask
+/// Per maker (109 bytes each):
+///   [+0..+29]   maker Order (29)
+///   [+29..+93]  maker_signature (64)
+///   [+93..+101] maker_fill_amount (8)
+///   [+101..+109] taker_fill_amount (8)
 ///
-/// Per maker: order_status, nonce, position, base_ata, quote_ata
+/// Account construction uses bitmask to determine if order_status is included.
 pub fn build_match_orders_multi_ix(
     params: &MatchOrdersMultiParams,
     program_id: &Pubkey,
@@ -562,45 +580,61 @@ pub fn build_match_orders_multi_ix(
     if params.maker_orders.len() > MAX_MAKERS {
         return Err(SdkError::TooManyMakers { count: params.maker_orders.len() });
     }
-    if params.maker_orders.len() != params.fill_amounts.len() {
-        return Err(SdkError::MissingField("fill_amounts".to_string()));
+    if params.maker_orders.len() != params.maker_fill_amounts.len() {
+        return Err(SdkError::MissingField("maker_fill_amounts".to_string()));
+    }
+    if params.maker_orders.len() != params.taker_fill_amounts.len() {
+        return Err(SdkError::MissingField("taker_fill_amounts".to_string()));
     }
 
     let (exchange, _) = get_exchange_pda(program_id);
     let taker_order_hash = params.taker_order.hash();
-    let (taker_order_status, _) = get_order_status_pda(&taker_order_hash, program_id);
     let (taker_nonce, _) = get_user_nonce_pda(&params.taker_order.maker, program_id);
     let (taker_position, _) =
         get_position_pda(&params.taker_order.maker, &params.market, program_id);
     let taker_base_ata = get_conditional_token_ata(&taker_position, &params.base_mint);
     let taker_quote_ata = get_conditional_token_ata(&taker_position, &params.quote_mint);
 
-    let mut keys = vec![
-        signer_mut(params.operator),
-        readonly(exchange),
-        readonly(params.market),
-        writable(taker_order_status),
-        readonly(taker_nonce),
-        writable(taker_position),
-        readonly(params.base_mint),
-        readonly(params.quote_mint),
-        writable(taker_base_ata),
-        writable(taker_quote_ata),
-        readonly(TOKEN_2022_PROGRAM_ID),
-        readonly(system_program_id()),
-        readonly(INSTRUCTIONS_SYSVAR_ID),
-    ];
+    let taker_full_fill = (params.full_fill_bitmask >> 7) & 1 == 1;
 
-    // Add maker accounts
-    for maker_order in &params.maker_orders {
-        let maker_order_hash = maker_order.hash();
-        let (maker_order_status, _) = get_order_status_pda(&maker_order_hash, program_id);
+    let mut keys = Vec::new();
+
+    // Taker fixed accounts
+    keys.push(signer_mut(params.operator));
+    keys.push(readonly(exchange));
+    keys.push(readonly(params.market));
+
+    if !taker_full_fill {
+        // bit 7 = 0: needs order_status (12 accounts)
+        let (taker_order_status, _) = get_order_status_pda(&taker_order_hash, program_id);
+        keys.push(writable(taker_order_status));
+    }
+    // Remaining taker accounts
+    keys.push(readonly(taker_nonce));
+    keys.push(writable(taker_position));
+    keys.push(readonly(params.base_mint));
+    keys.push(readonly(params.quote_mint));
+    keys.push(writable(taker_base_ata));
+    keys.push(writable(taker_quote_ata));
+    keys.push(readonly(TOKEN_2022_PROGRAM_ID));
+    keys.push(readonly(system_program_id()));
+
+    // Per-maker accounts
+    for (i, maker_order) in params.maker_orders.iter().enumerate() {
+        let maker_full_fill = (params.full_fill_bitmask >> i) & 1 == 1;
+
+        if !maker_full_fill {
+            // bit i = 0: 5 accounts (order_status, nonce, position, base_ata, quote_ata)
+            let maker_order_hash = maker_order.hash();
+            let (maker_order_status, _) = get_order_status_pda(&maker_order_hash, program_id);
+            keys.push(writable(maker_order_status));
+        }
+        // bit i = 1: 4 accounts (nonce, position, base_ata, quote_ata)
         let (maker_nonce, _) = get_user_nonce_pda(&maker_order.maker, program_id);
         let (maker_position, _) = get_position_pda(&maker_order.maker, &params.market, program_id);
         let maker_base_ata = get_conditional_token_ata(&maker_position, &params.base_mint);
         let maker_quote_ata = get_conditional_token_ata(&maker_position, &params.quote_mint);
 
-        keys.push(writable(maker_order_status));
         keys.push(readonly(maker_nonce));
         keys.push(writable(maker_position));
         keys.push(writable(maker_base_ata));
@@ -608,28 +642,27 @@ pub fn build_match_orders_multi_ix(
     }
 
     // Build data
-    // [discriminator, taker_hash(32), taker_compact(65), taker_sig(64), num_makers(1)]
-    // Per maker: [hash(32), compact(65), sig(64), fill(8)]
-    let taker_compact = params.taker_order.to_compact();
+    let taker_compact = params.taker_order.to_order();
     let num_makers = params.maker_orders.len() as u8;
 
-    let data_size = 1 + 32 + 65 + 64 + 1 + (params.maker_orders.len() * (32 + 65 + 64 + 8));
+    // discriminator(1) + taker_order(29) + taker_sig(64) + num_makers(1) + bitmask(1)
+    // + per maker: order(29) + sig(64) + maker_fill(8) + taker_fill(8) = 109
+    let data_size = 1 + 29 + 64 + 1 + 1 + (params.maker_orders.len() * 109);
     let mut data = Vec::with_capacity(data_size);
 
     data.push(instruction::MATCH_ORDERS_MULTI);
-    data.extend_from_slice(&taker_order_hash);
     data.extend_from_slice(&taker_compact.serialize());
     data.extend_from_slice(&params.taker_order.signature);
     data.push(num_makers);
+    data.push(params.full_fill_bitmask);
 
     for (i, maker_order) in params.maker_orders.iter().enumerate() {
-        let maker_hash = maker_order.hash();
-        let maker_compact = maker_order.to_compact();
+        let maker_compact = maker_order.to_order();
 
-        data.extend_from_slice(&maker_hash);
         data.extend_from_slice(&maker_compact.serialize());
         data.extend_from_slice(&maker_order.signature);
-        data.extend_from_slice(&params.fill_amounts[i].to_le_bytes());
+        data.extend_from_slice(&params.maker_fill_amounts[i].to_le_bytes());
+        data.extend_from_slice(&params.taker_fill_amounts[i].to_le_bytes());
     }
 
     Ok(Instruction {
@@ -637,6 +670,79 @@ pub fn build_match_orders_multi_ix(
         accounts: keys,
         data,
     })
+}
+
+/// Build CreateOrderbook instruction.
+///
+/// Creates an on-chain orderbook with address lookup table.
+///
+/// Accounts (9):
+/// 0. payer (signer, mut)
+/// 1. market (readonly)
+/// 2. mint_a (readonly)
+/// 3. mint_b (readonly)
+/// 4. orderbook (mut)
+/// 5. lookup_table (mut)
+/// 6. exchange (readonly)
+/// 7. alt_program (readonly)
+/// 8. system_program (readonly)
+pub fn build_create_orderbook_ix(
+    params: &CreateOrderbookParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+    let (orderbook, _) = get_orderbook_pda(&params.mint_a, &params.mint_b, program_id);
+    let (lookup_table, _) = get_alt_pda(&orderbook, params.recent_slot);
+
+    let keys = vec![
+        signer_mut(params.payer),
+        readonly(params.market),
+        readonly(params.mint_a),
+        readonly(params.mint_b),
+        writable(orderbook),
+        writable(lookup_table),
+        readonly(exchange),
+        readonly(*ALT_PROGRAM_ID),
+        readonly(system_program_id()),
+    ];
+
+    // Data: [discriminator(1), recent_slot(8)] = 9 bytes
+    let mut data = Vec::with_capacity(9);
+    data.push(instruction::CREATE_ORDERBOOK);
+    data.extend_from_slice(&params.recent_slot.to_le_bytes());
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    }
+}
+
+/// Build SetAuthority instruction.
+///
+/// Change the exchange authority.
+///
+/// Accounts (2):
+/// 0. authority (signer)
+/// 1. exchange (mut)
+pub fn build_set_authority_ix(
+    params: &SetAuthorityParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+
+    let keys = vec![signer_mut(params.current_authority), writable(exchange)];
+
+    // Data: [discriminator(1), new_authority(32)] = 33 bytes
+    let mut data = Vec::with_capacity(33);
+    data.push(instruction::SET_AUTHORITY);
+    data.extend_from_slice(params.new_authority.as_ref());
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    }
 }
 
 #[cfg(test)]
@@ -758,5 +864,195 @@ mod tests {
         assert_eq!(ix.data.len(), 2);
         assert_eq!(ix.data[0], instruction::SETTLE_MARKET);
         assert_eq!(ix.data[1], 2);
+    }
+
+    #[test]
+    fn test_build_cancel_order_ix() {
+        let maker = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let program_id = test_program_id();
+
+        let order = SignedOrder {
+            nonce: 1,
+            maker,
+            market,
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: crate::program::types::OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [0u8; 64],
+        };
+
+        let ix = build_cancel_order_ix(&maker, &market, &order, &program_id);
+
+        assert_eq!(ix.accounts.len(), 4);
+        assert_eq!(ix.data.len(), 258); // 1 + 32 + 225
+        assert_eq!(ix.data[0], instruction::CANCEL_ORDER);
+    }
+
+    #[test]
+    fn test_build_withdraw_from_position_ix() {
+        let program_id = test_program_id();
+        let params = WithdrawFromPositionParams {
+            user: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            mint: Pubkey::new_unique(),
+            amount: 1000,
+            outcome_index: 0,
+        };
+
+        let ix = build_withdraw_from_position_ix(&params, true, &program_id);
+
+        assert_eq!(ix.accounts.len(), 7);
+        assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
+        assert_eq!(ix.data[0], instruction::WITHDRAW_FROM_POSITION);
+        assert_eq!(ix.data[9], 0); // outcome_index
+    }
+
+    #[test]
+    fn test_build_create_orderbook_ix() {
+        let program_id = test_program_id();
+        let params = CreateOrderbookParams {
+            payer: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            mint_a: Pubkey::new_unique(),
+            mint_b: Pubkey::new_unique(),
+            recent_slot: 12345,
+        };
+
+        let ix = build_create_orderbook_ix(&params, &program_id);
+
+        assert_eq!(ix.accounts.len(), 9);
+        assert_eq!(ix.data.len(), 9); // 1 + 8
+        assert_eq!(ix.data[0], instruction::CREATE_ORDERBOOK);
+    }
+
+    #[test]
+    fn test_build_set_authority_ix() {
+        let program_id = test_program_id();
+        let params = SetAuthorityParams {
+            current_authority: Pubkey::new_unique(),
+            new_authority: Pubkey::new_unique(),
+        };
+
+        let ix = build_set_authority_ix(&params, &program_id);
+
+        assert_eq!(ix.accounts.len(), 2);
+        assert_eq!(ix.data.len(), 33); // 1 + 32
+        assert_eq!(ix.data[0], instruction::SET_AUTHORITY);
+        assert_eq!(&ix.data[1..33], params.new_authority.as_ref());
+    }
+
+    #[test]
+    fn test_build_match_orders_multi_ix_data_format() {
+        let program_id = test_program_id();
+        let operator = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let taker = SignedOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            side: crate::program::types::OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [1u8; 64],
+        };
+
+        let maker = SignedOrder {
+            nonce: 2,
+            maker: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            side: crate::program::types::OrderSide::Ask,
+            maker_amount: 50,
+            taker_amount: 100,
+            expiration: 0,
+            signature: [2u8; 64],
+        };
+
+        let params = MatchOrdersMultiParams {
+            operator,
+            market,
+            base_mint,
+            quote_mint,
+            taker_order: taker,
+            maker_orders: vec![maker],
+            maker_fill_amounts: vec![50],
+            taker_fill_amounts: vec![100],
+            full_fill_bitmask: 0,
+        };
+
+        let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
+
+        // Data: 1 + 29 + 64 + 1 + 1 + 109 = 205
+        assert_eq!(ix.data.len(), 205);
+        assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
+
+        // With bitmask=0 (no full fills):
+        // Taker: 12 accounts, Maker: 5 accounts = 17 total
+        assert_eq!(ix.accounts.len(), 17);
+    }
+
+    #[test]
+    fn test_build_match_orders_multi_ix_full_fill() {
+        let program_id = test_program_id();
+        let operator = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+
+        let taker = SignedOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            side: crate::program::types::OrderSide::Bid,
+            maker_amount: 100,
+            taker_amount: 50,
+            expiration: 0,
+            signature: [1u8; 64],
+        };
+
+        let maker = SignedOrder {
+            nonce: 2,
+            maker: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            side: crate::program::types::OrderSide::Ask,
+            maker_amount: 50,
+            taker_amount: 100,
+            expiration: 0,
+            signature: [2u8; 64],
+        };
+
+        // bit 0 = 1 (maker 0 full fill), bit 7 = 1 (taker full fill)
+        let params = MatchOrdersMultiParams {
+            operator,
+            market,
+            base_mint,
+            quote_mint,
+            taker_order: taker,
+            maker_orders: vec![maker],
+            maker_fill_amounts: vec![50],
+            taker_fill_amounts: vec![100],
+            full_fill_bitmask: 0b10000001,
+        };
+
+        let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
+
+        // With bitmask=0x81 (taker + maker 0 full fill):
+        // Taker: 11 accounts (no order_status), Maker: 4 accounts (no order_status) = 15 total
+        assert_eq!(ix.accounts.len(), 15);
     }
 }

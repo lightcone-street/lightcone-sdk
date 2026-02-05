@@ -5,8 +5,8 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    CONDITIONAL_MINT_SEED, EXCHANGE_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, ORDER_STATUS_SEED,
-    POSITION_SEED, USER_NONCE_SEED, VAULT_SEED,
+    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, EXCHANGE_SEED, MARKET_SEED, MINT_AUTHORITY_SEED,
+    ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED, USER_NONCE_SEED, VAULT_SEED,
 };
 
 /// Get the Exchange PDA.
@@ -93,6 +93,30 @@ pub fn get_position_pda(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) ->
     Pubkey::find_program_address(&[POSITION_SEED, owner.as_ref(), market.as_ref()], program_id)
 }
 
+/// Get an Orderbook PDA.
+///
+/// Seeds: ["orderbook", mint_a, mint_b]
+pub fn get_orderbook_pda(
+    mint_a: &Pubkey,
+    mint_b: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[ORDERBOOK_SEED, mint_a.as_ref(), mint_b.as_ref()],
+        program_id,
+    )
+}
+
+/// Get an Address Lookup Table PDA.
+///
+/// Seeds: [orderbook, slot_le], program: ALT_PROGRAM_ID
+pub fn get_alt_pda(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[orderbook.as_ref(), &recent_slot.to_le_bytes()],
+        &ALT_PROGRAM_ID,
+    )
+}
+
 /// Collection of all PDA derivation functions for convenient access.
 pub struct Pda;
 
@@ -151,6 +175,16 @@ impl Pda {
     pub fn position(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
         get_position_pda(owner, market, program_id)
     }
+
+    /// Get an Orderbook PDA.
+    pub fn orderbook(mint_a: &Pubkey, mint_b: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+        get_orderbook_pda(mint_a, mint_b, program_id)
+    }
+
+    /// Get an Address Lookup Table PDA.
+    pub fn alt(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
+        get_alt_pda(orderbook, recent_slot)
+    }
 }
 
 #[cfg(test)]
@@ -159,7 +193,7 @@ mod tests {
     use std::str::FromStr;
 
     fn test_program_id() -> Pubkey {
-        Pubkey::from_str("EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2").unwrap()
+        Pubkey::from_str("2epidV1UJUrUGNfHbJDtRKT4oad8FJU876Gq8HPHz7Qw").unwrap()
     }
 
     #[test]
@@ -232,10 +266,50 @@ mod tests {
     }
 
     #[test]
+    fn test_orderbook_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
+
+        let (pda1, bump1) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+        let (pda2, bump2) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_different_mints_produce_different_orderbook_pdas() {
+        let program_id = test_program_id();
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
+        let mint_c = Pubkey::new_unique();
+
+        let (pda1, _) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+        let (pda2, _) = get_orderbook_pda(&mint_a, &mint_c, &program_id);
+
+        assert_ne!(pda1, pda2);
+    }
+
+    #[test]
+    fn test_alt_pda_is_deterministic() {
+        let orderbook = Pubkey::new_unique();
+        let slot = 12345u64;
+
+        let (pda1, bump1) = get_alt_pda(&orderbook, slot);
+        let (pda2, bump2) = get_alt_pda(&orderbook, slot);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
     fn test_pda_struct_methods() {
         let program_id = test_program_id();
         let owner = Pubkey::new_unique();
         let market = Pubkey::new_unique();
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
 
         // Verify Pda struct methods match the standalone functions
         assert_eq!(
@@ -249,6 +323,14 @@ mod tests {
         assert_eq!(
             Pda::position(&owner, &market, &program_id),
             get_position_pda(&owner, &market, &program_id)
+        );
+        assert_eq!(
+            Pda::orderbook(&mint_a, &mint_b, &program_id),
+            get_orderbook_pda(&mint_a, &mint_b, &program_id)
+        );
+        assert_eq!(
+            Pda::alt(&mint_a, 100),
+            get_alt_pda(&mint_a, 100)
         );
     }
 }
