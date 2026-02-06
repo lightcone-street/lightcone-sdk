@@ -109,5 +109,5 @@ export {
   generateSigninMessage,
   generateSigninMessageWithTimestamp,
   signMessage,
-} from "./auth";
-export type { AuthCredentials } from "./auth";
+} from "../auth";
+export type { AuthCredentials } from "../auth";

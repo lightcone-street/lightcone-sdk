@@ -21,7 +21,7 @@ import {
   priceHistoryParams,
   marketParams,
 } from "./types";
-import { authenticateWithKeypair, type AuthCredentials } from "./auth";
+import { authenticateWithKeypair, type AuthCredentials } from "../auth";
 
 /** Default WebSocket URL for Lightcone */
 export const DEFAULT_WS_URL = "wss://ws.lightcone.xyz/ws";

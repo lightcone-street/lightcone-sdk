@@ -2,6 +2,7 @@
  * REST API client for Lightcone.
  */
 
+import { Keypair } from "@solana/web3.js";
 import { ApiError, getErrorMessage, type ErrorResponse } from "./error";
 import {
   validatePubkey,
@@ -9,6 +10,7 @@ import {
   validateLimit,
   DEFAULT_TIMEOUT_MS,
 } from "./validation";
+import { authenticateWithKeypair, type AuthCredentials } from "../auth";
 import type {
   MarketsResponse,
   MarketInfoResponse,
@@ -83,6 +85,8 @@ export interface LightconeApiClientConfig {
   headers?: Record<string, string>;
   /** Retry configuration for transient failures */
   retry?: Partial<RetryConfig>;
+  /** Authentication token for authenticated endpoints */
+  authToken?: string;
 }
 
 /**
@@ -135,6 +139,7 @@ export class LightconeApiClient {
   private readonly timeout: number;
   private readonly headers: Record<string, string>;
   private readonly retryConfig: RetryConfig;
+  private authToken?: string;
 
   constructor(config: LightconeApiClientConfig = {}) {
     this.baseUrl = config.baseUrl || DEFAULT_API_URL;
@@ -147,6 +152,44 @@ export class LightconeApiClient {
       ...DEFAULT_RETRY_CONFIG,
       ...config.retry,
     };
+    this.authToken = config.authToken;
+  }
+
+  // ============================================================================
+  // AUTHENTICATION
+  // ============================================================================
+
+  /**
+   * Log in with a Solana keypair. Stores the auth token for subsequent requests.
+   *
+   * @param keypair - The Solana Keypair for authentication
+   * @returns AuthCredentials containing the auth token and user info
+   */
+  async login(keypair: Keypair): Promise<AuthCredentials> {
+    const credentials = await authenticateWithKeypair(keypair);
+    this.authToken = credentials.authToken;
+    return credentials;
+  }
+
+  /**
+   * Set the authentication token manually.
+   */
+  setAuthToken(token: string): void {
+    this.authToken = token;
+  }
+
+  /**
+   * Clear the authentication token.
+   */
+  clearAuthToken(): void {
+    this.authToken = undefined;
+  }
+
+  /**
+   * Check if the client has an authentication token.
+   */
+  hasAuthToken(): boolean {
+    return this.authToken !== undefined;
   }
 
   // ============================================================================
@@ -160,7 +203,8 @@ export class LightconeApiClient {
     method: string,
     path: string,
     body?: unknown,
-    queryParams?: Record<string, string>
+    queryParams?: Record<string, string>,
+    authenticated?: boolean
   ): Promise<T> {
     let url = `${this.baseUrl}${path}`;
 
@@ -168,6 +212,12 @@ export class LightconeApiClient {
     if (queryParams && Object.keys(queryParams).length > 0) {
       const params = new URLSearchParams(queryParams);
       url += `?${params.toString()}`;
+    }
+
+    // Build headers, adding auth cookie if needed
+    const requestHeaders: Record<string, string> = { ...this.headers };
+    if (authenticated && this.authToken) {
+      requestHeaders["Cookie"] = `auth_token=${this.authToken}`;
     }
 
     let lastError: ApiError | undefined;
@@ -185,7 +235,7 @@ export class LightconeApiClient {
       try {
         const response = await fetch(url, {
           method,
-          headers: this.headers,
+          headers: requestHeaders,
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,
         });
@@ -451,9 +501,13 @@ export class LightconeApiClient {
    */
   async getUserOrders(userPubkey: string): Promise<UserOrdersResponse> {
     validatePubkey(userPubkey, "userPubkey");
-    return this.request<UserOrdersResponse>("POST", "/users/orders", {
-      user_pubkey: userPubkey,
-    });
+    return this.request<UserOrdersResponse>(
+      "POST",
+      "/users/orders",
+      { user_pubkey: userPubkey },
+      undefined,
+      true
+    );
   }
 
   // ============================================================================

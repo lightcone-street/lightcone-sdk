@@ -51,6 +51,12 @@ export * as api from "./api";
  */
 export * as websocket from "./websocket";
 
+/**
+ * Authentication module.
+ * Provides authentication functionality shared by API and WebSocket clients.
+ */
+export * as auth from "./auth";
+
 // ============================================================================
 // RE-EXPORTS FROM DEPENDENCIES
 // ============================================================================

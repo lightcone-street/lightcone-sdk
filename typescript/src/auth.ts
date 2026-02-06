@@ -1,8 +1,8 @@
 /**
- * Authentication module for Lightcone WebSocket.
+ * Authentication module for Lightcone.
  *
- * Provides functionality for authenticating with the Lightcone API
- * to access private user streams (orders, balances, fills).
+ * Provides functionality for authenticating with the Lightcone API.
+ * Used by both the REST API client and WebSocket client.
  *
  * # Authentication Flow
  *
@@ -10,19 +10,50 @@
  * 2. Sign the message with an Ed25519 keypair
  * 3. POST to the authentication endpoint
  * 4. Extract token from JSON response
- * 5. Connect to WebSocket with the auth token
  */
 
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
-import { WebSocketError } from "./error";
 
 /** Authentication API base URL */
 export const AUTH_API_URL = "https://tapi.lightcone.xyz/api";
 
 /** Authentication timeout in milliseconds */
 const AUTH_TIMEOUT_MS = 10000;
+
+/**
+ * Auth error variants (mirrors Rust's AuthError enum).
+ */
+export type AuthErrorVariant =
+  | "SystemTime"
+  | "HttpError"
+  | "AuthenticationFailed";
+
+/**
+ * Authentication error class.
+ */
+export class AuthError extends Error {
+  readonly variant: AuthErrorVariant;
+
+  constructor(variant: AuthErrorVariant, message: string) {
+    super(message);
+    this.name = "AuthError";
+    this.variant = variant;
+  }
+
+  static systemTime(message: string): AuthError {
+    return new AuthError("SystemTime", `System time error: ${message}`);
+  }
+
+  static httpError(message: string): AuthError {
+    return new AuthError("HttpError", `HTTP error: ${message}`);
+  }
+
+  static authenticationFailed(message: string): AuthError {
+    return new AuthError("AuthenticationFailed", `Authentication failed: ${message}`);
+  }
+}
 
 /**
  * Authentication credentials returned after successful login.
@@ -93,10 +124,10 @@ export function generateSigninMessageWithTimestamp(timestampMs: number): string 
  * @example
  * ```typescript
  * import { Keypair } from "@solana/web3.js";
- * import { authenticateWithKeypair } from "@lightcone/sdk/websocket";
+ * import { auth } from "@lightcone/sdk";
  *
  * const keypair = Keypair.generate();
- * const credentials = await authenticateWithKeypair(keypair);
+ * const credentials = await auth.authenticateWithKeypair(keypair);
  * console.log("Auth token:", credentials.authToken);
  * ```
  */
@@ -139,18 +170,20 @@ export async function authenticateWithKeypair(
   } catch (error) {
     clearTimeout(timeoutId);
     if (error instanceof Error && error.name === "AbortError") {
-      throw WebSocketError.authenticationFailed(
+      throw AuthError.authenticationFailed(
         "Authentication request timed out"
       );
     }
-    throw error;
+    throw AuthError.httpError(
+      error instanceof Error ? error.message : String(error)
+    );
   } finally {
     clearTimeout(timeoutId);
   }
 
   // Check for HTTP errors
   if (!response.ok) {
-    throw WebSocketError.authenticationFailed(`HTTP error: ${response.status}`);
+    throw AuthError.httpError(`HTTP ${response.status}`);
   }
 
   // Parse the response body
@@ -172,10 +205,10 @@ export async function authenticateWithKeypair(
  *
  * @example
  * ```typescript
- * import { authenticate } from "@lightcone/sdk/websocket";
+ * import { auth } from "@lightcone/sdk";
  *
  * const secretKey = new Uint8Array(64); // Your secret key
- * const credentials = await authenticate(secretKey);
+ * const credentials = await auth.authenticate(secretKey);
  * console.log("Auth token:", credentials.authToken);
  * ```
  */
