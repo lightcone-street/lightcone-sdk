@@ -102,9 +102,11 @@ pub mod types;
 
 // Re-export auth types from top-level auth module
 pub use crate::auth::{
-    authenticate, generate_signin_message, AuthCredentials, AuthError, AuthResult, AUTH_API_URL,
+    authenticate, generate_signin_message, AuthCredentials, AuthError, AuthResult,
 };
-pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig, DEFAULT_WS_URL};
+// Re-export network constants
+pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
+pub use client::{ConnectionState, LightconeWebSocketClient, WebSocketConfig};
 pub use error::{WebSocketError, WsResult};
 pub use state::{LocalOrderbook, PriceHistory, UserState};
 pub use subscriptions::{Subscription, SubscriptionManager};

@@ -91,5 +91,6 @@ pub mod types;
 
 // Re-export main types for convenience
 pub use client::{LightconeApiClient, LightconeApiClientBuilder, RetryConfig};
+pub use crate::network::DEFAULT_API_URL;
 pub use error::{ApiError, ApiResult, ErrorResponse};
 pub use types::*;

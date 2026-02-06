@@ -76,6 +76,9 @@ pub mod program;
 /// Used across all SDK modules.
 pub mod shared;
 
+/// Network URL constants (API and WebSocket endpoints).
+pub mod network;
+
 /// Authentication module for obtaining JWT tokens.
 /// Types are always available; `authenticate()` requires the `auth` feature.
 pub mod auth;
@@ -140,6 +143,9 @@ pub mod prelude {
         TradesParams, TradesResponse, Trade,
         DecimalsResponse,
     };
+
+    // Network constants
+    pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 
     // Auth module exports
     pub use crate::auth::{AuthCredentials, AuthError, AuthResult};

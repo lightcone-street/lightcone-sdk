@@ -93,13 +93,14 @@ from .state import (
 from .handlers import MessageHandler
 
 from ..auth import (
-    AUTH_API_URL,
     AuthCredentials,
     authenticate,
     generate_signin_message,
     generate_signin_message_with_timestamp,
     sign_message,
 )
+
+from ..network import DEFAULT_API_URL, DEFAULT_WS_URL
 
 __all__ = [
     # Client
@@ -165,8 +166,10 @@ __all__ = [
     "UserState",
     # Handlers
     "MessageHandler",
+    # Network constants
+    "DEFAULT_API_URL",
+    "DEFAULT_WS_URL",
     # Authentication
-    "AUTH_API_URL",
     "AuthCredentials",
     "authenticate",
     "generate_signin_message",

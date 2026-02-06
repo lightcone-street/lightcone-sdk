@@ -13,6 +13,7 @@ from websockets.asyncio.client import connect as ws_connect, ClientConnection
 from websockets.exceptions import ConnectionClosed, InvalidURI
 
 from ..auth import authenticate as _authenticate
+from ..network import DEFAULT_WS_URL
 from .error import (
     WebSocketError,
     ConnectionFailedError,
@@ -168,7 +169,7 @@ class LightconeWebSocketClient:
     async def connect_authenticated(
         cls,
         keypair,  # Keypair from solders.keypair
-        url: str = "wss://ws.lightcone.xyz/ws",
+        url: str = DEFAULT_WS_URL,
         reconnect: bool = True,
         max_reconnect_attempts: int = 5,
         reconnect_delay: float = 1.0,

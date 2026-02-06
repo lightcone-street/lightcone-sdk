@@ -22,9 +22,9 @@ import {
   marketParams,
 } from "./types";
 import { authenticate, type AuthCredentials } from "../auth";
+import { DEFAULT_WS_URL } from "../network";
 
-/** Default WebSocket URL for Lightcone */
-export const DEFAULT_WS_URL = "wss://ws.lightcone.xyz/ws";
+export { DEFAULT_WS_URL } from "../network";
 
 /**
  * WebSocket client configuration.

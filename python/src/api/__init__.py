@@ -31,6 +31,8 @@ from .error import (
     ErrorResponse,
 )
 
+from ..network import DEFAULT_API_URL
+
 from .validation import MAX_PAGINATION_LIMIT
 
 from .retry import RetryConfig
@@ -104,6 +106,7 @@ __all__ = [
     "UnexpectedStatusError",
     "ErrorResponse",
     # Constants
+    "DEFAULT_API_URL",
     "MAX_PAGINATION_LIMIT",
     # Retry
     "RetryConfig",

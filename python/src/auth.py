@@ -20,9 +20,7 @@ import base58
 from nacl.signing import SigningKey
 from solders.keypair import Keypair
 
-
-# Authentication API base URL
-AUTH_API_URL = "https://tapi.lightcone.xyz/api"
+from .network import DEFAULT_API_URL
 
 # Authentication request timeout in seconds
 AUTH_TIMEOUT_SECS = 10
@@ -98,7 +96,7 @@ def generate_signin_message_with_timestamp(timestamp_ms: int) -> str:
     return f"Sign in to Lightcone\n\nTimestamp: {timestamp_ms}"
 
 
-async def authenticate(keypair: Keypair, base_url: str = AUTH_API_URL) -> AuthCredentials:
+async def authenticate(keypair: Keypair, base_url: str = DEFAULT_API_URL) -> AuthCredentials:
     """Authenticate with Lightcone and obtain credentials.
 
     Args:

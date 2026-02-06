@@ -9,6 +9,7 @@ import aiohttp
 from solders.keypair import Keypair
 
 from ..auth import authenticate as _authenticate, AuthCredentials
+from ..network import DEFAULT_API_URL
 from .error import (
     ApiError,
     HttpError,
@@ -72,7 +73,7 @@ class LightconeApiClient:
 
     def __init__(
         self,
-        base_url: str,
+        base_url: str = DEFAULT_API_URL,
         timeout: int = DEFAULT_TIMEOUT_SECS,
         headers: Optional[dict[str, str]] = None,
         retry_config: Optional[RetryConfig] = None,

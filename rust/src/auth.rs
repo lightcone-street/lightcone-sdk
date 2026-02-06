@@ -15,9 +15,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use thiserror::Error;
 
-/// Authentication API base URL
-pub const AUTH_API_URL: &str = "https://tapi.lightcone.xyz/api";
-
 /// Authentication-specific errors
 #[derive(Debug, Clone, Error)]
 pub enum AuthError {
@@ -174,7 +171,7 @@ mod login {
             .map_err(|e| AuthError::HttpError(e.to_string()))?;
 
         // Send the authentication request
-        let url = format!("{}/auth/login_or_register_with_message", AUTH_API_URL);
+        let url = format!("{}/auth/login_or_register_with_message", crate::network::DEFAULT_API_URL);
         let response = client
             .post(&url)
             .json(&request)

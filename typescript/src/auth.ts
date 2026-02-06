@@ -15,9 +15,7 @@
 import { Keypair } from "@solana/web3.js";
 import bs58 from "bs58";
 import nacl from "tweetnacl";
-
-/** Authentication API base URL */
-export const AUTH_API_URL = "https://tapi.lightcone.xyz/api";
+import { DEFAULT_API_URL } from "./network";
 
 /** Authentication timeout in milliseconds */
 const AUTH_TIMEOUT_MS = 10000;
@@ -153,7 +151,7 @@ export async function authenticate(
   };
 
   // Send the authentication request with timeout
-  const url = `${AUTH_API_URL}/auth/login_or_register_with_message`;
+  const url = `${DEFAULT_API_URL}/auth/login_or_register_with_message`;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
 

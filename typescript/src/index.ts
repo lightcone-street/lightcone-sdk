@@ -34,6 +34,11 @@
 export * from "./program";
 
 /**
+ * Network URL constants (API and WebSocket endpoints).
+ */
+export { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
+
+/**
  * Shared utilities, types, and constants.
  * Used across all SDK modules.
  */

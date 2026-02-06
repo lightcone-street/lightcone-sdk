@@ -103,10 +103,12 @@ export { MessageHandler } from "./handlers";
 
 // Authentication
 export {
-  AUTH_API_URL,
   authenticate,
   generateSigninMessage,
   generateSigninMessageWithTimestamp,
   signMessage,
 } from "../auth";
 export type { AuthCredentials } from "../auth";
+
+// Network constants
+export { DEFAULT_API_URL } from "../network";

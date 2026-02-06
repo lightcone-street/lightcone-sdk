@@ -49,10 +49,8 @@ function toQueryParams(
   return result;
 }
 
-/**
- * Default API base URL for Lightcone.
- */
-export const DEFAULT_API_URL = "https://tapi.lightcone.xyz/api";
+import { DEFAULT_API_URL } from "../network";
+export { DEFAULT_API_URL } from "../network";
 
 /**
  * Configuration for retry behavior.

@@ -27,10 +27,17 @@ __version__ = "0.2.0"
 
 # Import submodules for namespace access
 from . import api
+from . import network
 from . import program
 from . import shared
 from . import websocket
 from . import auth
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM NETWORK MODULE
+# ============================================================================
+
+from .network import DEFAULT_API_URL, DEFAULT_WS_URL
 
 # ============================================================================
 # CONVENIENCE RE-EXPORTS FROM PROGRAM MODULE
@@ -209,8 +216,12 @@ __all__ = [
     "program",
     "shared",
     "api",
+    "network",
     "websocket",
     "auth",
+    # Network constants
+    "DEFAULT_API_URL",
+    "DEFAULT_WS_URL",
     # Clients
     "LightconePinocchioClient",
     "LightconeApiClient",

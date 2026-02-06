@@ -30,14 +30,12 @@ use crate::websocket::handlers::MessageHandler;
 use crate::websocket::state::price::PriceHistoryKey;
 use crate::websocket::state::{LocalOrderbook, PriceHistory, UserState};
 use crate::websocket::subscriptions::SubscriptionManager;
+use crate::network::DEFAULT_WS_URL;
 use crate::websocket::types::{SubscribeParams, WsEvent, WsRequest};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type WsSink = SplitSink<WsStream, Message>;
 type WsSource = SplitStream<WsStream>;
-
-/// Default WebSocket URL for Lightcone
-pub const DEFAULT_WS_URL: &str = "wss://ws.lightcone.xyz/ws";
 
 /// Connection timeout duration for WebSocket connections
 const CONNECTION_TIMEOUT: Duration = Duration::from_secs(30);

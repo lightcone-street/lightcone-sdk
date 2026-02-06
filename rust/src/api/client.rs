@@ -33,6 +33,7 @@ use tokio::sync::RwLock;
 
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
+use crate::network::DEFAULT_API_URL;
 use crate::program::orders::SignedOrder;
 use crate::shared::OrderbookDecimals;
 
@@ -213,6 +214,15 @@ impl LightconeApiClient {
     /// Returns an error if the HTTP client cannot be initialized.
     pub fn new(base_url: impl Into<String>) -> ApiResult<Self> {
         LightconeApiClientBuilder::new(base_url).build()
+    }
+
+    /// Create a new client with the default API URL.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the HTTP client cannot be initialized.
+    pub fn new_default() -> ApiResult<Self> {
+        Self::new(DEFAULT_API_URL)
     }
 
     /// Create a new client builder for custom configuration.
