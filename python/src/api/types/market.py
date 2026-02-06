@@ -68,14 +68,14 @@ class ConditionalToken:
     id: int
     outcome_index: int
     token_address: str
-    name: str
-    symbol: str
-    display_name: str
-    outcome: str
-    deposit_symbol: str
-    short_name: str
     decimals: int
     created_at: str
+    name: Optional[str] = None
+    symbol: Optional[str] = None
+    display_name: Optional[str] = None
+    outcome: Optional[str] = None
+    deposit_symbol: Optional[str] = None
+    short_name: Optional[str] = None
     uri: Optional[str] = None
     description: Optional[str] = None
     icon_url: Optional[str] = None
@@ -88,14 +88,14 @@ class ConditionalToken:
                 id=data["id"],
                 outcome_index=data["outcome_index"],
                 token_address=data["token_address"],
-                name=data["name"],
-                symbol=data["symbol"],
-                display_name=data["display_name"],
-                outcome=data["outcome"],
-                deposit_symbol=data["deposit_symbol"],
-                short_name=data["short_name"],
                 decimals=data["decimals"],
                 created_at=data["created_at"],
+                name=data.get("name"),
+                symbol=data.get("symbol"),
+                display_name=data.get("display_name"),
+                outcome=data.get("outcome"),
+                deposit_symbol=data.get("deposit_symbol"),
+                short_name=data.get("short_name"),
                 uri=data.get("uri"),
                 description=data.get("description"),
                 icon_url=data.get("icon_url"),
@@ -109,9 +109,6 @@ class ConditionalToken:
 class DepositAsset:
     """Deposit asset information."""
 
-    display_name: str
-    token_symbol: str
-    symbol: str
     deposit_asset: str
     id: int
     market_pubkey: str
@@ -120,6 +117,9 @@ class DepositAsset:
     decimals: int
     conditional_tokens: list[ConditionalToken]
     created_at: str
+    display_name: Optional[str] = None
+    token_symbol: Optional[str] = None
+    symbol: Optional[str] = None
     description: Optional[str] = None
     icon_url: Optional[str] = None
     metadata_uri: Optional[str] = None
@@ -128,9 +128,6 @@ class DepositAsset:
     def from_dict(cls, data: dict) -> "DepositAsset":
         try:
             return cls(
-                display_name=data["display_name"],
-                token_symbol=data["token_symbol"],
-                symbol=data["symbol"],
                 deposit_asset=data["deposit_asset"],
                 id=data["id"],
                 market_pubkey=data["market_pubkey"],
@@ -141,6 +138,9 @@ class DepositAsset:
                     ConditionalToken.from_dict(ct) for ct in data.get("conditional_tokens", [])
                 ],
                 created_at=data["created_at"],
+                display_name=data.get("display_name"),
+                token_symbol=data.get("token_symbol"),
+                symbol=data.get("symbol"),
                 description=data.get("description"),
                 icon_url=data.get("icon_url"),
                 metadata_uri=data.get("metadata_uri"),
@@ -153,10 +153,6 @@ class DepositAsset:
 class Market:
     """Market information."""
 
-    market_name: str
-    slug: str
-    description: str
-    definition: str
     outcomes: list[Outcome]
     market_pubkey: str
     market_id: int
@@ -165,6 +161,10 @@ class Market:
     condition_id: str
     market_status: ApiMarketStatus
     created_at: str
+    market_name: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    definition: Optional[str] = None
     banner_image_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     category: Optional[str] = None
@@ -187,10 +187,6 @@ class Market:
                 status = ApiMarketStatus.PENDING
 
             return cls(
-                market_name=data["market_name"],
-                slug=data["slug"],
-                description=data["description"],
-                definition=data["definition"],
                 outcomes=[Outcome.from_dict(o) for o in data.get("outcomes", [])],
                 market_pubkey=data["market_pubkey"],
                 market_id=data["market_id"],
@@ -199,6 +195,10 @@ class Market:
                 condition_id=data["condition_id"],
                 market_status=status,
                 created_at=data["created_at"],
+                market_name=data.get("market_name"),
+                slug=data.get("slug"),
+                description=data.get("description"),
+                definition=data.get("definition"),
                 banner_image_url=data.get("banner_image_url"),
                 thumbnail_url=data.get("thumbnail_url"),
                 category=data.get("category"),

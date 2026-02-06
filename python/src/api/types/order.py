@@ -274,6 +274,7 @@ class UserOrdersResponse:
     user_pubkey: str
     orders: list[UserOrder]
     balances: list[UserBalance]
+    next_cursor: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "UserOrdersResponse":
@@ -282,6 +283,7 @@ class UserOrdersResponse:
                 user_pubkey=data["user_pubkey"],
                 orders=[UserOrder.from_dict(o) for o in data.get("orders", [])],
                 balances=[UserBalance.from_dict(b) for b in data.get("balances", [])],
+                next_cursor=data.get("next_cursor"),
             )
         except KeyError as e:
             raise DeserializeError(f"Missing required field in UserOrdersResponse: {e}")

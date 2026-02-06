@@ -19,7 +19,7 @@ Example:
     from lightcone_sdk.websocket import LightconeWebSocketClient
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # ============================================================================
 # MODULE IMPORTS
@@ -30,6 +30,7 @@ from . import api
 from . import program
 from . import shared
 from . import websocket
+from . import auth
 
 # ============================================================================
 # CONVENIENCE RE-EXPORTS FROM PROGRAM MODULE
@@ -41,6 +42,7 @@ from .program import (
     deserialize_exchange,
     deserialize_market,
     deserialize_order_status,
+    deserialize_orderbook,
     deserialize_position,
     deserialize_user_nonce,
     # PDA Functions
@@ -52,6 +54,8 @@ from .program import (
     get_order_status_pda,
     get_user_nonce_pda,
     get_position_pda,
+    get_orderbook_pda,
+    get_alt_pda,
     get_all_conditional_mints,
     # Order Functions
     create_bid_order,
@@ -59,24 +63,22 @@ from .program import (
     create_signed_bid_order,
     create_signed_ask_order,
     hash_order,
+    hash_order_hex,
     sign_order,
     verify_order_signature,
     serialize_full_order,
     deserialize_full_order,
+    serialize_order,
     serialize_compact_order,
+    deserialize_order,
     deserialize_compact_order,
+    to_order,
     to_compact_order,
+    to_submit_request,
+    is_signed,
+    signature_hex,
     validate_order,
     validate_signed_order,
-    # Ed25519 Functions
-    build_ed25519_verify_instruction,
-    build_ed25519_verify_instruction_for_order,
-    build_ed25519_batch_verify_instruction,
-    build_ed25519_cross_ref_instruction,
-    create_cross_ref_ed25519_instructions,
-    create_single_cross_ref_ed25519_instruction,
-    CrossRefEd25519Params,
-    MatchIxOffsets,
     # Instruction Builders
     build_initialize_instruction,
     build_create_market_instruction,
@@ -93,18 +95,23 @@ from .program import (
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
+    build_create_orderbook_instruction,
+    build_set_authority_instruction,
     # Constants
     PROGRAM_ID,
+    ALT_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     SYSTEM_PROGRAM_ID,
     RENT_SYSVAR_ID,
     INSTRUCTIONS_SYSVAR_ID,
-    ED25519_PROGRAM_ID,
     MAX_OUTCOMES,
     MIN_OUTCOMES,
     MAX_MAKERS,
+    SIGNED_ORDER_SIZE,
+    ORDER_SIZE,
+    ORDERBOOK_SIZE,
     # Types - Enums
     MarketStatus,
     OrderSide,
@@ -114,8 +121,10 @@ from .program import (
     Position,
     OrderStatus,
     UserNonce,
+    Orderbook,
     # Types - Orders
     FullOrder,
+    Order,
     CompactOrder,
     OutcomeMetadata,
     MakerFill,
@@ -130,6 +139,8 @@ from .program import (
     WithdrawFromPositionParams,
     ActivateMarketParams,
     MatchOrdersMultiParams,
+    CreateOrderbookParams,
+    SetAuthorityParams,
     BidOrderParams,
     AskOrderParams,
     BuildResult,
@@ -167,6 +178,30 @@ from .api import LightconeApiClient
 
 from .websocket import LightconeWebSocketClient
 
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM SHARED MODULE
+# ============================================================================
+
+from .shared import (
+    derive_orderbook_id,
+    OrderbookDecimals,
+    ScaledAmounts,
+    ScalingError,
+    scale_price_size,
+)
+
+# ============================================================================
+# CONVENIENCE RE-EXPORTS FROM AUTH MODULE
+# ============================================================================
+
+from .auth import (
+    AuthCredentials,
+    AuthError,
+    authenticate,
+    generate_signin_message,
+    generate_signin_message_with_timestamp,
+)
+
 __all__ = [
     # Version
     "__version__",
@@ -175,6 +210,7 @@ __all__ = [
     "shared",
     "api",
     "websocket",
+    "auth",
     # Clients
     "LightconePinocchioClient",
     "LightconeApiClient",
@@ -188,8 +224,10 @@ __all__ = [
     "Position",
     "OrderStatus",
     "UserNonce",
+    "Orderbook",
     # Types - Orders
     "FullOrder",
+    "Order",
     "CompactOrder",
     "OutcomeMetadata",
     "MakerFill",
@@ -204,6 +242,8 @@ __all__ = [
     "WithdrawFromPositionParams",
     "ActivateMarketParams",
     "MatchOrdersMultiParams",
+    "CreateOrderbookParams",
+    "SetAuthorityParams",
     "BidOrderParams",
     "AskOrderParams",
     "BuildResult",
@@ -223,16 +263,19 @@ __all__ = [
     "OrdersDoNotCrossError",
     # Constants
     "PROGRAM_ID",
+    "ALT_PROGRAM_ID",
     "TOKEN_PROGRAM_ID",
     "TOKEN_2022_PROGRAM_ID",
     "ASSOCIATED_TOKEN_PROGRAM_ID",
     "SYSTEM_PROGRAM_ID",
     "RENT_SYSVAR_ID",
     "INSTRUCTIONS_SYSVAR_ID",
-    "ED25519_PROGRAM_ID",
     "MAX_OUTCOMES",
     "MIN_OUTCOMES",
     "MAX_MAKERS",
+    "SIGNED_ORDER_SIZE",
+    "ORDER_SIZE",
+    "ORDERBOOK_SIZE",
     # PDA Functions
     "get_exchange_pda",
     "get_market_pda",
@@ -242,12 +285,15 @@ __all__ = [
     "get_order_status_pda",
     "get_user_nonce_pda",
     "get_position_pda",
+    "get_orderbook_pda",
+    "get_alt_pda",
     "get_all_conditional_mints",
     # Account Deserialization
     "deserialize_exchange",
     "deserialize_market",
     "deserialize_position",
     "deserialize_order_status",
+    "deserialize_orderbook",
     "deserialize_user_nonce",
     # Order Functions
     "create_bid_order",
@@ -255,24 +301,22 @@ __all__ = [
     "create_signed_bid_order",
     "create_signed_ask_order",
     "hash_order",
+    "hash_order_hex",
     "sign_order",
     "verify_order_signature",
     "serialize_full_order",
     "deserialize_full_order",
+    "serialize_order",
     "serialize_compact_order",
+    "deserialize_order",
     "deserialize_compact_order",
+    "to_order",
     "to_compact_order",
+    "to_submit_request",
+    "is_signed",
+    "signature_hex",
     "validate_order",
     "validate_signed_order",
-    # Ed25519 Functions
-    "build_ed25519_verify_instruction",
-    "build_ed25519_verify_instruction_for_order",
-    "build_ed25519_batch_verify_instruction",
-    "build_ed25519_cross_ref_instruction",
-    "create_cross_ref_ed25519_instructions",
-    "create_single_cross_ref_ed25519_instruction",
-    "CrossRefEd25519Params",
-    "MatchIxOffsets",
     # Instruction Builders
     "build_initialize_instruction",
     "build_create_market_instruction",
@@ -289,10 +333,24 @@ __all__ = [
     "build_withdraw_from_position_instruction",
     "build_activate_market_instruction",
     "build_match_orders_multi_instruction",
+    "build_create_orderbook_instruction",
+    "build_set_authority_instruction",
     # Utility Functions
     "keccak256",
     "derive_condition_id",
     "get_associated_token_address",
     "get_associated_token_address_2022",
     "orders_cross",
+    # Shared
+    "derive_orderbook_id",
+    "OrderbookDecimals",
+    "ScaledAmounts",
+    "ScalingError",
+    "scale_price_size",
+    # Auth
+    "AuthCredentials",
+    "AuthError",
+    "authenticate",
+    "generate_signin_message",
+    "generate_signin_message_with_timestamp",
 ]

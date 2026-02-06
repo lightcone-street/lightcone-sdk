@@ -60,6 +60,10 @@ from .admin import (
     CreateOrderbookResponse,
 )
 
+from .decimals import (
+    DecimalsResponse,
+)
+
 __all__ = [
     # Market types
     "ApiMarketStatus",
@@ -107,4 +111,6 @@ __all__ = [
     "AdminResponse",
     "CreateOrderbookRequest",
     "CreateOrderbookResponse",
+    # Decimals types
+    "DecimalsResponse",
 ]

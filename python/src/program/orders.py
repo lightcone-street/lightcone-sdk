@@ -8,8 +8,8 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from .constants import (
-    COMPACT_ORDER_SIZE,
-    FULL_ORDER_SIZE,
+    ORDER_SIZE,
+    SIGNED_ORDER_SIZE,
     ORDER_BASE_MINT_OFFSET,
     ORDER_EXPIRATION_OFFSET,
     ORDER_HASH_SIZE,
@@ -22,21 +22,26 @@ from .constants import (
     ORDER_SIGNATURE_OFFSET,
     ORDER_TAKER_AMOUNT_OFFSET,
     SIGNATURE_SIZE,
+    # Backward compat
+    FULL_ORDER_SIZE,
+    COMPACT_ORDER_SIZE,
 )
 from .errors import InvalidOrderError, InvalidSignatureError
 from .types import (
     AskOrderParams,
     BidOrderParams,
-    CompactOrder,
+    Order,
     FullOrder,
     OrderSide,
 )
 from .utils import (
     decode_i64,
     decode_pubkey,
+    decode_u32,
     decode_u64,
     decode_u8,
     encode_i64,
+    encode_u32,
     encode_u64,
     encode_u8,
     keccak256,
@@ -44,6 +49,8 @@ from .utils import (
 
 # Maximum value for a u64 integer
 MAX_U64 = 2**64 - 1
+# Maximum value for a u32 integer
+MAX_U32 = 2**32 - 1
 
 
 def create_bid_order(params: BidOrderParams) -> FullOrder:
@@ -113,22 +120,29 @@ def hash_order(order: FullOrder) -> bytes:
     return keccak256(data)
 
 
+def hash_order_hex(order: FullOrder) -> str:
+    """Compute the keccak256 hash of an order and return as a 64-char hex string."""
+    return hash_order(order).hex()
+
+
 def sign_order(order: FullOrder, keypair: Keypair) -> bytes:
     """Sign an order with a keypair.
 
-    Signs the keccak256 hash of the order with the keypair's Ed25519 private key.
-    Updates the order's signature in place and returns the signature.
+    Signs the hex-encoded keccak256 hash of the order (64-char ASCII string)
+    with the keypair's Ed25519 private key. Updates the order's signature in
+    place and returns the signature.
     """
-    order_hash = hash_order(order)
+    order_hash_hex = hash_order_hex(order)
+    message = order_hash_hex.encode("ascii")
 
     # Extract the 32-byte seed from the keypair's secret key
     # solders Keypair stores the full 64-byte secret (seed + public key)
     secret_bytes = bytes(keypair)
     seed = secret_bytes[:32]
 
-    # Create a nacl signing key and sign the hash
+    # Create a nacl signing key and sign the hex-encoded hash
     signing_key = SigningKey(seed)
-    signed = signing_key.sign(order_hash)
+    signed = signing_key.sign(message)
     signature = signed.signature
 
     # Update the order's signature
@@ -140,6 +154,7 @@ def verify_order_signature(order: FullOrder) -> bool:
     """Verify the Ed25519 signature on an order.
 
     Returns True if the signature is valid, False otherwise.
+    Verifies against the hex-encoded keccak256 hash (64-char ASCII string).
 
     Raises:
         InvalidOrderError: If the maker public key is invalid
@@ -147,12 +162,13 @@ def verify_order_signature(order: FullOrder) -> bool:
     if len(order.signature) != SIGNATURE_SIZE:
         return False
 
-    order_hash = hash_order(order)
+    order_hash_hex = hash_order_hex(order)
+    message = order_hash_hex.encode("ascii")
 
     try:
         # Get verify key from maker pubkey
         verify_key = VerifyKey(bytes(order.maker))
-        verify_key.verify(order_hash, order.signature)
+        verify_key.verify(message, order.signature)
         return True
     except nacl.exceptions.BadSignatureError:
         return False
@@ -172,9 +188,9 @@ def serialize_full_order(order: FullOrder) -> bytes:
 
 def deserialize_full_order(data: bytes) -> FullOrder:
     """Deserialize a full order from bytes."""
-    if len(data) < FULL_ORDER_SIZE:
+    if len(data) < SIGNED_ORDER_SIZE:
         raise InvalidOrderError(
-            f"Data too short: {len(data)} bytes (expected {FULL_ORDER_SIZE})"
+            f"Data too short: {len(data)} bytes (expected {SIGNED_ORDER_SIZE})"
         )
 
     return FullOrder(
@@ -191,11 +207,10 @@ def deserialize_full_order(data: bytes) -> FullOrder:
     )
 
 
-def to_compact_order(order: FullOrder) -> CompactOrder:
-    """Convert a full order to a compact order (excludes market/mints)."""
-    return CompactOrder(
-        nonce=order.nonce,
-        maker=order.maker,
+def to_order(order: FullOrder) -> Order:
+    """Convert a full order to a compact order (29 bytes, no maker, u32 nonce)."""
+    return Order(
+        nonce=order.nonce & 0xFFFFFFFF,  # Truncate to u32
         side=order.side,
         maker_amount=order.maker_amount,
         taker_amount=order.taker_amount,
@@ -203,15 +218,18 @@ def to_compact_order(order: FullOrder) -> CompactOrder:
     )
 
 
-def serialize_compact_order(order: CompactOrder) -> bytes:
+# Backward compatibility alias
+to_compact_order = to_order
+
+
+def serialize_order(order: Order) -> bytes:
     """Serialize a compact order to bytes.
 
-    Layout (65 bytes):
-    - nonce (8) | maker (32) | side (1) | maker_amount (8) | taker_amount (8) | expiration (8)
+    Layout (29 bytes):
+    - nonce (4, u32) | side (1) | maker_amount (8) | taker_amount (8) | expiration (8)
     """
     return (
-        encode_u64(order.nonce)
-        + bytes(order.maker)
+        encode_u32(order.nonce)
         + encode_u8(order.side)
         + encode_u64(order.maker_amount)
         + encode_u64(order.taker_amount)
@@ -219,21 +237,28 @@ def serialize_compact_order(order: CompactOrder) -> bytes:
     )
 
 
-def deserialize_compact_order(data: bytes) -> CompactOrder:
+# Backward compatibility alias
+serialize_compact_order = serialize_order
+
+
+def deserialize_order(data: bytes) -> Order:
     """Deserialize a compact order from bytes."""
-    if len(data) < COMPACT_ORDER_SIZE:
+    if len(data) < ORDER_SIZE:
         raise InvalidOrderError(
-            f"Data too short: {len(data)} bytes (expected {COMPACT_ORDER_SIZE})"
+            f"Data too short: {len(data)} bytes (expected {ORDER_SIZE})"
         )
 
-    return CompactOrder(
-        nonce=decode_u64(data, 0),
-        maker=decode_pubkey(data, 8),
-        side=OrderSide(decode_u8(data, 40)),
-        maker_amount=decode_u64(data, 41),
-        taker_amount=decode_u64(data, 49),
-        expiration=decode_i64(data, 57),
+    return Order(
+        nonce=decode_u32(data, 0),
+        side=OrderSide(decode_u8(data, 4)),
+        maker_amount=decode_u64(data, 5),
+        taker_amount=decode_u64(data, 13),
+        expiration=decode_i64(data, 21),
     )
+
+
+# Backward compatibility alias
+deserialize_compact_order = deserialize_order
 
 
 def create_signed_bid_order(params: BidOrderParams, keypair: Keypair) -> FullOrder:
@@ -293,3 +318,52 @@ def validate_signed_order(order: FullOrder) -> None:
 
     if not verify_order_signature(order):
         raise InvalidSignatureError("Order signature verification failed")
+
+
+# =========================================================================
+# Bridge Methods (order <-> API)
+# =========================================================================
+
+
+def signature_hex(order: FullOrder) -> str:
+    """Return the order signature as a 128-char hex string."""
+    return order.signature.hex()
+
+
+def is_signed(order: FullOrder) -> bool:
+    """Check if an order has a non-zero signature."""
+    return order.signature != bytes(SIGNATURE_SIZE)
+
+
+def to_submit_request(order: FullOrder, orderbook_id: str):
+    """Convert a signed FullOrder to a SubmitOrderRequest.
+
+    Args:
+        order: A signed FullOrder
+        orderbook_id: The orderbook identifier
+
+    Returns:
+        SubmitOrderRequest ready for API submission
+
+    Raises:
+        InvalidOrderError: If the order is not signed
+    """
+    if not is_signed(order):
+        raise InvalidOrderError("Order must be signed before submitting")
+
+    # Import here to avoid circular dependency
+    from ..api.types.order import SubmitOrderRequest
+
+    return SubmitOrderRequest(
+        maker=str(order.maker),
+        nonce=order.nonce,
+        market_pubkey=str(order.market),
+        base_token=str(order.base_mint),
+        quote_token=str(order.quote_mint),
+        side=int(order.side),
+        maker_amount=order.maker_amount,
+        taker_amount=order.taker_amount,
+        expiration=order.expiration,
+        signature=signature_hex(order),
+        orderbook_id=orderbook_id,
+    )

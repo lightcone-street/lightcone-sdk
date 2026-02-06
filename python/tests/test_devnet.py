@@ -49,7 +49,7 @@ from src import (
     get_position_pda,
     hash_order,
 )
-from src.shared import get_associated_token_address, get_associated_token_address_2022
+from src.program.utils import get_associated_token_address, get_associated_token_address_2022
 
 # Test configuration
 DEVNET_RPC = os.environ.get("DEVNET_RPC", "https://api.devnet.solana.com")

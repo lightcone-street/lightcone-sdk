@@ -73,8 +73,19 @@ class UserNonce:
 
 
 @dataclass
+class Orderbook:
+    """Orderbook account data."""
+
+    market: Pubkey
+    mint_a: Pubkey
+    mint_b: Pubkey
+    lookup_table: Pubkey
+    bump: int
+
+
+@dataclass
 class FullOrder:
-    """Full order structure with all fields including signature."""
+    """Full order structure with all fields including signature (225 bytes)."""
 
     nonce: int
     maker: Pubkey
@@ -89,15 +100,22 @@ class FullOrder:
 
 
 @dataclass
-class CompactOrder:
-    """Compact order structure for instruction data (excludes market/mints)."""
+class Order:
+    """Compact order structure for instruction data (29 bytes, no maker field).
+
+    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] maker_amount(u64) |
+            [13..21] taker_amount(u64) | [21..29] expiration(i64)
+    """
 
     nonce: int
-    maker: Pubkey
     side: OrderSide
     maker_amount: int
     taker_amount: int
     expiration: int
+
+
+# Backward compatibility alias
+CompactOrder = Order
 
 
 @dataclass
@@ -172,7 +190,7 @@ class SettleMarketParams:
     """Parameters for settling a market."""
 
     oracle: Pubkey
-    market: Pubkey
+    market_id: int
     winning_outcome: int
 
 
@@ -191,9 +209,10 @@ class WithdrawFromPositionParams:
     """Parameters for withdrawing tokens from a position."""
 
     user: Pubkey
-    position: Pubkey
+    market: Pubkey
     mint: Pubkey
     amount: int
+    outcome_index: int
 
 
 @dataclass
@@ -201,7 +220,7 @@ class ActivateMarketParams:
     """Parameters for activating a market."""
 
     authority: Pubkey
-    market: Pubkey
+    market_id: int
 
 
 @dataclass
@@ -213,7 +232,29 @@ class MatchOrdersMultiParams:
     base_mint: Pubkey
     quote_mint: Pubkey
     taker_order: FullOrder
-    maker_fills: list[MakerFill]
+    maker_orders: list[FullOrder]
+    maker_fill_amounts: list[int]
+    taker_fill_amounts: list[int]
+    full_fill_bitmask: int
+
+
+@dataclass
+class CreateOrderbookParams:
+    """Parameters for creating an orderbook."""
+
+    payer: Pubkey
+    market: Pubkey
+    mint_a: Pubkey
+    mint_b: Pubkey
+    recent_slot: int
+
+
+@dataclass
+class SetAuthorityParams:
+    """Parameters for setting a new authority."""
+
+    current_authority: Pubkey
+    new_authority: Pubkey
 
 
 @dataclass

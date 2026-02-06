@@ -82,6 +82,8 @@ from .types import (
     AdminResponse,
     CreateOrderbookRequest,
     CreateOrderbookResponse,
+    # Decimals types
+    DecimalsResponse,
 )
 
 __all__ = [
@@ -151,4 +153,6 @@ __all__ = [
     "AdminResponse",
     "CreateOrderbookRequest",
     "CreateOrderbookResponse",
+    # Decimals types
+    "DecimalsResponse",
 ]

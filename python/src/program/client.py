@@ -14,26 +14,25 @@ from .accounts import (
     deserialize_exchange,
     deserialize_market,
     deserialize_order_status,
+    deserialize_orderbook,
     deserialize_position,
     deserialize_user_nonce,
 )
 from .constants import PROGRAM_ID
-from .ed25519 import (
-    build_ed25519_batch_verify_instruction,
-    build_ed25519_verify_instruction_for_order,
-)
 from .errors import AccountNotFoundError
 from .instructions import (
     build_activate_market_instruction,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
     build_create_market_instruction_with_id,
+    build_create_orderbook_instruction,
     build_increment_nonce_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
     build_merge_complete_set_instruction,
     build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
+    build_set_authority_instruction,
     build_set_operator_instruction,
     build_set_paused_instruction,
     build_settle_market_instruction,
@@ -53,6 +52,7 @@ from .pda import (
     get_exchange_pda,
     get_market_pda,
     get_order_status_pda,
+    get_orderbook_pda,
     get_position_pda,
     get_user_nonce_pda,
 )
@@ -61,15 +61,18 @@ from .types import (
     AddDepositMintParams,
     AskOrderParams,
     BidOrderParams,
+    CreateOrderbookParams,
     Exchange,
     FullOrder,
-    MakerFill,
     Market,
+    MatchOrdersMultiParams,
     MergeCompleteSetParams,
     MintCompleteSetParams,
+    Orderbook,
     OrderStatus,
     Position,
     RedeemWinningsParams,
+    SetAuthorityParams,
     SettleMarketParams,
     WithdrawFromPositionParams,
 )
@@ -172,6 +175,16 @@ class LightconePinocchioClient:
         exchange = await self.get_exchange()
         return exchange.market_count
 
+    async def get_orderbook(self, mint_a: Pubkey, mint_b: Pubkey) -> Optional[Orderbook]:
+        """Fetch and deserialize an orderbook account, or None if it doesn't exist."""
+        orderbook_pda, _ = get_orderbook_pda(mint_a, mint_b, self.program_id)
+        response = await self.connection.get_account_info(orderbook_pda)
+
+        if response.value is None:
+            return None
+
+        return deserialize_orderbook(response.value.data)
+
     # =========================================================================
     # Transaction Builders
     # =========================================================================
@@ -242,9 +255,9 @@ class LightconePinocchioClient:
         )
         return await self._build_transaction([ix])
 
-    async def cancel_order(self, maker: Pubkey, order: FullOrder) -> Transaction:
+    async def cancel_order(self, maker: Pubkey, market: Pubkey, order: FullOrder) -> Transaction:
         """Build a cancel_order transaction."""
-        ix = build_cancel_order_instruction(maker, order, self.program_id)
+        ix = build_cancel_order_instruction(maker, market, order, self.program_id)
         return await self._build_transaction([ix])
 
     async def increment_nonce(self, user: Pubkey) -> Transaction:
@@ -256,7 +269,7 @@ class LightconePinocchioClient:
         """Build a settle_market transaction."""
         ix = build_settle_market_instruction(
             oracle=params.oracle,
-            market=params.market,
+            market_id=params.market_id,
             winning_outcome=params.winning_outcome,
             program_id=self.program_id,
         )
@@ -296,9 +309,10 @@ class LightconePinocchioClient:
         """Build a withdraw_from_position transaction."""
         ix = build_withdraw_from_position_instruction(
             user=params.user,
-            position=params.position,
+            market=params.market,
             mint=params.mint,
             amount=params.amount,
+            outcome_index=params.outcome_index,
             is_token_2022=is_token_2022,
             program_id=self.program_id,
         )
@@ -308,104 +322,47 @@ class LightconePinocchioClient:
         """Build an activate_market transaction."""
         ix = build_activate_market_instruction(
             authority=params.authority,
-            market=params.market,
+            market_id=params.market_id,
             program_id=self.program_id,
         )
         return await self._build_transaction([ix])
 
-    async def match_orders_multi(
-        self,
-        operator: Pubkey,
-        market: Pubkey,
-        base_mint: Pubkey,
-        quote_mint: Pubkey,
-        taker_order: FullOrder,
-        maker_fills: List[MakerFill],
-    ) -> Transaction:
-        """Build a match_orders_multi transaction (without Ed25519 verify)."""
+    async def match_orders_multi(self, params: MatchOrdersMultiParams) -> Transaction:
+        """Build a match_orders_multi transaction."""
         ix = build_match_orders_multi_instruction(
-            operator=operator,
-            market=market,
-            base_mint=base_mint,
-            quote_mint=quote_mint,
-            taker_order=taker_order,
-            maker_fills=maker_fills,
+            operator=params.operator,
+            market=params.market,
+            base_mint=params.base_mint,
+            quote_mint=params.quote_mint,
+            taker_order=params.taker_order,
+            maker_orders=params.maker_orders,
+            maker_fill_amounts=params.maker_fill_amounts,
+            taker_fill_amounts=params.taker_fill_amounts,
+            full_fill_bitmask=params.full_fill_bitmask,
             program_id=self.program_id,
         )
         return await self._build_transaction([ix])
 
-    async def match_orders_multi_with_verify(
-        self,
-        operator: Pubkey,
-        market: Pubkey,
-        base_mint: Pubkey,
-        quote_mint: Pubkey,
-        taker_order: FullOrder,
-        maker_fills: List[MakerFill],
-    ) -> Transaction:
-        """Build a match_orders_multi transaction with Ed25519 signature verification.
-
-        This includes an Ed25519 verify instruction before the match instruction.
-        """
-        # Build Ed25519 verify instructions for all orders
-        all_orders = [taker_order] + [mf.order for mf in maker_fills]
-        ed25519_ix = build_ed25519_batch_verify_instruction(all_orders)
-
-        # Build match instruction
-        match_ix = build_match_orders_multi_instruction(
-            operator=operator,
-            market=market,
-            base_mint=base_mint,
-            quote_mint=quote_mint,
-            taker_order=taker_order,
-            maker_fills=maker_fills,
+    async def create_orderbook(self, params: CreateOrderbookParams) -> Transaction:
+        """Build a create_orderbook transaction."""
+        ix = build_create_orderbook_instruction(
+            payer=params.payer,
+            market=params.market,
+            mint_a=params.mint_a,
+            mint_b=params.mint_b,
+            recent_slot=params.recent_slot,
             program_id=self.program_id,
         )
+        return await self._build_transaction([ix])
 
-        return await self._build_transaction([ed25519_ix, match_ix])
-
-    async def match_orders_multi_cross_ref(
-        self,
-        operator: Pubkey,
-        market: Pubkey,
-        base_mint: Pubkey,
-        quote_mint: Pubkey,
-        taker_order: FullOrder,
-        maker_fills: List[MakerFill],
-    ) -> Transaction:
-        """Build a match_orders_multi transaction with efficient cross-ref Ed25519 verification.
-
-        This creates small (16-byte) Ed25519 verify instructions that reference data
-        within the match instruction, resulting in smaller transaction sizes compared
-        to match_orders_multi_with_verify.
-        """
-        from .ed25519 import create_cross_ref_ed25519_instructions
-
-        num_makers = len(maker_fills)
-
-        # Ed25519 verify instructions will be at indices 0..(num_makers)
-        # Match instruction will be at index (1 + num_makers)
-        match_ix_index = 1 + num_makers
-
-        # Build Ed25519 cross-ref verify instructions
-        ed25519_instructions = create_cross_ref_ed25519_instructions(
-            num_makers, match_ix_index
-        )
-
-        # Build match instruction
-        match_ix = build_match_orders_multi_instruction(
-            operator=operator,
-            market=market,
-            base_mint=base_mint,
-            quote_mint=quote_mint,
-            taker_order=taker_order,
-            maker_fills=maker_fills,
+    async def set_authority(self, params: SetAuthorityParams) -> Transaction:
+        """Build a set_authority transaction."""
+        ix = build_set_authority_instruction(
+            current_authority=params.current_authority,
+            new_authority=params.new_authority,
             program_id=self.program_id,
         )
-
-        # Combine: [ed25519_verify_0, ..., ed25519_verify_n, match_ix]
-        instructions = ed25519_instructions + [match_ix]
-        return await self._build_transaction(instructions)
+        return await self._build_transaction([ix])
 
     # =========================================================================
     # Order Helpers
@@ -480,6 +437,11 @@ class LightconePinocchioClient:
     def get_user_nonce_address(self, user: Pubkey) -> Pubkey:
         """Get a user nonce PDA address."""
         pda, _ = get_user_nonce_pda(user, self.program_id)
+        return pda
+
+    def get_orderbook_address(self, mint_a: Pubkey, mint_b: Pubkey) -> Pubkey:
+        """Get an orderbook PDA address."""
+        pda, _ = get_orderbook_pda(mint_a, mint_b, self.program_id)
         return pda
 
     # =========================================================================

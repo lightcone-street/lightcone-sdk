@@ -6,6 +6,8 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 import aiohttp
+from nacl.signing import SigningKey
+from solders.keypair import Keypair
 
 from .error import (
     ApiError,
@@ -46,6 +48,7 @@ from .types import (
     AdminResponse,
     CreateOrderbookRequest,
     CreateOrderbookResponse,
+    DecimalsResponse,
 )
 
 DEFAULT_TIMEOUT_SECS = 30
@@ -71,6 +74,7 @@ class LightconeApiClient:
         timeout: int = DEFAULT_TIMEOUT_SECS,
         headers: Optional[dict[str, str]] = None,
         retry_config: Optional[RetryConfig] = None,
+        auth_token: Optional[str] = None,
     ):
         """Create a new client with the given base URL.
 
@@ -79,6 +83,7 @@ class LightconeApiClient:
             timeout: Request timeout in seconds
             headers: Optional additional headers for all requests
             retry_config: Optional retry configuration for failed requests
+            auth_token: Optional authentication token
         """
         self._base_url = base_url.rstrip("/")
         self._timeout = aiohttp.ClientTimeout(total=timeout)
@@ -90,11 +95,75 @@ class LightconeApiClient:
             self._headers.update(headers)
         self._session: Optional[aiohttp.ClientSession] = None
         self._retry_config = retry_config or RetryConfig.default()
+        self._auth_token: Optional[str] = auth_token
+        self._decimals_cache: dict[str, DecimalsResponse] = {}
 
     @property
     def base_url(self) -> str:
         """Get the base URL."""
         return self._base_url
+
+    def set_auth_token(self, token: str) -> None:
+        """Set the authentication token."""
+        self._auth_token = token
+
+    def clear_auth_token(self) -> None:
+        """Clear the authentication token."""
+        self._auth_token = None
+
+    def has_auth_token(self) -> bool:
+        """Check if an auth token is set."""
+        return self._auth_token is not None
+
+    async def login(self, keypair: Keypair) -> str:
+        """Authenticate with the API and store the auth token.
+
+        Args:
+            keypair: The Solana keypair to authenticate with
+
+        Returns:
+            The auth token string
+
+        Raises:
+            ApiError: If authentication fails
+        """
+        import time
+
+        timestamp = int(time.time())
+        message = f"Sign in to Lightcone: {timestamp}"
+        message_bytes = message.encode("utf-8")
+
+        secret_bytes = bytes(keypair)
+        seed = secret_bytes[:32]
+        signing_key = SigningKey(seed)
+        signed = signing_key.sign(message_bytes)
+        signature_hex = signed.signature.hex()
+
+        pubkey = str(keypair.pubkey())
+
+        session = await self._ensure_session()
+        url = f"{self._base_url}/api/auth/login_or_register_with_message"
+        payload = {
+            "pubkey": pubkey,
+            "message": message,
+            "signature": signature_hex,
+        }
+
+        async with session.post(url, json=payload) as response:
+            data = await self._handle_response(response)
+            token = data.get("token") or data.get("auth_token", "")
+
+            if not token:
+                # Try cookies
+                cookies = response.cookies
+                if "auth_token" in cookies:
+                    token = cookies["auth_token"].value
+
+            if not token:
+                raise ServerError("No auth token in login response")
+
+            self._auth_token = token
+            return token
 
     async def __aenter__(self) -> "LightconeApiClient":
         """Enter async context manager."""
@@ -119,6 +188,13 @@ class LightconeApiClient:
         if self._session and not self._session.closed:
             await self._session.close()
             self._session = None
+
+    def _get_auth_headers(self) -> dict[str, str]:
+        """Get headers with auth token if available."""
+        headers = {}
+        if self._auth_token:
+            headers["Cookie"] = f"auth_token={self._auth_token}"
+        return headers
 
     def _map_status_error(self, status: int, message: str) -> ApiError:
         """Map HTTP status code to ApiError."""
@@ -320,6 +396,39 @@ class LightconeApiClient:
             data = await self._handle_response(response)
             return OrderbookResponse.from_dict(data)
 
+    async def get_orderbook_decimals(
+        self,
+        orderbook_id: str,
+    ) -> DecimalsResponse:
+        """Get decimal configuration for an orderbook, with in-memory caching.
+
+        Args:
+            orderbook_id: Orderbook identifier
+
+        Returns:
+            DecimalsResponse with base, quote, and price decimals
+        """
+        if orderbook_id in self._decimals_cache:
+            return self._decimals_cache[orderbook_id]
+
+        session = await self._ensure_session()
+        url = f"{self._base_url}/api/orderbook/{quote(orderbook_id, safe='')}/decimals"
+        async with session.get(url) as response:
+            data = await self._handle_response(response)
+            result = DecimalsResponse.from_dict(data)
+            self._decimals_cache[orderbook_id] = result
+            return result
+
+    async def prefetch_decimals(self, orderbook_ids: list[str]) -> None:
+        """Prefetch decimal configurations for multiple orderbooks.
+
+        Args:
+            orderbook_ids: List of orderbook identifiers to prefetch
+        """
+        for orderbook_id in orderbook_ids:
+            if orderbook_id not in self._decimals_cache:
+                await self.get_orderbook_decimals(orderbook_id)
+
     # =========================================================================
     # Order endpoints
     # =========================================================================
@@ -350,6 +459,27 @@ class LightconeApiClient:
         async with session.post(url, json=request.to_dict()) as response:
             data = await self._handle_response(response)
             return OrderResponse.from_dict(data)
+
+    async def submit_full_order(
+        self,
+        order: "FullOrder",
+        orderbook_id: str,
+    ) -> OrderResponse:
+        """Submit a signed FullOrder to the API.
+
+        Converts the FullOrder to a SubmitOrderRequest and submits it.
+
+        Args:
+            order: A signed FullOrder
+            orderbook_id: The orderbook identifier
+
+        Returns:
+            OrderResponse with order hash, status, and fills
+        """
+        from ..program.orders import to_submit_request
+
+        request = to_submit_request(order, orderbook_id)
+        return await self.submit_order(request)
 
     async def cancel_order(self, order_hash: str, maker: str) -> CancelResponse:
         """Cancel a specific order.
@@ -451,14 +581,21 @@ class LightconeApiClient:
             data = await self._handle_response(response)
             return MarketPositionsResponse.from_dict(data)
 
-    async def get_user_orders(self, user_pubkey: str) -> UserOrdersResponse:
+    async def get_user_orders(
+        self,
+        user_pubkey: str,
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> UserOrdersResponse:
         """Get all open orders and balances for a user.
 
         Args:
             user_pubkey: User's public key
+            cursor: Optional pagination cursor
+            limit: Optional result limit
 
         Returns:
-            UserOrdersResponse containing orders and balances
+            UserOrdersResponse containing orders, balances, and next_cursor
 
         Raises:
             InvalidParameterError: If user_pubkey is invalid
@@ -466,8 +603,14 @@ class LightconeApiClient:
         validate_pubkey(user_pubkey, "user_pubkey")
         session = await self._ensure_session()
         url = f"{self._base_url}/api/users/orders"
-        request = {"user_pubkey": user_pubkey}
-        async with session.post(url, json=request) as response:
+        request: dict[str, Any] = {"user_pubkey": user_pubkey}
+        if cursor is not None:
+            request["cursor"] = cursor
+        if limit is not None:
+            request["limit"] = limit
+
+        headers = self._get_auth_headers()
+        async with session.post(url, json=request, headers=headers) as response:
             data = await self._handle_response(response)
             return UserOrdersResponse.from_dict(data)
 
