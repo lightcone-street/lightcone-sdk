@@ -5,6 +5,8 @@ from typing import Tuple
 from solders.pubkey import Pubkey
 
 from .constants import (
+    ALT_PROGRAM_ID,
+    ORDERBOOK_SEED,
     PROGRAM_ID,
     SEED_CENTRAL_STATE,
     SEED_CONDITIONAL_MINT,
@@ -130,6 +132,36 @@ def get_position_pda(
     return Pubkey.find_program_address(
         [SEED_POSITION, bytes(owner), bytes(market)],
         program_id,
+    )
+
+
+def get_orderbook_pda(
+    mint_a: Pubkey,
+    mint_b: Pubkey,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Tuple[Pubkey, int]:
+    """Derive the orderbook PDA for a pair of mints.
+
+    Seeds: ["orderbook", mint_a, mint_b]
+    """
+    return Pubkey.find_program_address(
+        [ORDERBOOK_SEED, bytes(mint_a), bytes(mint_b)],
+        program_id,
+    )
+
+
+def get_alt_pda(
+    orderbook: Pubkey,
+    recent_slot: int,
+) -> Tuple[Pubkey, int]:
+    """Derive the Address Lookup Table PDA.
+
+    Seeds: [orderbook, recent_slot (u64 LE)]
+    Uses the ALT_PROGRAM_ID as the program.
+    """
+    return Pubkey.find_program_address(
+        [bytes(orderbook), encode_u64(recent_slot)],
+        ALT_PROGRAM_ID,
     )
 
 

@@ -2,10 +2,10 @@
 Devnet integration tests for the Lightcone SDK.
 
 These tests run against Solana devnet and test the full end-to-end flow
-of the Lightcone protocol.
+of the Lightcone protocol, mirroring the Rust SDK devnet integration tests.
 
 To run:
-    DEVNET_TESTS=1 pytest tests/test_devnet.py -v -s
+    DEVNET_TESTS=1 uv run pytest tests/test_devnet.py -v -s
 
 Environment variables:
     DEVNET_RPC: Solana devnet RPC URL (default: https://api.devnet.solana.com)
@@ -20,7 +20,8 @@ from pathlib import Path
 
 import pytest
 from solana.rpc.async_api import AsyncClient
-from solana.rpc.commitment import Confirmed
+from solana.rpc.commitment import Confirmed, Finalized
+from solana.rpc.types import TxOpts
 from solders.keypair import Keypair
 from solders.message import Message
 from solders.pubkey import Pubkey
@@ -35,21 +36,26 @@ from src import (
     ActivateMarketParams,
     AskOrderParams,
     BidOrderParams,
+    CreateOrderbookParams,
     LightconePinocchioClient,
-    MakerFill,
     MarketStatus,
+    MatchOrdersMultiParams,
     MergeCompleteSetParams,
     MintCompleteSetParams,
     OutcomeMetadata,
     RedeemWinningsParams,
+    SetAuthorityParams,
     SettleMarketParams,
     WithdrawFromPositionParams,
     build_add_deposit_mint_instruction,
     get_conditional_mint_pda,
     get_position_pda,
     hash_order,
+    hash_order_hex,
+    verify_order_signature,
+    to_order,
 )
-from src.shared import get_associated_token_address, get_associated_token_address_2022
+from src.program.utils import get_associated_token_address, get_associated_token_address_2022
 
 # Test configuration
 DEVNET_RPC = os.environ.get("DEVNET_RPC", "https://api.devnet.solana.com")
@@ -165,29 +171,48 @@ async def fund_account(
     await confirm_tx(connection, result.value)
 
 
+async def sign_and_send(connection: AsyncClient, tx: Transaction, signers: list[Keypair]) -> Signature:
+    """Sign and send a transaction, returning the signature."""
+    blockhash_resp = await connection.get_latest_blockhash()
+    blockhash = blockhash_resp.value.blockhash
+    tx.sign(signers, blockhash)
+    result = await connection.send_raw_transaction(bytes(tx))
+    await confirm_tx(connection, result.value)
+    return result.value
+
+
 @pytest.mark.asyncio
 class TestDevnetIntegration:
     """Integration tests running against Solana devnet.
 
-    Tests are structured as a single flow to ensure proper ordering
-    regardless of pytest plugins like pytest-randomly.
+    Mirrors the Rust SDK devnet integration tests (rust/tests/devnet_integration.rs).
+    Tests are structured as a single flow to ensure proper ordering.
     """
 
     async def test_full_market_lifecycle(self):
         """
         Complete end-to-end test of the Lightcone protocol:
-        1. Check authority balance
-        2. Initialize or verify exchange
-        3. Create market
-        4. Create deposit mint
-        5. Add deposit mint to market
-        6. Activate market
-        7. Setup users with tokens
-        8. Mint complete sets
-        9. Merge complete set
-        10. Create and match orders
-        11. Settle market
-        12. Redeem winnings
+        1.  Check protocol state
+        2.  Initialize (if needed)
+        3.  Create market
+        4.  Create deposit mint & add to market
+        5.  Create orderbook
+        6.  Activate market
+        7.  User1 deposit flow (mint complete set)
+        8.  User2 setup & deposit
+        9.  User3 setup & deposit (for multi-maker)
+        10. Merge complete set
+        11. Withdraw from position
+        12. Order creation, signing & roundtrip
+        13. Cancel order
+        14. Match orders multi (partial fill, bitmask=0)
+        15. Match orders multi (full fill with bitmask)
+        16. Match orders multi (2 makers)
+        17. Settle market
+        18. Redeem winnings
+        19. Set paused
+        20. Set operator
+        21. Set authority
         """
         # Setup
         connection = AsyncClient(DEVNET_RPC, commitment=Confirmed)
@@ -196,48 +221,54 @@ class TestDevnetIntegration:
 
         user1 = Keypair()
         user2 = Keypair()
+        user3 = Keypair()
 
         try:
-            # ===== Step 1: Check authority balance =====
+            print(f"\n{'=' * 70}")
+            print("LIGHTCONE PYTHON SDK - DEVNET INTEGRATION TESTS")
+            print(f"{'=' * 70}\n")
+
+            info(f"Program ID: {PROGRAM_ID}")
             info(f"Authority: {authority.pubkey()}")
+
+            # ===== Step 1: Check protocol state =====
+            print("\n1. Checking protocol state...")
             await airdrop_if_needed(connection, authority.pubkey(), 2 * LAMPORTS_PER_SOL)
 
-            balance_resp = await connection.get_balance(authority.pubkey())
-            balance = balance_resp.value / LAMPORTS_PER_SOL
-            success(f"Authority balance: {balance:.2f} SOL")
-            assert balance > 0.1, "Authority needs more SOL"
-
-            # ===== Step 2: Initialize or verify exchange =====
             exchange = None
+            is_initialized = False
+            initial_market_count = 0
             try:
                 exchange = await client.get_exchange()
-                success(f"Exchange already initialized, market_count={exchange.market_count}")
-                info(f"Exchange authority: {exchange.authority}")
-                info(f"Exchange operator: {exchange.operator}")
+                is_initialized = True
+                initial_market_count = exchange.market_count
+                success(f"Protocol initialized, market_count={exchange.market_count}")
+                info(f"Authority: {exchange.authority}")
+                info(f"Operator: {exchange.operator}")
+                info(f"Paused: {exchange.paused}")
 
-                # Check if we're the authority
                 if exchange.authority != authority.pubkey():
-                    warn(f"Exchange authority ({exchange.authority}) does not match our keypair ({authority.pubkey()})")
-                    warn("Skipping market creation tests - you need to use the correct authority keypair")
+                    warn(f"Exchange authority ({exchange.authority}) != our keypair ({authority.pubkey()})")
                     pytest.skip("Not the exchange authority - cannot create markets")
-
             except Exception:
-                info("Initializing exchange...")
+                info("Protocol not initialized - will initialize")
+
+            # ===== Step 2: Initialize (if needed) =====
+            if not is_initialized:
+                print("\n2. Initializing protocol...")
                 tx = await client.initialize(authority.pubkey())
+                sig = await sign_and_send(connection, tx, [authority])
+                success(f"Protocol initialized, sig={sig}")
+            else:
+                print("\n2. Skipping initialization (already done)")
 
-                blockhash_resp = await connection.get_latest_blockhash()
-                tx.sign([authority], blockhash_resp.value.blockhash)
-
-                result = await connection.send_raw_transaction(bytes(tx))
-                await confirm_tx(connection, result.value)
-                success("Exchange initialized")
-
-                exchange = await client.get_exchange()
+            # Refresh state
+            exchange = await client.get_exchange()
+            market_id = exchange.market_count
+            info(f"Next Market ID: {market_id}")
 
             # ===== Step 3: Create market =====
-            market_id = exchange.market_count
-            info(f"Creating market {market_id}...")
-
+            print("\n3. Creating market...")
             question_id = bytes([market_id % 256] * 32)
 
             tx = await client.create_market(
@@ -246,24 +277,17 @@ class TestDevnetIntegration:
                 oracle=authority.pubkey(),
                 question_id=question_id,
             )
+            sig = await sign_and_send(connection, tx, [authority])
 
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
-            market = await client.get_market(market_id)
             market_pda = client.get_market_address(market_id)
-
-            success(f"Market {market_id} created")
+            market = await client.get_market(market_id)
+            success(f"Market {market_id} created, PDA={market_pda}")
             assert market.market_id == market_id
             assert market.num_outcomes == 2
             assert market.status == MarketStatus.PENDING
 
-            # ===== Step 4: Create deposit mint =====
-            info("Creating deposit mint...")
-
+            # ===== Step 4: Create deposit mint & add to market =====
+            print("\n4. Creating deposit mint and adding to market...")
             token = await AsyncToken.create_mint(
                 connection,
                 authority,
@@ -271,16 +295,12 @@ class TestDevnetIntegration:
                 TOKEN_DECIMALS,
                 SPL_TOKEN_PROGRAM_ID,
             )
-
             deposit_mint = token.pubkey
             success(f"Deposit mint created: {deposit_mint}")
 
-            # ===== Step 5: Add deposit mint to market =====
-            info("Adding deposit mint to market...")
-
             outcome_metadata = [
-                OutcomeMetadata(name="Yes", symbol="YES", uri=""),
-                OutcomeMetadata(name="No", symbol="NO", uri=""),
+                OutcomeMetadata(name="YES-TOKEN", symbol="YES", uri="https://arweave.net/test-yes.json"),
+                OutcomeMetadata(name="NO-TOKEN", symbol="NO", uri="https://arweave.net/test-no.json"),
             ]
 
             ix = build_add_deposit_mint_instruction(
@@ -295,61 +315,87 @@ class TestDevnetIntegration:
             msg = Message.new_with_blockhash([ix], authority.pubkey(), blockhash_resp.value.blockhash)
             tx = Transaction.new_unsigned(msg)
             tx.sign([authority], blockhash_resp.value.blockhash)
-
             result = await connection.send_raw_transaction(bytes(tx))
             await confirm_tx(connection, result.value)
 
+            conditional_mints = client.get_conditional_mints(market_pda, deposit_mint, 2)
+            info(f"Conditional Mint 0 (YES): {conditional_mints[0]}")
+            info(f"Conditional Mint 1 (NO): {conditional_mints[1]}")
             success("Deposit mint added to market")
 
-            # ===== Step 6: Activate market =====
-            info("Activating market...")
+            # ===== Step 5: Create orderbook =====
+            print("\n5. Creating orderbook...")
 
-            tx = await client.activate_market(
-                ActivateMarketParams(
-                    authority=authority.pubkey(),
+            # Determine canonical order: mint_a < mint_b
+            if bytes(conditional_mints[0]) < bytes(conditional_mints[1]):
+                mint_a, mint_b = conditional_mints[0], conditional_mints[1]
+            else:
+                mint_a, mint_b = conditional_mints[1], conditional_mints[0]
+
+            # Get a recent finalized slot for the ALT program
+            slot_resp = await connection.get_slot(Finalized)
+            recent_slot = slot_resp.value
+            info(f"Using slot: {recent_slot} (finalized)")
+
+            tx = await client.create_orderbook(
+                CreateOrderbookParams(
+                    payer=authority.pubkey(),
                     market=market_pda,
+                    mint_a=mint_a,
+                    mint_b=mint_b,
+                    recent_slot=recent_slot,
                 )
             )
 
+            # Skip preflight for ALT slot validation (same as Rust test)
             blockhash_resp = await connection.get_latest_blockhash()
             tx.sign([authority], blockhash_resp.value.blockhash)
+            result = await connection.send_raw_transaction(
+                bytes(tx),
+                opts=TxOpts(skip_preflight=True),
+            )
+            info(f"Sent tx (skip_preflight): {result.value}")
 
-            result = await connection.send_raw_transaction(bytes(tx))
+            await asyncio.sleep(3)
             await confirm_tx(connection, result.value)
+
+            # Verify orderbook was created
+            orderbook = await client.get_orderbook(mint_a, mint_b)
+            assert orderbook is not None
+            info(f"Orderbook Market: {orderbook.market}")
+            info(f"Orderbook Mint A: {orderbook.mint_a}")
+            info(f"Orderbook Mint B: {orderbook.mint_b}")
+            info(f"Orderbook Lookup Table: {orderbook.lookup_table}")
+            assert orderbook.market == market_pda
+            assert orderbook.mint_a == mint_a
+            assert orderbook.mint_b == mint_b
+            success("Orderbook created")
+
+            # ===== Step 6: Activate market =====
+            print("\n6. Activating market...")
+            tx = await client.activate_market(
+                ActivateMarketParams(
+                    authority=authority.pubkey(),
+                    market_id=market_id,
+                )
+            )
+            sig = await sign_and_send(connection, tx, [authority])
 
             market = await client.get_market(market_id)
             success(f"Market activated, status={market.status.name}")
             assert market.status == MarketStatus.ACTIVE
 
-            # ===== Step 7: Setup user1 =====
-            info(f"Setting up user1: {user1.pubkey()}")
+            # ===== Step 7: User1 deposit flow =====
+            print("\n7. Setting up user1 and minting complete set...")
+            info(f"User1: {user1.pubkey()}")
 
             await fund_account(connection, authority, user1.pubkey(), int(0.1 * LAMPORTS_PER_SOL))
 
             token_client = AsyncToken(connection, deposit_mint, SPL_TOKEN_PROGRAM_ID, authority)
             user1_ata = await token_client.create_associated_token_account(user1.pubkey())
             await token_client.mint_to(user1_ata, authority, TOKENS_TO_MINT)
-            # Wait for transaction finality on devnet
             await asyncio.sleep(2)
-
             success(f"User1 funded with {TOKENS_TO_MINT / 10**TOKEN_DECIMALS} tokens")
-
-            # ===== Step 8: User1 mints complete set =====
-            info("User1 minting complete set...")
-
-            # Debug: Verify ATA addresses match
-            from src.shared import get_associated_token_address
-            sdk_user_ata = get_associated_token_address(user1.pubkey(), deposit_mint)
-            info(f"User1 ATA from test: {user1_ata}")
-            info(f"User1 ATA from SDK:  {sdk_user_ata}")
-            if str(user1_ata) != str(sdk_user_ata):
-                error(f"ATA MISMATCH! Test created {user1_ata}, SDK expects {sdk_user_ata}")
-
-            # Debug: Check token balance before mint_complete_set
-            balance_resp = await connection.get_token_account_balance(user1_ata)
-            info(f"User1 ATA balance: {balance_resp.value.ui_amount} tokens")
-            info(f"User1 ATA raw amount: {balance_resp.value.amount}")
-            info(f"Attempting to transfer: {COMPLETE_SET_AMOUNT} ({COMPLETE_SET_AMOUNT / 10**TOKEN_DECIMALS} tokens)")
 
             tx = await client.mint_complete_set(
                 MintCompleteSetParams(
@@ -360,31 +406,21 @@ class TestDevnetIntegration:
                 ),
                 num_outcomes=2,
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user1], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            sig = await sign_and_send(connection, tx, [user1])
 
             position = await client.get_position(user1.pubkey(), market_pda)
             assert position is not None
             success("User1 minted complete set")
 
-            # ===== Step 9: Setup user2 =====
-            info(f"Setting up user2: {user2.pubkey()}")
+            # ===== Step 8: User2 setup & deposit =====
+            print("\n8. Setting up user2...")
+            info(f"User2: {user2.pubkey()}")
 
             await fund_account(connection, authority, user2.pubkey(), int(0.1 * LAMPORTS_PER_SOL))
-
             user2_ata = await token_client.create_associated_token_account(user2.pubkey())
             await token_client.mint_to(user2_ata, authority, TOKENS_TO_MINT * 2)
-            # Wait for transaction finality on devnet
             await asyncio.sleep(2)
-
             success(f"User2 funded with {TOKENS_TO_MINT * 2 / 10**TOKEN_DECIMALS} tokens")
-
-            # ===== Step 10: User2 mints complete set =====
-            info("User2 minting complete set...")
 
             tx = await client.mint_complete_set(
                 MintCompleteSetParams(
@@ -395,18 +431,33 @@ class TestDevnetIntegration:
                 ),
                 num_outcomes=2,
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user2], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
+            sig = await sign_and_send(connection, tx, [user2])
             success("User2 minted complete set")
 
-            # ===== Step 11: User2 merges complete set =====
-            info("User2 merging complete set...")
+            # ===== Step 9: User3 setup & deposit (for multi-maker) =====
+            print("\n9. Setting up user3 (for multi-maker matching)...")
+            info(f"User3: {user3.pubkey()}")
 
+            await fund_account(connection, authority, user3.pubkey(), int(0.1 * LAMPORTS_PER_SOL))
+            user3_ata = await token_client.create_associated_token_account(user3.pubkey())
+            await token_client.mint_to(user3_ata, authority, TOKENS_TO_MINT * 2)
+            await asyncio.sleep(2)
+            success(f"User3 funded with {TOKENS_TO_MINT * 2 / 10**TOKEN_DECIMALS} tokens")
+
+            tx = await client.mint_complete_set(
+                MintCompleteSetParams(
+                    user=user3.pubkey(),
+                    market=market_pda,
+                    deposit_mint=deposit_mint,
+                    amount=COMPLETE_SET_AMOUNT * 5,
+                ),
+                num_outcomes=2,
+            )
+            sig = await sign_and_send(connection, tx, [user3])
+            success("User3 minted complete set")
+
+            # ===== Step 10: Merge complete set =====
+            print("\n10. Testing merge complete set...")
             tx = await client.merge_complete_set(
                 MergeCompleteSetParams(
                     user=user2.pubkey(),
@@ -416,33 +467,22 @@ class TestDevnetIntegration:
                 ),
                 num_outcomes=2,
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user2], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
+            sig = await sign_and_send(connection, tx, [user2])
             success("User2 merged complete set")
 
-            # Get conditional mint addresses (needed for withdraw and orders)
+            # Get conditional mint addresses
             yes_mint, _ = get_conditional_mint_pda(market_pda, deposit_mint, 0)
             no_mint, _ = get_conditional_mint_pda(market_pda, deposit_mint, 1)
 
-            # ===== Step 11.5: Withdraw from position =====
-            info("User2 withdrawing conditional tokens from position...")
+            # ===== Step 11: Withdraw from position =====
+            print("\n11. Testing withdraw from position...")
 
-            user2_position_pda, _ = get_position_pda(user2.pubkey(), market_pda)
-
-            # First create user2's personal ATA for the YES conditional token (Token-2022)
-            from spl.token._layouts import ACCOUNT_LAYOUT
+            # Create user2's personal ATA for conditional token (Token-2022)
             from spl.token.instructions import create_associated_token_account
-            from spl.token.constants import ASSOCIATED_TOKEN_PROGRAM_ID
-
             TOKEN_2022_PROG_ID = Pubkey.from_string("TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb")
-            user2_yes_personal_ata = get_associated_token_address_2022(user2.pubkey(), yes_mint)
 
-            # Create the ATA instruction
+            user2_yes_ata = get_associated_token_address_2022(user2.pubkey(), yes_mint)
+
             create_ata_ix = create_associated_token_account(
                 payer=authority.pubkey(),
                 owner=user2.pubkey(),
@@ -454,41 +494,79 @@ class TestDevnetIntegration:
             msg = Message.new_with_blockhash([create_ata_ix], authority.pubkey(), blockhash_resp.value.blockhash)
             create_ata_tx = Transaction.new_unsigned(msg)
             create_ata_tx.sign([authority], blockhash_resp.value.blockhash)
-
             result = await connection.send_raw_transaction(bytes(create_ata_tx))
             await confirm_tx(connection, result.value)
-            info(f"User2 personal conditional ATA created: {user2_yes_personal_ata}")
+            info(f"User2 conditional ATA created: {user2_yes_ata}")
 
-            # Now withdraw from position
             tx = await client.withdraw_from_position(
                 WithdrawFromPositionParams(
                     user=user2.pubkey(),
-                    position=user2_position_pda,
+                    market=market_pda,
                     mint=yes_mint,
-                    amount=100_000,  # Withdraw 0.1 conditional tokens
+                    amount=100_000,
+                    outcome_index=0,
                 ),
                 is_token_2022=True,
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user2], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
+            sig = await sign_and_send(connection, tx, [user2])
             success("User2 withdrew conditional tokens from position")
 
-            # ===== Step 12: Cancel order test =====
-            info("Testing cancel order...")
+            # ===== Step 12: Order creation, signing & roundtrip =====
+            print("\n12. Testing order creation and signing...")
 
             expiration = int(time.time()) + 3600  # 1 hour
 
-            # Increment nonce first to create the nonce account
+            user1_nonce_val = await client.get_next_nonce(user1.pubkey())
+            info(f"User1 Nonce: {user1_nonce_val}")
+
+            bid_order = client.create_signed_bid_order(
+                BidOrderParams(
+                    nonce=user1_nonce_val,
+                    maker=user1.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=100,
+                    taker_amount=50,
+                    expiration=expiration,
+                ),
+                user1,
+            )
+            info(f"BID Order Hash: {hash_order_hex(bid_order)[:32]}...")
+
+            ask_order = client.create_signed_ask_order(
+                AskOrderParams(
+                    nonce=user1_nonce_val + 1,
+                    maker=user1.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=50,
+                    taker_amount=100,
+                    expiration=expiration,
+                ),
+                user1,
+            )
+            info(f"ASK Order Hash: {hash_order_hex(ask_order)[:32]}...")
+
+            # Verify signatures
+            assert verify_order_signature(bid_order), "BID signature should be valid"
+            assert verify_order_signature(ask_order), "ASK signature should be valid"
+
+            # Test Order <-> FullOrder roundtrip
+            compact = to_order(bid_order)
+            assert compact.nonce == bid_order.nonce & 0xFFFFFFFF
+            assert compact.maker_amount == bid_order.maker_amount
+            info("Order <-> FullOrder roundtrip verified")
+
+            success("Orders created and signed")
+
+            # ===== Step 13: Cancel order =====
+            print("\n13. Testing cancel order...")
+
             tx_nonce = await client.increment_nonce(user1.pubkey())
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx_nonce.sign([user1], blockhash_resp.value.blockhash)
-            await connection.send_raw_transaction(bytes(tx_nonce))
-            await asyncio.sleep(1)
+            sig = await sign_and_send(connection, tx_nonce, [user1])
+            await asyncio.sleep(2)
 
             cancel_nonce = await client.get_next_nonce(user1.pubkey())
             cancel_order = client.create_signed_bid_order(
@@ -505,43 +583,33 @@ class TestDevnetIntegration:
                 user1,
             )
 
-            tx = await client.cancel_order(user1.pubkey(), cancel_order)
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user1], blockhash_resp.value.blockhash)
+            tx = await client.cancel_order(user1.pubkey(), market_pda, cancel_order)
+            sig = await sign_and_send(connection, tx, [user1])
 
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
-            # Verify order is cancelled
             cancel_status = await client.get_order_status(hash_order(cancel_order))
             assert cancel_status is not None
             assert cancel_status.is_cancelled == True
             success(f"Order cancelled, is_cancelled={cancel_status.is_cancelled}")
 
-            # ===== Step 13: Create and match orders =====
-            info("Creating orders for matching...")
+            # ===== Step 14: Match orders multi (partial fill, bitmask=0) =====
+            print("\n14. Testing match orders multi (partial fill, bitmask=0)...")
 
-            # Increment nonces for both users (user1 needs fresh nonce after cancel test)
             tx1 = await client.increment_nonce(user1.pubkey())
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx1.sign([user1], blockhash_resp.value.blockhash)
-            await connection.send_raw_transaction(bytes(tx1))
-            await asyncio.sleep(1)
+            await sign_and_send(connection, tx1, [user1])
 
             tx2 = await client.increment_nonce(user2.pubkey())
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx2.sign([user2], blockhash_resp.value.blockhash)
-            await connection.send_raw_transaction(bytes(tx2))
-            await asyncio.sleep(1)
+            await sign_and_send(connection, tx2, [user2])
 
-            user1_nonce = await client.get_next_nonce(user1.pubkey())
-            user2_nonce = await client.get_next_nonce(user2.pubkey())
-            info(f"User1 nonce: {user1_nonce}, User2 nonce: {user2_nonce}")
+            await asyncio.sleep(2)
 
-            # User1 BID: wants YES tokens, gives NO tokens
-            user1_order = client.create_signed_bid_order(
+            u1_nonce = await client.get_next_nonce(user1.pubkey())
+            u2_nonce = await client.get_next_nonce(user2.pubkey())
+            info(f"User1 Nonce: {u1_nonce}, User2 Nonce: {u2_nonce}")
+
+            # User1 BID: wants YES tokens, pays NO tokens
+            match_bid = client.create_signed_bid_order(
                 BidOrderParams(
-                    nonce=user1_nonce,
+                    nonce=u1_nonce,
                     maker=user1.pubkey(),
                     market=market_pda,
                     base_mint=yes_mint,
@@ -552,11 +620,150 @@ class TestDevnetIntegration:
                 ),
                 user1,
             )
+            info(f"BID Order (User1): {hash_order_hex(match_bid)[:32]}...")
 
-            # User2 ASK: sells YES tokens, receives NO tokens
-            user2_order = client.create_signed_ask_order(
+            # User2 ASK: sells YES tokens, wants NO tokens
+            match_ask = client.create_signed_ask_order(
                 AskOrderParams(
-                    nonce=user2_nonce,
+                    nonce=u2_nonce,
+                    maker=user2.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=100_000,
+                    taker_amount=100_000,
+                    expiration=expiration,
+                ),
+                user2,
+            )
+            info(f"ASK Order (User2): {hash_order_hex(match_ask)[:32]}...")
+
+            # Partial fill: 50_000 out of 100_000 (bitmask=0 means order_status tracked)
+            tx = await client.match_orders_multi(
+                MatchOrdersMultiParams(
+                    operator=exchange.operator,
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    taker_order=match_bid,
+                    maker_orders=[match_ask],
+                    maker_fill_amounts=[50_000],
+                    taker_fill_amounts=[50_000],
+                    full_fill_bitmask=0,
+                )
+            )
+            sig = await sign_and_send(connection, tx, [authority])
+
+            # Verify partial fill remaining
+            taker_status = await client.get_order_status(hash_order(match_bid))
+            if taker_status:
+                info(f"Taker Remaining: {taker_status.remaining}")
+                assert taker_status.remaining == 50_000
+
+            maker_status = await client.get_order_status(hash_order(match_ask))
+            if maker_status:
+                info(f"Maker Remaining: {maker_status.remaining}")
+                assert maker_status.remaining == 50_000
+
+            success("Partial fill match completed")
+
+            # ===== Step 15: Match orders multi (full fill with bitmask) =====
+            print("\n15. Testing match orders multi (full fill with bitmask)...")
+
+            tx1 = await client.increment_nonce(user1.pubkey())
+            await sign_and_send(connection, tx1, [user1])
+
+            tx2 = await client.increment_nonce(user2.pubkey())
+            await sign_and_send(connection, tx2, [user2])
+
+            await asyncio.sleep(2)
+
+            u1n = await client.get_next_nonce(user1.pubkey())
+            u2n = await client.get_next_nonce(user2.pubkey())
+
+            ff_bid = client.create_signed_bid_order(
+                BidOrderParams(
+                    nonce=u1n,
+                    maker=user1.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=80_000,
+                    taker_amount=80_000,
+                    expiration=expiration,
+                ),
+                user1,
+            )
+
+            ff_ask = client.create_signed_ask_order(
+                AskOrderParams(
+                    nonce=u2n,
+                    maker=user2.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=80_000,
+                    taker_amount=80_000,
+                    expiration=expiration,
+                ),
+                user2,
+            )
+
+            # bit 0 = maker full fill, bit 7 = taker full fill = 0b10000001 = 0x81
+            tx = await client.match_orders_multi(
+                MatchOrdersMultiParams(
+                    operator=exchange.operator,
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    taker_order=ff_bid,
+                    maker_orders=[ff_ask],
+                    maker_fill_amounts=[80_000],
+                    taker_fill_amounts=[80_000],
+                    full_fill_bitmask=0b10000001,
+                )
+            )
+            sig = await sign_and_send(connection, tx, [authority])
+            success("Full fill match with bitmask completed")
+
+            # ===== Step 16: Match orders multi (2 makers) =====
+            print("\n16. Testing match orders multi (2 makers)...")
+
+            tx1 = await client.increment_nonce(user1.pubkey())
+            await sign_and_send(connection, tx1, [user1])
+
+            tx2 = await client.increment_nonce(user2.pubkey())
+            await sign_and_send(connection, tx2, [user2])
+
+            tx3 = await client.increment_nonce(user3.pubkey())
+            await sign_and_send(connection, tx3, [user3])
+
+            await asyncio.sleep(2)
+
+            u1_nonce = await client.get_next_nonce(user1.pubkey())
+            u2_nonce = await client.get_next_nonce(user2.pubkey())
+            u3_nonce = await client.get_next_nonce(user3.pubkey())
+            info(f"User1 Nonce: {u1_nonce}, User2 Nonce: {u2_nonce}, User3 Nonce: {u3_nonce}")
+
+            # User1 BID: wants 200_000 YES
+            taker_bid = client.create_signed_bid_order(
+                BidOrderParams(
+                    nonce=u1_nonce,
+                    maker=user1.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=200_000,
+                    taker_amount=200_000,
+                    expiration=expiration,
+                ),
+                user1,
+            )
+
+            # User2 ASK: sells 100_000 YES
+            maker1_ask = client.create_signed_ask_order(
+                AskOrderParams(
+                    nonce=u2_nonce,
                     maker=user2.pubkey(),
                     market=market_pda,
                     base_mint=yes_mint,
@@ -568,80 +775,56 @@ class TestDevnetIntegration:
                 user2,
             )
 
-            success(f"User1 order hash: {hash_order(user1_order).hex()[:16]}...")
-            success(f"User2 order hash: {hash_order(user2_order).hex()[:16]}...")
-
-            # ===== Step 14: Match orders =====
-            info("Matching orders...")
-
-            # Debug: Print order details
-            info(f"User1 order maker: {user1_order.maker}")
-            info(f"User1 order nonce: {user1_order.nonce}")
-            info(f"User1 order side: {user1_order.side}")
-            info(f"User2 order maker: {user2_order.maker}")
-            info(f"User2 order nonce: {user2_order.nonce}")
-            info(f"User2 order side: {user2_order.side}")
-
-            # Verify signature lengths
-            info(f"User1 signature length: {len(user1_order.signature)}")
-            info(f"User2 signature length: {len(user2_order.signature)}")
-
-            # Verify positions exist
-            user1_pos = await client.get_position(user1.pubkey(), market_pda)
-            user2_pos = await client.get_position(user2.pubkey(), market_pda)
-            info(f"User1 position exists: {user1_pos is not None}")
-            info(f"User2 position exists: {user2_pos is not None}")
-
-            # Use cross_ref for efficient Ed25519 verification
-            # The on-chain program requires Ed25519 verify instructions in the transaction
-            info(f"Using operator: {exchange.operator}")
-            tx = await client.match_orders_multi_cross_ref(
-                operator=exchange.operator,
-                market=market_pda,
-                base_mint=yes_mint,
-                quote_mint=no_mint,
-                taker_order=user1_order,
-                maker_fills=[
-                    MakerFill(order=user2_order, fill_amount=100_000),
-                ],
+            # User3 ASK: sells 100_000 YES
+            maker2_ask = client.create_signed_ask_order(
+                AskOrderParams(
+                    nonce=u3_nonce,
+                    maker=user3.pubkey(),
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    maker_amount=100_000,
+                    taker_amount=100_000,
+                    expiration=expiration,
+                ),
+                user3,
             )
 
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
+            # bit 0 = maker0 full, bit 1 = maker1 full, bit 7 = taker full = 0b10000011
+            tx = await client.match_orders_multi(
+                MatchOrdersMultiParams(
+                    operator=exchange.operator,
+                    market=market_pda,
+                    base_mint=yes_mint,
+                    quote_mint=no_mint,
+                    taker_order=taker_bid,
+                    maker_orders=[maker1_ask, maker2_ask],
+                    maker_fill_amounts=[100_000, 100_000],
+                    taker_fill_amounts=[100_000, 100_000],
+                    full_fill_bitmask=0b10000011,
+                )
+            )
+            sig = await sign_and_send(connection, tx, [authority])
+            success("Multi-maker match completed")
 
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
-            user1_status = await client.get_order_status(hash_order(user1_order))
-            user2_status = await client.get_order_status(hash_order(user2_order))
-
-            success(f"Orders matched! User1 remaining={user1_status.remaining}, User2 remaining={user2_status.remaining}")
-
-            # ===== Step 14: Settle market =====
-            info("Settling market (outcome 0 = YES wins)...")
-
+            # ===== Step 17: Settle market =====
+            print("\n17. Settling market (outcome 0 = YES wins)...")
             tx = await client.settle_market(
                 SettleMarketParams(
                     oracle=authority.pubkey(),
-                    market=market_pda,
+                    market_id=market_id,
                     winning_outcome=0,
                 )
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            sig = await sign_and_send(connection, tx, [authority])
 
             market = await client.get_market(market_id)
             success(f"Market settled, status={market.status.name}, winner={market.winning_outcome}")
             assert market.status == MarketStatus.RESOLVED
             assert market.winning_outcome == 0
 
-            # ===== Step 15: Redeem winnings =====
-            info("User1 redeeming winnings...")
-
+            # ===== Step 18: Redeem winnings =====
+            print("\n18. User1 redeeming winnings...")
             tx = await client.redeem_winnings(
                 RedeemWinningsParams(
                     user=user1.pubkey(),
@@ -651,92 +834,104 @@ class TestDevnetIntegration:
                 ),
                 winning_outcome=0,
             )
-
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([user1], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
-
+            sig = await sign_and_send(connection, tx, [user1])
             success("User1 redeemed winnings")
 
-            # ===== Step 16: Set paused test =====
-            info("Testing set paused (pause exchange)...")
-
+            # ===== Step 19: Set paused =====
+            print("\n19. Testing set paused...")
             tx = await client.set_paused(authority.pubkey(), True)
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            sig = await sign_and_send(connection, tx, [authority])
 
             exchange = await client.get_exchange()
             assert exchange.paused == True
             success(f"Exchange paused, paused={exchange.paused}")
 
             # Unpause
-            info("Unpausing exchange...")
             tx = await client.set_paused(authority.pubkey(), False)
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            sig = await sign_and_send(connection, tx, [authority])
 
             exchange = await client.get_exchange()
             assert exchange.paused == False
             success(f"Exchange unpaused, paused={exchange.paused}")
 
-            # ===== Step 17: Set operator test =====
-            info("Testing set operator...")
-
-            # Create a new operator keypair
-            new_operator = Keypair()
+            # ===== Step 20: Set operator =====
+            print("\n20. Testing set operator...")
             original_operator = exchange.operator
 
-            tx = await client.set_operator(authority.pubkey(), new_operator.pubkey())
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
+            new_operator = Keypair()
+            info(f"New Operator: {new_operator.pubkey()}")
 
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            tx = await client.set_operator(authority.pubkey(), new_operator.pubkey())
+            sig = await sign_and_send(connection, tx, [authority])
 
             exchange = await client.get_exchange()
             assert exchange.operator == new_operator.pubkey()
             success(f"Operator changed to {new_operator.pubkey()}")
 
-            # Revert operator back to original
-            info("Reverting operator back...")
+            # Revert operator
             tx = await client.set_operator(authority.pubkey(), original_operator)
-            blockhash_resp = await connection.get_latest_blockhash()
-            tx.sign([authority], blockhash_resp.value.blockhash)
-
-            result = await connection.send_raw_transaction(bytes(tx))
-            await confirm_tx(connection, result.value)
+            sig = await sign_and_send(connection, tx, [authority])
 
             exchange = await client.get_exchange()
             assert exchange.operator == original_operator
             success(f"Operator reverted to {original_operator}")
 
+            # ===== Step 21: Set authority =====
+            print("\n21. Testing set authority...")
+            new_authority_kp = Keypair()
+            info(f"New Authority: {new_authority_kp.pubkey()}")
+
+            # Transfer authority
+            tx = await client.set_authority(
+                SetAuthorityParams(
+                    current_authority=authority.pubkey(),
+                    new_authority=new_authority_kp.pubkey(),
+                )
+            )
+            sig = await sign_and_send(connection, tx, [authority])
+
+            exchange = await client.get_exchange()
+            assert exchange.authority == new_authority_kp.pubkey()
+            success(f"Authority changed to {exchange.authority}")
+
+            # Transfer authority back (need to fund new authority first)
+            await fund_account(connection, authority, new_authority_kp.pubkey(), int(0.01 * LAMPORTS_PER_SOL))
+
+            tx = await client.set_authority(
+                SetAuthorityParams(
+                    current_authority=new_authority_kp.pubkey(),
+                    new_authority=authority.pubkey(),
+                )
+            )
+            sig = await sign_and_send(connection, tx, [new_authority_kp])
+
+            exchange = await client.get_exchange()
+            assert exchange.authority == authority.pubkey()
+            success(f"Authority reverted to {exchange.authority}")
+
             # ===== Summary =====
-            print("\n" + "=" * 70)
+            print(f"\n{'=' * 70}")
             print("🎉 ALL DEVNET TESTS PASSED!")
-            print("=" * 70)
-            print("\nAll 14 Instructions Tested:")
-            print("   0. INITIALIZE          ✅")
-            print("   1. CREATE_MARKET       ✅")
-            print("   2. ADD_DEPOSIT_MINT    ✅")
-            print("   3. MINT_COMPLETE_SET   ✅")
-            print("   4. MERGE_COMPLETE_SET  ✅")
-            print("   5. CANCEL_ORDER        ✅")
-            print("   6. INCREMENT_NONCE     ✅")
-            print("   7. SETTLE_MARKET       ✅")
-            print("   8. REDEEM_WINNINGS     ✅")
-            print("   9. SET_PAUSED          ✅")
-            print("  10. SET_OPERATOR        ✅")
-            print("  11. WITHDRAW_FROM_POSITION ✅")
-            print("  12. ACTIVATE_MARKET     ✅")
-            print("  13. MATCH_ORDERS_MULTI  ✅")
+            print(f"{'=' * 70}")
+            print("\nAll Instructions Tested:")
+            print("   1.  INITIALIZE              ✅")
+            print("   2.  CREATE_MARKET            ✅")
+            print("   3.  ADD_DEPOSIT_MINT         ✅")
+            print("   4.  CREATE_ORDERBOOK         ✅ (NEW)")
+            print("   5.  ACTIVATE_MARKET          ✅")
+            print("   6.  MINT_COMPLETE_SET        ✅")
+            print("   7.  MERGE_COMPLETE_SET       ✅")
+            print("   8.  WITHDRAW_FROM_POSITION   ✅")
+            print("   9.  CANCEL_ORDER             ✅")
+            print("  10.  INCREMENT_NONCE          ✅")
+            print("  11.  MATCH_ORDERS_MULTI       ✅ (partial fill)")
+            print("  12.  MATCH_ORDERS_MULTI       ✅ (full fill, bitmask)")
+            print("  13.  MATCH_ORDERS_MULTI       ✅ (2 makers)")
+            print("  14.  SETTLE_MARKET            ✅")
+            print("  15.  REDEEM_WINNINGS          ✅")
+            print("  16.  SET_PAUSED               ✅")
+            print("  17.  SET_OPERATOR             ✅")
+            print("  18.  SET_AUTHORITY            ✅ (NEW)")
             print(f"\nTest Market ID: {market_id}")
             print(f"Program: {PROGRAM_ID}")
 

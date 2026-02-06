@@ -8,6 +8,8 @@ from .constants import (
     MARKET_DISCRIMINATOR,
     MARKET_SIZE,
     NO_WINNING_OUTCOME,
+    ORDERBOOK_DISCRIMINATOR,
+    ORDERBOOK_SIZE,
     ORDER_STATUS_DISCRIMINATOR,
     ORDER_STATUS_SIZE,
     POSITION_DISCRIMINATOR,
@@ -16,7 +18,7 @@ from .constants import (
     USER_NONCE_SIZE,
 )
 from .errors import InvalidAccountDataError, InvalidDiscriminatorError
-from .types import Exchange, Market, MarketStatus, OrderStatus, Position, UserNonce
+from .types import Exchange, Market, MarketStatus, Orderbook, OrderStatus, Position, UserNonce
 from .utils import decode_bool, decode_pubkey, decode_u64, decode_u8
 
 
@@ -33,7 +35,7 @@ def deserialize_exchange(data: bytes) -> Exchange:
     """Deserialize an Exchange account.
 
     Layout (88 bytes):
-    - [0..8]: discriminator ("exchange")
+    - [0..8]: discriminator
     - [8..40]: authority (Pubkey)
     - [40..72]: operator (Pubkey)
     - [72..80]: market_count (u64 LE)
@@ -61,7 +63,7 @@ def deserialize_market(data: bytes) -> Market:
     """Deserialize a Market account.
 
     Layout (120 bytes):
-    - [0..8]: discriminator ("market\\x00\\x00")
+    - [0..8]: discriminator
     - [8..16]: market_id (u64 LE)
     - [16]: num_outcomes (u8)
     - [17]: status (u8: 0=Pending, 1=Active, 2=Resolved, 3=Cancelled)
@@ -103,7 +105,7 @@ def deserialize_position(data: bytes) -> Position:
     """Deserialize a Position account.
 
     Layout (80 bytes):
-    - [0..8]: discriminator ("position")
+    - [0..8]: discriminator
     - [8..40]: owner (Pubkey)
     - [40..72]: market (Pubkey)
     - [72]: bump (u8)
@@ -127,7 +129,7 @@ def deserialize_order_status(data: bytes) -> OrderStatus:
     """Deserialize an OrderStatus account.
 
     Layout (24 bytes):
-    - [0..8]: discriminator ("ordstat\\x00")
+    - [0..8]: discriminator
     - [8..16]: remaining (u64 LE)
     - [16]: is_cancelled (bool)
     - [17..24]: padding (7 bytes)
@@ -149,7 +151,7 @@ def deserialize_user_nonce(data: bytes) -> UserNonce:
     """Deserialize a UserNonce account.
 
     Layout (16 bytes):
-    - [0..8]: discriminator ("usrnonce")
+    - [0..8]: discriminator
     - [8..16]: nonce (u64 LE)
     """
     _validate_discriminator(data, USER_NONCE_DISCRIMINATOR, "UserNonce")
@@ -161,4 +163,32 @@ def deserialize_user_nonce(data: bytes) -> UserNonce:
 
     return UserNonce(
         nonce=decode_u64(data, 8),
+    )
+
+
+def deserialize_orderbook(data: bytes) -> Orderbook:
+    """Deserialize an Orderbook account.
+
+    Layout (144 bytes):
+    - [0..8]: discriminator
+    - [8..40]: market (Pubkey)
+    - [40..72]: mint_a (Pubkey)
+    - [72..104]: mint_b (Pubkey)
+    - [104..136]: lookup_table (Pubkey)
+    - [136]: bump (u8)
+    - [137..144]: padding (7 bytes)
+    """
+    _validate_discriminator(data, ORDERBOOK_DISCRIMINATOR, "Orderbook")
+
+    if len(data) < ORDERBOOK_SIZE:
+        raise InvalidAccountDataError(
+            f"Orderbook data too short: {len(data)} bytes (expected {ORDERBOOK_SIZE})"
+        )
+
+    return Orderbook(
+        market=decode_pubkey(data, 8),
+        mint_a=decode_pubkey(data, 40),
+        mint_b=decode_pubkey(data, 72),
+        lookup_table=decode_pubkey(data, 104),
+        bump=decode_u8(data, 136),
     )

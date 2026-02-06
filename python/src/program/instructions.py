@@ -1,6 +1,6 @@
 """Instruction builders for the Lightcone SDK.
 
-This module provides functions to build all 14 Lightcone program instructions.
+This module provides functions to build all Lightcone program instructions.
 """
 
 from typing import List
@@ -9,22 +9,24 @@ from solders.instruction import AccountMeta, Instruction
 from solders.pubkey import Pubkey
 
 from .constants import (
+    ALT_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
     INSTRUCTION_CANCEL_ORDER,
     INSTRUCTION_CREATE_MARKET,
+    INSTRUCTION_CREATE_ORDERBOOK,
     INSTRUCTION_INCREMENT_NONCE,
     INSTRUCTION_INITIALIZE,
     INSTRUCTION_MATCH_ORDERS_MULTI,
     INSTRUCTION_MERGE_COMPLETE_SET,
     INSTRUCTION_MINT_COMPLETE_SET,
     INSTRUCTION_REDEEM_WINNINGS,
+    INSTRUCTION_SET_AUTHORITY,
     INSTRUCTION_SET_OPERATOR,
     INSTRUCTION_SET_PAUSED,
     INSTRUCTION_SETTLE_MARKET,
     INSTRUCTION_WITHDRAW_FROM_POSITION,
-    INSTRUCTIONS_SYSVAR_ID,
     MAX_OUTCOME_NAME_LEN,
     MAX_OUTCOME_SYMBOL_LEN,
     MAX_OUTCOME_URI_LEN,
@@ -33,18 +35,20 @@ from .constants import (
     TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 )
-from .orders import hash_order, serialize_compact_order, serialize_full_order, to_compact_order
+from .orders import hash_order, serialize_order, serialize_full_order, to_order
 from .pda import (
     get_conditional_mint_pda,
     get_exchange_pda,
     get_market_pda,
     get_mint_authority_pda,
     get_order_status_pda,
+    get_orderbook_pda,
+    get_alt_pda,
     get_position_pda,
     get_user_nonce_pda,
     get_vault_pda,
 )
-from .types import FullOrder, MakerFill, OutcomeMetadata
+from .types import FullOrder, OutcomeMetadata
 from .utils import (
     encode_string,
     encode_u64,
@@ -90,36 +94,21 @@ def build_create_market_instruction(
     Accounts:
     0. authority (signer, writable)
     1. exchange (writable)
-    2. market (writable)
-    3. system_program
+    2. system_program
 
     Data: [1, num_outcomes (u8), oracle (32), question_id (32)]
     """
     exchange, _ = get_exchange_pda(program_id)
 
-    # We need to fetch the current market count to derive the market PDA
-    # For now, we assume the caller provides the correct market_id through params
-    # In practice, this would be fetched from the exchange account
-
-    # Build instruction data
     data = bytearray()
     data.append(INSTRUCTION_CREATE_MARKET)
     data.append(num_outcomes)
     data.extend(bytes(oracle))
     data.extend(question_id)
 
-    # Note: The market PDA needs market_id which comes from exchange.market_count
-    # The client should pass this or fetch it before calling
-    # For the instruction builder, we use a placeholder that the client will set
-    # Actually, looking at the implementation, we need the market_id to derive the PDA
-
-    # This instruction needs the market_id which is exchange.market_count at the time
-    # of building. The client should fetch this first.
-
     accounts = [
         AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
-        # Market account will be added by the wrapper function that knows market_id
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
@@ -349,6 +338,7 @@ def build_merge_complete_set_instruction(
 
 def build_cancel_order_instruction(
     maker: Pubkey,
+    market: Pubkey,
     order: FullOrder,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
@@ -356,8 +346,9 @@ def build_cancel_order_instruction(
 
     Accounts:
     0. maker (signer, writable)
-    1. order_status (writable)
-    2. system_program
+    1. market (readonly)
+    2. order_status (writable)
+    3. system_program
 
     Data: [5, order_hash (32), full_order (225)]
     """
@@ -366,6 +357,7 @@ def build_cancel_order_instruction(
 
     accounts = [
         AccountMeta(pubkey=maker, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=order_status, is_signer=False, is_writable=True),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
@@ -404,7 +396,7 @@ def build_increment_nonce_instruction(
 
 def build_settle_market_instruction(
     oracle: Pubkey,
-    market: Pubkey,
+    market_id: int,
     winning_outcome: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
@@ -418,6 +410,7 @@ def build_settle_market_instruction(
     Data: [7, winning_outcome (u8)]
     """
     exchange, _ = get_exchange_pda(program_id)
+    market, _ = get_market_pda(market_id, program_id)
 
     accounts = [
         AccountMeta(pubkey=oracle, is_signer=True, is_writable=True),
@@ -538,9 +531,10 @@ def build_set_operator_instruction(
 
 def build_withdraw_from_position_instruction(
     user: Pubkey,
-    position: Pubkey,
+    market: Pubkey,
     mint: Pubkey,
     amount: int,
+    outcome_index: int,
     is_token_2022: bool = True,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
@@ -548,12 +542,14 @@ def build_withdraw_from_position_instruction(
 
     Accounts:
     0. user (signer, writable)
-    1. position (writable)
-    2. mint
-    3. position_ata (writable)
-    4. user_ata (writable)
-    5. token_program (SPL Token or Token-2022)
+    1. market (readonly)
+    2. position (writable)
+    3. mint (readonly)
+    4. position_ata (writable)
+    5. user_ata (writable)
+    6. token_program (SPL Token or Token-2022)
     """
+    position, _ = get_position_pda(user, market, program_id)
     token_program = TOKEN_2022_PROGRAM_ID if is_token_2022 else TOKEN_PROGRAM_ID
 
     if is_token_2022:
@@ -565,6 +561,7 @@ def build_withdraw_from_position_instruction(
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position_ata, is_signer=False, is_writable=True),
@@ -575,13 +572,14 @@ def build_withdraw_from_position_instruction(
     data = bytearray()
     data.append(INSTRUCTION_WITHDRAW_FROM_POSITION)
     data.extend(encode_u64(amount))
+    data.extend(encode_u8(outcome_index))
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
 def build_activate_market_instruction(
     authority: Pubkey,
-    market: Pubkey,
+    market_id: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the activate_market instruction.
@@ -592,6 +590,7 @@ def build_activate_market_instruction(
     2. market (writable)
     """
     exchange, _ = get_exchange_pda(program_id)
+    market, _ = get_market_pda(market_id, program_id)
 
     accounts = [
         AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
@@ -610,12 +609,19 @@ def build_match_orders_multi_instruction(
     base_mint: Pubkey,
     quote_mint: Pubkey,
     taker_order: FullOrder,
-    maker_fills: List[MakerFill],
+    maker_orders: List[FullOrder],
+    maker_fill_amounts: List[int],
+    taker_fill_amounts: List[int],
+    full_fill_bitmask: int = 0,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the match_orders_multi instruction.
 
-    Accounts (13 fixed + 5 per maker):
+    New data format:
+    - discriminator(1) + taker_order(29) + taker_sig(64) + num_makers(1) + bitmask(1)
+    - Per maker: order(29) + sig(64) + maker_fill(8) + taker_fill(8) = 109 bytes each
+
+    Accounts:
     0. operator (signer, writable)
     1. exchange
     2. market
@@ -628,33 +634,38 @@ def build_match_orders_multi_instruction(
     9. taker_position_quote_ata (writable)
     10. token_2022_program
     11. system_program
-    12. instructions_sysvar
-    Per maker (5 accounts each):
-    - order_status (writable)
+    Per maker (5 accounts each, conditionally including order_status based on bitmask):
+    - order_status (writable) [only if bit set in bitmask]
     - nonce
     - position (writable)
     - base_ata (writable)
     - quote_ata (writable)
-
-    Data:
-    [13, taker_hash (32), taker_compact (65), taker_sig (64), num_makers (1),
-     [maker_hash (32), maker_compact (65), maker_sig (64), fill_amount (8)] * num_makers]
     """
     exchange, _ = get_exchange_pda(program_id)
 
     taker_hash = hash_order(taker_order)
-    taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
     taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
 
     taker_position_base_ata = get_associated_token_address_2022(taker_position, base_mint)
     taker_position_quote_ata = get_associated_token_address_2022(taker_position, quote_mint)
 
+    taker_full_fill = bool((full_fill_bitmask >> 7) & 1)
+
     accounts = [
         AccountMeta(pubkey=operator, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=taker_order_status, is_signer=False, is_writable=True),
+    ]
+
+    # Taker order_status: only if NOT full fill (bit 7 = 0)
+    if not taker_full_fill:
+        taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
+        accounts.append(
+            AccountMeta(pubkey=taker_order_status, is_signer=False, is_writable=True)
+        )
+
+    accounts.extend([
         AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False),
         AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False),
@@ -663,22 +674,27 @@ def build_match_orders_multi_instruction(
         AccountMeta(pubkey=taker_position_quote_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=INSTRUCTIONS_SYSVAR_ID, is_signer=False, is_writable=False),
-    ]
+    ])
 
     # Add maker accounts
-    for maker_fill in maker_fills:
-        maker_order = maker_fill.order
-        maker_hash = hash_order(maker_order)
-        maker_order_status, _ = get_order_status_pda(maker_hash, program_id)
+    num_makers = len(maker_orders)
+    for i, maker_order in enumerate(maker_orders):
+        # bit i = 0 means NOT full fill -> INCLUDE order_status
+        maker_full_fill = bool((full_fill_bitmask >> i) & 1)
+
+        if not maker_full_fill:
+            maker_hash = hash_order(maker_order)
+            maker_order_status, _ = get_order_status_pda(maker_hash, program_id)
+            accounts.append(
+                AccountMeta(pubkey=maker_order_status, is_signer=False, is_writable=True)
+            )
+
         maker_nonce, _ = get_user_nonce_pda(maker_order.maker, program_id)
         maker_position, _ = get_position_pda(maker_order.maker, market, program_id)
-
         maker_position_base_ata = get_associated_token_address_2022(maker_position, base_mint)
         maker_position_quote_ata = get_associated_token_address_2022(maker_position, quote_mint)
 
         accounts.extend([
-            AccountMeta(pubkey=maker_order_status, is_signer=False, is_writable=True),
             AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False),
             AccountMeta(pubkey=maker_position, is_signer=False, is_writable=True),
             AccountMeta(pubkey=maker_position_base_ata, is_signer=False, is_writable=True),
@@ -689,22 +705,94 @@ def build_match_orders_multi_instruction(
     data = bytearray()
     data.append(INSTRUCTION_MATCH_ORDERS_MULTI)
 
-    # Taker data
-    data.extend(taker_hash)
-    taker_compact = to_compact_order(taker_order)
-    data.extend(serialize_compact_order(taker_compact))
+    # Taker data: order(29) + sig(64)
+    taker_compact = to_order(taker_order)
+    data.extend(serialize_order(taker_compact))
     data.extend(taker_order.signature)
 
-    # Number of makers
-    data.append(len(maker_fills))
+    # Number of makers + bitmask
+    data.append(num_makers)
+    data.append(full_fill_bitmask & 0xFF)
 
-    # Maker data
-    for maker_fill in maker_fills:
-        maker_hash = hash_order(maker_fill.order)
-        data.extend(maker_hash)
-        maker_compact = to_compact_order(maker_fill.order)
-        data.extend(serialize_compact_order(maker_compact))
-        data.extend(maker_fill.order.signature)
-        data.extend(encode_u64(maker_fill.fill_amount))
+    # Maker data: order(29) + sig(64) + maker_fill(8) + taker_fill(8) per maker
+    for i, maker_order in enumerate(maker_orders):
+        maker_compact = to_order(maker_order)
+        data.extend(serialize_order(maker_compact))
+        data.extend(maker_order.signature)
+        data.extend(encode_u64(maker_fill_amounts[i]))
+        data.extend(encode_u64(taker_fill_amounts[i]))
+
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_create_orderbook_instruction(
+    payer: Pubkey,
+    market: Pubkey,
+    mint_a: Pubkey,
+    mint_b: Pubkey,
+    recent_slot: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the create_orderbook instruction.
+
+    Accounts:
+    0. payer (signer, writable)
+    1. market (readonly)
+    2. mint_a (readonly)
+    3. mint_b (readonly)
+    4. orderbook (writable)
+    5. lookup_table (writable)
+    6. exchange (readonly)
+    7. alt_program (readonly)
+    8. system_program
+
+    Data: [15, recent_slot (u64)]
+    """
+    exchange, _ = get_exchange_pda(program_id)
+    orderbook, _ = get_orderbook_pda(mint_a, mint_b, program_id)
+    lookup_table, _ = get_alt_pda(orderbook, recent_slot)
+
+    accounts = [
+        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=mint_a, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=mint_b, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=orderbook, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytearray()
+    data.append(INSTRUCTION_CREATE_ORDERBOOK)
+    data.extend(encode_u64(recent_slot))
+
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_set_authority_instruction(
+    current_authority: Pubkey,
+    new_authority: Pubkey,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the set_authority instruction.
+
+    Accounts:
+    0. authority (signer, writable)
+    1. exchange (writable)
+
+    Data: [14, new_authority (32)]
+    """
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=current_authority, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
+    ]
+
+    data = bytearray()
+    data.append(INSTRUCTION_SET_AUTHORITY)
+    data.extend(bytes(new_authority))
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
