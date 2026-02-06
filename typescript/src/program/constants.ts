@@ -2,8 +2,6 @@ import {
   PublicKey,
   SystemProgram,
   SYSVAR_RENT_PUBKEY,
-  SYSVAR_INSTRUCTIONS_PUBKEY,
-  Ed25519Program,
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID as SPL_TOKEN_PROGRAM_ID,
@@ -12,10 +10,17 @@ import {
 } from "@solana/spl-token";
 
 /**
- * Lightcone Pinocchio Program ID (Devnet deployment)
+ * Lightcone Pinocchio Program ID
  */
 export const PROGRAM_ID = new PublicKey(
-  "EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2"
+  "2epidV1UJUrUGNfHbJDtRKT4oad8FJU876Gq8HPHz7Qw"
+);
+
+/**
+ * Address Lookup Table Program ID
+ */
+export const ALT_PROGRAM_ID = new PublicKey(
+  "AddressLookupTab1e1111111111111111111111111"
 );
 
 /**
@@ -44,16 +49,6 @@ export const SYSTEM_PROGRAM_ID = SystemProgram.programId;
 export const RENT_SYSVAR_ID = SYSVAR_RENT_PUBKEY;
 
 /**
- * Instructions Sysvar ID (for Ed25519 verification)
- */
-export const INSTRUCTIONS_SYSVAR_ID = SYSVAR_INSTRUCTIONS_PUBKEY;
-
-/**
- * Ed25519 Program ID (for signature verification)
- */
-export const ED25519_PROGRAM_ID = Ed25519Program.programId;
-
-/**
  * Instruction discriminators (single byte indices)
  */
 export const INSTRUCTION = {
@@ -71,18 +66,21 @@ export const INSTRUCTION = {
   WITHDRAW_FROM_POSITION: 11,
   ACTIVATE_MARKET: 12,
   MATCH_ORDERS_MULTI: 13,
+  SET_AUTHORITY: 14,
+  CREATE_ORDERBOOK: 15,
 } as const;
 
 /**
  * Account discriminators (8 bytes each)
- * These are the prefixes used to identify account types
+ * SHA-256 hash bytes matching the on-chain program
  */
 export const DISCRIMINATOR = {
-  EXCHANGE: Buffer.from("exchange"),
-  MARKET: Buffer.from("market\0\0"),
-  ORDER_STATUS: Buffer.from("ordstat\0"),
-  USER_NONCE: Buffer.from("usrnonce"),
-  POSITION: Buffer.from("position"),
+  EXCHANGE: Buffer.from([0x1e, 0xc8, 0xdc, 0x95, 0x03, 0x3d, 0x68, 0x32]),
+  MARKET: Buffer.from([0xdb, 0xbe, 0xd5, 0x37, 0x00, 0xe3, 0xc6, 0x9a]),
+  ORDER_STATUS: Buffer.from([0x2e, 0x5a, 0xf1, 0x49, 0xb2, 0x68, 0x41, 0x03]),
+  USER_NONCE: Buffer.from([0xeb, 0x85, 0x01, 0xf3, 0x12, 0x87, 0x58, 0xe0]),
+  POSITION: Buffer.from([0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0]),
+  ORDERBOOK: Buffer.from([0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07]),
 } as const;
 
 /**
@@ -94,14 +92,15 @@ export const ACCOUNT_SIZE = {
   ORDER_STATUS: 24,
   USER_NONCE: 16,
   POSITION: 80,
+  ORDERBOOK: 144,
 } as const;
 
 /**
  * Order sizes in bytes
  */
 export const ORDER_SIZE = {
-  FULL: 225,
-  COMPACT: 65,
+  SIGNED_ORDER: 225,
+  ORDER: 29,
   SIGNATURE: 64,
 } as const;
 
@@ -118,7 +117,7 @@ export const MIN_OUTCOMES = 2;
 /**
  * Maximum number of makers per match_orders_multi instruction
  */
-export const MAX_MAKERS = 5;
+export const MAX_MAKERS = 3;
 
 /**
  * PDA Seeds
@@ -132,4 +131,5 @@ export const SEEDS = {
   ORDER_STATUS: "order_status",
   USER_NONCE: "user_nonce",
   POSITION: "position",
+  ORDERBOOK: "orderbook",
 } as const;

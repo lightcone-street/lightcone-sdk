@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, SEEDS } from "./constants";
+import { PROGRAM_ID, ALT_PROGRAM_ID, SEEDS } from "./constants";
 import { toU64Le, toU8 } from "./utils";
 
 /**
@@ -85,10 +85,6 @@ export function getConditionalMintPda(
 
 /**
  * Derive all Conditional Mint PDAs for a market
- * @param market - The market pubkey
- * @param depositMint - The deposit mint pubkey
- * @param numOutcomes - Number of outcomes (2-6)
- * @returns Array of [conditionalMint, bump] tuples
  */
 export function getAllConditionalMintPdas(
   market: PublicKey,
@@ -137,7 +133,6 @@ export function getUserNoncePda(
 /**
  * Derive Position PDA
  * Seeds: ["position", owner (32 bytes), market (32 bytes)]
- * Note: Does NOT include deposit_mint - one Position per market per user
  */
 export function getPositionPda(
   owner: PublicKey,
@@ -147,6 +142,40 @@ export function getPositionPda(
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.POSITION), owner.toBuffer(), market.toBuffer()],
     programId
+  );
+}
+
+/**
+ * Derive Orderbook PDA
+ * Seeds: ["orderbook", mint_a (32 bytes), mint_b (32 bytes)]
+ */
+export function getOrderbookPda(
+  mintA: PublicKey,
+  mintB: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(SEEDS.ORDERBOOK),
+      mintA.toBuffer(),
+      mintB.toBuffer(),
+    ],
+    programId
+  );
+}
+
+/**
+ * Derive Address Lookup Table PDA
+ * Seeds: [orderbook (32 bytes), recent_slot (u64 little-endian)]
+ * Program: ALT_PROGRAM_ID
+ */
+export function getAltPda(
+  orderbook: PublicKey,
+  recentSlot: bigint
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [orderbook.toBuffer(), toU64Le(recentSlot)],
+    ALT_PROGRAM_ID
   );
 }
 
@@ -163,4 +192,6 @@ export const pda = {
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
+  getOrderbookPda,
+  getAltPda,
 };

@@ -34,8 +34,8 @@ export interface Fill {
 export interface SubmitOrderRequest {
   /** Order creator's pubkey (Base58) */
   maker: string;
-  /** User's nonce for uniqueness */
-  nonce: number;
+  /** User's nonce for uniqueness (u64 as string) */
+  nonce: string;
   /** Market address (Base58) */
   market_pubkey: string;
   /** Token being bought/sold (Base58) */
@@ -44,9 +44,9 @@ export interface SubmitOrderRequest {
   quote_token: string;
   /** Order side (0=BID, 1=ASK) */
   side: number;
-  /** Amount maker gives (as decimal string for precision) */
+  /** Amount maker gives (u64 as string) */
   maker_amount: string;
-  /** Amount maker wants to receive (as decimal string for precision) */
+  /** Amount maker wants to receive (u64 as string) */
   taker_amount: string;
   /** Unix timestamp, 0=no expiration */
   expiration?: number;

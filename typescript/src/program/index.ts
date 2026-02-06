@@ -1,8 +1,5 @@
 /**
  * On-chain program interaction module for Lightcone.
- *
- * This module provides the client and utilities for interacting with
- * the Lightcone smart contract on Solana.
  */
 
 // ============================================================================
@@ -24,8 +21,9 @@ export type {
   Position,
   OrderStatus,
   UserNonce,
-  FullOrder,
-  CompactOrder,
+  Orderbook,
+  SignedOrder,
+  Order,
   InitializeParams,
   CreateMarketParams,
   OutcomeMetadata,
@@ -41,6 +39,8 @@ export type {
   WithdrawFromPositionParams,
   ActivateMarketParams,
   MatchOrdersMultiParams,
+  SetAuthorityParams,
+  CreateOrderbookParams,
   BuildResult,
   InitializeAccounts,
   CreateMarketAccounts,
@@ -62,13 +62,12 @@ export type {
 // ============================================================================
 export {
   PROGRAM_ID,
+  ALT_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   RENT_SYSVAR_ID,
-  INSTRUCTIONS_SYSVAR_ID,
-  ED25519_PROGRAM_ID,
   INSTRUCTION,
   DISCRIMINATOR,
   ACCOUNT_SIZE,
@@ -88,6 +87,7 @@ export {
   toBeBytes,
   fromBeBytes,
   toU8,
+  toU32Le,
   toU64Le,
   toI64Le,
   fromI64Le,
@@ -116,6 +116,8 @@ export {
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
+  getOrderbookPda,
+  getAltPda,
   pda,
 } from "./pda";
 
@@ -128,11 +130,13 @@ export {
   deserializePosition,
   deserializeOrderStatus,
   deserializeUserNonce,
+  deserializeOrderbook,
   isExchangeAccount,
   isMarketAccount,
   isPositionAccount,
   isOrderStatusAccount,
   isUserNonceAccount,
+  isOrderbookAccount,
 } from "./accounts";
 
 // ============================================================================
@@ -153,6 +157,8 @@ export {
   buildWithdrawFromPositionIx,
   buildActivateMarketIx,
   buildMatchOrdersMultiIx,
+  buildSetAuthorityIx,
+  buildCreateOrderbookIx,
 } from "./instructions";
 
 // ============================================================================
@@ -160,14 +166,16 @@ export {
 // ============================================================================
 export {
   hashOrder,
+  hashOrderHex,
   getOrderMessage,
   signOrder,
   signOrderFull,
   verifyOrderSignature,
-  serializeFullOrder,
-  deserializeFullOrder,
-  serializeCompactOrder,
-  deserializeCompactOrder,
+  serializeSignedOrder,
+  deserializeSignedOrder,
+  serializeOrder,
+  deserializeOrder,
+  signedOrderToOrder,
   createBidOrder,
   createAskOrder,
   createSignedBidOrder,
@@ -175,20 +183,18 @@ export {
   isOrderExpired,
   ordersCanCross,
   calculateTakerFill,
+  signatureHex,
+  isSigned,
+  deriveOrderbookId,
+  toSubmitRequest,
+  // Legacy aliases
+  serializeFullOrder,
+  deserializeFullOrder,
+  serializeCompactOrder,
+  deserializeCompactOrder,
 } from "./orders";
 
 // ============================================================================
-// ED25519 SIGNATURE HELPERS
+// ORDER BUILDER
 // ============================================================================
-export type { Ed25519VerifyParams } from "./ed25519";
-export {
-  createEd25519VerifyInstruction,
-  createEd25519VerifyInstructions,
-  createOrderVerifyInstruction,
-  buildMatchOrdersTransaction,
-  orderToVerifyParams,
-  createBatchEd25519VerifyInstruction,
-  buildCompactMatchOrdersTransaction,
-  createCrossRefEd25519Instructions,
-  buildCrossRefMatchOrdersTransaction,
-} from "./ed25519";
+export { OrderBuilder } from "./builder";

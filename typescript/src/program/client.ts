@@ -10,6 +10,7 @@ import {
   Market,
   Position,
   OrderStatus,
+  Orderbook,
   BuildResult,
   InitializeParams,
   CreateMarketParams,
@@ -21,7 +22,9 @@ import {
   WithdrawFromPositionParams,
   ActivateMarketParams,
   MatchOrdersMultiParams,
-  FullOrder,
+  SetAuthorityParams,
+  CreateOrderbookParams,
+  SignedOrder,
   BidOrderParams,
   AskOrderParams,
   InitializeAccounts,
@@ -43,6 +46,7 @@ import {
   deserializePosition,
   deserializeOrderStatus,
   deserializeUserNonce,
+  deserializeOrderbook,
 } from "./accounts";
 import {
   buildInitializeIx,
@@ -59,6 +63,8 @@ import {
   buildWithdrawFromPositionIx,
   buildActivateMarketIx,
   buildMatchOrdersMultiIx,
+  buildSetAuthorityIx,
+  buildCreateOrderbookIx,
 } from "./instructions";
 import {
   hashOrder,
@@ -67,31 +73,16 @@ import {
   createAskOrder,
   signOrderFull,
 } from "./orders";
-import { buildMatchOrdersTransaction } from "./ed25519";
 import { deriveConditionId } from "./utils";
 
 /**
  * LightconePinocchioClient - SDK for interacting with the Lightcone Pinocchio program
- *
- * This client provides methods to:
- * - Fetch account data (Exchange, Market, Position, etc.)
- * - Build unsigned transactions for all instructions
- * - Create and sign orders
- * - Derive PDAs
  */
 export class LightconePinocchioClient {
-  /** Solana connection */
   readonly connection: Connection;
-  /** Program ID */
   readonly programId: PublicKey;
-  /** PDA derivation functions */
   readonly pda = pda;
 
-  /**
-   * Create a new LightconePinocchioClient
-   * @param connection - Solana connection
-   * @param programId - Program ID (defaults to mainnet program)
-   */
   constructor(connection: Connection, programId: PublicKey = PROGRAM_ID) {
     this.connection = connection;
     this.programId = programId;
@@ -101,9 +92,6 @@ export class LightconePinocchioClient {
   // ACCOUNT FETCHERS
   // ============================================================================
 
-  /**
-   * Fetch the Exchange account (singleton)
-   */
   async getExchange(): Promise<Exchange> {
     const [exchangePda] = pda.getExchangePda(this.programId);
     const accountInfo = await this.connection.getAccountInfo(exchangePda);
@@ -113,9 +101,6 @@ export class LightconePinocchioClient {
     return deserializeExchange(accountInfo.data as Buffer);
   }
 
-  /**
-   * Fetch a Market by ID
-   */
   async getMarket(marketId: bigint): Promise<Market> {
     const [marketPda] = pda.getMarketPda(marketId, this.programId);
     const accountInfo = await this.connection.getAccountInfo(marketPda);
@@ -125,9 +110,6 @@ export class LightconePinocchioClient {
     return deserializeMarket(accountInfo.data as Buffer);
   }
 
-  /**
-   * Fetch a Market by its pubkey
-   */
   async getMarketByPubkey(market: PublicKey): Promise<Market> {
     const accountInfo = await this.connection.getAccountInfo(market);
     if (!accountInfo) {
@@ -136,10 +118,6 @@ export class LightconePinocchioClient {
     return deserializeMarket(accountInfo.data as Buffer);
   }
 
-  /**
-   * Fetch a Position for a user in a market
-   * Returns null if the position doesn't exist
-   */
   async getPosition(
     owner: PublicKey,
     market: PublicKey
@@ -152,10 +130,6 @@ export class LightconePinocchioClient {
     return deserializePosition(accountInfo.data as Buffer);
   }
 
-  /**
-   * Fetch an OrderStatus by order hash
-   * Returns null if the order status doesn't exist
-   */
   async getOrderStatus(orderHash: Buffer): Promise<OrderStatus | null> {
     const [orderStatusPda] = pda.getOrderStatusPda(orderHash, this.programId);
     const accountInfo = await this.connection.getAccountInfo(orderStatusPda);
@@ -165,10 +139,6 @@ export class LightconePinocchioClient {
     return deserializeOrderStatus(accountInfo.data as Buffer);
   }
 
-  /**
-   * Fetch a user's nonce
-   * Returns 0n if the nonce account doesn't exist
-   */
   async getUserNonce(user: PublicKey): Promise<bigint> {
     const [userNoncePda] = pda.getUserNoncePda(user, this.programId);
     const accountInfo = await this.connection.getAccountInfo(userNoncePda);
@@ -179,28 +149,31 @@ export class LightconePinocchioClient {
     return nonce.nonce;
   }
 
-  /**
-   * Get the next nonce for a user (current nonce value for new orders)
-   */
   async getNextNonce(user: PublicKey): Promise<bigint> {
     return this.getUserNonce(user);
   }
 
-  /**
-   * Get the next market ID that will be assigned
-   */
   async getNextMarketId(): Promise<bigint> {
     const exchange = await this.getExchange();
     return exchange.marketCount;
+  }
+
+  async getOrderbook(
+    mintA: PublicKey,
+    mintB: PublicKey
+  ): Promise<Orderbook | null> {
+    const [orderbookPda] = pda.getOrderbookPda(mintA, mintB, this.programId);
+    const accountInfo = await this.connection.getAccountInfo(orderbookPda);
+    if (!accountInfo) {
+      return null;
+    }
+    return deserializeOrderbook(accountInfo.data as Buffer);
   }
 
   // ============================================================================
   // TRANSACTION BUILDERS
   // ============================================================================
 
-  /**
-   * Helper to create a BuildResult from an instruction
-   */
   private async createBuildResult<T>(
     feePayer: PublicKey,
     accounts: T,
@@ -229,22 +202,14 @@ export class LightconePinocchioClient {
     };
   }
 
-  /**
-   * Build Initialize instruction
-   * Creates the exchange account (singleton)
-   */
   async initialize(
     params: InitializeParams
   ): Promise<BuildResult<InitializeAccounts>> {
     const [exchange] = pda.getExchangePda(this.programId);
     const ix = buildInitializeIx(params, this.programId);
-
     return this.createBuildResult(params.authority, { exchange }, ix);
   }
 
-  /**
-   * Build CreateMarket instruction
-   */
   async createMarket(
     params: CreateMarketParams
   ): Promise<BuildResult<CreateMarketAccounts>> {
@@ -252,13 +217,9 @@ export class LightconePinocchioClient {
     const [exchange] = pda.getExchangePda(this.programId);
     const [market] = pda.getMarketPda(marketId, this.programId);
     const ix = buildCreateMarketIx(params, marketId, this.programId);
-
     return this.createBuildResult(params.authority, { exchange, market }, ix);
   }
 
-  /**
-   * Build AddDepositMint instruction
-   */
   async addDepositMint(
     params: AddDepositMintParams,
     numOutcomes: number
@@ -284,9 +245,6 @@ export class LightconePinocchioClient {
     );
   }
 
-  /**
-   * Build MintCompleteSet instruction
-   */
   async mintCompleteSet(
     params: MintCompleteSetParams,
     numOutcomes: number
@@ -319,9 +277,6 @@ export class LightconePinocchioClient {
     );
   }
 
-  /**
-   * Build MergeCompleteSet instruction
-   */
   async mergeCompleteSet(
     params: MergeCompleteSetParams,
     numOutcomes: number
@@ -354,48 +309,33 @@ export class LightconePinocchioClient {
     );
   }
 
-  /**
-   * Build CancelOrder instruction
-   */
   async cancelOrder(
     maker: PublicKey,
-    order: FullOrder
+    order: SignedOrder
   ): Promise<BuildResult<CancelOrderAccounts>> {
     const orderHash = hashOrder(order);
     const [orderStatus] = pda.getOrderStatusPda(orderHash, this.programId);
     const ix = buildCancelOrderIx(maker, order, this.programId);
-
     return this.createBuildResult(maker, { orderStatus }, ix);
   }
 
-  /**
-   * Build IncrementNonce instruction
-   */
   async incrementNonce(
     user: PublicKey
   ): Promise<BuildResult<IncrementNonceAccounts>> {
     const [userNonce] = pda.getUserNoncePda(user, this.programId);
     const ix = buildIncrementNonceIx(user, this.programId);
-
     return this.createBuildResult(user, { userNonce }, ix);
   }
 
-  /**
-   * Build SettleMarket instruction
-   */
   async settleMarket(
     params: SettleMarketParams
   ): Promise<BuildResult<SettleMarketAccounts>> {
     const [exchange] = pda.getExchangePda(this.programId);
     const [market] = pda.getMarketPda(params.marketId, this.programId);
     const ix = buildSettleMarketIx(params, this.programId);
-
     return this.createBuildResult(params.oracle, { exchange, market }, ix);
   }
 
-  /**
-   * Build RedeemWinnings instruction
-   */
   async redeemWinnings(
     params: RedeemWinningsParams,
     winningOutcome: number
@@ -426,35 +366,24 @@ export class LightconePinocchioClient {
     );
   }
 
-  /**
-   * Build SetPaused instruction
-   */
   async setPaused(
     authority: PublicKey,
     paused: boolean
   ): Promise<BuildResult<{ exchange: PublicKey }>> {
     const [exchange] = pda.getExchangePda(this.programId);
     const ix = buildSetPausedIx(authority, paused, this.programId);
-
     return this.createBuildResult(authority, { exchange }, ix);
   }
 
-  /**
-   * Build SetOperator instruction
-   */
   async setOperator(
     authority: PublicKey,
     newOperator: PublicKey
   ): Promise<BuildResult<{ exchange: PublicKey }>> {
     const [exchange] = pda.getExchangePda(this.programId);
     const ix = buildSetOperatorIx(authority, newOperator, this.programId);
-
     return this.createBuildResult(authority, { exchange }, ix);
   }
 
-  /**
-   * Build WithdrawFromPosition instruction
-   */
   async withdrawFromPosition(
     params: WithdrawFromPositionParams,
     isToken2022: boolean
@@ -465,27 +394,18 @@ export class LightconePinocchioClient {
       this.programId
     );
     const ix = buildWithdrawFromPositionIx(params, isToken2022, this.programId);
-
     return this.createBuildResult(params.user, { position }, ix);
   }
 
-  /**
-   * Build ActivateMarket instruction
-   */
   async activateMarket(
     params: ActivateMarketParams
   ): Promise<BuildResult<ActivateMarketAccounts>> {
     const [exchange] = pda.getExchangePda(this.programId);
     const [market] = pda.getMarketPda(params.marketId, this.programId);
     const ix = buildActivateMarketIx(params, this.programId);
-
     return this.createBuildResult(params.authority, { exchange, market }, ix);
   }
 
-  /**
-   * Build MatchOrdersMulti instruction (without Ed25519 verification)
-   * Note: For a complete transaction, use matchOrdersMultiWithVerify instead
-   */
   async matchOrdersMulti(
     params: MatchOrdersMultiParams
   ): Promise<BuildResult<MatchOrdersMultiAccounts>> {
@@ -526,103 +446,54 @@ export class LightconePinocchioClient {
     );
   }
 
-  /**
-   * Build complete MatchOrdersMulti transaction with Ed25519 signature verification
-   * This is the recommended way to create match orders transactions
-   */
-  async matchOrdersMultiWithVerify(
-    params: MatchOrdersMultiParams
-  ): Promise<BuildResult<MatchOrdersMultiAccounts>> {
-    const transaction = buildMatchOrdersTransaction(params, this.programId);
+  async setAuthority(
+    params: SetAuthorityParams
+  ): Promise<BuildResult<{ exchange: PublicKey }>> {
+    const [exchange] = pda.getExchangePda(this.programId);
+    const ix = buildSetAuthorityIx(params, this.programId);
+    return this.createBuildResult(
+      params.currentAuthority,
+      { exchange },
+      ix
+    );
+  }
 
-    const { blockhash, lastValidBlockHeight } =
-      await this.connection.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
-    transaction.feePayer = params.operator;
-
-    const takerOrderHash = hashOrder(params.takerOrder);
-    const [takerOrderStatus] = pda.getOrderStatusPda(
-      takerOrderHash,
+  async createOrderbook(
+    params: CreateOrderbookParams
+  ): Promise<BuildResult<{ orderbook: PublicKey }>> {
+    const [orderbook] = pda.getOrderbookPda(
+      params.mintA,
+      params.mintB,
       this.programId
     );
-    const [takerPosition] = pda.getPositionPda(
-      params.takerOrder.maker,
-      params.market,
-      this.programId
-    );
-
-    const makerOrderStatuses: PublicKey[] = [];
-    const makerPositions: PublicKey[] = [];
-    for (const makerOrder of params.makerOrders) {
-      const makerOrderHash = hashOrder(makerOrder);
-      const [makerOrderStatus] = pda.getOrderStatusPda(
-        makerOrderHash,
-        this.programId
-      );
-      const [makerPosition] = pda.getPositionPda(
-        makerOrder.maker,
-        params.market,
-        this.programId
-      );
-      makerOrderStatuses.push(makerOrderStatus);
-      makerPositions.push(makerPosition);
-    }
-
-    return {
-      transaction,
-      accounts: {
-        takerOrderStatus,
-        takerPosition,
-        makerOrderStatuses,
-        makerPositions,
-      },
-      serialize: () =>
-        transaction
-          .serialize({ requireAllSignatures: false, verifySignatures: false })
-          .toString("base64"),
-    };
+    const ix = buildCreateOrderbookIx(params, this.programId);
+    return this.createBuildResult(params.payer, { orderbook }, ix);
   }
 
   // ============================================================================
   // ORDER HELPERS
   // ============================================================================
 
-  /**
-   * Create a BID order (unsigned)
-   */
-  createBidOrder(params: BidOrderParams): Omit<FullOrder, "signature"> {
+  createBidOrder(params: BidOrderParams): Omit<SignedOrder, "signature"> {
     return createBidOrder(params);
   }
 
-  /**
-   * Create an ASK order (unsigned)
-   */
-  createAskOrder(params: AskOrderParams): Omit<FullOrder, "signature"> {
+  createAskOrder(params: AskOrderParams): Omit<SignedOrder, "signature"> {
     return createAskOrder(params);
   }
 
-  /**
-   * Hash an order
-   */
-  hashOrder(order: FullOrder): Buffer {
+  hashOrder(order: SignedOrder): Buffer {
     return hashOrder(order);
   }
 
-  /**
-   * Sign an order with a Keypair
-   */
-  signOrder(order: FullOrder, signer: Keypair): Buffer {
+  signOrder(order: SignedOrder, signer: Keypair): Buffer {
     return signOrder(order, signer);
   }
 
-  /**
-   * Create and sign a full order
-   */
   signFullOrder(
-    order: Omit<FullOrder, "signature">,
+    order: Omit<SignedOrder, "signature">,
     signer: Keypair
-  ): FullOrder {
+  ): SignedOrder {
     return signOrderFull(order, signer);
   }
 
@@ -630,9 +501,6 @@ export class LightconePinocchioClient {
   // UTILITY METHODS
   // ============================================================================
 
-  /**
-   * Derive condition ID from oracle, question ID, and number of outcomes
-   */
   deriveConditionId(
     oracle: PublicKey,
     questionId: Buffer,
@@ -641,9 +509,6 @@ export class LightconePinocchioClient {
     return deriveConditionId(oracle, questionId, numOutcomes);
   }
 
-  /**
-   * Get all conditional mint addresses for a market
-   */
   getConditionalMints(
     market: PublicKey,
     depositMint: PublicKey,
