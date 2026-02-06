@@ -85,7 +85,6 @@ export interface UserNonce {
  * Position account - user's state in a market
  * PDA: ["position", owner (32 bytes), market (32 bytes)]
  * Size: 80 bytes
- * Note: Does NOT include deposit_mint - one Position per market per user
  */
 export interface Position {
   discriminator: Buffer; // 8 bytes
@@ -94,15 +93,29 @@ export interface Position {
   bump: number; // u8
 }
 
+/**
+ * Orderbook account - links market to token pair and lookup table
+ * PDA: ["orderbook", mint_a (32 bytes), mint_b (32 bytes)]
+ * Size: 144 bytes
+ */
+export interface Orderbook {
+  discriminator: Buffer; // 8 bytes
+  market: PublicKey; // 32 bytes
+  mintA: PublicKey; // 32 bytes
+  mintB: PublicKey; // 32 bytes
+  lookupTable: PublicKey; // 32 bytes
+  bump: number; // u8
+}
+
 // ============================================================================
 // ORDER TYPES
 // ============================================================================
 
 /**
- * Full order format (225 bytes)
- * Used for order submission and cancellation
+ * Signed order format (225 bytes)
+ * Full order with all fields for submission, cancellation, and hashing
  */
-export interface FullOrder {
+export interface SignedOrder {
   nonce: bigint; // u64 - order ID + replay protection
   maker: PublicKey; // 32 bytes - signer
   market: PublicKey; // 32 bytes
@@ -116,13 +129,11 @@ export interface FullOrder {
 }
 
 /**
- * Compact order format (65 bytes)
- * Transaction-optimized version without market, baseMint, quoteMint
- * These are passed via accounts instead
+ * Compact order format (29 bytes)
+ * Transaction-optimized version: nonce is u32, no maker field (derived on-chain from Position PDA)
  */
-export interface CompactOrder {
-  nonce: bigint; // u64
-  maker: PublicKey; // 32 bytes
+export interface Order {
+  nonce: number; // u32 (4 bytes) - truncated from SignedOrder's u64 nonce
   side: OrderSide; // u8
   makerAmount: bigint; // u64
   takerAmount: bigint; // u64
@@ -194,7 +205,7 @@ export interface MergeCompleteSetParams {
  */
 export interface CancelOrderParams {
   maker: PublicKey;
-  order: FullOrder;
+  order: SignedOrder;
 }
 
 /**
@@ -247,6 +258,7 @@ export interface WithdrawFromPositionParams {
   market: PublicKey;
   mint: PublicKey; // Can be deposit mint or conditional mint
   amount: bigint;
+  outcomeIndex: number; // u8 outcome index
 }
 
 /**
@@ -265,9 +277,30 @@ export interface MatchOrdersMultiParams {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
-  takerOrder: FullOrder;
-  makerOrders: FullOrder[];
-  fillAmounts: bigint[]; // Per maker - what each maker gives
+  takerOrder: SignedOrder;
+  makerOrders: SignedOrder[];
+  makerFillAmounts: bigint[]; // Per maker - what each maker gives
+  takerFillAmounts: bigint[]; // Per maker - what taker gives to each maker
+  fullFillBitmask: number; // u8 bitmask: bit 7 = taker, bits 0..n = makers
+}
+
+/**
+ * Parameters for setAuthority instruction
+ */
+export interface SetAuthorityParams {
+  currentAuthority: PublicKey;
+  newAuthority: PublicKey;
+}
+
+/**
+ * Parameters for createOrderbook instruction
+ */
+export interface CreateOrderbookParams {
+  payer: PublicKey;
+  market: PublicKey;
+  mintA: PublicKey;
+  mintB: PublicKey;
+  recentSlot: bigint;
 }
 
 // ============================================================================

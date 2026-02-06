@@ -7,6 +7,7 @@ import {
   OrderStatus,
   UserNonce,
   Position,
+  Orderbook,
 } from "./types";
 import { fromLeBytes } from "./utils";
 
@@ -68,6 +69,14 @@ export function isUserNonceAccount(data: Buffer): boolean {
 export function isPositionAccount(data: Buffer): boolean {
   if (data.length < 8) return false;
   return data.subarray(0, 8).equals(DISCRIMINATOR.POSITION);
+}
+
+/**
+ * Check if a buffer has a valid Orderbook discriminator
+ */
+export function isOrderbookAccount(data: Buffer): boolean {
+  if (data.length < 8) return false;
+  return data.subarray(0, 8).equals(DISCRIMINATOR.ORDERBOOK);
 }
 
 // ============================================================================
@@ -327,6 +336,59 @@ export function deserializePosition(data: Buffer): Position {
     discriminator,
     owner,
     market,
+    bump,
+  };
+}
+
+/**
+ * Deserialize Orderbook account data
+ *
+ * Layout (144 bytes):
+ * - discriminator: [u8; 8]
+ * - market: Pubkey (32 bytes)
+ * - mint_a: Pubkey (32 bytes)
+ * - mint_b: Pubkey (32 bytes)
+ * - lookup_table: Pubkey (32 bytes)
+ * - bump: u8 (1 byte)
+ * - _padding: [u8; 7]
+ */
+export function deserializeOrderbook(data: Buffer): Orderbook {
+  if (data.length < ACCOUNT_SIZE.ORDERBOOK) {
+    throw new Error(
+      `Invalid Orderbook data length: ${data.length}, expected ${ACCOUNT_SIZE.ORDERBOOK}`
+    );
+  }
+
+  validateDiscriminator(data, DISCRIMINATOR.ORDERBOOK, "Orderbook");
+
+  let offset = 0;
+
+  const discriminator = data.subarray(offset, offset + 8);
+  offset += 8;
+
+  const market = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const mintA = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const mintB = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const lookupTable = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const bump = data[offset];
+  offset += 1;
+
+  // Skip padding: 7 bytes
+
+  return {
+    discriminator,
+    market,
+    mintA,
+    mintB,
+    lookupTable,
     bump,
   };
 }

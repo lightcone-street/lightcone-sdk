@@ -81,6 +81,15 @@ export function toU64Le(value: bigint): Buffer {
 }
 
 /**
+ * Convert a number to u32 little-endian buffer
+ */
+export function toU32Le(value: number): Buffer {
+  const buffer = Buffer.alloc(4);
+  buffer.writeUInt32LE(value, 0);
+  return buffer;
+}
+
+/**
  * Convert a bigint to i64 little-endian buffer (signed)
  */
 export function toI64Le(value: bigint): Buffer {

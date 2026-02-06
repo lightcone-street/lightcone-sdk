@@ -171,7 +171,7 @@ describe("LightconeApiClient", () => {
     it("submits order via POST", async () => {
       const orderRequest = {
         maker: TEST_PUBKEY,
-        nonce: 1,
+        nonce: "1",
         market_pubkey: TEST_PUBKEY_2,
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,
@@ -208,7 +208,7 @@ describe("LightconeApiClient", () => {
     it("throws for invalid maker pubkey", async () => {
       const orderRequest = {
         maker: "invalid",
-        nonce: 1,
+        nonce: "1",
         market_pubkey: TEST_PUBKEY_2,
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,
@@ -226,7 +226,7 @@ describe("LightconeApiClient", () => {
     it("throws for invalid signature", async () => {
       const orderRequest = {
         maker: TEST_PUBKEY,
-        nonce: 1,
+        nonce: "1",
         market_pubkey: TEST_PUBKEY_2,
         base_token: TEST_PUBKEY_3,
         quote_token: TEST_PUBKEY_4,

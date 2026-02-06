@@ -10,7 +10,6 @@ import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  INSTRUCTIONS_SYSVAR_ID,
 } from "./constants";
 import {
   InitializeParams,
@@ -23,7 +22,9 @@ import {
   WithdrawFromPositionParams,
   ActivateMarketParams,
   MatchOrdersMultiParams,
-  FullOrder,
+  SetAuthorityParams,
+  CreateOrderbookParams,
+  SignedOrder,
   OutcomeMetadata,
 } from "./types";
 import {
@@ -31,11 +32,12 @@ import {
   getMarketPda,
   getVaultPda,
   getMintAuthorityPda,
-  getConditionalMintPda,
   getAllConditionalMintPdas,
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
+  getOrderbookPda,
+  getAltPda,
 } from "./pda";
 import {
   toU8,
@@ -45,29 +47,20 @@ import {
   getDepositTokenAta,
   validateOutcomes,
 } from "./utils";
-import { hashOrder, serializeFullOrder, serializeCompactOrder } from "./orders";
+import { hashOrder, serializeSignedOrder, serializeOrder, signedOrderToOrder } from "./orders";
 
 // ============================================================================
 // HELPER FUNCTIONS
 // ============================================================================
 
-/**
- * Create an account meta for a signer
- */
 function signerMut(pubkey: PublicKey): AccountMeta {
   return { pubkey, isSigner: true, isWritable: true };
 }
 
-/**
- * Create an account meta for a writable account
- */
 function writable(pubkey: PublicKey): AccountMeta {
   return { pubkey, isSigner: false, isWritable: true };
 }
 
-/**
- * Create an account meta for a read-only account
- */
 function readonly(pubkey: PublicKey): AccountMeta {
   return { pubkey, isSigner: false, isWritable: false };
 }
@@ -137,7 +130,6 @@ export function buildCreateMarketIx(
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  // Data: [1, numOutcomes (u8), oracle (32), questionId (32)]
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.CREATE_MARKET]),
     toU8(params.numOutcomes),
@@ -167,9 +159,8 @@ function serializeOutcomeMetadata(metadata: OutcomeMetadata[]): Buffer {
 
 /**
  * Build AddDepositMint instruction
- * Sets up vault and conditional mints for a deposit token
  *
- * Accounts (from Rust):
+ * Accounts:
  * 0. payer (signer)
  * 1. market
  * 2. deposit_mint
@@ -204,17 +195,16 @@ export function buildAddDepositMintIx(
   );
 
   const keys: AccountMeta[] = [
-    signerMut(params.authority),           // 0. payer (signer)
-    writable(market),                       // 1. market
-    readonly(params.depositMint),           // 2. deposit_mint
-    writable(vault),                        // 3. vault
-    readonly(mintAuthority),                // 4. mint_authority
-    readonly(TOKEN_PROGRAM_ID),             // 5. token_program (SPL Token)
-    readonly(TOKEN_2022_PROGRAM_ID),        // 6. token_2022_program
-    readonly(SYSTEM_PROGRAM_ID),            // 7. system_program
+    signerMut(params.authority),
+    writable(market),
+    readonly(params.depositMint),
+    writable(vault),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  // 8+ conditional_mints[0..num_outcomes]
   for (const [mint] of conditionalMints) {
     keys.push(writable(mint));
   }
@@ -233,26 +223,22 @@ export function buildAddDepositMintIx(
 
 /**
  * Build MintCompleteSet instruction
- * Deposits collateral and mints all outcome tokens into Position PDA
  *
- * Accounts (from Rust):
- * 0. user (signer) - User depositing collateral
- * 1. exchange - Exchange account (for pause check)
- * 2. market - Market account
- * 3. deposit_mint - Collateral token mint
- * 4. vault - Market vault for collateral
- * 5. user_deposit_ata - User's collateral token account
- * 6. position - Position PDA (created if not exists)
- * 7. position_collateral_ata - Position's collateral ATA (created if not exists)
- * 8. mint_authority - Market mint authority PDA
- * 9. token_program - SPL Token program (for collateral)
- * 10. token_2022_program - Token-2022 program (for conditional tokens)
- * 11. associated_token_program - ATA program
- * 12. system_program - System program
- *
- * Remaining accounts (for each outcome i):
- * - conditional_mint[i]
- * - position_conditional_ata[i]
+ * Accounts:
+ * 0. user (signer)
+ * 1. exchange
+ * 2. market
+ * 3. deposit_mint
+ * 4. vault
+ * 5. user_deposit_ata
+ * 6. position
+ * 7. position_collateral_ata
+ * 8. mint_authority
+ * 9. token_program
+ * 10. token_2022_program
+ * 11. associated_token_program
+ * 12. system_program
+ * Remaining: [conditional_mint[i], position_conditional_ata[i]]
  *
  * Data: [discriminator, amount (u64)]
  */
@@ -275,22 +261,21 @@ export function buildMintCompleteSetIx(
   );
 
   const keys: AccountMeta[] = [
-    signerMut(params.user),                   // 0. user (signer)
-    readonly(exchange),                        // 1. exchange
-    readonly(params.market),                   // 2. market
-    readonly(params.depositMint),              // 3. deposit_mint
-    writable(vault),                           // 4. vault
-    writable(userDepositAta),                  // 5. user_deposit_ata
-    writable(position),                        // 6. position
-    writable(positionCollateralAta),           // 7. position_collateral_ata
-    readonly(mintAuthority),                   // 8. mint_authority
-    readonly(TOKEN_PROGRAM_ID),                // 9. token_program
-    readonly(TOKEN_2022_PROGRAM_ID),           // 10. token_2022_program
-    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),     // 11. associated_token_program
-    readonly(SYSTEM_PROGRAM_ID),               // 12. system_program
+    signerMut(params.user),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.depositMint),
+    writable(vault),
+    writable(userDepositAta),
+    writable(position),
+    writable(positionCollateralAta),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  // Remaining: conditional_mint[i], position_conditional_ata[i] for each outcome
   for (const [mint] of conditionalMints) {
     keys.push(writable(mint));
     const positionAta = getConditionalTokenAta(mint, position);
@@ -311,23 +296,19 @@ export function buildMintCompleteSetIx(
 
 /**
  * Build MergeCompleteSet instruction
- * Burns all outcome tokens from Position and releases collateral
  *
- * Accounts (from Rust):
- * 0. user (signer) - Position owner
- * 1. exchange - Exchange account (for pause check)
- * 2. market - Market account
- * 3. deposit_mint - Collateral token mint
- * 4. vault - Market vault
- * 5. position - User's Position PDA
- * 6. user_deposit_ata - User's collateral ATA to receive funds
- * 7. mint_authority - Market mint authority PDA
- * 8. token_program - SPL Token program (for collateral)
- * 9. token_2022_program - Token-2022 program (for conditional tokens)
- *
- * Remaining accounts (for each outcome i):
- * - conditional_mint[i]
- * - position_conditional_ata[i]
+ * Accounts:
+ * 0. user (signer)
+ * 1. exchange
+ * 2. market
+ * 3. deposit_mint
+ * 4. vault
+ * 5. position
+ * 6. user_deposit_ata
+ * 7. mint_authority
+ * 8. token_program
+ * 9. token_2022_program
+ * Remaining: [conditional_mint[i], position_conditional_ata[i]]
  *
  * Data: [discriminator, amount (u64)]
  */
@@ -349,19 +330,18 @@ export function buildMergeCompleteSetIx(
   );
 
   const keys: AccountMeta[] = [
-    signerMut(params.user),                   // 0. user (signer)
-    readonly(exchange),                        // 1. exchange
-    readonly(params.market),                   // 2. market
-    readonly(params.depositMint),              // 3. deposit_mint
-    writable(vault),                           // 4. vault
-    writable(position),                        // 5. position
-    writable(userDepositAta),                  // 6. user_deposit_ata
-    readonly(mintAuthority),                   // 7. mint_authority
-    readonly(TOKEN_PROGRAM_ID),                // 8. token_program
-    readonly(TOKEN_2022_PROGRAM_ID),           // 9. token_2022_program
+    signerMut(params.user),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.depositMint),
+    writable(vault),
+    writable(position),
+    writable(userDepositAta),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(TOKEN_2022_PROGRAM_ID),
   ];
 
-  // Remaining: conditional_mint[i], position_conditional_ata[i] for each outcome
   for (const [mint] of conditionalMints) {
     keys.push(writable(mint));
     const positionAta = getConditionalTokenAta(mint, position);
@@ -382,18 +362,18 @@ export function buildMergeCompleteSetIx(
 
 /**
  * Build CancelOrder instruction
- * Marks an order as cancelled
  *
  * Accounts:
  * 0. maker (signer, mut)
- * 1. order_status (mut)
- * 2. system_program (readonly)
+ * 1. market (readonly)
+ * 2. order_status (mut)
+ * 3. system_program (readonly)
  *
- * Data: [discriminator, order_hash (32), full_order (225)]
+ * Data: [discriminator, order_hash (32), signed_order (225)]
  */
 export function buildCancelOrderIx(
   maker: PublicKey,
-  order: FullOrder,
+  order: SignedOrder,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   const orderHash = hashOrder(order);
@@ -401,6 +381,7 @@ export function buildCancelOrderIx(
 
   const keys: AccountMeta[] = [
     signerMut(maker),
+    readonly(order.market),
     writable(orderStatus),
     readonly(SYSTEM_PROGRAM_ID),
   ];
@@ -408,7 +389,7 @@ export function buildCancelOrderIx(
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.CANCEL_ORDER]),
     orderHash,
-    serializeFullOrder(order),
+    serializeSignedOrder(order),
   ]);
 
   return new TransactionInstruction({
@@ -420,7 +401,6 @@ export function buildCancelOrderIx(
 
 /**
  * Build IncrementNonce instruction
- * Increments user's nonce for replay protection
  *
  * Accounts:
  * 0. user (signer, mut)
@@ -452,7 +432,6 @@ export function buildIncrementNonceIx(
 
 /**
  * Build SettleMarket instruction
- * Oracle resolves the market with winning outcome
  *
  * Accounts:
  * 0. oracle (signer)
@@ -488,20 +467,19 @@ export function buildSettleMarketIx(
 
 /**
  * Build RedeemWinnings instruction
- * Redeem winning outcome tokens from Position for collateral after market resolution
  *
- * Accounts (from Rust):
- * 0. user (signer) - Position owner
- * 1. market - Market account (must be resolved)
- * 2. deposit_mint - Collateral token mint
- * 3. vault - Market vault
- * 4. winning_conditional_mint - Mint for the winning outcome
- * 5. position - User's Position PDA
- * 6. position_conditional_ata - Position's ATA for winning conditional token
- * 7. user_deposit_ata - User's collateral ATA to receive funds
- * 8. mint_authority - Market mint authority PDA
- * 9. token_program - SPL Token program (for collateral)
- * 10. token_2022_program - Token-2022 program (for conditional tokens)
+ * Accounts:
+ * 0. user (signer)
+ * 1. market
+ * 2. deposit_mint
+ * 3. vault
+ * 4. winning_conditional_mint
+ * 5. position
+ * 6. position_conditional_ata
+ * 7. user_deposit_ata
+ * 8. mint_authority
+ * 9. token_program
+ * 10. token_2022_program
  *
  * Data: [discriminator, amount (u64)]
  */
@@ -513,27 +491,27 @@ export function buildRedeemWinningsIx(
   const [vault] = getVaultPda(params.depositMint, params.market, programId);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
   const [position] = getPositionPda(params.user, params.market, programId);
-  const [winningMint] = getConditionalMintPda(
+  const [winningMint] = getAllConditionalMintPdas(
     params.market,
     params.depositMint,
-    winningOutcome,
+    winningOutcome + 1,
     programId
-  );
+  )[winningOutcome];
   const positionWinningAta = getConditionalTokenAta(winningMint, position);
   const userDepositAta = getDepositTokenAta(params.depositMint, params.user);
 
   const keys: AccountMeta[] = [
-    signerMut(params.user),                   // 0. user (signer)
-    readonly(params.market),                   // 1. market
-    readonly(params.depositMint),              // 2. deposit_mint
-    writable(vault),                           // 3. vault
-    writable(winningMint),                     // 4. winning_conditional_mint
-    writable(position),                        // 5. position
-    writable(positionWinningAta),              // 6. position_conditional_ata
-    writable(userDepositAta),                  // 7. user_deposit_ata
-    readonly(mintAuthority),                   // 8. mint_authority
-    readonly(TOKEN_PROGRAM_ID),                // 9. token_program
-    readonly(TOKEN_2022_PROGRAM_ID),           // 10. token_2022_program
+    signerMut(params.user),
+    readonly(params.market),
+    readonly(params.depositMint),
+    writable(vault),
+    writable(winningMint),
+    writable(position),
+    writable(positionWinningAta),
+    writable(userDepositAta),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(TOKEN_2022_PROGRAM_ID),
   ];
 
   const data = Buffer.concat([
@@ -550,7 +528,6 @@ export function buildRedeemWinningsIx(
 
 /**
  * Build SetPaused instruction
- * Admin: pause/unpause exchange
  *
  * Accounts:
  * 0. authority (signer)
@@ -581,7 +558,6 @@ export function buildSetPausedIx(
 
 /**
  * Build SetOperator instruction
- * Admin: change operator pubkey
  *
  * Accounts:
  * 0. authority (signer)
@@ -612,17 +588,17 @@ export function buildSetOperatorIx(
 
 /**
  * Build WithdrawFromPosition instruction
- * Withdraw tokens from Position ATA to user's ATA
  *
  * Accounts:
  * 0. user (signer, mut)
- * 1. position (mut)
- * 2. mint (readonly) - Token mint (conditional or collateral)
- * 3. position_ata (mut)
- * 4. user_ata (mut)
- * 5. token_program (readonly) - SPL Token or Token-2022
+ * 1. market (readonly)
+ * 2. position (mut)
+ * 3. mint (readonly)
+ * 4. position_ata (mut)
+ * 5. user_ata (mut)
+ * 6. token_program (readonly)
  *
- * Data: [discriminator, amount (u64)]
+ * Data: [discriminator, amount (u64), outcome_index (u8)]
  */
 export function buildWithdrawFromPositionIx(
   params: WithdrawFromPositionParams,
@@ -640,6 +616,7 @@ export function buildWithdrawFromPositionIx(
 
   const keys: AccountMeta[] = [
     signerMut(params.user),
+    readonly(params.market),
     writable(position),
     readonly(params.mint),
     writable(positionAta),
@@ -650,6 +627,7 @@ export function buildWithdrawFromPositionIx(
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.WITHDRAW_FROM_POSITION]),
     toU64Le(params.amount),
+    toU8(params.outcomeIndex),
   ]);
 
   return new TransactionInstruction({
@@ -661,7 +639,6 @@ export function buildWithdrawFromPositionIx(
 
 /**
  * Build ActivateMarket instruction
- * Authority: Pending → Active
  *
  * Accounts:
  * 0. authority (signer)
@@ -694,34 +671,38 @@ export function buildActivateMarketIx(
 
 /**
  * Build MatchOrdersMulti instruction
- * Match taker against up to 5 makers
  *
- * Accounts (13 fixed + 5 per maker):
+ * Dynamic accounts based on full_fill_bitmask:
  * 0. operator (signer)
  * 1. exchange (readonly)
  * 2. market (readonly)
- * 3. taker_order_status (mut)
- * 4. taker_nonce (readonly)
- * 5. taker_position (mut)
- * 6. base_mint (readonly)
- * 7. quote_mint (readonly)
- * 8. taker_position_base_ata (mut)
- * 9. taker_position_quote_ata (mut)
- * 10. token_2022_program (readonly)
- * 11. system_program (readonly)
- * 12. instructions_sysvar (readonly)
- *
- * Per Maker (5 each):
- * - maker_order_status (mut)
- * - maker_nonce (readonly)
- * - maker_position (mut)
- * - maker_position_base_ata (mut)
- * - maker_position_quote_ata (mut)
+ * [taker_order_status if bit7=0] (mut)
+ * taker_nonce (readonly)
+ * taker_position (mut)
+ * base_mint (readonly)
+ * quote_mint (readonly)
+ * taker_base_ata (mut)
+ * taker_quote_ata (mut)
+ * token_2022_program (readonly)
+ * system_program (readonly)
+ * Per maker:
+ *   [maker_order_status if bit_i=0] (mut)
+ *   maker_nonce (readonly)
+ *   maker_position (mut)
+ *   maker_base_ata (mut)
+ *   maker_quote_ata (mut)
  *
  * Data:
- * [discriminator, taker_order_hash (32), taker_compact_order (65), taker_sig (64),
- *  num_makers (u8), ...per_maker_data]
- * Per maker: [maker_order_hash (32), maker_compact_order (65), maker_sig (64), maker_fill_amount (u64)]
+ * [0] discriminator
+ * [1..30] taker Order (29 bytes)
+ * [30..94] taker_signature (64 bytes)
+ * [94] num_makers
+ * [95] full_fill_bitmask
+ * Per maker (109 bytes):
+ *   [+0..+29] maker Order (29)
+ *   [+29..+93] maker_signature (64)
+ *   [+93..+101] maker_fill_amount (8)
+ *   [+101..+109] taker_fill_amount (8)
  */
 export function buildMatchOrdersMultiIx(
   params: MatchOrdersMultiParams,
@@ -730,16 +711,18 @@ export function buildMatchOrdersMultiIx(
   if (params.makerOrders.length === 0) {
     throw new Error("At least one maker order is required");
   }
-  if (params.makerOrders.length > 5) {
-    throw new Error("Maximum 5 maker orders allowed");
+  if (params.makerOrders.length > 3) {
+    throw new Error("Maximum 3 maker orders allowed");
   }
-  if (params.makerOrders.length !== params.fillAmounts.length) {
-    throw new Error("Fill amounts must match maker orders count");
+  if (params.makerOrders.length !== params.makerFillAmounts.length) {
+    throw new Error("Maker fill amounts must match maker orders count");
+  }
+  if (params.makerOrders.length !== params.takerFillAmounts.length) {
+    throw new Error("Taker fill amounts must match maker orders count");
   }
 
   const [exchange] = getExchangePda(programId);
   const takerOrderHash = hashOrder(params.takerOrder);
-  const [takerOrderStatus] = getOrderStatusPda(takerOrderHash, programId);
   const [takerNonce] = getUserNoncePda(params.takerOrder.maker, programId);
   const [takerPosition] = getPositionPda(
     params.takerOrder.maker,
@@ -753,22 +736,35 @@ export function buildMatchOrdersMultiIx(
     signerMut(params.operator),
     readonly(exchange),
     readonly(params.market),
-    writable(takerOrderStatus),
-    readonly(takerNonce),
-    writable(takerPosition),
-    readonly(params.baseMint),
-    readonly(params.quoteMint),
-    writable(takerBaseAta),
-    writable(takerQuoteAta),
-    readonly(TOKEN_2022_PROGRAM_ID),
-    readonly(SYSTEM_PROGRAM_ID),
-    readonly(INSTRUCTIONS_SYSVAR_ID),
   ];
 
+  // Taker order status if not fully filled (bit 7 = 0)
+  const takerFullFill = (params.fullFillBitmask & 0x80) !== 0;
+  if (!takerFullFill) {
+    const [takerOrderStatus] = getOrderStatusPda(takerOrderHash, programId);
+    keys.push(writable(takerOrderStatus));
+  }
+
+  keys.push(readonly(takerNonce));
+  keys.push(writable(takerPosition));
+  keys.push(readonly(params.baseMint));
+  keys.push(readonly(params.quoteMint));
+  keys.push(writable(takerBaseAta));
+  keys.push(writable(takerQuoteAta));
+  keys.push(readonly(TOKEN_2022_PROGRAM_ID));
+  keys.push(readonly(SYSTEM_PROGRAM_ID));
+
   // Add maker accounts
-  for (const makerOrder of params.makerOrders) {
-    const makerOrderHash = hashOrder(makerOrder);
-    const [makerOrderStatus] = getOrderStatusPda(makerOrderHash, programId);
+  for (let i = 0; i < params.makerOrders.length; i++) {
+    const makerOrder = params.makerOrders[i];
+    const makerFullFill = (params.fullFillBitmask & (1 << i)) !== 0;
+
+    if (!makerFullFill) {
+      const makerOrderHash = hashOrder(makerOrder);
+      const [makerOrderStatus] = getOrderStatusPda(makerOrderHash, programId);
+      keys.push(writable(makerOrderStatus));
+    }
+
     const [makerNonce] = getUserNoncePda(makerOrder.maker, programId);
     const [makerPosition] = getPositionPda(
       makerOrder.maker,
@@ -776,12 +772,8 @@ export function buildMatchOrdersMultiIx(
       programId
     );
     const makerBaseAta = getConditionalTokenAta(params.baseMint, makerPosition);
-    const makerQuoteAta = getConditionalTokenAta(
-      params.quoteMint,
-      makerPosition
-    );
+    const makerQuoteAta = getConditionalTokenAta(params.quoteMint, makerPosition);
 
-    keys.push(writable(makerOrderStatus));
     keys.push(readonly(makerNonce));
     keys.push(writable(makerPosition));
     keys.push(writable(makerBaseAta));
@@ -789,42 +781,107 @@ export function buildMatchOrdersMultiIx(
   }
 
   // Build data
+  const takerCompact = signedOrderToOrder(params.takerOrder);
   const dataBuffers: Buffer[] = [
     Buffer.from([INSTRUCTION.MATCH_ORDERS_MULTI]),
-    takerOrderHash,
-    serializeCompactOrder({
-      nonce: params.takerOrder.nonce,
-      maker: params.takerOrder.maker,
-      side: params.takerOrder.side,
-      makerAmount: params.takerOrder.makerAmount,
-      takerAmount: params.takerOrder.takerAmount,
-      expiration: params.takerOrder.expiration,
-    }),
+    serializeOrder(takerCompact),
     params.takerOrder.signature,
     toU8(params.makerOrders.length),
+    toU8(params.fullFillBitmask),
   ];
 
   // Add maker data
   for (let i = 0; i < params.makerOrders.length; i++) {
     const makerOrder = params.makerOrders[i];
-    const makerOrderHash = hashOrder(makerOrder);
+    const makerCompact = signedOrderToOrder(makerOrder);
 
-    dataBuffers.push(makerOrderHash);
-    dataBuffers.push(
-      serializeCompactOrder({
-        nonce: makerOrder.nonce,
-        maker: makerOrder.maker,
-        side: makerOrder.side,
-        makerAmount: makerOrder.makerAmount,
-        takerAmount: makerOrder.takerAmount,
-        expiration: makerOrder.expiration,
-      })
-    );
+    dataBuffers.push(serializeOrder(makerCompact));
     dataBuffers.push(makerOrder.signature);
-    dataBuffers.push(toU64Le(params.fillAmounts[i]));
+    dataBuffers.push(toU64Le(params.makerFillAmounts[i]));
+    dataBuffers.push(toU64Le(params.takerFillAmounts[i]));
   }
 
   const data = Buffer.concat(dataBuffers);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build SetAuthority instruction
+ *
+ * Accounts:
+ * 0. authority (signer)
+ * 1. exchange (mut)
+ *
+ * Data: [discriminator, new_authority (32)]
+ */
+export function buildSetAuthorityIx(
+  params: SetAuthorityParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.currentAuthority),
+    writable(exchange),
+  ];
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.SET_AUTHORITY]),
+    params.newAuthority.toBuffer(),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build CreateOrderbook instruction
+ *
+ * Accounts:
+ * 0. payer (signer, mut)
+ * 1. authority (signer)
+ * 2. exchange (readonly)
+ * 3. market (readonly)
+ * 4. mint_a (readonly)
+ * 5. mint_b (readonly)
+ * 6. orderbook (mut)
+ * 7. address_lookup_table (mut)
+ * 8. system_program (readonly)
+ *
+ * Data: [discriminator, recent_slot (u64)]
+ */
+export function buildCreateOrderbookIx(
+  params: CreateOrderbookParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const [orderbook] = getOrderbookPda(params.mintA, params.mintB, programId);
+  const [alt] = getAltPda(orderbook, params.recentSlot);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.payer),
+    signerMut(params.payer), // authority = payer for now
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.mintA),
+    readonly(params.mintB),
+    writable(orderbook),
+    writable(alt),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.CREATE_ORDERBOOK]),
+    toU64Le(params.recentSlot),
+  ]);
 
   return new TransactionInstruction({
     keys,

@@ -1,14 +1,14 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { sign } from "tweetnacl";
 import {
-  FullOrder,
-  CompactOrder,
+  SignedOrder,
+  Order,
   OrderSide,
   BidOrderParams,
   AskOrderParams,
 } from "./types";
 import { ORDER_SIZE } from "./constants";
-import { keccak256, toU64Le, toI64Le, toU8, fromLeBytes, fromI64Le } from "./utils";
+import { keccak256, toU64Le, toI64Le, toU8, toU32Le, fromLeBytes, fromI64Le } from "./utils";
 
 // ============================================================================
 // ORDER HASHING
@@ -22,7 +22,7 @@ import { keccak256, toU64Le, toI64Le, toU8, fromLeBytes, fromI64Le } from "./uti
  *
  * @returns 32-byte keccak256 hash
  */
-export function hashOrder(order: FullOrder): Buffer {
+export function hashOrder(order: SignedOrder): Buffer {
   const data = Buffer.concat([
     toU64Le(order.nonce),
     order.maker.toBuffer(),
@@ -39,9 +39,16 @@ export function hashOrder(order: FullOrder): Buffer {
 }
 
 /**
+ * Get the hex-encoded hash of an order
+ */
+export function hashOrderHex(order: SignedOrder): string {
+  return hashOrder(order).toString("hex");
+}
+
+/**
  * Get the message to sign for an order (the order hash)
  */
-export function getOrderMessage(order: FullOrder): Buffer {
+export function getOrderMessage(order: SignedOrder): Buffer {
   return hashOrder(order);
 }
 
@@ -50,12 +57,15 @@ export function getOrderMessage(order: FullOrder): Buffer {
 // ============================================================================
 
 /**
- * Sign an order with a Keypair
- * Returns 64-byte Ed25519 signature
+ * Sign an order with a Keypair.
+ * Signs the hex-encoded keccak hash (64-char ASCII string) for cross-compatibility with Rust.
+ * Returns 64-byte Ed25519 signature.
  */
-export function signOrder(order: FullOrder, signer: Keypair): Buffer {
-  const message = hashOrder(order);
-  const signature = sign.detached(message, signer.secretKey);
+export function signOrder(order: SignedOrder, signer: Keypair): Buffer {
+  const hash = hashOrder(order);
+  const hexString = hash.toString("hex");
+  const messageBytes = Buffer.from(hexString, "ascii");
+  const signature = sign.detached(messageBytes, signer.secretKey);
   return Buffer.from(signature);
 }
 
@@ -63,10 +73,10 @@ export function signOrder(order: FullOrder, signer: Keypair): Buffer {
  * Sign an order and return a new order with the signature attached
  */
 export function signOrderFull(
-  order: Omit<FullOrder, "signature">,
+  order: Omit<SignedOrder, "signature">,
   signer: Keypair
-): FullOrder {
-  const orderWithEmptySig: FullOrder = {
+): SignedOrder {
+  const orderWithEmptySig: SignedOrder = {
     ...order,
     signature: Buffer.alloc(64),
   };
@@ -78,23 +88,26 @@ export function signOrderFull(
 }
 
 /**
- * Verify an order's signature
+ * Verify an order's signature.
+ * Verifies against the hex-encoded keccak hash.
  */
-export function verifyOrderSignature(order: FullOrder): boolean {
-  const message = hashOrder(order);
+export function verifyOrderSignature(order: SignedOrder): boolean {
+  const hash = hashOrder(order);
+  const hexString = hash.toString("hex");
+  const messageBytes = Buffer.from(hexString, "ascii");
   return sign.detached.verify(
-    message,
+    messageBytes,
     order.signature,
     order.maker.toBytes()
   );
 }
 
 // ============================================================================
-// ORDER SERIALIZATION
+// SIGNED ORDER SERIALIZATION (225 bytes)
 // ============================================================================
 
 /**
- * Serialize a full order to bytes (225 bytes)
+ * Serialize a signed order to bytes (225 bytes)
  *
  * Layout:
  * [0..8]     nonce (u64)
@@ -108,59 +121,49 @@ export function verifyOrderSignature(order: FullOrder): boolean {
  * [153..161] expiration (i64)
  * [161..225] signature (64 bytes)
  */
-export function serializeFullOrder(order: FullOrder): Buffer {
-  const buffer = Buffer.alloc(ORDER_SIZE.FULL);
+export function serializeSignedOrder(order: SignedOrder): Buffer {
+  const buffer = Buffer.alloc(ORDER_SIZE.SIGNED_ORDER);
   let offset = 0;
 
-  // nonce (u64)
   toU64Le(order.nonce).copy(buffer, offset);
   offset += 8;
 
-  // maker (32 bytes)
   order.maker.toBuffer().copy(buffer, offset);
   offset += 32;
 
-  // market (32 bytes)
   order.market.toBuffer().copy(buffer, offset);
   offset += 32;
 
-  // baseMint (32 bytes)
   order.baseMint.toBuffer().copy(buffer, offset);
   offset += 32;
 
-  // quoteMint (32 bytes)
   order.quoteMint.toBuffer().copy(buffer, offset);
   offset += 32;
 
-  // side (u8)
   buffer[offset] = order.side;
   offset += 1;
 
-  // makerAmount (u64)
   toU64Le(order.makerAmount).copy(buffer, offset);
   offset += 8;
 
-  // takerAmount (u64)
   toU64Le(order.takerAmount).copy(buffer, offset);
   offset += 8;
 
-  // expiration (i64)
   toI64Le(order.expiration).copy(buffer, offset);
   offset += 8;
 
-  // signature (64 bytes)
   order.signature.copy(buffer, offset);
 
   return buffer;
 }
 
 /**
- * Deserialize a full order from bytes
+ * Deserialize a signed order from bytes
  */
-export function deserializeFullOrder(data: Buffer): FullOrder {
-  if (data.length < ORDER_SIZE.FULL) {
+export function deserializeSignedOrder(data: Buffer): SignedOrder {
+  if (data.length < ORDER_SIZE.SIGNED_ORDER) {
     throw new Error(
-      `Invalid full order length: ${data.length}, expected ${ORDER_SIZE.FULL}`
+      `Invalid signed order length: ${data.length}, expected ${ORDER_SIZE.SIGNED_ORDER}`
     );
   }
 
@@ -209,42 +212,36 @@ export function deserializeFullOrder(data: Buffer): FullOrder {
   };
 }
 
+// ============================================================================
+// ORDER SERIALIZATION (29 bytes)
+// ============================================================================
+
 /**
- * Serialize a compact order to bytes (65 bytes)
+ * Serialize a compact order to bytes (29 bytes)
  *
  * Layout:
- * [0..8]    nonce (u64)
- * [8..40]   maker (Pubkey)
- * [40]      side (u8)
- * [41..49]  makerAmount (u64)
- * [49..57]  takerAmount (u64)
- * [57..65]  expiration (i64)
+ * [0..4]    nonce (u32)
+ * [4]       side (u8)
+ * [5..13]   makerAmount (u64)
+ * [13..21]  takerAmount (u64)
+ * [21..29]  expiration (i64)
  */
-export function serializeCompactOrder(order: CompactOrder): Buffer {
-  const buffer = Buffer.alloc(ORDER_SIZE.COMPACT);
+export function serializeOrder(order: Order): Buffer {
+  const buffer = Buffer.alloc(ORDER_SIZE.ORDER);
   let offset = 0;
 
-  // nonce (u64)
-  toU64Le(order.nonce).copy(buffer, offset);
-  offset += 8;
+  toU32Le(order.nonce).copy(buffer, offset);
+  offset += 4;
 
-  // maker (32 bytes)
-  order.maker.toBuffer().copy(buffer, offset);
-  offset += 32;
-
-  // side (u8)
   buffer[offset] = order.side;
   offset += 1;
 
-  // makerAmount (u64)
   toU64Le(order.makerAmount).copy(buffer, offset);
   offset += 8;
 
-  // takerAmount (u64)
   toU64Le(order.takerAmount).copy(buffer, offset);
   offset += 8;
 
-  // expiration (i64)
   toI64Le(order.expiration).copy(buffer, offset);
 
   return buffer;
@@ -253,20 +250,17 @@ export function serializeCompactOrder(order: CompactOrder): Buffer {
 /**
  * Deserialize a compact order from bytes
  */
-export function deserializeCompactOrder(data: Buffer): CompactOrder {
-  if (data.length < ORDER_SIZE.COMPACT) {
+export function deserializeOrder(data: Buffer): Order {
+  if (data.length < ORDER_SIZE.ORDER) {
     throw new Error(
-      `Invalid compact order length: ${data.length}, expected ${ORDER_SIZE.COMPACT}`
+      `Invalid order length: ${data.length}, expected ${ORDER_SIZE.ORDER}`
     );
   }
 
   let offset = 0;
 
-  const nonce = fromLeBytes(data.subarray(offset, offset + 8));
-  offset += 8;
-
-  const maker = new PublicKey(data.subarray(offset, offset + 32));
-  offset += 32;
+  const nonce = data.readUInt32LE(offset);
+  offset += 4;
 
   const side = data[offset] as OrderSide;
   offset += 1;
@@ -281,11 +275,23 @@ export function deserializeCompactOrder(data: Buffer): CompactOrder {
 
   return {
     nonce,
-    maker,
     side,
     makerAmount,
     takerAmount,
     expiration,
+  };
+}
+
+/**
+ * Convert a SignedOrder to a compact Order (truncate nonce to u32, drop maker)
+ */
+export function signedOrderToOrder(order: SignedOrder): Order {
+  return {
+    nonce: Number(order.nonce & 0xFFFFFFFFn),
+    side: order.side,
+    makerAmount: order.makerAmount,
+    takerAmount: order.takerAmount,
+    expiration: order.expiration,
   };
 }
 
@@ -295,19 +301,10 @@ export function deserializeCompactOrder(data: Buffer): CompactOrder {
 
 /**
  * Create a BID order (buyer wants base tokens, pays with quote tokens)
- *
- * @param params.nonce - Order ID / replay protection
- * @param params.maker - The signer's public key
- * @param params.market - The market public key
- * @param params.baseMint - Token to buy (conditional token)
- * @param params.quoteMint - Token to pay with
- * @param params.makerAmount - Quote tokens to give
- * @param params.takerAmount - Base tokens to receive
- * @param params.expiration - Unix timestamp, 0 = no expiration
  */
 export function createBidOrder(
   params: BidOrderParams
-): Omit<FullOrder, "signature"> {
+): Omit<SignedOrder, "signature"> {
   return {
     nonce: params.nonce,
     maker: params.maker,
@@ -323,19 +320,10 @@ export function createBidOrder(
 
 /**
  * Create an ASK order (seller offers base tokens, receives quote tokens)
- *
- * @param params.nonce - Order ID / replay protection
- * @param params.maker - The signer's public key
- * @param params.market - The market public key
- * @param params.baseMint - Token to sell (conditional token)
- * @param params.quoteMint - Token to receive
- * @param params.makerAmount - Base tokens to give
- * @param params.takerAmount - Quote tokens to receive
- * @param params.expiration - Unix timestamp, 0 = no expiration
  */
 export function createAskOrder(
   params: AskOrderParams
-): Omit<FullOrder, "signature"> {
+): Omit<SignedOrder, "signature"> {
   return {
     nonce: params.nonce,
     maker: params.maker,
@@ -355,7 +343,7 @@ export function createAskOrder(
 export function createSignedBidOrder(
   params: BidOrderParams,
   signer: Keypair
-): FullOrder {
+): SignedOrder {
   const order = createBidOrder(params);
   return signOrderFull(order, signer);
 }
@@ -366,7 +354,7 @@ export function createSignedBidOrder(
 export function createSignedAskOrder(
   params: AskOrderParams,
   signer: Keypair
-): FullOrder {
+): SignedOrder {
   const order = createAskOrder(params);
   return signOrderFull(order, signer);
 }
@@ -377,15 +365,13 @@ export function createSignedAskOrder(
 
 /**
  * Check if an order has expired
- * @param order - The order to check
- * @param currentTime - Current unix timestamp (defaults to now)
  */
 export function isOrderExpired(
-  order: FullOrder | CompactOrder,
+  order: SignedOrder | Order,
   currentTime?: bigint
 ): boolean {
   if (order.expiration === 0n) {
-    return false; // No expiration
+    return false;
   }
   const now = currentTime ?? BigInt(Math.floor(Date.now() / 1000));
   return order.expiration < now;
@@ -393,21 +379,14 @@ export function isOrderExpired(
 
 /**
  * Validate order crossing (orders are compatible for matching)
- * For a match: buyer.makerAmount * seller.makerAmount >= buyer.takerAmount * seller.takerAmount
  */
 export function ordersCanCross(
-  buyOrder: FullOrder,
-  sellOrder: FullOrder
+  buyOrder: SignedOrder,
+  sellOrder: SignedOrder
 ): boolean {
   if (buyOrder.side !== OrderSide.BID || sellOrder.side !== OrderSide.ASK) {
     return false;
   }
-
-  // buyer pays buyOrder.makerAmount quote to receive buyOrder.takerAmount base
-  // seller gives sellOrder.makerAmount base to receive sellOrder.takerAmount quote
-  // For crossing: buyer's quote offer >= seller's quote ask for the base amounts
-  // buyer.makerAmount / buyer.takerAmount >= seller.takerAmount / seller.makerAmount
-  // Rearranged: buyer.makerAmount * seller.makerAmount >= buyer.takerAmount * seller.takerAmount
   return (
     buyOrder.makerAmount * sellOrder.makerAmount >=
     buyOrder.takerAmount * sellOrder.takerAmount
@@ -416,14 +395,83 @@ export function ordersCanCross(
 
 /**
  * Calculate the fill amounts for a trade
- * @param makerOrder - The maker's order
- * @param fillAmount - Amount the maker is giving
- * @returns takerFillAmount - Amount the taker gives in return
  */
 export function calculateTakerFill(
-  makerOrder: FullOrder,
+  makerOrder: SignedOrder,
   makerFillAmount: bigint
 ): bigint {
-  // takerFill = makerFill * maker.takerAmount / maker.makerAmount
   return (makerFillAmount * makerOrder.takerAmount) / makerOrder.makerAmount;
 }
+
+// ============================================================================
+// SIGNED ORDER HELPERS
+// ============================================================================
+
+/**
+ * Get signature as hex string (128 chars)
+ */
+export function signatureHex(order: SignedOrder): string {
+  return order.signature.toString("hex");
+}
+
+/**
+ * Check if a signed order has a non-zero signature
+ */
+export function isSigned(order: SignedOrder): boolean {
+  return !order.signature.every((b) => b === 0);
+}
+
+/**
+ * Derive orderbook ID from base and quote token addresses
+ * Format: "{base[0:8]}_{quote[0:8]}"
+ */
+export function deriveOrderbookId(
+  baseToken: string,
+  quoteToken: string
+): string {
+  return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}`;
+}
+
+/**
+ * Convert a SignedOrder to a SubmitOrderRequest-compatible object
+ */
+export function toSubmitRequest(
+  order: SignedOrder,
+  orderbookId: string
+): {
+  maker: string;
+  nonce: string;
+  market_pubkey: string;
+  base_token: string;
+  quote_token: string;
+  side: number;
+  maker_amount: string;
+  taker_amount: string;
+  expiration: number;
+  signature: string;
+  orderbook_id: string;
+} {
+  return {
+    maker: order.maker.toBase58(),
+    nonce: order.nonce.toString(),
+    market_pubkey: order.market.toBase58(),
+    base_token: order.baseMint.toBase58(),
+    quote_token: order.quoteMint.toBase58(),
+    side: order.side,
+    maker_amount: order.makerAmount.toString(),
+    taker_amount: order.takerAmount.toString(),
+    expiration: Number(order.expiration),
+    signature: signatureHex(order),
+    orderbook_id: orderbookId,
+  };
+}
+
+// Legacy aliases for backwards compatibility during migration
+/** @deprecated Use serializeSignedOrder instead */
+export const serializeFullOrder = serializeSignedOrder;
+/** @deprecated Use deserializeSignedOrder instead */
+export const deserializeFullOrder = deserializeSignedOrder;
+/** @deprecated Use serializeOrder instead */
+export const serializeCompactOrder = serializeOrder;
+/** @deprecated Use deserializeOrder instead */
+export const deserializeCompactOrder = deserializeOrder;
