@@ -10,6 +10,9 @@
 /**
  * Parse a decimal string to number for calculations.
  *
+ * Note: Uses parseFloat internally, which is lossy for high-precision values.
+ * For exact decimal arithmetic, use `Decimal` from `decimal.js` via `shared/scaling.ts`.
+ *
  * @example
  * ```typescript
  * parseDecimal("0.500000"); // returns 0.5

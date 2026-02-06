@@ -8,6 +8,7 @@
  * For numeric comparisons, parse the strings as needed.
  */
 
+import Decimal from "decimal.js";
 import { WebSocketError } from "../error";
 import type { BookUpdateData, PriceLevel } from "../types";
 import { isZero } from "../../shared/price";
@@ -194,35 +195,39 @@ export class LocalOrderbook {
 
   /**
    * Get the spread as a string (best_ask - best_bid).
-   * Note: This parses as number for the calculation.
    */
   spread(): string | undefined {
     const bid = this.bestBid();
     const ask = this.bestAsk();
     if (!bid || !ask) return undefined;
 
-    const bidPrice = parseFloat(bid[0]);
-    const askPrice = parseFloat(ask[0]);
-    if (isNaN(bidPrice) || isNaN(askPrice)) return undefined;
-
-    const spread = askPrice > bidPrice ? askPrice - bidPrice : 0;
-    return spread.toFixed(6);
+    try {
+      const bidPrice = new Decimal(bid[0]);
+      const askPrice = new Decimal(ask[0]);
+      const spread = askPrice.greaterThan(bidPrice)
+        ? askPrice.minus(bidPrice)
+        : new Decimal(0);
+      return spread.toFixed(6);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
    * Get the midpoint price as a string.
-   * Note: This parses as number for the calculation.
    */
   midpoint(): string | undefined {
     const bid = this.bestBid();
     const ask = this.bestAsk();
     if (!bid || !ask) return undefined;
 
-    const bidPrice = parseFloat(bid[0]);
-    const askPrice = parseFloat(ask[0]);
-    if (isNaN(bidPrice) || isNaN(askPrice)) return undefined;
-
-    return ((bidPrice + askPrice) / 2).toFixed(6);
+    try {
+      const bidPrice = new Decimal(bid[0]);
+      const askPrice = new Decimal(ask[0]);
+      return bidPrice.plus(askPrice).dividedBy(2).toFixed(6);
+    } catch {
+      return undefined;
+    }
   }
 
   /**
@@ -241,28 +246,32 @@ export class LocalOrderbook {
 
   /**
    * Get total bid depth (sum of all bid sizes).
-   * Note: This parses as number for the calculation.
    */
   totalBidDepth(): number {
-    let total = 0;
+    let total = new Decimal(0);
     for (const size of this.bids.values()) {
-      const parsed = parseFloat(size);
-      if (!isNaN(parsed)) total += parsed;
+      try {
+        total = total.plus(new Decimal(size));
+      } catch {
+        // skip unparseable values
+      }
     }
-    return total;
+    return total.toNumber();
   }
 
   /**
    * Get total ask depth (sum of all ask sizes).
-   * Note: This parses as number for the calculation.
    */
   totalAskDepth(): number {
-    let total = 0;
+    let total = new Decimal(0);
     for (const size of this.asks.values()) {
-      const parsed = parseFloat(size);
-      if (!isNaN(parsed)) total += parsed;
+      try {
+        total = total.plus(new Decimal(size));
+      } catch {
+        // skip unparseable values
+      }
     }
-    return total;
+    return total.toNumber();
   }
 
   /** Number of bid levels */

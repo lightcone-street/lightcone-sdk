@@ -465,13 +465,3 @@ export function toSubmitRequest(
     orderbook_id: orderbookId,
   };
 }
-
-// Legacy aliases for backwards compatibility during migration
-/** @deprecated Use serializeSignedOrder instead */
-export const serializeFullOrder = serializeSignedOrder;
-/** @deprecated Use deserializeSignedOrder instead */
-export const deserializeFullOrder = deserializeSignedOrder;
-/** @deprecated Use serializeOrder instead */
-export const serializeCompactOrder = serializeOrder;
-/** @deprecated Use deserializeOrder instead */
-export const deserializeCompactOrder = deserializeOrder;

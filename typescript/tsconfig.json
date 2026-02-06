@@ -17,7 +17,6 @@
     "noFallthroughCasesInSwitch": false,
     "inlineSourceMap": false,
     "inlineSources": true,
-    "experimentalDecorators": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,

@@ -75,7 +75,7 @@ export type EventCallback = (event: WsEvent) => void | Promise<void>;
  * const client = new LightconeWebSocketClient();
  * await client.connect();
  *
- * client.on("BookUpdate", (event) => {
+ * client.on((event) => {
  *   if (event.type === "BookUpdate") {
  *     const book = client.getOrderbook(event.orderbookId);
  *     console.log("Best bid:", book?.bestBid());
@@ -409,6 +409,8 @@ export class LightconeWebSocketClient {
    * Subscribe to orderbook updates.
    */
   subscribeBookUpdates(orderbookIds: string[]): void {
+    if (orderbookIds.length === 0) return;
+
     // Initialize state for each orderbook
     for (const id of orderbookIds) {
       this.handler.initOrderbook(id);
@@ -426,6 +428,8 @@ export class LightconeWebSocketClient {
    * Subscribe to trade executions.
    */
   subscribeTrades(orderbookIds: string[]): void {
+    if (orderbookIds.length === 0) return;
+
     this.subscriptions.addTrades(orderbookIds);
     const request = createSubscribeRequest(tradesParams(orderbookIds));
     this.send(request);
@@ -475,6 +479,8 @@ export class LightconeWebSocketClient {
    * Unsubscribe from orderbook updates.
    */
   unsubscribeBookUpdates(orderbookIds: string[]): void {
+    if (orderbookIds.length === 0) return;
+
     this.subscriptions.removeBookUpdate(orderbookIds);
     const request = createUnsubscribeRequest(bookUpdateParams(orderbookIds));
     this.send(request);
@@ -484,6 +490,8 @@ export class LightconeWebSocketClient {
    * Unsubscribe from trades.
    */
   unsubscribeTrades(orderbookIds: string[]): void {
+    if (orderbookIds.length === 0) return;
+
     this.subscriptions.removeTrades(orderbookIds);
     const request = createUnsubscribeRequest(tradesParams(orderbookIds));
     this.send(request);

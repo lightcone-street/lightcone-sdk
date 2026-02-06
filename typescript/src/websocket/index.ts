@@ -36,7 +36,7 @@ export type {
 
 // Error types
 export { WebSocketError } from "./error";
-export type { WebSocketErrorVariant, WsResult } from "./error";
+export type { WebSocketErrorVariant } from "./error";
 
 // Types
 export type {

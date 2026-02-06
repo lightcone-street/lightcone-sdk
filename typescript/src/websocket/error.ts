@@ -135,8 +135,3 @@ export class WebSocketError extends Error {
     return new WebSocketError("HttpError", `HTTP error: ${message}`);
   }
 }
-
-/**
- * Result type alias for WebSocket operations.
- */
-export type WsResult<T> = T;

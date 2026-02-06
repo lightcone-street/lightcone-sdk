@@ -181,7 +181,11 @@ export function parseWsMessage(text: string): WsServerMessage | null {
     return null;
   }
 
-  // TypeScript now knows obj has type and version
+  // All message types except "pong" must have a data field
+  if (obj.type !== "pong" && (obj.data === undefined || obj.data === null)) {
+    return null;
+  }
+
   // We trust the server sends correct data shapes for each type
   return obj as WsServerMessage;
 }

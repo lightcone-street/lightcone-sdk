@@ -116,11 +116,6 @@ export class ApiError extends Error {
 }
 
 /**
- * Result type alias for API operations.
- */
-export type ApiResult<T> = T;
-
-/**
  * Error response format from the API.
  */
 export interface ErrorResponse {

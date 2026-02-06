@@ -187,11 +187,6 @@ export {
   isSigned,
   deriveOrderbookId,
   toSubmitRequest,
-  // Legacy aliases
-  serializeFullOrder,
-  deserializeFullOrder,
-  serializeCompactOrder,
-  deserializeCompactOrder,
 } from "./orders";
 
 // ============================================================================

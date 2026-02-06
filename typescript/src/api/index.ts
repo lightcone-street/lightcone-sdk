@@ -25,7 +25,7 @@ export type { LightconeApiClientConfig, RetryConfig } from "./client";
 
 // Error types
 export { ApiError } from "./error";
-export type { ApiErrorVariant, ApiResult, ErrorResponse } from "./error";
+export type { ApiErrorVariant, ErrorResponse } from "./error";
 
 // Validation utilities
 export {
