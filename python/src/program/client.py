@@ -24,7 +24,7 @@ from .instructions import (
     build_activate_market_instruction,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
-    build_create_market_instruction_with_id,
+    build_create_market_instruction,
     build_create_orderbook_instruction,
     build_increment_nonce_instruction,
     build_initialize_instruction,
@@ -203,7 +203,7 @@ class LightconePinocchioClient:
     ) -> Transaction:
         """Build a create_market transaction."""
         market_id = await self.get_next_market_id()
-        ix = build_create_market_instruction_with_id(
+        ix = build_create_market_instruction(
             authority=authority,
             market_id=market_id,
             num_outcomes=num_outcomes,

@@ -84,39 +84,6 @@ def build_initialize_instruction(
 
 def build_create_market_instruction(
     authority: Pubkey,
-    num_outcomes: int,
-    oracle: Pubkey,
-    question_id: bytes,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the create_market instruction.
-
-    Accounts:
-    0. authority (signer, writable)
-    1. exchange (writable)
-    2. system_program
-
-    Data: [1, num_outcomes (u8), oracle (32), question_id (32)]
-    """
-    exchange, _ = get_exchange_pda(program_id)
-
-    data = bytearray()
-    data.append(INSTRUCTION_CREATE_MARKET)
-    data.append(num_outcomes)
-    data.extend(bytes(oracle))
-    data.extend(question_id)
-
-    accounts = [
-        AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
-
-
-def build_create_market_instruction_with_id(
-    authority: Pubkey,
     market_id: int,
     num_outcomes: int,
     oracle: Pubkey,

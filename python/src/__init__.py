@@ -82,7 +82,6 @@ from .program import (
     # Instruction Builders
     build_initialize_instruction,
     build_create_market_instruction,
-    build_create_market_instruction_with_id,
     build_add_deposit_mint_instruction,
     build_mint_complete_set_instruction,
     build_merge_complete_set_instruction,
@@ -321,7 +320,6 @@ __all__ = [
     # Instruction Builders
     "build_initialize_instruction",
     "build_create_market_instruction",
-    "build_create_market_instruction_with_id",
     "build_add_deposit_mint_instruction",
     "build_mint_complete_set_instruction",
     "build_merge_complete_set_instruction",

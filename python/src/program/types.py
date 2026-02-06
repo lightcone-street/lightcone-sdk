@@ -5,6 +5,7 @@ from enum import IntEnum
 from typing import Optional
 
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 
 class MarketStatus(IntEnum):
@@ -289,5 +290,5 @@ class AskOrderParams:
 class BuildResult:
     """Result of building a transaction."""
 
-    transaction: "Transaction"  # Lazy import to avoid circular deps
+    transaction: Transaction
     signers: list[Pubkey]

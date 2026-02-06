@@ -98,11 +98,12 @@ def generate_signin_message_with_timestamp(timestamp_ms: int) -> str:
     return f"Sign in to Lightcone\n\nTimestamp: {timestamp_ms}"
 
 
-async def authenticate(keypair: Keypair) -> AuthCredentials:
+async def authenticate(keypair: Keypair, base_url: str = AUTH_API_URL) -> AuthCredentials:
     """Authenticate with Lightcone and obtain credentials.
 
     Args:
         keypair: The Solana Keypair for authentication.
+        base_url: The base URL for the auth API. Defaults to production.
 
     Returns:
         AuthCredentials containing the auth token and user public key.
@@ -143,7 +144,7 @@ async def authenticate(keypair: Keypair) -> AuthCredentials:
     }
 
     # Send the authentication request with timeout
-    url = f"{AUTH_API_URL}/auth/login_or_register_with_message"
+    url = f"{base_url}/auth/login_or_register_with_message"
     timeout = aiohttp.ClientTimeout(total=AUTH_TIMEOUT_SECS)
 
     try:
