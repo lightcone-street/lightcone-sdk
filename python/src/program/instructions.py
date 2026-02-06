@@ -644,18 +644,28 @@ def build_match_orders_multi_instruction(
     exchange, _ = get_exchange_pda(program_id)
 
     taker_hash = hash_order(taker_order)
-    taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
     taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
 
     taker_position_base_ata = get_associated_token_address_2022(taker_position, base_mint)
     taker_position_quote_ata = get_associated_token_address_2022(taker_position, quote_mint)
 
+    taker_full_fill = bool((full_fill_bitmask >> 7) & 1)
+
     accounts = [
         AccountMeta(pubkey=operator, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=taker_order_status, is_signer=False, is_writable=True),
+    ]
+
+    # Taker order_status: only if NOT full fill (bit 7 = 0)
+    if not taker_full_fill:
+        taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
+        accounts.append(
+            AccountMeta(pubkey=taker_order_status, is_signer=False, is_writable=True)
+        )
+
+    accounts.extend([
         AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False),
         AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False),
@@ -664,14 +674,15 @@ def build_match_orders_multi_instruction(
         AccountMeta(pubkey=taker_position_quote_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
+    ])
 
     # Add maker accounts
     num_makers = len(maker_orders)
     for i, maker_order in enumerate(maker_orders):
-        has_order_status = bool(full_fill_bitmask & (1 << i))
+        # bit i = 0 means NOT full fill -> INCLUDE order_status
+        maker_full_fill = bool((full_fill_bitmask >> i) & 1)
 
-        if has_order_status:
+        if not maker_full_fill:
             maker_hash = hash_order(maker_order)
             maker_order_status, _ = get_order_status_pda(maker_hash, program_id)
             accounts.append(
