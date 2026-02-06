@@ -10,6 +10,7 @@ import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  ALT_PROGRAM_ID,
 } from "./constants";
 import {
   InitializeParams,
@@ -847,13 +848,13 @@ export function buildSetAuthorityIx(
  *
  * Accounts:
  * 0. payer (signer, mut)
- * 1. authority (signer)
- * 2. exchange (readonly)
- * 3. market (readonly)
- * 4. mint_a (readonly)
- * 5. mint_b (readonly)
- * 6. orderbook (mut)
- * 7. address_lookup_table (mut)
+ * 1. market (readonly)
+ * 2. mint_a (readonly)
+ * 3. mint_b (readonly)
+ * 4. orderbook (mut)
+ * 5. lookup_table (mut)
+ * 6. exchange (readonly)
+ * 7. alt_program (readonly)
  * 8. system_program (readonly)
  *
  * Data: [discriminator, recent_slot (u64)]
@@ -868,13 +869,13 @@ export function buildCreateOrderbookIx(
 
   const keys: AccountMeta[] = [
     signerMut(params.payer),
-    signerMut(params.payer), // authority = payer for now
-    readonly(exchange),
     readonly(params.market),
     readonly(params.mintA),
     readonly(params.mintB),
     writable(orderbook),
     writable(alt),
+    readonly(exchange),
+    readonly(ALT_PROGRAM_ID),
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
