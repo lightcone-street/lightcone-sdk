@@ -117,7 +117,7 @@ impl SignedOrder {
 
     /// Compute the 32-byte Keccak256 hash of the signed fields.
     pub fn hash(&self) -> [u8; 32] {
-        Keccak256::digest(&self.signing_message()).into()
+        Keccak256::digest(self.signing_message()).into()
     }
 
     /// Compute the order hash as a hex string.
@@ -169,9 +169,7 @@ impl SignedOrder {
             .parse::<Signature>()
             .map_err(|_| SdkError::InvalidSignature)?;
 
-        self.signature = signature
-            .try_into()
-            .map_err(|_| SdkError::InvalidSignature)?;
+        self.signature = signature.into();
         Ok(())
     }
 
