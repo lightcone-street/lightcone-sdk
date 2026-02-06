@@ -6,9 +6,9 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 import aiohttp
-from nacl.signing import SigningKey
 from solders.keypair import Keypair
 
+from ..auth import authenticate as _authenticate, AuthCredentials
 from .error import (
     ApiError,
     HttpError,
@@ -50,6 +50,8 @@ from .types import (
     CreateOrderbookResponse,
     DecimalsResponse,
 )
+from ..program.orders import to_submit_request
+
 
 DEFAULT_TIMEOUT_SECS = 30
 
@@ -115,55 +117,21 @@ class LightconeApiClient:
         """Check if an auth token is set."""
         return self._auth_token is not None
 
-    async def login(self, keypair: Keypair) -> str:
+    async def login(self, keypair: Keypair) -> AuthCredentials:
         """Authenticate with the API and store the auth token.
 
         Args:
             keypair: The Solana keypair to authenticate with
 
         Returns:
-            The auth token string
+            AuthCredentials containing the auth token and user info
 
         Raises:
-            ApiError: If authentication fails
+            AuthError: If authentication fails
         """
-        import time
-
-        timestamp = int(time.time())
-        message = f"Sign in to Lightcone: {timestamp}"
-        message_bytes = message.encode("utf-8")
-
-        secret_bytes = bytes(keypair)
-        seed = secret_bytes[:32]
-        signing_key = SigningKey(seed)
-        signed = signing_key.sign(message_bytes)
-        signature_hex = signed.signature.hex()
-
-        pubkey = str(keypair.pubkey())
-
-        session = await self._ensure_session()
-        url = f"{self._base_url}/api/auth/login_or_register_with_message"
-        payload = {
-            "pubkey": pubkey,
-            "message": message,
-            "signature": signature_hex,
-        }
-
-        async with session.post(url, json=payload) as response:
-            data = await self._handle_response(response)
-            token = data.get("token") or data.get("auth_token", "")
-
-            if not token:
-                # Try cookies
-                cookies = response.cookies
-                if "auth_token" in cookies:
-                    token = cookies["auth_token"].value
-
-            if not token:
-                raise ServerError("No auth token in login response")
-
-            self._auth_token = token
-            return token
+        credentials = await _authenticate(keypair)
+        self._auth_token = credentials.auth_token
+        return credentials
 
     async def __aenter__(self) -> "LightconeApiClient":
         """Enter async context manager."""
@@ -476,7 +444,6 @@ class LightconeApiClient:
         Returns:
             OrderResponse with order hash, status, and fills
         """
-        from ..program.orders import to_submit_request
 
         request = to_submit_request(order, orderbook_id)
         return await self.submit_order(request)

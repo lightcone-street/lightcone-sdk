@@ -200,6 +200,7 @@ from .auth import (
     authenticate,
     generate_signin_message,
     generate_signin_message_with_timestamp,
+    sign_message,
 )
 
 __all__ = [
@@ -353,4 +354,5 @@ __all__ = [
     "authenticate",
     "generate_signin_message",
     "generate_signin_message_with_timestamp",
+    "sign_message",
 ]

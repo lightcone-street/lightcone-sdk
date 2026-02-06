@@ -10,6 +10,8 @@ from .constants import (
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
+    MAX_OUTCOMES,
+    MIN_OUTCOMES
 )
 
 
@@ -187,7 +189,6 @@ def encode_string_fixed(s: str, max_len: int) -> bytes:
 
 def validate_outcome_count(num_outcomes: int) -> None:
     """Validate that the outcome count is within bounds."""
-    from .constants import MAX_OUTCOMES, MIN_OUTCOMES
 
     if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
         raise ValueError(

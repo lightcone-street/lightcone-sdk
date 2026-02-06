@@ -12,6 +12,7 @@ from urllib.parse import quote
 from websockets.asyncio.client import connect as ws_connect, ClientConnection
 from websockets.exceptions import ConnectionClosed, InvalidURI
 
+from ..auth import authenticate as _authenticate
 from .error import (
     WebSocketError,
     ConnectionFailedError,
@@ -166,7 +167,7 @@ class LightconeWebSocketClient:
     @classmethod
     async def connect_authenticated(
         cls,
-        signing_key,  # SigningKey from nacl.signing
+        keypair,  # Keypair from solders.keypair
         url: str = "wss://ws.lightcone.xyz/ws",
         reconnect: bool = True,
         max_reconnect_attempts: int = 5,
@@ -179,7 +180,7 @@ class LightconeWebSocketClient:
         to the WebSocket server with the obtained auth token.
 
         Args:
-            signing_key: The Ed25519 signing key for authentication
+            keypair: The Solana Keypair for authentication
             url: WebSocket URL to connect to
             reconnect: Whether to automatically reconnect on disconnect
             max_reconnect_attempts: Maximum number of reconnect attempts
@@ -190,12 +191,10 @@ class LightconeWebSocketClient:
             Connected and authenticated LightconeWebSocketClient instance
 
         Raises:
-            WebSocketError: If authentication fails
+            AuthError: If authentication fails
             ConnectionFailedError: If connection fails
         """
-        from .auth import authenticate
-
-        credentials = await authenticate(signing_key)
+        credentials = await _authenticate(keypair)
         return await cls.connect(
             url,
             reconnect,

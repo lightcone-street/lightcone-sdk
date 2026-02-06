@@ -92,11 +92,10 @@ from .state import (
 
 from .handlers import MessageHandler
 
-from .auth import (
+from ..auth import (
     AUTH_API_URL,
     AuthCredentials,
     authenticate,
-    authenticate_with_secret_key,
     generate_signin_message,
     generate_signin_message_with_timestamp,
     sign_message,
@@ -170,7 +169,6 @@ __all__ = [
     "AUTH_API_URL",
     "AuthCredentials",
     "authenticate",
-    "authenticate_with_secret_key",
     "generate_signin_message",
     "generate_signin_message_with_timestamp",
     "sign_message",

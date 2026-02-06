@@ -4,7 +4,8 @@ import json
 import logging
 from typing import Optional
 
-from .error import MessageParseError, SequenceGapError
+from .error import MessageParseError, SequenceGapError, ServerError
+
 from .state import LocalOrderbook, PriceHistory, PriceHistoryKey, UserState
 from .types import (
     BookUpdateData,
@@ -186,8 +187,6 @@ class MessageHandler:
             return [WsEvent.error(MessageParseError(str(e)))]
 
         logger.error(f"Server error: {data.error} (code: {data.code})")
-
-        from .error import ServerError
 
         return [WsEvent.error(ServerError(data.code, data.error))]
 
