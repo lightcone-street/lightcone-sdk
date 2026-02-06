@@ -21,7 +21,7 @@ import {
   priceHistoryParams,
   marketParams,
 } from "./types";
-import { authenticateWithKeypair, type AuthCredentials } from "../auth";
+import { authenticate, type AuthCredentials } from "../auth";
 
 /** Default WebSocket URL for Lightcone */
 export const DEFAULT_WS_URL = "wss://ws.lightcone.xyz/ws";
@@ -143,7 +143,7 @@ export class LightconeWebSocketClient {
   static async connectAuthenticated(
     keypair: Keypair
   ): Promise<LightconeWebSocketClient> {
-    const credentials = await authenticateWithKeypair(keypair);
+    const credentials = await authenticate(keypair);
     const client = new LightconeWebSocketClient(DEFAULT_WS_URL, {
       authToken: credentials.authToken,
     });
@@ -159,7 +159,7 @@ export class LightconeWebSocketClient {
     keypair: Keypair,
     config: WebSocketConfig
   ): Promise<LightconeWebSocketClient> {
-    const credentials = await authenticateWithKeypair(keypair);
+    const credentials = await authenticate(keypair);
     config.authToken = credentials.authToken;
     const client = new LightconeWebSocketClient(DEFAULT_WS_URL, config);
     client.authCredentials = credentials;

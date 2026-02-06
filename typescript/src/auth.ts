@@ -127,11 +127,11 @@ export function generateSigninMessageWithTimestamp(timestampMs: number): string 
  * import { auth } from "@lightcone/sdk";
  *
  * const keypair = Keypair.generate();
- * const credentials = await auth.authenticateWithKeypair(keypair);
+ * const credentials = await auth.authenticate(keypair);
  * console.log("Auth token:", credentials.authToken);
  * ```
  */
-export async function authenticateWithKeypair(
+export async function authenticate(
   keypair: Keypair
 ): Promise<AuthCredentials> {
   // Generate the message
@@ -197,27 +197,6 @@ export async function authenticateWithKeypair(
   };
 }
 
-/**
- * Authenticate with Lightcone and obtain credentials using a secret key.
- *
- * @param secretKey - The Ed25519 secret key (64 bytes)
- * @returns AuthCredentials containing the auth token and user public key
- *
- * @example
- * ```typescript
- * import { auth } from "@lightcone/sdk";
- *
- * const secretKey = new Uint8Array(64); // Your secret key
- * const credentials = await auth.authenticate(secretKey);
- * console.log("Auth token:", credentials.authToken);
- * ```
- */
-export async function authenticate(
-  secretKey: Uint8Array
-): Promise<AuthCredentials> {
-  const keypair = Keypair.fromSecretKey(secretKey);
-  return authenticateWithKeypair(keypair);
-}
 
 /**
  * Sign a message with a Solana Keypair.

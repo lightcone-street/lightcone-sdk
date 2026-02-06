@@ -105,7 +105,6 @@ export { MessageHandler } from "./handlers";
 export {
   AUTH_API_URL,
   authenticate,
-  authenticateWithKeypair,
   generateSigninMessage,
   generateSigninMessageWithTimestamp,
   signMessage,

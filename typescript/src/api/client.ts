@@ -10,7 +10,7 @@ import {
   validateLimit,
   DEFAULT_TIMEOUT_MS,
 } from "./validation";
-import { authenticateWithKeypair, type AuthCredentials } from "../auth";
+import { authenticate, type AuthCredentials } from "../auth";
 import type {
   MarketsResponse,
   MarketInfoResponse,
@@ -166,7 +166,7 @@ export class LightconeApiClient {
    * @returns AuthCredentials containing the auth token and user info
    */
   async login(keypair: Keypair): Promise<AuthCredentials> {
-    const credentials = await authenticateWithKeypair(keypair);
+    const credentials = await authenticate(keypair);
     this.authToken = credentials.authToken;
     return credentials;
   }
