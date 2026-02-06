@@ -134,6 +134,11 @@ impl OrderBuilder {
     ///
     /// Panics if required fields are missing.
     pub fn build(self) -> SignedOrder {
+        let maker_amount = self.maker_amount.expect("maker_amount is required");
+        let taker_amount = self.taker_amount.expect("taker_amount is required");
+        assert!(maker_amount > 0, "maker_amount must be greater than 0");
+        assert!(taker_amount > 0, "taker_amount must be greater than 0");
+
         SignedOrder {
             nonce: self.nonce.expect("nonce is required"),
             maker: self.maker.expect("maker is required"),
@@ -141,8 +146,8 @@ impl OrderBuilder {
             base_mint: self.base_mint.expect("base_mint is required"),
             quote_mint: self.quote_mint.expect("quote_mint is required"),
             side: self.side.expect("side is required (call .bid() or .ask())"),
-            maker_amount: self.maker_amount.expect("maker_amount is required"),
-            taker_amount: self.taker_amount.expect("taker_amount is required"),
+            maker_amount,
+            taker_amount,
             expiration: self.expiration,
             signature: [0u8; 64],
         }
@@ -344,6 +349,36 @@ mod tests {
             .maker_amount(1_000_000)
             .taker_amount(500_000)
             .build_and_sign(&keypair);
+    }
+
+    #[test]
+    #[should_panic(expected = "maker_amount must be greater than 0")]
+    fn test_order_builder_zero_maker_amount() {
+        OrderBuilder::new()
+            .nonce(1)
+            .maker(Pubkey::new_unique())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .maker_amount(0)
+            .taker_amount(500_000)
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "taker_amount must be greater than 0")]
+    fn test_order_builder_zero_taker_amount() {
+        OrderBuilder::new()
+            .nonce(1)
+            .maker(Pubkey::new_unique())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .maker_amount(1_000_000)
+            .taker_amount(0)
+            .build();
     }
 
     #[test]

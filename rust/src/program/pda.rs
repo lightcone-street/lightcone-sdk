@@ -117,76 +117,6 @@ pub fn get_alt_pda(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
     )
 }
 
-/// Collection of all PDA derivation functions for convenient access.
-pub struct Pda;
-
-impl Pda {
-    /// Get the Exchange PDA.
-    pub fn exchange(program_id: &Pubkey) -> (Pubkey, u8) {
-        get_exchange_pda(program_id)
-    }
-
-    /// Get a Market PDA.
-    pub fn market(market_id: u64, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_market_pda(market_id, program_id)
-    }
-
-    /// Get the Vault PDA.
-    pub fn vault(deposit_mint: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_vault_pda(deposit_mint, market, program_id)
-    }
-
-    /// Get the Mint Authority PDA.
-    pub fn mint_authority(market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_mint_authority_pda(market, program_id)
-    }
-
-    /// Get a Conditional Mint PDA.
-    pub fn conditional_mint(
-        market: &Pubkey,
-        deposit_mint: &Pubkey,
-        outcome_index: u8,
-        program_id: &Pubkey,
-    ) -> (Pubkey, u8) {
-        get_conditional_mint_pda(market, deposit_mint, outcome_index, program_id)
-    }
-
-    /// Get all Conditional Mint PDAs for a market.
-    pub fn all_conditional_mints(
-        market: &Pubkey,
-        deposit_mint: &Pubkey,
-        num_outcomes: u8,
-        program_id: &Pubkey,
-    ) -> Vec<(Pubkey, u8)> {
-        get_all_conditional_mint_pdas(market, deposit_mint, num_outcomes, program_id)
-    }
-
-    /// Get an Order Status PDA.
-    pub fn order_status(order_hash: &[u8; 32], program_id: &Pubkey) -> (Pubkey, u8) {
-        get_order_status_pda(order_hash, program_id)
-    }
-
-    /// Get a User Nonce PDA.
-    pub fn user_nonce(user: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_user_nonce_pda(user, program_id)
-    }
-
-    /// Get a Position PDA.
-    pub fn position(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_position_pda(owner, market, program_id)
-    }
-
-    /// Get an Orderbook PDA.
-    pub fn orderbook(mint_a: &Pubkey, mint_b: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-        get_orderbook_pda(mint_a, mint_b, program_id)
-    }
-
-    /// Get an Address Lookup Table PDA.
-    pub fn alt(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
-        get_alt_pda(orderbook, recent_slot)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -303,34 +233,4 @@ mod tests {
         assert_eq!(bump1, bump2);
     }
 
-    #[test]
-    fn test_pda_struct_methods() {
-        let program_id = test_program_id();
-        let owner = Pubkey::new_unique();
-        let market = Pubkey::new_unique();
-        let mint_a = Pubkey::new_unique();
-        let mint_b = Pubkey::new_unique();
-
-        // Verify Pda struct methods match the standalone functions
-        assert_eq!(
-            Pda::exchange(&program_id),
-            get_exchange_pda(&program_id)
-        );
-        assert_eq!(
-            Pda::market(5, &program_id),
-            get_market_pda(5, &program_id)
-        );
-        assert_eq!(
-            Pda::position(&owner, &market, &program_id),
-            get_position_pda(&owner, &market, &program_id)
-        );
-        assert_eq!(
-            Pda::orderbook(&mint_a, &mint_b, &program_id),
-            get_orderbook_pda(&mint_a, &mint_b, &program_id)
-        );
-        assert_eq!(
-            Pda::alt(&mint_a, 100),
-            get_alt_pda(&mint_a, 100)
-        );
-    }
 }

@@ -805,6 +805,16 @@ impl LightconeApiClient {
         }
         Ok(())
     }
+
+    /// Clear the entire decimals cache.
+    pub async fn clear_decimals_cache(&self) {
+        self.decimals_cache.write().await.clear();
+    }
+
+    /// Remove a single orderbook entry from the decimals cache.
+    pub async fn invalidate_decimals(&self, orderbook_id: &str) {
+        self.decimals_cache.write().await.remove(orderbook_id);
+    }
 }
 
 #[cfg(test)]

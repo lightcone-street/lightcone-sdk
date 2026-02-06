@@ -19,7 +19,7 @@ use crate::program::instructions::*;
 use crate::program::orders::{derive_condition_id, SignedOrder};
 use crate::program::pda::{
     get_all_conditional_mint_pdas, get_exchange_pda, get_market_pda, get_order_status_pda,
-    get_orderbook_pda, get_position_pda, get_user_nonce_pda, Pda,
+    get_orderbook_pda, get_position_pda, get_user_nonce_pda,
 };
 use crate::program::types::*;
 
@@ -60,11 +60,6 @@ impl LightconePinocchioClient {
             rpc_client,
             program_id: *PROGRAM_ID,
         }
-    }
-
-    /// Get PDA derivation helpers.
-    pub fn pda(&self) -> &Pda {
-        &Pda
     }
 
     // ========================================================================
