@@ -109,11 +109,13 @@ class CancelOrderRequest:
 
     order_hash: str
     maker: str
+    signature: str
 
     def to_dict(self) -> dict:
         return {
             "order_hash": self.order_hash,
             "maker": self.maker,
+            "signature": self.signature,
         }
 
 
@@ -142,12 +144,18 @@ class CancelAllOrdersRequest:
     """Request for POST /api/orders/cancel-all."""
 
     user_pubkey: str
-    market_pubkey: Optional[str] = None
+    signature: str
+    timestamp: int
+    orderbook_id: Optional[str] = None
 
     def to_dict(self) -> dict:
-        d = {"user_pubkey": self.user_pubkey}
-        if self.market_pubkey:
-            d["market_pubkey"] = self.market_pubkey
+        d: dict = {
+            "user_pubkey": self.user_pubkey,
+            "signature": self.signature,
+            "timestamp": self.timestamp,
+        }
+        if self.orderbook_id:
+            d["orderbook_id"] = self.orderbook_id
         return d
 
 
@@ -160,7 +168,7 @@ class CancelAllResponse:
     cancelled_order_hashes: list[str]
     count: int
     message: str
-    market_pubkey: Optional[str] = None
+    orderbook_id: Optional[str] = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "CancelAllResponse":
@@ -171,7 +179,7 @@ class CancelAllResponse:
                 cancelled_order_hashes=data.get("cancelled_order_hashes", []),
                 count=data["count"],
                 message=data["message"],
-                market_pubkey=data.get("market_pubkey"),
+                orderbook_id=data.get("orderbook_id") or data.get("market_pubkey"),
             )
         except KeyError as e:
             raise DeserializeError(f"Missing required field in CancelAllResponse: {e}")

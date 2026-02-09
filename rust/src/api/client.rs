@@ -34,6 +34,9 @@ use tokio::sync::RwLock;
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
 use crate::network::DEFAULT_API_URL;
+#[cfg(feature = "client")]
+use solana_keypair::Keypair;
+
 use crate::program::orders::SignedOrder;
 use crate::shared::OrderbookDecimals;
 
@@ -555,39 +558,83 @@ impl LightconeApiClient {
         self.submit_order(request).await
     }
 
-    /// Cancel a specific order.
+    /// Cancel a specific order with a pre-computed signature.
     ///
-    /// The maker must match the order creator.
-    pub async fn cancel_order(&self, order_hash: &str, maker: &str) -> ApiResult<CancelResponse> {
+    /// The signature must be an Ed25519 signature over the order hash hex string.
+    pub async fn cancel_order_with_signature(
+        &self,
+        order_hash: &str,
+        maker: &str,
+        signature: &str,
+    ) -> ApiResult<CancelResponse> {
         Self::validate_base58(maker, "maker")?;
+        Self::validate_signature(signature)?;
 
         let url = format!("{}/api/orders/cancel", self.base_url);
         let request = CancelOrderRequest {
             order_hash: order_hash.to_string(),
             maker: maker.to_string(),
+            signature: signature.to_string(),
         };
         self.post(&url, &request).await
     }
 
-    /// Cancel all orders for a user.
+    /// Cancel a specific order, auto-signing with the given keypair.
+    #[cfg(feature = "client")]
+    pub async fn cancel_order(
+        &self,
+        order_hash: &str,
+        keypair: &Keypair,
+    ) -> ApiResult<CancelResponse> {
+        use solana_signer::Signer;
+
+        let maker = keypair.pubkey().to_string();
+        let signature = crate::program::orders::sign_cancel_order(order_hash, keypair);
+        self.cancel_order_with_signature(order_hash, &maker, &signature).await
+    }
+
+    /// Cancel all orders for a user with a pre-computed signature.
     ///
-    /// Optionally filter by market.
-    pub async fn cancel_all_orders(
+    /// The signature must be an Ed25519 signature over `"cancel_all:{pubkey}:{timestamp}"`.
+    pub async fn cancel_all_orders_with_signature(
         &self,
         user_pubkey: &str,
-        market_pubkey: Option<&str>,
+        orderbook_id: Option<&str>,
+        signature: &str,
+        timestamp: i64,
     ) -> ApiResult<CancelAllResponse> {
         Self::validate_base58(user_pubkey, "user_pubkey")?;
-        if let Some(market) = market_pubkey {
-            Self::validate_base58(market, "market_pubkey")?;
-        }
+        Self::validate_signature(signature)?;
 
         let url = format!("{}/api/orders/cancel-all", self.base_url);
         let request = CancelAllOrdersRequest {
             user_pubkey: user_pubkey.to_string(),
-            market_pubkey: market_pubkey.map(|s| s.to_string()),
+            orderbook_id: orderbook_id.map(|s| s.to_string()),
+            signature: signature.to_string(),
+            timestamp,
         };
         self.post(&url, &request).await
+    }
+
+    /// Cancel all orders for a user, auto-signing with the given keypair.
+    ///
+    /// Generates a timestamp and signs the cancel-all message automatically.
+    #[cfg(feature = "client")]
+    pub async fn cancel_all_orders(
+        &self,
+        keypair: &Keypair,
+        orderbook_id: Option<&str>,
+    ) -> ApiResult<CancelAllResponse> {
+        use solana_signer::Signer;
+
+        let user_pubkey = keypair.pubkey().to_string();
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock before epoch")
+            .as_secs() as i64;
+        let signature = crate::program::orders::sign_cancel_all(&user_pubkey, timestamp, keypair);
+        self.cancel_all_orders_with_signature(&user_pubkey, orderbook_id, &signature, timestamp)
+            .await
     }
 
     // =========================================================================

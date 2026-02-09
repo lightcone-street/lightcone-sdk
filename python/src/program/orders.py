@@ -321,6 +321,59 @@ def validate_signed_order(order: FullOrder) -> None:
 
 
 # =========================================================================
+# Cancel Order Signing Helpers
+# =========================================================================
+
+
+def cancel_order_message(order_hash: str) -> bytes:
+    """Build the message bytes for cancelling an order.
+
+    The message is the order hash hex string as ASCII bytes
+    (same protocol as order signing).
+    """
+    return order_hash.encode("ascii")
+
+
+def sign_cancel_order(order_hash: str, keypair: Keypair) -> str:
+    """Sign a cancel order request.
+
+    Returns the signature as a 128-char hex string.
+    """
+    message = cancel_order_message(order_hash)
+
+    secret_bytes = bytes(keypair)
+    seed = secret_bytes[:32]
+
+    signing_key = SigningKey(seed)
+    signed = signing_key.sign(message)
+    return signed.signature.hex()
+
+
+def cancel_all_message(user_pubkey: str, timestamp: int) -> str:
+    """Build the message string for cancelling all orders.
+
+    Format: "cancel_all:{pubkey}:{timestamp}"
+    """
+    return f"cancel_all:{user_pubkey}:{timestamp}"
+
+
+def sign_cancel_all(user_pubkey: str, timestamp: int, keypair: Keypair) -> str:
+    """Sign a cancel-all orders request.
+
+    Returns the signature as a 128-char hex string.
+    """
+    message = cancel_all_message(user_pubkey, timestamp)
+    message_bytes = message.encode("ascii")
+
+    secret_bytes = bytes(keypair)
+    seed = secret_bytes[:32]
+
+    signing_key = SigningKey(seed)
+    signed = signing_key.sign(message_bytes)
+    return signed.signature.hex()
+
+
+# =========================================================================
 # Bridge Methods (order <-> API)
 # =========================================================================
 

@@ -432,6 +432,51 @@ export function deriveOrderbookId(
   return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}`;
 }
 
+// ============================================================================
+// CANCEL ORDER SIGNING
+// ============================================================================
+
+/**
+ * Build the message bytes for cancelling an order.
+ * The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
+ */
+export function cancelOrderMessage(orderHash: string): Uint8Array {
+  return Buffer.from(orderHash, "ascii");
+}
+
+/**
+ * Sign a cancel order request.
+ * Returns the signature as a 128-char hex string.
+ */
+export function signCancelOrder(orderHash: string, signer: Keypair): string {
+  const message = cancelOrderMessage(orderHash);
+  const signature = sign.detached(message, signer.secretKey);
+  return Buffer.from(signature).toString("hex");
+}
+
+/**
+ * Build the message string for cancelling all orders.
+ * Format: "cancel_all:{pubkey}:{timestamp}"
+ */
+export function cancelAllMessage(userPubkey: string, timestamp: number): string {
+  return `cancel_all:${userPubkey}:${timestamp}`;
+}
+
+/**
+ * Sign a cancel-all orders request.
+ * Returns the signature as a 128-char hex string.
+ */
+export function signCancelAll(userPubkey: string, timestamp: number, signer: Keypair): string {
+  const message = cancelAllMessage(userPubkey, timestamp);
+  const messageBytes = Buffer.from(message, "ascii");
+  const signature = sign.detached(messageBytes, signer.secretKey);
+  return Buffer.from(signature).toString("hex");
+}
+
+// ============================================================================
+// SUBMIT REQUEST HELPERS
+// ============================================================================
+
 /**
  * Convert a SignedOrder to a SubmitOrderRequest-compatible object
  */

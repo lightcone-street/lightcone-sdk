@@ -476,6 +476,44 @@ pub fn derive_condition_id(oracle: &Pubkey, question_id: &[u8; 32], num_outcomes
     hasher.finalize().into()
 }
 
+// ============================================================================
+// Cancel Order Signing Helpers
+// ============================================================================
+
+/// Build the message bytes for cancelling an order.
+///
+/// The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
+pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
+    order_hash.as_bytes().to_vec()
+}
+
+/// Sign a cancel order request.
+///
+/// Returns the signature as a 128-char hex string.
+#[cfg(feature = "client")]
+pub fn sign_cancel_order(order_hash: &str, keypair: &Keypair) -> String {
+    let message = cancel_order_message(order_hash);
+    let sig = keypair.sign_message(&message);
+    hex::encode(sig.as_ref())
+}
+
+/// Build the message string for cancelling all orders.
+///
+/// Format: `"cancel_all:{pubkey}:{timestamp}"`
+pub fn cancel_all_message(user_pubkey: &str, timestamp: i64) -> String {
+    format!("cancel_all:{}:{}", user_pubkey, timestamp)
+}
+
+/// Sign a cancel-all orders request.
+///
+/// Returns the signature as a 128-char hex string.
+#[cfg(feature = "client")]
+pub fn sign_cancel_all(user_pubkey: &str, timestamp: i64, keypair: &Keypair) -> String {
+    let message = cancel_all_message(user_pubkey, timestamp);
+    let sig = keypair.sign_message(message.as_bytes());
+    hex::encode(sig.as_ref())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -824,5 +862,58 @@ mod tests {
         };
 
         order.to_submit_request("test_orderbook");
+    }
+
+    #[test]
+    fn test_cancel_order_message() {
+        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let message = cancel_order_message(hash);
+        assert_eq!(message, hash.as_bytes());
+    }
+
+    #[test]
+    fn test_cancel_all_message() {
+        let pubkey = "SomePubkey123";
+        let timestamp = 1700000000i64;
+        let message = cancel_all_message(pubkey, timestamp);
+        assert_eq!(message, "cancel_all:SomePubkey123:1700000000");
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_sign_cancel_order() {
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
+
+        let keypair = Keypair::new();
+        let order_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+
+        let sig_hex = sign_cancel_order(order_hash, &keypair);
+        assert_eq!(sig_hex.len(), 128);
+
+        // Verify the signature
+        let sig_bytes = hex::decode(&sig_hex).unwrap();
+        let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
+        assert!(sig.verify(keypair.pubkey().as_ref(), order_hash.as_bytes()));
+    }
+
+    #[test]
+    #[cfg(feature = "client")]
+    fn test_sign_cancel_all() {
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
+
+        let keypair = Keypair::new();
+        let pubkey_str = keypair.pubkey().to_string();
+        let timestamp = 1700000000i64;
+
+        let sig_hex = sign_cancel_all(&pubkey_str, timestamp, &keypair);
+        assert_eq!(sig_hex.len(), 128);
+
+        // Verify the signature
+        let message = cancel_all_message(&pubkey_str, timestamp);
+        let sig_bytes = hex::decode(&sig_hex).unwrap();
+        let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
+        assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));
     }
 }

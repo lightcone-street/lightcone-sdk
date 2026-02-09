@@ -187,6 +187,10 @@ export {
   isSigned,
   deriveOrderbookId,
   toSubmitRequest,
+  cancelOrderMessage,
+  signCancelOrder,
+  cancelAllMessage,
+  signCancelAll,
 } from "./orders";
 
 // ============================================================================

@@ -3,6 +3,7 @@
  */
 
 import { Keypair } from "@solana/web3.js";
+import { signCancelOrder, signCancelAll } from "../program/orders";
 import { ApiError, getErrorMessage, type ErrorResponse } from "./error";
 import {
   validatePubkey,
@@ -411,40 +412,80 @@ export class LightconeApiClient {
   }
 
   /**
-   * Cancel an order.
+   * Cancel an order with a pre-computed signature.
    *
    * @param orderHash - Hash of the order to cancel (hex)
    * @param maker - Order creator's pubkey (Base58)
+   * @param signature - Ed25519 signature over the order hash (hex, 128 chars)
    * @returns Cancel response
-   * @throws {ApiError} If maker pubkey is invalid
+   * @throws {ApiError} If maker pubkey or signature is invalid
    */
-  async cancelOrder(orderHash: string, maker: string): Promise<CancelResponse> {
+  async cancelOrderWithSignature(
+    orderHash: string,
+    maker: string,
+    signature: string
+  ): Promise<CancelResponse> {
     validatePubkey(maker, "maker");
-    const request: CancelOrderRequest = { order_hash: orderHash, maker };
+    validateSignature(signature);
+    const request: CancelOrderRequest = { order_hash: orderHash, maker, signature };
     return this.request<CancelResponse>("POST", "/orders/cancel", request);
   }
 
   /**
-   * Cancel all orders for a user.
+   * Cancel an order, auto-signing with the given keypair.
+   *
+   * @param orderHash - Hash of the order to cancel (hex)
+   * @param signer - Keypair to sign the cancellation
+   * @returns Cancel response
+   */
+  async cancelOrder(orderHash: string, signer: Keypair): Promise<CancelResponse> {
+    const maker = signer.publicKey.toBase58();
+    const signature = signCancelOrder(orderHash, signer);
+    return this.cancelOrderWithSignature(orderHash, maker, signature);
+  }
+
+  /**
+   * Cancel all orders for a user with a pre-computed signature.
    *
    * @param userPubkey - User's public key (Base58)
-   * @param marketPubkey - Optional market filter (Base58)
+   * @param signature - Ed25519 signature over "cancel_all:{pubkey}:{timestamp}" (hex, 128 chars)
+   * @param timestamp - Unix timestamp used in the signed message
+   * @param orderbookId - Optional orderbook filter
    * @returns Cancel all response
-   * @throws {ApiError} If any pubkey is invalid
+   * @throws {ApiError} If any pubkey or signature is invalid
    */
-  async cancelAllOrders(
+  async cancelAllOrdersWithSignature(
     userPubkey: string,
-    marketPubkey?: string
+    signature: string,
+    timestamp: number,
+    orderbookId?: string
   ): Promise<CancelAllResponse> {
     validatePubkey(userPubkey, "userPubkey");
-    if (marketPubkey) {
-      validatePubkey(marketPubkey, "marketPubkey");
-    }
+    validateSignature(signature);
     const request: CancelAllOrdersRequest = {
       user_pubkey: userPubkey,
-      market_pubkey: marketPubkey,
+      orderbook_id: orderbookId,
+      signature,
+      timestamp,
     };
     return this.request<CancelAllResponse>("POST", "/orders/cancel-all", request);
+  }
+
+  /**
+   * Cancel all orders for a user, auto-signing with the given keypair.
+   *
+   * @param signer - Keypair to sign the cancellation
+   * @param orderbookId - Optional orderbook filter
+   * @returns Cancel all response
+   */
+  async cancelAllOrders(
+    signer: Keypair,
+    orderbookId?: string
+  ): Promise<CancelAllResponse> {
+    const userPubkey = signer.publicKey.toBase58();
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signature = signCancelAll(userPubkey, timestamp, signer);
+    return this.cancelAllOrdersWithSignature(userPubkey, signature, timestamp, orderbookId);
   }
 
   // ============================================================================

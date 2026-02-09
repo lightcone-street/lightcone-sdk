@@ -154,6 +154,8 @@ from .instructions import (
 
 # Order functions
 from .orders import (
+    cancel_all_message,
+    cancel_order_message,
     create_ask_order,
     create_bid_order,
     create_signed_ask_order,
@@ -167,6 +169,8 @@ from .orders import (
     serialize_order,
     serialize_compact_order,
     serialize_full_order,
+    sign_cancel_all,
+    sign_cancel_order,
     sign_order,
     signature_hex,
     to_order,
@@ -285,12 +289,16 @@ __all__ = [
     "get_alt_pda",
     "get_all_conditional_mints",
     # Order Functions
+    "cancel_all_message",
+    "cancel_order_message",
     "create_bid_order",
     "create_ask_order",
     "create_signed_bid_order",
     "create_signed_ask_order",
     "hash_order",
     "hash_order_hex",
+    "sign_cancel_all",
+    "sign_cancel_order",
     "sign_order",
     "verify_order_signature",
     "serialize_full_order",

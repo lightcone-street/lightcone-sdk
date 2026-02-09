@@ -80,6 +80,8 @@ export interface CancelOrderRequest {
   order_hash: string;
   /** Must match order creator (Base58) */
   maker: string;
+  /** Ed25519 signature over the order hash (hex, 128 chars) */
+  signature: string;
 }
 
 /**
@@ -100,8 +102,12 @@ export interface CancelResponse {
 export interface CancelAllOrdersRequest {
   /** User's public key (Base58) */
   user_pubkey: string;
-  /** Limit to specific market (empty = all) */
-  market_pubkey?: string;
+  /** Limit to specific orderbook (empty = all) */
+  orderbook_id?: string;
+  /** Ed25519 signature over "cancel_all:{pubkey}:{timestamp}" (hex, 128 chars) */
+  signature: string;
+  /** Unix timestamp used in the signed message */
+  timestamp: number;
 }
 
 /**
@@ -112,8 +118,8 @@ export interface CancelAllResponse {
   status: string;
   /** User pubkey */
   user_pubkey: string;
-  /** Market pubkey if specified */
-  market_pubkey?: string;
+  /** Orderbook ID if specified */
+  orderbook_id?: string;
   /** List of cancelled order hashes */
   cancelled_order_hashes: string[];
   /** Count of cancelled orders */

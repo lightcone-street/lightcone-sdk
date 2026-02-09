@@ -51,7 +51,7 @@ from .types import (
     CreateOrderbookResponse,
     DecimalsResponse,
 )
-from ..program.orders import to_submit_request
+from ..program.orders import to_submit_request, sign_cancel_order, sign_cancel_all
 
 
 DEFAULT_TIMEOUT_SECS = 30
@@ -449,57 +449,108 @@ class LightconeApiClient:
         request = to_submit_request(order, orderbook_id)
         return await self.submit_order(request)
 
-    async def cancel_order(self, order_hash: str, maker: str) -> CancelResponse:
-        """Cancel a specific order.
+    async def cancel_order_with_signature(
+        self,
+        order_hash: str,
+        maker: str,
+        signature: str,
+    ) -> CancelResponse:
+        """Cancel a specific order with a pre-computed signature.
 
         Args:
             order_hash: Hash of order to cancel
-            maker: Must match order creator
+            maker: Must match order creator (Base58)
+            signature: Ed25519 signature over the order hash (hex, 128 chars)
 
         Returns:
             CancelResponse with cancellation status
 
         Raises:
-            InvalidParameterError: If maker pubkey is invalid
+            InvalidParameterError: If maker pubkey or signature is invalid
         """
         validate_pubkey(maker, "maker")
+        validate_signature(signature)
         session = await self._ensure_session()
         url = f"{self._base_url}/api/orders/cancel"
-        request = {"order_hash": order_hash, "maker": maker}
+        request = {"order_hash": order_hash, "maker": maker, "signature": signature}
         async with session.post(url, json=request) as response:
             data = await self._handle_response(response)
             return CancelResponse.from_dict(data)
 
-    async def cancel_all_orders(
-        self,
-        user_pubkey: str,
-        market_pubkey: Optional[str] = None,
-    ) -> CancelAllResponse:
-        """Cancel all orders for a user.
+    async def cancel_order(self, order_hash: str, keypair: Keypair) -> CancelResponse:
+        """Cancel a specific order, auto-signing with the given keypair.
 
         Args:
-            user_pubkey: User's public key
-            market_pubkey: Optional market filter
+            order_hash: Hash of order to cancel
+            keypair: Keypair to sign the cancellation
+
+        Returns:
+            CancelResponse with cancellation status
+        """
+        maker = str(keypair.pubkey())
+        signature = sign_cancel_order(order_hash, keypair)
+        return await self.cancel_order_with_signature(order_hash, maker, signature)
+
+    async def cancel_all_orders_with_signature(
+        self,
+        user_pubkey: str,
+        signature: str,
+        timestamp: int,
+        orderbook_id: Optional[str] = None,
+    ) -> CancelAllResponse:
+        """Cancel all orders for a user with a pre-computed signature.
+
+        Args:
+            user_pubkey: User's public key (Base58)
+            signature: Ed25519 signature over "cancel_all:{pubkey}:{timestamp}" (hex, 128 chars)
+            timestamp: Unix timestamp used in the signed message
+            orderbook_id: Optional orderbook filter
 
         Returns:
             CancelAllResponse with cancelled order hashes
 
         Raises:
-            InvalidParameterError: If any pubkey is invalid
+            InvalidParameterError: If any pubkey or signature is invalid
         """
         validate_pubkey(user_pubkey, "user_pubkey")
-        if market_pubkey:
-            validate_pubkey(market_pubkey, "market_pubkey")
+        validate_signature(signature)
 
         session = await self._ensure_session()
         url = f"{self._base_url}/api/orders/cancel-all"
-        request: dict = {"user_pubkey": user_pubkey}
-        if market_pubkey:
-            request["market_pubkey"] = market_pubkey
+        request: dict = {
+            "user_pubkey": user_pubkey,
+            "signature": signature,
+            "timestamp": timestamp,
+        }
+        if orderbook_id:
+            request["orderbook_id"] = orderbook_id
 
         async with session.post(url, json=request) as response:
             data = await self._handle_response(response)
             return CancelAllResponse.from_dict(data)
+
+    async def cancel_all_orders(
+        self,
+        keypair: Keypair,
+        orderbook_id: Optional[str] = None,
+    ) -> CancelAllResponse:
+        """Cancel all orders for a user, auto-signing with the given keypair.
+
+        Args:
+            keypair: Keypair to sign the cancellation
+            orderbook_id: Optional orderbook filter
+
+        Returns:
+            CancelAllResponse with cancelled order hashes
+        """
+        import time as _time
+
+        user_pubkey = str(keypair.pubkey())
+        timestamp = int(_time.time())
+        signature = sign_cancel_all(user_pubkey, timestamp, keypair)
+        return await self.cancel_all_orders_with_signature(
+            user_pubkey, signature, timestamp, orderbook_id
+        )
 
     # =========================================================================
     # User endpoints
