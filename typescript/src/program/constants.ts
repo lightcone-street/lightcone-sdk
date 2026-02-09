@@ -13,7 +13,7 @@ import {
  * Lightcone Pinocchio Program ID
  */
 export const PROGRAM_ID = new PublicKey(
-  "2epidV1UJUrUGNfHbJDtRKT4oad8FJU876Gq8HPHz7Qw"
+  "9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A"
 );
 
 /**

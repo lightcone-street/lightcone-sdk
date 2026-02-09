@@ -123,7 +123,7 @@ mod tests {
     use std::str::FromStr;
 
     fn test_program_id() -> Pubkey {
-        Pubkey::from_str("2epidV1UJUrUGNfHbJDtRKT4oad8FJU876Gq8HPHz7Qw").unwrap()
+        Pubkey::from_str("9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A").unwrap()
     }
 
     #[test]
