@@ -24,7 +24,7 @@ import { keccak256, toU64Le, toI64Le, toU8, toU32Le, fromLeBytes, fromI64Le } fr
  */
 export function hashOrder(order: SignedOrder): Buffer {
   const data = Buffer.concat([
-    toU64Le(order.nonce),
+    toU64Le(BigInt(order.nonce)),
     order.maker.toBuffer(),
     order.market.toBuffer(),
     order.baseMint.toBuffer(),
@@ -125,7 +125,7 @@ export function serializeSignedOrder(order: SignedOrder): Buffer {
   const buffer = Buffer.alloc(ORDER_SIZE.SIGNED_ORDER);
   let offset = 0;
 
-  toU64Le(order.nonce).copy(buffer, offset);
+  toU64Le(BigInt(order.nonce)).copy(buffer, offset);
   offset += 8;
 
   order.maker.toBuffer().copy(buffer, offset);
@@ -169,7 +169,11 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
 
   let offset = 0;
 
-  const nonce = fromLeBytes(data.subarray(offset, offset + 8));
+  const nonceU64 = fromLeBytes(data.subarray(offset, offset + 8));
+  if (nonceU64 > 0xFFFFFFFFn) {
+    throw new Error(`Nonce exceeds u32 range: ${nonceU64}`);
+  }
+  const nonce = Number(nonceU64);
   offset += 8;
 
   const maker = new PublicKey(data.subarray(offset, offset + 32));
@@ -283,11 +287,11 @@ export function deserializeOrder(data: Buffer): Order {
 }
 
 /**
- * Convert a SignedOrder to a compact Order (truncate nonce to u32, drop maker)
+ * Convert a SignedOrder to a compact Order (drop maker)
  */
 export function signedOrderToOrder(order: SignedOrder): Order {
   return {
-    nonce: Number(order.nonce & 0xFFFFFFFFn),
+    nonce: order.nonce,
     side: order.side,
     makerAmount: order.makerAmount,
     takerAmount: order.takerAmount,

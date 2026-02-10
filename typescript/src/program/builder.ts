@@ -10,7 +10,7 @@ import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
  * @example
  * ```typescript
  * const order = new OrderBuilder()
- *   .nonce(1n)
+ *   .nonce(1)
  *   .maker(makerPubkey)
  *   .market(marketPubkey)
  *   .baseMint(baseMintPubkey)
@@ -23,7 +23,7 @@ import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
  * ```
  */
 export class OrderBuilder {
-  private _nonce: bigint = 0n;
+  private _nonce: number = 0;
   private _maker: PublicKey | null = null;
   private _market: PublicKey | null = null;
   private _baseMint: PublicKey | null = null;
@@ -33,8 +33,8 @@ export class OrderBuilder {
   private _takerAmount: bigint = 0n;
   private _expiration: bigint = 0n;
 
-  /** Set the order nonce (u64) */
-  nonce(value: bigint): this {
+  /** Set the order nonce (u32) */
+  nonce(value: number): this {
     this._nonce = value;
     return this;
   }

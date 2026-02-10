@@ -1,23 +1,22 @@
 {
-  "name": "@lightcone/pinocchio-sdk",
+  "name": "@lightconexyz/lightcone-sdk",
   "version": "0.1.0",
-  "description": "TypeScript SDK for Lightcone Pinocchio Program on Solana",
+  "description": "TypeScript SDK for the Lightcone Protocol",
   "author": "Lightcone",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk"
+    "url": "https://github.com/lightcone-street/lightcone-sdk/tree/main/typescript"
   },
-  "homepage": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk#readme",
+  "homepage": "https://github.com/lightcone-street/lightcone-sdk/tree/main/typescript#readme",
   "bugs": {
-    "url": "https://github.com/lightcone-protocol/lightcone-pinocchio-sdk/issues"
+    "url": "https://github.com/lightcone-street/lightcone-sdk/tree/main/typescript/issues"
   },
   "main": "dist/index.js",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "exports": {
     ".": {
@@ -67,7 +66,6 @@
   "keywords": [
     "solana",
     "pinocchio",
-    "prediction-markets",
     "lightcone",
     "defi",
     "web3",

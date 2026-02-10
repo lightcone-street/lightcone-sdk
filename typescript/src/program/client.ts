@@ -149,8 +149,12 @@ export class LightconePinocchioClient {
     return nonce.nonce;
   }
 
-  async getNextNonce(user: PublicKey): Promise<bigint> {
-    return this.getUserNonce(user);
+  async getNextNonce(user: PublicKey): Promise<number> {
+    const nonce = await this.getUserNonce(user);
+    if (nonce > 0xFFFFFFFFn) {
+      throw new Error(`Nonce exceeds u32 range: ${nonce}`);
+    }
+    return Number(nonce);
   }
 
   async getNextMarketId(): Promise<bigint> {

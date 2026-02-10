@@ -1,0 +1,33 @@
+# Source files (dist/ is the published build)
+src/
+
+# Test files
+**/*.test.ts
+**/*.test.js
+**/*.test.d.ts
+**/*.test.d.ts.map
+**/*.test.js.map
+test/
+
+# Environment and secrets
+.env
+.env.*
+keypairs/
+
+# Config files
+tsconfig.json
+vitest.config.ts
+eslint.config.js
+.gitignore
+
+# IDE and OS
+.idea/
+.vscode/
+.claude/
+.DS_Store
+
+# Dev artifacts
+coverage/
+.nyc_output/
+.anchor/
+*.log

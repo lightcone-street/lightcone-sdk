@@ -116,7 +116,7 @@ export interface Orderbook {
  * Full order with all fields for submission, cancellation, and hashing
  */
 export interface SignedOrder {
-  nonce: bigint; // u64 - order ID + replay protection
+  nonce: number; // u32 - order ID + replay protection (serialized as u64 LE on wire)
   maker: PublicKey; // 32 bytes - signer
   market: PublicKey; // 32 bytes
   baseMint: PublicKey; // 32 bytes - token being bought/sold
@@ -419,7 +419,7 @@ export interface MatchOrdersMultiAccounts {
  * Parameters for creating a bid order
  */
 export interface BidOrderParams {
-  nonce: bigint;
+  nonce: number;
   maker: PublicKey;
   market: PublicKey;
   baseMint: PublicKey; // Token to buy
@@ -433,7 +433,7 @@ export interface BidOrderParams {
  * Parameters for creating an ask order
  */
 export interface AskOrderParams {
-  nonce: bigint;
+  nonce: number;
   maker: PublicKey;
   market: PublicKey;
   baseMint: PublicKey; // Token to sell
