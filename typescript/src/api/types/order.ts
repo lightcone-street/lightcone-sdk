@@ -34,7 +34,7 @@ export interface Fill {
 export interface SubmitOrderRequest {
   /** Order creator's pubkey (Base58) */
   maker: string;
-  /** User's nonce for uniqueness (u64 as string) */
+  /** User's nonce for uniqueness (u32 as string) */
   nonce: string;
   /** Market address (Base58) */
   market_pubkey: string;
