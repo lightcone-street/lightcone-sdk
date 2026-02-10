@@ -36,7 +36,7 @@ use crate::shared::SubmitOrderRequest;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct OrderBuilder {
-    nonce: Option<u64>,
+    nonce: Option<u32>,
     maker: Option<Pubkey>,
     market: Option<Pubkey>,
     base_mint: Option<Pubkey>,
@@ -58,7 +58,7 @@ impl OrderBuilder {
     /// Set the nonce (required).
     ///
     /// The nonce must be >= the user's on-chain nonce for the order to be valid.
-    pub fn nonce(mut self, nonce: u64) -> Self {
+    pub fn nonce(mut self, nonce: u32) -> Self {
         self.nonce = Some(nonce);
         self
     }

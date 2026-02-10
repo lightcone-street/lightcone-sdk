@@ -17,8 +17,8 @@ use serde::{Deserialize, Serialize};
 pub struct SubmitOrderRequest {
     /// Order creator's pubkey (Base58)
     pub maker: String,
-    /// User's nonce for uniqueness
-    pub nonce: u64,
+    /// User's nonce for uniqueness (u32 range)
+    pub nonce: u32,
     /// Market address (Base58)
     pub market_pubkey: String,
     /// Token being bought/sold (Base58)

@@ -127,12 +127,15 @@ impl LightconePinocchioClient {
         }
     }
 
-    /// Get the next available nonce for a user (the current stored nonce value).
+    /// Get the next available nonce for a user as u32 (the current stored nonce value).
     ///
     /// Orders should be signed with this nonce value.
     /// Call `increment_nonce` to invalidate orders with the current nonce.
-    pub async fn get_next_nonce(&self, user: &Pubkey) -> SdkResult<u64> {
-        self.get_user_nonce(user).await
+    ///
+    /// Returns an error if the on-chain nonce exceeds u32::MAX.
+    pub async fn get_next_nonce(&self, user: &Pubkey) -> SdkResult<u32> {
+        let nonce = self.get_user_nonce(user).await?;
+        u32::try_from(nonce).map_err(|_| SdkError::Overflow)
     }
 
     /// Get the next available market ID.

@@ -24,7 +24,7 @@ use crate::shared::SubmitOrderRequest;
 /// Signed order structure with full context and signature.
 ///
 /// Layout (225 bytes):
-/// - [0..8]     nonce (8 bytes)
+/// - [0..8]     nonce (u32 value, serialized as u64 LE for wire compatibility)
 /// - [8..40]    maker (32 bytes)
 /// - [40..72]   market (32 bytes)
 /// - [72..104]  base_mint (32 bytes)
@@ -36,8 +36,8 @@ use crate::shared::SubmitOrderRequest;
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
 pub struct SignedOrder {
-    /// Unique order ID and replay protection
-    pub nonce: u64,
+    /// Unique order ID and replay protection (u32 range, serialized as u64 on wire)
+    pub nonce: u32,
     /// Order maker's pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -102,7 +102,7 @@ impl SignedOrder {
     fn signing_message(&self) -> [u8; Self::HASH_SIZE] {
         let mut data = [0u8; Self::HASH_SIZE];
 
-        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
+        data[0..8].copy_from_slice(&(self.nonce as u64).to_le_bytes());
         data[8..40].copy_from_slice(self.maker.as_ref());
         data[40..72].copy_from_slice(self.market.as_ref());
         data[72..104].copy_from_slice(self.base_mint.as_ref());
@@ -177,7 +177,7 @@ impl SignedOrder {
     pub fn serialize(&self) -> [u8; SIGNED_ORDER_SIZE] {
         let mut data = [0u8; SIGNED_ORDER_SIZE];
 
-        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
+        data[0..8].copy_from_slice(&(self.nonce as u64).to_le_bytes());
         data[8..40].copy_from_slice(self.maker.as_ref());
         data[40..72].copy_from_slice(self.market.as_ref());
         data[72..104].copy_from_slice(self.base_mint.as_ref());
@@ -202,6 +202,10 @@ impl SignedOrder {
 
         let mut nonce_bytes = [0u8; 8];
         nonce_bytes.copy_from_slice(&data[0..8]);
+        let nonce_u64 = u64::from_le_bytes(nonce_bytes);
+        if nonce_u64 > u32::MAX as u64 {
+            return Err(SdkError::Overflow);
+        }
 
         let mut maker_bytes = [0u8; 32];
         maker_bytes.copy_from_slice(&data[8..40]);
@@ -228,7 +232,7 @@ impl SignedOrder {
         signature.copy_from_slice(&data[161..225]);
 
         Ok(Self {
-            nonce: u64::from_le_bytes(nonce_bytes),
+            nonce: nonce_u64 as u32,
             maker: Pubkey::new_from_array(maker_bytes),
             market: Pubkey::new_from_array(market_bytes),
             base_mint: Pubkey::new_from_array(base_mint_bytes),
@@ -244,7 +248,7 @@ impl SignedOrder {
     /// Convert to compact order format (29 bytes, no maker field).
     pub fn to_order(&self) -> Order {
         Order {
-            nonce: self.nonce as u32,
+            nonce: self.nonce,
             side: self.side,
             maker_amount: self.maker_amount,
             taker_amount: self.taker_amount,
@@ -385,7 +389,6 @@ impl Order {
     }
 
     /// Expand to signed order using pubkeys from accounts.
-    /// Widens nonce u32 to u64.
     pub fn to_signed(
         &self,
         maker: Pubkey,
@@ -395,7 +398,7 @@ impl Order {
         signature: [u8; 64],
     ) -> SignedOrder {
         SignedOrder {
-            nonce: self.nonce as u64,
+            nonce: self.nonce,
             maker,
             market,
             base_mint,

@@ -179,8 +179,8 @@ pub struct ActivateMarketParams {
 /// Parameters for creating a bid order
 #[derive(Debug, Clone)]
 pub struct BidOrderParams {
-    /// Order nonce (unique per user)
-    pub nonce: u64,
+    /// Order nonce (unique per user, u32 range)
+    pub nonce: u32,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -200,8 +200,8 @@ pub struct BidOrderParams {
 /// Parameters for creating an ask order
 #[derive(Debug, Clone)]
 pub struct AskOrderParams {
-    /// Order nonce (unique per user)
-    pub nonce: u64,
+    /// Order nonce (unique per user, u32 range)
+    pub nonce: u32,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
