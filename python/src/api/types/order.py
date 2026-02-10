@@ -52,7 +52,7 @@ class SubmitOrderRequest:
     """Request for POST /api/orders/submit."""
 
     maker: str
-    nonce: int
+    nonce: int  # u32 range
     market_pubkey: str
     base_token: str
     quote_token: str

@@ -165,10 +165,16 @@ class LightconePinocchioClient:
     async def get_next_nonce(self, user: Pubkey) -> int:
         """Get the next available nonce for a user (the current stored nonce value).
 
-        Orders should be signed with this nonce value.
+        Orders should be signed with this nonce value (u32 range).
         Call `increment_nonce` to invalidate orders with the current nonce.
+
+        Raises:
+            OverflowError: If the on-chain nonce exceeds u32 max.
         """
-        return await self.get_user_nonce(user)
+        nonce = await self.get_user_nonce(user)
+        if nonce > 0xFFFFFFFF:
+            raise OverflowError(f"Nonce exceeds u32 range: {nonce}")
+        return nonce
 
     async def get_next_market_id(self) -> int:
         """Get the next market ID (current market_count)."""

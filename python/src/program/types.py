@@ -86,9 +86,12 @@ class Orderbook:
 
 @dataclass
 class FullOrder:
-    """Full order structure with all fields including signature (225 bytes)."""
+    """Full order structure with all fields including signature (225 bytes).
 
-    nonce: int
+    Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
+    """
+
+    nonce: int  # u32 range
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey
@@ -262,7 +265,7 @@ class SetAuthorityParams:
 class BidOrderParams:
     """Parameters for creating a bid order."""
 
-    nonce: int
+    nonce: int  # u32 range
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey
@@ -276,7 +279,7 @@ class BidOrderParams:
 class AskOrderParams:
     """Parameters for creating an ask order."""
 
-    nonce: int
+    nonce: int  # u32 range
     maker: Pubkey
     market: Pubkey
     base_mint: Pubkey

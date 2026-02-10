@@ -95,11 +95,14 @@ def serialize_order_for_hashing(order: FullOrder) -> bytes:
     """Serialize an order for hashing (excludes signature).
 
     Layout (161 bytes):
-    - nonce (8) | maker (32) | market (32) | base_mint (32) | quote_mint (32) |
-      side (1) | maker_amount (8) | taker_amount (8) | expiration (8)
+    - nonce (8, u32 value widened to u64 LE) | maker (32) | market (32) |
+      base_mint (32) | quote_mint (32) | side (1) | maker_amount (8) |
+      taker_amount (8) | expiration (8)
     """
+    if order.nonce > MAX_U32:
+        raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
     return (
-        encode_u64(order.nonce)
+        encode_u64(order.nonce)  # Widen u32 to u64 for wire compatibility
         + bytes(order.maker)
         + bytes(order.market)
         + bytes(order.base_mint)
@@ -193,8 +196,12 @@ def deserialize_full_order(data: bytes) -> FullOrder:
             f"Data too short: {len(data)} bytes (expected {SIGNED_ORDER_SIZE})"
         )
 
+    nonce_u64 = decode_u64(data, ORDER_NONCE_OFFSET)
+    if nonce_u64 > MAX_U32:
+        raise InvalidOrderError(f"nonce exceeds u32 max: {nonce_u64}")
+
     return FullOrder(
-        nonce=decode_u64(data, ORDER_NONCE_OFFSET),
+        nonce=nonce_u64,
         maker=decode_pubkey(data, ORDER_MAKER_OFFSET),
         market=decode_pubkey(data, ORDER_MARKET_OFFSET),
         base_mint=decode_pubkey(data, ORDER_BASE_MINT_OFFSET),
@@ -210,7 +217,7 @@ def deserialize_full_order(data: bytes) -> FullOrder:
 def to_order(order: FullOrder) -> Order:
     """Convert a full order to a compact order (29 bytes, no maker, u32 nonce)."""
     return Order(
-        nonce=order.nonce & 0xFFFFFFFF,  # Truncate to u32
+        nonce=order.nonce,
         side=order.side,
         maker_amount=order.maker_amount,
         taker_amount=order.taker_amount,
@@ -284,6 +291,10 @@ def validate_order(order: FullOrder, check_expiration: bool = False) -> None:
 
     Raises InvalidOrderError if any field is invalid.
     """
+    # Validate nonce range (u32)
+    if order.nonce > MAX_U32:
+        raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
+
     # Validate amounts
     if order.maker_amount == 0:
         raise InvalidOrderError("maker_amount cannot be zero")
