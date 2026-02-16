@@ -55,6 +55,11 @@ pub mod instruction {
     pub const MATCH_ORDERS_MULTI: u8 = 13;
     pub const SET_AUTHORITY: u8 = 14;
     pub const CREATE_ORDERBOOK: u8 = 15;
+    pub const WHITELIST_DEPOSIT_TOKEN: u8 = 16;
+    pub const DEPOSIT_TO_GLOBAL: u8 = 17;
+    pub const GLOBAL_TO_MARKET_DEPOSIT: u8 = 18;
+    pub const INIT_POSITION_TOKENS: u8 = 19;
+    pub const DEPOSIT_AND_SWAP: u8 = 20;
 }
 
 // ============================================================================
@@ -73,6 +78,8 @@ pub const USER_NONCE_DISCRIMINATOR: [u8; 8] = [0xeb, 0x85, 0x01, 0xf3, 0x12, 0x8
 pub const POSITION_DISCRIMINATOR: [u8; 8] = [0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0];
 /// Orderbook account discriminator
 pub const ORDERBOOK_DISCRIMINATOR: [u8; 8] = [0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07];
+/// GlobalDepositToken account discriminator
+pub const GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR: [u8; 8] = [0x25, 0xbe, 0xa1, 0xe8, 0x7b, 0x92, 0x2a, 0x57];
 
 // ============================================================================
 // PDA Seeds
@@ -96,6 +103,8 @@ pub const USER_NONCE_SEED: &[u8] = b"user_nonce";
 pub const POSITION_SEED: &[u8] = b"position";
 /// Orderbook PDA seed
 pub const ORDERBOOK_SEED: &[u8] = b"orderbook";
+/// GlobalDepositToken PDA seed (also used for user global deposit accounts)
+pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
 
 // ============================================================================
 // Account Sizes
@@ -113,6 +122,8 @@ pub const USER_NONCE_SIZE: usize = 16;
 pub const POSITION_SIZE: usize = 80;
 /// Orderbook account size in bytes
 pub const ORDERBOOK_SIZE: usize = 144;
+/// GlobalDepositToken account size in bytes
+pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 48;
 
 // ============================================================================
 // Order Sizes
@@ -134,4 +145,4 @@ pub const MAX_OUTCOMES: u8 = 6;
 /// Minimum outcomes per market
 pub const MIN_OUTCOMES: u8 = 2;
 /// Maximum makers in a single match_orders_multi instruction
-pub const MAX_MAKERS: usize = 3;
+pub const MAX_MAKERS: usize = 7;

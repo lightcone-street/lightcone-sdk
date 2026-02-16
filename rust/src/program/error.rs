@@ -95,6 +95,10 @@ pub enum SdkError {
     #[error("Division by zero")]
     DivisionByZero,
 
+    /// Deposit token not active
+    #[error("Deposit token not active")]
+    DepositTokenNotActive,
+
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),

@@ -104,7 +104,7 @@ pub mod prelude {
     // Program module exports
     pub use crate::program::{
         // Account types
-        Exchange, Market, Orderbook, OrderStatus, Position, UserNonce,
+        Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce,
         // Errors
         SdkError, SdkResult,
         // Order utilities
@@ -116,12 +116,15 @@ pub mod prelude {
         get_exchange_pda, get_market_pda, get_vault_pda, get_mint_authority_pda,
         get_conditional_mint_pda, get_order_status_pda, get_user_nonce_pda, get_position_pda,
         get_all_conditional_mint_pdas, get_orderbook_pda, get_alt_pda,
+        get_global_deposit_token_pda, get_user_global_deposit_pda, get_position_alt_pda,
         // Types (moved from shared)
         MarketStatus, OrderSide, OutcomeMetadata,
         BidOrderParams, AskOrderParams, CreateMarketParams, MatchOrdersMultiParams,
         MintCompleteSetParams, MergeCompleteSetParams, SettleMarketParams, RedeemWinningsParams,
         AddDepositMintParams, ActivateMarketParams, WithdrawFromPositionParams,
         CreateOrderbookParams, SetAuthorityParams,
+        WhitelistDepositTokenParams, DepositToGlobalParams, GlobalToMarketDepositParams,
+        InitPositionTokensParams, DepositAndSwapParams,
         // Constants (moved from shared)
         PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
     };

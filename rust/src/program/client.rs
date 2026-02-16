@@ -12,14 +12,15 @@ use solana_transaction::Transaction;
 #[cfg(feature = "client")]
 use solana_keypair::Keypair;
 
-use crate::program::accounts::{Exchange, Market, Orderbook, OrderStatus, Position, UserNonce};
+use crate::program::accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
 use crate::program::constants::PROGRAM_ID;
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
 use crate::program::orders::{derive_condition_id, SignedOrder};
 use crate::program::pda::{
-    get_all_conditional_mint_pdas, get_exchange_pda, get_market_pda, get_order_status_pda,
-    get_orderbook_pda, get_position_pda, get_user_nonce_pda,
+    get_all_conditional_mint_pdas, get_exchange_pda, get_global_deposit_token_pda,
+    get_market_pda, get_order_status_pda, get_orderbook_pda, get_position_pda,
+    get_user_global_deposit_pda, get_user_nonce_pda,
 };
 use crate::program::types::*;
 
@@ -157,6 +158,20 @@ impl LightconePinocchioClient {
             .await
             .map_err(|e| SdkError::AccountNotFound(format!("Orderbook: {}", e)))?;
         Orderbook::deserialize(&account.data)
+    }
+
+    /// Fetch a GlobalDepositToken account by mint.
+    pub async fn get_global_deposit_token(
+        &self,
+        mint: &Pubkey,
+    ) -> SdkResult<GlobalDepositToken> {
+        let (pda, _) = get_global_deposit_token_pda(mint, &self.program_id);
+        let account = self
+            .rpc_client
+            .get_account(&pda)
+            .await
+            .map_err(|e| SdkError::AccountNotFound(format!("GlobalDepositToken: {}", e)))?;
+        GlobalDepositToken::deserialize(&account.data)
     }
 
     // ========================================================================
@@ -307,6 +322,54 @@ impl LightconePinocchioClient {
         ))
     }
 
+    /// Build WhitelistDepositToken transaction.
+    pub async fn whitelist_deposit_token(
+        &self,
+        params: WhitelistDepositTokenParams,
+    ) -> SdkResult<Transaction> {
+        let ix = build_whitelist_deposit_token_ix(&params, &self.program_id);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
+    /// Build DepositToGlobal transaction.
+    pub async fn deposit_to_global(
+        &self,
+        params: DepositToGlobalParams,
+    ) -> SdkResult<Transaction> {
+        let ix = build_deposit_to_global_ix(&params, &self.program_id);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build GlobalToMarketDeposit transaction.
+    pub async fn global_to_market_deposit(
+        &self,
+        params: GlobalToMarketDepositParams,
+        num_outcomes: u8,
+    ) -> SdkResult<Transaction> {
+        let ix = build_global_to_market_deposit_ix(&params, num_outcomes, &self.program_id);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build InitPositionTokens transaction.
+    pub async fn init_position_tokens(
+        &self,
+        params: InitPositionTokensParams,
+        num_outcomes: u8,
+    ) -> SdkResult<Transaction> {
+        let ix = build_init_position_tokens_ix(&params, num_outcomes, &self.program_id);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build DepositAndSwap transaction.
+    pub async fn deposit_and_swap(
+        &self,
+        params: DepositAndSwapParams,
+        num_outcomes: u8,
+    ) -> SdkResult<Transaction> {
+        let ix = build_deposit_and_swap_ix(&params, num_outcomes, &self.program_id)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
     // ========================================================================
     // Order Helpers
     // ========================================================================
@@ -407,6 +470,16 @@ impl LightconePinocchioClient {
     /// Get an Orderbook PDA.
     pub fn get_orderbook_pda(&self, mint_a: &Pubkey, mint_b: &Pubkey) -> Pubkey {
         get_orderbook_pda(mint_a, mint_b, &self.program_id).0
+    }
+
+    /// Get a GlobalDepositToken PDA.
+    pub fn get_global_deposit_token_pda(&self, mint: &Pubkey) -> Pubkey {
+        get_global_deposit_token_pda(mint, &self.program_id).0
+    }
+
+    /// Get a User Global Deposit PDA.
+    pub fn get_user_global_deposit_pda(&self, user: &Pubkey, mint: &Pubkey) -> Pubkey {
+        get_user_global_deposit_pda(user, mint, &self.program_id).0
     }
 }
 

@@ -264,3 +264,74 @@ pub struct SetAuthorityParams {
     /// New authority pubkey
     pub new_authority: Pubkey,
 }
+
+/// Parameters for whitelisting a deposit token for global deposits
+#[derive(Debug, Clone)]
+pub struct WhitelistDepositTokenParams {
+    /// Authority pubkey (must be exchange authority)
+    pub authority: Pubkey,
+    /// Mint pubkey to whitelist
+    pub mint: Pubkey,
+}
+
+/// Parameters for depositing tokens to a global deposit account
+#[derive(Debug, Clone)]
+pub struct DepositToGlobalParams {
+    /// User pubkey (depositor)
+    pub user: Pubkey,
+    /// Deposit token mint pubkey
+    pub mint: Pubkey,
+    /// Amount to deposit
+    pub amount: u64,
+}
+
+/// Parameters for transferring from global deposit to a market vault
+#[derive(Debug, Clone)]
+pub struct GlobalToMarketDepositParams {
+    /// User pubkey
+    pub user: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// Deposit mint pubkey (e.g., USDC)
+    pub deposit_mint: Pubkey,
+    /// Amount of collateral to transfer and mint
+    pub amount: u64,
+}
+
+/// Parameters for initializing position token accounts and ALT
+#[derive(Debug, Clone)]
+pub struct InitPositionTokensParams {
+    /// User pubkey (payer and position owner)
+    pub user: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// Deposit mint pubkey
+    pub deposit_mint: Pubkey,
+    /// Recent slot for ALT address derivation
+    pub recent_slot: u64,
+}
+
+/// Parameters for deposit-and-swap (atomic deposit + mint + swap)
+#[derive(Debug, Clone)]
+pub struct DepositAndSwapParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// Deposit mint pubkey (collateral, e.g., USDC)
+    pub deposit_mint: Pubkey,
+    /// Base mint pubkey (conditional token A)
+    pub base_mint: Pubkey,
+    /// Quote mint pubkey (conditional token B)
+    pub quote_mint: Pubkey,
+    /// Taker order (signed)
+    pub taker_order: crate::program::orders::SignedOrder,
+    /// Maker orders (signed)
+    pub maker_orders: Vec<crate::program::orders::SignedOrder>,
+    /// Fill amounts for each maker (maker side)
+    pub maker_fill_amounts: Vec<u64>,
+    /// Fill amounts for each maker (taker side)
+    pub taker_fill_amounts: Vec<u64>,
+    /// Bitmask indicating which orders require full fill
+    pub full_fill_bitmask: u8,
+}

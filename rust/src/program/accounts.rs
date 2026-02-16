@@ -6,9 +6,10 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE,
-    ORDERBOOK_DISCRIMINATOR, ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE,
-    POSITION_DISCRIMINATOR, POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
+    EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
+    GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, ORDERBOOK_DISCRIMINATOR,
+    ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR,
+    POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::MarketStatus;
@@ -414,6 +415,65 @@ impl Orderbook {
     }
 }
 
+// ============================================================================
+// GlobalDepositToken Account (48 bytes)
+// ============================================================================
+
+/// GlobalDepositToken account - whitelist entry for global deposits
+///
+/// Layout:
+/// - [0..8]   discriminator (8 bytes)
+/// - [8..40]  mint (32 bytes)
+/// - [40]     active (1 byte)
+/// - [41]     bump (1 byte)
+/// - [42..48] _padding (6 bytes)
+#[derive(Debug, Clone)]
+pub struct GlobalDepositToken {
+    /// Account discriminator
+    pub discriminator: [u8; 8],
+    /// The whitelisted token mint
+    pub mint: Pubkey,
+    /// Whether this deposit token is currently active
+    pub active: bool,
+    /// PDA bump seed
+    pub bump: u8,
+}
+
+impl GlobalDepositToken {
+    /// Account size in bytes
+    pub const LEN: usize = GLOBAL_DEPOSIT_TOKEN_SIZE;
+
+    /// Deserialize from account data
+    pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
+        if data.len() < Self::LEN {
+            return Err(SdkError::InvalidDataLength {
+                expected: Self::LEN,
+                actual: data.len(),
+            });
+        }
+
+        let discriminator = read_bytes::<8>(data, 0);
+        if discriminator != GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR {
+            return Err(SdkError::InvalidDiscriminator {
+                expected: hex::encode(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR),
+                actual: hex::encode(discriminator),
+            });
+        }
+
+        Ok(Self {
+            discriminator,
+            mint: read_pubkey(data, 8),
+            active: data[40] != 0,
+            bump: data[41],
+        })
+    }
+
+    /// Check if account data has the global deposit token discriminator
+    pub fn is_global_deposit_token_account(data: &[u8]) -> bool {
+        data.len() >= 8 && data[0..8] == GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -535,5 +595,39 @@ mod tests {
 
         let bad_data = vec![0u8; ORDERBOOK_SIZE];
         assert!(!Orderbook::is_orderbook_account(&bad_data));
+    }
+
+    #[test]
+    fn test_global_deposit_token_deserialization() {
+        let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        data[8..40].copy_from_slice(&[5u8; 32]);
+        data[40] = 1;
+        data[41] = 251;
+
+        let gdt = GlobalDepositToken::deserialize(&data).unwrap();
+        assert_eq!(gdt.mint, Pubkey::new_from_array([5u8; 32]));
+        assert!(gdt.active);
+        assert_eq!(gdt.bump, 251);
+    }
+
+    #[test]
+    fn test_global_deposit_token_inactive() {
+        let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        data[40] = 0;
+
+        let gdt = GlobalDepositToken::deserialize(&data).unwrap();
+        assert!(!gdt.active);
+    }
+
+    #[test]
+    fn test_global_deposit_token_is_account() {
+        let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        assert!(GlobalDepositToken::is_global_deposit_token_account(&data));
+
+        let bad_data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        assert!(!GlobalDepositToken::is_global_deposit_token_account(&bad_data));
     }
 }

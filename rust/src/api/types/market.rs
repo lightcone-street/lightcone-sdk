@@ -55,19 +55,19 @@ pub struct ConditionalToken {
     /// Token mint address
     pub token_address: String,
     /// Token name
-    pub name: String,
+    pub name: Option<String>,
     /// Token symbol
-    pub symbol: String,
+    pub symbol: Option<String>,
     /// Token metadata URI
     pub uri: Option<String>,
     /// Display name for UI
-    pub display_name: String,
+    pub display_name: Option<String>,
     /// Outcome name
-    pub outcome: String,
+    pub outcome: Option<String>,
     /// Associated deposit symbol
-    pub deposit_symbol: String,
+    pub deposit_symbol: Option<String>,
     /// Short name for display
-    pub short_name: String,
+    pub short_name: Option<String>,
     /// Token description
     pub description: Option<String>,
     /// Icon URL
@@ -84,11 +84,11 @@ pub struct ConditionalToken {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositAsset {
     /// Display name for the asset
-    pub display_name: String,
+    pub display_name: Option<String>,
     /// Token symbol
-    pub token_symbol: String,
+    pub token_symbol: Option<String>,
     /// Short symbol
-    pub symbol: String,
+    pub symbol: Option<String>,
     /// Deposit asset mint address
     pub deposit_asset: String,
     /// Database ID
@@ -108,6 +108,7 @@ pub struct DepositAsset {
     /// Token decimals
     pub decimals: u8,
     /// Conditional tokens for each outcome
+    #[serde(alias = "conditional_mints")]
     pub conditional_tokens: Vec<ConditionalToken>,
     /// Creation timestamp
     pub created_at: String,
@@ -117,13 +118,13 @@ pub struct DepositAsset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Market {
     /// Market name
-    pub market_name: String,
+    pub market_name: Option<String>,
     /// URL-friendly slug
-    pub slug: String,
+    pub slug: Option<String>,
     /// Market description
-    pub description: String,
+    pub description: Option<String>,
     /// Market definition/rules
-    pub definition: String,
+    pub definition: Option<String>,
     /// Possible outcomes
     pub outcomes: Vec<Outcome>,
     /// Banner image URL
@@ -151,8 +152,7 @@ pub struct Market {
     /// Current market status
     pub market_status: ApiMarketStatus,
     /// Winning outcome index (if settled)
-    #[serde(default)]
-    pub winning_outcome: u32,
+    pub winning_outcome: Option<u32>,
     /// Whether market has a winning outcome
     #[serde(default)]
     pub has_winning_outcome: bool,
@@ -175,7 +175,8 @@ pub struct Market {
 pub struct MarketsResponse {
     /// List of markets
     pub markets: Vec<Market>,
-    /// Total count
+    /// Total count (optional, computed from markets.len() if not provided)
+    #[serde(default)]
     pub total: u64,
 }
 

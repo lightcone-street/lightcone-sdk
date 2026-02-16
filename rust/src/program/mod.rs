@@ -16,7 +16,7 @@ pub mod types;
 pub mod utils;
 
 // Re-export commonly used items
-pub use accounts::{Exchange, Market, Orderbook, OrderStatus, Position, UserNonce};
+pub use accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
 pub use builder::OrderBuilder;
 #[cfg(feature = "client")]
 pub use client::LightconePinocchioClient;
