@@ -108,7 +108,6 @@ pub struct DepositAsset {
     /// Token decimals
     pub decimals: u8,
     /// Conditional tokens for each outcome
-    #[serde(alias = "conditional_mints")]
     pub conditional_tokens: Vec<ConditionalToken>,
     /// Creation timestamp
     pub created_at: String,
@@ -118,13 +117,13 @@ pub struct DepositAsset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Market {
     /// Market name
-    pub market_name: Option<String>,
+    pub market_name: String,
     /// URL-friendly slug
-    pub slug: Option<String>,
+    pub slug: String,
     /// Market description
-    pub description: Option<String>,
+    pub description: String,
     /// Market definition/rules
-    pub definition: Option<String>,
+    pub definition: String,
     /// Possible outcomes
     pub outcomes: Vec<Outcome>,
     /// Banner image URL
@@ -152,7 +151,8 @@ pub struct Market {
     /// Current market status
     pub market_status: ApiMarketStatus,
     /// Winning outcome index (if settled)
-    pub winning_outcome: Option<u32>,
+    #[serde(default)]
+    pub winning_outcome: u32,
     /// Whether market has a winning outcome
     #[serde(default)]
     pub has_winning_outcome: bool,
@@ -175,8 +175,7 @@ pub struct Market {
 pub struct MarketsResponse {
     /// List of markets
     pub markets: Vec<Market>,
-    /// Total count (optional, computed from markets.len() if not provided)
-    #[serde(default)]
+    /// Total count
     pub total: u64,
 }
 
