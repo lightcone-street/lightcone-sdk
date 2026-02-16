@@ -7,9 +7,9 @@ use sha3::{Digest, Keccak256};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use solana_keypair::Keypair;
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use solana_signer::Signer;
 
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
@@ -126,7 +126,7 @@ impl SignedOrder {
     }
 
     /// Sign the order with the given keypair.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash_hex();
         let sig = keypair.sign_message(hash.as_bytes());
@@ -135,7 +135,7 @@ impl SignedOrder {
     }
 
     /// Create and sign an order in one step.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn new_bid_signed(params: BidOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_bid(params);
         order.sign(keypair);
@@ -143,7 +143,7 @@ impl SignedOrder {
     }
 
     /// Create and sign an ask order in one step.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn new_ask_signed(params: AskOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_ask(params);
         order.sign(keypair);
@@ -916,7 +916,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     fn test_to_submit_request() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;
@@ -981,7 +981,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     fn test_is_signed() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;
@@ -1008,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     fn test_signature_and_hash_hex() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;

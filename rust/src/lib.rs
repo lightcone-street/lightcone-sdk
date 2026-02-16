@@ -130,7 +130,7 @@ pub mod prelude {
     };
 
     // Client (conditionally exported)
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub use crate::program::LightconePinocchioClient;
 
     // API module exports

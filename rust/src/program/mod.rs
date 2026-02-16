@@ -5,7 +5,7 @@
 
 pub mod accounts;
 pub mod builder;
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 pub mod client;
 pub mod constants;
 pub mod error;
@@ -18,7 +18,7 @@ pub mod utils;
 // Re-export commonly used items
 pub use accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
 pub use builder::OrderBuilder;
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 pub use client::LightconePinocchioClient;
 pub use constants::*;
 pub use error::{SdkError, SdkResult};

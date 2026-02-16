@@ -68,8 +68,8 @@ serde_json = "1.0"
 
 [features]
 default = ["full"]
-full = ["client", "api", "websocket"]
-client = ["dep:solana-client", "dep:solana-commitment-config", "dep:solana-keypair", "dep:solana-signer", "dep:tokio"]
+full = ["native-client", "api", "websocket"]
+native-client = ["dep:solana-client", "dep:solana-commitment-config", "dep:solana-keypair", "dep:solana-signer", "dep:tokio"]
 api = ["dep:reqwest", "dep:tokio"]
 auth = ["dep:solana-keypair", "dep:solana-signer", "dep:reqwest", "dep:tokio"]
 websocket = ["auth", "dep:tokio-tungstenite", "dep:tokio", "dep:solana-keypair", "dep:solana-signer"]

@@ -9,7 +9,7 @@ use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use solana_keypair::Keypair;
 
 use crate::program::accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
@@ -385,7 +385,7 @@ impl LightconePinocchioClient {
     }
 
     /// Create and sign a bid order.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn create_signed_bid_order(
         &self,
         params: BidOrderParams,
@@ -395,7 +395,7 @@ impl LightconePinocchioClient {
     }
 
     /// Create and sign an ask order.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn create_signed_ask_order(
         &self,
         params: AskOrderParams,
@@ -410,7 +410,7 @@ impl LightconePinocchioClient {
     }
 
     /// Sign an order with the given keypair.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn sign_order(&self, order: &mut SignedOrder, keypair: &Keypair) {
         order.sign(keypair);
     }

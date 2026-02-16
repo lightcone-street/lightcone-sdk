@@ -3,13 +3,13 @@
 use rust_decimal::Decimal;
 use solana_pubkey::Pubkey;
 
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use solana_keypair::Keypair;
 
 use crate::program::orders::SignedOrder;
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use crate::shared::SubmitOrderRequest;
 
 /// Builder for creating orders with a fluent API.
@@ -160,7 +160,7 @@ impl OrderBuilder {
     /// # Panics
     ///
     /// Panics if required fields are missing.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn build_and_sign(self, keypair: &Keypair) -> SignedOrder {
         let mut order = self.build();
         order.sign(keypair);
@@ -177,7 +177,7 @@ impl OrderBuilder {
     /// # Panics
     ///
     /// Panics if required fields are missing.
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub fn to_submit_request(
         self,
         keypair: &Keypair,
@@ -246,11 +246,11 @@ impl OrderBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     use solana_signer::Signer;
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     fn test_order_builder_basic() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     fn test_order_builder_to_submit_request() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -314,11 +314,11 @@ mod tests {
 
     #[test]
     fn test_order_builder_unsigned() {
-        #[cfg(feature = "client")]
+        #[cfg(feature = "native-client")]
         let keypair = Keypair::new();
-        #[cfg(feature = "client")]
+        #[cfg(feature = "native-client")]
         let maker = keypair.pubkey();
-        #[cfg(not(feature = "client"))]
+        #[cfg(not(feature = "native-client"))]
         let maker = Pubkey::new_unique();
 
         let order = OrderBuilder::new()
@@ -336,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     #[should_panic(expected = "nonce is required")]
     fn test_order_builder_missing_nonce() {
         let keypair = Keypair::new();
@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     #[should_panic(expected = "side is required")]
     fn test_order_builder_missing_side() {
         let keypair = Keypair::new();
