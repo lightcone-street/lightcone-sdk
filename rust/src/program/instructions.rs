@@ -1025,11 +1025,11 @@ pub fn build_deposit_and_swap_ix(
     keys.push(readonly(TOKEN_2022_PROGRAM_ID));
     keys.push(readonly(system_program_id()));
 
-    // Conditional mints + taker position ATAs (num_outcomes * 2)
+    // Conditional mints (writable - program mints tokens) + taker position ATAs (num_outcomes * 2)
     for i in 0..num_outcomes {
         let (cond_mint, _) =
             get_conditional_mint_pda(&params.market, &params.deposit_mint, i, program_id);
-        keys.push(readonly(cond_mint));
+        keys.push(writable(cond_mint));
         let taker_ata = get_conditional_token_ata(&taker_position, &cond_mint);
         keys.push(writable(taker_ata));
     }
