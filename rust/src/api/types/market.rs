@@ -84,11 +84,11 @@ pub struct ConditionalToken {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositAsset {
     /// Display name for the asset
-    pub display_name: Option<String>,
+    pub display_name: String,
     /// Token symbol
-    pub token_symbol: Option<String>,
+    pub token_symbol: String,
     /// Short symbol
-    pub symbol: Option<String>,
+    pub symbol: String,
     /// Deposit asset mint address
     pub deposit_asset: String,
     /// Database ID
