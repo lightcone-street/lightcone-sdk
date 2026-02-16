@@ -55,19 +55,19 @@ pub struct ConditionalToken {
     /// Token mint address
     pub token_address: String,
     /// Token name
-    pub name: Option<String>,
+    pub name: String,
     /// Token symbol
-    pub symbol: Option<String>,
+    pub symbol: String,
     /// Token metadata URI
     pub uri: Option<String>,
     /// Display name for UI
-    pub display_name: Option<String>,
+    pub display_name: String,
     /// Outcome name
-    pub outcome: Option<String>,
+    pub outcome: String,
     /// Associated deposit symbol
-    pub deposit_symbol: Option<String>,
+    pub deposit_symbol: String,
     /// Short name for display
-    pub short_name: Option<String>,
+    pub short_name: String,
     /// Token description
     pub description: Option<String>,
     /// Icon URL
