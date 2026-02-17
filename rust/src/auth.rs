@@ -171,7 +171,7 @@ mod login {
             .map_err(|e| AuthError::HttpError(e.to_string()))?;
 
         // Send the authentication request
-        let url = format!("{}/auth/login_or_register_with_message", crate::network::DEFAULT_API_URL);
+        let url = format!("{}/api/auth/login_or_register_with_message", crate::network::DEFAULT_API_URL);
         let response = client
             .post(&url)
             .json(&request)
@@ -239,7 +239,7 @@ mod login {
             .map_err(|e| AuthError::HttpError(e.to_string()))?;
 
         let url = format!(
-            "{}/auth/login_or_register_with_transaction",
+            "{}/api/auth/login_or_register_with_transaction",
             crate::network::DEFAULT_API_URL
         );
         let response = client
