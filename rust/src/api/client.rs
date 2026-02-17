@@ -12,9 +12,9 @@
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
 //!     let client = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
-//!     // Get all markets
-//!     let markets = client.get_markets().await?;
-//!     println!("Found {} markets", markets.total);
+//!     // Get all markets (first page)
+//!     let markets = client.get_markets(None, None).await?;
+//!     println!("Has more: {}", markets.has_more);
 //!
 //!     // Get orderbook
 //!     let orderbook = client.get_orderbook("orderbook_id", None).await?;
@@ -44,7 +44,7 @@ use crate::shared::OrderbookDecimals;
 const DEFAULT_TIMEOUT_SECS: u64 = 30;
 
 /// Maximum allowed limit for paginated API requests.
-const MAX_PAGINATION_LIMIT: u32 = 500;
+const MAX_PAGINATION_LIMIT: u32 = 1000;
 
 /// Retry configuration for the API client.
 #[derive(Debug, Clone)]
@@ -256,6 +256,47 @@ impl LightconeApiClient {
         Ok(credentials)
     }
 
+    /// Authenticate with Lightcone using a signed transaction.
+    ///
+    /// For wallets that don't support message signing. Stores the returned JWT
+    /// so that authenticated endpoints like `get_user_orders` work.
+    #[cfg(feature = "auth")]
+    pub async fn login_with_transaction(
+        &mut self,
+        message_bytes: &[u8],
+        signature_bytes: &[u8; 64],
+        pubkey_bytes: &[u8; 32],
+    ) -> ApiResult<crate::auth::AuthCredentials> {
+        let credentials =
+            crate::auth::authenticate_with_transaction(message_bytes, signature_bytes, pubkey_bytes)
+                .await
+                .map_err(|e| ApiError::InvalidParameter(e.to_string()))?;
+        self.auth_token = Some(credentials.auth_token.clone());
+        Ok(credentials)
+    }
+
+    /// Logout and clear the authentication token.
+    ///
+    /// Calls `POST /api/auth/logout` to invalidate the server-side session,
+    /// then clears the local auth token.
+    pub async fn logout(&mut self) -> ApiResult<()> {
+        let url = format!("{}/api/auth/logout", self.base_url);
+
+        if let Some(ref token) = self.auth_token {
+            self.execute_with_retry(|| {
+                self.http_client
+                    .post(&url)
+                    .header("Cookie", format!("auth_token={}", token))
+                    .send()
+            })
+            .await
+            .map(|_: serde_json::Value| ())?;
+        }
+
+        self.auth_token = None;
+        Ok(())
+    }
+
     /// Set the authentication token manually.
     pub fn set_auth_token(&mut self, token: impl Into<String>) {
         self.auth_token = Some(token.into());
@@ -454,11 +495,33 @@ impl LightconeApiClient {
     // Market endpoints
     // =========================================================================
 
-    /// Get all markets.
+    /// Get markets with optional pagination.
     ///
-    /// Returns a list of all markets with their metadata.
-    pub async fn get_markets(&self) -> ApiResult<MarketsResponse> {
-        let url = format!("{}/api/markets", self.base_url);
+    /// # Arguments
+    ///
+    /// * `cursor` - Optional pagination cursor from a previous response's `next_cursor`
+    /// * `limit` - Optional page size (1-1000, default 200 server-side)
+    pub async fn get_markets(
+        &self,
+        cursor: Option<i64>,
+        limit: Option<u32>,
+    ) -> ApiResult<MarketsResponse> {
+        if let Some(limit) = limit {
+            Self::validate_limit(limit, MAX_PAGINATION_LIMIT)?;
+        }
+
+        let mut url = format!("{}/api/markets", self.base_url);
+        let mut has_param = false;
+
+        if let Some(cursor) = cursor {
+            url.push_str(&format!("?cursor={}", cursor));
+            has_param = true;
+        }
+        if let Some(limit) = limit {
+            url.push_str(if has_param { "&" } else { "?" });
+            url.push_str(&format!("limit={}", limit));
+        }
+
         self.get(&url).await
     }
 
@@ -477,6 +540,42 @@ impl LightconeApiClient {
             return Err(ApiError::InvalidParameter("slug cannot be empty".to_string()));
         }
         let url = format!("{}/api/markets/by-slug/{}", self.base_url, urlencoding::encode(slug));
+        self.get(&url).await
+    }
+
+    /// Search markets by query (full-text search on name, category, tags).
+    ///
+    /// # Arguments
+    ///
+    /// * `query` - Search query string
+    /// * `limit` - Optional max results (1-60, default 20 server-side)
+    pub async fn search_markets(
+        &self,
+        query: &str,
+        limit: Option<u32>,
+    ) -> ApiResult<Vec<MarketSearchResult>> {
+        if query.is_empty() {
+            return Err(ApiError::InvalidParameter("query cannot be empty".to_string()));
+        }
+        if let Some(limit) = limit {
+            Self::validate_limit(limit, 60)?;
+        }
+
+        let mut url = format!(
+            "{}/api/markets/search/by-query/{}",
+            self.base_url,
+            urlencoding::encode(query)
+        );
+        if let Some(limit) = limit {
+            url.push_str(&format!("?limit={}", limit));
+        }
+
+        self.get(&url).await
+    }
+
+    /// Get featured/promoted markets.
+    pub async fn get_featured_markets(&self) -> ApiResult<Vec<MarketSearchResult>> {
+        let url = format!("{}/api/markets/search/featured", self.base_url);
         self.get(&url).await
     }
 
@@ -792,22 +891,14 @@ impl LightconeApiClient {
     // Admin endpoints
     // =========================================================================
 
-    /// Admin health check endpoint.
-    pub async fn admin_health_check(&self) -> ApiResult<AdminResponse> {
-        let url = format!("{}/api/admin/test", self.base_url);
-        self.get(&url).await
-    }
-
-    /// Create a new orderbook for a market.
-    pub async fn create_orderbook(
+    /// Upsert metadata via signed admin envelope.
+    ///
+    /// Requires a valid ED25519 signature from an authorized admin key.
+    pub async fn upsert_metadata(
         &self,
-        request: CreateOrderbookRequest,
-    ) -> ApiResult<CreateOrderbookResponse> {
-        Self::validate_base58(&request.market_pubkey, "market_pubkey")?;
-        Self::validate_base58(&request.base_token, "base_token")?;
-        Self::validate_base58(&request.quote_token, "quote_token")?;
-
-        let url = format!("{}/api/admin/create-orderbook", self.base_url);
+        request: AdminEnvelope<UnifiedMetadataRequest>,
+    ) -> ApiResult<UnifiedMetadataResponse> {
+        let url = format!("{}/api/admin/metadata", self.base_url);
         self.post(&url, &request).await
     }
 
@@ -927,16 +1018,6 @@ mod tests {
         assert_eq!(params.to, Some(2000));
         assert_eq!(params.cursor, Some(50));
         assert_eq!(params.limit, Some(100));
-    }
-
-    #[test]
-    fn test_create_orderbook_request() {
-        let request = CreateOrderbookRequest::new("market1", "base1", "quote1").with_tick_size(500);
-
-        assert_eq!(request.market_pubkey, "market1");
-        assert_eq!(request.base_token, "base1");
-        assert_eq!(request.quote_token, "quote1");
-        assert_eq!(request.tick_size, Some(500));
     }
 
     #[test]

@@ -121,10 +121,18 @@ pub use types::{
     // User events
     Balance,
     BalanceEntry,
-    Order,
-    OrderUpdate,
+    UserOrderSnapshot,
+    UserFillInfo,
     OutcomeBalance,
     UserEventData,
+    UserSnapshotData,
+    UserOrderEvent,
+    UserBalanceEvent,
+    UserNonceEvent,
+    // Ticker
+    TickerData,
+    // Auth
+    AuthData,
     // Price history
     Candle,
     PriceHistoryData,

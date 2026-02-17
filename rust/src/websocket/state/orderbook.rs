@@ -104,7 +104,7 @@ impl LocalOrderbook {
             }
         }
 
-        self.expected_sequence = update.sequence + 1;
+        self.expected_sequence = update.seq + 1;
         self.has_snapshot = true;
         self.last_timestamp = Some(update.timestamp.clone());
     }
@@ -114,10 +114,10 @@ impl LocalOrderbook {
     /// Returns an error if a sequence gap is detected.
     pub fn apply_delta(&mut self, update: &BookUpdateData) -> Result<(), WebSocketError> {
         // Check sequence number
-        if update.sequence != self.expected_sequence {
+        if update.seq != self.expected_sequence {
             return Err(WebSocketError::SequenceGap {
                 expected: self.expected_sequence,
-                received: update.sequence,
+                received: update.seq,
             });
         }
 
@@ -141,7 +141,7 @@ impl LocalOrderbook {
             }
         }
 
-        self.expected_sequence = update.sequence + 1;
+        self.expected_sequence = update.seq + 1;
         self.last_timestamp = Some(update.timestamp.clone());
         Ok(())
     }
@@ -326,7 +326,7 @@ mod tests {
         BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
-            sequence: 0,
+            seq: 0,
             bids: vec![
                 PriceLevel {
                     side: "bid".to_string(),
@@ -380,7 +380,7 @@ mod tests {
         let delta = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.050Z".to_string(),
-            sequence: 1,
+            seq: 1,
             bids: vec![PriceLevel {
                 side: "bid".to_string(),
                 price: "0.500000".to_string(),
@@ -411,7 +411,7 @@ mod tests {
         let delta = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.050Z".to_string(),
-            sequence: 5, // Gap!
+            seq: 5, // Gap!
             bids: vec![],
             asks: vec![],
             is_snapshot: false,
@@ -453,7 +453,7 @@ mod tests {
         let snapshot = BookUpdateData {
             orderbook_id: "test".to_string(),
             timestamp: "2024-01-01T00:00:00.000Z".to_string(),
-            sequence: 0,
+            seq: 0,
             bids: vec![
                 PriceLevel {
                     side: "bid".to_string(),

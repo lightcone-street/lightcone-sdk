@@ -13,8 +13,8 @@ pub enum Subscription {
     BookUpdate { orderbook_ids: Vec<String> },
     /// Trades subscription for orderbook IDs
     Trades { orderbook_ids: Vec<String> },
-    /// User subscription for a public key
-    User { user: String },
+    /// User subscription for a wallet address
+    User { wallet_address: String },
     /// Price history subscription
     PriceHistory {
         orderbook_id: String,
@@ -23,6 +23,8 @@ pub enum Subscription {
     },
     /// Market events subscription
     Market { market_pubkey: String },
+    /// Ticker (best bid/ask) subscription for orderbook IDs
+    Ticker { orderbook_ids: Vec<String> },
 }
 
 impl Subscription {
@@ -31,7 +33,7 @@ impl Subscription {
         match self {
             Self::BookUpdate { orderbook_ids } => SubscribeParams::book_update(orderbook_ids.clone()),
             Self::Trades { orderbook_ids } => SubscribeParams::trades(orderbook_ids.clone()),
-            Self::User { user } => SubscribeParams::user(user.clone()),
+            Self::User { wallet_address } => SubscribeParams::user(wallet_address.clone()),
             Self::PriceHistory {
                 orderbook_id,
                 resolution,
@@ -42,6 +44,7 @@ impl Subscription {
                 *include_ohlcv,
             ),
             Self::Market { market_pubkey } => SubscribeParams::market(market_pubkey.clone()),
+            Self::Ticker { orderbook_ids } => SubscribeParams::ticker(orderbook_ids.clone()),
         }
     }
 
@@ -53,6 +56,7 @@ impl Subscription {
             Self::User { .. } => "user",
             Self::PriceHistory { .. } => "price_history",
             Self::Market { .. } => "market",
+            Self::Ticker { .. } => "ticker",
         }
     }
 }
@@ -64,12 +68,14 @@ pub struct SubscriptionManager {
     book_updates: HashSet<String>,
     /// Trades subscriptions (orderbook_id -> subscription)
     trades: HashSet<String>,
-    /// User subscriptions (user pubkey -> subscription)
+    /// User subscriptions (wallet address -> subscription)
     users: HashSet<String>,
     /// Price history subscriptions (orderbook_id:resolution -> params)
     price_history: HashMap<String, (String, String, bool)>, // key -> (orderbook_id, resolution, include_ohlcv)
     /// Market subscriptions (market_pubkey -> subscription)
     markets: HashSet<String>,
+    /// Ticker subscriptions (orderbook_id -> subscription)
+    ticker: HashSet<String>,
 }
 
 impl SubscriptionManager {
@@ -117,18 +123,18 @@ impl SubscriptionManager {
     }
 
     /// Add a user subscription
-    pub fn add_user(&mut self, user: String) {
-        self.users.insert(user);
+    pub fn add_user(&mut self, wallet_address: String) {
+        self.users.insert(wallet_address);
     }
 
     /// Remove a user subscription
-    pub fn remove_user(&mut self, user: &str) {
-        self.users.remove(user);
+    pub fn remove_user(&mut self, wallet_address: &str) {
+        self.users.remove(wallet_address);
     }
 
     /// Check if subscribed to a user
-    pub fn is_subscribed_user(&self, user: &str) -> bool {
-        self.users.contains(user)
+    pub fn is_subscribed_user(&self, wallet_address: &str) -> bool {
+        self.users.contains(wallet_address)
     }
 
     /// Add a price history subscription
@@ -165,6 +171,30 @@ impl SubscriptionManager {
         self.markets.contains(market_pubkey) || self.markets.contains("all")
     }
 
+    /// Add a ticker subscription
+    pub fn add_ticker(&mut self, orderbook_ids: Vec<String>) {
+        for id in orderbook_ids {
+            self.ticker.insert(id);
+        }
+    }
+
+    /// Remove a ticker subscription
+    pub fn remove_ticker(&mut self, orderbook_ids: &[String]) {
+        for id in orderbook_ids {
+            self.ticker.remove(id);
+        }
+    }
+
+    /// Check if subscribed to ticker for an orderbook
+    pub fn is_subscribed_ticker(&self, orderbook_id: &str) -> bool {
+        self.ticker.contains(orderbook_id)
+    }
+
+    /// Get all subscribed orderbook IDs (for ticker)
+    pub fn ticker_orderbooks(&self) -> Vec<String> {
+        self.ticker.iter().cloned().collect()
+    }
+
     /// Get all subscriptions for re-subscribing after reconnect
     pub fn get_all_subscriptions(&self) -> Vec<Subscription> {
         let mut subs = Vec::new();
@@ -184,8 +214,8 @@ impl SubscriptionManager {
         }
 
         // Users
-        for user in &self.users {
-            subs.push(Subscription::User { user: user.clone() });
+        for wallet_address in &self.users {
+            subs.push(Subscription::User { wallet_address: wallet_address.clone() });
         }
 
         // Price history
@@ -204,6 +234,13 @@ impl SubscriptionManager {
             });
         }
 
+        // Ticker
+        if !self.ticker.is_empty() {
+            subs.push(Subscription::Ticker {
+                orderbook_ids: self.ticker.iter().cloned().collect(),
+            });
+        }
+
         subs
     }
 
@@ -214,6 +251,7 @@ impl SubscriptionManager {
         self.users.clear();
         self.price_history.clear();
         self.markets.clear();
+        self.ticker.clear();
     }
 
     /// Check if there are any active subscriptions
@@ -223,6 +261,7 @@ impl SubscriptionManager {
             || !self.users.is_empty()
             || !self.price_history.is_empty()
             || !self.markets.is_empty()
+            || !self.ticker.is_empty()
     }
 
     /// Get count of active subscriptions
@@ -232,6 +271,7 @@ impl SubscriptionManager {
             + self.users.len()
             + self.price_history.len()
             + self.markets.len()
+            + self.ticker.len()
     }
 
     /// Get all subscribed orderbook IDs (for book updates)
@@ -277,12 +317,12 @@ mod tests {
     fn test_user_subscriptions() {
         let mut manager = SubscriptionManager::new();
 
-        manager.add_user("user1".to_string());
-        assert!(manager.is_subscribed_user("user1"));
-        assert!(!manager.is_subscribed_user("user2"));
+        manager.add_user("wallet1".to_string());
+        assert!(manager.is_subscribed_user("wallet1"));
+        assert!(!manager.is_subscribed_user("wallet2"));
 
-        manager.remove_user("user1");
-        assert!(!manager.is_subscribed_user("user1"));
+        manager.remove_user("wallet1");
+        assert!(!manager.is_subscribed_user("wallet1"));
     }
 
     #[test]
@@ -310,15 +350,30 @@ mod tests {
     }
 
     #[test]
+    fn test_ticker_subscriptions() {
+        let mut manager = SubscriptionManager::new();
+
+        manager.add_ticker(vec!["ob1".to_string(), "ob2".to_string()]);
+        assert!(manager.is_subscribed_ticker("ob1"));
+        assert!(manager.is_subscribed_ticker("ob2"));
+        assert!(!manager.is_subscribed_ticker("ob3"));
+
+        manager.remove_ticker(&["ob1".to_string()]);
+        assert!(!manager.is_subscribed_ticker("ob1"));
+        assert!(manager.is_subscribed_ticker("ob2"));
+    }
+
+    #[test]
     fn test_get_all_subscriptions() {
         let mut manager = SubscriptionManager::new();
 
         manager.add_book_update(vec!["ob1".to_string()]);
-        manager.add_user("user1".to_string());
+        manager.add_user("wallet1".to_string());
         manager.add_price_history("ob1".to_string(), "1m".to_string(), true);
+        manager.add_ticker(vec!["ob1".to_string()]);
 
         let subs = manager.get_all_subscriptions();
-        assert_eq!(subs.len(), 3);
+        assert_eq!(subs.len(), 4);
     }
 
     #[test]
@@ -329,9 +384,10 @@ mod tests {
         assert!(!manager.has_subscriptions());
 
         manager.add_book_update(vec!["ob1".to_string(), "ob2".to_string()]);
-        manager.add_user("user1".to_string());
+        manager.add_user("wallet1".to_string());
+        manager.add_ticker(vec!["ob1".to_string()]);
 
-        assert_eq!(manager.subscription_count(), 3);
+        assert_eq!(manager.subscription_count(), 4);
         assert!(manager.has_subscriptions());
     }
 
@@ -340,7 +396,8 @@ mod tests {
         let mut manager = SubscriptionManager::new();
 
         manager.add_book_update(vec!["ob1".to_string()]);
-        manager.add_user("user1".to_string());
+        manager.add_user("wallet1".to_string());
+        manager.add_ticker(vec!["ob1".to_string()]);
 
         manager.clear();
 
@@ -358,5 +415,29 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("book_update"));
         assert!(json.contains("ob1"));
+    }
+
+    #[test]
+    fn test_ticker_subscription_to_params() {
+        let sub = Subscription::Ticker {
+            orderbook_ids: vec!["ob1".to_string()],
+        };
+
+        let params = sub.to_params();
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("ticker"));
+        assert!(json.contains("ob1"));
+    }
+
+    #[test]
+    fn test_user_subscription_to_params() {
+        let sub = Subscription::User {
+            wallet_address: "wallet123".to_string(),
+        };
+
+        let params = sub.to_params();
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("wallet_address"));
+        assert!(json.contains("wallet123"));
     }
 }

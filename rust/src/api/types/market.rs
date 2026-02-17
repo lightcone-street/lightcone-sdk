@@ -2,80 +2,96 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Market status enum matching the API specification.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum ApiMarketStatus {
-    /// Market created but not activated
-    #[default]
-    #[serde(rename = "Pending")]
-    Pending,
-    /// Market accepting orders
-    #[serde(rename = "Active")]
-    Active,
-    /// Market has a resolved outcome
-    #[serde(rename = "Settled")]
-    Settled,
-}
-
 /// Outcome information for a market.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Outcome {
     /// Outcome index (0-based)
-    pub index: u32,
+    pub index: i16,
     /// Outcome name
     pub name: String,
-    /// Optional thumbnail URL
-    pub thumbnail_url: Option<String>,
+    /// Optional icon URL
+    #[serde(default)]
+    pub icon_url: Option<String>,
 }
 
 /// Orderbook summary embedded in market response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OrderbookSummary {
-    /// Orderbook identifier
-    pub orderbook_id: String,
+    /// Database ID
+    pub id: i32,
     /// Market pubkey
     pub market_pubkey: String,
+    /// Orderbook identifier
+    pub orderbook_id: String,
     /// Base token address
     pub base_token: String,
     /// Quote token address
     pub quote_token: String,
+    /// Outcome index this orderbook represents
+    #[serde(default)]
+    pub outcome_index: Option<i16>,
     /// Tick size for price granularity
-    pub tick_size: u64,
+    pub tick_size: i64,
+    /// Total number of bid orders
+    pub total_bids: i32,
+    /// Total number of ask orders
+    pub total_asks: i32,
+    /// Last trade price as scaled decimal string
+    #[serde(default)]
+    pub last_trade_price: Option<String>,
+    /// Last trade timestamp
+    #[serde(default)]
+    pub last_trade_time: Option<String>,
+    /// Whether the orderbook is active
+    pub active: bool,
     /// Creation timestamp
     pub created_at: String,
+    /// Last update timestamp
+    pub updated_at: String,
 }
 
 /// Conditional token information.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConditionalToken {
     /// Database ID
-    pub id: i64,
+    pub id: i32,
     /// Outcome index this token represents
-    pub outcome_index: u32,
+    pub outcome_index: i16,
     /// Token mint address
     pub token_address: String,
     /// Token name
-    pub name: String,
+    #[serde(default)]
+    pub name: Option<String>,
     /// Token symbol
-    pub symbol: String,
+    #[serde(default)]
+    pub symbol: Option<String>,
     /// Token metadata URI
+    #[serde(default)]
     pub uri: Option<String>,
     /// Display name for UI
-    pub display_name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     /// Outcome name
-    pub outcome: String,
+    #[serde(default)]
+    pub outcome: Option<String>,
     /// Associated deposit symbol
-    pub deposit_symbol: String,
+    #[serde(default)]
+    pub deposit_symbol: Option<String>,
     /// Short name for display
-    pub short_name: String,
+    #[serde(default)]
+    pub short_name: Option<String>,
     /// Token description
+    #[serde(default)]
     pub description: Option<String>,
     /// Icon URL
+    #[serde(default)]
     pub icon_url: Option<String>,
     /// Metadata URI
+    #[serde(default)]
     pub metadata_uri: Option<String>,
     /// Token decimals
-    pub decimals: u8,
+    #[serde(default)]
+    pub decimals: Option<i16>,
     /// Creation timestamp
     pub created_at: String,
 }
@@ -84,31 +100,39 @@ pub struct ConditionalToken {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DepositAsset {
     /// Display name for the asset
-    pub display_name: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
     /// Token symbol
-    pub token_symbol: String,
+    #[serde(default)]
+    pub token_symbol: Option<String>,
     /// Short symbol
-    pub symbol: String,
+    #[serde(default)]
+    pub symbol: Option<String>,
     /// Deposit asset mint address
     pub deposit_asset: String,
     /// Database ID
-    pub id: i64,
+    pub id: i32,
     /// Associated market pubkey
     pub market_pubkey: String,
     /// Vault address
     pub vault: String,
     /// Number of outcomes
-    pub num_outcomes: u32,
+    pub num_outcomes: i16,
     /// Asset description
+    #[serde(default)]
     pub description: Option<String>,
     /// Icon URL
+    #[serde(default)]
     pub icon_url: Option<String>,
     /// Metadata URI
+    #[serde(default)]
     pub metadata_uri: Option<String>,
     /// Token decimals
-    pub decimals: u8,
+    #[serde(default)]
+    pub decimals: Option<i16>,
     /// Conditional tokens for each outcome
-    pub conditional_tokens: Vec<ConditionalToken>,
+    #[serde(default)]
+    pub conditional_mints: Vec<ConditionalToken>,
     /// Creation timestamp
     pub created_at: String,
 }
@@ -117,42 +141,49 @@ pub struct DepositAsset {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Market {
     /// Market name
-    pub market_name: String,
+    #[serde(default)]
+    pub market_name: Option<String>,
     /// URL-friendly slug
-    pub slug: String,
+    #[serde(default)]
+    pub slug: Option<String>,
     /// Market description
-    pub description: String,
+    #[serde(default)]
+    pub description: Option<String>,
     /// Market definition/rules
-    pub definition: String,
+    #[serde(default)]
+    pub definition: Option<String>,
     /// Possible outcomes
     pub outcomes: Vec<Outcome>,
     /// Banner image URL
+    #[serde(default)]
     pub banner_image_url: Option<String>,
-    /// Thumbnail URL
-    pub thumbnail_url: Option<String>,
+    /// Icon URL
+    #[serde(default)]
+    pub icon_url: Option<String>,
     /// Market category
+    #[serde(default)]
     pub category: Option<String>,
     /// Tags for filtering
     #[serde(default)]
     pub tags: Vec<String>,
     /// Featured rank (0 = not featured)
     #[serde(default)]
-    pub featured_rank: i32,
+    pub featured_rank: i16,
     /// Market PDA address
     pub market_pubkey: String,
     /// Market ID
-    pub market_id: u64,
+    pub market_id: i64,
     /// Oracle address
     pub oracle: String,
     /// Question ID
     pub question_id: String,
     /// Condition ID
     pub condition_id: String,
-    /// Current market status
-    pub market_status: ApiMarketStatus,
-    /// Winning outcome index (if settled)
+    /// Current market status (e.g. "Active", "Pending", "settled")
+    pub market_status: String,
+    /// Winning outcome index (if resolved)
     #[serde(default)]
-    pub winning_outcome: u32,
+    pub winning_outcome: Option<i16>,
     /// Whether market has a winning outcome
     #[serde(default)]
     pub has_winning_outcome: bool,
@@ -175,8 +206,12 @@ pub struct Market {
 pub struct MarketsResponse {
     /// List of markets
     pub markets: Vec<Market>,
-    /// Total count
-    pub total: u64,
+    /// Cursor for next page (None when no more results)
+    #[serde(default)]
+    pub next_cursor: Option<i64>,
+    /// Whether more results exist
+    #[serde(default)]
+    pub has_more: bool,
 }
 
 /// Response for GET /api/markets/{market_pubkey}.
@@ -187,7 +222,7 @@ pub struct MarketInfoResponse {
     /// Deposit assets
     pub deposit_assets: Vec<DepositAsset>,
     /// Count of deposit assets
-    pub deposit_asset_count: u64,
+    pub deposit_asset_count: usize,
 }
 
 /// Response for GET /api/markets/{market_pubkey}/deposit-assets.
@@ -198,5 +233,64 @@ pub struct DepositAssetsResponse {
     /// Deposit assets
     pub deposit_assets: Vec<DepositAsset>,
     /// Total count
-    pub total: u64,
+    pub total: usize,
+}
+
+/// Orderbook info returned in market search results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchOrderbook {
+    /// Orderbook identifier
+    pub orderbook_id: String,
+    /// Outcome name (e.g. "Yes", "No")
+    pub outcome_name: String,
+    /// Outcome index
+    pub outcome_index: i16,
+    /// Deposit base asset mint address
+    pub deposit_base_asset: String,
+    /// Deposit quote asset mint address
+    pub deposit_quote_asset: String,
+    /// Base asset symbol
+    pub deposit_base_symbol: String,
+    /// Quote asset symbol
+    pub deposit_quote_symbol: String,
+    /// Base asset icon URL
+    pub base_icon_url: String,
+    /// Quote asset icon URL
+    pub quote_icon_url: String,
+    /// Conditional base token mint
+    pub conditional_base_mint: String,
+    /// Conditional quote token mint
+    pub conditional_quote_mint: String,
+    /// Latest midpoint price as scaled decimal string
+    #[serde(default)]
+    pub latest_mid_price: Option<String>,
+}
+
+/// Market search result returned by search and featured endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketSearchResult {
+    /// URL-friendly slug
+    pub slug: String,
+    /// Market name
+    pub market_name: String,
+    /// Market status string (e.g. "Active", "Resolved")
+    pub market_status: String,
+    /// Market category
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Tags for filtering
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Featured rank (0 = not featured)
+    #[serde(default)]
+    pub featured_rank: i16,
+    /// Market description
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Icon URL
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    /// Orderbooks with pricing info
+    #[serde(default)]
+    pub orderbooks: Vec<SearchOrderbook>,
 }

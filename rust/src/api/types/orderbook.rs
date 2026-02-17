@@ -10,7 +10,16 @@ pub struct PriceLevel {
     /// Total size at this price level as decimal string
     pub size: String,
     /// Number of orders at this level
-    pub orders: u32,
+    pub orders: i32,
+}
+
+/// Decimal precision info for an orderbook.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderbookPrecision {
+    /// Price decimal places
+    pub price: u8,
+    /// Size (base token) decimal places
+    pub size: u8,
 }
 
 /// Response for GET /api/orderbook/{orderbook_id}.
@@ -32,4 +41,7 @@ pub struct OrderbookResponse {
     pub spread: Option<String>,
     /// Tick size for this orderbook as decimal string
     pub tick_size: String,
+    /// Decimal precision for price and size
+    #[serde(default)]
+    pub decimals: Option<OrderbookPrecision>,
 }
