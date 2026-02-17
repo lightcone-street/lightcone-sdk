@@ -3,14 +3,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Trade side enum for API responses.
-/// Serializes as lowercase string ("bid"/"ask") to match backend.
-/// Deserializes case-insensitively from "bid"/"ask"/"BID"/"ASK".
+/// Serializes as lowercase string ("buy"/"sell") to match backend.
+/// Deserializes case-insensitively from "buy"/"sell"/"bid"/"ask".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiTradeSide {
-    /// Buy side
-    Bid,
-    /// Sell side
-    Ask,
+    /// Buy side (bid)
+    Buy,
+    /// Sell side (ask)
+    Sell,
 }
 
 impl Serialize for ApiTradeSide {
@@ -19,8 +19,8 @@ impl Serialize for ApiTradeSide {
         S: serde::Serializer,
     {
         match self {
-            ApiTradeSide::Bid => serializer.serialize_str("bid"),
-            ApiTradeSide::Ask => serializer.serialize_str("ask"),
+            ApiTradeSide::Buy => serializer.serialize_str("buy"),
+            ApiTradeSide::Sell => serializer.serialize_str("sell"),
         }
     }
 }
@@ -32,11 +32,11 @@ impl<'de> Deserialize<'de> for ApiTradeSide {
     {
         let s = String::deserialize(deserializer)?;
         match s.to_lowercase().as_str() {
-            "bid" => Ok(ApiTradeSide::Bid),
-            "ask" => Ok(ApiTradeSide::Ask),
+            "buy" | "bid" => Ok(ApiTradeSide::Buy),
+            "sell" | "ask" => Ok(ApiTradeSide::Sell),
             _ => Err(serde::de::Error::unknown_variant(
                 &s,
-                &["bid", "ask", "BID", "ASK"],
+                &["buy", "sell", "bid", "ask"],
             )),
         }
     }
