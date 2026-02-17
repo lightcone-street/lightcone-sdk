@@ -199,10 +199,80 @@ mod login {
             expires_at: login_response.expires_at,
         })
     }
+
+    /// Request body for transaction-based login endpoint
+    #[derive(Debug, Serialize)]
+    struct TransactionLoginRequest {
+        /// Raw transaction message bytes
+        message_bytes: Vec<u8>,
+        /// Signature bytes (64 bytes)
+        signature_bytes: Vec<u8>,
+        /// Raw 32-byte public key
+        pubkey_bytes: Vec<u8>,
+    }
+
+    /// Authenticate with Lightcone using a signed transaction.
+    ///
+    /// This is for wallets that don't support message signing.
+    ///
+    /// # Arguments
+    ///
+    /// * `message_bytes` - The raw transaction message bytes that were signed
+    /// * `signature_bytes` - The Ed25519 signature (64 bytes)
+    /// * `pubkey_bytes` - The public key (32 bytes)
+    pub async fn authenticate_with_transaction(
+        message_bytes: &[u8],
+        signature_bytes: &[u8; 64],
+        pubkey_bytes: &[u8; 32],
+    ) -> AuthResult<AuthCredentials> {
+        let public_key_b58 = bs58::encode(pubkey_bytes).into_string();
+
+        let request = TransactionLoginRequest {
+            message_bytes: message_bytes.to_vec(),
+            signature_bytes: signature_bytes.to_vec(),
+            pubkey_bytes: pubkey_bytes.to_vec(),
+        };
+
+        let client = Client::builder()
+            .timeout(AUTH_TIMEOUT)
+            .build()
+            .map_err(|e| AuthError::HttpError(e.to_string()))?;
+
+        let url = format!(
+            "{}/auth/login_or_register_with_transaction",
+            crate::network::DEFAULT_API_URL
+        );
+        let response = client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| AuthError::HttpError(e.to_string()))?;
+
+        if !response.status().is_success() {
+            return Err(AuthError::AuthenticationFailed(format!(
+                "HTTP error: {}",
+                response.status()
+            )));
+        }
+
+        let login_response: LoginResponse = response.json().await.map_err(|e| {
+            AuthError::AuthenticationFailed(format!("Failed to parse response: {}", e))
+        })?;
+
+        Ok(AuthCredentials {
+            auth_token: login_response.token,
+            user_pubkey: public_key_b58,
+            user_id: login_response.user_id,
+            expires_at: login_response.expires_at,
+        })
+    }
 }
 
 #[cfg(feature = "auth")]
 pub use login::authenticate;
+#[cfg(feature = "auth")]
+pub use login::authenticate_with_transaction;
 
 #[cfg(test)]
 mod tests {

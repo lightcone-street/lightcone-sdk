@@ -22,9 +22,9 @@
 //!     // Create API client
 //!     let api = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
-//!     // Get all markets
-//!     let markets = api.get_markets().await?;
-//!     println!("Found {} markets", markets.total);
+//!     // Get all markets (first page)
+//!     let markets = api.get_markets(None, None).await?;
+//!     println!("Has more: {}", markets.has_more);
 //!
 //!     // Get orderbook
 //!     let orderbook = api.get_orderbook("orderbook_id", Some(10)).await?;
@@ -140,7 +140,7 @@ pub mod prelude {
         // Common types
         MarketsResponse, MarketInfoResponse, Market as ApiMarket, DepositAsset, ConditionalToken,
         OrderbookResponse, PriceLevel,
-        SubmitOrderRequest, OrderResponse, CancelResponse, CancelAllResponse,
+        SubmitOrderRequest, OrderResponse, CancelResponse, CancelAllResponse, MarketSearchResult, SearchOrderbook,
         PositionsResponse, Position as ApiPosition, OutcomeBalance,
         PriceHistoryParams, PriceHistoryResponse,
         TradesParams, TradesResponse, Trade,
@@ -153,7 +153,7 @@ pub mod prelude {
     // Auth module exports
     pub use crate::auth::{AuthCredentials, AuthError, AuthResult};
     #[cfg(feature = "auth")]
-    pub use crate::auth::authenticate;
+    pub use crate::auth::{authenticate, authenticate_with_transaction};
 
     // Shared utilities (used by both API and WebSocket)
     pub use crate::shared::{

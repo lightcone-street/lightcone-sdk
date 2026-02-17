@@ -9,9 +9,9 @@ pub struct PricePoint {
     /// Timestamp (milliseconds)
     #[serde(rename = "t")]
     pub timestamp: i64,
-    /// Midpoint price as decimal string
-    #[serde(rename = "m")]
-    pub midpoint: String,
+    /// Midpoint price as decimal string (null when unavailable)
+    #[serde(rename = "m", default)]
+    pub midpoint: Option<String>,
     /// Open price (only with include_ohlcv) as decimal string
     #[serde(rename = "o", default, skip_serializing_if = "Option::is_none")]
     pub open: Option<String>,
@@ -95,6 +95,15 @@ impl PriceHistoryParams {
     }
 }
 
+/// Decimal precision info for price history data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PriceHistoryDecimals {
+    /// Decimals for price fields (o, h, l, c, m, bb, ba)
+    pub price: u8,
+    /// Decimals for volume field (v)
+    pub volume: u8,
+}
+
 /// Response for GET /api/price-history.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PriceHistoryResponse {
@@ -110,4 +119,6 @@ pub struct PriceHistoryResponse {
     pub next_cursor: Option<i64>,
     /// Whether more results exist
     pub has_more: bool,
+    /// Decimal precision for price and volume fields
+    pub decimals: PriceHistoryDecimals,
 }

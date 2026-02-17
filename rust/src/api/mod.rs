@@ -13,13 +13,13 @@
 //!     // Create client with default settings
 //!     let client = LightconeApiClient::new("https://api.lightcone.xyz");
 //!
-//!     // Get all markets
-//!     let markets = client.get_markets().await?;
-//!     println!("Found {} markets", markets.total);
+//!     // Get all markets (first page)
+//!     let markets = client.get_markets(None, None).await?;
+//!     println!("Has more: {}", markets.has_more);
 //!
 //!     // Get a specific market
 //!     let market = client.get_market("market_pubkey").await?;
-//!     println!("Market: {}", market.market.market_name);
+//!     println!("Market: {:?}", market.market.market_name);
 //!
 //!     // Get orderbook
 //!     let orderbook = client.get_orderbook("orderbook_id", Some(10)).await?;

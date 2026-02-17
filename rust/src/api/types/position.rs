@@ -1,12 +1,13 @@
 //! Position-related types for the Lightcone REST API.
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// Outcome balance in a position.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutcomeBalance {
     /// Outcome index
-    pub outcome_index: u32,
+    pub outcome_index: i16,
     /// Conditional token address
     pub conditional_token: String,
     /// Total balance as decimal string
@@ -21,7 +22,7 @@ pub struct OutcomeBalance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Position {
     /// Database ID
-    pub id: i64,
+    pub id: i32,
     /// Position PDA address
     pub position_pubkey: String,
     /// Position owner
@@ -42,9 +43,11 @@ pub struct PositionsResponse {
     /// Position owner
     pub owner: String,
     /// Total markets with positions
-    pub total_markets: u64,
+    pub total_markets: usize,
     /// User positions
     pub positions: Vec<Position>,
+    /// Decimal precision per conditional token address
+    pub decimals: HashMap<String, u8>,
 }
 
 /// Response for GET /api/users/{user_pubkey}/markets/{market_pubkey}/positions.
@@ -56,4 +59,6 @@ pub struct MarketPositionsResponse {
     pub market_pubkey: String,
     /// Positions in this market
     pub positions: Vec<Position>,
+    /// Decimal precision per conditional token address
+    pub decimals: HashMap<String, u8>,
 }

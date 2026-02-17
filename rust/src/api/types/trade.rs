@@ -2,14 +2,44 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Trade side enum for API responses (uses uppercase string format: "BID"/"ASK").
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "UPPERCASE")]
+/// Trade side enum for API responses.
+/// Serializes as lowercase string ("bid"/"ask") to match backend.
+/// Deserializes case-insensitively from "bid"/"ask"/"BID"/"ASK".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ApiTradeSide {
     /// Buy side
     Bid,
     /// Sell side
     Ask,
+}
+
+impl Serialize for ApiTradeSide {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            ApiTradeSide::Bid => serializer.serialize_str("bid"),
+            ApiTradeSide::Ask => serializer.serialize_str("ask"),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for ApiTradeSide {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        match s.to_lowercase().as_str() {
+            "bid" => Ok(ApiTradeSide::Bid),
+            "ask" => Ok(ApiTradeSide::Ask),
+            _ => Err(serde::de::Error::unknown_variant(
+                &s,
+                &["bid", "ask", "BID", "ASK"],
+            )),
+        }
+    }
 }
 
 /// Executed trade information.
@@ -29,10 +59,12 @@ pub struct Trade {
     pub size: String,
     /// Trade price as decimal string
     pub price: String,
-    /// Taker fee as decimal string
-    pub taker_fee: String,
-    /// Maker fee as decimal string
-    pub maker_fee: String,
+    /// Taker fee as decimal string (null when not available)
+    #[serde(default)]
+    pub taker_fee: Option<String>,
+    /// Maker fee as decimal string (null when not available)
+    #[serde(default)]
+    pub maker_fee: Option<String>,
     /// Execution timestamp (milliseconds since epoch)
     pub executed_at: i64,
 }
@@ -54,7 +86,7 @@ pub struct TradesParams {
     /// Pagination cursor (trade ID)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<i64>,
-    /// Max results (1-500)
+    /// Max results (1-1000)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
 }
@@ -94,6 +126,17 @@ impl TradesParams {
     }
 }
 
+/// Decimal precision info for trade data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TradesDecimals {
+    /// Decimals for price field
+    pub price: u8,
+    /// Decimals for size field
+    pub size: u8,
+    /// Decimals for fee fields
+    pub fee: u8,
+}
+
 /// Response for GET /api/trades.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TradesResponse {
@@ -105,4 +148,6 @@ pub struct TradesResponse {
     pub next_cursor: Option<i64>,
     /// Whether more results exist
     pub has_more: bool,
+    /// Decimal precision for price, size, and fee fields
+    pub decimals: TradesDecimals,
 }

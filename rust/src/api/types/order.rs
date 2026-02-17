@@ -6,14 +6,59 @@ use serde::{Deserialize, Serialize};
 pub use crate::shared::SubmitOrderRequest;
 
 /// Order side enum (serializes as integer: 0=Bid, 1=Ask).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(try_from = "u32", into = "u32")]
+/// Deserializes from either integer (0/1) or string ("bid"/"ask").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(into = "u32")]
 #[repr(u32)]
 pub enum ApiOrderSide {
     /// Buy base token with quote token
     Bid = 0,
     /// Sell base token for quote token
     Ask = 1,
+}
+
+impl<'de> Deserialize<'de> for ApiOrderSide {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+
+        struct OrderSideVisitor;
+
+        impl<'de> de::Visitor<'de> for OrderSideVisitor {
+            type Value = ApiOrderSide;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                write!(f, "u32 (0/1) or string (\"bid\"/\"ask\")")
+            }
+
+            fn visit_u64<E: de::Error>(self, v: u64) -> Result<Self::Value, E> {
+                match v {
+                    0 => Ok(ApiOrderSide::Bid),
+                    1 => Ok(ApiOrderSide::Ask),
+                    _ => Err(E::invalid_value(
+                        de::Unexpected::Unsigned(v),
+                        &"0 for Bid or 1 for Ask",
+                    )),
+                }
+            }
+
+            fn visit_i64<E: de::Error>(self, v: i64) -> Result<Self::Value, E> {
+                self.visit_u64(v as u64)
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                match v.to_lowercase().as_str() {
+                    "bid" => Ok(ApiOrderSide::Bid),
+                    "ask" => Ok(ApiOrderSide::Ask),
+                    _ => Err(E::unknown_variant(v, &["bid", "ask", "0", "1"])),
+                }
+            }
+        }
+
+        deserializer.deserialize_any(OrderSideVisitor)
+    }
 }
 
 /// Error returned when trying to convert an invalid value to ApiOrderSide.
@@ -140,7 +185,7 @@ pub struct CancelAllResponse {
     /// List of cancelled order hashes
     pub cancelled_order_hashes: Vec<String>,
     /// Count of cancelled orders
-    pub count: u64,
+    pub count: u32,
     /// Human-readable message
     pub message: String,
 }
@@ -166,17 +211,20 @@ pub struct UserOrder {
     pub filled: String,
     /// Order price as decimal string
     pub price: String,
-    /// Creation timestamp
-    pub created_at: String,
+    /// Creation timestamp (unix ms or seconds)
+    pub created_at: i64,
     /// Expiration timestamp
     pub expiration: i64,
+    /// Order status (e.g. "OPEN")
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// Outcome balance in user orders response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrderOutcomeBalance {
     /// Outcome index
-    pub outcome_index: u32,
+    pub outcome_index: i16,
     /// Conditional token address
     pub conditional_token: String,
     /// Idle balance as decimal string
@@ -190,8 +238,8 @@ pub struct UserOrderOutcomeBalance {
 pub struct UserBalance {
     /// Market pubkey
     pub market_pubkey: String,
-    /// Deposit asset
-    pub deposit_asset: String,
+    /// Orderbook ID
+    pub orderbook_id: String,
     /// Outcome balances
     pub outcomes: Vec<UserOrderOutcomeBalance>,
 }
@@ -208,4 +256,7 @@ pub struct UserOrdersResponse {
     /// Cursor for next page (None when no more results)
     #[serde(default)]
     pub next_cursor: Option<String>,
+    /// Whether more results exist
+    #[serde(default)]
+    pub has_more: bool,
 }
