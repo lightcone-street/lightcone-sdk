@@ -65,8 +65,8 @@ impl PriceHistory {
         self.candles.clear();
         self.candle_index.clear();
 
-        // Apply candles (they come newest-first from server)
-        for candle in &data.prices {
+        // Backend sends candles oldest-first (chronological); reverse to newest-first
+        for candle in data.prices.iter().rev() {
             let idx = self.candles.len();
             self.candle_index.insert(candle.t, idx);
             self.candles.push(candle.clone());
@@ -238,20 +238,10 @@ mod tests {
             orderbook_id: Some("ob1".to_string()),
             resolution: Some("1m".to_string()),
             include_ohlcv: Some(true),
+            // Backend sends candles oldest-first (chronological order)
             prices: vec![
                 Candle {
-                    t: 1704067260000, // Newer
-                    o: Some("0.505000".to_string()),
-                    h: Some("0.508000".to_string()),
-                    l: Some("0.503000".to_string()),
-                    c: Some("0.507000".to_string()),
-                    v: Some("0.005000".to_string()),
-                    m: Some("0.505500".to_string()),
-                    bb: Some("0.505000".to_string()),
-                    ba: Some("0.506000".to_string()),
-                },
-                Candle {
-                    t: 1704067200000, // Older
+                    t: 1704067200000, // Older (sent first by backend)
                     o: Some("0.500000".to_string()),
                     h: Some("0.510000".to_string()),
                     l: Some("0.495000".to_string()),
@@ -260,6 +250,17 @@ mod tests {
                     m: Some("0.502500".to_string()),
                     bb: Some("0.500000".to_string()),
                     ba: Some("0.505000".to_string()),
+                },
+                Candle {
+                    t: 1704067260000, // Newer (sent second by backend)
+                    o: Some("0.505000".to_string()),
+                    h: Some("0.508000".to_string()),
+                    l: Some("0.503000".to_string()),
+                    c: Some("0.507000".to_string()),
+                    v: Some("0.005000".to_string()),
+                    m: Some("0.505500".to_string()),
+                    bb: Some("0.505000".to_string()),
+                    ba: Some("0.506000".to_string()),
                 },
             ],
             last_timestamp: Some(1704067260000),

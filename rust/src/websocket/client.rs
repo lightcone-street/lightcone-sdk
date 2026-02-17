@@ -357,11 +357,11 @@ impl LightconeWebSocketClient {
         self.send_subscribe(params).await
     }
 
-    /// Subscribe to user events
-    pub async fn subscribe_user(&mut self, user: String) -> WsResult<()> {
-        self.handler.init_user_state(&user).await;
-        self.subscriptions.write().await.add_user(user.clone());
-        let params = SubscribeParams::user(user);
+    /// Subscribe to user events (requires authentication)
+    pub async fn subscribe_user(&mut self, wallet_address: String) -> WsResult<()> {
+        self.handler.init_user_state(&wallet_address).await;
+        self.subscriptions.write().await.add_user(wallet_address.clone());
+        let params = SubscribeParams::user(wallet_address);
         self.send_subscribe(params).await
     }
 
@@ -405,10 +405,24 @@ impl LightconeWebSocketClient {
     }
 
     /// Unsubscribe from user events
-    pub async fn unsubscribe_user(&mut self, user: String) -> WsResult<()> {
-        self.handler.clear_subscribed_user(&user).await;
-        self.subscriptions.write().await.remove_user(&user);
-        let params = SubscribeParams::user(user);
+    pub async fn unsubscribe_user(&mut self, wallet_address: String) -> WsResult<()> {
+        self.handler.clear_subscribed_user(&wallet_address).await;
+        self.subscriptions.write().await.remove_user(&wallet_address);
+        let params = SubscribeParams::user(wallet_address);
+        self.send_unsubscribe(params).await
+    }
+
+    /// Subscribe to ticker (best bid/ask) updates
+    pub async fn subscribe_ticker(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        self.subscriptions.write().await.add_ticker(orderbook_ids.clone());
+        let params = SubscribeParams::ticker(orderbook_ids);
+        self.send_subscribe(params).await
+    }
+
+    /// Unsubscribe from ticker updates
+    pub async fn unsubscribe_ticker(&mut self, orderbook_ids: Vec<String>) -> WsResult<()> {
+        self.subscriptions.write().await.remove_ticker(&orderbook_ids);
+        let params = SubscribeParams::ticker(orderbook_ids);
         self.send_unsubscribe(params).await
     }
 

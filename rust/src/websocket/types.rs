@@ -59,11 +59,11 @@ pub enum SubscribeParams {
         type_: &'static str,
         orderbook_ids: Vec<String>,
     },
-    /// Subscribe to user events
+    /// Subscribe to user events (requires authentication)
     User {
         #[serde(rename = "type")]
         type_: &'static str,
-        user: String,
+        wallet_address: String,
     },
     /// Subscribe to price history
     PriceHistory {
@@ -78,6 +78,12 @@ pub enum SubscribeParams {
         #[serde(rename = "type")]
         type_: &'static str,
         market_pubkey: String,
+    },
+    /// Subscribe to best bid/ask ticker updates
+    Ticker {
+        #[serde(rename = "type")]
+        type_: &'static str,
+        orderbook_ids: Vec<String>,
     },
 }
 
@@ -99,10 +105,10 @@ impl SubscribeParams {
     }
 
     /// Create user subscription params
-    pub fn user(user: String) -> Self {
+    pub fn user(wallet_address: String) -> Self {
         Self::User {
             type_: "user",
-            user,
+            wallet_address,
         }
     }
 
@@ -124,6 +130,14 @@ impl SubscribeParams {
         }
     }
 
+    /// Create ticker subscription params
+    pub fn ticker(orderbook_ids: Vec<String>) -> Self {
+        Self::Ticker {
+            type_: "ticker",
+            orderbook_ids,
+        }
+    }
+
     /// Get the subscription type as a string
     pub fn subscription_type(&self) -> &'static str {
         match self {
@@ -132,6 +146,7 @@ impl SubscribeParams {
             Self::User { .. } => "user",
             Self::PriceHistory { .. } => "price_history",
             Self::Market { .. } => "market",
+            Self::Ticker { .. } => "ticker",
         }
     }
 }
@@ -169,7 +184,7 @@ pub struct BookUpdateData {
     #[serde(default)]
     pub timestamp: String,
     #[serde(default)]
-    pub sequence: u64,
+    pub seq: u64,
     #[serde(default)]
     pub bids: Vec<PriceLevel>,
     #[serde(default)]
@@ -214,36 +229,72 @@ pub struct TradeData {
 // USER EVENT TYPES
 // ============================================================================
 
-/// User event data (snapshot, order_update, balance_update)
+/// Discriminated user event -- deserialized by event_type from raw JSON.
+///
+/// The backend sends 4 different event shapes on the "user" channel:
+/// - `snapshot`: Full state of orders, balances, and nonce
+/// - `order`: Real-time order placement, update, or cancellation
+/// - `balance_update`: Real-time balance change
+/// - `nonce`: Nonce update
 #[derive(Debug, Clone, Deserialize)]
-pub struct UserEventData {
-    pub event_type: String,
-    #[serde(default)]
-    pub orders: Vec<Order>,
-    #[serde(default)]
+#[serde(tag = "event_type")]
+pub enum UserEventData {
+    #[serde(rename = "snapshot")]
+    Snapshot(UserSnapshotData),
+    #[serde(rename = "order")]
+    Order(UserOrderEvent),
+    #[serde(rename = "balance_update")]
+    BalanceUpdate(UserBalanceEvent),
+    #[serde(rename = "nonce")]
+    Nonce(UserNonceEvent),
+}
+
+/// User snapshot: full state of orders, balances, and nonce
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserSnapshotData {
+    pub orders: Vec<UserOrderSnapshot>,
     pub balances: HashMap<String, BalanceEntry>,
     #[serde(default)]
-    pub order: Option<OrderUpdate>,
-    #[serde(default)]
-    pub balance: Option<Balance>,
-    #[serde(default)]
-    pub market_pubkey: Option<String>,
-    #[serde(default)]
-    pub orderbook_id: Option<String>,
-    #[serde(default)]
-    pub deposit_mint: Option<String>,
-    #[serde(default)]
-    pub timestamp: Option<String>,
+    pub nonce: u64,
+}
+
+/// Real-time order event (placement, update, cancellation)
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserOrderEvent {
+    /// "PLACEMENT", "UPDATE", or "CANCELLATION"
+    #[serde(rename = "type")]
+    pub update_type: String,
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub timestamp: String,
+    pub order: UserFillInfo,
+}
+
+/// Real-time balance change event
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserBalanceEvent {
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub balance: Balance,
+    pub timestamp: String,
+}
+
+/// Nonce update event
+#[derive(Debug, Clone, Deserialize)]
+pub struct UserNonceEvent {
+    pub user_pubkey: String,
+    pub new_nonce: u64,
+    pub timestamp: String,
 }
 
 /// User order from snapshot
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct Order {
+pub struct UserOrderSnapshot {
     pub order_hash: String,
     pub market_pubkey: String,
     pub orderbook_id: String,
-    /// 0 = BUY, 1 = SELL
-    pub side: i32,
+    /// "bid" or "ask"
+    pub side: String,
     /// Maker amount as decimal string
     pub maker_amount: String,
     /// Taker amount as decimal string
@@ -256,26 +307,43 @@ pub struct Order {
     pub price: String,
     pub created_at: i64,
     pub expiration: i64,
+    /// Base token mint address
+    pub base_mint: String,
+    /// Quote token mint address
+    pub quote_mint: String,
+    /// Outcome index for base token (-1 if not found)
+    pub outcome_index: i32,
+    /// Order status: "OPEN", "MATCHING", "FILLED", "CANCELLED"
+    pub status: String,
 }
 
-/// Order update from real-time event
+/// Per-user fill/order information from real-time events
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct OrderUpdate {
+pub struct UserFillInfo {
     pub order_hash: String,
     /// Price as decimal string
     pub price: String,
-    /// Fill amount as decimal string
+    /// Amount filled in this event as decimal string
     pub fill_amount: String,
     /// Remaining amount as decimal string
     pub remaining: String,
-    /// Filled amount as decimal string
+    /// Total filled so far as decimal string
     pub filled: String,
-    /// 0 = BUY, 1 = SELL
-    pub side: i32,
+    /// "bid" or "ask"
+    pub side: String,
     pub is_maker: bool,
     pub created_at: i64,
     #[serde(default)]
     pub balance: Option<Balance>,
+    /// Base token mint address
+    pub base_mint: String,
+    /// Quote token mint address
+    pub quote_mint: String,
+    /// Outcome index for base token (-1 if not found)
+    pub outcome_index: i32,
+    /// Order status: "OPEN", "MATCHING", "FILLED", "CANCELLED"
+    #[serde(default)]
+    pub status: String,
 }
 
 /// Balance containing outcome balances
@@ -295,12 +363,45 @@ pub struct OutcomeBalance {
     pub on_book: String,
 }
 
-/// Balance entry from user snapshot
+/// Balance entry from user snapshot (keyed by orderbook_id)
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct BalanceEntry {
     pub market_pubkey: String,
-    pub deposit_mint: String,
+    pub orderbook_id: String,
     pub outcomes: Vec<OutcomeBalance>,
+}
+
+// ============================================================================
+// TICKER TYPES
+// ============================================================================
+
+/// Ticker (best bid/ask) data from server
+#[derive(Debug, Clone, Deserialize)]
+pub struct TickerData {
+    pub orderbook_id: String,
+    #[serde(default)]
+    pub best_bid: Option<String>,
+    #[serde(default)]
+    pub best_ask: Option<String>,
+    #[serde(default)]
+    pub mid: Option<String>,
+    pub timestamp: String,
+}
+
+// ============================================================================
+// AUTH TYPES
+// ============================================================================
+
+/// Auth status data from server (sent on connection)
+#[derive(Debug, Clone, Deserialize)]
+pub struct AuthData {
+    pub status: String,
+    #[serde(default)]
+    pub wallet: Option<String>,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub code: Option<String>,
 }
 
 // ============================================================================
@@ -451,6 +552,12 @@ pub enum ErrorCode {
     InvalidJson,
     InvalidMethod,
     RateLimited,
+    ParseError,
+    AuthRequired,
+    WalletMismatch,
+    ConfigError,
+    VerificationError,
+    DecimalsNotConfigured,
     Unknown,
 }
 
@@ -461,6 +568,12 @@ impl From<&str> for ErrorCode {
             "INVALID_JSON" => Self::InvalidJson,
             "INVALID_METHOD" => Self::InvalidMethod,
             "RATE_LIMITED" => Self::RateLimited,
+            "PARSE_ERROR" => Self::ParseError,
+            "AUTH_REQUIRED" => Self::AuthRequired,
+            "WALLET_MISMATCH" => Self::WalletMismatch,
+            "CONFIG_ERROR" => Self::ConfigError,
+            "VERIFICATION_ERROR" => Self::VerificationError,
+            "DECIMALS_NOT_CONFIGURED" => Self::DecimalsNotConfigured,
             _ => Self::Unknown,
         }
     }
@@ -530,6 +643,27 @@ pub enum WsEvent {
 
     /// Reconnecting
     Reconnecting { attempt: u32 },
+
+    /// Auth status received from server on connection
+    Auth {
+        status: String,
+        wallet: Option<String>,
+        message: Option<String>,
+    },
+
+    /// Ticker (best bid/ask) update
+    Ticker {
+        orderbook_id: String,
+        best_bid: Option<String>,
+        best_ask: Option<String>,
+        mid: Option<String>,
+    },
+
+    /// Nonce update for a user
+    NonceUpdate {
+        user: String,
+        new_nonce: u64,
+    },
 }
 
 // ============================================================================
@@ -546,6 +680,8 @@ pub enum MessageType {
     Market,
     Error,
     Pong,
+    Auth,
+    Ticker,
     Unknown,
 }
 
@@ -559,6 +695,8 @@ impl From<&str> for MessageType {
             "market" => Self::Market,
             "error" => Self::Error,
             "pong" => Self::Pong,
+            "auth" => Self::Auth,
+            "ticker" => Self::Ticker,
             _ => Self::Unknown,
         }
     }
@@ -568,27 +706,28 @@ impl From<&str> for MessageType {
 // SIDE HELPERS
 // ============================================================================
 
-/// Order side enum for user events
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Order side enum (matches backend's "bid"/"ask" serialization)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Side {
-    Buy,
-    Sell,
+    Bid,
+    Ask,
 }
 
-impl From<i32> for Side {
-    fn from(value: i32) -> Self {
-        match value {
-            0 => Self::Buy,
-            _ => Self::Sell,
+impl Side {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Bid => "bid",
+            Self::Ask => "ask",
         }
     }
 }
 
-impl Side {
-    pub fn as_i32(&self) -> i32 {
-        match self {
-            Self::Buy => 0,
-            Self::Sell => 1,
+impl From<&str> for Side {
+    fn from(s: &str) -> Self {
+        match s {
+            "bid" => Self::Bid,
+            _ => Self::Ask,
         }
     }
 }
@@ -615,10 +754,20 @@ mod tests {
 
     #[test]
     fn test_side_conversion() {
-        assert_eq!(Side::from(0), Side::Buy);
-        assert_eq!(Side::from(1), Side::Sell);
-        assert_eq!(Side::Buy.as_i32(), 0);
-        assert_eq!(Side::Sell.as_i32(), 1);
+        assert_eq!(Side::from("bid"), Side::Bid);
+        assert_eq!(Side::from("ask"), Side::Ask);
+        assert_eq!(Side::Bid.as_str(), "bid");
+        assert_eq!(Side::Ask.as_str(), "ask");
+    }
+
+    #[test]
+    fn test_side_serde() {
+        let bid: Side = serde_json::from_str(r#""bid""#).unwrap();
+        assert_eq!(bid, Side::Bid);
+        let ask: Side = serde_json::from_str(r#""ask""#).unwrap();
+        assert_eq!(ask, Side::Ask);
+        assert_eq!(serde_json::to_string(&Side::Bid).unwrap(), r#""bid""#);
+        assert_eq!(serde_json::to_string(&Side::Ask).unwrap(), r#""ask""#);
     }
 
     #[test]
@@ -626,6 +775,8 @@ mod tests {
         assert_eq!(MessageType::from("book_update"), MessageType::BookUpdate);
         assert_eq!(MessageType::from("trades"), MessageType::Trades);
         assert_eq!(MessageType::from("user"), MessageType::User);
+        assert_eq!(MessageType::from("auth"), MessageType::Auth);
+        assert_eq!(MessageType::from("ticker"), MessageType::Ticker);
         assert_eq!(MessageType::from("unknown"), MessageType::Unknown);
     }
 
@@ -635,6 +786,25 @@ mod tests {
         let json = serde_json::to_string(&params).unwrap();
         assert!(json.contains("book_update"));
         assert!(json.contains("market1:ob1"));
+    }
+
+    #[test]
+    fn test_subscribe_user_has_wallet_address() {
+        let params = SubscribeParams::user("wallet123".to_string());
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("wallet_address"));
+        assert!(json.contains("wallet123"));
+        assert!(!json.contains(r#""user""#)); // should not have a "user" field
+    }
+
+    #[test]
+    fn test_subscribe_ticker() {
+        let params = SubscribeParams::ticker(vec!["ob1".to_string(), "ob2".to_string()]);
+        let json = serde_json::to_string(&params).unwrap();
+        assert!(json.contains("ticker"));
+        assert!(json.contains("ob1"));
+        assert!(json.contains("ob2"));
+        assert_eq!(params.subscription_type(), "ticker");
     }
 
     #[test]
@@ -649,14 +819,14 @@ mod tests {
         let json = r#"{
             "orderbook_id": "ob1",
             "timestamp": "2024-01-01T00:00:00.000Z",
-            "sequence": 42,
+            "seq": 42,
             "bids": [{"side": "bid", "price": "0.500000", "size": "0.001000"}],
             "asks": [{"side": "ask", "price": "0.510000", "size": "0.000500"}],
             "is_snapshot": true
         }"#;
         let data: BookUpdateData = serde_json::from_str(json).unwrap();
         assert_eq!(data.orderbook_id, "ob1");
-        assert_eq!(data.sequence, 42);
+        assert_eq!(data.seq, 42);
         assert!(data.is_snapshot);
         assert_eq!(data.bids.len(), 1);
         assert_eq!(data.bids[0].price, "0.500000");
@@ -682,5 +852,160 @@ mod tests {
         assert_eq!(data.price, "0.505000");
         assert_eq!(data.size, "0.000250");
         assert_eq!(data.sequence, 1);
+    }
+
+    #[test]
+    fn test_user_snapshot_deserialization() {
+        let json = r#"{
+            "event_type": "snapshot",
+            "orders": [{
+                "order_hash": "hash1",
+                "market_pubkey": "market1",
+                "orderbook_id": "ob1",
+                "side": "bid",
+                "maker_amount": "1.000000",
+                "taker_amount": "0.500000",
+                "remaining": "0.800000",
+                "filled": "0.200000",
+                "price": "0.500000",
+                "created_at": 1704067200000,
+                "expiration": 0,
+                "base_mint": "base_mint1",
+                "quote_mint": "quote_mint1",
+                "outcome_index": 0,
+                "status": "OPEN"
+            }],
+            "balances": {
+                "ob1": {
+                    "market_pubkey": "market1",
+                    "orderbook_id": "ob1",
+                    "outcomes": [{"outcome_index": 0, "mint": "mint1", "idle": "5.0", "on_book": "1.0"}]
+                }
+            },
+            "nonce": 42
+        }"#;
+        let data: UserEventData = serde_json::from_str(json).unwrap();
+        match data {
+            UserEventData::Snapshot(s) => {
+                assert_eq!(s.orders.len(), 1);
+                assert_eq!(s.orders[0].side, "bid");
+                assert_eq!(s.orders[0].base_mint, "base_mint1");
+                assert_eq!(s.orders[0].status, "OPEN");
+                assert_eq!(s.nonce, 42);
+                assert!(s.balances.contains_key("ob1"));
+            }
+            _ => panic!("Expected Snapshot variant"),
+        }
+    }
+
+    #[test]
+    fn test_user_order_event_deserialization() {
+        let json = r#"{
+            "event_type": "order",
+            "type": "UPDATE",
+            "market_pubkey": "market1",
+            "orderbook_id": "ob1",
+            "timestamp": "2024-01-01T00:00:00.000Z",
+            "order": {
+                "order_hash": "hash1",
+                "price": "0.500000",
+                "fill_amount": "0.100000",
+                "remaining": "0.700000",
+                "filled": "0.300000",
+                "side": "bid",
+                "is_maker": true,
+                "created_at": 1704067200000,
+                "base_mint": "base1",
+                "quote_mint": "quote1",
+                "outcome_index": 0,
+                "status": "OPEN"
+            }
+        }"#;
+        let data: UserEventData = serde_json::from_str(json).unwrap();
+        match data {
+            UserEventData::Order(e) => {
+                assert_eq!(e.update_type, "UPDATE");
+                assert_eq!(e.order.fill_amount, "0.100000");
+                assert_eq!(e.order.base_mint, "base1");
+            }
+            _ => panic!("Expected Order variant"),
+        }
+    }
+
+    #[test]
+    fn test_user_balance_event_deserialization() {
+        let json = r#"{
+            "event_type": "balance_update",
+            "market_pubkey": "market1",
+            "orderbook_id": "ob1",
+            "balance": {
+                "outcomes": [{"outcome_index": 0, "mint": "mint1", "idle": "10.0", "on_book": "2.0"}]
+            },
+            "timestamp": "2024-01-01T00:00:00.000Z"
+        }"#;
+        let data: UserEventData = serde_json::from_str(json).unwrap();
+        match data {
+            UserEventData::BalanceUpdate(e) => {
+                assert_eq!(e.orderbook_id, "ob1");
+                assert_eq!(e.balance.outcomes[0].idle, "10.0");
+            }
+            _ => panic!("Expected BalanceUpdate variant"),
+        }
+    }
+
+    #[test]
+    fn test_user_nonce_event_deserialization() {
+        let json = r#"{
+            "event_type": "nonce",
+            "user_pubkey": "user1",
+            "new_nonce": 99,
+            "timestamp": "2024-01-01T00:00:00.000Z"
+        }"#;
+        let data: UserEventData = serde_json::from_str(json).unwrap();
+        match data {
+            UserEventData::Nonce(e) => {
+                assert_eq!(e.user_pubkey, "user1");
+                assert_eq!(e.new_nonce, 99);
+            }
+            _ => panic!("Expected Nonce variant"),
+        }
+    }
+
+    #[test]
+    fn test_ticker_data_deserialization() {
+        let json = r#"{
+            "orderbook_id": "ob1",
+            "best_bid": "0.500000",
+            "best_ask": "0.510000",
+            "mid": "0.505000",
+            "timestamp": "2024-01-01T00:00:00.000Z"
+        }"#;
+        let data: TickerData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.orderbook_id, "ob1");
+        assert_eq!(data.best_bid.unwrap(), "0.500000");
+        assert_eq!(data.best_ask.unwrap(), "0.510000");
+        assert_eq!(data.mid.unwrap(), "0.505000");
+    }
+
+    #[test]
+    fn test_auth_data_deserialization() {
+        let json = r#"{"status": "authenticated", "wallet": "abc123"}"#;
+        let data: AuthData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.status, "authenticated");
+        assert_eq!(data.wallet.unwrap(), "abc123");
+
+        let json = r#"{"status": "anonymous", "message": "No auth provided"}"#;
+        let data: AuthData = serde_json::from_str(json).unwrap();
+        assert_eq!(data.status, "anonymous");
+        assert_eq!(data.message.unwrap(), "No auth provided");
+    }
+
+    #[test]
+    fn test_error_code_parsing() {
+        assert_eq!(ErrorCode::from("PARSE_ERROR"), ErrorCode::ParseError);
+        assert_eq!(ErrorCode::from("AUTH_REQUIRED"), ErrorCode::AuthRequired);
+        assert_eq!(ErrorCode::from("WALLET_MISMATCH"), ErrorCode::WalletMismatch);
+        assert_eq!(ErrorCode::from("DECIMALS_NOT_CONFIGURED"), ErrorCode::DecimalsNotConfigured);
+        assert_eq!(ErrorCode::from("UNKNOWN_CODE"), ErrorCode::Unknown);
     }
 }
