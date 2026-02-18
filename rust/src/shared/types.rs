@@ -41,6 +41,47 @@ pub struct SubmitOrderRequest {
 }
 
 // ============================================================================
+// CancelOrderRequest (shared between program and API modules)
+// ============================================================================
+
+/// Request for POST /api/orders/cancel.
+///
+/// This type bridges the program module (cancel signing) with the API module
+/// (REST cancel submission). Use `SignedCancelOrder::to_cancel_request()` to
+/// convert a signed cancel to this format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CancelOrderRequest {
+    /// Hash of order to cancel (hex)
+    pub order_hash: String,
+    /// Must match order creator (Base58)
+    pub maker: String,
+    /// Ed25519 signature over the order hash (hex, 128 chars)
+    pub signature: String,
+}
+
+// ============================================================================
+// CancelAllOrdersRequest (shared between program and API modules)
+// ============================================================================
+
+/// Request for POST /api/orders/cancel-all.
+///
+/// This type bridges the program module (cancel-all signing) with the API module
+/// (REST cancel-all submission). Use `SignedCancelAll::to_cancel_all_request()` to
+/// convert a signed cancel-all to this format.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CancelAllOrdersRequest {
+    /// User's public key (Base58)
+    pub user_pubkey: String,
+    /// Limit to specific orderbook (empty = all)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orderbook_id: Option<String>,
+    /// Ed25519 signature over "cancel_all:{pubkey}:{timestamp}" (hex, 128 chars)
+    pub signature: String,
+    /// Unix timestamp used in the signed message
+    pub timestamp: i64,
+}
+
+// ============================================================================
 // Resolution Enum (shared between API and WebSocket)
 // ============================================================================
 

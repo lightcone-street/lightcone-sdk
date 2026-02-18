@@ -136,17 +136,6 @@ pub struct OrderResponse {
     pub fills: Vec<Fill>,
 }
 
-/// Request for POST /api/orders/cancel.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelOrderRequest {
-    /// Hash of order to cancel (hex)
-    pub order_hash: String,
-    /// Must match order creator (Base58)
-    pub maker: String,
-    /// Ed25519 signature over the order hash (hex, 128 chars)
-    pub signature: String,
-}
-
 /// Response for POST /api/orders/cancel.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CancelResponse {
@@ -158,19 +147,6 @@ pub struct CancelResponse {
     pub remaining: String,
 }
 
-/// Request for POST /api/orders/cancel-all.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CancelAllOrdersRequest {
-    /// User's public key (Base58)
-    pub user_pubkey: String,
-    /// Limit to specific orderbook (empty = all)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub orderbook_id: Option<String>,
-    /// Ed25519 signature over "cancel_all:{pubkey}:{timestamp}" (hex, 128 chars)
-    pub signature: String,
-    /// Unix timestamp used in the signed message
-    pub timestamp: i64,
-}
 
 /// Response for POST /api/orders/cancel-all.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,7 +156,6 @@ pub struct CancelAllResponse {
     /// User pubkey
     pub user_pubkey: String,
     /// Orderbook ID if specified
-    #[serde(default, alias = "market_pubkey")]
     pub orderbook_id: Option<String>,
     /// List of cancelled order hashes
     pub cancelled_order_hashes: Vec<String>,

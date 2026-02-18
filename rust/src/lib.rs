@@ -109,7 +109,7 @@ pub mod prelude {
         SdkError, SdkResult,
         // Order utilities
         calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
-        Order, SignedOrder,
+        Order, SignedOrder, SignedCancelOrder, SignedCancelAll,
         // Order builder
         OrderBuilder,
         // PDA functions
