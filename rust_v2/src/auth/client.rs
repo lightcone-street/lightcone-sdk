@@ -3,6 +3,7 @@
 use crate::auth::{AuthCredentials, LoginRequest, LoginResponse};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
+use crate::http::RetryPolicy;
 use crate::shared::PubkeyStr;
 
 /// Sub-client for authentication operations.
@@ -27,11 +28,18 @@ impl<'a> Auth<'a> {
             pubkey: pubkey.to_string(),
         };
 
-        let resp: serde_json::Value = self.client.http.login(&request).await?;
+        let url = format!(
+            "{}/api/auth/login_or_register_with_message",
+            self.client.http.base_url()
+        );
+        let resp: serde_json::Value = self
+            .client
+            .http
+            .post(&url, &request, RetryPolicy::None)
+            .await?;
 
         let login_resp: LoginResponse = serde_json::from_value(resp)?;
 
-        // On native, store the token internally (never exposed)
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(ref token) = login_resp.token {
             self.client.http.set_auth_token(Some(token.clone())).await;
@@ -49,18 +57,19 @@ impl<'a> Auth<'a> {
 
     /// Logout — clears server-side cookie + internal token + all caches.
     pub async fn logout(&self) -> Result<(), SdkError> {
-        // Call backend to clear HTTP-only cookie
-        let _ = self.client.http.logout().await;
+        let url = format!("{}/api/auth/logout", self.client.http.base_url());
+        let _ = self
+            .client
+            .http
+            .post::<serde_json::Value, _>(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await;
 
-        // Clear internal token (native)
         #[cfg(not(target_arch = "wasm32"))]
         self.client.http.clear_auth_token().await;
 
-        // Clear auth credentials
         *self.client.auth_credentials.write().await = None;
 
-        // Clear all HTTP caches
-        self.client.clear_all_caches().await;
+        self.client.clear_decimals_cache().await;
 
         Ok(())
     }

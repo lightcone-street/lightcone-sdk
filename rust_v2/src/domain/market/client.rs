@@ -1,65 +1,61 @@
-//! Markets sub-client — fetch, search, cache.
+//! Markets sub-client — fetch, search.
 
 use crate::client::LightconeClient;
 use crate::domain::market::{self, Market};
-use crate::domain::market::wire::MarketSearchResult;
-use crate::error::{HttpError, SdkError};
-use std::time::Instant;
+use crate::domain::market::wire::{MarketResponse, MarketSearchResult, MarketsResponse};
+use crate::error::SdkError;
+use crate::http::RetryPolicy;
 
-/// Sub-client for market operations.
 pub struct Markets<'a> {
     pub(crate) client: &'a LightconeClient,
 }
 
 impl<'a> Markets<'a> {
-    /// Get a market by pubkey. Uses TTL cache.
-    pub async fn get(&self, pubkey: &str) -> Result<Market, SdkError> {
-        {
-            let cache = self.client.market_cache.read().await;
-            if let Some((market, fetched_at)) = cache.get(pubkey) {
-                if fetched_at.elapsed() < self.client.market_cache_ttl {
-                    return Ok(market.clone());
-                }
-            }
+    /// Fetch all markets (paginated).
+    pub async fn get(
+        &self,
+        page: Option<u32>,
+        limit: Option<u32>,
+    ) -> Result<Vec<Market>, SdkError> {
+        let base = self.client.http.base_url();
+        let mut url = format!("{}/api/markets", base);
+        let mut params = Vec::new();
+        if let Some(p) = page {
+            params.push(format!("page={}", p));
+        }
+        if let Some(l) = limit {
+            params.push(format!("limit={}", l));
+        }
+        if !params.is_empty() {
+            url = format!("{}?{}", url, params.join("&"));
         }
 
-        let resp = self.client.http.get_markets(None, None).await?;
-        for mr in resp.markets {
-            if mr.market_pubkey == pubkey {
-                let market: Market = mr.try_into().map_err(|e: market::ValidationError| {
-                    SdkError::Validation(e.to_string())
-                })?;
-                self.cache_market(&market).await;
-                return Ok(market);
-            }
-        }
+        let resp: MarketsResponse = self
+            .client
+            .http
+            .get(&url, RetryPolicy::Idempotent)
+            .await?;
 
-        Err(SdkError::Http(HttpError::NotFound(format!(
-            "Market not found: {}",
-            pubkey
-        ))))
+        resp.markets
+            .into_iter()
+            .map(|mr| {
+                mr.try_into()
+                    .map_err(|e: market::ValidationError| SdkError::Validation(e.to_string()))
+            })
+            .collect()
     }
 
-    /// Get a market by slug. Uses TTL cache.
+    /// Fetch a market by slug.
     pub async fn get_by_slug(&self, slug: &str) -> Result<Market, SdkError> {
-        {
-            let index = self.client.slug_index.read().await;
-            if let Some(pubkey) = index.get(slug) {
-                let cache = self.client.market_cache.read().await;
-                if let Some((market, fetched_at)) = cache.get(pubkey) {
-                    if fetched_at.elapsed() < self.client.market_cache_ttl {
-                        return Ok(market.clone());
-                    }
-                }
-            }
-        }
+        let url = format!("{}/api/markets/by-slug/{}", self.client.http.base_url(), slug);
+        let resp: MarketResponse = self
+            .client
+            .http
+            .get(&url, RetryPolicy::Idempotent)
+            .await?;
 
-        let resp = self.client.http.get_market_by_slug(slug).await?;
-        let market: Market = resp
-            .try_into()
-            .map_err(|e: market::ValidationError| SdkError::Validation(e.to_string()))?;
-        self.cache_market(&market).await;
-        Ok(market)
+        resp.try_into()
+            .map_err(|e: market::ValidationError| SdkError::Validation(e.to_string()))
     }
 
     /// Search markets.
@@ -68,36 +64,28 @@ impl<'a> Markets<'a> {
         query: &str,
         limit: Option<u32>,
     ) -> Result<Vec<MarketSearchResult>, SdkError> {
-        Ok(self.client.http.search_markets(query, limit).await?)
+        let mut url = format!(
+            "{}/api/markets/search?q={}",
+            self.client.http.base_url(),
+            urlencoding::encode(query)
+        );
+        if let Some(l) = limit {
+            url = format!("{}&limit={}", url, l);
+        }
+        Ok(self
+            .client
+            .http
+            .get(&url, RetryPolicy::Idempotent)
+            .await?)
     }
 
     /// Get featured markets.
     pub async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError> {
-        Ok(self.client.http.get_featured_markets().await?)
-    }
-
-    /// Invalidate a cached market by pubkey.
-    pub async fn invalidate(&self, pubkey: &str) {
-        self.client.market_cache.write().await.remove(pubkey);
-    }
-
-    /// Clear all market caches.
-    pub async fn clear_cache(&self) {
-        self.client.market_cache.write().await.clear();
-        self.client.slug_index.write().await.clear();
-    }
-
-    async fn cache_market(&self, market: &Market) {
-        let pubkey = market.pubkey.to_string();
-        self.client
-            .market_cache
-            .write()
-            .await
-            .insert(pubkey.clone(), (market.clone(), Instant::now()));
-        self.client
-            .slug_index
-            .write()
-            .await
-            .insert(market.slug.clone(), pubkey);
+        let url = format!("{}/api/markets/featured", self.client.http.base_url());
+        Ok(self
+            .client
+            .http
+            .get(&url, RetryPolicy::Idempotent)
+            .await?)
     }
 }
