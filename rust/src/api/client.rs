@@ -35,7 +35,7 @@ use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
 use crate::network::DEFAULT_API_URL;
 use crate::program::orders::SignedOrder;
-use crate::shared::OrderbookDecimals;
+use crate::shared::{OrderbookDecimals, SubmitOrderRequest};
 
 /// Default request timeout in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 30;

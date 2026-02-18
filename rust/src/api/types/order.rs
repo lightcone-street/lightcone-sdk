@@ -2,9 +2,6 @@
 
 use serde::{Deserialize, Serialize};
 
-// Re-export SubmitOrderRequest from shared module for backwards compatibility
-pub use crate::shared::SubmitOrderRequest;
-
 /// Order side enum (serializes as integer: 0=Bid, 1=Ask).
 /// Deserializes from either integer (0/1) or string ("bid"/"ask").
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]

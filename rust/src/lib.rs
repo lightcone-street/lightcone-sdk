@@ -140,7 +140,7 @@ pub mod prelude {
         // Common types
         MarketsResponse, MarketInfoResponse, Market as ApiMarket, DepositAsset, ConditionalToken,
         OrderbookResponse, PriceLevel,
-        SubmitOrderRequest, OrderResponse, CancelResponse, CancelAllResponse, MarketSearchResult, SearchOrderbook,
+        OrderResponse, CancelResponse, CancelAllResponse, MarketSearchResult, SearchOrderbook,
         PositionsResponse, Position as ApiPosition, OutcomeBalance,
         PriceHistoryParams, PriceHistoryResponse,
         TradesParams, TradesResponse, Trade,

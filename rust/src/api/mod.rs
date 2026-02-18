@@ -65,24 +65,25 @@
 //! and sign orders, then submit via the API:
 //!
 //! ```rust,ignore
-//! use lightcone_sdk::api::{LightconeApiClient, SubmitOrderRequest};
+//! use lightcone_sdk::api::LightconeApiClient;
+//! use lightcone_sdk::program::{OrderBuilder, SignedCancelOrder};
 //!
-//! let request = SubmitOrderRequest {
-//!     maker: "maker_pubkey".to_string(),
-//!     nonce: 1,
-//!     market_pubkey: "market_pubkey".to_string(),
-//!     base_token: "base_token".to_string(),
-//!     quote_token: "quote_token".to_string(),
-//!     side: 0, // BID
-//!     maker_amount: 1000000,
-//!     taker_amount: 500000,
-//!     expiration: 0, // No expiration
-//!     signature: "hex_encoded_signature".to_string(),
-//!     orderbook_id: "orderbook_id".to_string(),
-//! };
+//! let order = OrderBuilder::new()
+//!     .maker(keypair.pubkey())
+//!     .market(market)
+//!     .base_mint(base_mint)
+//!     .quote_mint(quote_mint)
+//!     .bid()
+//!     .price("0.55")
+//!     .size("1.0")
+//!     .apply_scaling(&decimals)?
+//!     .build_and_sign(&keypair);
 //!
-//! let response = client.submit_order(request).await?;
-//! println!("Order hash: {}", response.order_hash);
+//! let response = client.submit_full_order(&order, orderbook_id).await?;
+//!
+//! // Cancel the order
+//! let cancel = SignedCancelOrder::new_signed(&response.order_hash, keypair.pubkey(), &keypair);
+//! client.cancel_signed_order(&cancel).await?;
 //! ```
 
 pub mod client;
