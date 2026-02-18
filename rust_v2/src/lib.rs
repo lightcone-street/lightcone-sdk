@@ -98,8 +98,10 @@ pub mod prelude {
     // Network
     pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 
-    // Auth
-    pub use crate::auth::AuthCredentials;
+    // Auth + User types
+    pub use crate::auth::{
+        AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
+    };
 
     // HTTP client + sub-clients
     #[cfg(feature = "http")]

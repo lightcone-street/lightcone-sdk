@@ -162,6 +162,11 @@ impl LightconeHttp {
             }
         }
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            req = req.fetch_credentials_include();
+        }
+
         if let Some(b) = body {
             req = req.json(b);
         }

@@ -94,5 +94,4 @@ solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]
 
 # Convenience bundles
 native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls", "dep:tokio"]
-full-native = ["native"]
-full-wasm = ["http", "ws-wasm"]
+wasm = ["http", "ws-wasm"]
