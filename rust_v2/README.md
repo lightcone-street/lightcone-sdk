@@ -21,7 +21,7 @@ The v1 SDK (`deps/sdk/rust/`) was built as a native-first Rust library with thre
 - **Rich domain types with validation.** `Market`, `Order`, `OrderBookPair`, `Outcome`, `ConditionalToken`, `DepositAsset`, `TokenBalance`, `Portfolio`, etc. — all migrated from the app with their `TryFrom` conversions and business logic.
 - **Wire types as a public secondary API.** Raw serde structs for REST and WS are public under `domain::*/wire` for consumers who need raw access (server functions, debugging), but domain types are the primary interface.
 - **Typed WebSocket messages.** `MessageIn`, `MessageOut`, `Kind` enum, `SubscribeParams`, `UnsubscribeParams`, and `Subscription` trait — all SDK-provided with full channel coverage (book, trades, user, price_history, ticker, market).
-- **Nested sub-client API with per-domain caching.** `client.markets().get_by_slug(...)`, `client.orderbooks().decimals(...)`, `client.orders().submit(...)` — each sub-client manages its own cache (TTL, persistent, or none).
+- **Nested sub-client API.** `client.markets().get_by_slug(...)`, `client.orderbooks().decimals(...)`, `client.orders().submit(...)` — organized by domain for clean ergonomics. The SDK is stateless for HTTP data; caching is the consumer's responsibility.
 - **Granular retry policies.** `RetryPolicy::Idempotent` for GETs, `RetryPolicy::None` for non-idempotent POSTs, `RetryPolicy::Custom` for anything else. Backoff + jitter, 429 `Retry-After` support.
 - **Secure auth with platform-aware token handling.** HTTP-only cookies on WASM (SDK never touches the token), internal private storage on native (never exposed via public API). Logout calls the backend endpoint to clear cookies server-side.
 - **App-owned WS state containers.** `OrderbookSnapshot`, `UserOpenOrders`, `TradeHistory`, `PriceHistoryState` — standalone types with update methods that the app wraps in its own reactive state (e.g. Dioxus `Signal`). Avoids the `RwLock` vs reactive signal mismatch.
@@ -173,16 +173,18 @@ Shared newtypes like `OrderBookId`, `PubkeyStr`, `Side`, and `Resolution` are us
 
 ## State Management
 
-The SDK provides two kinds of state:
+### HTTP: Stateless (consumer owns caching)
 
-### HTTP Caching (internal, transparent)
+The SDK is intentionally **stateless** for HTTP data. Sub-clients are thin, typed wrappers over the REST API — they fetch, convert wire → domain types, and return. No market cache, no slug index, no TTLs.
 
-Each sub-client manages its own cache:
-- `markets()` — TTL cache by pubkey and slug (default 60s)
-- `orderbooks().decimals()` — persistent cache (rarely changes)
-- `orders()` — no caching (always fresh)
+**Why?** Different consumers want radically different caching strategies:
+- Dioxus server functions use `static LazyLock<Mutex<Cache>>` with 1-hour TTLs
+- CLI tools may want no caching at all
+- Admin dashboards may want short TTLs with manual invalidation
 
-The caller just calls `.get()` and the sub-client decides. Cache control: `.invalidate()`, `.clear_cache()`.
+The SDK shouldn't pick one strategy. The consumer knows best.
+
+**The only exception:** `orderbooks().decimals()` — orderbook decimals are effectively immutable. This is a pure memoization, not a caching policy.
 
 ### WS-Driven Live State (app-owned)
 
@@ -208,9 +210,10 @@ The app instantiates these, wraps them in its own reactive state (e.g. Dioxus `S
 
 ### Native/CLI
 
-- The SDK stores the token **internally** (private field) to inject into request headers.
+- The SDK stores the token **internally** (private field) and injects it as a `Cookie: auth_token=<token>` header, matching the backend's cookie-only auth model.
 - Token is **NEVER** exposed via public API — no `.token()` accessor.
 - `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
+- We manually inject the cookie rather than using reqwest's `cookie_store(true)` because the backend hardcodes `Domain=.lightcone.xyz` on the Set-Cookie, which would break local development (requests to `localhost` wouldn't match the domain).
 
 ### Logout
 

@@ -1,16 +1,10 @@
-//! Low-level HTTP client — `LightconeHttp`.
+//! Generic HTTP transport — retry, auth injection, error mapping.
 //!
-//! One method per API endpoint. Returns wire types (conversion to domain types
-//! happens at the Layer 5 boundary). Internal to the SDK — Layer 5 wraps this.
+//! No endpoint-specific logic lives here. Domain sub-clients own their
+//! URL construction and retry policy selection, calling `get`/`post` directly.
 
-use crate::domain::admin::{AdminEnvelope, UnifiedMetadataRequest, UnifiedMetadataResponse};
-use crate::domain::market::wire::{MarketResponse, MarketSearchResult, MarketsResponse};
-use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
-use crate::domain::position::wire::PositionsResponse;
-use crate::domain::trade::wire::TradesResponse;
 use crate::error::HttpError;
 use crate::http::retry::{RetryConfig, RetryPolicy};
-use crate::shared::Resolution;
 
 use async_lock::RwLock;
 use reqwest::Client;
@@ -20,11 +14,13 @@ use std::sync::Arc;
 use std::time::Duration;
 use tracing;
 
-/// Low-level HTTP client for the Lightcone REST API.
+/// Generic HTTP transport for the Lightcone REST API.
+///
+/// Provides `get` and `post` with retry policies, auth token injection,
+/// and structured error mapping. Domain sub-clients call these directly.
 pub struct LightconeHttp {
     base_url: String,
     client: Client,
-    /// Auth token for native clients. NEVER exposed publicly.
     auth_token: Arc<RwLock<Option<String>>>,
 }
 
@@ -45,227 +41,24 @@ impl LightconeHttp {
         }
     }
 
-    /// Set the auth token (native only — on WASM, cookies handle auth).
+    pub(crate) fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
     pub(crate) async fn set_auth_token(&self, token: Option<String>) {
         *self.auth_token.write().await = token;
     }
 
-    /// Clear auth token.
     pub(crate) async fn clear_auth_token(&self) {
         *self.auth_token.write().await = None;
     }
 
-    /// Check if an auth token is set (native only).
     #[allow(dead_code)]
     pub(crate) async fn has_auth_token(&self) -> bool {
         self.auth_token.read().await.is_some()
     }
 
-    // ── Markets ──────────────────────────────────────────────────────────
-
-    pub async fn get_markets(
-        &self,
-        page: Option<u32>,
-        limit: Option<u32>,
-    ) -> Result<MarketsResponse, HttpError> {
-        let mut url = format!("{}/api/markets", self.base_url);
-        let mut params = Vec::new();
-        if let Some(p) = page {
-            params.push(format!("page={}", p));
-        }
-        if let Some(l) = limit {
-            params.push(format!("limit={}", l));
-        }
-        if !params.is_empty() {
-            url = format!("{}?{}", url, params.join("&"));
-        }
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    pub async fn get_market_by_slug(&self, slug: &str) -> Result<MarketResponse, HttpError> {
-        let url = format!("{}/api/markets/by-slug/{}", self.base_url, slug);
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    pub async fn search_markets(
-        &self,
-        query: &str,
-        limit: Option<u32>,
-    ) -> Result<Vec<MarketSearchResult>, HttpError> {
-        let mut url = format!(
-            "{}/api/markets/search?q={}",
-            self.base_url,
-            urlencoding::encode(query)
-        );
-        if let Some(l) = limit {
-            url = format!("{}&limit={}", url, l);
-        }
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    pub async fn get_featured_markets(&self) -> Result<Vec<MarketSearchResult>, HttpError> {
-        let url = format!("{}/api/markets/featured", self.base_url);
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    // ── Orderbooks ───────────────────────────────────────────────────────
-
-    pub async fn get_orderbook(
-        &self,
-        orderbook_id: &str,
-        depth: Option<u32>,
-    ) -> Result<OrderbookDepthResponse, HttpError> {
-        let mut url = format!("{}/api/orderbook/{}", self.base_url, orderbook_id);
-        if let Some(d) = depth {
-            url = format!("{}?depth={}", url, d);
-        }
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    pub async fn get_orderbook_decimals(
-        &self,
-        orderbook_id: &str,
-    ) -> Result<DecimalsResponse, HttpError> {
-        let url = format!(
-            "{}/api/orderbooks/{}/decimals",
-            self.base_url, orderbook_id
-        );
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    // ── Orders ───────────────────────────────────────────────────────────
-
-    pub async fn submit_order<T: Serialize>(
-        &self,
-        request: &T,
-    ) -> Result<serde_json::Value, HttpError> {
-        let url = format!("{}/api/orders/submit", self.base_url);
-        self.post(&url, request, RetryPolicy::None).await
-    }
-
-    pub async fn cancel_order<T: Serialize>(
-        &self,
-        request: &T,
-    ) -> Result<serde_json::Value, HttpError> {
-        let url = format!("{}/api/orders/cancel", self.base_url);
-        self.post(&url, request, RetryPolicy::None).await
-    }
-
-    pub async fn cancel_all_orders<T: Serialize>(
-        &self,
-        request: &T,
-    ) -> Result<serde_json::Value, HttpError> {
-        let url = format!("{}/api/orders/cancel-all", self.base_url);
-        self.post(&url, request, RetryPolicy::None).await
-    }
-
-    pub async fn get_user_orders<T: Serialize>(
-        &self,
-        request: &T,
-    ) -> Result<serde_json::Value, HttpError> {
-        let url = format!("{}/api/users/orders", self.base_url);
-        self.post(&url, request, RetryPolicy::Idempotent).await
-    }
-
-    // ── Positions ────────────────────────────────────────────────────────
-
-    pub async fn get_user_positions(
-        &self,
-        user_pubkey: &str,
-    ) -> Result<PositionsResponse, HttpError> {
-        let url = format!("{}/api/users/{}/positions", self.base_url, user_pubkey);
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    pub async fn get_user_market_positions(
-        &self,
-        user_pubkey: &str,
-        market_pubkey: &str,
-    ) -> Result<PositionsResponse, HttpError> {
-        let url = format!(
-            "{}/api/users/{}/positions?market={}",
-            self.base_url, user_pubkey, market_pubkey
-        );
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    // ── Trades ───────────────────────────────────────────────────────────
-
-    pub async fn get_trades(
-        &self,
-        orderbook_id: &str,
-        limit: Option<u32>,
-        before: Option<&str>,
-    ) -> Result<TradesResponse, HttpError> {
-        let mut url = format!(
-            "{}/api/trades?orderbook_id={}",
-            self.base_url, orderbook_id
-        );
-        if let Some(l) = limit {
-            url = format!("{}&limit={}", url, l);
-        }
-        if let Some(b) = before {
-            url = format!("{}&before={}", url, b);
-        }
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    // ── Price History ────────────────────────────────────────────────────
-
-    pub async fn get_price_history(
-        &self,
-        orderbook_id: &str,
-        resolution: Resolution,
-        from: Option<u64>,
-        to: Option<u64>,
-    ) -> Result<serde_json::Value, HttpError> {
-        let mut url = format!(
-            "{}/api/price-history?orderbook_id={}&resolution={}",
-            self.base_url,
-            orderbook_id,
-            resolution.as_str()
-        );
-        if let Some(f) = from {
-            url = format!("{}&from={}", url, f);
-        }
-        if let Some(t) = to {
-            url = format!("{}&to={}", url, t);
-        }
-        self.get(&url, RetryPolicy::Idempotent).await
-    }
-
-    // ── Admin ────────────────────────────────────────────────────────────
-
-    pub async fn admin_upsert_metadata(
-        &self,
-        envelope: &AdminEnvelope<UnifiedMetadataRequest>,
-    ) -> Result<UnifiedMetadataResponse, HttpError> {
-        let url = format!("{}/api/admin/metadata", self.base_url);
-        self.post(&url, envelope, RetryPolicy::None).await
-    }
-
-    // ── Auth ─────────────────────────────────────────────────────────────
-
-    pub async fn login(
-        &self,
-        body: &impl Serialize,
-    ) -> Result<serde_json::Value, HttpError> {
-        let url = format!(
-            "{}/api/auth/login_or_register_with_message",
-            self.base_url
-        );
-        self.post(&url, body, RetryPolicy::None).await
-    }
-
-    pub async fn logout(&self) -> Result<serde_json::Value, HttpError> {
-        let url = format!("{}/api/auth/logout", self.base_url);
-        self.post(&url, &serde_json::json!({}), RetryPolicy::None)
-            .await
-    }
-
-    // ── Internal HTTP methods ────────────────────────────────────────────
-
-    async fn get<T: DeserializeOwned>(
+    pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         url: &str,
         retry: RetryPolicy,
@@ -274,7 +67,7 @@ impl LightconeHttp {
             .await
     }
 
-    async fn post<T: DeserializeOwned, B: Serialize>(
+    pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(
         &self,
         url: &str,
         body: &B,
@@ -362,11 +155,10 @@ impl LightconeHttp {
     ) -> Result<T, HttpError> {
         let mut req = self.client.request(method.clone(), url);
 
-        // Inject auth token on native
         #[cfg(not(target_arch = "wasm32"))]
         {
             if let Some(token) = self.auth_token.read().await.as_ref() {
-                req = req.header("Authorization", format!("Bearer {}", token));
+                req = req.header("Cookie", format!("auth_token={}", token));
             }
         }
 

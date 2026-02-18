@@ -1,13 +1,17 @@
 //! High-level client — `LightconeClient` with nested sub-client accessors.
 //!
 //! Each domain has its own sub-client in `domain/<name>/client.rs`.
-//! This module keeps the builder, shared cache state, and accessor methods.
+//! This module keeps the builder, auth state, and accessor methods.
+//!
+//! **Caching philosophy**: The SDK is stateless for HTTP data. Caching is the
+//! consumer's responsibility (e.g. Dioxus server functions, CLI memoization).
+//! The only exception is `decimals_cache` — orderbook decimals are effectively
+//! immutable and are a safe SDK-level optimization.
 
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
 use crate::domain::admin::client::Admin;
 use crate::domain::market::client::Markets;
-use crate::domain::market::Market;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
 use crate::domain::orderbook::wire::DecimalsResponse;
@@ -21,7 +25,6 @@ use crate::ws::WsConfig;
 use async_lock::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
@@ -37,19 +40,17 @@ pub use crate::domain::trade::client::Trades as TradesClient;
 ///
 /// Provides nested sub-client accessors for each domain:
 /// `client.markets()`, `client.orders()`, etc.
+///
+/// The client is intentionally stateless for HTTP data — no market cache,
+/// no slug index. The consumer manages caching at the application layer.
+/// The only internal cache is `decimals_cache` for orderbook decimals,
+/// which are effectively immutable.
 pub struct LightconeClient {
     pub(crate) http: LightconeHttp,
     pub(crate) ws_config: WsConfig,
-    /// Internal auth state.
     pub(crate) auth_credentials: Arc<RwLock<Option<AuthCredentials>>>,
-    /// Market cache: pubkey → (Market, fetched_at)
-    pub(crate) market_cache: Arc<RwLock<HashMap<String, (Market, Instant)>>>,
-    /// Market slug index: slug → pubkey
-    pub(crate) slug_index: Arc<RwLock<HashMap<String, String>>>,
     /// Decimals cache: orderbook_id → DecimalsResponse (rarely changes)
     pub(crate) decimals_cache: Arc<RwLock<HashMap<String, DecimalsResponse>>>,
-    /// Cache TTL for markets
-    pub(crate) market_cache_ttl: Duration,
 }
 
 impl LightconeClient {
@@ -91,7 +92,7 @@ impl LightconeClient {
         Auth { client: self }
     }
 
-    /// Get a WS config for creating a WebSocket connection.
+    /// Get the WS config for creating a WebSocket connection.
     ///
     /// The WS client is intentionally not embedded in `LightconeClient`
     /// because WS connection lifetimes are typically managed at the
@@ -112,10 +113,8 @@ impl LightconeClient {
         crate::ws::wasm::WsClient::new(self.ws_config.clone())
     }
 
-    /// Clear all HTTP caches.
-    pub async fn clear_all_caches(&self) {
-        self.market_cache.write().await.clear();
-        self.slug_index.write().await.clear();
+    /// Clear the decimals cache (the only SDK-internal cache).
+    pub async fn clear_decimals_cache(&self) {
         self.decimals_cache.write().await.clear();
     }
 }
@@ -126,10 +125,7 @@ impl Clone for LightconeClient {
             http: self.http.clone(),
             ws_config: self.ws_config.clone(),
             auth_credentials: self.auth_credentials.clone(),
-            market_cache: self.market_cache.clone(),
-            slug_index: self.slug_index.clone(),
             decimals_cache: self.decimals_cache.clone(),
-            market_cache_ttl: self.market_cache_ttl,
         }
     }
 }
@@ -141,7 +137,6 @@ impl Clone for LightconeClient {
 pub struct LightconeClientBuilder {
     base_url: String,
     ws_url: String,
-    market_cache_ttl: Duration,
     auth_credentials: Option<AuthCredentials>,
 }
 
@@ -150,7 +145,6 @@ impl Default for LightconeClientBuilder {
         Self {
             base_url: crate::network::DEFAULT_API_URL.to_string(),
             ws_url: crate::network::DEFAULT_WS_URL.to_string(),
-            market_cache_ttl: Duration::from_secs(60),
             auth_credentials: None,
         }
     }
@@ -164,11 +158,6 @@ impl LightconeClientBuilder {
 
     pub fn ws_url(mut self, url: &str) -> Self {
         self.ws_url = url.to_string();
-        self
-    }
-
-    pub fn market_cache_ttl(mut self, ttl: Duration) -> Self {
-        self.market_cache_ttl = ttl;
         self
     }
 
@@ -186,10 +175,7 @@ impl LightconeClientBuilder {
                 ..WsConfig::default()
             },
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
-            market_cache: Arc::new(RwLock::new(HashMap::new())),
-            slug_index: Arc::new(RwLock::new(HashMap::new())),
             decimals_cache: Arc::new(RwLock::new(HashMap::new())),
-            market_cache_ttl: self.market_cache_ttl,
         })
     }
 }

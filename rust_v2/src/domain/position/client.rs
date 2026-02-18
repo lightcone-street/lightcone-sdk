@@ -3,8 +3,8 @@
 use crate::client::LightconeClient;
 use crate::domain::position::wire::PositionsResponse;
 use crate::error::SdkError;
+use crate::http::RetryPolicy;
 
-/// Sub-client for position operations.
 pub struct Positions<'a> {
     pub(crate) client: &'a LightconeClient,
 }
@@ -12,7 +12,16 @@ pub struct Positions<'a> {
 impl<'a> Positions<'a> {
     /// Get all positions for a user.
     pub async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError> {
-        Ok(self.client.http.get_user_positions(user_pubkey).await?)
+        let url = format!(
+            "{}/api/users/{}/positions",
+            self.client.http.base_url(),
+            user_pubkey
+        );
+        Ok(self
+            .client
+            .http
+            .get(&url, RetryPolicy::Idempotent)
+            .await?)
     }
 
     /// Get positions for a user in a specific market.
@@ -21,10 +30,16 @@ impl<'a> Positions<'a> {
         user_pubkey: &str,
         market_pubkey: &str,
     ) -> Result<PositionsResponse, SdkError> {
+        let url = format!(
+            "{}/api/users/{}/positions?market={}",
+            self.client.http.base_url(),
+            user_pubkey,
+            market_pubkey
+        );
         Ok(self
             .client
             .http
-            .get_user_market_positions(user_pubkey, market_pubkey)
+            .get(&url, RetryPolicy::Idempotent)
             .await?)
     }
 }

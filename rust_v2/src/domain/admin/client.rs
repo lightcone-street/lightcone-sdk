@@ -3,8 +3,8 @@
 use crate::client::LightconeClient;
 use crate::domain::admin::{AdminEnvelope, UnifiedMetadataRequest, UnifiedMetadataResponse};
 use crate::error::SdkError;
+use crate::http::RetryPolicy;
 
-/// Sub-client for admin operations.
 pub struct Admin<'a> {
     pub(crate) client: &'a LightconeClient,
 }
@@ -14,6 +14,11 @@ impl<'a> Admin<'a> {
         &self,
         envelope: &AdminEnvelope<UnifiedMetadataRequest>,
     ) -> Result<UnifiedMetadataResponse, SdkError> {
-        Ok(self.client.http.admin_upsert_metadata(envelope).await?)
+        let url = format!("{}/api/admin/metadata", self.client.http.base_url());
+        Ok(self
+            .client
+            .http
+            .post(&url, envelope, RetryPolicy::None)
+            .await?)
     }
 }

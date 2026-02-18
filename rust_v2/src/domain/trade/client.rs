@@ -2,9 +2,10 @@
 
 use crate::client::LightconeClient;
 use crate::domain::trade::Trade;
+use crate::domain::trade::wire::TradesResponse;
 use crate::error::SdkError;
+use crate::http::RetryPolicy;
 
-/// Sub-client for trade operations.
 pub struct Trades<'a> {
     pub(crate) client: &'a LightconeClient,
 }
@@ -16,11 +17,24 @@ impl<'a> Trades<'a> {
         limit: Option<u32>,
         before: Option<&str>,
     ) -> Result<Vec<Trade>, SdkError> {
-        let resp = self
+        let mut url = format!(
+            "{}/api/trades?orderbook_id={}",
+            self.client.http.base_url(),
+            orderbook_id
+        );
+        if let Some(l) = limit {
+            url = format!("{}&limit={}", url, l);
+        }
+        if let Some(b) = before {
+            url = format!("{}&before={}", url, b);
+        }
+
+        let resp: TradesResponse = self
             .client
             .http
-            .get_trades(orderbook_id, limit, before)
+            .get(&url, RetryPolicy::Idempotent)
             .await?;
+
         Ok(resp.trades.into_iter().map(Trade::from).collect())
     }
 }

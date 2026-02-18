@@ -174,5 +174,8 @@ pub enum MarketEvent {
     #[serde(rename = "paused")]
     Paused { market_pubkey: String },
     #[serde(rename = "orderbook_created")]
-    OrderbookCreated { market_pubkey: String, orderbook_id: String },
+    OrderbookCreated {
+        market_pubkey: String,
+        orderbook_id: String,
+    },
 }
