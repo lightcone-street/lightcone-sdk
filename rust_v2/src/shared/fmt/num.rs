@@ -72,6 +72,20 @@ pub fn display_with_decimals(amount: &f64, decimals: usize) -> String {
     display_formatted_string(formatted)
 }
 
+/// Convert an on-chain integer value to f64 given the token's decimal places.
+///
+/// e.g. `to_decimal_value(1_500_000_000, 9)` → `1.5`
+pub fn to_decimal_value(value: u64, decimals: u64) -> f64 {
+    value as f64 / 10f64.powi(decimals as i32)
+}
+
+/// Convert an f64 value back to on-chain integer representation.
+///
+/// e.g. `from_decimal_value(1.5, 9)` → `1_500_000_000`
+pub fn from_decimal_value(value: f64, decimals: u64) -> u64 {
+    (value * 10f64.powi(decimals as i32)) as u64
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +178,32 @@ mod tests {
     fn test_display_with_decimals_large_numbers() {
         assert_eq!(display_with_decimals(&1234567.89, 2), "1,234,567.89");
         assert_eq!(display_with_decimals(&1234567.0, 0), "1,234,567");
+    }
+
+    #[test]
+    fn test_to_decimal_value() {
+        assert_eq!(to_decimal_value(1_000_000_000, 9), 1.0);
+        assert_eq!(to_decimal_value(1_500_000_000, 9), 1.5);
+        assert_eq!(to_decimal_value(1_000_000, 6), 1.0);
+        assert_eq!(to_decimal_value(500_000, 6), 0.5);
+        assert_eq!(to_decimal_value(0, 9), 0.0);
+    }
+
+    #[test]
+    fn test_from_decimal_value() {
+        assert_eq!(from_decimal_value(1.0, 9), 1_000_000_000);
+        assert_eq!(from_decimal_value(1.5, 9), 1_500_000_000);
+        assert_eq!(from_decimal_value(1.0, 6), 1_000_000);
+        assert_eq!(from_decimal_value(0.5, 6), 500_000);
+        assert_eq!(from_decimal_value(0.0, 9), 0);
+    }
+
+    #[test]
+    fn test_decimal_value_roundtrip() {
+        let original: u64 = 123_456_789;
+        let decimals: u64 = 9;
+        let as_float = to_decimal_value(original, decimals);
+        let back = from_decimal_value(as_float, decimals);
+        assert_eq!(back, original);
     }
 }
