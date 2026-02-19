@@ -3,7 +3,14 @@
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use serde::{Deserialize, Serialize};
+use solana_signature::Signature;
+
+#[cfg(feature = "native-auth")]
+use solana_keypair::Keypair;
+#[cfg(feature = "native-auth")]
+use solana_signer::Signer;
 
 // ─── Request types ───────────────────────────────────────────────────────────
 
@@ -14,6 +21,34 @@ pub struct CancelBody {
     pub signature: String,
 }
 
+impl CancelBody {
+    /// Build a cancel request with a base58-encoded signature (from a wallet adapter).
+    /// Converts base58 to the hex encoding the backend expects.
+    pub fn from_base58(order_hash: String, maker: String, sig_bs58: &str) -> SdkResult<Self> {
+        let sig = sig_bs58
+            .parse::<Signature>()
+            .map_err(|_| ProgramSdkError::InvalidSignature)?;
+        Ok(Self {
+            order_hash,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        })
+    }
+
+    /// Build a signed cancel request using a keypair.
+    /// Signs `cancel_order_message(order_hash)` and hex-encodes the result.
+    #[cfg(feature = "native-auth")]
+    pub fn signed(order_hash: String, maker: String, keypair: &Keypair) -> Self {
+        let message = crate::program::orders::cancel_order_message(&order_hash);
+        let sig = keypair.sign_message(&message);
+        Self {
+            order_hash,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelAllBody {
     pub user_pubkey: String,
@@ -21,6 +56,47 @@ pub struct CancelAllBody {
     pub orderbook_id: String,
     pub signature: String,
     pub timestamp: i64,
+}
+
+impl CancelAllBody {
+    /// Build a cancel-all request with a base58-encoded signature (from a wallet adapter).
+    /// Converts base58 to the hex encoding the backend expects.
+    pub fn from_base58(
+        user_pubkey: String,
+        orderbook_id: String,
+        timestamp: i64,
+        sig_bs58: &str,
+    ) -> SdkResult<Self> {
+        let sig = sig_bs58
+            .parse::<Signature>()
+            .map_err(|_| ProgramSdkError::InvalidSignature)?;
+        Ok(Self {
+            user_pubkey,
+            orderbook_id,
+            signature: hex::encode(sig.as_ref()),
+            timestamp,
+        })
+    }
+
+    /// Build a signed cancel-all request using a native keypair.
+    /// Signs `cancel_all_message(user_pubkey, timestamp)` and hex-encodes the result.
+    #[cfg(feature = "native-auth")]
+    pub fn signed(
+        user_pubkey: String,
+        orderbook_id: String,
+        timestamp: i64,
+        keypair: &Keypair,
+    ) -> Self {
+        let message =
+            crate::program::orders::cancel_all_message(&user_pubkey, timestamp);
+        let sig = keypair.sign_message(message.as_bytes());
+        Self {
+            user_pubkey,
+            orderbook_id,
+            signature: hex::encode(sig.as_ref()),
+            timestamp,
+        }
+    }
 }
 
 // ─── Response types ──────────────────────────────────────────────────────────

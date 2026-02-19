@@ -491,31 +491,11 @@ pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
     order_hash.as_bytes().to_vec()
 }
 
-/// Sign a cancel order request.
-///
-/// Returns the signature as a 128-char hex string.
-#[cfg(feature = "native-auth")]
-pub fn sign_cancel_order(order_hash: &str, keypair: &Keypair) -> String {
-    let message = cancel_order_message(order_hash);
-    let sig = keypair.sign_message(&message);
-    hex::encode(sig.as_ref())
-}
-
 /// Build the message string for cancelling all orders.
 ///
 /// Format: `"cancel_all:{pubkey}:{timestamp}"`
 pub fn cancel_all_message(user_pubkey: &str, timestamp: i64) -> String {
     format!("cancel_all:{}:{}", user_pubkey, timestamp)
-}
-
-/// Sign a cancel-all orders request.
-///
-/// Returns the signature as a 128-char hex string.
-#[cfg(feature = "native-auth")]
-pub fn sign_cancel_all(user_pubkey: &str, timestamp: i64, keypair: &Keypair) -> String {
-    let message = cancel_all_message(user_pubkey, timestamp);
-    let sig = keypair.sign_message(message.as_bytes());
-    hex::encode(sig.as_ref())
 }
 
 #[cfg(test)]
@@ -885,25 +865,28 @@ mod tests {
 
     #[test]
     #[cfg(feature = "native-auth")]
-    fn test_sign_cancel_order() {
+    fn test_cancel_body_signed() {
+        use crate::domain::order::CancelBody;
         use solana_keypair::Keypair;
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
         let order_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let maker = keypair.pubkey().to_string();
 
-        let sig_hex = sign_cancel_order(order_hash, &keypair);
-        assert_eq!(sig_hex.len(), 128);
+        let body = CancelBody::signed(order_hash.to_string(), maker, &keypair);
+        assert_eq!(body.signature.len(), 128);
+        assert_eq!(body.order_hash, order_hash);
 
-        // Verify the signature
-        let sig_bytes = hex::decode(&sig_hex).unwrap();
+        let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), order_hash.as_bytes()));
     }
 
     #[test]
     #[cfg(feature = "native-auth")]
-    fn test_sign_cancel_all() {
+    fn test_cancel_all_body_signed() {
+        use crate::domain::order::CancelAllBody;
         use solana_keypair::Keypair;
         use solana_signer::Signer;
 
@@ -911,12 +894,16 @@ mod tests {
         let pubkey_str = keypair.pubkey().to_string();
         let timestamp = 1700000000i64;
 
-        let sig_hex = sign_cancel_all(&pubkey_str, timestamp, &keypair);
-        assert_eq!(sig_hex.len(), 128);
+        let body = CancelAllBody::signed(
+            pubkey_str.clone(),
+            String::new(),
+            timestamp,
+            &keypair,
+        );
+        assert_eq!(body.signature.len(), 128);
 
-        // Verify the signature
         let message = cancel_all_message(&pubkey_str, timestamp);
-        let sig_bytes = hex::decode(&sig_hex).unwrap();
+        let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));
     }
