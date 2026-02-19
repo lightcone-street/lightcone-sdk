@@ -85,6 +85,32 @@ impl Default for TokenBalance {
     }
 }
 
+impl TokenBalance {
+    pub fn computed_base(&self, conditional_price: Decimal) -> TokenBalanceComputedBase {
+        use crate::shared::fmt::decimal;
+        let size = self.idle + self.on_book;
+        let value = size * conditional_price;
+
+        TokenBalanceComputedBase {
+            value: decimal::display(&value),
+            size: decimal::display(&size),
+            price: decimal::display(&conditional_price),
+        }
+    }
+
+    pub fn computed_quote(&self) -> String {
+        use crate::shared::fmt::decimal;
+        let size = self.idle + self.on_book;
+        decimal::display(&size)
+    }
+}
+
+pub struct TokenBalanceComputedBase {
+    pub value: String,
+    pub size: String,
+    pub price: String,
+}
+
 /// Metadata for a deposit asset fetched from on-chain or DAS.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositAssetMetadata {

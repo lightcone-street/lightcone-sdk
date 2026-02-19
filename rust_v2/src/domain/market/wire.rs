@@ -123,8 +123,14 @@ pub struct MarketResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketsResponse {
     pub markets: Vec<MarketResponse>,
-    pub total: usize,
+    pub next_cursor: Option<i64>,
     pub has_more: bool,
+}
+
+/// REST response wrapping a single market (used by by-slug and by-pubkey endpoints).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct SingleMarketResponse {
+    pub market: MarketResponse,
 }
 
 /// Minimal search/featured result for a single orderbook.

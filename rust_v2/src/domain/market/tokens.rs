@@ -115,6 +115,59 @@ pub struct TokenMetadata {
     pub name: String,
 }
 
+// ─── Stablecoin detection ────────────────────────────────────────────────────
+
+pub const USDC_MAINNET: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+pub const USDT_MAINNET: &str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+pub const USDC_DEVNET_LC: &str = "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez";
+
+fn is_usd_stablecoin(pubkey: &PubkeyStr) -> bool {
+    let s = pubkey.as_str();
+    s == USDC_MAINNET || s == USDT_MAINNET || s == USDC_DEVNET_LC
+}
+
+impl ConditionalToken {
+    pub fn is_usd_stable_coin(&self) -> bool {
+        is_usd_stablecoin(&self.deposit_asset)
+    }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        if is_usd_stablecoin(self.pubkey()) {
+            "$"
+        } else {
+            ""
+        }
+    }
+}
+
+impl DepositAsset {
+    pub fn is_usd_stable_coin(&self) -> bool {
+        is_usd_stablecoin(&self.deposit_asset)
+    }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        if is_usd_stablecoin(self.pubkey()) {
+            "$"
+        } else {
+            ""
+        }
+    }
+}
+
+impl TokenMetadata {
+    pub fn is_usd_stable_coin(&self) -> bool {
+        is_usd_stablecoin(&self.pubkey)
+    }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        if is_usd_stablecoin(&self.pubkey) {
+            "$"
+        } else {
+            ""
+        }
+    }
+}
+
 // ─── ValidatedTokens ─────────────────────────────────────────────────────────
 
 /// Result of validating a `DepositAssetResponse`: the deposit asset, its conditional tokens,

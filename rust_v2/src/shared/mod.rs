@@ -4,6 +4,7 @@
 //! to the raw format the backend sends, so they can be used directly in wire types
 //! without conversion overhead.
 
+pub mod fmt;
 pub mod price;
 pub mod scaling;
 
