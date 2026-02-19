@@ -84,7 +84,10 @@ pub mod prelude {
     pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};
 
     // Domain types — order
-    pub use crate::domain::order::{Order, OrderStatus, OrderType, UserOpenOrders};
+    pub use crate::domain::order::{
+        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, FillInfo, Order, OrderStatus,
+        OrderType, SubmitOrderResponse, UserOpenOrders,
+    };
 
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{

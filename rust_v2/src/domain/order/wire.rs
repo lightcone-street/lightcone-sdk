@@ -1,6 +1,6 @@
 //! Wire types for order and user WS messages.
 
-use crate::shared::{OrderBookId, PubkeyStr, Side};
+use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::Deserialize;
@@ -61,6 +61,7 @@ pub struct WsOrder {
     pub filled: Decimal,
     pub fill_amount: Decimal,
     pub side: Side,
+    #[serde(with = "serde_util::timestamp_ms")]
     pub created_at: DateTime<Utc>,
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
@@ -81,6 +82,7 @@ pub struct UserSnapshotOrder {
     pub remaining: Decimal,
     pub filled: Decimal,
     pub price: Decimal,
+    #[serde(with = "serde_util::timestamp_ms")]
     pub created_at: DateTime<Utc>,
     pub expiration: u64,
     pub base_mint: PubkeyStr,

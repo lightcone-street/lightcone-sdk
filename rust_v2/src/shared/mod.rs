@@ -7,6 +7,7 @@
 pub mod fmt;
 pub mod price;
 pub mod scaling;
+pub mod serde_util;
 
 pub use price::{format_decimal, parse_decimal};
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
