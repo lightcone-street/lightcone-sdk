@@ -73,6 +73,14 @@ impl LinkedAccountType {
             Self::GoogleOauth => "google_oauth",
         }
     }
+
+    pub fn text(&self) -> &'static str {
+        match self {
+            Self::Wallet => "Solana",
+            Self::TwitterOauth => "X",
+            Self::GoogleOauth => "Google",
+        }
+    }
 }
 
 impl std::fmt::Display for LinkedAccountType {

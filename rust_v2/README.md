@@ -246,7 +246,59 @@ The SDK aligns with `lightcone-backend` API routes:
 | `price_history().get(...)` | `/api/price-history` | GET |
 | `admin().upsert_metadata(env)` | `/api/admin/metadata` | POST |
 | `auth().login_with_message(...)` | `/api/auth/login_or_register_with_message` | POST |
+| `auth().check_session()` | `/api/auth/me` | GET |
 | `auth().logout()` | `/api/auth/logout` | POST |
+| `auth().disconnect_x()` | `/api/auth/disconnect_x` | POST |
+| `auth().connect_x(...)` | `/api/auth/connect_x` | POST |
+| `privy().sign_and_send_tx(...)` | `/api/privy/sign_and_send_tx` | POST |
+| `privy().sign_and_send_order(...)` | `/api/privy/sign_and_send_order` | POST |
+| `privy().export_wallet(...)` | `/api/privy/wallet/export` | POST |
+
+## Canonical Shared Types
+
+The SDK defines the canonical shared types for auth and user profiles:
+
+- `LinkedAccount`, `LinkedAccountType`, `ChainType` — linked identity types
+- `EmbeddedWallet` — Privy-managed embedded wallet
+- `User` — full user profile (returned by `login_with_message` and `check_session`)
+- `AuthCredentials` — session state (user_id, wallet_address, expires_at)
+
+These types are the source of truth. Consumers (Dioxus app, CLI tools) should use SDK types directly rather than defining local equivalents.
+
+## OAuth Authentication
+
+OAuth login (Google, X/Twitter) is a browser redirect flow handled entirely by the Lightcone backend -- it is not an SDK method call. The client navigates the browser to the appropriate backend URL, where the full OAuth exchange takes place. On completion, the backend sets an `auth_token` HTTP-only cookie and redirects back to the frontend.
+
+| Flow | URL |
+|------|-----|
+| Login with Google | `GET {backend}/api/auth/oauth/google` |
+| Login with X | `GET {backend}/api/auth/oauth/x` |
+| Link X account | `GET {backend}/api/auth/oauth/link/x` (requires existing session) |
+
+Because OAuth requires pre-registered redirect URIs, these endpoints only function on domains configured in the provider's developer console (e.g., the Lightcone domains). After the redirect completes, call `check_session()` to hydrate the authenticated user profile.
+
+Native and CLI clients authenticate via `login_with_message()` with a Solana wallet signature and do not use the OAuth flow.
+
+## Privy Embedded Wallet
+
+The `client.privy()` sub-client wraps the backend's Privy RPC endpoints for embedded wallet operations. All methods require an active authenticated session.
+
+Embedded wallets are provisioned during login by passing `use_embedded_wallet: true` to `login_with_message()`. This works on any platform -- WASM, native, or CLI. Once provisioned, the wallet is tied to the user's account and all Privy sub-client methods are available to any authenticated client.
+
+Native and CLI clients that sign transactions directly with their own keypair typically do not need an embedded wallet, but provisioning and using one is fully supported.
+
+```rust
+// Sign and send a Solana transaction via embedded wallet
+let result = client.privy().sign_and_send_tx("wallet_id", "base64_tx").await?;
+
+// Sign an order hash and submit to the exchange engine
+let result = client.privy().sign_and_send_order("wallet_id", order).await?;
+
+// Export embedded wallet private key (HPKE encrypted)
+let export = client.privy().export_wallet("wallet_id", "decode_pubkey_base64").await?;
+```
+
+The backend handles all Privy API interaction -- the SDK never touches Privy directly.
 
 ## WebSocket Channels
 

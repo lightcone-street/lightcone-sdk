@@ -47,6 +47,9 @@ pub mod network;
 /// Authentication: message generation, credentials, login/logout.
 pub mod auth;
 
+/// Privy embedded wallet RPC operations.
+pub mod privy;
+
 // ── Layer 3: HTTP API ────────────────────────────────────────────────────────
 
 /// HTTP client with retry policies.
@@ -101,6 +104,12 @@ pub mod prelude {
     // Auth + User types
     pub use crate::auth::{
         AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
+    };
+
+    // Privy RPC types
+    pub use crate::privy::{
+        ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndSendOrderRequest,
+        SignAndSendTxRequest, SignAndSendTxResponse,
     };
 
     // HTTP client + sub-clients

@@ -11,6 +11,7 @@
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
 use crate::domain::admin::client::Admin;
+use crate::privy::client::Privy;
 use crate::domain::market::client::Markets;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
@@ -90,6 +91,10 @@ impl LightconeClient {
 
     pub fn auth(&self) -> Auth<'_> {
         Auth { client: self }
+    }
+
+    pub fn privy(&self) -> Privy<'_> {
+        Privy { client: self }
     }
 
     /// Get the WS config for creating a WebSocket connection.

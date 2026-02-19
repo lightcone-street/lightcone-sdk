@@ -26,8 +26,8 @@ impl<'a> Auth<'a> {
     /// separate `check_session()` call is needed. For new users the backend uses
     /// direct DB joins (guaranteed fresh); for existing users it uses the MV.
     ///
-    /// Set `use_embedded_wallet` to `Some(true)` when the user is signing in
-    /// via a Privy browser extension and needs an embedded wallet provisioned.
+    /// Set `use_embedded_wallet` to `Some(true)` to provision a Privy
+    /// embedded wallet for the user during login (works on any platform).
     pub async fn login_with_message(
         &self,
         message: &str,
@@ -132,6 +132,41 @@ impl<'a> Auth<'a> {
 
         *self.client.auth_credentials.write().await = None;
 
+        Ok(())
+    }
+
+    /// Disconnect the user's linked X (Twitter) account.
+    pub async fn disconnect_x(&self) -> Result<(), SdkError> {
+        let url = format!("{}/api/auth/disconnect_x", self.client.http.base_url());
+        let _: serde_json::Value = self
+            .client
+            .http
+            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await?;
+        Ok(())
+    }
+
+    /// Link an X (Twitter) account to the user's profile.
+    pub async fn connect_x(
+        &self,
+        x_user_id: &str,
+        x_username: &str,
+        x_display_name: Option<&str>,
+    ) -> Result<(), SdkError> {
+        let url = format!("{}/api/auth/connect_x", self.client.http.base_url());
+        let _: serde_json::Value = self
+            .client
+            .http
+            .post(
+                &url,
+                &serde_json::json!({
+                    "x_user_id": x_user_id,
+                    "x_username": x_username,
+                    "x_display_name": x_display_name,
+                }),
+                RetryPolicy::None,
+            )
+            .await?;
         Ok(())
     }
 
