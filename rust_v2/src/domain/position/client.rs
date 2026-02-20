@@ -1,7 +1,7 @@
 //! Positions sub-client — portfolio & position queries.
 
 use crate::client::LightconeClient;
-use crate::domain::position::wire::PositionsResponse;
+use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 
@@ -10,7 +10,7 @@ pub struct Positions<'a> {
 }
 
 impl<'a> Positions<'a> {
-    /// Get all positions for a user.
+    /// Get all positions for a user across all markets.
     pub async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError> {
         let url = format!(
             "{}/api/users/{}/positions",
@@ -29,7 +29,7 @@ impl<'a> Positions<'a> {
         &self,
         user_pubkey: &str,
         market_pubkey: &str,
-    ) -> Result<PositionsResponse, SdkError> {
+    ) -> Result<MarketPositionsResponse, SdkError> {
         let url = format!(
             "{}/api/users/{}/markets/{}/positions",
             self.client.http.base_url(),
