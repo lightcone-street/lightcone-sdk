@@ -37,10 +37,27 @@ pub struct OrderbooksResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderbookDepthResponse {
     pub orderbook_id: OrderBookId,
+    #[serde(default)]
+    pub market_pubkey: Option<String>,
     pub best_bid: Option<Decimal>,
     pub best_ask: Option<Decimal>,
-    pub bids: Vec<BookOrder>,
-    pub asks: Vec<BookOrder>,
+    #[serde(default)]
+    pub spread: Option<Decimal>,
+    #[serde(default)]
+    pub tick_size: Option<String>,
+    pub bids: Vec<RestBookLevel>,
+    pub asks: Vec<RestBookLevel>,
+}
+
+/// A single price level from the REST depth endpoint.
+///
+/// Side is implicit from the `bids`/`asks` array — not included in the response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RestBookLevel {
+    pub price: Decimal,
+    pub size: Decimal,
+    #[serde(default)]
+    pub orders: Option<u32>,
 }
 
 /// Decimals metadata for an orderbook.
@@ -64,17 +81,19 @@ pub struct OrderBook {
     #[serde(default)]
     pub seq: u32,
     #[serde(default = "Vec::new")]
-    pub bids: Vec<BookOrder>,
+    pub bids: Vec<WsBookLevel>,
     #[serde(default = "Vec::new")]
-    pub asks: Vec<BookOrder>,
+    pub asks: Vec<WsBookLevel>,
 }
 
-/// A single price level in the order book.
+/// A single price level from the WS book update.
+///
+/// `side` is explicitly provided by the backend in WS messages.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BookOrder {
+pub struct WsBookLevel {
     pub side: Side,
-    pub size: Decimal,
     pub price: Decimal,
+    pub size: Decimal,
 }
 
 /// WS ticker data.
