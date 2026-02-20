@@ -22,8 +22,8 @@ pub struct OrderbookDecimals {
 /// Result of converting price + size to raw u64 amounts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScaledAmounts {
-    pub maker_amount: u64,
-    pub taker_amount: u64,
+    pub amount_in: u64,
+    pub amount_out: u64,
 }
 
 /// Errors that can occur during price/size scaling.
@@ -67,10 +67,10 @@ impl std::error::Error for ScalingError {}
 ///
 /// Then assign based on side:
 ///
-/// | Side | maker_amount (gives) | taker_amount (receives) |
-/// |------|---------------------|------------------------|
-/// | BID  | quote_lamports      | base_lamports          |
-/// | ASK  | base_lamports       | quote_lamports         |
+/// | Side | amount_in (gives) | amount_out (receives) |
+/// |------|-------------------|----------------------|
+/// | BID  | quote_lamports    | base_lamports        |
+/// | ASK  | base_lamports     | quote_lamports       |
 pub fn scale_price_size(
     price: Decimal,
     size: Decimal,
@@ -149,14 +149,14 @@ pub fn scale_price_size(
     }
 
     // 6. Assign based on side
-    let (maker_amount, taker_amount) = match side {
+    let (amount_in, amount_out) = match side {
         OrderSide::Bid => (quote_u64, base_u64),
         OrderSide::Ask => (base_u64, quote_u64),
     };
 
     Ok(ScaledAmounts {
-        maker_amount,
-        taker_amount,
+        amount_in,
+        amount_out,
     })
 }
 
@@ -196,8 +196,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.maker_amount, 65_000_000);
-        assert_eq!(result.taker_amount, 100_000_000);
+        assert_eq!(result.amount_in, 65_000_000);
+        assert_eq!(result.amount_out, 100_000_000);
     }
 
     #[test]
@@ -214,8 +214,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.maker_amount, 100_000_000);
-        assert_eq!(result.taker_amount, 65_000_000);
+        assert_eq!(result.amount_in, 100_000_000);
+        assert_eq!(result.amount_out, 65_000_000);
     }
 
     #[test]
@@ -231,8 +231,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.maker_amount, 65_000_000_000);
-        assert_eq!(result.taker_amount, 100_000_000);
+        assert_eq!(result.amount_in, 65_000_000_000);
+        assert_eq!(result.amount_out, 100_000_000);
     }
 
     #[test]
@@ -316,8 +316,8 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.maker_amount, 1); // quote
-        assert_eq!(result.taker_amount, 1); // base
+        assert_eq!(result.amount_in, 1); // quote
+        assert_eq!(result.amount_out, 1); // base
     }
 
     #[test]
@@ -333,7 +333,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(result.maker_amount, 50_000_000);
-        assert_eq!(result.taker_amount, 100_000_000);
+        assert_eq!(result.amount_in, 50_000_000);
+        assert_eq!(result.amount_out, 100_000_000);
     }
 }

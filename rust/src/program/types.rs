@@ -189,10 +189,10 @@ pub struct BidOrderParams {
     pub base_mint: Pubkey,
     /// Quote mint (token used for payment)
     pub quote_mint: Pubkey,
-    /// Quote tokens to give (maker_amount)
-    pub maker_amount: u64,
-    /// Base tokens to receive (taker_amount)
-    pub taker_amount: u64,
+    /// Quote tokens to give (amount_in)
+    pub amount_in: u64,
+    /// Base tokens to receive (amount_out)
+    pub amount_out: u64,
     /// Expiration timestamp (0 for no expiration)
     pub expiration: i64,
 }
@@ -210,10 +210,10 @@ pub struct AskOrderParams {
     pub base_mint: Pubkey,
     /// Quote mint (token to receive)
     pub quote_mint: Pubkey,
-    /// Base tokens to give (maker_amount)
-    pub maker_amount: u64,
-    /// Quote tokens to receive (taker_amount)
-    pub taker_amount: u64,
+    /// Base tokens to give (amount_in)
+    pub amount_in: u64,
+    /// Quote tokens to receive (amount_out)
+    pub amount_out: u64,
     /// Expiration timestamp (0 for no expiration)
     pub expiration: i64,
 }

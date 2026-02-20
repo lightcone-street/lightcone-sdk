@@ -258,7 +258,7 @@ impl Position {
 pub struct OrderStatus {
     /// Account discriminator
     pub discriminator: [u8; 8],
-    /// Remaining maker_amount to be filled
+    /// Remaining amount_in to be filled
     pub remaining: u64,
     /// Whether the order has been cancelled
     pub is_cancelled: bool,

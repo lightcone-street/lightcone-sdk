@@ -28,9 +28,9 @@ pub struct SubmitOrderRequest {
     /// Order side (0=BID, 1=ASK)
     pub side: u32,
     /// Amount maker gives
-    pub maker_amount: u64,
+    pub amount_in: u64,
     /// Amount maker wants to receive
-    pub taker_amount: u64,
+    pub amount_out: u64,
     /// Unix timestamp, 0=no expiration
     #[serde(default)]
     pub expiration: i64,

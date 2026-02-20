@@ -29,8 +29,8 @@ use crate::shared::SubmitOrderRequest;
 ///     .quote_mint(usdc)
 ///     .bid()
 ///     .nonce(5)
-///     .maker_amount(1_000_000)
-///     .taker_amount(500_000)
+///     .amount_in(1_000_000)
+///     .amount_out(500_000)
 ///     .build_and_sign(&keypair)
 ///     .to_submit_request("orderbook_id");
 /// ```
@@ -42,8 +42,8 @@ pub struct OrderBuilder {
     base_mint: Option<Pubkey>,
     quote_mint: Option<Pubkey>,
     side: Option<OrderSide>,
-    maker_amount: Option<u64>,
-    taker_amount: Option<u64>,
+    amount_in: Option<u64>,
+    amount_out: Option<u64>,
     expiration: i64,
     price_raw: Option<String>,
     size_raw: Option<String>,
@@ -108,14 +108,14 @@ impl OrderBuilder {
     }
 
     /// Set the amount the maker gives.
-    pub fn maker_amount(mut self, amount: u64) -> Self {
-        self.maker_amount = Some(amount);
+    pub fn amount_in(mut self, amount: u64) -> Self {
+        self.amount_in = Some(amount);
         self
     }
 
     /// Set the amount the maker wants to receive.
-    pub fn taker_amount(mut self, amount: u64) -> Self {
-        self.taker_amount = Some(amount);
+    pub fn amount_out(mut self, amount: u64) -> Self {
+        self.amount_out = Some(amount);
         self
     }
 
@@ -134,10 +134,10 @@ impl OrderBuilder {
     ///
     /// Panics if required fields are missing.
     pub fn build(self) -> SignedOrder {
-        let maker_amount = self.maker_amount.expect("maker_amount is required");
-        let taker_amount = self.taker_amount.expect("taker_amount is required");
-        assert!(maker_amount > 0, "maker_amount must be greater than 0");
-        assert!(taker_amount > 0, "taker_amount must be greater than 0");
+        let amount_in = self.amount_in.expect("amount_in is required");
+        let amount_out = self.amount_out.expect("amount_out is required");
+        assert!(amount_in > 0, "amount_in must be greater than 0");
+        assert!(amount_out > 0, "amount_out must be greater than 0");
 
         SignedOrder {
             nonce: self.nonce.expect("nonce is required"),
@@ -146,8 +146,8 @@ impl OrderBuilder {
             base_mint: self.base_mint.expect("base_mint is required"),
             quote_mint: self.quote_mint.expect("quote_mint is required"),
             side: self.side.expect("side is required (call .bid() or .ask())"),
-            maker_amount,
-            taker_amount,
+            amount_in: amount_in,
+            amount_out: amount_out,
             expiration: self.expiration,
             signature: [0u8; 64],
         }
@@ -187,7 +187,7 @@ impl OrderBuilder {
     }
 
     // =========================================================================
-    // Auto-scaling: price/size -> maker_amount/taker_amount
+    // Auto-scaling: price/size -> amount_in/amount_out
     // =========================================================================
 
     /// Set price as a human-readable string (e.g., "0.65" quote per base).
@@ -202,7 +202,7 @@ impl OrderBuilder {
         self
     }
 
-    /// Convert price/size strings into maker_amount/taker_amount using orderbook decimals.
+    /// Convert price/size strings into amount_in/amount_out using orderbook decimals.
     ///
     /// Call this after `.price()`, `.size()`, and `.bid()`/`.ask()`, then use
     /// any existing build method (`build()`, `build_and_sign()`, `to_submit_request()`).
@@ -237,8 +237,8 @@ impl OrderBuilder {
             .expect("side is required (call .bid() or .ask()) for apply_scaling");
 
         let scaled = scale_price_size(price, size, side, decimals)?;
-        self.maker_amount = Some(scaled.maker_amount);
-        self.taker_amount = Some(scaled.taker_amount);
+        self.amount_in = Some(scaled.amount_in);
+        self.amount_out = Some(scaled.amount_out);
         Ok(self)
     }
 }
@@ -265,8 +265,8 @@ mod tests {
             .base_mint(base_mint)
             .quote_mint(quote_mint)
             .bid()
-            .maker_amount(1_000_000)
-            .taker_amount(500_000)
+            .amount_in(1_000_000)
+            .amount_out(500_000)
             .build_and_sign(&keypair);
 
         assert_eq!(order.nonce, 1);
@@ -275,8 +275,8 @@ mod tests {
         assert_eq!(order.base_mint, base_mint);
         assert_eq!(order.quote_mint, quote_mint);
         assert_eq!(order.side, OrderSide::Bid);
-        assert_eq!(order.maker_amount, 1_000_000);
-        assert_eq!(order.taker_amount, 500_000);
+        assert_eq!(order.amount_in, 1_000_000);
+        assert_eq!(order.amount_out, 500_000);
         assert!(order.is_signed());
     }
 
@@ -296,8 +296,8 @@ mod tests {
             .base_mint(base_mint)
             .quote_mint(quote_mint)
             .ask()
-            .maker_amount(500_000)
-            .taker_amount(1_000_000)
+            .amount_in(500_000)
+            .amount_out(1_000_000)
             .to_submit_request(&keypair, "test_orderbook");
 
         assert_eq!(request.maker, maker.to_string());
@@ -306,8 +306,8 @@ mod tests {
         assert_eq!(request.base_token, base_mint.to_string());
         assert_eq!(request.quote_token, quote_mint.to_string());
         assert_eq!(request.side, 1); // Ask
-        assert_eq!(request.maker_amount, 500_000);
-        assert_eq!(request.taker_amount, 1_000_000);
+        assert_eq!(request.amount_in, 500_000);
+        assert_eq!(request.amount_out, 1_000_000);
         assert_eq!(request.orderbook_id, "test_orderbook");
         assert_eq!(request.signature.len(), 128); // 64 bytes = 128 hex chars
     }
@@ -328,8 +328,8 @@ mod tests {
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
             .bid()
-            .maker_amount(1_000_000)
-            .taker_amount(500_000)
+            .amount_in(1_000_000)
+            .amount_out(500_000)
             .build();
 
         assert!(!order.is_signed());
@@ -346,14 +346,14 @@ mod tests {
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
             .bid()
-            .maker_amount(1_000_000)
-            .taker_amount(500_000)
+            .amount_in(1_000_000)
+            .amount_out(500_000)
             .build_and_sign(&keypair);
     }
 
     #[test]
-    #[should_panic(expected = "maker_amount must be greater than 0")]
-    fn test_order_builder_zero_maker_amount() {
+    #[should_panic(expected = "amount_in must be greater than 0")]
+    fn test_order_builder_zero_amount_in() {
         OrderBuilder::new()
             .nonce(1)
             .maker(Pubkey::new_unique())
@@ -361,14 +361,14 @@ mod tests {
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
             .bid()
-            .maker_amount(0)
-            .taker_amount(500_000)
+            .amount_in(0)
+            .amount_out(500_000)
             .build();
     }
 
     #[test]
-    #[should_panic(expected = "taker_amount must be greater than 0")]
-    fn test_order_builder_zero_taker_amount() {
+    #[should_panic(expected = "amount_out must be greater than 0")]
+    fn test_order_builder_zero_amount_out() {
         OrderBuilder::new()
             .nonce(1)
             .maker(Pubkey::new_unique())
@@ -376,8 +376,8 @@ mod tests {
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
             .bid()
-            .maker_amount(1_000_000)
-            .taker_amount(0)
+            .amount_in(1_000_000)
+            .amount_out(0)
             .build();
     }
 
@@ -392,8 +392,8 @@ mod tests {
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
             .quote_mint(Pubkey::new_unique())
-            .maker_amount(1_000_000)
-            .taker_amount(500_000)
+            .amount_in(1_000_000)
+            .amount_out(500_000)
             .build_and_sign(&keypair);
     }
 }

@@ -57,8 +57,8 @@
 //!         market: Pubkey::new_unique(),
 //!         base_mint: Pubkey::new_unique(),
 //!         quote_mint: Pubkey::new_unique(),
-//!         maker_amount: 1000,
-//!         taker_amount: 500,
+//!         amount_in: 1000,
+//!         amount_out: 500,
 //!         expiration: 0,
 //!     });
 //! }
@@ -103,8 +103,11 @@ pub mod prelude {
     // Program module exports
     pub use crate::program::{
         // Order utilities
-        calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
-        Order, SignedOrder, SignedCancelOrder, SignedCancelAll,
+        calculate_taker_fill,
+        derive_condition_id,
+        is_order_expired,
+        orders_can_cross,
+        Order,
         // Order builder
         OrderBuilder,
         OrderSide,
@@ -118,6 +121,8 @@ pub mod prelude {
         SdkResult,
         SetAuthorityParams,
         SettleMarketParams,
+        SignedCancelAll,
+        SignedCancelOrder,
         SignedOrder,
         UserNonce,
         WhitelistDepositTokenParams,
@@ -135,15 +140,32 @@ pub mod prelude {
 
     // API module exports
     pub use crate::api::{
-        LightconeApiClient, LightconeApiClientBuilder, ApiError, ApiResult,
-        // Common types
-        MarketsResponse, MarketInfoResponse, Market as ApiMarket, DepositAsset, ConditionalToken,
-        OrderbookResponse, PriceLevel,
-        OrderResponse, CancelResponse, CancelAllResponse, MarketSearchResult, SearchOrderbook,
-        PositionsResponse, Position as ApiPosition, OutcomeBalance,
-        PriceHistoryParams, PriceHistoryResponse,
-        TradesParams, TradesResponse, Trade,
+        ApiError,
+        ApiResult,
+        CancelAllResponse,
+        CancelResponse,
+        ConditionalToken,
         DecimalsResponse,
+        DepositAsset,
+        LightconeApiClient,
+        LightconeApiClientBuilder,
+        Market as ApiMarket,
+        MarketInfoResponse,
+        MarketSearchResult,
+        // Common types
+        MarketsResponse,
+        OrderResponse,
+        OrderbookResponse,
+        OutcomeBalance,
+        Position as ApiPosition,
+        PositionsResponse,
+        PriceHistoryParams,
+        PriceHistoryResponse,
+        PriceLevel,
+        SearchOrderbook,
+        Trade,
+        TradesParams,
+        TradesResponse,
     };
 
     // Network constants

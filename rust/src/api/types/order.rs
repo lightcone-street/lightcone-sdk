@@ -173,10 +173,10 @@ pub struct UserOrder {
     pub orderbook_id: String,
     /// Order side
     pub side: ApiOrderSide,
-    /// Maker amount as decimal string
-    pub maker_amount: String,
-    /// Taker amount as decimal string
-    pub taker_amount: String,
+    #[serde(alias = "maker_amount")]
+    pub amount_in: String,
+    #[serde(alias = "taker_amount")]
+    pub amount_out: String,
     /// Remaining amount as decimal string
     pub remaining: String,
     /// Filled amount as decimal string

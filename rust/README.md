@@ -133,8 +133,8 @@ let mut order = FullOrder::new_bid(BidOrderParams {
     market: market_pda,
     base_mint: yes_token,
     quote_mint: no_token,
-    maker_amount: 100_000,
-    taker_amount: 50_000,
+    amount_in: 100_000,
+    amount_out: 50_000,
     expiration: 0,
 });
 order.sign(&keypair);
@@ -162,8 +162,8 @@ let response = client.submit_order(SubmitOrderRequest {
     base_token: "base".to_string(),
     quote_token: "quote".to_string(),
     side: 0,  // BID
-    maker_amount: 1000000,
-    taker_amount: 500000,
+    amount_in: 1000000,
+    amount_out: 500000,
     expiration: 0,
     signature: "hex_signature".to_string(),
     orderbook_id: "orderbook".to_string(),

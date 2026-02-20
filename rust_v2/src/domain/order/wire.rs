@@ -77,8 +77,10 @@ pub struct UserSnapshotOrder {
     pub tx_signature: Option<String>,
     pub order_hash: String,
     pub side: Side,
-    pub maker_amount: Decimal,
-    pub taker_amount: Decimal,
+    #[serde(alias = "maker_amount")]
+    pub amount_in: Decimal,
+    #[serde(alias = "taker_amount")]
+    pub amount_out: Decimal,
     pub remaining: Decimal,
     pub filled: Decimal,
     pub price: Decimal,

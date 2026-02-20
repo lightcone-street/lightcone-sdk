@@ -64,7 +64,7 @@ Tracks order fill state and cancellation.
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
 | discriminator | 0 | 8 | `[u8; 8]` | `"ordstat\0"` |
-| remaining | 8 | 8 | `u64` | Remaining maker_amount to be filled |
+| remaining | 8 | 8 | `u64` | Remaining amount_in to be filled |
 | is_cancelled | 16 | 1 | `bool` | Whether order has been cancelled |
 | _padding | 17 | 7 | - | Reserved |
 
@@ -229,8 +229,8 @@ let order = client.create_bid_order(BidOrderParams {
     market: market_pda,
     base_mint: yes_token,
     quote_mint: no_token,
-    maker_amount: 100_000,
-    taker_amount: 50_000,
+    amount_in: 100_000,
+    amount_out: 50_000,
     expiration: 0,
 });
 
@@ -286,8 +286,8 @@ Complete order with signature for off-chain storage and API submission.
 | base_mint | 72 | 32 | `Pubkey` | Token being bought (bids) or sold (asks) |
 | quote_mint | 104 | 32 | `Pubkey` | Token being given (bids) or received (asks) |
 | side | 136 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| maker_amount | 137 | 8 | `u64` | Amount maker gives (quote for bids, base for asks) |
-| taker_amount | 145 | 8 | `u64` | Amount maker receives (base for bids, quote for asks) |
+| amount_in | 137 | 8 | `u64` | Amount maker gives (quote for bids, base for asks) |
+| amount_out | 145 | 8 | `u64` | Amount maker receives (base for bids, quote for asks) |
 | expiration | 153 | 8 | `i64` | Unix timestamp (0 = no expiration) |
 | signature | 161 | 64 | `[u8; 64]` | Ed25519 signature |
 
@@ -321,8 +321,8 @@ On-chain transmission format. Excludes market/base_mint/quote_mint (passed via a
 | nonce | 0 | 8 | `u64` | Order nonce |
 | maker | 8 | 32 | `Pubkey` | Order creator |
 | side | 40 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| maker_amount | 41 | 8 | `u64` | Amount maker gives |
-| taker_amount | 49 | 8 | `u64` | Amount maker receives |
+| amount_in | 41 | 8 | `u64` | Amount maker gives |
+| amount_out | 49 | 8 | `u64` | Amount maker receives |
 | expiration | 57 | 8 | `i64` | Expiration timestamp |
 
 ```rust
@@ -572,8 +572,8 @@ pub struct BidOrderParams {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
+    pub amount_in: u64,
+    pub amount_out: u64,
     pub expiration: i64,
 }
 
@@ -583,8 +583,8 @@ pub struct AskOrderParams {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
+    pub amount_in: u64,
+    pub amount_out: u64,
     pub expiration: i64,
 }
 ```

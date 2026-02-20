@@ -562,8 +562,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100,
-        taker_amount: 50,
+        amount_in: 100,
+        amount_out: 50,
         expiration: chrono_timestamp() + 3600,
     });
     bid_order.sign(&user);
@@ -578,8 +578,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 50,
-        taker_amount: 100,
+        amount_in: 50,
+        amount_out: 100,
         expiration: chrono_timestamp() + 3600,
     });
     ask_order.sign(&user);
@@ -599,7 +599,7 @@ async fn test_full_devnet_flow() {
     // Test Order <-> SignedOrder roundtrip
     let compact = bid_order.to_order();
     assert_eq!(compact.nonce, bid_order.nonce as u32);
-    assert_eq!(compact.maker_amount, bid_order.maker_amount);
+    assert_eq!(compact.amount_in, bid_order.amount_in);
     let back = compact.to_signed(
         bid_order.maker,
         bid_order.market,
@@ -618,8 +618,8 @@ async fn test_full_devnet_flow() {
         .market(market_pda)
         .base_mint(conditional_mints[0])
         .quote_mint(conditional_mints[1])
-        .maker_amount(1000)
-        .taker_amount(500)
+        .amount_in(1000)
+        .amount_out(500)
         .expiration(chrono_timestamp() + 3600)
         .build_and_sign(&user);
     assert!(built.is_signed());
@@ -646,8 +646,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100,
-        taker_amount: 50,
+        amount_in: 100,
+        amount_out: 50,
         expiration: chrono_timestamp() + 3600,
     });
     order_to_cancel.sign(&user);
@@ -702,8 +702,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100_000,
-        taker_amount: 100_000,
+        amount_in: 100_000,
+        amount_out: 100_000,
         expiration: chrono_timestamp() + 3600,
     });
     bid_order.sign(&user);
@@ -719,8 +719,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100_000,
-        taker_amount: 100_000,
+        amount_in: 100_000,
+        amount_out: 100_000,
         expiration: chrono_timestamp() + 3600,
     });
     ask_order.sign(&user2);
@@ -767,7 +767,7 @@ async fn test_full_devnet_flow() {
     println!("15. Testing on-chain order matching (full fill with bitmask)...");
 
     // Full fill bitmask means NO order_status account is created/tracked.
-    // The program requires fill amounts to equal the FULL order maker_amount.
+    // The program requires fill amounts to equal the FULL order amount_in.
     // We need fresh orders (not the partially-filled ones from test 14).
     let tx1 = client.increment_nonce(&user.pubkey()).await.unwrap();
     let _ = sign_and_send(rpc, tx1, &[&user as &dyn Signer]).await;
@@ -786,8 +786,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 80_000,
-        taker_amount: 80_000,
+        amount_in: 80_000,
+        amount_out: 80_000,
         expiration: chrono_timestamp() + 3600,
     });
     ff_bid.sign(&user);
@@ -798,14 +798,14 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 80_000,
-        taker_amount: 80_000,
+        amount_in: 80_000,
+        amount_out: 80_000,
         expiration: chrono_timestamp() + 3600,
     });
     ff_ask.sign(&user2);
 
     // bit 0 = 1 (maker full fill), bit 7 = 1 (taker full fill) = 0x81
-    // Fill amounts must equal the order maker_amounts exactly.
+    // Fill amounts must equal the order amount_ins exactly.
     let tx = client
         .match_orders_multi(MatchOrdersMultiParams {
             operator: authority.pubkey(),
@@ -867,8 +867,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 200_000,
-        taker_amount: 200_000,
+        amount_in: 200_000,
+        amount_out: 200_000,
         expiration: chrono_timestamp() + 3600,
     });
     taker_bid.sign(&user);
@@ -880,8 +880,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100_000,
-        taker_amount: 100_000,
+        amount_in: 100_000,
+        amount_out: 100_000,
         expiration: chrono_timestamp() + 3600,
     });
     maker1_ask.sign(&user2);
@@ -893,8 +893,8 @@ async fn test_full_devnet_flow() {
         market: market_pda,
         base_mint: conditional_mints[0],
         quote_mint: conditional_mints[1],
-        maker_amount: 100_000,
-        taker_amount: 100_000,
+        amount_in: 100_000,
+        amount_out: 100_000,
         expiration: chrono_timestamp() + 3600,
     });
     maker2_ask.sign(&user3);

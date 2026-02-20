@@ -30,8 +30,8 @@ use crate::shared::SubmitOrderRequest;
 /// - [72..104]  base_mint (32 bytes)
 /// - [104..136] quote_mint (32 bytes)
 /// - [136]      side (1 byte)
-/// - [137..145] maker_amount (8 bytes)
-/// - [145..153] taker_amount (8 bytes)
+/// - [137..145] amount_in (8 bytes)
+/// - [145..153] amount_out (8 bytes)
 /// - [153..161] expiration (8 bytes)
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
@@ -49,9 +49,9 @@ pub struct SignedOrder {
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
     /// Amount maker gives
-    pub maker_amount: u64,
+    pub amount_in: u64,
     /// Amount maker receives
-    pub taker_amount: u64,
+    pub amount_out: u64,
     /// Expiration timestamp (0 = no expiration)
     pub expiration: i64,
     /// Ed25519 signature
@@ -74,8 +74,8 @@ impl SignedOrder {
             base_mint: params.base_mint,
             quote_mint: params.quote_mint,
             side: OrderSide::Bid,
-            maker_amount: params.maker_amount,
-            taker_amount: params.taker_amount,
+            amount_in: params.amount_in,
+            amount_out: params.amount_out,
             expiration: params.expiration,
             signature: [0u8; 64],
         }
@@ -90,8 +90,8 @@ impl SignedOrder {
             base_mint: params.base_mint,
             quote_mint: params.quote_mint,
             side: OrderSide::Ask,
-            maker_amount: params.maker_amount,
-            taker_amount: params.taker_amount,
+            amount_in: params.amount_in,
+            amount_out: params.amount_out,
             expiration: params.expiration,
             signature: [0u8; 64],
         }
@@ -108,8 +108,8 @@ impl SignedOrder {
         data[72..104].copy_from_slice(self.base_mint.as_ref());
         data[104..136].copy_from_slice(self.quote_mint.as_ref());
         data[136] = self.side as u8;
-        data[137..145].copy_from_slice(&self.maker_amount.to_le_bytes());
-        data[145..153].copy_from_slice(&self.taker_amount.to_le_bytes());
+        data[137..145].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[145..153].copy_from_slice(&self.amount_out.to_le_bytes());
         data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
@@ -183,8 +183,8 @@ impl SignedOrder {
         data[72..104].copy_from_slice(self.base_mint.as_ref());
         data[104..136].copy_from_slice(self.quote_mint.as_ref());
         data[136] = self.side as u8;
-        data[137..145].copy_from_slice(&self.maker_amount.to_le_bytes());
-        data[145..153].copy_from_slice(&self.taker_amount.to_le_bytes());
+        data[137..145].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[145..153].copy_from_slice(&self.amount_out.to_le_bytes());
         data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
         data[161..225].copy_from_slice(&self.signature);
 
@@ -219,11 +219,11 @@ impl SignedOrder {
         let mut quote_mint_bytes = [0u8; 32];
         quote_mint_bytes.copy_from_slice(&data[104..136]);
 
-        let mut maker_amount_bytes = [0u8; 8];
-        maker_amount_bytes.copy_from_slice(&data[137..145]);
+        let mut amount_in_bytes = [0u8; 8];
+        amount_in_bytes.copy_from_slice(&data[137..145]);
 
-        let mut taker_amount_bytes = [0u8; 8];
-        taker_amount_bytes.copy_from_slice(&data[145..153]);
+        let mut amount_out_bytes = [0u8; 8];
+        amount_out_bytes.copy_from_slice(&data[145..153]);
 
         let mut expiration_bytes = [0u8; 8];
         expiration_bytes.copy_from_slice(&data[153..161]);
@@ -238,8 +238,8 @@ impl SignedOrder {
             base_mint: Pubkey::new_from_array(base_mint_bytes),
             quote_mint: Pubkey::new_from_array(quote_mint_bytes),
             side: OrderSide::try_from(data[136])?,
-            maker_amount: u64::from_le_bytes(maker_amount_bytes),
-            taker_amount: u64::from_le_bytes(taker_amount_bytes),
+            amount_in: u64::from_le_bytes(amount_in_bytes),
+            amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
             signature,
         })
@@ -250,8 +250,8 @@ impl SignedOrder {
         Order {
             nonce: self.nonce,
             side: self.side,
-            maker_amount: self.maker_amount,
-            taker_amount: self.taker_amount,
+            amount_in: self.amount_in,
+            amount_out: self.amount_out,
             expiration: self.expiration,
         }
     }
@@ -294,8 +294,8 @@ impl SignedOrder {
             base_token: self.base_mint.to_string(),
             quote_token: self.quote_mint.to_string(),
             side: self.side as u32,
-            maker_amount: self.maker_amount,
-            taker_amount: self.taker_amount,
+            amount_in: self.amount_in,
+            amount_out: self.amount_out,
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
@@ -325,8 +325,8 @@ impl SignedOrder {
 /// Layout (29 bytes):
 /// - [0..4]   nonce (4 bytes, u32)
 /// - [4]      side (1 byte)
-/// - [5..13]  maker_amount (8 bytes)
-/// - [13..21] taker_amount (8 bytes)
+/// - [5..13]  amount_in (8 bytes)
+/// - [13..21] amount_out (8 bytes)
 /// - [21..29] expiration (8 bytes)
 #[derive(Debug, Clone)]
 pub struct Order {
@@ -335,9 +335,9 @@ pub struct Order {
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
     /// Amount maker gives
-    pub maker_amount: u64,
+    pub amount_in: u64,
     /// Amount maker receives
-    pub taker_amount: u64,
+    pub amount_out: u64,
     /// Expiration timestamp (0 = no expiration)
     pub expiration: i64,
 }
@@ -352,8 +352,8 @@ impl Order {
 
         data[0..4].copy_from_slice(&self.nonce.to_le_bytes());
         data[4] = self.side as u8;
-        data[5..13].copy_from_slice(&self.maker_amount.to_le_bytes());
-        data[13..21].copy_from_slice(&self.taker_amount.to_le_bytes());
+        data[5..13].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[13..21].copy_from_slice(&self.amount_out.to_le_bytes());
         data[21..29].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
@@ -371,11 +371,11 @@ impl Order {
         let mut nonce_bytes = [0u8; 4];
         nonce_bytes.copy_from_slice(&data[0..4]);
 
-        let mut maker_amount_bytes = [0u8; 8];
-        maker_amount_bytes.copy_from_slice(&data[5..13]);
+        let mut amount_in_bytes = [0u8; 8];
+        amount_in_bytes.copy_from_slice(&data[5..13]);
 
-        let mut taker_amount_bytes = [0u8; 8];
-        taker_amount_bytes.copy_from_slice(&data[13..21]);
+        let mut amount_out_bytes = [0u8; 8];
+        amount_out_bytes.copy_from_slice(&data[13..21]);
 
         let mut expiration_bytes = [0u8; 8];
         expiration_bytes.copy_from_slice(&data[21..29]);
@@ -383,8 +383,8 @@ impl Order {
         Ok(Self {
             nonce: u32::from_le_bytes(nonce_bytes),
             side: OrderSide::try_from(data[4])?,
-            maker_amount: u64::from_le_bytes(maker_amount_bytes),
-            taker_amount: u64::from_le_bytes(taker_amount_bytes),
+            amount_in: u64::from_le_bytes(amount_in_bytes),
+            amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
         })
     }
@@ -405,8 +405,8 @@ impl Order {
             base_mint,
             quote_mint,
             side: self.side,
-            maker_amount: self.maker_amount,
-            taker_amount: self.taker_amount,
+            amount_in: self.amount_in,
+            amount_out: self.amount_out,
             expiration: self.expiration,
             signature,
         }
@@ -430,10 +430,10 @@ pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bo
         return false;
     }
 
-    if buy_order.maker_amount == 0
-        || buy_order.taker_amount == 0
-        || sell_order.maker_amount == 0
-        || sell_order.taker_amount == 0
+    if buy_order.amount_in == 0
+        || buy_order.amount_out == 0
+        || sell_order.amount_in == 0
+        || sell_order.amount_out == 0
     {
         return false;
     }
@@ -441,27 +441,27 @@ pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bo
     // Buyer gives quote, receives base
     // Seller gives base, receives quote
     // Cross condition: buyer's price >= seller's price
-    // buyer_price = buyer.maker_amount / buyer.taker_amount (quote per base)
-    // seller_price = seller.taker_amount / seller.maker_amount (quote per base)
-    // Cross: buyer.maker_amount / buyer.taker_amount >= seller.taker_amount / seller.maker_amount
-    // Rearrange: buyer.maker_amount * seller.maker_amount >= buyer.taker_amount * seller.taker_amount
+    // buyer_price = buyer.amount_in / buyer.amount_out (quote per base)
+    // seller_price = seller.amount_out / seller.amount_in (quote per base)
+    // Cross: buyer.amount_in / buyer.amount_out >= seller.amount_out / seller.amount_in
+    // Rearrange: buyer.amount_in * seller.amount_in >= buyer.amount_out * seller.amount_out
 
-    let buyer_cross = (buy_order.maker_amount as u128) * (sell_order.maker_amount as u128);
-    let seller_cross = (buy_order.taker_amount as u128) * (sell_order.taker_amount as u128);
+    let buyer_cross = (buy_order.amount_in as u128) * (sell_order.amount_in as u128);
+    let seller_cross = (buy_order.amount_out as u128) * (sell_order.amount_out as u128);
 
     buyer_cross >= seller_cross
 }
 
 /// Calculate the taker fill amount given a maker fill amount.
 pub fn calculate_taker_fill(maker_order: &SignedOrder, maker_fill_amount: u64) -> SdkResult<u64> {
-    if maker_order.maker_amount == 0 {
+    if maker_order.amount_in == 0 {
         return Err(SdkError::Overflow);
     }
 
     let result = (maker_fill_amount as u128)
-        .checked_mul(maker_order.taker_amount as u128)
+        .checked_mul(maker_order.amount_out as u128)
         .ok_or(SdkError::Overflow)?
-        .checked_div(maker_order.maker_amount as u128)
+        .checked_div(maker_order.amount_in as u128)
         .ok_or(SdkError::Overflow)?;
 
     if result > u64::MAX as u128 {
@@ -511,8 +511,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 1000000,
-            taker_amount: 500000,
+            amount_in: 1000000,
+            amount_out: 500000,
             expiration: 1234567890,
             signature: [0u8; 64],
         };
@@ -526,8 +526,8 @@ mod tests {
         assert_eq!(order.base_mint, deserialized.base_mint);
         assert_eq!(order.quote_mint, deserialized.quote_mint);
         assert_eq!(order.side, deserialized.side);
-        assert_eq!(order.maker_amount, deserialized.maker_amount);
-        assert_eq!(order.taker_amount, deserialized.taker_amount);
+        assert_eq!(order.amount_in, deserialized.amount_in);
+        assert_eq!(order.amount_out, deserialized.amount_out);
         assert_eq!(order.expiration, deserialized.expiration);
     }
 
@@ -536,8 +536,8 @@ mod tests {
         let order = Order {
             nonce: 12345,
             side: OrderSide::Ask,
-            maker_amount: 1000000,
-            taker_amount: 500000,
+            amount_in: 1000000,
+            amount_out: 500000,
             expiration: 1234567890,
         };
 
@@ -546,8 +546,8 @@ mod tests {
 
         assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.side, deserialized.side);
-        assert_eq!(order.maker_amount, deserialized.maker_amount);
-        assert_eq!(order.taker_amount, deserialized.taker_amount);
+        assert_eq!(order.amount_in, deserialized.amount_in);
+        assert_eq!(order.amount_out, deserialized.amount_out);
         assert_eq!(order.expiration, deserialized.expiration);
     }
 
@@ -557,8 +557,8 @@ mod tests {
         let order = Order {
             nonce: 1,
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
         };
         assert_eq!(order.serialize().len(), 29);
@@ -573,8 +573,8 @@ mod tests {
             base_mint: Pubkey::new_from_array([3u8; 32]),
             quote_mint: Pubkey::new_from_array([4u8; 32]),
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -593,8 +593,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 1000,
-            taker_amount: 500,
+            amount_in: 1000,
+            amount_out: 500,
             expiration: 12345,
             signature: [7u8; 64],
         };
@@ -602,8 +602,8 @@ mod tests {
         let order = signed.to_order();
         assert_eq!(order.nonce, 42);
         assert_eq!(order.side, OrderSide::Bid);
-        assert_eq!(order.maker_amount, 1000);
-        assert_eq!(order.taker_amount, 500);
+        assert_eq!(order.amount_in, 1000);
+        assert_eq!(order.amount_out, 500);
         assert_eq!(order.expiration, 12345);
 
         let back = order.to_signed(
@@ -615,7 +615,7 @@ mod tests {
         );
         assert_eq!(back.nonce, 42);
         assert_eq!(back.maker, signed.maker);
-        assert_eq!(back.maker_amount, 1000);
+        assert_eq!(back.amount_in, 1000);
     }
 
     #[test]
@@ -627,8 +627,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 100, // 100 quote
-            taker_amount: 50,  // for 50 base (price = 2 quote/base)
+            amount_in: 100, // 100 quote
+            amount_out: 50,  // for 50 base (price = 2 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -640,8 +640,8 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            maker_amount: 50, // 50 base
-            taker_amount: 90, // for 90 quote (price = 1.8 quote/base)
+            amount_in: 50, // 50 base
+            amount_out: 90, // for 90 quote (price = 1.8 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -659,8 +659,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 50, // 50 quote
-            taker_amount: 50, // for 50 base (price = 1 quote/base)
+            amount_in: 50, // 50 quote
+            amount_out: 50, // for 50 base (price = 1 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -672,8 +672,8 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            maker_amount: 50,  // 50 base
-            taker_amount: 100, // for 100 quote (price = 2 quote/base)
+            amount_in: 50,  // 50 base
+            amount_out: 100, // for 100 quote (price = 2 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -691,13 +691,13 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Ask,
-            maker_amount: 100, // gives 100 base
-            taker_amount: 200, // wants 200 quote
+            amount_in: 100, // gives 100 base
+            amount_out: 200, // wants 200 quote
             expiration: 0,
             signature: [0u8; 64],
         };
 
-        // If filling 50 maker_amount, taker should get 50 * 200 / 100 = 100
+        // If filling 50 amount_in, taker should get 50 * 200 / 100 = 100
         let taker_fill = calculate_taker_fill(&maker_order, 50).unwrap();
         assert_eq!(taker_fill, 100);
     }
@@ -721,8 +721,8 @@ mod tests {
             base_mint,
             quote_mint,
             side: OrderSide::Bid,
-            maker_amount: 1_000_000,
-            taker_amount: 500_000,
+            amount_in: 1_000_000,
+            amount_out: 500_000,
             expiration: 1234567890,
             signature: [0u8; 64],
         };
@@ -737,8 +737,8 @@ mod tests {
         assert_eq!(request.base_token, base_mint.to_string());
         assert_eq!(request.quote_token, quote_mint.to_string());
         assert_eq!(request.side, 0); // Bid
-        assert_eq!(request.maker_amount, 1_000_000);
-        assert_eq!(request.taker_amount, 500_000);
+        assert_eq!(request.amount_in, 1_000_000);
+        assert_eq!(request.amount_out, 500_000);
         assert_eq!(request.expiration, 1234567890);
         assert_eq!(request.orderbook_id, "test_orderbook");
         assert_eq!(request.signature.len(), 128); // 64 bytes = 128 hex chars
@@ -753,8 +753,8 @@ mod tests {
             base_mint: Pubkey::new_from_array([3u8; 32]),
             quote_mint: Pubkey::new_from_array([4u8; 32]),
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -781,8 +781,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -808,8 +808,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -839,8 +839,8 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            maker_amount: 100,
-            taker_amount: 50,
+            amount_in: 100,
+            amount_out: 50,
             expiration: 0,
             signature: [0u8; 64],
         };

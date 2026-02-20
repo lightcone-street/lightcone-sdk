@@ -291,8 +291,8 @@ pub struct SubmitOrderRequest {
     pub base_token: String,
     pub quote_token: String,
     pub side: u32,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
+    pub amount_in: u64,
+    pub amount_out: u64,
     #[serde(default)]
     pub expiration: i64,
     pub signature: String,

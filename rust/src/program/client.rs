@@ -532,15 +532,15 @@ mod tests {
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
-            maker_amount: 1000,
-            taker_amount: 500,
+            amount_in: 1000,
+            amount_out: 500,
             expiration: 0,
         };
 
         let order = client.create_bid_order(params.clone());
         assert_eq!(order.nonce, params.nonce);
         assert_eq!(order.maker, params.maker);
-        assert_eq!(order.maker_amount, params.maker_amount);
+        assert_eq!(order.amount_in, params.amount_in);
     }
 
     #[test]
