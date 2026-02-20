@@ -19,7 +19,7 @@ use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
 use crate::ws::subscriptions::Subscription;
-use crate::ws::{MessageIn, MessageOut, Kind, ReadyState, SubscribeParams, WsConfig, WsEvent};
+use crate::ws::{MessageIn, MessageOut, Kind, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
 
 thread_local! {
     static WS: RefCell<Option<WebSocket>> = RefCell::new(None);
@@ -88,6 +88,16 @@ impl WsClient {
                 },
             }
         })
+    }
+
+    /// Subscribe to a channel.
+    pub fn subscribe(params: SubscribeParams) {
+        Self::send(MessageOut::Subscribe(params));
+    }
+
+    /// Unsubscribe from a channel.
+    pub fn unsubscribe(params: UnsubscribeParams) {
+        Self::send(MessageOut::Unsubscribe(params));
     }
 
     /// Force a fresh connection attempt.

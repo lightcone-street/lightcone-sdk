@@ -84,7 +84,7 @@ mod tests {
                 base_mint: PubkeyStr::from("base"),
                 quote_mint: PubkeyStr::from("quote"),
                 outcome_index: 0,
-                balance: wire::UserOrderUpdateBalance { outcomes: vec![] },
+                balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
             },
         }
     }

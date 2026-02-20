@@ -90,9 +90,9 @@ mod tests {
                 base_mint: PubkeyStr::from("base_mint"),
                 quote_mint: PubkeyStr::from("quote_mint"),
                 outcome_index: 0,
-                balance: wire::UserOrderUpdateBalance {
+                balance: Some(wire::UserOrderUpdateBalance {
                     outcomes: vec![],
-                },
+                }),
             },
         };
         let order: Order = update.into();

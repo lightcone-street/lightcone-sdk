@@ -52,7 +52,7 @@ solana-client = { version = "3.1", optional = true }
 solana-commitment-config = { version = "3.1", optional = true }
 solana-keypair = { version = "3.0", optional = true }
 solana-signer = { version = "3.0", optional = true }
-tokio = { version = "1.49", default-features = false, features = ["time", "net", "sync"], optional = true }
+tokio = { version = "1.49", default-features = false, features = ["time", "net", "sync", "macros", "rt"], optional = true }
 
 # WebSocket native
 tokio-tungstenite = { version = "0.26", features = ["native-tls"], optional = true }

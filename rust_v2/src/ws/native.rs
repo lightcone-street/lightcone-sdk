@@ -9,6 +9,8 @@
 //! - Stream-based event delivery to consumer
 
 use std::pin::Pin;
+use std::sync::atomic::{AtomicU16, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use futures_util::stream::{SplitSink, SplitStream, Stream};
@@ -23,7 +25,7 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use crate::error::WsError;
 use crate::ws::subscriptions::Subscription;
-use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
+use crate::ws::{Kind, MessageIn, MessageOut, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
@@ -31,6 +33,7 @@ type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
 enum Command {
     Send(MessageOut),
+    ClearAuthedSubs,
     Disconnect,
 }
 
@@ -53,6 +56,7 @@ struct TaskState {
     active_subscriptions: Vec<SubscribeParams>,
     pending_messages: Vec<MessageOut>,
     reconnect_attempts: u32,
+    ready_state: Arc<AtomicU16>,
 }
 
 impl TaskState {
@@ -78,6 +82,7 @@ pub struct WsClient {
     event_rx: tokio::sync::Mutex<mpsc::Receiver<WsEvent>>,
     event_tx: mpsc::Sender<WsEvent>,
     task_handle: Option<JoinHandle<()>>,
+    ready_state: Arc<AtomicU16>,
 }
 
 impl WsClient {
@@ -90,6 +95,7 @@ impl WsClient {
             event_rx: tokio::sync::Mutex::new(event_rx),
             event_tx,
             task_handle: None,
+            ready_state: Arc::new(AtomicU16::new(ReadyState::Closed as u16)),
         }
     }
 
@@ -104,6 +110,7 @@ impl WsClient {
 
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
         self.cmd_tx = Some(cmd_tx);
+        self.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
 
         let state = TaskState {
             config: self.config.clone(),
@@ -112,6 +119,7 @@ impl WsClient {
             active_subscriptions: Vec::new(),
             pending_messages: Vec::new(),
             reconnect_attempts: 0,
+            ready_state: Arc::clone(&self.ready_state),
         };
 
         let handle = tokio::spawn(run_task(state));
@@ -132,6 +140,7 @@ impl WsClient {
             let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
         }
 
+        self.ready_state.store(ReadyState::Closed as u16, Ordering::SeqCst);
         Ok(())
     }
 
@@ -159,6 +168,38 @@ impl WsClient {
     /// Unsubscribe from a channel.
     pub fn unsubscribe(&self, params: UnsubscribeParams) -> Result<(), WsError> {
         self.send(MessageOut::Unsubscribe(params))
+    }
+
+    /// Whether the WebSocket is currently open.
+    pub fn is_connected(&self) -> bool {
+        self.ready_state() == ReadyState::Open
+    }
+
+    /// Current connection state.
+    pub fn ready_state(&self) -> ReadyState {
+        ReadyState::from(self.ready_state.load(Ordering::SeqCst))
+    }
+
+    /// Force a fresh connection attempt.
+    ///
+    /// Tears down the current connection (if any), resets the reconnect
+    /// counter, and spawns a new background task.
+    pub async fn restart_connection(&mut self) {
+        if self.ready_state() == ReadyState::Connecting {
+            tracing::info!("Already connecting, skipping restart");
+            return;
+        }
+
+        tracing::info!("Manual reconnection requested");
+        self.disconnect().await.ok();
+        self.connect().await.ok();
+    }
+
+    /// Remove authenticated subscriptions (e.g. User channel) from tracking.
+    pub fn clear_authed_subscriptions(&self) {
+        if let Some(tx) = &self.cmd_tx {
+            let _ = tx.try_send(Command::ClearAuthedSubs);
+        }
     }
 
     /// Get a stream of events from the WebSocket connection.
@@ -209,6 +250,7 @@ async fn run_task(mut state: TaskState) {
 
         // ── 2. Connected ─────────────────────────────────────────────────
         state.reconnect_attempts = 0;
+        state.ready_state.store(ReadyState::Open as u16, Ordering::SeqCst);
         state.emit(WsEvent::Connected);
 
         // ── 3. Flush pending messages and resubscribe ────────────────────
@@ -220,10 +262,13 @@ async fn run_task(mut state: TaskState) {
         let reason = run_connected(&mut state, sink, stream).await;
 
         // ── 5. Post-disconnect decision ──────────────────────────────────
+        state.ready_state.store(ReadyState::Closed as u16, Ordering::SeqCst);
+
         match reason {
             DisconnectReason::UserRequested | DisconnectReason::NormalClose => return,
             DisconnectReason::RateLimited => {
                 if state.should_reconnect() {
+                    state.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
                     backoff_sleep(&mut state, true).await;
                     drain_commands_to_pending(&mut state);
                     continue;
@@ -233,6 +278,7 @@ async fn run_task(mut state: TaskState) {
             }
             DisconnectReason::PongTimeout | DisconnectReason::Error(_) => {
                 if state.should_reconnect() {
+                    state.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
                     backoff_sleep(&mut state, false).await;
                     drain_commands_to_pending(&mut state);
                     continue;
@@ -341,6 +387,16 @@ async fn run_connected(
                         );
                         if let Err(e) = send_msg(&mut sink, &msg_out).await {
                             tracing::warn!("Send failed: {}", e);
+                        }
+                    }
+                    Some(Command::ClearAuthedSubs) => {
+                        let before = state.active_subscriptions.len();
+                        state.active_subscriptions.retain(|s| {
+                            !matches!(s, SubscribeParams::User { .. })
+                        });
+                        let removed = before - state.active_subscriptions.len();
+                        if removed > 0 {
+                            tracing::info!("Cleared {} authenticated subscription(s)", removed);
                         }
                     }
                     Some(Command::Disconnect) => {
@@ -482,9 +538,12 @@ fn drain_commands_to_pending(state: &mut TaskState) {
                 track_subscription(&mut state.active_subscriptions, &msg);
                 state.pending_messages.push(msg);
             }
+            Command::ClearAuthedSubs => {
+                state.active_subscriptions.retain(|s| {
+                    !matches!(s, SubscribeParams::User { .. })
+                });
+            }
             Command::Disconnect => {
-                // User requested disconnect during backoff — exit immediately
-                // (we return from run_task after this function)
                 return;
             }
         }
