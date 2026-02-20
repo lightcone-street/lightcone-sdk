@@ -66,7 +66,9 @@ pub struct WsOrder {
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
     pub outcome_index: i16,
-    pub balance: UserOrderUpdateBalance,
+    /// Balance is absent on cancellation events.
+    #[serde(default)]
+    pub balance: Option<UserOrderUpdateBalance>,
 }
 
 /// WS order snapshot (initial state on connect).

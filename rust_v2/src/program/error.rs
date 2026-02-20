@@ -106,6 +106,10 @@ pub enum SdkError {
     /// Scaling error (price/size conversion)
     #[error("Scaling error: {0}")]
     Scaling(#[from] crate::shared::scaling::ScalingError),
+
+    /// Order has not been signed
+    #[error("Order must be signed before converting to submit request")]
+    UnsignedOrder,
 }
 
 /// Result type alias for SDK operations

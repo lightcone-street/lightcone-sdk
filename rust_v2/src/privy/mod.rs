@@ -52,6 +52,22 @@ pub struct OrderForSigning {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignAndCancelOrderRequest {
+    pub wallet_id: String,
+    pub order_hash: String,
+    pub maker: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignAndCancelAllRequest {
+    pub wallet_id: String,
+    pub user_pubkey: String,
+    #[serde(default)]
+    pub orderbook_id: String,
+    pub timestamp: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExportWalletRequest {
     pub wallet_id: String,
     pub decode_pubkey_base64: String,

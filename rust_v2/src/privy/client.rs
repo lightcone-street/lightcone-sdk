@@ -5,8 +5,9 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 
 use super::{
-    ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndSendOrderRequest,
-    SignAndSendTxRequest, SignAndSendTxResponse,
+    ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndCancelAllRequest,
+    SignAndCancelOrderRequest, SignAndSendOrderRequest, SignAndSendTxRequest,
+    SignAndSendTxResponse,
 };
 
 /// Sub-client for Privy embedded wallet operations.
@@ -52,6 +53,52 @@ impl<'a> Privy<'a> {
         let req = SignAndSendOrderRequest {
             wallet_id: wallet_id.to_string(),
             order,
+        };
+        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+    }
+
+    /// Cancel an order via Privy signing.
+    ///
+    /// The backend signs the cancel message using the embedded wallet
+    /// and submits the cancellation to the exchange engine.
+    pub async fn sign_and_cancel_order(
+        &self,
+        wallet_id: &str,
+        order_hash: &str,
+        maker: &str,
+    ) -> Result<serde_json::Value, SdkError> {
+        let url = format!(
+            "{}/api/privy/sign_and_cancel_order",
+            self.client.http.base_url()
+        );
+        let req = SignAndCancelOrderRequest {
+            wallet_id: wallet_id.to_string(),
+            order_hash: order_hash.to_string(),
+            maker: maker.to_string(),
+        };
+        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+    }
+
+    /// Cancel all orders for a user via Privy signing.
+    ///
+    /// The backend signs the cancel-all message using the embedded wallet
+    /// and submits the cancellation to the exchange engine.
+    pub async fn sign_and_cancel_all_orders(
+        &self,
+        wallet_id: &str,
+        user_pubkey: &str,
+        orderbook_id: &str,
+        timestamp: i64,
+    ) -> Result<serde_json::Value, SdkError> {
+        let url = format!(
+            "{}/api/privy/sign_and_cancel_all_orders",
+            self.client.http.base_url()
+        );
+        let req = SignAndCancelAllRequest {
+            wallet_id: wallet_id.to_string(),
+            user_pubkey: user_pubkey.to_string(),
+            orderbook_id: orderbook_id.to_string(),
+            timestamp,
         };
         self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
     }

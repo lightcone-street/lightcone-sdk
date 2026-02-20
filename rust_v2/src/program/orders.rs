@@ -278,16 +278,18 @@ impl SignedOrder {
     ///
     /// * `orderbook_id` - Target orderbook (get from market API or use `derive_orderbook_id()`)
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if the order has not been signed (signature is all zeros).
-    pub fn to_submit_request(&self, orderbook_id: impl Into<String>) -> SubmitOrderRequest {
-        assert!(
-            self.signature != [0u8; 64],
-            "Order must be signed before converting to submit request"
-        );
+    /// Returns `SdkError::UnsignedOrder` if the order has not been signed.
+    pub fn to_submit_request(
+        &self,
+        orderbook_id: impl Into<String>,
+    ) -> Result<SubmitOrderRequest, SdkError> {
+        if self.signature == [0u8; 64] {
+            return Err(SdkError::UnsignedOrder);
+        }
 
-        SubmitOrderRequest {
+        Ok(SubmitOrderRequest {
             maker: self.maker.to_string(),
             nonce: self.nonce,
             market_pubkey: self.market.to_string(),
@@ -299,7 +301,7 @@ impl SignedOrder {
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
-        }
+        })
     }
 
     /// Derive the orderbook ID for this order.
@@ -729,7 +731,7 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook");
+        let request = order.to_submit_request("test_orderbook").unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -830,8 +832,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Order must be signed before converting to submit request")]
-    fn test_to_submit_request_panics_unsigned() {
+    fn test_to_submit_request_errors_unsigned() {
         let order = SignedOrder {
             nonce: 1,
             maker: Pubkey::new_unique(),
@@ -845,7 +846,11 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        order.to_submit_request("test_orderbook");
+        let result = order.to_submit_request("test_orderbook");
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("must be signed"),
+        );
     }
 
     #[test]

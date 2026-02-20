@@ -10,6 +10,8 @@ use crate::program::orders::SignedOrder;
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
 #[cfg(feature = "native-auth")]
+use crate::program::error::SdkError;
+#[cfg(feature = "native-auth")]
 use crate::shared::SubmitOrderRequest;
 
 /// Builder for creating orders with a fluent API.
@@ -174,15 +176,15 @@ impl OrderBuilder {
     /// * `keypair` - Keypair to sign the order with
     /// * `orderbook_id` - Target orderbook ID
     ///
-    /// # Panics
+    /// # Errors
     ///
-    /// Panics if required fields are missing.
+    /// Returns `SdkError` if required fields are missing or signing fails.
     #[cfg(feature = "native-auth")]
     pub fn to_submit_request(
         self,
         keypair: &Keypair,
         orderbook_id: impl Into<String>,
-    ) -> SubmitOrderRequest {
+    ) -> Result<SubmitOrderRequest, SdkError> {
         self.build_and_sign(keypair).to_submit_request(orderbook_id)
     }
 
@@ -298,7 +300,8 @@ mod tests {
             .ask()
             .amount_in(500_000)
             .amount_out(1_000_000)
-            .to_submit_request(&keypair, "test_orderbook");
+            .to_submit_request(&keypair, "test_orderbook")
+            .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 1);
