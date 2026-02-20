@@ -2,15 +2,21 @@
 
 use super::wire::{TradeResponse, WsTrade};
 use super::Trade;
+use chrono::TimeZone;
+use rust_decimal::Decimal;
+use std::str::FromStr;
 
 impl From<TradeResponse> for Trade {
     fn from(t: TradeResponse) -> Self {
         Self {
             orderbook_id: t.orderbook_id,
-            trade_id: t.trade_id,
-            timestamp: t.timestamp,
-            price: t.price,
-            size: t.size,
+            trade_id: t.id.to_string(),
+            timestamp: chrono::Utc
+                .timestamp_millis_opt(t.executed_at)
+                .single()
+                .unwrap_or_else(chrono::Utc::now),
+            price: Decimal::from_str(&t.price).unwrap_or_default(),
+            size: Decimal::from_str(&t.size).unwrap_or_default(),
             side: t.side,
         }
     }
@@ -34,16 +40,19 @@ mod tests {
     use super::*;
     use crate::shared::{OrderBookId, Side};
     use chrono::Utc;
-    use rust_decimal::Decimal;
 
     fn sample_trade_response() -> TradeResponse {
         TradeResponse {
+            id: 456,
             orderbook_id: OrderBookId::from("ob_123"),
-            trade_id: "trade_456".to_string(),
-            timestamp: Utc::now(),
-            price: Decimal::new(50, 1),
-            size: Decimal::new(10, 0),
+            taker_pubkey: "taker123".to_string(),
+            maker_pubkey: "maker456".to_string(),
             side: Side::Bid,
+            size: "10.000000".to_string(),
+            price: "5.000000".to_string(),
+            taker_fee: Some("0.003250".to_string()),
+            maker_fee: None,
+            executed_at: 1740076800000,
         }
     }
 
@@ -63,9 +72,9 @@ mod tests {
         let resp = sample_trade_response();
         let trade: Trade = resp.into();
         assert_eq!(trade.orderbook_id.as_str(), "ob_123");
-        assert_eq!(trade.trade_id, "trade_456");
-        assert_eq!(trade.price, Decimal::new(50, 1));
-        assert_eq!(trade.size, Decimal::new(10, 0));
+        assert_eq!(trade.trade_id, "456");
+        assert_eq!(trade.price, Decimal::from_str("5.000000").unwrap());
+        assert_eq!(trade.size, Decimal::from_str("10.000000").unwrap());
         assert_eq!(trade.side, Side::Bid);
     }
 

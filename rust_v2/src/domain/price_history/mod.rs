@@ -8,19 +8,20 @@ use serde::{Deserialize, Serialize};
 
 pub use state::PriceHistoryState;
 
-/// A single data point on a price chart.
+/// A single data point on a price chart (simplified from the full candle).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LineData {
-    /// UTC timestamp in seconds.
-    pub time: u64,
+    /// Unix timestamp in milliseconds.
+    pub time: i64,
+    /// Midpoint value as a decimal string.
     pub value: String,
 }
 
-impl From<wire::WsLineData> for LineData {
-    fn from(w: wire::WsLineData) -> Self {
+impl From<wire::PriceCandle> for LineData {
+    fn from(c: wire::PriceCandle) -> Self {
         Self {
-            time: w.t,
-            value: w.value,
+            time: c.t,
+            value: c.m.unwrap_or_default(),
         }
     }
 }

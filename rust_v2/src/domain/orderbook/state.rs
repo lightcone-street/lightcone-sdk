@@ -109,7 +109,7 @@ impl Default for OrderBookId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::orderbook::wire::BookOrder;
+    use crate::domain::orderbook::wire::WsBookLevel;
     use crate::shared::Side;
     use rust_decimal::Decimal;
 
@@ -120,7 +120,7 @@ mod tests {
             seq,
             bids: bids
                 .into_iter()
-                .map(|(price, size)| BookOrder {
+                .map(|(price, size)| WsBookLevel {
                     side: Side::Bid,
                     price: Decimal::try_from(price).unwrap(),
                     size: Decimal::try_from(size).unwrap(),
@@ -128,7 +128,7 @@ mod tests {
                 .collect(),
             asks: asks
                 .into_iter()
-                .map(|(price, size)| BookOrder {
+                .map(|(price, size)| WsBookLevel {
                     side: Side::Ask,
                     price: Decimal::try_from(price).unwrap(),
                     size: Decimal::try_from(size).unwrap(),
