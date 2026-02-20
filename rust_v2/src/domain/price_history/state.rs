@@ -61,7 +61,7 @@ impl PriceHistoryState {
 mod tests {
     use super::*;
 
-    fn line_data(time: u64, value: &str) -> LineData {
+    fn line_data(time: i64, value: &str) -> LineData {
         LineData {
             time,
             value: value.to_string(),

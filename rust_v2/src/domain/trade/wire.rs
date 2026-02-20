@@ -4,8 +4,6 @@ use crate::shared::{OrderBookId, Side};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
-
 // ─── REST wire types ─────────────────────────────────────────────────────────
 
 /// A single trade from the REST API.
