@@ -11,11 +11,15 @@ pub struct Trades<'a> {
 }
 
 impl<'a> Trades<'a> {
+    /// Get trades for an orderbook.
+    ///
+    /// `before` is a cursor (trade ID) for pagination — pass `next_cursor`
+    /// from a previous response to get the next page.
     pub async fn get(
         &self,
         orderbook_id: &str,
         limit: Option<u32>,
-        before: Option<&str>,
+        before: Option<i64>,
     ) -> Result<Vec<Trade>, SdkError> {
         let mut url = format!(
             "{}/api/trades?orderbook_id={}",

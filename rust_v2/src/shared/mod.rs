@@ -154,10 +154,13 @@ impl<'de> Deserialize<'de> for PubkeyStr {
 // ─── Side ────────────────────────────────────────────────────────────────────
 
 /// Order side: Bid (buy) or Ask (sell).
+///
+/// Serializes as `"bid"`/`"ask"`. Deserializes from `"bid"`/`"ask"` or `"buy"`/`"sell"`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
 pub enum Side {
+    #[serde(rename = "bid", alias = "buy")]
     Bid,
+    #[serde(rename = "ask", alias = "sell")]
     Ask,
 }
 
