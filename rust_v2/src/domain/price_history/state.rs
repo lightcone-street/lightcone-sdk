@@ -56,3 +56,51 @@ impl PriceHistoryState {
         self.data.clear();
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn line_data(time: u64, value: &str) -> LineData {
+        LineData {
+            time,
+            value: value.to_string(),
+        }
+    }
+
+    #[test]
+    fn test_apply_snapshot() {
+        let mut state = PriceHistoryState::new();
+        let ob = OrderBookId::from("ob1");
+        let res = Resolution::Minute1;
+        state.apply_snapshot(ob.clone(), res, vec![line_data(100, "50.0"), line_data(200, "51.0")]);
+        let data = state.get(&ob, &res).unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[0].value, "50.0");
+        assert_eq!(data[1].value, "51.0");
+    }
+
+    #[test]
+    fn test_apply_update_appends() {
+        let mut state = PriceHistoryState::new();
+        let ob = OrderBookId::from("ob1");
+        let res = Resolution::Minute1;
+        state.apply_snapshot(ob.clone(), res, vec![line_data(100, "50.0")]);
+        state.apply_update(ob.clone(), res, line_data(200, "51.0"));
+        let data = state.get(&ob, &res).unwrap();
+        assert_eq!(data.len(), 2);
+        assert_eq!(data[1].value, "51.0");
+    }
+
+    #[test]
+    fn test_apply_update_same_time_overwrites() {
+        let mut state = PriceHistoryState::new();
+        let ob = OrderBookId::from("ob1");
+        let res = Resolution::Minute1;
+        state.apply_snapshot(ob.clone(), res, vec![line_data(100, "50.0")]);
+        state.apply_update(ob.clone(), res, line_data(100, "50.5"));
+        let data = state.get(&ob, &res).unwrap();
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].value, "50.5");
+    }
+}

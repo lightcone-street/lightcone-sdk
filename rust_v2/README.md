@@ -62,6 +62,8 @@ src/
     mod.rs             # OrderBookId, PubkeyStr, Side, Resolution, SubmitOrderRequest
     scaling.rs         # Price/size → raw lamport conversion
     price.rs           # Decimal formatting utilities
+    fmt/               # Decimal display, number abbreviation (num.rs, decimal.rs)
+    serde_util.rs      # Serde helpers
   domain/
     mod.rs
     market/
@@ -115,8 +117,8 @@ src/
   ws/
     mod.rs             # MessageIn, MessageOut, Kind, WsEvent, WsConfig
     subscriptions.rs   # SubscribeParams, UnsubscribeParams, Subscription trait
-    native.rs          # tokio-tungstenite (ws-native feature) [TODO]
-    wasm.rs            # web-sys WebSocket (ws-wasm feature) [TODO]
+    native.rs          # tokio-tungstenite (ws-native feature) [TODO: stub]
+    wasm.rs            # web-sys WebSocket (ws-wasm feature) — full implementation
 ```
 
 ## Features
@@ -128,9 +130,8 @@ src/
 | `ws-native` | WebSocket via `tokio-tungstenite` (Layer 4 native). |
 | `ws-wasm` | WebSocket via `web-sys::WebSocket` (Layer 4 WASM). |
 | `solana-rpc` | `solana-client` for on-chain reads (native only). |
-| `native` | Bundle: `http` + `native-auth` + `ws-native` + `solana-rpc`. |
-| `full-native` | Everything for CLI/server use. |
-| `full-wasm` | Everything for browser use: `http` + `ws-wasm`. |
+| `native` | Bundle: `http` + `native-auth` + `ws-native` + `solana-rpc`. For CLI/server use. |
+| `wasm` | Bundle: `http` + `ws-wasm`. For browser use. |
 
 ## Quick Start
 
@@ -166,8 +167,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The SDK exposes two levels of types:
 
-- **Domain types** (`lightcone_sdk::domain::*`) — Rich, validated types with business logic methods. These are the primary public API. Example: `Market`, `Order`, `OrderBookPair`.
-- **Wire types** (`lightcone_sdk::domain::*/wire`) — Raw serde structs matching backend REST responses and WS messages. Also public for consumers who need raw access (forwarding data, debugging, server functions).
+- **Domain types** (`lightcone_sdk_v2::domain::*`) — Rich, validated types with business logic methods. These are the primary public API. Example: `Market`, `Order`, `OrderBookPair`.
+- **Wire types** (`lightcone_sdk_v2::domain::*/wire`) — Raw serde structs matching backend REST responses and WS messages. Also public for consumers who need raw access (forwarding data, debugging, server functions).
 
 Shared newtypes like `OrderBookId`, `PubkeyStr`, `Side`, and `Resolution` are used directly in wire types because they are serialization-transparent — they deserialize identically to the raw format the backend sends.
 
@@ -230,10 +231,11 @@ The SDK aligns with `lightcone-backend` API routes:
 
 | SDK Method | Backend Route | HTTP Method |
 |------------|--------------|-------------|
-| `markets().get()` | `/api/markets` | GET |
+| `markets().get(cursor, limit)` | `/api/markets` | GET |
 | `markets().get_by_slug(slug)` | `/api/markets/by-slug/{slug}` | GET |
-| `markets().search(q, limit)` | `/api/markets/search` | GET |
-| `markets().featured()` | `/api/markets/featured` | GET |
+| `markets().get_by_pubkey(pubkey)` | `/api/markets/{market_pubkey}` | GET |
+| `markets().search(q, limit)` | `/api/markets/search/by-query/{query}` | GET |
+| `markets().featured()` | `/api/markets/search/featured` | GET |
 | `orderbooks().get(id, depth)` | `/api/orderbook/{id}` | GET |
 | `orderbooks().decimals(id)` | `/api/orderbooks/{id}/decimals` | GET |
 | `orders().submit(req)` | `/api/orders/submit` | POST |
@@ -241,7 +243,7 @@ The SDK aligns with `lightcone-backend` API routes:
 | `orders().cancel_all(req)` | `/api/orders/cancel-all` | POST |
 | `orders().get_user_orders(req)` | `/api/users/orders` | POST |
 | `positions().get(pubkey)` | `/api/users/{pubkey}/positions` | GET |
-| `positions().get_for_market(pubkey, market)` | `/api/users/{pubkey}/positions?market={market}` | GET |
+| `positions().get_for_market(pubkey, market)` | `/api/users/{pubkey}/markets/{market_pubkey}/positions` | GET |
 | `trades().get(id, limit, before)` | `/api/trades` | GET |
 | `price_history().get(...)` | `/api/price-history` | GET |
 | `admin().upsert_metadata(env)` | `/api/admin/metadata` | POST |

@@ -31,7 +31,7 @@ impl<'a> Positions<'a> {
         market_pubkey: &str,
     ) -> Result<PositionsResponse, SdkError> {
         let url = format!(
-            "{}/api/users/{}/positions?market={}",
+            "{}/api/users/{}/markets/{}/positions",
             self.client.http.base_url(),
             user_pubkey,
             market_pubkey

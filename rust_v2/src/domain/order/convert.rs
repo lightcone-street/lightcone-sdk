@@ -63,3 +63,111 @@ impl From<Vec<wire::UserSnapshotOrder>> for UserOpenOrders {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::shared::{OrderBookId, PubkeyStr, Side};
+    use chrono::Utc;
+    use rust_decimal::Decimal;
+
+    #[test]
+    fn test_order_update_conversion() {
+        let update = wire::OrderUpdate {
+            market_pubkey: PubkeyStr::from("mkt111"),
+            orderbook_id: OrderBookId::from("ob_abc"),
+            timestamp: Utc::now(),
+            tx_signature: Some("sig123".to_string()),
+            order: wire::WsOrder {
+                order_hash: "hash_xyz".to_string(),
+                price: Decimal::new(55, 1),
+                is_maker: true,
+                remaining: Decimal::new(8, 0),
+                filled: Decimal::new(2, 0),
+                fill_amount: Decimal::new(2, 0),
+                side: Side::Bid,
+                created_at: Utc::now(),
+                base_mint: PubkeyStr::from("base_mint"),
+                quote_mint: PubkeyStr::from("quote_mint"),
+                outcome_index: 0,
+                balance: wire::UserOrderUpdateBalance {
+                    outcomes: vec![],
+                },
+            },
+        };
+        let order: Order = update.into();
+        assert_eq!(order.order_hash, "hash_xyz");
+        assert_eq!(order.size, Decimal::new(10, 0)); // filled + remaining
+        assert_eq!(order.filled_size, Decimal::new(2, 0));
+        assert_eq!(order.remaining_size, Decimal::new(8, 0));
+        assert_eq!(order.tx_signature, Some("sig123".to_string()));
+    }
+
+    #[test]
+    fn test_user_snapshot_order_conversion() {
+        let snap = wire::UserSnapshotOrder {
+            market_pubkey: PubkeyStr::from("mkt222"),
+            orderbook_id: OrderBookId::from("ob_def"),
+            tx_signature: None,
+            order_hash: "snap_hash".to_string(),
+            side: Side::Ask,
+            maker_amount: Decimal::new(100, 0),
+            taker_amount: Decimal::new(50, 0),
+            remaining: Decimal::new(5, 0),
+            filled: Decimal::new(3, 0),
+            price: Decimal::new(60, 1),
+            created_at: Utc::now(),
+            expiration: 0,
+            base_mint: PubkeyStr::from("base"),
+            quote_mint: PubkeyStr::from("quote"),
+            outcome_index: 1,
+        };
+        let order: Order = snap.into();
+        assert_eq!(order.order_hash, "snap_hash");
+        assert_eq!(order.size, Decimal::new(8, 0)); // filled + remaining
+        assert_eq!(order.market_pubkey.as_str(), "mkt222");
+    }
+
+    #[test]
+    fn test_user_open_orders_filters_zero_remaining() {
+        let orders = vec![
+            wire::UserSnapshotOrder {
+                market_pubkey: PubkeyStr::from("mkt1"),
+                orderbook_id: OrderBookId::from("ob1"),
+                tx_signature: None,
+                order_hash: "o1".to_string(),
+                side: Side::Bid,
+                maker_amount: Decimal::ZERO,
+                taker_amount: Decimal::ZERO,
+                remaining: Decimal::new(1, 0),
+                filled: Decimal::ZERO,
+                price: Decimal::new(50, 1),
+                created_at: Utc::now(),
+                expiration: 0,
+                base_mint: PubkeyStr::from("b"),
+                quote_mint: PubkeyStr::from("q"),
+                outcome_index: 0,
+            },
+            wire::UserSnapshotOrder {
+                market_pubkey: PubkeyStr::from("mkt1"),
+                orderbook_id: OrderBookId::from("ob2"),
+                tx_signature: None,
+                order_hash: "o2".to_string(),
+                side: Side::Bid,
+                maker_amount: Decimal::ZERO,
+                taker_amount: Decimal::ZERO,
+                remaining: Decimal::ZERO,
+                filled: Decimal::new(10, 0),
+                price: Decimal::new(51, 1),
+                created_at: Utc::now(),
+                expiration: 0,
+                base_mint: PubkeyStr::from("b"),
+                quote_mint: PubkeyStr::from("q"),
+                outcome_index: 0,
+            },
+        ];
+        let uoo: UserOpenOrders = orders.into();
+        assert_eq!(uoo.orders.len(), 1);
+        assert_eq!(uoo.orders.values().next().unwrap().len(), 1);
+    }
+}

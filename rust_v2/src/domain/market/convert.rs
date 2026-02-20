@@ -116,3 +116,68 @@ impl TryFrom<wire::MarketResponse> for Market {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+
+    fn minimal_market_response() -> wire::MarketResponse {
+        wire::MarketResponse {
+            market_name: Some("Test Market".to_string()),
+            slug: Some("test-market".to_string()),
+            description: Some("Description".to_string()),
+            definition: Some("Definition".to_string()),
+            outcomes: vec![wire::OutcomeResponse {
+                index: 0,
+                name: "Yes".to_string(),
+                icon_url: Some("https://example.com/yes.png".to_string()),
+            }],
+            banner_image_url: Some("https://example.com/banner.png".to_string()),
+            icon_url: Some("https://example.com/icon.png".to_string()),
+            category: None,
+            tags: None,
+            featured_rank: None,
+            market_pubkey: "mkt123".to_string(),
+            market_id: 1,
+            oracle: "oracle".to_string(),
+            question_id: "q1".to_string(),
+            condition_id: "c1".to_string(),
+            market_status: "Active".to_string(),
+            winning_outcome: None,
+            has_winning_outcome: false,
+            created_at: Utc::now(),
+            activated_at: None,
+            settled_at: None,
+            deposit_assets: vec![],
+            orderbooks: vec![],
+        }
+    }
+
+    #[test]
+    fn test_market_missing_slug_fails() {
+        let mut resp = minimal_market_response();
+        resp.slug = None;
+        let err = Market::try_from(resp).unwrap_err();
+        assert!(format!("{err}").contains("slug") || format!("{err}").contains("MissingSlug"));
+    }
+
+    #[test]
+    fn test_market_missing_name_fails() {
+        let mut resp = minimal_market_response();
+        resp.market_name = None;
+        let err = Market::try_from(resp).unwrap_err();
+        assert!(
+            format!("{err}").contains("name") || format!("{err}").contains("MarketNameMissing")
+        );
+    }
+
+    #[test]
+    fn test_market_invalid_status_fails() {
+        let mut resp = minimal_market_response();
+        resp.market_status = "UnknownStatus".to_string();
+        let result = Market::try_from(resp);
+        // Should fail with InvalidStatus in the error chain
+        assert!(result.is_err());
+    }
+}

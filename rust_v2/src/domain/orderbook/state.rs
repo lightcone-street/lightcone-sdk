@@ -105,3 +105,93 @@ impl Default for OrderBookId {
         OrderBookId::from("")
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::orderbook::wire::BookOrder;
+    use crate::shared::Side;
+    use rust_decimal::Decimal;
+
+    fn order_book(snapshot: bool, seq: u32, bids: Vec<(f64, f64)>, asks: Vec<(f64, f64)>) -> OrderBook {
+        OrderBook {
+            id: OrderBookId::from("ob_test"),
+            is_snapshot: snapshot,
+            seq,
+            bids: bids
+                .into_iter()
+                .map(|(price, size)| BookOrder {
+                    side: Side::Bid,
+                    price: Decimal::try_from(price).unwrap(),
+                    size: Decimal::try_from(size).unwrap(),
+                })
+                .collect(),
+            asks: asks
+                .into_iter()
+                .map(|(price, size)| BookOrder {
+                    side: Side::Ask,
+                    price: Decimal::try_from(price).unwrap(),
+                    size: Decimal::try_from(size).unwrap(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_snapshot_replaces_state() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.asks().len(), 1);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+        assert_eq!(snap.best_ask(), Some(Decimal::try_from(51.0).unwrap()));
+
+        snap.apply(&order_book(true, 2, vec![(49.0, 20.0)], vec![(52.0, 8.0)]));
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.asks().len(), 1);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(49.0).unwrap()));
+        assert_eq!(snap.best_ask(), Some(Decimal::try_from(52.0).unwrap()));
+    }
+
+    #[test]
+    fn test_delta_merges_with_snapshot() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        snap.apply(&order_book(
+            false,
+            2,
+            vec![(49.0, 15.0), (48.0, 3.0)],
+            vec![(52.0, 2.0)],
+        ));
+        assert_eq!(snap.bids().len(), 3);
+        assert_eq!(snap.asks().len(), 2);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+        assert_eq!(snap.best_ask(), Some(Decimal::try_from(51.0).unwrap()));
+    }
+
+    #[test]
+    fn test_zero_size_removes_level() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(snap.bids().len(), 0);
+        assert_eq!(snap.best_bid(), None);
+    }
+
+    #[test]
+    fn test_mid_price_and_spread() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(52.0, 5.0)]));
+        assert_eq!(snap.mid_price(), Some(Decimal::try_from(51.0).unwrap()));
+        assert_eq!(snap.spread(), Some(Decimal::try_from(2.0).unwrap()));
+    }
+
+    #[test]
+    fn test_clear() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        snap.clear();
+        assert!(snap.is_empty());
+        assert_eq!(snap.seq, 0);
+    }
+}

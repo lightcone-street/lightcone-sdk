@@ -80,3 +80,54 @@ impl RetryConfig {
         Duration::from_millis(final_ms as u64)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_retry_policy_default_is_none() {
+        assert!(matches!(RetryPolicy::default(), RetryPolicy::None));
+    }
+
+    #[test]
+    fn test_retry_config_idempotent_includes_429() {
+        let config = RetryConfig::idempotent();
+        assert!(config.retryable_statuses.contains(&429));
+        assert!(config.retryable_statuses.contains(&502));
+        assert!(config.retryable_statuses.contains(&503));
+        assert!(config.retryable_statuses.contains(&504));
+    }
+
+    #[test]
+    fn test_retry_config_delay_for_attempt_no_jitter() {
+        let config = RetryConfig {
+            max_retries: 3,
+            initial_delay: Duration::from_millis(100),
+            max_delay: Duration::from_secs(10),
+            backoff_factor: 2.0,
+            jitter: false,
+            retryable_statuses: vec![502, 503, 504],
+        };
+        let d0 = config.delay_for_attempt(0);
+        let d1 = config.delay_for_attempt(1);
+        let d2 = config.delay_for_attempt(2);
+        assert_eq!(d0.as_millis(), 100);
+        assert_eq!(d1.as_millis(), 200);
+        assert_eq!(d2.as_millis(), 400);
+    }
+
+    #[test]
+    fn test_retry_config_delay_caps_at_max() {
+        let config = RetryConfig {
+            max_retries: 5,
+            initial_delay: Duration::from_millis(1000),
+            max_delay: Duration::from_millis(2000),
+            backoff_factor: 10.0,
+            jitter: false,
+            retryable_statuses: vec![],
+        };
+        let d = config.delay_for_attempt(3);
+        assert_eq!(d.as_millis(), 2000);
+    }
+}

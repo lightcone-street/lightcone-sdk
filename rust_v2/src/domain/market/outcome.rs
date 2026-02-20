@@ -65,3 +65,32 @@ impl TryFrom<OutcomeResponse> for Outcome {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_outcome_valid_conversion() {
+        let wire = OutcomeResponse {
+            index: 0,
+            name: "Yes".to_string(),
+            icon_url: Some("https://example.com/yes.png".to_string()),
+        };
+        let outcome = Outcome::try_from(wire).unwrap();
+        assert_eq!(outcome.index, 0);
+        assert_eq!(outcome.name, "Yes");
+        assert_eq!(outcome.icon_url, "https://example.com/yes.png");
+    }
+
+    #[test]
+    fn test_outcome_missing_icon_url_fails() {
+        let wire = OutcomeResponse {
+            index: 1,
+            name: "No".to_string(),
+            icon_url: None,
+        };
+        let err = Outcome::try_from(wire).unwrap_err();
+        assert!(format!("{err}").contains("Missing thumbnail"));
+    }
+}

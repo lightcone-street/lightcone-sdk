@@ -138,6 +138,34 @@ impl ConditionalToken {
             ""
         }
     }
+
+    #[cfg(test)]
+    pub fn test_new(mint: impl Into<String>, outcome_index: i16) -> Self {
+        Self::test_new_with_deposit(mint, outcome_index, "deposit")
+    }
+
+    #[cfg(test)]
+    pub fn test_new_with_deposit(
+        mint: impl Into<String>,
+        outcome_index: i16,
+        deposit_asset: impl Into<String>,
+    ) -> Self {
+        let mint = PubkeyStr::from(mint.into());
+        let deposit_asset = PubkeyStr::from(deposit_asset.into());
+        Self {
+            id: 1,
+            outcome_index,
+            outcome: "Yes".to_string(),
+            deposit_asset,
+            deposit_symbol: "USDC".to_string(),
+            mint: mint.clone(),
+            name: "Outcome".to_string(),
+            symbol: "YES".to_string(),
+            description: None,
+            decimals: 6,
+            icon_url: "https://example.com/icon.png".to_string(),
+        }
+    }
 }
 
 impl DepositAsset {
@@ -346,5 +374,81 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
             conditionals,
             metadata,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::market::wire::ConditionalTokenResponse;
+    use chrono::Utc;
+
+    fn minimal_deposit_asset_response() -> DepositAssetResponse {
+        DepositAssetResponse {
+            display_name: Some("USD Coin".to_string()),
+            token_symbol: Some("USDC".to_string()),
+            symbol: Some("USDC".to_string()),
+            deposit_asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+            id: 1,
+            market_pubkey: "mkt".to_string(),
+            vault: "vault".to_string(),
+            num_outcomes: 2,
+            description: None,
+            icon_url: Some("https://example.com/usdc.png".to_string()),
+            metadata_uri: None,
+            decimals: Some(6),
+            conditional_mints: vec![
+                ConditionalTokenResponse {
+                    id: 10,
+                    outcome_index: 0,
+                    token_address: "cond_yes".to_string(),
+                    name: None,
+                    symbol: None,
+                    uri: None,
+                    display_name: Some("Yes".to_string()),
+                    outcome: Some("Yes".to_string()),
+                    deposit_symbol: None,
+                    short_name: Some("YES".to_string()),
+                    description: None,
+                    icon_url: None,
+                    metadata_uri: None,
+                    decimals: Some(6),
+                    created_at: Utc::now(),
+                },
+            ],
+            created_at: Utc::now(),
+        }
+    }
+
+    #[test]
+    fn test_validated_tokens_valid_conversion() {
+        let resp = minimal_deposit_asset_response();
+        let validated = ValidatedTokens::try_from(resp).unwrap();
+        assert_eq!(validated.token.symbol, "USDC");
+        assert_eq!(validated.conditionals.len(), 1);
+        assert_eq!(validated.conditionals[0].symbol(), "YES");
+    }
+
+    #[test]
+    fn test_validated_tokens_missing_symbol_fails() {
+        let mut resp = minimal_deposit_asset_response();
+        resp.symbol = None;
+        let err = ValidatedTokens::try_from(resp).unwrap_err();
+        assert!(format!("{err}").contains("symbol") || format!("{err}").contains("Symbol"));
+    }
+
+    #[test]
+    fn test_validated_tokens_missing_icon_fails() {
+        let mut resp = minimal_deposit_asset_response();
+        resp.icon_url = None;
+        let err = ValidatedTokens::try_from(resp).unwrap_err();
+        assert!(format!("{err}").contains("icon") || format!("{err}").contains("Icon"));
+    }
+
+    #[test]
+    fn test_conditional_token_is_usd_stablecoin() {
+        // ConditionalToken::is_usd_stable_coin checks deposit_asset.
+        let ct = ConditionalToken::test_new_with_deposit("mint", 0, USDC_MAINNET);
+        assert!(ct.is_usd_stable_coin());
     }
 }

@@ -15,7 +15,7 @@
 //! ## Quick Start
 //!
 //! ```rust,ignore
-//! use lightcone_sdk::prelude::*;
+//! use lightcone_sdk_v2::prelude::*;
 //!
 //! let client = LightconeClient::builder()
 //!     .base_url("https://tapi.lightcone.xyz")

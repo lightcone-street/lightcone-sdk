@@ -58,3 +58,90 @@ impl TryFrom<(wire::OrderbookResponse, &Vec<tokens::ConditionalToken>)> for Orde
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::market::tokens::ConditionalToken;
+    use chrono::Utc;
+
+    fn make_conditional_token(mint: &str, outcome_index: i16) -> ConditionalToken {
+        ConditionalToken::test_new(mint, outcome_index)
+    }
+
+    #[test]
+    fn test_orderbook_pair_valid_conversion() {
+        let base_token = "base_mint_abc";
+        let quote_token = "quote_mint_xyz";
+        let tokens = vec![
+            make_conditional_token(base_token, 0),
+            make_conditional_token(quote_token, 1),
+        ];
+        let wire = wire::OrderbookResponse {
+            id: 42,
+            market_pubkey: "mkt".to_string(),
+            orderbook_id: "ob_1".to_string(),
+            base_token: base_token.to_string(),
+            quote_token: quote_token.to_string(),
+            outcome_index: Some(0),
+            tick_size: 1,
+            total_bids: 10,
+            total_asks: 5,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let pair = OrderBookPair::try_from((wire, &tokens)).unwrap();
+        assert_eq!(pair.orderbook_id.as_str(), "ob_1");
+        assert_eq!(pair.base.pubkey().as_str(), base_token);
+        assert_eq!(pair.quote.pubkey().as_str(), quote_token);
+    }
+
+    #[test]
+    fn test_orderbook_pair_base_token_not_found() {
+        let tokens = vec![make_conditional_token("other_mint", 0)];
+        let wire = wire::OrderbookResponse {
+            id: 1,
+            market_pubkey: "mkt".to_string(),
+            orderbook_id: "ob".to_string(),
+            base_token: "missing_base".to_string(),
+            quote_token: "other_mint".to_string(),
+            outcome_index: None,
+            tick_size: 1,
+            total_bids: 0,
+            total_asks: 0,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let err = OrderBookPair::try_from((wire, &tokens)).unwrap_err();
+        assert!(format!("{err}").contains("BaseTokenNotFound") || format!("{err}").contains("base"));
+    }
+
+    #[test]
+    fn test_orderbook_pair_quote_token_not_found() {
+        let tokens = vec![make_conditional_token("base_ok", 0)];
+        let wire = wire::OrderbookResponse {
+            id: 1,
+            market_pubkey: "mkt".to_string(),
+            orderbook_id: "ob".to_string(),
+            base_token: "base_ok".to_string(),
+            quote_token: "missing_quote".to_string(),
+            outcome_index: None,
+            tick_size: 1,
+            total_bids: 0,
+            total_asks: 0,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let err = OrderBookPair::try_from((wire, &tokens)).unwrap_err();
+        assert!(format!("{err}").contains("QuoteTokenNotFound") || format!("{err}").contains("quote"));
+    }
+}
