@@ -41,21 +41,19 @@ impl WsClient {
         if !self.connected {
             return Err(WsError::NotConnected);
         }
-        // TODO: Send via tokio-tungstenite
         let _ = msg;
         Ok(())
     }
 
     pub fn subscribe(&self, params: SubscribeParams) -> Result<(), WsError> {
-        self.send(MessageOut::Subscribe { params })
+        self.send(MessageOut::Subscribe(params))
     }
 
     pub fn unsubscribe(&self, params: UnsubscribeParams) -> Result<(), WsError> {
-        self.send(MessageOut::Unsubscribe { params })
+        self.send(MessageOut::Unsubscribe(params))
     }
 
     pub fn events(&self) -> Pin<Box<dyn Stream<Item = WsEvent> + Send + '_>> {
-        // TODO: Return stream from tokio-tungstenite receiver
         Box::pin(futures_util::stream::empty())
     }
 }

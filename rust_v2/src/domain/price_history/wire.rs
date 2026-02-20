@@ -27,6 +27,14 @@ pub struct PriceHistoryUpdate {
     pub value: String,
 }
 
+/// WS price history heartbeat.
+#[derive(Deserialize, Debug, Clone)]
+pub struct PriceHistoryHeartbeat {
+    pub server_time: u64,
+    #[serde(default)]
+    pub last_processed: Option<u64>,
+}
+
 /// WS price history tagged enum.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "event_type")]
@@ -35,4 +43,6 @@ pub enum PriceHistory {
     Snapshot(PriceHistorySnapshot),
     #[serde(rename = "update")]
     Update(PriceHistoryUpdate),
+    #[serde(rename = "heartbeat")]
+    Heartbeat(PriceHistoryHeartbeat),
 }

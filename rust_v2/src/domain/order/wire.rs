@@ -109,7 +109,7 @@ pub struct UserSnapshot {
 pub enum UserUpdate {
     #[serde(rename = "snapshot")]
     Snapshot(UserSnapshot),
-    #[serde(rename = "order_update")]
+    #[serde(rename = "order")]
     OrderUpdate(OrderUpdate),
     #[serde(rename = "balance_update")]
     BalanceUpdate(UserBalanceUpdate),

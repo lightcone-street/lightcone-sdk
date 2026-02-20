@@ -112,10 +112,12 @@ impl LightconeClient {
         crate::ws::native::WsClient::new(self.ws_config.clone())
     }
 
-    /// Create a new WASM WS client from the current config.
+    /// Get the WS config for connecting with the WASM WsClient.
+    ///
+    /// Usage: `WsClient::connect(client.ws_config().clone(), |event| { ... })`
     #[cfg(feature = "ws-wasm")]
-    pub fn ws_wasm(&self) -> crate::ws::wasm::WsClient {
-        crate::ws::wasm::WsClient::new(self.ws_config.clone())
+    pub fn ws_config_for_wasm(&self) -> &crate::ws::WsConfig {
+        &self.ws_config
     }
 
     /// Clear the decimals cache (the only SDK-internal cache).

@@ -87,7 +87,7 @@ native-auth = ["dep:solana-keypair", "dep:solana-signer"]
 ws-native = ["dep:tokio-tungstenite", "dep:tokio", "dep:futures-util"]
 
 # WebSocket WASM — web-sys WebSocket
-ws-wasm = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers"]
+ws-wasm = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:futures-util"]
 
 # Solana RPC client (native only)
 solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]

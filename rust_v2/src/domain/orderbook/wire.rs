@@ -83,5 +83,6 @@ pub struct WsTickerData {
     pub orderbook_id: OrderBookId,
     pub best_bid: Option<Decimal>,
     pub best_ask: Option<Decimal>,
-    pub mid_price: Option<Decimal>,
+    #[serde(alias = "mid_price")]
+    pub mid: Option<Decimal>,
 }
