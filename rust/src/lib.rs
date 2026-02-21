@@ -57,8 +57,8 @@
 //!         market: Pubkey::new_unique(),
 //!         base_mint: Pubkey::new_unique(),
 //!         quote_mint: Pubkey::new_unique(),
-//!         maker_amount: 1000,
-//!         taker_amount: 500,
+//!         amount_in: 1000,
+//!         amount_out: 500,
 //!         expiration: 0,
 //!     });
 //! }
@@ -84,7 +84,6 @@ pub mod network;
 pub mod auth;
 
 /// REST API client module for market data, orders, and positions.
-#[cfg(feature = "api")]
 pub mod api;
 
 /// WebSocket client module for real-time data streaming.
@@ -103,55 +102,76 @@ pub mod websocket;
 pub mod prelude {
     // Program module exports
     pub use crate::program::{
-        // Account types
-        Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce,
-        // Errors
-        SdkError, SdkResult,
         // Order utilities
-        calculate_taker_fill, derive_condition_id, is_order_expired, orders_can_cross,
-        Order, SignedOrder, SignedCancelOrder, SignedCancelAll,
+        calculate_taker_fill,
+        derive_condition_id,
+        is_order_expired,
+        orders_can_cross,
+        Order,
         // Order builder
         OrderBuilder,
-        // PDA functions
-        get_exchange_pda, get_market_pda, get_vault_pda, get_mint_authority_pda,
-        get_conditional_mint_pda, get_order_status_pda, get_user_nonce_pda, get_position_pda,
-        get_all_conditional_mint_pdas, get_orderbook_pda, get_alt_pda,
-        get_global_deposit_token_pda, get_user_global_deposit_pda, get_position_alt_pda,
-        // Types (moved from shared)
-        MarketStatus, OrderSide, OutcomeMetadata,
-        BidOrderParams, AskOrderParams, CreateMarketParams, MatchOrdersMultiParams,
-        MintCompleteSetParams, MergeCompleteSetParams, SettleMarketParams, RedeemWinningsParams,
-        AddDepositMintParams, ActivateMarketParams, WithdrawFromPositionParams,
-        CreateOrderbookParams, SetAuthorityParams,
-        WhitelistDepositTokenParams, DepositToGlobalParams, GlobalToMarketDepositParams,
-        InitPositionTokensParams, DepositAndSwapParams,
+        OrderSide,
+        OrderStatus,
+        Orderbook,
+        OutcomeMetadata,
+        Position,
+        RedeemWinningsParams,
+        // Errors
+        SdkError,
+        SdkResult,
+        SetAuthorityParams,
+        SettleMarketParams,
+        SignedCancelAll,
+        SignedCancelOrder,
+        SignedOrder,
+        UserNonce,
+        WhitelistDepositTokenParams,
+        WithdrawFromPositionParams,
+        ASSOCIATED_TOKEN_PROGRAM_ID,
         // Constants (moved from shared)
-        PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID,
+        PROGRAM_ID,
+        TOKEN_2022_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
     };
 
     // Client (conditionally exported)
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     pub use crate::program::LightconePinocchioClient;
 
     // API module exports
-    #[cfg(feature = "api")]
     pub use crate::api::{
-        LightconeApiClient, LightconeApiClientBuilder, ApiError, ApiResult,
-        // Common types
-        MarketsResponse, MarketInfoResponse, Market as ApiMarket, DepositAsset, ConditionalToken,
-        OrderbookResponse, PriceLevel,
-        OrderResponse, CancelResponse, CancelAllResponse, MarketSearchResult, SearchOrderbook,
-        PositionsResponse, Position as ApiPosition, OutcomeBalance,
-        PriceHistoryParams, PriceHistoryResponse,
-        TradesParams, TradesResponse, Trade,
+        ApiError,
+        ApiResult,
+        CancelAllResponse,
+        CancelResponse,
+        ConditionalToken,
         DecimalsResponse,
+        DepositAsset,
+        LightconeApiClient,
+        LightconeApiClientBuilder,
+        Market as ApiMarket,
+        MarketInfoResponse,
+        MarketSearchResult,
+        // Common types
+        MarketsResponse,
+        OrderResponse,
+        OrderbookResponse,
+        OutcomeBalance,
+        Position as ApiPosition,
+        PositionsResponse,
+        PriceHistoryParams,
+        PriceHistoryResponse,
+        PriceLevel,
+        SearchOrderbook,
+        Trade,
+        TradesParams,
+        TradesResponse,
     };
 
     // Network constants
     pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 
     // Auth module exports
-    pub use crate::auth::{AuthCredentials, AuthError, AuthResult};
     #[cfg(feature = "auth")]
     pub use crate::auth::{authenticate, authenticate_with_transaction};
 
@@ -164,9 +184,8 @@ pub mod prelude {
     // WebSocket module exports
     #[cfg(feature = "websocket")]
     pub use crate::websocket::{
-        LightconeWebSocketClient, WebSocketConfig, WebSocketError, WsResult,
-        ConnectionState, WsEvent,
-        BookUpdateData, TradeData, UserEventData, PriceHistoryData, MarketEventData,
-        LocalOrderbook, UserState, PriceHistory,
+        BookUpdateData, ConnectionState, LightconeWebSocketClient, LocalOrderbook, MarketEventData,
+        PriceHistory, PriceHistoryData, TradeData, UserEventData, UserState, WebSocketConfig,
+        WebSocketError, WsEvent, WsResult,
     };
 }

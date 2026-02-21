@@ -295,10 +295,10 @@ pub struct UserOrderSnapshot {
     pub orderbook_id: String,
     /// "bid" or "ask"
     pub side: String,
-    /// Maker amount as decimal string
-    pub maker_amount: String,
-    /// Taker amount as decimal string
-    pub taker_amount: String,
+    #[serde(alias = "maker_amount")]
+    pub amount_in: String,
+    #[serde(alias = "taker_amount")]
+    pub amount_out: String,
     /// Remaining amount as decimal string
     pub remaining: String,
     /// Filled amount as decimal string
@@ -863,8 +863,8 @@ mod tests {
                 "market_pubkey": "market1",
                 "orderbook_id": "ob1",
                 "side": "bid",
-                "maker_amount": "1.000000",
-                "taker_amount": "0.500000",
+                "amount_in": "1.000000",
+                "amount_out": "0.500000",
                 "remaining": "0.800000",
                 "filled": "0.200000",
                 "price": "0.500000",

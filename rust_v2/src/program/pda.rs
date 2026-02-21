@@ -1,0 +1,320 @@
+//! PDA (Program Derived Address) derivation functions.
+//!
+//! This module provides all PDA derivation functions matching the on-chain program.
+
+use solana_pubkey::Pubkey;
+
+use crate::program::constants::{
+    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, EXCHANGE_SEED, GLOBAL_DEPOSIT_TOKEN_SEED,
+    MARKET_SEED, MINT_AUTHORITY_SEED, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
+    USER_NONCE_SEED, VAULT_SEED,
+};
+
+/// Get the Exchange PDA.
+///
+/// Seeds: ["central_state"]
+pub fn get_exchange_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[EXCHANGE_SEED], program_id)
+}
+
+/// Get a Market PDA.
+///
+/// Seeds: ["market", market_id (8 bytes LE)]
+pub fn get_market_pda(market_id: u64, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[MARKET_SEED, &market_id.to_le_bytes()], program_id)
+}
+
+/// Get the Vault PDA for a market's deposit mint.
+///
+/// Seeds: ["market_deposit_token_account", deposit_mint, market]
+pub fn get_vault_pda(deposit_mint: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[VAULT_SEED, deposit_mint.as_ref(), market.as_ref()],
+        program_id,
+    )
+}
+
+/// Get the Mint Authority PDA for a market.
+///
+/// Seeds: ["market_mint_authority", market]
+pub fn get_mint_authority_pda(market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[MINT_AUTHORITY_SEED, market.as_ref()], program_id)
+}
+
+/// Get a Conditional Mint PDA.
+///
+/// Seeds: ["conditional_mint", market, deposit_mint, outcome_index (1 byte)]
+pub fn get_conditional_mint_pda(
+    market: &Pubkey,
+    deposit_mint: &Pubkey,
+    outcome_index: u8,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            CONDITIONAL_MINT_SEED,
+            market.as_ref(),
+            deposit_mint.as_ref(),
+            &[outcome_index],
+        ],
+        program_id,
+    )
+}
+
+/// Get all Conditional Mint PDAs for a market.
+pub fn get_all_conditional_mint_pdas(
+    market: &Pubkey,
+    deposit_mint: &Pubkey,
+    num_outcomes: u8,
+    program_id: &Pubkey,
+) -> Vec<(Pubkey, u8)> {
+    (0..num_outcomes)
+        .map(|i| get_conditional_mint_pda(market, deposit_mint, i, program_id))
+        .collect()
+}
+
+/// Get an Order Status PDA.
+///
+/// Seeds: ["order_status", order_hash (32 bytes)]
+pub fn get_order_status_pda(order_hash: &[u8; 32], program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[ORDER_STATUS_SEED, order_hash], program_id)
+}
+
+/// Get a User Nonce PDA.
+///
+/// Seeds: ["user_nonce", user]
+pub fn get_user_nonce_pda(user: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[USER_NONCE_SEED, user.as_ref()], program_id)
+}
+
+/// Get a Position PDA.
+///
+/// Seeds: ["position", owner, market]
+pub fn get_position_pda(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[POSITION_SEED, owner.as_ref(), market.as_ref()], program_id)
+}
+
+/// Get an Orderbook PDA.
+///
+/// Seeds: ["orderbook", mint_a, mint_b]
+pub fn get_orderbook_pda(
+    mint_a: &Pubkey,
+    mint_b: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[ORDERBOOK_SEED, mint_a.as_ref(), mint_b.as_ref()],
+        program_id,
+    )
+}
+
+/// Get an Address Lookup Table PDA.
+///
+/// Seeds: [orderbook, slot_le], program: ALT_PROGRAM_ID
+pub fn get_alt_pda(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[orderbook.as_ref(), &recent_slot.to_le_bytes()],
+        &ALT_PROGRAM_ID,
+    )
+}
+
+/// Get a GlobalDepositToken whitelist PDA.
+///
+/// Seeds: ["global_deposit", mint]
+pub fn get_global_deposit_token_pda(mint: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[GLOBAL_DEPOSIT_TOKEN_SEED, mint.as_ref()],
+        program_id,
+    )
+}
+
+/// Get a User Global Deposit PDA (token account owned by PDA).
+///
+/// Seeds: ["global_deposit", user, mint]
+pub fn get_user_global_deposit_pda(
+    user: &Pubkey,
+    mint: &Pubkey,
+    program_id: &Pubkey,
+) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[GLOBAL_DEPOSIT_TOKEN_SEED, user.as_ref(), mint.as_ref()],
+        program_id,
+    )
+}
+
+/// Get an Address Lookup Table PDA for a position (used by InitPositionTokens).
+///
+/// Seeds: [position, slot_le], program: ALT_PROGRAM_ID
+pub fn get_position_alt_pda(position: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[position.as_ref(), &recent_slot.to_le_bytes()],
+        &ALT_PROGRAM_ID,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    fn test_program_id() -> Pubkey {
+        Pubkey::from_str("9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A").unwrap()
+    }
+
+    #[test]
+    fn test_exchange_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let (pda1, bump1) = get_exchange_pda(&program_id);
+        let (pda2, bump2) = get_exchange_pda(&program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_market_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let (pda1, bump1) = get_market_pda(0, &program_id);
+        let (pda2, bump2) = get_market_pda(0, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_different_market_ids_produce_different_pdas() {
+        let program_id = test_program_id();
+        let (pda1, _) = get_market_pda(0, &program_id);
+        let (pda2, _) = get_market_pda(1, &program_id);
+
+        assert_ne!(pda1, pda2);
+    }
+
+    #[test]
+    fn test_position_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let owner = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+
+        let (pda1, bump1) = get_position_pda(&owner, &market, &program_id);
+        let (pda2, bump2) = get_position_pda(&owner, &market, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_conditional_mint_pdas() {
+        let program_id = test_program_id();
+        let market = Pubkey::new_unique();
+        let deposit_mint = Pubkey::new_unique();
+
+        let pdas = get_all_conditional_mint_pdas(&market, &deposit_mint, 3, &program_id);
+        assert_eq!(pdas.len(), 3);
+
+        // All PDAs should be different
+        assert_ne!(pdas[0].0, pdas[1].0);
+        assert_ne!(pdas[1].0, pdas[2].0);
+        assert_ne!(pdas[0].0, pdas[2].0);
+    }
+
+    #[test]
+    fn test_order_status_pda() {
+        let program_id = test_program_id();
+        let order_hash = [42u8; 32];
+
+        let (pda1, bump1) = get_order_status_pda(&order_hash, &program_id);
+        let (pda2, bump2) = get_order_status_pda(&order_hash, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_orderbook_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
+
+        let (pda1, bump1) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+        let (pda2, bump2) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_different_mints_produce_different_orderbook_pdas() {
+        let program_id = test_program_id();
+        let mint_a = Pubkey::new_unique();
+        let mint_b = Pubkey::new_unique();
+        let mint_c = Pubkey::new_unique();
+
+        let (pda1, _) = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+        let (pda2, _) = get_orderbook_pda(&mint_a, &mint_c, &program_id);
+
+        assert_ne!(pda1, pda2);
+    }
+
+    #[test]
+    fn test_alt_pda_is_deterministic() {
+        let orderbook = Pubkey::new_unique();
+        let slot = 12345u64;
+
+        let (pda1, bump1) = get_alt_pda(&orderbook, slot);
+        let (pda2, bump2) = get_alt_pda(&orderbook, slot);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_global_deposit_token_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let mint = Pubkey::new_unique();
+
+        let (pda1, bump1) = get_global_deposit_token_pda(&mint, &program_id);
+        let (pda2, bump2) = get_global_deposit_token_pda(&mint, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_user_global_deposit_pda_is_deterministic() {
+        let program_id = test_program_id();
+        let user = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+
+        let (pda1, bump1) = get_user_global_deposit_pda(&user, &mint, &program_id);
+        let (pda2, bump2) = get_user_global_deposit_pda(&user, &mint, &program_id);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_different_users_produce_different_global_deposit_pdas() {
+        let program_id = test_program_id();
+        let user1 = Pubkey::new_unique();
+        let user2 = Pubkey::new_unique();
+        let mint = Pubkey::new_unique();
+
+        let (pda1, _) = get_user_global_deposit_pda(&user1, &mint, &program_id);
+        let (pda2, _) = get_user_global_deposit_pda(&user2, &mint, &program_id);
+
+        assert_ne!(pda1, pda2);
+    }
+
+    #[test]
+    fn test_position_alt_pda_is_deterministic() {
+        let position = Pubkey::new_unique();
+        let slot = 54321u64;
+
+        let (pda1, bump1) = get_position_alt_pda(&position, slot);
+        let (pda2, bump2) = get_position_alt_pda(&position, slot);
+
+        assert_eq!(pda1, pda2);
+        assert_eq!(bump1, bump2);
+    }
+}

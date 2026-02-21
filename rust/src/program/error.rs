@@ -2,14 +2,14 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "client")]
+#[cfg(feature = "native-client")]
 use solana_client::client_error::ClientError;
 
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
     /// RPC client error
-    #[cfg(feature = "client")]
+    #[cfg(feature = "native-client")]
     #[error("RPC error: {0}")]
     Rpc(#[from] ClientError),
 

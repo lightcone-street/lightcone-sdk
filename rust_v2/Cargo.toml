@@ -1,0 +1,97 @@
+[package]
+name = "lightcone-sdk-v2"
+version = "0.2.0"
+edition = "2021"
+description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
+license = "MIT"
+repository = "https://github.com/lightcone-street/lightcone-sdk/tree/main/rust_v2"
+keywords = ["solana", "lightcone", "sdk", "prediction-markets"]
+
+[dependencies]
+# ── Core types (always available, WASM-safe) ──────────────────────────────────
+solana-pubkey = { version = "3.0", features = ["serde"] }
+solana-signature = { version = "3.1", features = ["verify"] }
+solana-instruction = "3.1"
+solana-transaction = { version = "3.0", features = ["serde", "bincode"] }
+solana-hash = "4.0"
+solana-sdk-ids = { version = "3.1", default-features = false }
+solana-system-interface = { version = "3.0", default-features = false, features = ["bincode"] }
+
+# Crypto (WASM-compatible)
+sha3 = "0.10"
+
+# SPL (WASM-compatible)
+spl-token = { version = "9.0", features = ["no-entrypoint"] }
+spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
+spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
+
+# Serialization (WASM-compatible)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Utilities (WASM-compatible)
+thiserror = "2.0"
+rust_decimal = { version = "1", features = ["serde-str"] }
+bincode = "^1.3.3"
+bs58 = "0.5"
+hex = "0.4"
+lazy_static = "1.5"
+rand = "0.8"
+urlencoding = "2.1"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+
+# ── HTTP client (WASM-safe via reqwest's wasm support) ────────────────────────
+reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
+async-lock = { version = "3.4", optional = true }
+futures-timer = { version = "3", optional = true }
+
+# ── Native-only dependencies ──────────────────────────────────────────────────
+# Solana client (non-WASM)
+solana-client = { version = "3.1", optional = true }
+solana-commitment-config = { version = "3.1", optional = true }
+solana-keypair = { version = "3.0", optional = true }
+solana-signer = { version = "3.0", optional = true }
+tokio = { version = "1.49", default-features = false, features = ["time", "net", "sync", "macros", "rt"], optional = true }
+
+# WebSocket native
+tokio-tungstenite = { version = "0.26", features = ["native-tls"], optional = true }
+futures-util = { version = "0.3", optional = true }
+
+# ── WASM-only dependencies ────────────────────────────────────────────────────
+web-sys = { version = "0.3", features = ["WebSocket", "MessageEvent", "CloseEvent", "ErrorEvent"], optional = true }
+wasm-bindgen = { version = "0.2", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
+js-sys = { version = "0.3", optional = true }
+gloo-timers = { version = "0.3", features = ["futures"], optional = true }
+
+# Async utilities (WASM-compatible)
+async-stream = "0.3"
+pin-project-lite = "0.2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+tokio-test = "0.4"
+dotenvy = "0.15"
+
+[features]
+default = ["http"]
+
+# HTTP client (Layers 1-3) — works on both native and WASM
+http = ["dep:reqwest", "dep:async-lock", "dep:futures-timer"]
+
+# Native auth — keypair-based signing
+native-auth = ["dep:solana-keypair", "dep:solana-signer"]
+
+# WebSocket native — tokio-tungstenite
+ws-native = ["dep:tokio-tungstenite", "dep:tokio", "dep:futures-util"]
+
+# WebSocket WASM — web-sys WebSocket
+ws-wasm = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:js-sys", "dep:gloo-timers", "dep:futures-util"]
+
+# Solana RPC client (native only)
+solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]
+
+# Convenience bundles
+native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls", "dep:tokio"]
+wasm = ["http", "ws-wasm"]

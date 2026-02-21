@@ -104,8 +104,8 @@ let response = client.submit_order(SubmitOrderRequest {
     base_token: "base_token_mint".to_string(),
     quote_token: "quote_token_mint".to_string(),
     side: 0,  // 0=BID, 1=ASK
-    maker_amount: 1000000,
-    taker_amount: 500000,
+    amount_in: 1000000,
+    amount_out: 500000,
     expiration: 0,  // 0 = no expiration
     signature: "hex_signature_128_chars".to_string(),
     orderbook_id: "orderbook_id".to_string(),
@@ -274,8 +274,8 @@ let response = client.admin_health_check().await?;
 | `base_token` | String | Base token mint |
 | `quote_token` | String | Quote token mint |
 | `side` | u32 | 0=BID, 1=ASK |
-| `maker_amount` | u64 | Amount maker gives (raw units) |
-| `taker_amount` | u64 | Amount maker receives (raw units) |
+| `amount_in` | u64 | Amount maker gives (raw units) |
+| `amount_out` | u64 | Amount maker receives (raw units) |
 | `expiration` | i64 | Unix timestamp (0 = no expiration) |
 | `signature` | String | Hex-encoded Ed25519 signature (128 chars) |
 | `orderbook_id` | String | Target orderbook |
@@ -491,8 +491,8 @@ pub enum OrderStatus {
 | `market_pubkey` | String | Market pubkey |
 | `orderbook_id` | String | Orderbook ID |
 | `side` | ApiOrderSide | Order side enum |
-| `maker_amount` | String | Maker amount |
-| `taker_amount` | String | Taker amount |
+| `amount_in` | String | Maker amount |
+| `amount_out` | String | Taker amount |
 | `remaining` | String | Remaining |
 | `filled` | String | Filled |
 | `price` | String | Order price |

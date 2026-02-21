@@ -1726,10 +1726,12 @@ checksum = "f9fbbcab51052fe104eb5e5d351cf728d30a5be1fe14d9be8a3b097481fb97de"
 name = "lightcone-sdk"
 version = "0.1.92"
 dependencies = [
+ "async-lock",
  "async-stream",
  "bincode",
  "bs58",
  "dotenvy",
+ "futures-timer",
  "futures-util",
  "hex",
  "lazy_static",

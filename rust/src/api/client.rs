@@ -28,8 +28,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
+use async_lock::RwLock;
 use reqwest::{Client, StatusCode};
-use tokio::sync::RwLock;
 
 use crate::api::error::{ApiError, ApiResult, ErrorResponse};
 use crate::api::types::*;
@@ -119,12 +119,14 @@ impl LightconeApiClientBuilder {
     }
 
     /// Set the request timeout.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
         self
     }
 
     /// Set the timeout in seconds.
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn timeout_secs(mut self, secs: u64) -> Self {
         self.timeout = Duration::from_secs(secs);
         self
@@ -154,9 +156,12 @@ impl LightconeApiClientBuilder {
 
     /// Build the client.
     pub fn build(self) -> ApiResult<LightconeApiClient> {
-        let mut builder = Client::builder()
-            .timeout(self.timeout)
-            .pool_max_idle_per_host(10);
+        let mut builder = Client::builder();
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            builder = builder.timeout(self.timeout).pool_max_idle_per_host(10);
+        }
 
         // Build default headers
         let mut headers = reqwest::header::HeaderMap::new();
@@ -170,10 +175,13 @@ impl LightconeApiClientBuilder {
         );
 
         for (name, value) in self.default_headers {
-            let header_name = reqwest::header::HeaderName::try_from(name.as_str())
-                .map_err(|e| ApiError::InvalidParameter(format!("Invalid header name '{}': {}", name, e)))?;
-            let header_value = reqwest::header::HeaderValue::from_str(&value)
-                .map_err(|e| ApiError::InvalidParameter(format!("Invalid header value for '{}': {}", name, e)))?;
+            let header_name =
+                reqwest::header::HeaderName::try_from(name.as_str()).map_err(|e| {
+                    ApiError::InvalidParameter(format!("Invalid header name '{}': {}", name, e))
+                })?;
+            let header_value = reqwest::header::HeaderValue::from_str(&value).map_err(|e| {
+                ApiError::InvalidParameter(format!("Invalid header value for '{}': {}", name, e))
+            })?;
             headers.insert(header_name, header_value);
         }
 
@@ -315,7 +323,8 @@ impl LightconeApiClient {
 
     /// Execute a GET request with optional retry logic.
     async fn get<T: serde::de::DeserializeOwned>(&self, url: &str) -> ApiResult<T> {
-        self.execute_with_retry(|| self.http_client.get(url).send()).await
+        self.execute_with_retry(|| self.http_client.get(url).send())
+            .await
     }
 
     /// Execute a POST request with JSON body and optional retry logic.
@@ -324,7 +333,8 @@ impl LightconeApiClient {
         url: &str,
         body: &B,
     ) -> ApiResult<T> {
-        self.execute_with_retry(|| self.http_client.post(url).json(body).send()).await
+        self.execute_with_retry(|| self.http_client.post(url).json(body).send())
+            .await
     }
 
     /// Execute a request with retry logic.
@@ -353,7 +363,8 @@ impl LightconeApiClient {
                     let error = self.parse_error_response(response).await;
 
                     // Check if we should retry
-                    if attempt < self.retry_config.max_retries && Self::is_retryable_status(status) {
+                    if attempt < self.retry_config.max_retries && Self::is_retryable_status(status)
+                    {
                         let delay = self.retry_config.delay_for_attempt(attempt);
                         tracing::debug!(
                             attempt = attempt + 1,
@@ -362,7 +373,7 @@ impl LightconeApiClient {
                             status = %status,
                             "Retrying request after error"
                         );
-                        tokio::time::sleep(delay).await;
+                        futures_timer::Delay::new(delay).await;
                         attempt += 1;
                         continue;
                     }
@@ -370,7 +381,10 @@ impl LightconeApiClient {
                     return Err(error);
                 }
                 Err(e) => {
+                    #[cfg(not(target_arch = "wasm32"))]
                     let is_retryable = e.is_connect() || e.is_timeout() || e.is_request();
+                    #[cfg(target_arch = "wasm32")]
+                    let is_retryable = e.is_timeout() || e.is_request();
 
                     if attempt < self.retry_config.max_retries && is_retryable {
                         let delay = self.retry_config.delay_for_attempt(attempt);
@@ -381,7 +395,7 @@ impl LightconeApiClient {
                             error = %e,
                             "Retrying request after network error"
                         );
-                        tokio::time::sleep(delay).await;
+                        futures_timer::Delay::new(delay).await;
                         attempt += 1;
                         continue;
                     }
@@ -438,26 +452,31 @@ impl LightconeApiClient {
     /// Validate that a string is valid Base58 (Solana pubkey format).
     fn validate_base58(value: &str, field_name: &str) -> ApiResult<()> {
         if value.is_empty() {
-            return Err(ApiError::InvalidParameter(format!("{} cannot be empty", field_name)));
+            return Err(ApiError::InvalidParameter(format!(
+                "{} cannot be empty",
+                field_name
+            )));
         }
-        bs58::decode(value)
-            .into_vec()
-            .map_err(|_| ApiError::InvalidParameter(format!("{} is not valid Base58", field_name)))?;
+        bs58::decode(value).into_vec().map_err(|_| {
+            ApiError::InvalidParameter(format!("{} is not valid Base58", field_name))
+        })?;
         Ok(())
     }
 
     /// Validate that a signature is 128 hex characters (64 bytes).
     fn validate_signature(sig: &str) -> ApiResult<()> {
         if sig.len() != 128 {
-            return Err(ApiError::InvalidParameter(
-                format!("Signature must be 128 hex characters, got {}", sig.len())
-            ));
+            return Err(ApiError::InvalidParameter(format!(
+                "Signature must be 128 hex characters, got {}",
+                sig.len()
+            )));
         }
         // Validate hex by attempting to decode
         for chunk in sig.as_bytes().chunks(2) {
             let hex_str = std::str::from_utf8(chunk).unwrap_or("");
-            u8::from_str_radix(hex_str, 16)
-                .map_err(|_| ApiError::InvalidParameter("Signature must contain only hex characters".to_string()))?;
+            u8::from_str_radix(hex_str, 16).map_err(|_| {
+                ApiError::InvalidParameter("Signature must contain only hex characters".to_string())
+            })?;
         }
         Ok(())
     }
@@ -465,7 +484,10 @@ impl LightconeApiClient {
     /// Validate that a limit is within bounds.
     fn validate_limit(limit: u32, max: u32) -> ApiResult<()> {
         if limit == 0 || limit > max {
-            return Err(ApiError::InvalidParameter(format!("Limit must be 1-{}", max)));
+            return Err(ApiError::InvalidParameter(format!(
+                "Limit must be 1-{}",
+                max
+            )));
         }
         Ok(())
     }
@@ -484,7 +506,9 @@ impl LightconeApiClient {
         if response.status().is_success() {
             Ok(())
         } else {
-            Err(ApiError::ServerError(ErrorResponse::from_text("Health check failed".to_string())))
+            Err(ApiError::ServerError(ErrorResponse::from_text(
+                "Health check failed".to_string(),
+            )))
         }
     }
 
@@ -527,16 +551,26 @@ impl LightconeApiClient {
     /// Returns complete market information including deposit assets.
     pub async fn get_market(&self, market_pubkey: &str) -> ApiResult<MarketInfoResponse> {
         Self::validate_base58(market_pubkey, "market_pubkey")?;
-        let url = format!("{}/api/markets/{}", self.base_url, urlencoding::encode(market_pubkey));
+        let url = format!(
+            "{}/api/markets/{}",
+            self.base_url,
+            urlencoding::encode(market_pubkey)
+        );
         self.get(&url).await
     }
 
     /// Get market by URL-friendly slug.
     pub async fn get_market_by_slug(&self, slug: &str) -> ApiResult<MarketInfoResponse> {
         if slug.is_empty() {
-            return Err(ApiError::InvalidParameter("slug cannot be empty".to_string()));
+            return Err(ApiError::InvalidParameter(
+                "slug cannot be empty".to_string(),
+            ));
         }
-        let url = format!("{}/api/markets/by-slug/{}", self.base_url, urlencoding::encode(slug));
+        let url = format!(
+            "{}/api/markets/by-slug/{}",
+            self.base_url,
+            urlencoding::encode(slug)
+        );
         self.get(&url).await
     }
 
@@ -577,9 +611,16 @@ impl LightconeApiClient {
     }
 
     /// Get deposit assets for a market.
-    pub async fn get_deposit_assets(&self, market_pubkey: &str) -> ApiResult<DepositAssetsResponse> {
+    pub async fn get_deposit_assets(
+        &self,
+        market_pubkey: &str,
+    ) -> ApiResult<DepositAssetsResponse> {
         Self::validate_base58(market_pubkey, "market_pubkey")?;
-        let url = format!("{}/api/markets/{}/deposit-assets", self.base_url, urlencoding::encode(market_pubkey));
+        let url = format!(
+            "{}/api/markets/{}/deposit-assets",
+            self.base_url,
+            urlencoding::encode(market_pubkey)
+        );
         self.get(&url).await
     }
 
@@ -600,7 +641,11 @@ impl LightconeApiClient {
         orderbook_id: &str,
         depth: Option<u32>,
     ) -> ApiResult<OrderbookResponse> {
-        let mut url = format!("{}/api/orderbook/{}", self.base_url, urlencoding::encode(orderbook_id));
+        let mut url = format!(
+            "{}/api/orderbook/{}",
+            self.base_url,
+            urlencoding::encode(orderbook_id)
+        );
         if let Some(d) = depth {
             url.push_str(&format!("?depth={}", d));
         }
@@ -701,7 +746,11 @@ impl LightconeApiClient {
     /// Get all positions for a user.
     pub async fn get_user_positions(&self, user_pubkey: &str) -> ApiResult<PositionsResponse> {
         Self::validate_base58(user_pubkey, "user_pubkey")?;
-        let url = format!("{}/api/users/{}/positions", self.base_url, urlencoding::encode(user_pubkey));
+        let url = format!(
+            "{}/api/users/{}/positions",
+            self.base_url,
+            urlencoding::encode(user_pubkey)
+        );
         self.get(&url).await
     }
 
@@ -786,7 +835,10 @@ impl LightconeApiClient {
         );
 
         if let Some(resolution) = params.resolution {
-            url.push_str(&format!("&resolution={}", urlencoding::encode(&resolution.to_string())));
+            url.push_str(&format!(
+                "&resolution={}",
+                urlencoding::encode(&resolution.to_string())
+            ));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -827,7 +879,10 @@ impl LightconeApiClient {
         );
 
         if let Some(user_pubkey) = params.user_pubkey {
-            url.push_str(&format!("&user_pubkey={}", urlencoding::encode(&user_pubkey)));
+            url.push_str(&format!(
+                "&user_pubkey={}",
+                urlencoding::encode(&user_pubkey)
+            ));
         }
         if let Some(from) = params.from {
             url.push_str(&format!("&from={}", from));
@@ -868,10 +923,7 @@ impl LightconeApiClient {
     ///
     /// On cache hit returns immediately. On miss, fetches from
     /// `GET /api/orderbooks/{orderbook_id}/decimals` and caches the result.
-    pub async fn get_orderbook_decimals(
-        &self,
-        orderbook_id: &str,
-    ) -> ApiResult<OrderbookDecimals> {
+    pub async fn get_orderbook_decimals(&self, orderbook_id: &str) -> ApiResult<OrderbookDecimals> {
         // Fast path: read lock
         {
             let cache = self.decimals_cache.read().await;
