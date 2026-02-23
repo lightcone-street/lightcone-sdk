@@ -171,6 +171,46 @@ pub enum CancelAllResponse {
     Error { message: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserOrder {
+    pub order_hash: String,
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub side: String,
+    pub amount_in: String,
+    pub amount_out: String,
+    pub remaining: String,
+    pub filled: String,
+    pub price: String,
+    pub created_at: u64,
+    pub expiration: u64,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutcomeBalance {
+    pub outcome_index: u32,
+    pub conditional_token: String,
+    pub idle: String,
+    pub on_book: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MarketBalance {
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub outcomes: Vec<OutcomeBalance>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserOrdersResponse {
+    pub user_pubkey: String,
+    pub orders: Vec<UserOrder>,
+    pub balances: Vec<MarketBalance>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
 // ─── Sub-client ──────────────────────────────────────────────────────────────
 
 pub struct Orders<'a> {
@@ -242,13 +282,25 @@ impl<'a> Orders<'a> {
 
     pub async fn get_user_orders(
         &self,
-        request: &impl serde::Serialize,
-    ) -> Result<serde_json::Value, SdkError> {
-        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        wallet_address: &str,
+        limit: Option<u32>,
+        cursor: Option<&str>,
+    ) -> Result<UserOrdersResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/users/orders?wallet_address={}",
+            self.client.http.base_url(),
+            wallet_address
+        );
+        if let Some(limit) = limit {
+            url.push_str(&format!("&limit={}", limit));
+        }
+        if let Some(cursor) = cursor {
+            url.push_str(&format!("&cursor={}", cursor));
+        }
         Ok(self
             .client
             .http
-            .post(&url, request, RetryPolicy::Idempotent)
+            .get(&url, RetryPolicy::Idempotent)
             .await?)
     }
 }
