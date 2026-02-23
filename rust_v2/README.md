@@ -1,316 +1,694 @@
-# Lightcone SDK v2
+# Lightcone SDK - Rust
 
-Unified Rust SDK for the Lightcone protocol. Supports **both native and WASM** targets under a single crate with compile-time feature dispatch.
+A Rust SDK for trading on Lightcone, the impact market protocol.
 
-## Why v2?
+## Table of contents
+- [Overview](#overview)
+- [Getting Started](#getting-started)
+     - [Installation](#installation)
+     - [Feature Flags](#feature-flags)
+- [Trading Flow](#trading-flow)
+     - [Step 1: Setup](#step-1-setup)
+     - [Step 2: Find a Market](#step-2-find-a-market)
+     - [Step 3: Deposit Collateral](#step-3-deposit-collateral)
+     - [Step 4: Place an Order](#step-4-place-an-order)
+     - [Step 5: Monitor](#step-5-monitor)
+     - [Step 6: Cancel Orders](#step-6-cancel-orders)
+     - [Step 7: Exit a Position](#step-7-exit-a-position)
+- [Decimal Scaling](#decimal-scaling)
+- [Nonce Management](#nonce-management)
+- [Order Expiration](#order-expiration)
+- [Authentication](#authentication)
+- [Error Handling](#error-handling)
+- [API Reference](#api-reference)
+     - [REST Sub-Clients](#rest-sub-clients)
+     - [WebSocket Streaming](#websocket-streaming)
+     - [Program (On-Chain)](#program-on-chain)
+- [Examples](#examples)
 
-The v1 SDK (`deps/sdk/rust/`) was built as a native-first Rust library with three independent modules (`program`, `api`, `websocket`). It worked well for CLI tooling and server-side use, but introduced significant friction when the Dioxus fullstack app needed to use it on both native (server) and WASM (browser) targets simultaneously.
+---
+## Overview
+Lightcone is an **impact market** protocol for trading assets inside hypothetical universes. The high-level documentation is available [here](https://lightconelabs.mintlify.app/learn/about-lightcone/the-trading) - understanding the mechanism will provide important context for interacting with the SDK.
 
-### Problems with v1
+Lightcone runs a hybrid-decentralised CLOB. Orders are Ed25519-signed payloads submitted to a centralised operator that handles matching. Settlement, token movement, and signature verification all happen on-chain. The SDK provides two entry points:
 
-- **Not WASM-compatible.** The API client used `tokio::sync::RwLock`, `tokio::time::sleep`, and `reqwest` features (`.timeout()`, `.is_connect()`, `cookies`) that don't compile to `wasm32-unknown-unknown`. The WebSocket client was `tokio-tungstenite`-only.
-- **No domain types.** v1 only exposed raw wire types (REST response structs). The app had to define its own domain types (`Market`, `Order`, `OrderBookPair`, etc.) in `src/domain/`, implement all `TryFrom` conversions, validation logic, and business methods. This duplicated work that belongs in the SDK.
-- **No WebSocket message types.** The app defined its own `MessageIn`, `MessageOut`, `Kind`, `SubscribeParams`, and `Subscription` types in `src/service/ws/`. These should be SDK-provided so other consumers get the same typed WS interface.
-- **Flat client API.** All endpoints were top-level methods on a single `LightconeApiClient` struct, making it hard to manage per-domain caching or organize related operations.
-- **All-or-nothing retry.** Retry was a global setting. Non-idempotent POSTs (order submission, cancellation) were retried the same as GETs, risking duplicate actions.
-- **No auth abstraction.** Auth was a standalone function that returned a raw JWT string. No credential management, no platform-aware token handling, no logout flow.
+- **`LightconeClient`** - REST API and WebSocket streaming. Market discovery, order submission/cancellation, orderbook data, positions, trade history, and real-time event feeds.
+- **`LightconePinocchioClient`** - Direct on-chain interaction. Deposit/withdraw collateral, mint/merge conditional tokens, redeem winnings, read on-chain state, and manage nonces.
 
-### What v2 adds
+The prelude (`use lightcone_sdk_v2::prelude::*`) exports the client, all domain types, WS message types, state containers, and errors.
 
-- **Unified native + WASM support.** Compile-time `cfg` dispatch for platform-specific code (async locks, timers, HTTP features, WebSocket transport). One crate, two targets, zero runtime overhead.
-- **Rich domain types with validation.** `Market`, `Order`, `OrderBookPair`, `Outcome`, `ConditionalToken`, `DepositAsset`, `TokenBalance`, `Portfolio`, etc. — all migrated from the app with their `TryFrom` conversions and business logic.
-- **Wire types as a public secondary API.** Raw serde structs for REST and WS are public under `domain::*/wire` for consumers who need raw access (server functions, debugging), but domain types are the primary interface.
-- **Typed WebSocket messages.** `MessageIn`, `MessageOut`, `Kind` enum, `SubscribeParams`, `UnsubscribeParams`, and `Subscription` trait — all SDK-provided with full channel coverage (book, trades, user, price_history, ticker, market).
-- **Nested sub-client API.** `client.markets().get_by_slug(...)`, `client.orderbooks().decimals(...)`, `client.orders().submit(...)` — organized by domain for clean ergonomics. The SDK is stateless for HTTP data; caching is the consumer's responsibility.
-- **Granular retry policies.** `RetryPolicy::Idempotent` for GETs, `RetryPolicy::None` for non-idempotent POSTs, `RetryPolicy::Custom` for anything else. Backoff + jitter, 429 `Retry-After` support.
-- **Secure auth with platform-aware token handling.** HTTP-only cookies on WASM (SDK never touches the token), internal private storage on native (never exposed via public API). Logout calls the backend endpoint to clear cookies server-side.
-- **App-owned WS state containers.** `OrderbookSnapshot`, `UserOpenOrders`, `TradeHistory`, `PriceHistoryState` — standalone types with update methods that the app wraps in its own reactive state (e.g. Dioxus `Signal`). Avoids the `RwLock` vs reactive signal mismatch.
-- **On-chain program module carried over from v1.** Instructions, orders, PDAs, accounts — unchanged.
-
-### Coexistence with v1
-
-Both SDKs can be imported simultaneously for incremental migration:
-
-```rust
-use lightcone_sdk::prelude::*;     // v1 — existing code
-use lightcone_sdk_v2::prelude::*;  // v2 — new code
+---
+## Getting Started
+### Installation
+```
+cargo add lightcone-sdk-v2 --features native
+```
+or add the crate to `Cargo.toml`:
+```toml
+[dependencies]
+lightcone-sdk-v2 = { version = "0.2", features = ["native"] }
 ```
 
-The v2 crate is named `lightcone-sdk-v2` in `Cargo.toml` and imported as a non-optional dependency. Migrate domain-by-domain, then drop v1.
+The `native` feature flag bundles everything needed for server-side use: REST client, keypair-based signing, WebSocket via `tokio-tungstenite`, and Solana RPC access.
 
-## Architecture
+### Feature Flags
+By default only `http` is enabled. The `native` bundle is recommended for server-side / CLI use:
 
-The SDK is organized in five layers:
+| Feature       | Description                                               |
+|---------------|-----------------------------------------------------------|
+| `http`        | REST API client (default)                                 |
+| `native-auth` | Keypair-based signing (`solana-keypair`, `solana-signer`) |
+| `ws-native`   | WebSocket via `tokio-tungstenite`                         |
+| `ws-wasm`     | WebSocket via `web-sys` (browser WASM)                    |
+| `solana-rpc`  | On-chain RPC client (`solana-client`)                     |
+| `native`      | Bundle: http + native-auth + ws-native + solana-rpc       |
+| `wasm`        | Bundle: http + ws-wasm                                    |
 
-| Layer | Module | Purpose |
-|-------|--------|---------|
-| 1 | `shared`, `domain`, `program` | Core types, domain models, on-chain program logic. Always available, WASM-safe. |
-| 2 | `auth` | Message generation + platform-dependent signing. |
-| 3 | `http` | `LightconeHttp` — low-level HTTP client with per-endpoint retry policies. |
-| 4 | `ws` | WebSocket — compile-time dispatch: `tokio-tungstenite` (native) / `web-sys` (WASM). |
-| 5 | `client` | `LightconeClient` — high-level nested sub-client API with caching. |
+---
+## Trading Flow
 
-### Module Layout
+The complete flow from first connection to first trade:
 
 ```
-src/
-  lib.rs               # Public re-exports + prelude
-  client.rs            # LightconeClient, LightconeClientBuilder, sub-client accessors
-  error.rs             # SdkError, HttpError, WsError, AuthError
-  network.rs           # DEFAULT_API_URL, DEFAULT_WS_URL
-  shared/
-    mod.rs             # OrderBookId, PubkeyStr, Side, Resolution, SubmitOrderRequest
-    scaling.rs         # Price/size → raw lamport conversion
-    price.rs           # Decimal formatting utilities
-    fmt/               # Decimal display, number abbreviation (num.rs, decimal.rs)
-    serde_util.rs      # Serde helpers
-  domain/
-    mod.rs
-    market/
-      mod.rs           # Market, Status, ValidationError
-      client.rs        # Markets sub-client (get, get_by_slug, search, featured, cache)
-      outcome.rs       # Outcome, OutcomeValidationError (sub-entity of market)
-      tokens.rs        # Token trait, ConditionalToken, DepositAsset, ValidatedTokens, TokenMetadata + TryFrom
-      wire.rs          # MarketResponse, OutcomeResponse, DepositAssetResponse, etc.
-      convert.rs       # TryFrom<MarketResponse> for Market
-    orderbook/
-      mod.rs           # OrderBookPair, OrderBookValidationError, OutcomeImpact
-      client.rs        # Orderbooks sub-client (get, decimals, cache)
-      ticker.rs        # TickerData (best bid/ask/mid)
-      wire.rs          # OrderbookResponse, DecimalsResponse, BookOrder, etc.
-      state.rs         # OrderbookSnapshot with apply(), bids(), asks(), best_bid()
-      convert.rs       # TryFrom<(OrderbookResponse, &[ConditionalToken])> for OrderBookPair
-    order/
-      mod.rs           # Order, OrderType, OrderStatus
-      client.rs        # Orders sub-client (submit, cancel, cancel_all, get_user_orders)
-      state.rs         # UserOpenOrders (app-owned state container)
-      wire.rs          # OrderUpdate, UserSnapshot, UserUpdate, AuthUpdate + WS balance types
-      convert.rs       # From<OrderUpdate/UserSnapshotOrder> for Order
-    trade/
-      mod.rs           # Trade
-      client.rs        # Trades sub-client (get)
-      state.rs         # TradeHistory (rolling buffer, app-owned)
-      wire.rs          # TradeResponse, WsTrade, TradesResponse
-      convert.rs       # From<TradeResponse/WsTrade> for Trade
-    price_history/
-      mod.rs           # LineData
-      client.rs        # PriceHistoryClient sub-client (get)
-      state.rs         # PriceHistoryState (app-owned state container)
-      wire.rs          # PriceHistory snapshot/update (WS)
-    position/
-      mod.rs           # Portfolio, Position, PositionOutcome, WalletHolding, TokenBalance types
-      client.rs        # Positions sub-client (get, get_for_market)
-      wire.rs          # PositionsResponse, PositionResponse (REST)
-    admin/
-      mod.rs           # AdminEnvelope (domain-level signed envelope)
-      client.rs        # Admin sub-client (upsert_metadata)
-      wire.rs          # UnifiedMetadataRequest/Response, *MetadataPayload types
-  program/             # On-chain: instructions, orders, PDAs, accounts (from v1)
-  auth/
-    mod.rs             # generate_signin_message, AuthCredentials, LoginRequest/Response
-    client.rs          # Auth sub-client (login_with_message, logout, credentials)
-    native.rs          # KeypairAuth — sign_login_message (native-auth feature)
-  http/
-    mod.rs
-    client.rs          # LightconeHttp (internal)
-    retry.rs           # RetryPolicy, RetryConfig
-  ws/
-    mod.rs             # MessageIn, MessageOut, Kind, WsEvent, WsConfig
-    subscriptions.rs   # SubscribeParams, UnsubscribeParams, Subscription trait
-    native.rs          # tokio-tungstenite (ws-native feature) [TODO: stub]
-    wasm.rs            # web-sys WebSocket (ws-wasm feature) — full implementation
+1. Setup        →  Create clients (REST + on-chain)
+2. Find market  →  Discover a market and its orderbook
+3. Deposit      →  Mint conditional tokens from collateral (on-chain)
+4. Place order  →  Build, sign, and submit an order
+5. Monitor      →  Track fills via REST or WebSocket
+6. Cancel       →  Cancel open orders
+7. Exit         →  Merge tokens back to collateral or redeem winnings
 ```
 
-## Features
-
-| Feature | What it enables |
-|---------|-----------------|
-| `http` (default) | HTTP client (Layers 1-3). Works on both native and WASM. |
-| `native-auth` | Keypair-based authentication (Layer 2 native). |
-| `ws-native` | WebSocket via `tokio-tungstenite` (Layer 4 native). |
-| `ws-wasm` | WebSocket via `web-sys::WebSocket` (Layer 4 WASM). |
-| `solana-rpc` | `solana-client` for on-chain reads (native only). |
-| `native` | Bundle: `http` + `native-auth` + `ws-native` + `solana-rpc`. For CLI/server use. |
-| `wasm` | Bundle: `http` + `ws-wasm`. For browser use. |
-
-## Quick Start
+### Step 1: Setup
 
 ```rust
 use lightcone_sdk_v2::prelude::*;
+use lightcone_sdk_v2::program::builder::OrderBuilder;
+use lightcone_sdk_v2::program::client::LightconePinocchioClient;
+use lightcone_sdk_v2::program::types::*;
+use lightcone_sdk_v2::shared::OrderbookDecimals;
+use solana_signer::Signer;
+use chrono::Utc;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LightconeClient::builder()
-        .base_url("https://tapi.lightcone.xyz")
-        .build()?;
+let client = LightconeClient::builder().build()?;
+let program = LightconePinocchioClient::new(&rpc_url);
+```
 
-    // Nested sub-client API
-    let featured = client.markets().featured().await?;
-    let market = client.markets().get_by_slug("some-market").await?;
-    let orderbook = client.orderbooks().get("orderbook_id", Some(10)).await?;
-    let decimals = client.orderbooks().decimals("orderbook_id").await?;
+`LightconeClient` handles all REST and WebSocket interaction. `LightconePinocchioClient` handles on-chain operations (deposits, withdrawals, nonce management) and requires a Solana RPC URL. All subsequent steps use these two clients.
 
-    Ok(())
+### Step 2: Find a Market
+
+```rust
+let markets = client.markets().get(None, Some(1)).await?;
+let market = markets.markets.into_iter().next().expect("no markets");
+
+let pair = market.orderbook_pairs.first().expect("no orderbooks");
+let orderbook_id = &pair.orderbook_id;
+let base_mint = pair.base.pubkey().to_pubkey()?;
+let quote_mint = pair.quote.pubkey().to_pubkey()?;
+
+let market_pubkey = market.pubkey.to_pubkey()?;
+let deposit_mint = market.deposit_assets.first().expect("no deposit assets").deposit_asset.to_pubkey()?;
+let num_outcomes = market.outcomes.len() as u8;
+```
+
+A `Market` contains everything needed: the on-chain pubkey, orderbook pairs (with base/quote mints), deposit assets (collateral mints), and outcome definitions.
+
+### Step 3: Deposit Collateral
+
+Trading requires conditional tokens - one per outcome. These are obtained by depositing collateral (e.g. USDC) via `mint_complete_set`, which returns one of each outcome token in a single transaction.
+
+```rust
+let params = MintCompleteSetParams {
+    user: keypair.pubkey(),
+    market: market_pubkey,
+    deposit_mint,
+    amount: 1_000_000, // raw lamports (e.g. 1 USDC = 1_000_000 with 6 decimals)
+};
+let mut tx = program.mint_complete_set(params, num_outcomes).await?;
+let blockhash = program.get_latest_blockhash().await?;
+tx.partial_sign(&[&keypair], blockhash);
+let sig = program.rpc_client.send_and_confirm_transaction(&tx).await?;
+```
+
+After this transaction confirms, the position account holds conditional tokens that can be placed on the orderbook.
+
+### Step 4: Place an Order
+
+Fetch decimals for price/size scaling, get a valid nonce, then build, sign, and submit.
+
+```rust
+// Fetch decimals (cached after first call)
+let dec = client.orderbooks().decimals(orderbook_id.as_str()).await?;
+let decimals = OrderbookDecimals {
+    orderbook_id: orderbook_id.as_str().to_string(),
+    base_decimals: dec.base_decimals,
+    quote_decimals: dec.quote_decimals,
+    price_decimals: dec.price_decimals,
+};
+
+// Get current nonce (orders must be signed with nonce >= on-chain value)
+let nonce = program.get_current_nonce(&keypair.pubkey()).await?;
+
+// Build, sign, and submit
+let request = OrderBuilder::new()
+    .nonce(nonce)
+    .maker(keypair.pubkey())
+    .market(market_pubkey)
+    .base_mint(base_mint)
+    .quote_mint(quote_mint)
+    .bid()
+    .price("0.65")
+    .size("100")
+    .apply_scaling(&decimals)?
+    .to_submit_request(&keypair, orderbook_id.as_str())?;
+
+let response = client.orders().submit(&request).await?;
+// response.order_hash, response.filled, response.remaining, response.fills
+```
+
+The `SubmitOrderResponse` contains:
+- `order_hash: String` - unique identifier for the order
+- `filled: String` / `remaining: String` - how much was immediately filled vs resting on the book (string-encoded amounts)
+- `fills: Vec<FillInfo>` - array of fill details: `counterparty`, `counterparty_order_hash`, `fill_amount`, `price` (all `String`), and `is_maker: bool`
+
+### Step 5: Monitor
+
+Both methods require [authentication](#authentication):
+
+```rust
+use lightcone_sdk_v2::auth::native::sign_login_message;
+
+let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_secs();
+let signed = sign_login_message(&keypair, timestamp);
+client.auth().login_with_message(
+    &signed.message, &signed.signature_bs58, &signed.pubkey_bytes, None,
+).await?;
+```
+
+**Via REST** - poll open orders:
+
+```rust
+let orders = client.orders().get_user_orders(
+    &keypair.pubkey().to_string(),
+    Some(100),
+    None,
+).await?;
+```
+
+**Via WebSocket** - stream fills and balance changes in real-time:
+
+```rust
+use futures_util::StreamExt;
+
+let mut ws = client.ws_native();
+ws.connect().await?;
+ws.send(MessageOut::subscribe_user(PubkeyStr::new(&keypair.pubkey().to_string())))?;
+
+let mut stream = ws.events();
+while let Some(event) = stream.next().await {
+    match event {
+        WsEvent::Message(Kind::User(update)) => {
+            println!("{:?}", update); // Snapshot, OrderUpdate, or BalanceUpdate
+        }
+        _ => {}
+    }
 }
 ```
 
-## Retry Strategy
+### Step 6: Cancel Orders
 
-- **GET requests**: `RetryPolicy::Idempotent` by default — retries on transport failures + 502/503/504, backs off on 429.
-- **POST /orders/submit, /orders/cancel, /orders/cancel-all**: `RetryPolicy::None` by default.
-- **POST /auth/login**: `RetryPolicy::None`.
-- All retry policies are overridable per-call.
-
-**Rule of thumb**: Retry transport failures and status checks; don't retry "actions" unless you have idempotency guarantees.
-
-## Domain Types vs Wire Types
-
-The SDK exposes two levels of types:
-
-- **Domain types** (`lightcone_sdk_v2::domain::*`) — Rich, validated types with business logic methods. These are the primary public API. Example: `Market`, `Order`, `OrderBookPair`.
-- **Wire types** (`lightcone_sdk_v2::domain::*/wire`) — Raw serde structs matching backend REST responses and WS messages. Also public for consumers who need raw access (forwarding data, debugging, server functions).
-
-Shared newtypes like `OrderBookId`, `PubkeyStr`, `Side`, and `Resolution` are used directly in wire types because they are serialization-transparent — they deserialize identically to the raw format the backend sends.
-
-## State Management
-
-### HTTP: Stateless (consumer owns caching)
-
-The SDK is intentionally **stateless** for HTTP data. Sub-clients are thin, typed wrappers over the REST API — they fetch, convert wire → domain types, and return. No market cache, no slug index, no TTLs.
-
-**Why?** Different consumers want radically different caching strategies:
-- Dioxus server functions use `static LazyLock<Mutex<Cache>>` with 1-hour TTLs
-- CLI tools may want no caching at all
-- Admin dashboards may want short TTLs with manual invalidation
-
-The SDK shouldn't pick one strategy. The consumer knows best.
-
-**The only exception:** `orderbooks().decimals()` — orderbook decimals are effectively immutable. This is a pure memoization, not a caching policy.
-
-### WS-Driven Live State (app-owned)
-
-The SDK does NOT store WS-driven state internally. Instead it provides standalone state container types with update methods:
-
-- `OrderbookSnapshot` — `apply()` for book snapshots/deltas, `best_bid()`, `best_ask()`, `mid_price()`
-- `UserOpenOrders` — `upsert()`, `remove()` for order updates
-- `TradeHistory` — rolling buffer with `push()`
-- `PriceHistoryState` — `apply_snapshot()`, `apply_update()`
-
-The app instantiates these, wraps them in its own reactive state (e.g. Dioxus `Signal`), and calls SDK update methods when WS events arrive. This avoids the `RwLock` vs reactive signal mismatch.
-
-## Authentication — CRITICAL Security Model
-
-**This section is mandatory reading for any SDK implementation in any language.**
-
-### Wasm/Browser
-
-- Token lives **ONLY** in the HTTP-only cookie set by the backend.
-- The SDK **never** reads, stores, or exposes the token programmatically.
-- Authenticated requests work because the browser auto-includes cookies.
-- **Browser SDKs MUST use HTTP-only cookies** — never store tokens in localStorage, sessionStorage, or any JS/WASM-accessible location.
-
-### Native/CLI
-
-- The SDK stores the token **internally** (private field) and injects it as a `Cookie: auth_token=<token>` header, matching the backend's cookie-only auth model.
-- Token is **NEVER** exposed via public API — no `.token()` accessor.
-- `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
-- We manually inject the cookie rather than using reqwest's `cookie_store(true)` because the backend hardcodes `Domain=.lightcone.xyz` on the Set-Cookie, which would break local development (requests to `localhost` wouldn't match the domain).
-
-### Logout
-
-On **both** platforms, `client.auth().logout()`:
-1. Calls `POST /api/auth/logout` to clear the HTTP-only cookie server-side.
-2. On native: clears the internal token.
-3. Clears all sub-client HTTP caches.
-
-Client-side clearing alone is **insufficient** for cookie-based auth — the backend must be told to invalidate.
-
-## Backend API Alignment
-
-The SDK aligns with `lightcone-backend` API routes:
-
-| SDK Method | Backend Route | HTTP Method |
-|------------|--------------|-------------|
-| `markets().get(cursor, limit)` | `/api/markets` | GET |
-| `markets().get_by_slug(slug)` | `/api/markets/by-slug/{slug}` | GET |
-| `markets().get_by_pubkey(pubkey)` | `/api/markets/{market_pubkey}` | GET |
-| `markets().search(q, limit)` | `/api/markets/search/by-query/{query}` | GET |
-| `markets().featured()` | `/api/markets/search/featured` | GET |
-| `orderbooks().get(id, depth)` | `/api/orderbook/{id}` | GET |
-| `orderbooks().decimals(id)` | `/api/orderbooks/{id}/decimals` | GET |
-| `orders().submit(req)` | `/api/orders/submit` | POST |
-| `orders().cancel(req)` | `/api/orders/cancel` | POST |
-| `orders().cancel_all(req)` | `/api/orders/cancel-all` | POST |
-| `orders().get_user_orders(req)` | `/api/users/orders` | POST |
-| `positions().get(pubkey)` | `/api/users/{pubkey}/positions` | GET |
-| `positions().get_for_market(pubkey, market)` | `/api/users/{pubkey}/markets/{market_pubkey}/positions` | GET |
-| `trades().get(id, limit, before)` | `/api/trades` | GET |
-| `price_history().get(...)` | `/api/price-history` | GET |
-| `admin().upsert_metadata(env)` | `/api/admin/metadata` | POST |
-| `auth().login_with_message(...)` | `/api/auth/login_or_register_with_message` | POST |
-| `auth().check_session()` | `/api/auth/me` | GET |
-| `auth().logout()` | `/api/auth/logout` | POST |
-| `auth().disconnect_x()` | `/api/auth/disconnect_x` | POST |
-| `auth().connect_x(...)` | `/api/auth/connect_x` | POST |
-| `privy().sign_and_send_tx(...)` | `/api/privy/sign_and_send_tx` | POST |
-| `privy().sign_and_send_order(...)` | `/api/privy/sign_and_send_order` | POST |
-| `privy().export_wallet(...)` | `/api/privy/wallet/export` | POST |
-
-## Canonical Shared Types
-
-The SDK defines the canonical shared types for auth and user profiles:
-
-- `LinkedAccount`, `LinkedAccountType`, `ChainType` — linked identity types
-- `EmbeddedWallet` — Privy-managed embedded wallet
-- `User` — full user profile (returned by `login_with_message` and `check_session`)
-- `AuthCredentials` — session state (user_id, wallet_address, expires_at)
-
-These types are the source of truth. Consumers (Dioxus app, CLI tools) should use SDK types directly rather than defining local equivalents.
-
-## OAuth Authentication
-
-OAuth login (Google, X/Twitter) is a browser redirect flow handled entirely by the Lightcone backend -- it is not an SDK method call. The client navigates the browser to the appropriate backend URL, where the full OAuth exchange takes place. On completion, the backend sets an `auth_token` HTTP-only cookie and redirects back to the frontend.
-
-| Flow | URL |
-|------|-----|
-| Login with Google | `GET {backend}/api/auth/oauth/google` |
-| Login with X | `GET {backend}/api/auth/oauth/x` |
-| Link X account | `GET {backend}/api/auth/oauth/link/x` (requires existing session) |
-
-Because OAuth requires pre-registered redirect URIs, these endpoints only function on domains configured in the provider's developer console (e.g., the Lightcone domains). After the redirect completes, call `check_session()` to hydrate the authenticated user profile.
-
-Native and CLI clients authenticate via `login_with_message()` with a Solana wallet signature and do not use the OAuth flow.
-
-## Privy Embedded Wallet
-
-The `client.privy()` sub-client wraps the backend's Privy RPC endpoints for embedded wallet operations. All methods require an active authenticated session.
-
-Embedded wallets are provisioned during login by passing `use_embedded_wallet: true` to `login_with_message()`. This works on any platform -- WASM, native, or CLI. Once provisioned, the wallet is tied to the user's account and all Privy sub-client methods are available to any authenticated client.
-
-Native and CLI clients that sign transactions directly with their own keypair typically do not need an embedded wallet, but provisioning and using one is fully supported.
+**Cancel a single order** by its hash:
 
 ```rust
-// Sign and send a Solana transaction via embedded wallet
-let result = client.privy().sign_and_send_tx("wallet_id", "base64_tx").await?;
-
-// Sign an order hash and submit to the exchange engine
-let result = client.privy().sign_and_send_order("wallet_id", order).await?;
-
-// Export embedded wallet private key (HPKE encrypted)
-let export = client.privy().export_wallet("wallet_id", "decode_pubkey_base64").await?;
+let cancel = CancelBody::signed(
+    order_hash.clone(),
+    keypair.pubkey().to_string(),
+    &keypair,
+);
+let result = client.orders().cancel(&cancel).await?;
+// result.order_hash, result.remaining
 ```
 
-The backend handles all Privy API interaction -- the SDK never touches Privy directly.
+**Cancel all orders** in an orderbook:
 
-## WebSocket Channels
+```rust
+let cancel_all = CancelAllBody::signed(
+    keypair.pubkey().to_string(),
+    orderbook_id.as_str().to_string(),
+    chrono::Utc::now().timestamp(),
+    &keypair,
+);
+let result = client.orders().cancel_all(&cancel_all).await?;
+// result.count, result.cancelled_order_hashes, result.user_pubkey, result.orderbook_id, result.message
+```
 
-| Channel | Subscribe | Events |
-|---------|-----------|--------|
-| `book` | `SubscribeParams::Books { orderbook_ids }` | `Kind::BookUpdate` — snapshot + delta |
-| `trades` | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` |
-| `user` | `SubscribeParams::User` | `Kind::User` — snapshot, order_update, balance_update |
-| `price_history` | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` — snapshot + update |
-| `ticker` | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` — best bid/ask/mid |
-| `market` | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` — settled, created, opened, paused, orderbook_created |
+**Mass cancel via nonce increment** - invalidates all orders signed with a nonce below the new value. See [Nonce Management](#nonce-management).
 
-WS `book_update` uses `conditional_pair: "market_pubkey:orderbook_id"` (combined string) — wire type parses/splits this.
+```rust
+let mut tx = program.increment_nonce(&keypair.pubkey()).await?;
+let blockhash = program.get_latest_blockhash().await?;
+tx.partial_sign(&[&keypair], blockhash);
+let sig = program.rpc_client.send_and_confirm_transaction(&tx).await?;
+```
+
+### Step 7: Exit a Position
+
+**Merge a complete set** - burn one of each outcome token to recover collateral. This is the inverse of `mint_complete_set`:
+
+```rust
+let params = MergeCompleteSetParams {
+    user: keypair.pubkey(),
+    market: market_pubkey,
+    deposit_mint,
+    amount: 1_000_000,
+};
+let mut tx = program.merge_complete_set(params, num_outcomes).await?;
+let blockhash = program.get_latest_blockhash().await?;
+tx.partial_sign(&[&keypair], blockhash);
+let sig = program.rpc_client.send_and_confirm_transaction(&tx).await?;
+```
+
+**Redeem winnings** - after a market is settled, burn winning outcome tokens for collateral:
+
+```rust
+let params = RedeemWinningsParams {
+    user: keypair.pubkey(),
+    market: market_pubkey,
+    deposit_mint,
+    amount: 1_000_000,
+};
+let mut tx = program.redeem_winnings(params, winning_outcome).await?;
+let blockhash = program.get_latest_blockhash().await?;
+tx.partial_sign(&[&keypair], blockhash);
+let sig = program.rpc_client.send_and_confirm_transaction(&tx).await?;
+```
+
+**Withdraw from position** - move specific outcome tokens from the position account to a wallet:
+
+```rust
+let params = WithdrawFromPositionParams {
+    user: keypair.pubkey(),
+    market: market_pubkey,
+    mint: deposit_mint,       // or a conditional token mint
+    amount: 500_000,
+    outcome_index: 0,         // 0 = first outcome, 255 = collateral
+};
+let mut tx = program.withdraw_from_position(params, false).await?;
+let blockhash = program.get_latest_blockhash().await?;
+tx.partial_sign(&[&keypair], blockhash);
+let sig = program.rpc_client.send_and_confirm_transaction(&tx).await?;
+```
+
+---
+## Decimal Scaling
+
+All values submitted to the matching engine must be raw `u64` amounts (lamports), but the SDK offers automatic conversion from human-readable inputs like price=0.65 and size=100.
+
+**The math:**
+```
+base_lamports  = size  * 10^base_decimals
+quote_lamports = price * size * 10^quote_decimals
+```
+
+Then assign based on order side:
+
+| Side | `amount_in` (what maker gives) | `amount_out` (what maker receives) |
+|------|-------------------------------|-----------------------------------|
+| BID  | quote_lamports                | base_lamports                     |
+| ASK  | base_lamports                 | quote_lamports                    |
+
+**Option 1: Auto-scaling via `OrderBuilder`** (recommended)
+
+Fetch the decimals once, then let the builder handle conversion:
+
+```rust
+use lightcone_sdk_v2::program::builder::OrderBuilder;
+use lightcone_sdk_v2::shared::OrderbookDecimals;
+
+let dec = client.orderbooks().decimals(orderbook_id.as_str()).await?;
+let decimals = OrderbookDecimals {
+    orderbook_id: orderbook_id.as_str().to_string(),
+    base_decimals: dec.base_decimals,
+    quote_decimals: dec.quote_decimals,
+    price_decimals: dec.price_decimals,
+};
+
+let request = OrderBuilder::new()
+    .nonce(nonce)
+    .maker(keypair.pubkey())
+    .market(market_pubkey)
+    .base_mint(base_mint)
+    .quote_mint(quote_mint)
+    .bid()
+    .price("0.65")       // human-readable
+    .size("100")          // human-readable
+    .apply_scaling(&decimals)?  // converts to raw u64 amounts
+    .to_submit_request(&keypair, orderbook_id.as_str())?;
+```
+
+**Option 2: Manual scaling**
+
+For full control, `scale_price_size()` can be used directly:
+
+```rust
+use lightcone_sdk_v2::program::types::OrderSide;
+use lightcone_sdk_v2::shared::{scale_price_size, OrderbookDecimals};
+use rust_decimal::prelude::*;
+
+let scaled = scale_price_size(
+    Decimal::from_str("0.65").unwrap(),
+    Decimal::from_str("100").unwrap(),
+    OrderSide::Bid,
+    &decimals,
+)?;
+// scaled.amount_in  = 65_000_000  (quote lamports)
+// scaled.amount_out = 100_000_000 (base lamports)
+```
+
+**Option 3: Raw amounts**
+
+With existing lamport values, scaling can be skipped entirely:
+
+```rust
+let request = OrderBuilder::new()
+    .nonce(nonce)
+    .maker(keypair.pubkey())
+    .market(market_pubkey)
+    .base_mint(base_mint)
+    .quote_mint(quote_mint)
+    .bid()
+    .amount_in(65_000_000)    // raw u64
+    .amount_out(100_000_000)  // raw u64
+    .to_submit_request(&keypair, orderbook_id.as_str())?;
+```
+
+---
+## Nonce Management
+
+Every order is signed with a `nonce`. The on-chain program tracks a per-user nonce value - orders with a nonce **below** the on-chain value are rejected.
+
+**Key rules:**
+- **Same nonce, multiple orders:** Many orders can be signed with the same nonce. The nonce is a floor, not a sequence number.
+- **Fetch before signing:** Always call `program.get_current_nonce(&pubkey)` before building orders to ensure the nonce is valid.
+- **Nuclear cancel:** `program.increment_nonce()` bumps the on-chain nonce, instantly invalidating every outstanding order signed with a lower value. This is the fastest way to cancel all orders across all orderbooks.
+- **Nonce too low:** Submitting an order with a nonce below the on-chain value causes the matching engine to reject it. Re-fetch the nonce and re-sign.
+
+```rust
+// Typical pattern: fetch nonce once, reuse for a batch of quotes
+let nonce = program.get_current_nonce(&keypair.pubkey()).await?;
+
+let bid = OrderBuilder::new().nonce(nonce).bid().price("0.60").size("100");
+let ask = OrderBuilder::new().nonce(nonce).ask().price("0.70").size("100");
+
+// Emergency: pull all quotes instantly
+let mut tx = program.increment_nonce(&keypair.pubkey()).await?;
+```
+
+---
+## Order Expiration
+
+Orders default to no expiration (GTC). A TTL can be set using `.expiration()`:
+
+```rust
+let request = OrderBuilder::new()
+    .nonce(nonce)
+    .maker(keypair.pubkey())
+    .market(market_pubkey)
+    .base_mint(base_mint)
+    .quote_mint(quote_mint)
+    .bid()
+    .price("0.65")
+    .size("100")
+    .expiration(chrono::Utc::now().timestamp() + 60)  // expires in 60 seconds
+    .apply_scaling(&decimals)?
+    .to_submit_request(&keypair, orderbook_id.as_str())?;
+```
+
+Set `expiration` to a unix timestamp. `0` (the default) means no expiration. Expired orders are automatically rejected by the matching engine.
+
+---
+## Authentication
+
+Most endpoints and subscriptions are public. Authentication is only required for user-specific endpoints:
+
+- **REST**: `client.orders().get_user_orders()`
+- **WebSocket**: `MessageOut::subscribe_user()`
+
+Order placement and cancellation do **not** require authentication - the Ed25519 signature embedded in each request proves ownership. Authentication is only needed to query open orders and subscribe to user-specific real-time events.
+
+```rust
+use lightcone_sdk_v2::auth::native::sign_login_message;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+let signed = sign_login_message(&keypair, timestamp);
+
+let user = client.auth().login_with_message(
+    &signed.message,
+    &signed.signature_bs58,
+    &signed.pubkey_bytes,
+    None,
+).await?;
+```
+
+The SDK stores the auth token internally and injects it as a cookie header on every request. The token is never exposed via public API. `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
+
+Call `client.auth().logout()` to invalidate the session both server-side and locally. Client-side clearing alone is insufficient - the backend must be told to invalidate.
+
+---
+## API Reference
+
+### REST Sub-Clients
+
+Sub-clients are accessed through borrowing accessors on `LightconeClient`. Each borrows `&self` with zero allocation.
+
+**`client.markets()`** - market discovery
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.get(cursor: Option<i64>, limit: Option<u32>)` | `MarketsResult` | Paginated listing of active/resolved markets. `MarketsResult` contains `markets: Vec<Market>` and `validation_errors: Vec<String>` for any markets that failed validation. |
+| `.featured()` | `Vec<MarketSearchResult>` | Promoted/featured markets |
+| `.get_by_slug(slug: &str)` | `Market` | Single market by URL slug (e.g. `"btc-100k"`) |
+| `.get_by_pubkey(pubkey: &str)` | `Market` | Single market by on-chain pubkey |
+| `.search(query: &str, limit: Option<u32>)` | `Vec<MarketSearchResult>` | Full-text search across market names, categories, and tags |
+
+**`client.orderbooks()`** - orderbook data
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.get(orderbook_id: &str, depth: Option<u32>)` | `OrderbookDepthResponse` | Live bids/asks with best_bid, best_ask, and `RestBookLevel` entries (price + size as `Decimal`, plus `orders` count). `depth` limits the number of levels returned. |
+| `.decimals(orderbook_id: &str)` | `DecimalsResponse` | Returns `base_decimals`, `quote_decimals`, `price_decimals` needed for order scaling. Cached internally - only hits the API once per orderbook. |
+
+**`client.orders()`** - order submission & cancellation
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.submit(request: &impl Serialize)` | `SubmitOrderResponse` | Submit a signed order. Response contains `order_hash`, `filled`, `remaining`, and a `fills` array with counterparty details. |
+| `.cancel(body: &CancelBody)` | `CancelSuccess` | Cancel a single order. `CancelBody::signed(order_hash, maker, &keypair)` builds the signed request. |
+| `.cancel_all(body: &CancelAllBody)` | `CancelAllSuccess` | Cancel all orders in an orderbook. `CancelAllBody::signed(user_pubkey, orderbook_id, timestamp, &keypair)` builds the signed request. |
+| `.get_user_orders(wallet: &str, limit: Option<u32>, cursor: Option<&str>)` | `UserOrdersResponse` | Open orders for an authenticated user. `limit` defaults to 200 (max 1000). `cursor` is the `next_cursor` from a previous response for pagination. Response contains `orders: Vec<UserOrder>`, `balances: Vec<MarketBalance>`, `next_cursor`, and `has_more`. |
+
+**`client.positions()`** - user positions
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.get(user_pubkey: &str)` | `PositionsResponse` | All positions across all markets. Contains `owner`, `total_markets`, `positions: Vec<PositionEntry>`, and `decimals: HashMap<String, u8>`. |
+| `.get_for_market(user_pubkey: &str, market_pubkey: &str)` | `MarketPositionsResponse` | Positions in a specific market. Contains `owner`, `market_pubkey`, `positions: Vec<PositionEntry>`, and `decimals: HashMap<String, u8>`. |
+
+**`client.trades()`** - trade history
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.get(orderbook_id: &str, limit: Option<u32>, before: Option<i64>)` | `Vec<Trade>` | Executed trades for an orderbook. `before` is an integer cursor for pagination. Each `Trade` has `orderbook_id`, `trade_id`, `timestamp`, `price`, `size`, and `side`. |
+
+**`client.price_history()`** - OHLCV candles
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.get(orderbook_id: &str, resolution: Resolution, from: Option<u64>, to: Option<u64>)` | `serde_json::Value` | Candlestick data. `from`/`to` are optional unix timestamps to bound the query. |
+
+**`client.auth()`** - session management
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `.login_with_message(message, signature_bs58, pubkey_bytes, use_embedded_wallet)` | `User` | Establish a session. `message: &str`, `signature_bs58: &str`, and `pubkey_bytes: &[u8; 32]` come from `sign_login_message()`. `use_embedded_wallet: Option<bool>`. |
+| `.check_session()` | `User` | Validate the current session and return the user profile. Clears credentials on failure. |
+| `.logout()` | `()` | Invalidate the session server-side and clear local credentials. |
+| `.is_authenticated()` | `bool` | Check cached auth status (async - reads internal lock, does not call the server). |
+
+### WebSocket Streaming
+
+`client.ws_native()` creates an owned WebSocket client for real-time streaming. The connection lifecycle is application-managed: connect, subscribe, process events, disconnect. If authenticated via `client.auth().login_with_message()`, the WebSocket connection automatically inherits the session.
+
+| Method | Description |
+|--------|-------------|
+| `ws.connect().await?` | Open the WebSocket connection |
+| `ws.send(msg)?` | Send a subscription or ping message |
+| `ws.subscribe(params)?` | Subscribe using `SubscribeParams` directly |
+| `ws.unsubscribe(params)?` | Unsubscribe using `UnsubscribeParams` directly |
+| `ws.events()` | Returns an async `Stream` of `WsEvent` |
+| `ws.is_connected()` | Returns `bool` — whether the connection is open |
+| `ws.ready_state()` | Returns `ReadyState` (`Connecting`, `Open`, `Closing`, `Closed`) |
+| `ws.restart_connection().await` | Drop and re-establish the connection. Subscriptions are re-sent automatically. |
+| `ws.clear_authed_subscriptions()` | Remove user-channel subscriptions (useful on logout) |
+| `ws.disconnect().await?` | Close the connection |
+
+**Subscriptions:**
+
+| Helper | Channel | Description |
+|--------|---------|-------------|
+| `MessageOut::subscribe_books(orderbook_ids)` | `book_update` | Orderbook snapshots + deltas |
+| `MessageOut::subscribe_trades(orderbook_ids)` | `trades` | Executed trades |
+| `MessageOut::subscribe_ticker(orderbook_ids)` | `ticker` | Best bid/ask/mid changes |
+| `MessageOut::subscribe_price_history(orderbook_id, resolution)` | `price_history` | OHLCV candles |
+| `MessageOut::subscribe_user(wallet_address)` | `user` | Orders and balances (auth required) |
+| `MessageOut::subscribe_market(market_pubkey)` | `market` | Lifecycle events (settled, opened, paused) |
+
+Each has a corresponding `unsubscribe_*` helper. Subscriptions are automatically re-established on reconnect.
+
+**Inbound events (`WsEvent`):**
+
+| Event | Description |
+|-------|-------------|
+| `WsEvent::Connected` | Connection established |
+| `WsEvent::Message(Kind::BookUpdate(..))` | Orderbook snapshot or delta. Apply to `OrderbookSnapshot` for `best_bid()`, `best_ask()`, `spread()`, `mid_price()`. |
+| `WsEvent::Message(Kind::Trade(..))` | Executed trade. Push to `TradeHistory` for a rolling buffer. |
+| `WsEvent::Message(Kind::Ticker(..))` | Best bid/ask/mid update |
+| `WsEvent::Message(Kind::PriceHistory(..))` | OHLCV candle snapshot or update. Apply to `PriceHistoryState`. |
+| `WsEvent::Message(Kind::User(..))` | User-specific: `Snapshot` (initial open orders + balances), `OrderUpdate` (fill/cancel), `BalanceUpdate` (idle/on_book per outcome) |
+| `WsEvent::Message(Kind::Market(..))` | Market lifecycle: `Settled`, `Created`, `Opened`, `Paused`, `OrderbookCreated` |
+| `WsEvent::Message(Kind::Auth(..))` | Auth confirmation: `Authenticated`, `Anonymous`, or `Failed` |
+| `WsEvent::Message(Kind::Error(..))` | Server-side error with `error: String`, and optional `code`, `hint`, `details`, `orderbook_id`, `wallet_address` for diagnostics |
+| `WsEvent::Disconnected { code, reason }` | Connection lost. Auto-reconnect handles recovery (exponential backoff, up to 10 attempts). |
+| `WsEvent::MaxReconnectReached` | All reconnect attempts exhausted. Recreate the client. |
+| `WsEvent::Error(msg)` | Client-side deserialization or protocol error |
+
+**State containers:**
+
+| Container | Source Event | Purpose |
+|-----------|-------------|---------|
+| `OrderbookSnapshot` | `Kind::BookUpdate` | Local orderbook state with `best_bid()`, `best_ask()`, `spread()`, `mid_price()` |
+| `TradeHistory` | `Kind::Trade` | Rolling buffer of trades with configurable max size |
+| `PriceHistoryState` | `Kind::PriceHistory` | Candle data keyed by orderbook + resolution |
+
+### Program (On-Chain)
+
+The `LightconePinocchioClient` handles direct Solana program interaction. Requires the `native` feature flag and an RPC URL.
+
+```rust
+use lightcone_sdk_v2::program::client::LightconePinocchioClient;
+let program = LightconePinocchioClient::new("https://api.mainnet-beta.solana.com");
+```
+
+**Key types:**
+- **`OrderBuilder`** - builder for constructing orders. Supports auto-scaling from human-readable price/size, or raw u64 amounts.
+- **`SignedOrder`** - the 225-byte signed order payload (nonce, maker, market, base/quote mints, side, amounts, expiration, Ed25519 signature).
+- **`CancelBody`** / **`CancelAllBody`** - signed cancel requests with `.signed()` helper for native keypairs.
+
+**Account fetchers** (read on-chain state):
+`get_exchange()`, `get_market(market_id: u64)`, `get_market_by_pubkey(market: &Pubkey)`, `get_position(owner, market) → Option<Position>`, `get_order_status(order_hash: &[u8; 32]) → Option<OrderStatus>`, `get_user_nonce(user)`, `get_current_nonce(user)`, `get_orderbook(mint_a, mint_b)`, `get_global_deposit_token(mint)`
+
+**Transaction builders** (return unsigned `Transaction`):
+`mint_complete_set(params, num_outcomes)`, `merge_complete_set(params, num_outcomes)`, `withdraw_from_position(params, is_token_2022)`, `increment_nonce(user)`, `cancel_order(maker, market, order)`, `redeem_winnings(params, winning_outcome)`, `deposit_to_global(params)`, `global_to_market_deposit(params, num_outcomes)`
+
+**PDA helpers**:
+`get_exchange_pda()`, `get_market_pda(id)`, `get_position_pda(owner, market)`, `get_user_nonce_pda(user)`, `get_orderbook_pda(mint_a, mint_b)`, `get_order_status_pda(hash)`, `get_global_deposit_token_pda(mint)`, `get_user_global_deposit_pda(user, mint)`
+
+---
+
+## Error Handling
+
+The SDK has two error enums: `error::SdkError` for client operations (REST, WebSocket, auth) and `program::error::SdkError` for on-chain operations.
+
+**`error::SdkError`** (client):
+
+| Variant | Description |
+|---------|-------------|
+| `Http(HttpError)` | REST request failure (see below) |
+| `Ws(WsError)` | WebSocket connection or protocol failure |
+| `Auth(AuthError)` | Authentication failure (`NotAuthenticated`, `LoginFailed`, `SignatureVerificationFailed`, `TokenExpired`) |
+| `Validation(String)` | Market or response validation failure |
+| `Serde(serde_json::Error)` | JSON serialization/deserialization failure |
+| `Other(String)` | Order rejected, cancel failed, or other server-side error |
+
+**`HttpError`** variants:
+
+| Variant | Description |
+|---------|-------------|
+| `Reqwest(reqwest::Error)` | Underlying HTTP client error (network failure, TLS, DNS, etc.) |
+| `RateLimited { retry_after_ms }` | 429 response. GET requests auto-retry; POST requests do not. |
+| `ServerError { status, body }` | 5xx response. GET requests auto-retry on 502/503/504. |
+| `MaxRetriesExceeded { attempts, last_error }` | All automatic retry attempts exhausted |
+| `Unauthorized` | 401 response. Session expired or missing. |
+| `BadRequest(String)` | 400-499 response. Malformed request. |
+| `NotFound(String)` | 404 response. |
+| `Timeout` | Request exceeded 30s timeout. |
+
+**`program::error::SdkError`** (on-chain):
+
+| Variant | Description |
+|---------|-------------|
+| `Rpc(ClientError)` | Solana RPC call failed |
+| `Scaling(ScalingError)` | Price/size conversion failed (non-positive values, overflow, fractional lamports) |
+| `UnsignedOrder` | Attempted to submit an order that has not been signed |
+| `AccountNotFound(String)` | On-chain account does not exist |
+| `Overflow` | Arithmetic overflow (e.g. nonce exceeds u32) |
+| `InvalidSignature` | Signature could not be parsed |
+| `InvalidDiscriminator { expected, actual }` | On-chain account has wrong discriminator bytes |
+| `InvalidDataLength { expected, actual }` | On-chain account data is the wrong size |
+| `InvalidOutcomeCount { count }` | Outcome count outside valid range |
+| `InvalidOutcomeIndex { index, max }` | Outcome index exceeds market's outcome count |
+| `MissingField(String)` | Required field not set on a builder |
+| `Serialization(String)` | Failed to serialize/deserialize account data |
+| `InvalidPubkey(String)` | Could not parse a public key string |
+| `DivisionByZero` | Division by zero in amount calculation |
+
+---
+
+## Examples
+All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
+
+### Setup & Authentication
+
+| Example | Description |
+|---------|-------------|
+| [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
+
+### Market Discovery & Data
+
+| Example | Description |
+|---------|-------------|
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by slug/pubkey, search |
+| [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
+| [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
+| [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
+| [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+
+### Placing Orders
+
+| Example | Description |
+|---------|-------------|
+| [`submit_order`](examples/submit_order.rs) | `OrderBuilder` with human-readable price/size, auto-scaling, and fill tracking |
+
+### Cancelling Orders
+
+| Example | Description |
+|---------|-------------|
+| [`cancel_order`](examples/cancel_order.rs) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`user_orders`](examples/user_orders.rs) | Fetch open orders for an authenticated user |
+
+### On-Chain Operations
+
+| Example | Description |
+|---------|-------------|
+| [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build and sign mint/merge complete set, withdraw from position, increment nonce |
+
+### WebSocket Streaming
+
+| Example | Description |
+|---------|-------------|
+| [`ws_book_and_trades`](examples/ws_book_and_trades.rs) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.rs) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
+| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Authenticated user stream (orders, balances) + market lifecycle events |
