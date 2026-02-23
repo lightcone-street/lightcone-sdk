@@ -528,7 +528,7 @@ Sub-clients are accessed through borrowing accessors on `LightconeClient`. Each 
 | `ws.subscribe(params)?` | Subscribe using `SubscribeParams` directly |
 | `ws.unsubscribe(params)?` | Unsubscribe using `UnsubscribeParams` directly |
 | `ws.events()` | Returns an async `Stream` of `WsEvent` |
-| `ws.is_connected()` | Returns `bool` — whether the connection is open |
+| `ws.is_connected()` | Returns `bool` - whether the connection is open |
 | `ws.ready_state()` | Returns `ReadyState` (`Connecting`, `Open`, `Closing`, `Closed`) |
 | `ws.restart_connection().await` | Drop and re-establish the connection. Subscriptions are re-sent automatically. |
 | `ws.clear_authed_subscriptions()` | Remove user-channel subscriptions (useful on logout) |
