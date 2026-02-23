@@ -35,7 +35,7 @@ fn test_config() -> WsConfig {
 
 /// Connect and wait for the `Connected` event.
 async fn connected_client() -> WsClient {
-    let mut client = WsClient::new(test_config());
+    let mut client = WsClient::new(test_config(), None);
     client.connect().await.expect("connect should succeed");
     wait_for_connected(&client).await;
     client
