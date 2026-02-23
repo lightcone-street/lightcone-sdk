@@ -21,6 +21,7 @@ use tokio::task::JoinHandle;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use crate::error::WsError;
@@ -28,6 +29,7 @@ use crate::ws::subscriptions::Subscription;
 use crate::ws::{Kind, MessageIn, MessageOut, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
+type SharedAuthToken = Arc<async_lock::RwLock<Option<String>>>;
 
 // ─── Commands from public API to background task ─────────────────────────────
 
@@ -51,6 +53,7 @@ enum DisconnectReason {
 
 struct TaskState {
     config: WsConfig,
+    auth_token: Option<SharedAuthToken>,
     event_tx: mpsc::Sender<WsEvent>,
     cmd_rx: mpsc::Receiver<Command>,
     active_subscriptions: Vec<SubscribeParams>,
@@ -78,6 +81,7 @@ impl TaskState {
 /// The public API communicates with it via mpsc channels.
 pub struct WsClient {
     config: WsConfig,
+    auth_token: Option<SharedAuthToken>,
     cmd_tx: Option<mpsc::Sender<Command>>,
     event_rx: tokio::sync::Mutex<mpsc::Receiver<WsEvent>>,
     event_tx: mpsc::Sender<WsEvent>,
@@ -87,10 +91,11 @@ pub struct WsClient {
 
 impl WsClient {
     /// Create a new WS client. Does not connect yet.
-    pub fn new(config: WsConfig) -> Self {
+    pub fn new(config: WsConfig, auth_token: Option<SharedAuthToken>) -> Self {
         let (event_tx, event_rx) = mpsc::channel(256);
         Self {
             config,
+            auth_token,
             cmd_tx: None,
             event_rx: tokio::sync::Mutex::new(event_rx),
             event_tx,
@@ -114,6 +119,7 @@ impl WsClient {
 
         let state = TaskState {
             config: self.config.clone(),
+            auth_token: self.auth_token.clone(),
             event_tx: self.event_tx.clone(),
             cmd_rx,
             active_subscriptions: Vec::new(),
@@ -230,7 +236,7 @@ impl Drop for WsClient {
 async fn run_task(mut state: TaskState) {
     loop {
         // ── 1. Attempt connection ────────────────────────────────────────
-        let (sink, stream) = match attempt_connect(&state.config.url).await {
+        let (sink, stream) = match attempt_connect(&state.config.url, &state.auth_token).await {
             Ok(parts) => parts,
             Err(e) => {
                 tracing::error!("WebSocket connection failed: {}", e);
@@ -444,10 +450,28 @@ async fn run_connected(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Attempt to establish a WebSocket connection with a 30-second timeout.
+/// If an auth token is available, includes it as a `Cookie: auth_token=<jwt>` header
+/// in the HTTP upgrade request.
 async fn attempt_connect(
     url: &str,
+    auth_token: &Option<SharedAuthToken>,
 ) -> Result<(SplitSink<WsStream, Message>, SplitStream<WsStream>), String> {
-    let (ws_stream, _) = tokio::time::timeout(Duration::from_secs(30), connect_async(url))
+    let mut request = url
+        .into_client_request()
+        .map_err(|e| format!("Invalid WS URL: {}", e))?;
+
+    if let Some(token_lock) = auth_token {
+        if let Some(token) = token_lock.read().await.as_ref() {
+            request.headers_mut().insert(
+                "Cookie",
+                format!("auth_token={}", token)
+                    .parse()
+                    .map_err(|e| format!("Invalid cookie header: {}", e))?,
+            );
+        }
+    }
+
+    let (ws_stream, _) = tokio::time::timeout(Duration::from_secs(30), connect_async(request))
         .await
         .map_err(|_| "Connection timeout".to_string())?
         .map_err(|e| e.to_string())?;
@@ -587,13 +611,13 @@ mod tests {
 
     #[test]
     fn test_ws_client_new() {
-        let client = WsClient::new(WsConfig::default());
+        let client = WsClient::new(WsConfig::default(), None);
         assert!(client.cmd_tx.is_none());
     }
 
     #[test]
     fn test_send_when_not_connected() {
-        let client = WsClient::new(WsConfig::default());
+        let client = WsClient::new(WsConfig::default(), None);
         let result = client.send(MessageOut::Ping);
         assert!(matches!(result, Err(WsError::NotConnected)));
     }
@@ -649,7 +673,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_disconnect_when_not_connected() {
-        let mut client = WsClient::new(WsConfig::default());
+        let mut client = WsClient::new(WsConfig::default(), None);
         let result = client.disconnect().await;
         assert!(result.is_ok());
     }
