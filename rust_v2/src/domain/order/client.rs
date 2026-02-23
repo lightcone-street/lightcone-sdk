@@ -99,18 +99,6 @@ impl CancelAllBody {
     }
 }
 
-// ─── Query types ─────────────────────────────────────────────────────────────
-
-/// Request body for fetching a user's open orders.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetUserOrdersRequest {
-    pub wallet_address: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub limit: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cursor: Option<String>,
-}
-
 // ─── Response types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -254,7 +242,7 @@ impl<'a> Orders<'a> {
 
     pub async fn get_user_orders(
         &self,
-        request: &GetUserOrdersRequest,
+        request: &impl serde::Serialize,
     ) -> Result<serde_json::Value, SdkError> {
         let url = format!("{}/api/users/orders", self.client.http.base_url());
         Ok(self
