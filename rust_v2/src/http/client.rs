@@ -58,6 +58,10 @@ impl LightconeHttp {
         self.auth_token.read().await.is_some()
     }
 
+    pub(crate) fn auth_token_ref(&self) -> Arc<RwLock<Option<String>>> {
+        self.auth_token.clone()
+    }
+
     pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         url: &str,

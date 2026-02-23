@@ -109,7 +109,10 @@ impl LightconeClient {
     /// Create a new native WS client from the current config.
     #[cfg(feature = "ws-native")]
     pub fn ws_native(&self) -> crate::ws::native::WsClient {
-        crate::ws::native::WsClient::new(self.ws_config.clone())
+        crate::ws::native::WsClient::new(
+            self.ws_config.clone(),
+            Some(self.http.auth_token_ref()),
+        )
     }
 
     /// Get the WS config for connecting with the WASM WsClient.
