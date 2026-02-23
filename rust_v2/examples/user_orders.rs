@@ -43,7 +43,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let wallet = keypair.pubkey().to_string();
     println!("User orders for: {}\n", wallet);
 
-    let orders = client.orders().get_user_orders(&wallet, None, None).await?;
+    let orders = client.orders().get_user_orders(&GetUserOrdersRequest {
+        wallet_address: wallet.clone(),
+        limit: Some(100),
+        cursor: None,
+    }).await?;
     println!(
         "Response:\n{}",
         serde_json::to_string_pretty(&orders)?
@@ -52,7 +56,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test: fetch orders for a wallet we don't own — should be rejected (403)
     let other_wallet = "11111111111111111111111111111111";
     println!("\nFetching orders for unauthorized wallet: {}", other_wallet);
-    match client.orders().get_user_orders(other_wallet, None, None).await {
+    match client.orders().get_user_orders(&GetUserOrdersRequest {
+        wallet_address: other_wallet.to_string(),
+        limit: Some(100),
+        cursor: None,
+    }).await {
         Ok(resp) => println!("Unexpected success:\n{}", serde_json::to_string_pretty(&resp)?),
         Err(e) => println!("Expected error: {}", e),
     }
