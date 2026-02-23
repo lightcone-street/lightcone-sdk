@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    FillInfo, PlaceResponse, SubmitOrderResponse,
+    FillInfo, GetUserOrdersRequest, PlaceResponse, SubmitOrderResponse,
 };
 pub use state::UserOpenOrders;
 
