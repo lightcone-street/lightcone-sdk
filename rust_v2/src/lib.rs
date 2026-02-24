@@ -85,9 +85,9 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, FillInfo, MarketBalance,
-        Order, OrderStatus, OrderType, OutcomeBalance, SubmitOrderResponse, UserOrder,
-        UserOpenOrders, UserOrdersResponse,
+        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance, FillInfo,
+        Order, OrderStatus, OrderType, SubmitOrderResponse, UserOpenOrders, UserOrdersResponse,
+        UserSnapshotBalance, UserSnapshotOrder,
     };
 
     // Domain types — position (includes portfolio + token balances)

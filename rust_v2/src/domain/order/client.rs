@@ -1,5 +1,6 @@
 //! Orders sub-client — submit, cancel, query.
 
+use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -171,42 +172,11 @@ pub enum CancelAllResponse {
     Error { message: String },
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UserOrder {
-    pub order_hash: String,
-    pub market_pubkey: String,
-    pub orderbook_id: String,
-    pub side: String,
-    pub amount_in: String,
-    pub amount_out: String,
-    pub remaining: String,
-    pub filled: String,
-    pub price: String,
-    pub created_at: u64,
-    pub expiration: u64,
-    pub status: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct OutcomeBalance {
-    pub outcome_index: u32,
-    pub conditional_token: String,
-    pub idle: String,
-    pub on_book: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct MarketBalance {
-    pub market_pubkey: String,
-    pub orderbook_id: String,
-    pub outcomes: Vec<OutcomeBalance>,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrdersResponse {
     pub user_pubkey: String,
-    pub orders: Vec<UserOrder>,
-    pub balances: Vec<MarketBalance>,
+    pub orders: Vec<UserSnapshotOrder>,
+    pub balances: Vec<UserSnapshotBalance>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
