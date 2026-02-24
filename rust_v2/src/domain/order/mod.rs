@@ -12,9 +12,10 @@ use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    FillInfo, PlaceResponse, SubmitOrderResponse,
+    FillInfo, PlaceResponse, SubmitOrderResponse, UserOrdersResponse,
 };
 pub use state::UserOpenOrders;
+pub use wire::{ConditionalBalance, UserSnapshotBalance, UserSnapshotOrder};
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 

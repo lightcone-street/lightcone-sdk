@@ -6,7 +6,14 @@
 /// not ISO 8601 strings.
 pub mod timestamp_ms {
     use chrono::{DateTime, Utc};
-    use serde::{Deserialize, Deserializer};
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S>(dt: &DateTime<Utc>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u64(dt.timestamp_millis() as u64)
+    }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<DateTime<Utc>, D::Error>
     where

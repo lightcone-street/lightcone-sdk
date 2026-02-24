@@ -1,5 +1,6 @@
 //! Orders sub-client — submit, cancel, query.
 
+use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -171,6 +172,15 @@ pub enum CancelAllResponse {
     Error { message: String },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrdersResponse {
+    pub user_pubkey: String,
+    pub orders: Vec<UserSnapshotOrder>,
+    pub balances: Vec<UserSnapshotBalance>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
 // ─── Sub-client ──────────────────────────────────────────────────────────────
 
 pub struct Orders<'a> {
@@ -242,13 +252,25 @@ impl<'a> Orders<'a> {
 
     pub async fn get_user_orders(
         &self,
-        request: &impl serde::Serialize,
-    ) -> Result<serde_json::Value, SdkError> {
-        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        wallet_address: &str,
+        limit: Option<u32>,
+        cursor: Option<&str>,
+    ) -> Result<UserOrdersResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/users/orders?wallet_address={}",
+            self.client.http.base_url(),
+            wallet_address
+        );
+        if let Some(limit) = limit {
+            url.push_str(&format!("&limit={}", limit));
+        }
+        if let Some(cursor) = cursor {
+            url.push_str(&format!("&cursor={}", cursor));
+        }
         Ok(self
             .client
             .http
-            .post(&url, request, RetryPolicy::Idempotent)
+            .get(&url, RetryPolicy::Idempotent)
             .await?)
     }
 }
