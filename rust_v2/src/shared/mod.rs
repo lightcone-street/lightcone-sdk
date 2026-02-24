@@ -173,6 +173,41 @@ impl std::fmt::Display for Side {
     }
 }
 
+// ─── TimeInForce ─────────────────────────────────────────────────────────────
+
+/// Time-in-force policy for order execution.
+///
+/// Serializes as uppercase strings: `"GTC"`, `"IOC"`, `"FOK"`, `"ALO"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TimeInForce {
+    /// Good-til-cancelled (default)
+    #[default]
+    #[serde(rename = "GTC")]
+    Gtc,
+    /// Immediate-or-cancel
+    #[serde(rename = "IOC")]
+    Ioc,
+    /// Fill-or-kill
+    #[serde(rename = "FOK")]
+    Fok,
+    /// Add-liquidity-only (post-only)
+    #[serde(rename = "ALO")]
+    Alo,
+}
+
+// ─── TriggerType ─────────────────────────────────────────────────────────────
+
+/// Trigger order type.
+///
+/// Serializes as `"TP"` (take-profit) or `"SL"` (stop-loss).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TriggerType {
+    #[serde(rename = "TP")]
+    TakeProfit,
+    #[serde(rename = "SL")]
+    StopLoss,
+}
+
 // ─── Resolution ──────────────────────────────────────────────────────────────
 
 /// Price history candle resolution.
@@ -278,6 +313,95 @@ mod tests {
         assert_eq!(r, Resolution::Hour1);
         assert_eq!(r.seconds(), 3600);
     }
+
+    #[test]
+    fn test_time_in_force_serde_roundtrip() {
+        let cases = [
+            (TimeInForce::Gtc, "\"GTC\""),
+            (TimeInForce::Ioc, "\"IOC\""),
+            (TimeInForce::Fok, "\"FOK\""),
+            (TimeInForce::Alo, "\"ALO\""),
+        ];
+        for (variant, expected_json) in &cases {
+            let json = serde_json::to_string(variant).unwrap();
+            assert_eq!(&json, expected_json);
+            let back: TimeInForce = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, variant);
+        }
+    }
+
+    #[test]
+    fn test_time_in_force_default() {
+        assert_eq!(TimeInForce::default(), TimeInForce::Gtc);
+    }
+
+    #[test]
+    fn test_trigger_type_serde_roundtrip() {
+        let cases = [
+            (TriggerType::TakeProfit, "\"TP\""),
+            (TriggerType::StopLoss, "\"SL\""),
+        ];
+        for (variant, expected_json) in &cases {
+            let json = serde_json::to_string(variant).unwrap();
+            assert_eq!(&json, expected_json);
+            let back: TriggerType = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, variant);
+        }
+    }
+
+    #[test]
+    fn test_submit_order_request_without_tif_trigger() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            tif: None,
+            trigger_price: None,
+            trigger_type: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        // Optional fields should be omitted when None
+        assert!(!json.contains("tif"));
+        assert!(!json.contains("trigger_price"));
+        assert!(!json.contains("trigger_type"));
+    }
+
+    #[test]
+    fn test_submit_order_request_with_tif_trigger() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            tif: Some(TimeInForce::Ioc),
+            trigger_price: Some(0.55),
+            trigger_type: Some(TriggerType::TakeProfit),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"tif\":\"IOC\""));
+        assert!(json.contains("\"trigger_price\":0.55"));
+        assert!(json.contains("\"trigger_type\":\"TP\""));
+
+        let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tif, Some(TimeInForce::Ioc));
+        assert_eq!(back.trigger_price, Some(0.55));
+        assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
+    }
 }
 
 // ─── SubmitOrderRequest ──────────────────────────────────────────────────────
@@ -300,4 +424,10 @@ pub struct SubmitOrderRequest {
     pub expiration: i64,
     pub signature: String,
     pub orderbook_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tif: Option<TimeInForce>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<TriggerType>,
 }

@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::SubmitOrderRequest;
+use crate::shared::{SubmitOrderRequest, TimeInForce, TriggerType};
 
 // ============================================================================
 // Signed Order (225 bytes)
@@ -285,8 +285,45 @@ impl SignedOrder {
         &self,
         orderbook_id: impl Into<String>,
     ) -> Result<SubmitOrderRequest, SdkError> {
+        self.to_submit_request_with_options(orderbook_id, None, None, None)
+    }
+
+    /// Convert a signed order to an API SubmitOrderRequest with optional TIF and trigger fields.
+    ///
+    /// # Arguments
+    ///
+    /// * `orderbook_id` - Target orderbook
+    /// * `tif` - Time-in-force policy (None = backend default GTC)
+    /// * `trigger_price` - Trigger price for conditional orders
+    /// * `trigger_type` - Trigger type (must be present if trigger_price is present, and vice versa)
+    ///
+    /// # Errors
+    ///
+    /// Returns `SdkError::UnsignedOrder` if the order has not been signed.
+    /// Returns `SdkError::MissingField` if only one of trigger_price/trigger_type is provided.
+    pub fn to_submit_request_with_options(
+        &self,
+        orderbook_id: impl Into<String>,
+        tif: Option<TimeInForce>,
+        trigger_price: Option<f64>,
+        trigger_type: Option<TriggerType>,
+    ) -> Result<SubmitOrderRequest, SdkError> {
         if self.signature == [0u8; 64] {
             return Err(SdkError::UnsignedOrder);
+        }
+
+        match (&trigger_price, &trigger_type) {
+            (Some(_), None) => {
+                return Err(SdkError::MissingField(
+                    "trigger_type is required when trigger_price is set".into(),
+                ));
+            }
+            (None, Some(_)) => {
+                return Err(SdkError::MissingField(
+                    "trigger_price is required when trigger_type is set".into(),
+                ));
+            }
+            _ => {}
         }
 
         Ok(SubmitOrderRequest {
@@ -301,6 +338,9 @@ impl SignedOrder {
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
+            tif,
+            trigger_price,
+            trigger_type,
         })
     }
 
@@ -491,6 +531,13 @@ pub fn derive_condition_id(oracle: &Pubkey, question_id: &[u8; 32], num_outcomes
 /// The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
 pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
     order_hash.as_bytes().to_vec()
+}
+
+/// Build the message bytes for cancelling a trigger order.
+///
+/// The message is the trigger_order_id as UTF-8 bytes.
+pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
+    trigger_order_id.as_bytes().to_vec()
 }
 
 /// Build the message string for cancelling all orders.
@@ -851,6 +898,58 @@ mod tests {
         assert!(
             result.unwrap_err().to_string().contains("must be signed"),
         );
+    }
+
+    #[test]
+    fn test_cancel_trigger_order_message() {
+        let id = "trigger-order-uuid-123";
+        let message = cancel_trigger_order_message(id);
+        assert_eq!(message, id.as_bytes());
+    }
+
+    #[test]
+    fn test_to_submit_request_with_options_trigger_validation() {
+        use crate::shared::{TimeInForce, TriggerType};
+
+        let order = SignedOrder {
+            nonce: 1,
+            maker: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            base_mint: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            side: OrderSide::Bid,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: [1u8; 64], // non-zero = "signed"
+        };
+
+        // Both None: OK
+        assert!(order
+            .to_submit_request_with_options("ob", None, None, None)
+            .is_ok());
+
+        // Both present: OK
+        assert!(order
+            .to_submit_request_with_options(
+                "ob",
+                Some(TimeInForce::Gtc),
+                Some(0.55),
+                Some(TriggerType::TakeProfit),
+            )
+            .is_ok());
+
+        // Only trigger_price: error
+        let err = order
+            .to_submit_request_with_options("ob", None, Some(0.55), None)
+            .unwrap_err();
+        assert!(err.to_string().contains("trigger_type"));
+
+        // Only trigger_type: error
+        let err = order
+            .to_submit_request_with_options("ob", None, None, Some(TriggerType::StopLoss))
+            .unwrap_err();
+        assert!(err.to_string().contains("trigger_price"));
     }
 
     #[test]

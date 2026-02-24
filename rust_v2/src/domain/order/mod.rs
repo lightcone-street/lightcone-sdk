@@ -5,17 +5,21 @@ mod convert;
 pub mod state;
 pub mod wire;
 
-use crate::shared::{OrderBookId, PubkeyStr, Side};
+use crate::shared::{OrderBookId, PubkeyStr, Side, TriggerType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    FillInfo, PlaceResponse, SubmitOrderResponse, UserOrdersResponse,
+    CancelTriggerBody, CancelTriggerSuccess, FillInfo, PlaceResponse, SubmitOrderResponse,
+    TriggerOrderResponse, UserOrdersResponse,
 };
-pub use state::UserOpenOrders;
-pub use wire::{ConditionalBalance, UserSnapshotBalance, UserSnapshotOrder};
+pub use state::{UserOpenOrders, UserTriggerOrders};
+pub use wire::{
+    ConditionalBalance, TriggerOrderSnapshot, TriggerOrderUpdate, UserSnapshotBalance,
+    UserSnapshotOrder,
+};
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
@@ -66,5 +70,23 @@ pub struct Order {
     pub created_at: DateTime<Utc>,
     pub status: OrderStatus,
     pub outcome_index: i16,
+}
+
+// ─── TriggerOrder ───────────────────────────────────────────────────────────
+
+/// A validated, domain-level trigger order (take-profit / stop-loss).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TriggerOrder {
+    pub trigger_order_id: String,
+    pub order_hash: String,
+    pub market_pubkey: String,
+    pub orderbook_id: OrderBookId,
+    pub trigger_price: String,
+    pub trigger_type: TriggerType,
+    pub side: u32,
+    pub maker_amount: u64,
+    pub taker_amount: u64,
+    pub tif: u32,
+    pub created_at: i64,
 }
 

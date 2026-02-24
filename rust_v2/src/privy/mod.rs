@@ -49,6 +49,12 @@ pub struct OrderForSigning {
     #[serde(default)]
     pub expiration: i64,
     pub orderbook_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tif: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

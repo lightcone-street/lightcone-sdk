@@ -1,6 +1,6 @@
 //! Orders sub-client — submit, cancel, query.
 
-use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
+use super::wire::{TriggerOrderSnapshot, UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -100,6 +100,46 @@ impl CancelAllBody {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelTriggerBody {
+    pub trigger_order_id: String,
+    pub maker: String,
+    pub signature: String,
+}
+
+impl CancelTriggerBody {
+    /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
+    /// Converts base58 to the hex encoding the backend expects.
+    pub fn from_base58(
+        trigger_order_id: String,
+        maker: String,
+        sig_bs58: &str,
+    ) -> SdkResult<Self> {
+        let sig = sig_bs58
+            .parse::<Signature>()
+            .map_err(|_| ProgramSdkError::InvalidSignature)?;
+        Ok(Self {
+            trigger_order_id,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        })
+    }
+
+    /// Build a signed cancel-trigger request using a native keypair.
+    /// Signs `cancel_trigger_order_message(trigger_order_id)` and hex-encodes the result.
+    #[cfg(feature = "native-auth")]
+    pub fn signed(trigger_order_id: String, maker: String, keypair: &Keypair) -> Self {
+        let message =
+            crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
+        let sig = keypair.sign_message(&message);
+        Self {
+            trigger_order_id,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        }
+    }
+}
+
 // ─── Response types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -172,10 +212,24 @@ pub enum CancelAllResponse {
     Error { message: String },
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerOrderResponse {
+    pub trigger_order_id: String,
+    pub order_hash: String,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelTriggerSuccess {
+    pub trigger_order_id: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrdersResponse {
     pub user_pubkey: String,
     pub orders: Vec<UserSnapshotOrder>,
+    #[serde(default)]
+    pub trigger_orders: Vec<TriggerOrderSnapshot>,
     pub balances: Vec<UserSnapshotBalance>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
@@ -248,6 +302,32 @@ impl<'a> Orders<'a> {
             CancelAllResponse::Success(data) => Ok(data),
             CancelAllResponse::Error { message } => Err(SdkError::Other(message)),
         }
+    }
+
+    pub async fn submit_trigger(
+        &self,
+        request: &impl serde::Serialize,
+    ) -> Result<TriggerOrderResponse, SdkError> {
+        let url = format!("{}/api/orders/submit", self.client.http.base_url());
+        let resp: TriggerOrderResponse = self
+            .client
+            .http
+            .post(&url, request, RetryPolicy::None)
+            .await?;
+        Ok(resp)
+    }
+
+    pub async fn cancel_trigger(
+        &self,
+        body: &CancelTriggerBody,
+    ) -> Result<CancelTriggerSuccess, SdkError> {
+        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
+        let resp: CancelTriggerSuccess = self
+            .client
+            .http
+            .post(&url, body, RetryPolicy::None)
+            .await?;
+        Ok(resp)
     }
 
     pub async fn get_user_orders(

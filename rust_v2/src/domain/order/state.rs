@@ -3,7 +3,7 @@
 use crate::shared::PubkeyStr;
 
 use super::wire;
-use super::Order;
+use super::{Order, TriggerOrder};
 use std::collections::HashMap;
 
 /// Tracks a user's open orders grouped by market pubkey.
@@ -54,6 +54,55 @@ impl UserOpenOrders {
 }
 
 impl Default for UserOpenOrders {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ─── UserTriggerOrders ──────────────────────────────────────────────────────
+
+/// Tracks a user's trigger orders keyed by trigger_order_id.
+pub struct UserTriggerOrders {
+    pub orders: HashMap<String, TriggerOrder>,
+}
+
+impl UserTriggerOrders {
+    pub fn new() -> Self {
+        Self {
+            orders: HashMap::new(),
+        }
+    }
+
+    pub fn insert(&mut self, order: TriggerOrder) {
+        self.orders.insert(order.trigger_order_id.clone(), order);
+    }
+
+    pub fn remove(&mut self, trigger_order_id: &str) -> Option<TriggerOrder> {
+        self.orders.remove(trigger_order_id)
+    }
+
+    pub fn get(&self, trigger_order_id: &str) -> Option<&TriggerOrder> {
+        self.orders.get(trigger_order_id)
+    }
+
+    pub fn clear(&mut self) {
+        self.orders.clear();
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.orders.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.orders.len()
+    }
+
+    pub fn all(&self) -> impl Iterator<Item = &TriggerOrder> {
+        self.orders.values()
+    }
+}
+
+impl Default for UserTriggerOrders {
     fn default() -> Self {
         Self::new()
     }
@@ -128,5 +177,70 @@ mod tests {
         uoo.clear();
         assert!(uoo.is_empty());
         assert!(uoo.get(&PubkeyStr::from("mkt1")).is_none());
+    }
+
+    // ── UserTriggerOrders tests ─────────────────────────────────────────────
+
+    fn make_trigger_order(id: &str) -> TriggerOrder {
+        use crate::shared::TriggerType;
+        TriggerOrder {
+            trigger_order_id: id.to_string(),
+            order_hash: format!("hash_{}", id),
+            market_pubkey: "mkt1".to_string(),
+            orderbook_id: OrderBookId::from("ob1"),
+            trigger_price: "0.55".to_string(),
+            trigger_type: TriggerType::TakeProfit,
+            side: 0,
+            maker_amount: 1000,
+            taker_amount: 500,
+            tif: 0,
+            created_at: 1700000000,
+        }
+    }
+
+    #[test]
+    fn test_trigger_orders_insert_and_get() {
+        let mut uto = UserTriggerOrders::new();
+        assert!(uto.is_empty());
+        assert_eq!(uto.len(), 0);
+
+        uto.insert(make_trigger_order("t1"));
+        assert!(!uto.is_empty());
+        assert_eq!(uto.len(), 1);
+
+        let order = uto.get("t1").unwrap();
+        assert_eq!(order.trigger_order_id, "t1");
+    }
+
+    #[test]
+    fn test_trigger_orders_remove() {
+        let mut uto = UserTriggerOrders::new();
+        uto.insert(make_trigger_order("t1"));
+        uto.insert(make_trigger_order("t2"));
+        assert_eq!(uto.len(), 2);
+
+        let removed = uto.remove("t1");
+        assert!(removed.is_some());
+        assert_eq!(uto.len(), 1);
+        assert!(uto.get("t1").is_none());
+        assert!(uto.get("t2").is_some());
+    }
+
+    #[test]
+    fn test_trigger_orders_clear() {
+        let mut uto = UserTriggerOrders::new();
+        uto.insert(make_trigger_order("t1"));
+        uto.insert(make_trigger_order("t2"));
+        uto.clear();
+        assert!(uto.is_empty());
+    }
+
+    #[test]
+    fn test_trigger_orders_all() {
+        let mut uto = UserTriggerOrders::new();
+        uto.insert(make_trigger_order("t1"));
+        uto.insert(make_trigger_order("t2"));
+        let all: Vec<_> = uto.all().collect();
+        assert_eq!(all.len(), 2);
     }
 }

@@ -1,8 +1,8 @@
 //! Conversions: WS wire types → Order domain types.
 
 use super::wire;
-use super::{Order, OrderStatus, UserOpenOrders};
-use crate::shared::PubkeyStr;
+use super::{Order, OrderStatus, TriggerOrder, UserOpenOrders};
+use crate::shared::{OrderBookId, PubkeyStr, TriggerType};
 use std::collections::HashMap;
 
 impl From<wire::OrderUpdate> for Order {
@@ -43,6 +43,28 @@ impl From<wire::UserSnapshotOrder> for Order {
             tx_signature: snap.tx_signature,
             status: OrderStatus::Open,
             outcome_index: snap.outcome_index,
+        }
+    }
+}
+
+impl From<wire::TriggerOrderSnapshot> for TriggerOrder {
+    fn from(snap: wire::TriggerOrderSnapshot) -> Self {
+        let trigger_type = match snap.trigger_type.as_str() {
+            "SL" => TriggerType::StopLoss,
+            _ => TriggerType::TakeProfit,
+        };
+        TriggerOrder {
+            trigger_order_id: snap.trigger_order_id,
+            order_hash: snap.order_hash,
+            market_pubkey: snap.market_pubkey,
+            orderbook_id: OrderBookId::from(snap.orderbook_id),
+            trigger_price: snap.trigger_price,
+            trigger_type,
+            side: snap.side,
+            maker_amount: snap.maker_amount,
+            taker_amount: snap.taker_amount,
+            tif: snap.tif,
+            created_at: snap.created_at,
         }
     }
 }
@@ -127,6 +149,48 @@ mod tests {
         assert_eq!(order.order_hash, "snap_hash");
         assert_eq!(order.size, Decimal::new(8, 0)); // filled + remaining
         assert_eq!(order.market_pubkey.as_str(), "mkt222");
+    }
+
+    #[test]
+    fn test_trigger_order_snapshot_conversion() {
+        let snap = wire::TriggerOrderSnapshot {
+            trigger_order_id: "trig-123".to_string(),
+            order_hash: "hash-abc".to_string(),
+            market_pubkey: "mkt-xyz".to_string(),
+            orderbook_id: "ob_test".to_string(),
+            trigger_price: "0.55".to_string(),
+            trigger_type: "TP".to_string(),
+            side: 0,
+            maker_amount: 1000,
+            taker_amount: 500,
+            tif: 0,
+            created_at: 1700000000,
+        };
+        let order: TriggerOrder = snap.into();
+        assert_eq!(order.trigger_order_id, "trig-123");
+        assert_eq!(order.trigger_type, TriggerType::TakeProfit);
+        assert_eq!(order.orderbook_id.as_str(), "ob_test");
+        assert_eq!(order.maker_amount, 1000);
+    }
+
+    #[test]
+    fn test_trigger_order_snapshot_conversion_stop_loss() {
+        let snap = wire::TriggerOrderSnapshot {
+            trigger_order_id: "trig-456".to_string(),
+            order_hash: "hash-def".to_string(),
+            market_pubkey: "mkt-xyz".to_string(),
+            orderbook_id: "ob_test".to_string(),
+            trigger_price: "0.30".to_string(),
+            trigger_type: "SL".to_string(),
+            side: 1,
+            maker_amount: 2000,
+            taker_amount: 1000,
+            tif: 1,
+            created_at: 1700000000,
+        };
+        let order: TriggerOrder = snap.into();
+        assert_eq!(order.trigger_type, TriggerType::StopLoss);
+        assert_eq!(order.side, 1);
     }
 
     #[test]

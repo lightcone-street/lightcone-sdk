@@ -111,6 +111,46 @@ pub struct UserSnapshot {
     pub balances: std::collections::HashMap<OrderBookId, UserSnapshotBalance>,
 }
 
+// ─── Trigger order wire types ───────────────────────────────────────────────
+
+/// Trigger order snapshot from REST `GET /api/users/orders`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriggerOrderSnapshot {
+    pub trigger_order_id: String,
+    pub order_hash: String,
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub trigger_price: String,
+    pub trigger_type: String,
+    pub side: u32,
+    pub maker_amount: u64,
+    pub taker_amount: u64,
+    pub tif: u32,
+    pub created_at: i64,
+}
+
+/// Trigger order WS update event on `user_events` channel.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TriggerOrderUpdate {
+    pub trigger_order_id: String,
+    #[serde(default)]
+    pub user_pubkey: String,
+    pub market_pubkey: String,
+    pub orderbook_id: String,
+    pub trigger_price: u64,
+    pub trigger_above: bool,
+    pub status: String,
+    pub order_hash: String,
+    pub side: u32,
+    #[serde(default)]
+    pub result_status: String,
+    #[serde(default)]
+    pub result_filled: u64,
+    #[serde(default)]
+    pub result_remaining: u64,
+    pub timestamp: String,
+}
+
 /// WS user update — tagged enum.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "event_type")]
@@ -121,6 +161,8 @@ pub enum UserUpdate {
     OrderUpdate(OrderUpdate),
     #[serde(rename = "balance_update")]
     BalanceUpdate(UserBalanceUpdate),
+    #[serde(rename = "trigger_order")]
+    TriggerOrderUpdate(TriggerOrderUpdate),
 }
 
 /// WS auth update.
