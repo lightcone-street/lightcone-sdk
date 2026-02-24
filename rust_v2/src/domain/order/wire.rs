@@ -3,14 +3,15 @@
 use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 // ─── WS balance wire types ──────────────────────────────────────────────────
 
 /// Balance for a single conditional token (from WS user updates).
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConditionalBalance {
     pub outcome_index: i16,
+    #[serde(alias = "conditional_token")]
     pub mint: PubkeyStr,
     pub idle: Decimal,
     pub on_book: Decimal,
@@ -32,7 +33,7 @@ pub struct BalanceUpdateOutcomes {
 }
 
 /// WS user snapshot balance.
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserSnapshotBalance {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
@@ -72,7 +73,7 @@ pub struct WsOrder {
 }
 
 /// WS order snapshot (initial state on connect).
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserSnapshotOrder {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
@@ -92,6 +93,9 @@ pub struct UserSnapshotOrder {
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
     pub outcome_index: i16,
+    /// Present in REST responses, absent in WS snapshots.
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 /// Balance information attached to an order update.

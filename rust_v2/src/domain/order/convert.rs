@@ -121,6 +121,7 @@ mod tests {
             base_mint: PubkeyStr::from("base"),
             quote_mint: PubkeyStr::from("quote"),
             outcome_index: 1,
+            status: None,
         };
         let order: Order = snap.into();
         assert_eq!(order.order_hash, "snap_hash");
@@ -147,6 +148,7 @@ mod tests {
                 base_mint: PubkeyStr::from("b"),
                 quote_mint: PubkeyStr::from("q"),
                 outcome_index: 0,
+                status: None,
             },
             wire::UserSnapshotOrder {
                 market_pubkey: PubkeyStr::from("mkt1"),
@@ -164,6 +166,7 @@ mod tests {
                 base_mint: PubkeyStr::from("b"),
                 quote_mint: PubkeyStr::from("q"),
                 outcome_index: 0,
+                status: None,
             },
         ];
         let uoo: UserOpenOrders = orders.into();
