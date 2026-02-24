@@ -1,7 +1,7 @@
 //! Conversions: WS wire types → Order domain types.
 
 use super::wire;
-use super::{Order, OrderStatus, TriggerOrder, UserOpenOrders};
+use super::{Order, OrderStatus, TriggerOrder, UserOpenOrders, UserTriggerOrders};
 use crate::shared::{OrderBookId, PubkeyStr, TriggerType};
 use std::collections::HashMap;
 
@@ -47,13 +47,16 @@ impl From<wire::UserSnapshotOrder> for Order {
     }
 }
 
-impl From<wire::TriggerOrderSnapshot> for TriggerOrder {
-    fn from(snap: wire::TriggerOrderSnapshot) -> Self {
+impl TryFrom<wire::TriggerOrderSnapshot> for TriggerOrder {
+    type Error = String;
+
+    fn try_from(snap: wire::TriggerOrderSnapshot) -> Result<Self, Self::Error> {
         let trigger_type = match snap.trigger_type.as_str() {
+            "TP" => TriggerType::TakeProfit,
             "SL" => TriggerType::StopLoss,
-            _ => TriggerType::TakeProfit,
+            other => return Err(format!("unknown trigger_type: {:?}", other)),
         };
-        TriggerOrder {
+        Ok(TriggerOrder {
             trigger_order_id: snap.trigger_order_id,
             order_hash: snap.order_hash,
             market_pubkey: snap.market_pubkey,
@@ -65,7 +68,19 @@ impl From<wire::TriggerOrderSnapshot> for TriggerOrder {
             taker_amount: snap.taker_amount,
             tif: snap.tif,
             created_at: snap.created_at,
+        })
+    }
+}
+
+impl From<Vec<wire::TriggerOrderSnapshot>> for UserTriggerOrders {
+    fn from(snapshots: Vec<wire::TriggerOrderSnapshot>) -> Self {
+        let mut orders = HashMap::new();
+        for snap in snapshots {
+            if let Ok(order) = TriggerOrder::try_from(snap) {
+                orders.insert(order.trigger_order_id.clone(), order);
+            }
         }
+        UserTriggerOrders { orders }
     }
 }
 
@@ -166,7 +181,7 @@ mod tests {
             tif: 0,
             created_at: 1700000000,
         };
-        let order: TriggerOrder = snap.into();
+        let order: TriggerOrder = snap.try_into().unwrap();
         assert_eq!(order.trigger_order_id, "trig-123");
         assert_eq!(order.trigger_type, TriggerType::TakeProfit);
         assert_eq!(order.orderbook_id.as_str(), "ob_test");
@@ -188,9 +203,29 @@ mod tests {
             tif: 1,
             created_at: 1700000000,
         };
-        let order: TriggerOrder = snap.into();
+        let order: TriggerOrder = snap.try_into().unwrap();
         assert_eq!(order.trigger_type, TriggerType::StopLoss);
         assert_eq!(order.side, 1);
+    }
+
+    #[test]
+    fn test_trigger_order_snapshot_unknown_type_errors() {
+        let snap = wire::TriggerOrderSnapshot {
+            trigger_order_id: "trig-789".to_string(),
+            order_hash: "hash-ghi".to_string(),
+            market_pubkey: "mkt-xyz".to_string(),
+            orderbook_id: "ob_test".to_string(),
+            trigger_price: "0.50".to_string(),
+            trigger_type: "UNKNOWN".to_string(),
+            side: 0,
+            maker_amount: 1000,
+            taker_amount: 500,
+            tif: 0,
+            created_at: 1700000000,
+        };
+        let result: Result<TriggerOrder, _> = snap.try_into();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("unknown trigger_type"));
     }
 
     #[test]
@@ -236,5 +271,58 @@ mod tests {
         let uoo: UserOpenOrders = orders.into();
         assert_eq!(uoo.orders.len(), 1);
         assert_eq!(uoo.orders.values().next().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_user_trigger_orders_bulk_conversion_skips_invalid() {
+        use super::UserTriggerOrders;
+
+        let snapshots = vec![
+            wire::TriggerOrderSnapshot {
+                trigger_order_id: "t1".to_string(),
+                order_hash: "h1".to_string(),
+                market_pubkey: "mkt".to_string(),
+                orderbook_id: "ob".to_string(),
+                trigger_price: "0.55".to_string(),
+                trigger_type: "TP".to_string(),
+                side: 0,
+                maker_amount: 1000,
+                taker_amount: 500,
+                tif: 0,
+                created_at: 1700000000,
+            },
+            wire::TriggerOrderSnapshot {
+                trigger_order_id: "t2".to_string(),
+                order_hash: "h2".to_string(),
+                market_pubkey: "mkt".to_string(),
+                orderbook_id: "ob".to_string(),
+                trigger_price: "0.30".to_string(),
+                trigger_type: "UNKNOWN".to_string(),
+                side: 1,
+                maker_amount: 2000,
+                taker_amount: 1000,
+                tif: 0,
+                created_at: 1700000000,
+            },
+            wire::TriggerOrderSnapshot {
+                trigger_order_id: "t3".to_string(),
+                order_hash: "h3".to_string(),
+                market_pubkey: "mkt".to_string(),
+                orderbook_id: "ob".to_string(),
+                trigger_price: "0.40".to_string(),
+                trigger_type: "SL".to_string(),
+                side: 1,
+                maker_amount: 500,
+                taker_amount: 250,
+                tif: 0,
+                created_at: 1700000000,
+            },
+        ];
+        let uto: UserTriggerOrders = snapshots.into();
+        // t2 with "UNKNOWN" type should be skipped
+        assert_eq!(uto.orders.len(), 2);
+        assert!(uto.orders.contains_key("t1"));
+        assert!(!uto.orders.contains_key("t2"));
+        assert!(uto.orders.contains_key("t3"));
     }
 }

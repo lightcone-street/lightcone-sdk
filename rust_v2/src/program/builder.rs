@@ -9,6 +9,7 @@ use solana_keypair::Keypair;
 use crate::program::orders::SignedOrder;
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
+use crate::shared::{TimeInForce, TriggerType};
 #[cfg(feature = "native-auth")]
 use crate::program::error::SdkError;
 #[cfg(feature = "native-auth")]
@@ -49,6 +50,9 @@ pub struct OrderBuilder {
     expiration: i64,
     price_raw: Option<String>,
     size_raw: Option<String>,
+    tif: Option<TimeInForce>,
+    trigger_price: Option<f64>,
+    trigger_type: Option<TriggerType>,
 }
 
 impl OrderBuilder {
@@ -127,6 +131,49 @@ impl OrderBuilder {
         self
     }
 
+    /// Set time-in-force policy (GTC, IOC, FOK, ALO).
+    /// Omit for backend default (GTC).
+    pub fn tif(mut self, tif: TimeInForce) -> Self {
+        self.tif = Some(tif);
+        self
+    }
+
+    /// Set trigger price for conditional orders.
+    /// Must be paired with `trigger_type()`.
+    pub fn trigger_price(mut self, price: f64) -> Self {
+        self.trigger_price = Some(price);
+        self
+    }
+
+    /// Set trigger type (TakeProfit or StopLoss).
+    /// Must be paired with `trigger_price()`.
+    pub fn trigger_type(mut self, trigger_type: TriggerType) -> Self {
+        self.trigger_type = Some(trigger_type);
+        self
+    }
+
+    /// Good-til-cancelled (default). Shorthand for `.tif(TimeInForce::Gtc)`.
+    pub fn gtc(self) -> Self { self.tif(TimeInForce::Gtc) }
+
+    /// Immediate-or-cancel. Shorthand for `.tif(TimeInForce::Ioc)`.
+    pub fn ioc(self) -> Self { self.tif(TimeInForce::Ioc) }
+
+    /// Fill-or-kill. Shorthand for `.tif(TimeInForce::Fok)`.
+    pub fn fok(self) -> Self { self.tif(TimeInForce::Fok) }
+
+    /// Add-liquidity-only (post-only). Shorthand for `.tif(TimeInForce::Alo)`.
+    pub fn alo(self) -> Self { self.tif(TimeInForce::Alo) }
+
+    /// Take-profit trigger. Shorthand for `.trigger_price(price).trigger_type(TriggerType::TakeProfit)`.
+    pub fn take_profit(self, price: f64) -> Self {
+        self.trigger_price(price).trigger_type(TriggerType::TakeProfit)
+    }
+
+    /// Stop-loss trigger. Shorthand for `.trigger_price(price).trigger_type(TriggerType::StopLoss)`.
+    pub fn stop_loss(self, price: f64) -> Self {
+        self.trigger_price(price).trigger_type(TriggerType::StopLoss)
+    }
+
     /// Build an unsigned SignedOrder.
     ///
     /// The returned order has an all-zero signature and must be signed
@@ -185,7 +232,11 @@ impl OrderBuilder {
         keypair: &Keypair,
         orderbook_id: impl Into<String>,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        self.build_and_sign(keypair).to_submit_request(orderbook_id)
+        let tif = self.tif;
+        let trigger_price = self.trigger_price;
+        let trigger_type = self.trigger_type;
+        self.build_and_sign(keypair)
+            .to_submit_request_with_options(orderbook_id, tif, trigger_price, trigger_type)
     }
 
     // =========================================================================
@@ -398,5 +449,120 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(500_000)
             .build_and_sign(&keypair);
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_order_builder_with_tif() {
+        use crate::shared::TimeInForce;
+
+        let keypair = Keypair::new();
+        let request = OrderBuilder::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .ioc()
+            .to_submit_request(&keypair, "ob")
+            .unwrap();
+
+        assert_eq!(request.tif, Some(TimeInForce::Ioc));
+        assert_eq!(request.trigger_price, None);
+        assert_eq!(request.trigger_type, None);
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_order_builder_with_trigger() {
+        use crate::shared::TriggerType;
+
+        let keypair = Keypair::new();
+        let request = OrderBuilder::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .ask()
+            .amount_in(500_000)
+            .amount_out(1_000_000)
+            .take_profit(0.75)
+            .to_submit_request(&keypair, "ob")
+            .unwrap();
+
+        assert_eq!(request.trigger_price, Some(0.75));
+        assert_eq!(request.trigger_type, Some(TriggerType::TakeProfit));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_order_builder_with_tif_and_trigger() {
+        use crate::shared::{TimeInForce, TriggerType};
+
+        let keypair = Keypair::new();
+        let request = OrderBuilder::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .ask()
+            .amount_in(500_000)
+            .amount_out(1_000_000)
+            .gtc()
+            .stop_loss(0.30)
+            .to_submit_request(&keypair, "ob")
+            .unwrap();
+
+        assert_eq!(request.tif, Some(TimeInForce::Gtc));
+        assert_eq!(request.trigger_price, Some(0.30));
+        assert_eq!(request.trigger_type, Some(TriggerType::StopLoss));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_order_builder_trigger_validation() {
+        let keypair = Keypair::new();
+
+        // trigger_price without trigger_type should fail
+        let result = OrderBuilder::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .trigger_price(0.75)
+            .to_submit_request(&keypair, "ob");
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("trigger_type"));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_order_builder_defaults_no_tif_trigger() {
+        let keypair = Keypair::new();
+        let request = OrderBuilder::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .to_submit_request(&keypair, "ob")
+            .unwrap();
+
+        assert_eq!(request.tif, None);
+        assert_eq!(request.trigger_price, None);
+        assert_eq!(request.trigger_type, None);
     }
 }
