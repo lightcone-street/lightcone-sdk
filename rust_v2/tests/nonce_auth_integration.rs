@@ -11,7 +11,7 @@
 //!
 //! Run with:
 //! ```bash
-//! API_URL=http://localhost:8080 cargo test -p lightcone-sdk-v2 --features native \
+//! API_URL=http://localhost:3001 cargo test -p lightcone-sdk-v2 --features native \
 //!     --test nonce_auth_integration -- --ignored --nocapture
 //! ```
 
@@ -22,7 +22,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 fn api_url() -> String {
-    std::env::var("API_URL").unwrap_or_else(|_| "http://localhost:8080".into())
+    std::env::var("API_URL").unwrap_or_else(|_| "https://tapi2.lightcone.xyz".into())
 }
 
 fn make_client() -> LightconeClient {
@@ -48,7 +48,12 @@ async fn get_nonce_returns_64_hex_chars() {
     let client = make_client();
     let nonce = client.auth().get_nonce().await.expect("get_nonce failed");
 
-    assert_eq!(nonce.len(), 64, "nonce should be 64 hex chars, got {}", nonce.len());
+    assert_eq!(
+        nonce.len(),
+        64,
+        "nonce should be 64 hex chars, got {}",
+        nonce.len()
+    );
     assert!(
         nonce.chars().all(|c| c.is_ascii_hexdigit()),
         "nonce should be hex, got: {nonce}"
@@ -71,7 +76,11 @@ async fn login_without_nonce_is_rejected() {
     })
     .await;
 
-    assert_eq!(resp.status().as_u16(), 401, "expected 401 for missing nonce");
+    assert_eq!(
+        resp.status().as_u16(),
+        401,
+        "expected 401 for missing nonce"
+    );
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["code"], "INVALID_NONCE");
 }
@@ -152,7 +161,11 @@ async fn replay_same_nonce_is_rejected() {
     })
     .await;
 
-    assert_eq!(resp.status().as_u16(), 401, "replayed nonce should be rejected");
+    assert_eq!(
+        resp.status().as_u16(),
+        401,
+        "replayed nonce should be rejected"
+    );
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["code"], "INVALID_NONCE");
 }
