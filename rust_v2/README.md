@@ -216,6 +216,36 @@ The app instantiates these, wraps them in its own reactive state (e.g. Dioxus `S
 - `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
 - We manually inject the cookie rather than using reqwest's `cookie_store(true)` because the backend hardcodes `Domain=.lightcone.xyz` on the Set-Cookie, which would break local development (requests to `localhost` wouldn't match the domain).
 
+#### Nonce-Based Sign-In (Native)
+
+Login uses a server-issued, single-use nonce to prevent signature replay attacks. The full flow:
+
+1. Fetch a nonce from the server (`GET /api/auth/nonce`).
+2. Build the sign-in message embedding the nonce.
+3. Sign the message with the local keypair.
+4. Submit the signed message to log in.
+
+```rust
+use lightcone_sdk_v2::auth::native::sign_login_message;
+use solana_keypair::Keypair;
+
+// 1. Fetch a single-use nonce (5-minute TTL, consumed on login)
+let nonce = client.auth().get_nonce().await?;
+
+// 2-3. Build message + sign with keypair
+let signed = sign_login_message(&keypair, &nonce);
+
+// 4. Authenticate
+let user = client.auth().login_with_message(
+    &signed.message,
+    &signed.signature_bs58,
+    &signed.pubkey_bytes,
+    None, // use_embedded_wallet
+).await?;
+```
+
+The nonce is validated and deleted server-side on login -- each nonce can only be used once. If you need to retry a failed login, fetch a new nonce.
+
 ### Logout
 
 On **both** platforms, `client.auth().logout()`:
@@ -247,6 +277,7 @@ The SDK aligns with `lightcone-backend` API routes:
 | `trades().get(id, limit, before)` | `/api/trades` | GET |
 | `price_history().get(...)` | `/api/price-history` | GET |
 | `admin().upsert_metadata(env)` | `/api/admin/metadata` | POST |
+| `auth().get_nonce()` | `/api/auth/nonce` | GET |
 | `auth().login_with_message(...)` | `/api/auth/login_or_register_with_message` | POST |
 | `auth().check_session()` | `/api/auth/me` | GET |
 | `auth().logout()` | `/api/auth/logout` | POST |
@@ -279,7 +310,7 @@ OAuth login (Google, X/Twitter) is a browser redirect flow handled entirely by t
 
 Because OAuth requires pre-registered redirect URIs, these endpoints only function on domains configured in the provider's developer console (e.g., the Lightcone domains). After the redirect completes, call `check_session()` to hydrate the authenticated user profile.
 
-Native and CLI clients authenticate via `login_with_message()` with a Solana wallet signature and do not use the OAuth flow.
+Native and CLI clients authenticate via `get_nonce()` + `login_with_message()` with a Solana wallet signature and do not use the OAuth flow. See [Nonce-Based Sign-In (Native)](#nonce-based-sign-in-native) above.
 
 ## Privy Embedded Wallet
 

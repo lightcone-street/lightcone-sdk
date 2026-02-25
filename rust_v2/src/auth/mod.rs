@@ -145,11 +145,12 @@ impl AuthCredentials {
 
 /// Generate the sign-in message that must be signed by the user's wallet.
 ///
-/// This is always available (no feature gates). The caller signs this message
-/// externally (wallet adapter on WASM, keypair on native) and passes the
-/// signature back to `client.auth().login_with_message(...)`.
-pub fn generate_signin_message(timestamp: u64) -> Vec<u8> {
-    let message = format!("Sign in to Lightcone\nTimestamp: {}", timestamp);
+/// The `nonce` must be obtained from `GET /api/auth/nonce` first.
+/// The caller signs this message externally (wallet adapter on WASM, keypair
+/// on native) and passes the signature back to
+/// `client.auth().login_with_message(...)`.
+pub fn generate_signin_message(nonce: &str) -> Vec<u8> {
+    let message = format!("Sign in to Lightcone\nNonce: {}", nonce);
     message.into_bytes()
 }
 
@@ -194,4 +195,10 @@ pub struct MeResponse {
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
     pub expires_at: i64,
+}
+
+/// Response from `GET /api/auth/nonce`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NonceResponse {
+    pub nonce: String,
 }

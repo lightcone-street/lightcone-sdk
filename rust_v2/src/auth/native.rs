@@ -16,10 +16,11 @@ pub struct SignedLogin {
 
 /// Sign a login message with a local keypair.
 ///
+/// The `nonce` must be obtained from `client.auth().get_nonce()` first.
 /// Returns a [`SignedLogin`] that can be passed directly to
 /// `client.auth().login_with_message()`.
-pub fn sign_login_message(keypair: &Keypair, timestamp: u64) -> SignedLogin {
-    let message_bytes = generate_signin_message(timestamp);
+pub fn sign_login_message(keypair: &Keypair, nonce: &str) -> SignedLogin {
+    let message_bytes = generate_signin_message(nonce);
     let signature = keypair.sign_message(&message_bytes);
     let message = String::from_utf8(message_bytes)
         .expect("generate_signin_message always produces valid UTF-8");
