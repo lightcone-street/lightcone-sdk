@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::auth::{AuthCredentials, LoginRequest, LoginResponse, MeResponse, User};
+use crate::auth::{AuthCredentials, LoginRequest, LoginResponse, MeResponse, NonceResponse, User};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -14,6 +14,17 @@ pub struct Auth<'a> {
 }
 
 impl<'a> Auth<'a> {
+    /// Fetch a single-use nonce from the server for the sign-in challenge.
+    ///
+    /// The nonce must be embedded in the sign-in message before signing.
+    /// Use [`generate_signin_message`](crate::auth::generate_signin_message)
+    /// to build the message.
+    pub async fn get_nonce(&self) -> Result<String, SdkError> {
+        let url = format!("{}/api/auth/nonce", self.client.http.base_url());
+        let resp: NonceResponse = self.client.http.get(&url, RetryPolicy::None).await?;
+        Ok(resp.nonce)
+    }
+
     /// Login with a pre-signed message and return the full user profile.
     ///
     /// The caller signs a message externally (wallet adapter on WASM, keypair
