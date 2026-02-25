@@ -22,3 +22,11 @@ pub struct Trade {
     pub size: Decimal,
     pub side: Side,
 }
+
+/// A page of trades with cursor-based pagination metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TradesPage {
+    pub trades: Vec<Trade>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+}

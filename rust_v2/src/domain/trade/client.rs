@@ -1,8 +1,8 @@
 //! Trades sub-client — trade history queries.
 
 use crate::client::LightconeClient;
-use crate::domain::trade::Trade;
 use crate::domain::trade::wire::TradesResponse;
+use crate::domain::trade::{Trade, TradesPage};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 
@@ -20,7 +20,7 @@ impl<'a> Trades<'a> {
         orderbook_id: &str,
         limit: Option<u32>,
         before: Option<i64>,
-    ) -> Result<Vec<Trade>, SdkError> {
+    ) -> Result<TradesPage, SdkError> {
         let mut url = format!(
             "{}/api/trades?orderbook_id={}",
             self.client.http.base_url(),
@@ -33,12 +33,12 @@ impl<'a> Trades<'a> {
             url = format!("{}&before={}", url, b);
         }
 
-        let resp: TradesResponse = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
+        let resp: TradesResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;
 
-        Ok(resp.trades.into_iter().map(Trade::from).collect())
+        Ok(TradesPage {
+            trades: resp.trades.into_iter().map(Trade::from).collect(),
+            next_cursor: resp.next_cursor,
+            has_more: resp.has_more,
+        })
     }
 }
