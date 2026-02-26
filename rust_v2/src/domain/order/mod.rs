@@ -5,15 +5,15 @@ mod convert;
 pub mod state;
 pub mod wire;
 
-use crate::shared::{OrderBookId, PubkeyStr, Side, TriggerType};
+use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce, TriggerType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    CancelTriggerBody, CancelTriggerSuccess, FillInfo, PlaceResponse, SubmitOrderResponse,
-    TriggerOrderResponse, UserOrdersResponse,
+    CancelTriggerBody, CancelTriggerResponse, CancelTriggerSuccess, FillInfo, PlaceResponse,
+    SubmitOrderResponse, TriggerOrderResponse, TriggerSubmitResponse, UserOrdersResponse,
 };
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
@@ -45,6 +45,7 @@ impl std::fmt::Display for OrderType {
 // ─── OrderStatus ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
 pub enum OrderStatus {
     Filled,
     Open,
@@ -79,14 +80,14 @@ pub struct Order {
 pub struct TriggerOrder {
     pub trigger_order_id: String,
     pub order_hash: String,
-    pub market_pubkey: String,
+    pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
-    pub trigger_price: String,
+    pub trigger_price: Decimal,
     pub trigger_type: TriggerType,
-    pub side: u32,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
-    pub tif: u32,
-    pub created_at: i64,
+    pub side: Side,
+    pub maker_amount: Decimal,
+    pub taker_amount: Decimal,
+    pub time_in_force: TimeInForce,
+    pub created_at: DateTime<Utc>,
 }
 

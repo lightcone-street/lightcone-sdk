@@ -1,6 +1,6 @@
 //! Wire types for order and user WS messages.
 
-use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side};
+use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -95,7 +95,7 @@ pub struct UserSnapshotOrder {
     pub outcome_index: i16,
     /// Present in REST responses, absent in WS snapshots.
     #[serde(default)]
-    pub status: Option<String>,
+    pub status: Option<super::OrderStatus>,
 }
 
 /// Balance information attached to an order update.
@@ -118,15 +118,17 @@ pub struct UserSnapshot {
 pub struct TriggerOrderSnapshot {
     pub trigger_order_id: String,
     pub order_hash: String,
-    pub market_pubkey: String,
-    pub orderbook_id: String,
-    pub trigger_price: String,
-    pub trigger_type: String,
-    pub side: u32,
-    pub maker_amount: u64,
-    pub taker_amount: u64,
-    pub tif: u32,
-    pub created_at: i64,
+    pub market_pubkey: PubkeyStr,
+    pub orderbook_id: OrderBookId,
+    pub trigger_price: Decimal,
+    pub trigger_type: TriggerType,
+    pub side: Side,
+    pub maker_amount: Decimal,
+    pub taker_amount: Decimal,
+    #[serde(with = "serde_util::tif_numeric", rename = "tif")]
+    pub time_in_force: TimeInForce,
+    #[serde(with = "serde_util::timestamp_ms")]
+    pub created_at: DateTime<Utc>,
 }
 
 /// Trigger order WS update event on `user_events` channel.
@@ -134,21 +136,21 @@ pub struct TriggerOrderSnapshot {
 pub struct TriggerOrderUpdate {
     pub trigger_order_id: String,
     #[serde(default)]
-    pub user_pubkey: String,
-    pub market_pubkey: String,
-    pub orderbook_id: String,
-    pub trigger_price: u64,
+    pub user_pubkey: PubkeyStr,
+    pub market_pubkey: PubkeyStr,
+    pub orderbook_id: OrderBookId,
+    pub trigger_price: Decimal,
     pub trigger_above: bool,
-    pub status: String,
+    pub status: TriggerStatus,
     pub order_hash: String,
-    pub side: u32,
+    pub side: Side,
+    #[serde(default, with = "serde_util::empty_string_as_none")]
+    pub result_status: Option<TriggerResultStatus>,
     #[serde(default)]
-    pub result_status: String,
+    pub result_filled: Decimal,
     #[serde(default)]
-    pub result_filled: u64,
-    #[serde(default)]
-    pub result_remaining: u64,
-    pub timestamp: String,
+    pub result_remaining: Decimal,
+    pub timestamp: DateTime<Utc>,
 }
 
 /// WS user update — tagged enum.

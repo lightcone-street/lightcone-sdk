@@ -293,7 +293,7 @@ impl SignedOrder {
     /// # Arguments
     ///
     /// * `orderbook_id` - Target orderbook
-    /// * `tif` - Time-in-force policy (None = backend default GTC)
+    /// * `time_in_force` - Time-in-force policy (None = backend default GTC)
     /// * `trigger_price` - Trigger price for conditional orders
     /// * `trigger_type` - Trigger type (must be present if trigger_price is present, and vice versa)
     ///
@@ -304,7 +304,7 @@ impl SignedOrder {
     pub fn to_submit_request_with_options(
         &self,
         orderbook_id: impl Into<String>,
-        tif: Option<TimeInForce>,
+        time_in_force: Option<TimeInForce>,
         trigger_price: Option<f64>,
         trigger_type: Option<TriggerType>,
     ) -> Result<SubmitOrderRequest, SdkError> {
@@ -338,7 +338,7 @@ impl SignedOrder {
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
-            tif,
+            time_in_force,
             trigger_price,
             trigger_type,
         })

@@ -49,12 +49,12 @@ pub struct OrderForSigning {
     #[serde(default)]
     pub expiration: i64,
     pub orderbook_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tif: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
+    pub time_in_force: Option<crate::shared::TimeInForce>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_price: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_type: Option<String>,
+    pub trigger_type: Option<crate::shared::TriggerType>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

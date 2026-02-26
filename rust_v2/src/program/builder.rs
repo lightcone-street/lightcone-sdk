@@ -50,7 +50,7 @@ pub struct OrderBuilder {
     expiration: i64,
     price_raw: Option<String>,
     size_raw: Option<String>,
-    tif: Option<TimeInForce>,
+    time_in_force: Option<TimeInForce>,
     trigger_price: Option<f64>,
     trigger_type: Option<TriggerType>,
 }
@@ -133,8 +133,8 @@ impl OrderBuilder {
 
     /// Set time-in-force policy (GTC, IOC, FOK, ALO).
     /// Omit for backend default (GTC).
-    pub fn tif(mut self, tif: TimeInForce) -> Self {
-        self.tif = Some(tif);
+    pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
+        self.time_in_force = Some(tif);
         self
     }
 
@@ -152,17 +152,17 @@ impl OrderBuilder {
         self
     }
 
-    /// Good-til-cancelled (default). Shorthand for `.tif(TimeInForce::Gtc)`.
-    pub fn gtc(self) -> Self { self.tif(TimeInForce::Gtc) }
+    /// Good-til-cancelled (default). Shorthand for `.time_in_force(TimeInForce::Gtc)`.
+    pub fn gtc(self) -> Self { self.time_in_force(TimeInForce::Gtc) }
 
-    /// Immediate-or-cancel. Shorthand for `.tif(TimeInForce::Ioc)`.
-    pub fn ioc(self) -> Self { self.tif(TimeInForce::Ioc) }
+    /// Immediate-or-cancel. Shorthand for `.time_in_force(TimeInForce::Ioc)`.
+    pub fn ioc(self) -> Self { self.time_in_force(TimeInForce::Ioc) }
 
-    /// Fill-or-kill. Shorthand for `.tif(TimeInForce::Fok)`.
-    pub fn fok(self) -> Self { self.tif(TimeInForce::Fok) }
+    /// Fill-or-kill. Shorthand for `.time_in_force(TimeInForce::Fok)`.
+    pub fn fok(self) -> Self { self.time_in_force(TimeInForce::Fok) }
 
-    /// Add-liquidity-only (post-only). Shorthand for `.tif(TimeInForce::Alo)`.
-    pub fn alo(self) -> Self { self.tif(TimeInForce::Alo) }
+    /// Add-liquidity-only (post-only). Shorthand for `.time_in_force(TimeInForce::Alo)`.
+    pub fn alo(self) -> Self { self.time_in_force(TimeInForce::Alo) }
 
     /// Take-profit trigger. Shorthand for `.trigger_price(price).trigger_type(TriggerType::TakeProfit)`.
     pub fn take_profit(self, price: f64) -> Self {
@@ -232,11 +232,11 @@ impl OrderBuilder {
         keypair: &Keypair,
         orderbook_id: impl Into<String>,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        let tif = self.tif;
+        let time_in_force = self.time_in_force;
         let trigger_price = self.trigger_price;
         let trigger_type = self.trigger_type;
         self.build_and_sign(keypair)
-            .to_submit_request_with_options(orderbook_id, tif, trigger_price, trigger_type)
+            .to_submit_request_with_options(orderbook_id, time_in_force, trigger_price, trigger_type)
     }
 
     // =========================================================================
@@ -470,7 +470,7 @@ mod tests {
             .to_submit_request(&keypair, "ob")
             .unwrap();
 
-        assert_eq!(request.tif, Some(TimeInForce::Ioc));
+        assert_eq!(request.time_in_force, Some(TimeInForce::Ioc));
         assert_eq!(request.trigger_price, None);
         assert_eq!(request.trigger_type, None);
     }
@@ -518,7 +518,7 @@ mod tests {
             .to_submit_request(&keypair, "ob")
             .unwrap();
 
-        assert_eq!(request.tif, Some(TimeInForce::Gtc));
+        assert_eq!(request.time_in_force, Some(TimeInForce::Gtc));
         assert_eq!(request.trigger_price, Some(0.30));
         assert_eq!(request.trigger_type, Some(TriggerType::StopLoss));
     }
@@ -561,7 +561,7 @@ mod tests {
             .to_submit_request(&keypair, "ob")
             .unwrap();
 
-        assert_eq!(request.tif, None);
+        assert_eq!(request.time_in_force, None);
         assert_eq!(request.trigger_price, None);
         assert_eq!(request.trigger_type, None);
     }

@@ -1,6 +1,6 @@
 //! Order state containers — app-owned, SDK-provided update logic.
 
-use crate::shared::PubkeyStr;
+use crate::shared::{OrderBookId, PubkeyStr};
 
 use super::wire;
 use super::{Order, TriggerOrder};
@@ -61,9 +61,12 @@ impl Default for UserOpenOrders {
 
 // ─── UserTriggerOrders ──────────────────────────────────────────────────────
 
-/// Tracks a user's trigger orders keyed by trigger_order_id.
+/// Tracks a user's trigger orders grouped by orderbook ID.
+///
+/// Keyed by `OrderBookId` for O(1) lookup by orderbook, matching the
+/// `UserOpenOrders` pattern (keyed by market pubkey).
 pub struct UserTriggerOrders {
-    pub orders: HashMap<String, TriggerOrder>,
+    pub orders: HashMap<OrderBookId, Vec<TriggerOrder>>,
 }
 
 impl UserTriggerOrders {
@@ -73,16 +76,38 @@ impl UserTriggerOrders {
         }
     }
 
+    /// Get all trigger orders for a specific orderbook.
+    pub fn get(&self, orderbook_id: &OrderBookId) -> Option<&Vec<TriggerOrder>> {
+        self.orders.get(orderbook_id)
+    }
+
+    /// Find a specific trigger order by its ID (scans all orderbooks).
+    pub fn get_by_id(&self, trigger_order_id: &str) -> Option<&TriggerOrder> {
+        self.orders
+            .values()
+            .flat_map(|v| v.iter())
+            .find(|o| o.trigger_order_id == trigger_order_id)
+    }
+
+    /// Insert a trigger order, grouped by its orderbook ID.
     pub fn insert(&mut self, order: TriggerOrder) {
-        self.orders.insert(order.trigger_order_id.clone(), order);
+        self.orders
+            .entry(order.orderbook_id.clone())
+            .or_default()
+            .push(order);
     }
 
+    /// Remove a trigger order by its ID across all orderbooks.
     pub fn remove(&mut self, trigger_order_id: &str) -> Option<TriggerOrder> {
-        self.orders.remove(trigger_order_id)
-    }
-
-    pub fn get(&self, trigger_order_id: &str) -> Option<&TriggerOrder> {
-        self.orders.get(trigger_order_id)
+        for orders in self.orders.values_mut() {
+            if let Some(idx) = orders
+                .iter()
+                .position(|o| o.trigger_order_id == trigger_order_id)
+            {
+                return Some(orders.swap_remove(idx));
+            }
+        }
+        None
     }
 
     pub fn clear(&mut self) {
@@ -90,15 +115,15 @@ impl UserTriggerOrders {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.orders.is_empty()
+        self.orders.values().all(|v| v.is_empty())
     }
 
     pub fn len(&self) -> usize {
-        self.orders.len()
+        self.orders.values().map(|v| v.len()).sum()
     }
 
     pub fn all(&self) -> impl Iterator<Item = &TriggerOrder> {
-        self.orders.values()
+        self.orders.values().flat_map(|v| v.iter())
     }
 }
 
@@ -181,20 +206,21 @@ mod tests {
 
     // ── UserTriggerOrders tests ─────────────────────────────────────────────
 
-    fn make_trigger_order(id: &str) -> TriggerOrder {
-        use crate::shared::TriggerType;
+    fn make_trigger_order(id: &str, ob_id: &str) -> TriggerOrder {
+        use crate::shared::{TimeInForce, TriggerType};
+        use rust_decimal::Decimal;
         TriggerOrder {
             trigger_order_id: id.to_string(),
             order_hash: format!("hash_{}", id),
-            market_pubkey: "mkt1".to_string(),
-            orderbook_id: OrderBookId::from("ob1"),
-            trigger_price: "0.55".to_string(),
+            market_pubkey: PubkeyStr::from("mkt1"),
+            orderbook_id: OrderBookId::from(ob_id),
+            trigger_price: Decimal::new(55, 2),
             trigger_type: TriggerType::TakeProfit,
-            side: 0,
-            maker_amount: 1000,
-            taker_amount: 500,
-            tif: 0,
-            created_at: 1700000000,
+            side: Side::Bid,
+            maker_amount: Decimal::new(1000, 0),
+            taker_amount: Decimal::new(500, 0),
+            time_in_force: TimeInForce::Gtc,
+            created_at: chrono::DateTime::from_timestamp_millis(1700000000000).unwrap(),
         }
     }
 
@@ -204,33 +230,56 @@ mod tests {
         assert!(uto.is_empty());
         assert_eq!(uto.len(), 0);
 
-        uto.insert(make_trigger_order("t1"));
+        uto.insert(make_trigger_order("t1", "ob1"));
         assert!(!uto.is_empty());
         assert_eq!(uto.len(), 1);
 
-        let order = uto.get("t1").unwrap();
-        assert_eq!(order.trigger_order_id, "t1");
+        let orders = uto.get(&OrderBookId::from("ob1")).unwrap();
+        assert_eq!(orders[0].trigger_order_id, "t1");
+    }
+
+    #[test]
+    fn test_trigger_orders_get_by_id() {
+        let mut uto = UserTriggerOrders::new();
+        uto.insert(make_trigger_order("t1", "ob1"));
+        uto.insert(make_trigger_order("t2", "ob2"));
+
+        let order = uto.get_by_id("t2").unwrap();
+        assert_eq!(order.trigger_order_id, "t2");
+        assert!(uto.get_by_id("t99").is_none());
+    }
+
+    #[test]
+    fn test_trigger_orders_groups_by_orderbook() {
+        let mut uto = UserTriggerOrders::new();
+        uto.insert(make_trigger_order("t1", "ob1"));
+        uto.insert(make_trigger_order("t2", "ob1"));
+        uto.insert(make_trigger_order("t3", "ob2"));
+
+        assert_eq!(uto.len(), 3);
+        assert_eq!(uto.get(&OrderBookId::from("ob1")).unwrap().len(), 2);
+        assert_eq!(uto.get(&OrderBookId::from("ob2")).unwrap().len(), 1);
     }
 
     #[test]
     fn test_trigger_orders_remove() {
         let mut uto = UserTriggerOrders::new();
-        uto.insert(make_trigger_order("t1"));
-        uto.insert(make_trigger_order("t2"));
+        uto.insert(make_trigger_order("t1", "ob1"));
+        uto.insert(make_trigger_order("t2", "ob1"));
         assert_eq!(uto.len(), 2);
 
         let removed = uto.remove("t1");
         assert!(removed.is_some());
         assert_eq!(uto.len(), 1);
-        assert!(uto.get("t1").is_none());
-        assert!(uto.get("t2").is_some());
+        assert!(uto.get_by_id("t1").is_none());
+        assert!(uto.get_by_id("t2").is_some());
     }
 
     #[test]
     fn test_trigger_orders_clear() {
         let mut uto = UserTriggerOrders::new();
-        uto.insert(make_trigger_order("t1"));
-        uto.insert(make_trigger_order("t2"));
+        uto.insert(make_trigger_order("t1", "ob1"));
+        uto.insert(make_trigger_order("t2", "ob2"));
         uto.clear();
         assert!(uto.is_empty());
     }
@@ -238,8 +287,8 @@ mod tests {
     #[test]
     fn test_trigger_orders_all() {
         let mut uto = UserTriggerOrders::new();
-        uto.insert(make_trigger_order("t1"));
-        uto.insert(make_trigger_order("t2"));
+        uto.insert(make_trigger_order("t1", "ob1"));
+        uto.insert(make_trigger_order("t2", "ob2"));
         let all: Vec<_> = uto.all().collect();
         assert_eq!(all.len(), 2);
     }

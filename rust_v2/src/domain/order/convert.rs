@@ -2,7 +2,7 @@
 
 use super::wire;
 use super::{Order, OrderStatus, TriggerOrder, UserOpenOrders, UserTriggerOrders};
-use crate::shared::{OrderBookId, PubkeyStr, TriggerType};
+use crate::shared::{OrderBookId, PubkeyStr};
 use std::collections::HashMap;
 
 impl From<wire::OrderUpdate> for Order {
@@ -47,38 +47,33 @@ impl From<wire::UserSnapshotOrder> for Order {
     }
 }
 
-impl TryFrom<wire::TriggerOrderSnapshot> for TriggerOrder {
-    type Error = String;
-
-    fn try_from(snap: wire::TriggerOrderSnapshot) -> Result<Self, Self::Error> {
-        let trigger_type = match snap.trigger_type.as_str() {
-            "TP" => TriggerType::TakeProfit,
-            "SL" => TriggerType::StopLoss,
-            other => return Err(format!("unknown trigger_type: {:?}", other)),
-        };
-        Ok(TriggerOrder {
+impl From<wire::TriggerOrderSnapshot> for TriggerOrder {
+    fn from(snap: wire::TriggerOrderSnapshot) -> Self {
+        TriggerOrder {
             trigger_order_id: snap.trigger_order_id,
             order_hash: snap.order_hash,
             market_pubkey: snap.market_pubkey,
-            orderbook_id: OrderBookId::from(snap.orderbook_id),
+            orderbook_id: snap.orderbook_id,
             trigger_price: snap.trigger_price,
-            trigger_type,
+            trigger_type: snap.trigger_type,
             side: snap.side,
             maker_amount: snap.maker_amount,
             taker_amount: snap.taker_amount,
-            tif: snap.tif,
+            time_in_force: snap.time_in_force,
             created_at: snap.created_at,
-        })
+        }
     }
 }
 
 impl From<Vec<wire::TriggerOrderSnapshot>> for UserTriggerOrders {
     fn from(snapshots: Vec<wire::TriggerOrderSnapshot>) -> Self {
-        let mut orders = HashMap::new();
+        let mut orders: HashMap<OrderBookId, Vec<TriggerOrder>> = HashMap::new();
         for snap in snapshots {
-            if let Ok(order) = TriggerOrder::try_from(snap) {
-                orders.insert(order.trigger_order_id.clone(), order);
-            }
+            let order = TriggerOrder::from(snap);
+            orders
+                .entry(order.orderbook_id.clone())
+                .or_default()
+                .push(order);
         }
         UserTriggerOrders { orders }
     }
@@ -166,66 +161,38 @@ mod tests {
         assert_eq!(order.market_pubkey.as_str(), "mkt222");
     }
 
+    fn make_trigger_snapshot(id: &str, trigger_type: crate::shared::TriggerType) -> wire::TriggerOrderSnapshot {
+        wire::TriggerOrderSnapshot {
+            trigger_order_id: id.to_string(),
+            order_hash: format!("hash-{id}"),
+            market_pubkey: PubkeyStr::from("mkt-xyz"),
+            orderbook_id: OrderBookId::from("ob_test"),
+            trigger_price: Decimal::new(55, 2),
+            trigger_type,
+            side: Side::Bid,
+            maker_amount: Decimal::new(1000, 0),
+            taker_amount: Decimal::new(500, 0),
+            time_in_force: crate::shared::TimeInForce::Gtc,
+            created_at: chrono::DateTime::from_timestamp_millis(1700000000000).unwrap(),
+        }
+    }
+
     #[test]
     fn test_trigger_order_snapshot_conversion() {
-        let snap = wire::TriggerOrderSnapshot {
-            trigger_order_id: "trig-123".to_string(),
-            order_hash: "hash-abc".to_string(),
-            market_pubkey: "mkt-xyz".to_string(),
-            orderbook_id: "ob_test".to_string(),
-            trigger_price: "0.55".to_string(),
-            trigger_type: "TP".to_string(),
-            side: 0,
-            maker_amount: 1000,
-            taker_amount: 500,
-            tif: 0,
-            created_at: 1700000000,
-        };
-        let order: TriggerOrder = snap.try_into().unwrap();
+        let snap = make_trigger_snapshot("trig-123", crate::shared::TriggerType::TakeProfit);
+        let order: TriggerOrder = snap.into();
         assert_eq!(order.trigger_order_id, "trig-123");
-        assert_eq!(order.trigger_type, TriggerType::TakeProfit);
+        assert_eq!(order.trigger_type, crate::shared::TriggerType::TakeProfit);
         assert_eq!(order.orderbook_id.as_str(), "ob_test");
-        assert_eq!(order.maker_amount, 1000);
+        assert_eq!(order.maker_amount, Decimal::new(1000, 0));
     }
 
     #[test]
     fn test_trigger_order_snapshot_conversion_stop_loss() {
-        let snap = wire::TriggerOrderSnapshot {
-            trigger_order_id: "trig-456".to_string(),
-            order_hash: "hash-def".to_string(),
-            market_pubkey: "mkt-xyz".to_string(),
-            orderbook_id: "ob_test".to_string(),
-            trigger_price: "0.30".to_string(),
-            trigger_type: "SL".to_string(),
-            side: 1,
-            maker_amount: 2000,
-            taker_amount: 1000,
-            tif: 1,
-            created_at: 1700000000,
-        };
-        let order: TriggerOrder = snap.try_into().unwrap();
-        assert_eq!(order.trigger_type, TriggerType::StopLoss);
-        assert_eq!(order.side, 1);
-    }
-
-    #[test]
-    fn test_trigger_order_snapshot_unknown_type_errors() {
-        let snap = wire::TriggerOrderSnapshot {
-            trigger_order_id: "trig-789".to_string(),
-            order_hash: "hash-ghi".to_string(),
-            market_pubkey: "mkt-xyz".to_string(),
-            orderbook_id: "ob_test".to_string(),
-            trigger_price: "0.50".to_string(),
-            trigger_type: "UNKNOWN".to_string(),
-            side: 0,
-            maker_amount: 1000,
-            taker_amount: 500,
-            tif: 0,
-            created_at: 1700000000,
-        };
-        let result: Result<TriggerOrder, _> = snap.try_into();
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unknown trigger_type"));
+        let snap = make_trigger_snapshot("trig-456", crate::shared::TriggerType::StopLoss);
+        let order: TriggerOrder = snap.into();
+        assert_eq!(order.trigger_type, crate::shared::TriggerType::StopLoss);
+        assert_eq!(order.side, Side::Bid);
     }
 
     #[test]
@@ -274,55 +241,17 @@ mod tests {
     }
 
     #[test]
-    fn test_user_trigger_orders_bulk_conversion_skips_invalid() {
+    fn test_user_trigger_orders_bulk_conversion_groups_by_orderbook() {
         use super::UserTriggerOrders;
 
         let snapshots = vec![
-            wire::TriggerOrderSnapshot {
-                trigger_order_id: "t1".to_string(),
-                order_hash: "h1".to_string(),
-                market_pubkey: "mkt".to_string(),
-                orderbook_id: "ob".to_string(),
-                trigger_price: "0.55".to_string(),
-                trigger_type: "TP".to_string(),
-                side: 0,
-                maker_amount: 1000,
-                taker_amount: 500,
-                tif: 0,
-                created_at: 1700000000,
-            },
-            wire::TriggerOrderSnapshot {
-                trigger_order_id: "t2".to_string(),
-                order_hash: "h2".to_string(),
-                market_pubkey: "mkt".to_string(),
-                orderbook_id: "ob".to_string(),
-                trigger_price: "0.30".to_string(),
-                trigger_type: "UNKNOWN".to_string(),
-                side: 1,
-                maker_amount: 2000,
-                taker_amount: 1000,
-                tif: 0,
-                created_at: 1700000000,
-            },
-            wire::TriggerOrderSnapshot {
-                trigger_order_id: "t3".to_string(),
-                order_hash: "h3".to_string(),
-                market_pubkey: "mkt".to_string(),
-                orderbook_id: "ob".to_string(),
-                trigger_price: "0.40".to_string(),
-                trigger_type: "SL".to_string(),
-                side: 1,
-                maker_amount: 500,
-                taker_amount: 250,
-                tif: 0,
-                created_at: 1700000000,
-            },
+            make_trigger_snapshot("t1", crate::shared::TriggerType::TakeProfit),
+            make_trigger_snapshot("t2", crate::shared::TriggerType::StopLoss),
         ];
         let uto: UserTriggerOrders = snapshots.into();
-        // t2 with "UNKNOWN" type should be skipped
-        assert_eq!(uto.orders.len(), 2);
-        assert!(uto.orders.contains_key("t1"));
-        assert!(!uto.orders.contains_key("t2"));
-        assert!(uto.orders.contains_key("t3"));
+        // Both orders have orderbook_id "ob_test", so grouped under one key
+        assert_eq!(uto.orders.len(), 1);
+        let orders = uto.orders.get(&OrderBookId::from("ob_test")).unwrap();
+        assert_eq!(orders.len(), 2);
     }
 }
