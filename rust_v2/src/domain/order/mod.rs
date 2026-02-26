@@ -1,7 +1,7 @@
 //! Order domain — orders, open order tracking.
 
 pub mod client;
-pub mod convert;
+mod convert;
 pub mod state;
 pub mod wire;
 
@@ -15,6 +15,7 @@ pub use client::{
     CancelTriggerBody, CancelTriggerResponse, CancelTriggerSuccess, FillInfo, PlaceResponse,
     SubmitOrderResponse, TriggerOrderResponse, TriggerSubmitResponse, UserOrdersResponse,
 };
+pub use convert::split_snapshot_orders;
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
     ConditionalBalance, OrderEvent, TriggerOrderUpdate, UserSnapshotBalance,

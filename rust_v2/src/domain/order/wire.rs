@@ -140,24 +140,6 @@ pub struct UserSnapshot {
 
 // ─── Trigger order wire types ───────────────────────────────────────────────
 
-/// Trigger order snapshot from REST `GET /api/users/orders`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TriggerOrderSnapshot {
-    pub trigger_order_id: String,
-    pub order_hash: String,
-    pub market_pubkey: PubkeyStr,
-    pub orderbook_id: OrderBookId,
-    pub trigger_price: Decimal,
-    pub trigger_type: TriggerType,
-    pub side: Side,
-    pub maker_amount: Decimal,
-    pub taker_amount: Decimal,
-    #[serde(with = "serde_util::tif_numeric", rename = "tif")]
-    pub time_in_force: TimeInForce,
-    #[serde(with = "serde_util::timestamp_ms")]
-    pub created_at: DateTime<Utc>,
-}
-
 /// Trigger order WS update event on `user_events` channel.
 #[derive(Debug, Clone, Deserialize)]
 pub struct TriggerOrderUpdate {
