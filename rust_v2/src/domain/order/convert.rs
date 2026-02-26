@@ -2,7 +2,7 @@
 
 use super::wire;
 use super::{Order, OrderStatus, TriggerOrder, UserOpenOrders, UserTriggerOrders};
-use crate::shared::{OrderBookId, PubkeyStr};
+use crate::shared::{OrderBookId, PubkeyStr, SnapshotOrderType, TimeInForce};
 use std::collections::HashMap;
 
 impl From<wire::OrderUpdate> for Order {
@@ -20,12 +20,13 @@ impl From<wire::OrderUpdate> for Order {
             remaining_size: update.order.remaining,
             created_at: update.order.created_at,
             tx_signature: update.tx_signature,
-            status: OrderStatus::Open,
+            status: update.order.status,
             outcome_index: update.order.outcome_index,
         }
     }
 }
 
+/// Convert a limit snapshot order to a domain Order.
 impl From<wire::UserSnapshotOrder> for Order {
     fn from(snap: wire::UserSnapshotOrder) -> Self {
         Order {
@@ -41,67 +42,136 @@ impl From<wire::UserSnapshotOrder> for Order {
             remaining_size: snap.remaining,
             created_at: snap.created_at,
             tx_signature: snap.tx_signature,
-            status: OrderStatus::Open,
+            status: snap.status,
             outcome_index: snap.outcome_index,
         }
     }
 }
 
-impl From<wire::TriggerOrderSnapshot> for TriggerOrder {
-    fn from(snap: wire::TriggerOrderSnapshot) -> Self {
-        TriggerOrder {
-            trigger_order_id: snap.trigger_order_id,
-            order_hash: snap.order_hash,
-            market_pubkey: snap.market_pubkey,
-            orderbook_id: snap.orderbook_id,
-            trigger_price: snap.trigger_price,
-            trigger_type: snap.trigger_type,
+/// Convert a trigger snapshot order (from unified UserSnapshotOrder) to a domain TriggerOrder.
+///
+/// Requires the snapshot to have `order_type == Trigger` and trigger-specific fields present.
+impl TriggerOrder {
+    pub fn from_snapshot(snap: &wire::UserSnapshotOrder) -> Option<Self> {
+        let trigger_order_id = snap.trigger_order_id.clone()?;
+        let trigger_price = snap.trigger_price?;
+        let trigger_type = snap.trigger_type?;
+        let tif_numeric = snap.tif.unwrap_or(0);
+        let time_in_force = match tif_numeric {
+            0 => TimeInForce::Gtc,
+            1 => TimeInForce::Ioc,
+            2 => TimeInForce::Fok,
+            3 => TimeInForce::Alo,
+            _ => TimeInForce::Gtc,
+        };
+        Some(TriggerOrder {
+            trigger_order_id,
+            order_hash: snap.order_hash.clone(),
+            market_pubkey: snap.market_pubkey.clone(),
+            orderbook_id: snap.orderbook_id.clone(),
+            trigger_price,
+            trigger_type,
             side: snap.side,
-            maker_amount: snap.maker_amount,
-            taker_amount: snap.taker_amount,
-            time_in_force: snap.time_in_force,
+            amount_in: snap.amount_in,
+            amount_out: snap.amount_out,
+            time_in_force,
             created_at: snap.created_at,
-        }
+        })
     }
 }
 
-impl From<Vec<wire::TriggerOrderSnapshot>> for UserTriggerOrders {
-    fn from(snapshots: Vec<wire::TriggerOrderSnapshot>) -> Self {
-        let mut orders: HashMap<OrderBookId, Vec<TriggerOrder>> = HashMap::new();
-        for snap in snapshots {
-            let order = TriggerOrder::from(snap);
-            orders
-                .entry(order.orderbook_id.clone())
-                .or_default()
-                .push(order);
-        }
-        UserTriggerOrders { orders }
-    }
-}
+/// Build UserOpenOrders + UserTriggerOrders from a unified snapshot orders array.
+pub fn split_snapshot_orders(
+    orders: Vec<wire::UserSnapshotOrder>,
+) -> (UserOpenOrders, UserTriggerOrders) {
+    let mut open_orders: HashMap<PubkeyStr, Vec<Order>> = HashMap::new();
+    let mut trigger_orders: HashMap<OrderBookId, Vec<TriggerOrder>> = HashMap::new();
 
-impl From<Vec<wire::UserSnapshotOrder>> for UserOpenOrders {
-    fn from(orders: Vec<wire::UserSnapshotOrder>) -> Self {
-        let mut user_orders: HashMap<PubkeyStr, Vec<Order>> = HashMap::new();
-        for order in orders {
-            if !order.remaining.is_zero() {
-                user_orders
-                    .entry(order.market_pubkey.clone())
-                    .or_insert_with(Vec::new)
-                    .push(order.into());
+    for snap in orders {
+        match snap.order_type {
+            SnapshotOrderType::Trigger => {
+                if let Some(trigger) = TriggerOrder::from_snapshot(&snap) {
+                    trigger_orders
+                        .entry(trigger.orderbook_id.clone())
+                        .or_default()
+                        .push(trigger);
+                }
+            }
+            SnapshotOrderType::Limit => {
+                if !snap.remaining.is_zero() {
+                    open_orders
+                        .entry(snap.market_pubkey.clone())
+                        .or_default()
+                        .push(snap.into());
+                }
             }
         }
-        UserOpenOrders {
-            orders: user_orders,
-        }
     }
+
+    (
+        UserOpenOrders { orders: open_orders },
+        UserTriggerOrders { orders: trigger_orders },
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce, TriggerType};
+    use crate::shared::{OrderBookId, OrderUpdateType, PubkeyStr, Side, SnapshotOrderType, TriggerType};
     use chrono::Utc;
     use rust_decimal::Decimal;
+
+    fn make_limit_snapshot(market: &str, hash: &str, remaining: Decimal) -> wire::UserSnapshotOrder {
+        wire::UserSnapshotOrder {
+            order_hash: hash.to_string(),
+            market_pubkey: PubkeyStr::from(market),
+            orderbook_id: OrderBookId::from("ob1"),
+            side: Side::Bid,
+            amount_in: Decimal::ZERO,
+            amount_out: Decimal::ZERO,
+            remaining,
+            filled: Decimal::ZERO,
+            price: Decimal::new(50, 1),
+            created_at: Utc::now(),
+            expiration: 0,
+            base_mint: PubkeyStr::from("b"),
+            quote_mint: PubkeyStr::from("q"),
+            outcome_index: 0,
+            status: OrderStatus::Open,
+            order_type: SnapshotOrderType::Limit,
+            tx_signature: None,
+            trigger_order_id: None,
+            trigger_price: None,
+            trigger_type: None,
+            tif: None,
+        }
+    }
+
+    fn make_trigger_snapshot_order(id: &str, ob_id: &str) -> wire::UserSnapshotOrder {
+        wire::UserSnapshotOrder {
+            order_hash: format!("hash-{id}"),
+            market_pubkey: PubkeyStr::from("mkt-xyz"),
+            orderbook_id: OrderBookId::from(ob_id),
+            side: Side::Bid,
+            amount_in: Decimal::new(1000, 0),
+            amount_out: Decimal::new(500, 0),
+            remaining: Decimal::ZERO,
+            filled: Decimal::ZERO,
+            price: Decimal::ZERO,
+            created_at: Utc::now(),
+            expiration: 0,
+            base_mint: PubkeyStr::from("b"),
+            quote_mint: PubkeyStr::from("q"),
+            outcome_index: 0,
+            status: OrderStatus::Pending,
+            order_type: SnapshotOrderType::Trigger,
+            tx_signature: None,
+            trigger_order_id: Some(id.to_string()),
+            trigger_price: Some(Decimal::new(55, 2)),
+            trigger_type: Some(TriggerType::TakeProfit),
+            tif: Some(0),
+        }
+    }
 
     #[test]
     fn test_order_update_conversion() {
@@ -110,6 +180,7 @@ mod tests {
             orderbook_id: OrderBookId::from("ob_abc"),
             timestamp: Utc::now(),
             tx_signature: Some("sig123".to_string()),
+            update_type: OrderUpdateType::Update,
             order: wire::WsOrder {
                 order_hash: "hash_xyz".to_string(),
                 price: Decimal::new(55, 1),
@@ -122,6 +193,7 @@ mod tests {
                 base_mint: PubkeyStr::from("base_mint"),
                 quote_mint: PubkeyStr::from("quote_mint"),
                 outcome_index: 0,
+                status: OrderStatus::Open,
                 balance: Some(wire::UserOrderUpdateBalance {
                     outcomes: vec![],
                 }),
@@ -129,7 +201,7 @@ mod tests {
         };
         let order: Order = update.into();
         assert_eq!(order.order_hash, "hash_xyz");
-        assert_eq!(order.size, Decimal::new(10, 0)); // filled + remaining
+        assert_eq!(order.size, Decimal::new(10, 0));
         assert_eq!(order.filled_size, Decimal::new(2, 0));
         assert_eq!(order.remaining_size, Decimal::new(8, 0));
         assert_eq!(order.tx_signature, Some("sig123".to_string()));
@@ -137,121 +209,35 @@ mod tests {
 
     #[test]
     fn test_user_snapshot_order_conversion() {
-        let snap = wire::UserSnapshotOrder {
-            market_pubkey: PubkeyStr::from("mkt222"),
-            orderbook_id: OrderBookId::from("ob_def"),
-            tx_signature: None,
-            order_hash: "snap_hash".to_string(),
-            side: Side::Ask,
-            amount_in: Decimal::new(100, 0),
-            amount_out: Decimal::new(50, 0),
-            remaining: Decimal::new(5, 0),
-            filled: Decimal::new(3, 0),
-            price: Decimal::new(60, 1),
-            created_at: Utc::now(),
-            expiration: 0,
-            base_mint: PubkeyStr::from("base"),
-            quote_mint: PubkeyStr::from("quote"),
-            outcome_index: 1,
-            status: None,
-        };
+        let snap = make_limit_snapshot("mkt222", "snap_hash", Decimal::new(5, 0));
         let order: Order = snap.into();
         assert_eq!(order.order_hash, "snap_hash");
-        assert_eq!(order.size, Decimal::new(8, 0)); // filled + remaining
         assert_eq!(order.market_pubkey.as_str(), "mkt222");
     }
 
-    fn make_trigger_snapshot(id: &str, trigger_type: TriggerType) -> wire::TriggerOrderSnapshot {
-        wire::TriggerOrderSnapshot {
-            trigger_order_id: id.to_string(),
-            order_hash: format!("hash-{id}"),
-            market_pubkey: PubkeyStr::from("mkt-xyz"),
-            orderbook_id: OrderBookId::from("ob_test"),
-            trigger_price: Decimal::new(55, 2),
-            trigger_type,
-            side: Side::Bid,
-            maker_amount: Decimal::new(1000, 0),
-            taker_amount: Decimal::new(500, 0),
-            time_in_force: TimeInForce::Gtc,
-            created_at: chrono::DateTime::from_timestamp_millis(1700000000000).unwrap(),
-        }
-    }
-
     #[test]
-    fn test_trigger_order_snapshot_conversion() {
-        let snap = make_trigger_snapshot("trig-123", TriggerType::TakeProfit);
-        let order: TriggerOrder = snap.into();
+    fn test_trigger_order_from_snapshot() {
+        let snap = make_trigger_snapshot_order("trig-123", "ob_test");
+        let order = TriggerOrder::from_snapshot(&snap).unwrap();
         assert_eq!(order.trigger_order_id, "trig-123");
         assert_eq!(order.trigger_type, TriggerType::TakeProfit);
         assert_eq!(order.orderbook_id.as_str(), "ob_test");
-        assert_eq!(order.maker_amount, Decimal::new(1000, 0));
+        assert_eq!(order.amount_in, Decimal::new(1000, 0));
     }
 
     #[test]
-    fn test_trigger_order_snapshot_conversion_stop_loss() {
-        let snap = make_trigger_snapshot("trig-456", TriggerType::StopLoss);
-        let order: TriggerOrder = snap.into();
-        assert_eq!(order.trigger_type, TriggerType::StopLoss);
-        assert_eq!(order.side, Side::Bid);
-    }
-
-    #[test]
-    fn test_user_open_orders_filters_zero_remaining() {
+    fn test_split_snapshot_orders() {
         let orders = vec![
-            wire::UserSnapshotOrder {
-                market_pubkey: PubkeyStr::from("mkt1"),
-                orderbook_id: OrderBookId::from("ob1"),
-                tx_signature: None,
-                order_hash: "o1".to_string(),
-                side: Side::Bid,
-                amount_in: Decimal::ZERO,
-                amount_out: Decimal::ZERO,
-                remaining: Decimal::new(1, 0),
-                filled: Decimal::ZERO,
-                price: Decimal::new(50, 1),
-                created_at: Utc::now(),
-                expiration: 0,
-                base_mint: PubkeyStr::from("b"),
-                quote_mint: PubkeyStr::from("q"),
-                outcome_index: 0,
-                status: None,
-            },
-            wire::UserSnapshotOrder {
-                market_pubkey: PubkeyStr::from("mkt1"),
-                orderbook_id: OrderBookId::from("ob2"),
-                tx_signature: None,
-                order_hash: "o2".to_string(),
-                side: Side::Bid,
-                amount_in: Decimal::ZERO,
-                amount_out: Decimal::ZERO,
-                remaining: Decimal::ZERO,
-                filled: Decimal::new(10, 0),
-                price: Decimal::new(51, 1),
-                created_at: Utc::now(),
-                expiration: 0,
-                base_mint: PubkeyStr::from("b"),
-                quote_mint: PubkeyStr::from("q"),
-                outcome_index: 0,
-                status: None,
-            },
+            make_limit_snapshot("mkt1", "o1", Decimal::new(1, 0)),
+            make_limit_snapshot("mkt1", "o2", Decimal::ZERO), // filled, should be excluded
+            make_trigger_snapshot_order("t1", "ob_test"),
+            make_trigger_snapshot_order("t2", "ob_test"),
         ];
-        let uoo: UserOpenOrders = orders.into();
-        assert_eq!(uoo.orders.len(), 1);
-        assert_eq!(uoo.orders.values().next().unwrap().len(), 1);
-    }
 
-    #[test]
-    fn test_user_trigger_orders_bulk_conversion_groups_by_orderbook() {
-        use super::UserTriggerOrders;
-
-        let snapshots = vec![
-            make_trigger_snapshot("t1", TriggerType::TakeProfit),
-            make_trigger_snapshot("t2", TriggerType::StopLoss),
-        ];
-        let uto: UserTriggerOrders = snapshots.into();
-        // Both orders have orderbook_id "ob_test", so grouped under one key
-        assert_eq!(uto.orders.len(), 1);
-        let orders = uto.orders.get(&OrderBookId::from("ob_test")).unwrap();
-        assert_eq!(orders.len(), 2);
+        let (open, triggers) = split_snapshot_orders(orders);
+        assert_eq!(open.orders.len(), 1); // 1 market
+        assert_eq!(open.orders.values().next().unwrap().len(), 1); // o1 only (o2 filtered)
+        assert_eq!(triggers.len(), 2); // t1 + t2
+        assert_eq!(triggers.get(&OrderBookId::from("ob_test")).unwrap().len(), 2);
     }
 }

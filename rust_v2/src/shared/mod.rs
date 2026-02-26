@@ -195,6 +195,17 @@ pub enum TimeInForce {
     Alo,
 }
 
+// ─── SnapshotOrderType ──────────────────────────────────────────────────────
+
+/// Discriminator for orders in REST/WS snapshot arrays.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SnapshotOrderType {
+    #[default]
+    Limit,
+    Trigger,
+}
+
 // ─── TriggerType ─────────────────────────────────────────────────────────────
 
 /// Trigger order type.
@@ -219,6 +230,30 @@ pub enum TriggerStatus {
     /// Trigger condition met, but order submission failed.
     Failed,
     /// Trigger condition met, but the pre-signed order had expired.
+    Expired,
+}
+
+// ─── OrderUpdateType ────────────────────────────────────────────────────────
+
+/// WS limit order update type.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum OrderUpdateType {
+    Placement,
+    #[default]
+    Update,
+    Cancellation,
+}
+
+// ─── TriggerUpdateType ─────────────────────────────────────────────────────
+
+/// WS trigger order update type (uppercase version of TriggerStatus).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum TriggerUpdateType {
+    #[default]
+    Triggered,
+    Failed,
     Expired,
 }
 

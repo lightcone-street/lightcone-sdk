@@ -976,7 +976,7 @@ mod tests {
 
         let keypair = Keypair::new();
         let order_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-        let maker = keypair.pubkey().to_string();
+        let maker = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
 
         let body = CancelBody::signed(order_hash.to_string(), maker, &keypair);
         assert_eq!(body.signature.len(), 128);
@@ -995,18 +995,18 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let pubkey_str = keypair.pubkey().to_string();
+        let pubkey_str = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
         let timestamp = 1700000000i64;
 
         let body = CancelAllBody::signed(
             pubkey_str.clone(),
-            String::new(),
+            crate::shared::OrderBookId::from(""),
             timestamp,
             &keypair,
         );
         assert_eq!(body.signature.len(), 128);
 
-        let message = cancel_all_message(&pubkey_str, timestamp);
+        let message = cancel_all_message(pubkey_str.as_str(), timestamp);
         let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));

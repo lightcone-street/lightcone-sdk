@@ -1,7 +1,7 @@
 //! Order domain — orders, open order tracking.
 
 pub mod client;
-mod convert;
+pub mod convert;
 pub mod state;
 pub mod wire;
 
@@ -17,7 +17,7 @@ pub use client::{
 };
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
-    ConditionalBalance, TriggerOrderSnapshot, TriggerOrderUpdate, UserSnapshotBalance,
+    ConditionalBalance, OrderEvent, TriggerOrderUpdate, UserSnapshotBalance,
     UserSnapshotOrder,
 };
 
@@ -44,12 +44,15 @@ impl std::fmt::Display for OrderType {
 
 // ─── OrderStatus ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum OrderStatus {
-    Filled,
+    #[default]
     Open,
+    Matching,
     Cancelled,
+    Filled,
+    Pending,
 }
 
 // ─── Order ───────────────────────────────────────────────────────────────────
@@ -85,8 +88,8 @@ pub struct TriggerOrder {
     pub trigger_price: Decimal,
     pub trigger_type: TriggerType,
     pub side: Side,
-    pub maker_amount: Decimal,
-    pub taker_amount: Decimal,
+    pub amount_in: Decimal,
+    pub amount_out: Decimal,
     pub time_in_force: TimeInForce,
     pub created_at: DateTime<Utc>,
 }

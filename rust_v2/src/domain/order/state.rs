@@ -136,7 +136,8 @@ impl Default for UserTriggerOrders {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::{OrderBookId, Side};
+    use crate::domain::order::OrderStatus;
+    use crate::shared::{OrderBookId, OrderUpdateType, Side};
     use chrono::Utc;
     use rust_decimal::Decimal;
 
@@ -146,6 +147,7 @@ mod tests {
             orderbook_id: OrderBookId::from("ob1"),
             timestamp: Utc::now(),
             tx_signature: None,
+            update_type: OrderUpdateType::Update,
             order: wire::WsOrder {
                 order_hash: order_hash.to_string(),
                 price: Decimal::new(50, 1),
@@ -158,6 +160,7 @@ mod tests {
                 base_mint: PubkeyStr::from("base"),
                 quote_mint: PubkeyStr::from("quote"),
                 outcome_index: 0,
+                status: OrderStatus::Open,
                 balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
             },
         }
@@ -217,8 +220,8 @@ mod tests {
             trigger_price: Decimal::new(55, 2),
             trigger_type: TriggerType::TakeProfit,
             side: Side::Bid,
-            maker_amount: Decimal::new(1000, 0),
-            taker_amount: Decimal::new(500, 0),
+            amount_in: Decimal::new(1000, 0),
+            amount_out: Decimal::new(500, 0),
             time_in_force: TimeInForce::Gtc,
             created_at: chrono::DateTime::from_timestamp_millis(1700000000000).unwrap(),
         }

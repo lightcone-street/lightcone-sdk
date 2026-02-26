@@ -1,6 +1,7 @@
 //! Wire types for order and user WS messages.
 
-use crate::shared::{serde_util, OrderBookId, PubkeyStr, Side, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType};
+use super::OrderStatus;
+use crate::shared::{serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, SnapshotOrderType, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType, TriggerUpdateType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -42,13 +43,16 @@ pub struct UserSnapshotBalance {
 
 // ─── WS order wire types ────────────────────────────────────────────────────
 
-/// WS order update event.
+/// WS order update event (limit orders).
 #[derive(Deserialize, Debug, Clone)]
 pub struct OrderUpdate {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
     pub timestamp: DateTime<Utc>,
     pub tx_signature: Option<String>,
+    /// "PLACEMENT", "UPDATE", or "CANCELLATION".
+    #[serde(rename = "type", default)]
+    pub update_type: OrderUpdateType,
     pub order: WsOrder,
 }
 
@@ -67,35 +71,58 @@ pub struct WsOrder {
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
     pub outcome_index: i16,
+    #[serde(default)]
+    pub status: OrderStatus,
     /// Balance is absent on cancellation events.
     #[serde(default)]
     pub balance: Option<UserOrderUpdateBalance>,
 }
 
-/// WS order snapshot (initial state on connect).
+/// Order snapshot — unified type for both limit and trigger orders.
+///
+/// Used in both REST `GET /api/users/orders` and WS user snapshots.
+/// Limit and trigger orders appear in the same `orders` array,
+/// discriminated by `order_type`. Trigger-only fields are `Option`.
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct UserSnapshotOrder {
+    pub order_hash: String,
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
-    pub tx_signature: Option<String>,
-    pub order_hash: String,
     pub side: Side,
     #[serde(alias = "maker_amount")]
     pub amount_in: Decimal,
     #[serde(alias = "taker_amount")]
     pub amount_out: Decimal,
+    #[serde(default)]
     pub remaining: Decimal,
+    #[serde(default)]
     pub filled: Decimal,
+    #[serde(default)]
     pub price: Decimal,
     #[serde(with = "serde_util::timestamp_ms")]
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
     pub expiration: u64,
     pub base_mint: PubkeyStr,
     pub quote_mint: PubkeyStr,
     pub outcome_index: i16,
-    /// Present in REST responses, absent in WS snapshots.
     #[serde(default)]
-    pub status: Option<super::OrderStatus>,
+    pub status: OrderStatus,
+    /// "limit" or "trigger" — discriminates order type in the array.
+    #[serde(default)]
+    pub order_type: SnapshotOrderType,
+    // ─── Limit-only optional fields ─────────────────────────────
+    #[serde(default)]
+    pub tx_signature: Option<String>,
+    // ─── Trigger-only optional fields ───────────────────────────
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_order_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_price: Option<Decimal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<TriggerType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tif: Option<u32>,
 }
 
 /// Balance information attached to an order update.
@@ -142,6 +169,9 @@ pub struct TriggerOrderUpdate {
     pub trigger_price: Decimal,
     pub trigger_above: bool,
     pub status: TriggerStatus,
+    /// Uppercase version of status: "TRIGGERED", "FAILED", or "EXPIRED".
+    #[serde(rename = "type", default)]
+    pub update_type: TriggerUpdateType,
     pub order_hash: String,
     pub side: Side,
     #[serde(default, with = "serde_util::empty_string_as_none")]
@@ -153,6 +183,19 @@ pub struct TriggerOrderUpdate {
     pub timestamp: DateTime<Utc>,
 }
 
+/// WS order event — two-level dispatch on `order_type`.
+///
+/// Both limit and trigger order updates arrive as `event_type: "order"`,
+/// discriminated by `order_type: "limit"` or `"trigger"`.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "order_type")]
+pub enum OrderEvent {
+    #[serde(rename = "limit")]
+    Limit(OrderUpdate),
+    #[serde(rename = "trigger")]
+    Trigger(TriggerOrderUpdate),
+}
+
 /// WS user update — tagged enum.
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "event_type")]
@@ -160,11 +203,9 @@ pub enum UserUpdate {
     #[serde(rename = "snapshot")]
     Snapshot(UserSnapshot),
     #[serde(rename = "order")]
-    OrderUpdate(OrderUpdate),
+    Order(OrderEvent),
     #[serde(rename = "balance_update")]
     BalanceUpdate(UserBalanceUpdate),
-    #[serde(rename = "trigger_order")]
-    TriggerOrderUpdate(TriggerOrderUpdate),
 }
 
 /// WS auth update.

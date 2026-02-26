@@ -86,8 +86,8 @@ pub mod prelude {
     // Domain types — order
     pub use crate::domain::order::{
         CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
-        CancelTriggerSuccess, ConditionalBalance, FillInfo, Order, OrderStatus, OrderType,
-        SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderSnapshot,
+        CancelTriggerSuccess, ConditionalBalance, FillInfo, Order, OrderEvent, OrderStatus,
+        OrderType, SubmitOrderResponse, TriggerOrder, TriggerOrderResponse,
         TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse, UserSnapshotBalance,
         UserSnapshotOrder, UserTriggerOrders,
     };
