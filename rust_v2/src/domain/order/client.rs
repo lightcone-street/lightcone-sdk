@@ -5,6 +5,7 @@ use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
+use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use solana_signature::Signature;
 
@@ -280,7 +281,7 @@ pub enum CancelTriggerResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrdersResponse {
-    pub user_pubkey: crate::shared::PubkeyStr,
+    pub user_pubkey: PubkeyStr,
     pub orders: Vec<UserSnapshotOrder>,
     #[serde(default)]
     pub trigger_orders: Vec<TriggerOrderSnapshot>,

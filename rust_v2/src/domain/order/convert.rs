@@ -99,7 +99,7 @@ impl From<Vec<wire::UserSnapshotOrder>> for UserOpenOrders {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::shared::{OrderBookId, PubkeyStr, Side};
+    use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce, TriggerType};
     use chrono::Utc;
     use rust_decimal::Decimal;
 
@@ -161,7 +161,7 @@ mod tests {
         assert_eq!(order.market_pubkey.as_str(), "mkt222");
     }
 
-    fn make_trigger_snapshot(id: &str, trigger_type: crate::shared::TriggerType) -> wire::TriggerOrderSnapshot {
+    fn make_trigger_snapshot(id: &str, trigger_type: TriggerType) -> wire::TriggerOrderSnapshot {
         wire::TriggerOrderSnapshot {
             trigger_order_id: id.to_string(),
             order_hash: format!("hash-{id}"),
@@ -172,26 +172,26 @@ mod tests {
             side: Side::Bid,
             maker_amount: Decimal::new(1000, 0),
             taker_amount: Decimal::new(500, 0),
-            time_in_force: crate::shared::TimeInForce::Gtc,
+            time_in_force: TimeInForce::Gtc,
             created_at: chrono::DateTime::from_timestamp_millis(1700000000000).unwrap(),
         }
     }
 
     #[test]
     fn test_trigger_order_snapshot_conversion() {
-        let snap = make_trigger_snapshot("trig-123", crate::shared::TriggerType::TakeProfit);
+        let snap = make_trigger_snapshot("trig-123", TriggerType::TakeProfit);
         let order: TriggerOrder = snap.into();
         assert_eq!(order.trigger_order_id, "trig-123");
-        assert_eq!(order.trigger_type, crate::shared::TriggerType::TakeProfit);
+        assert_eq!(order.trigger_type, TriggerType::TakeProfit);
         assert_eq!(order.orderbook_id.as_str(), "ob_test");
         assert_eq!(order.maker_amount, Decimal::new(1000, 0));
     }
 
     #[test]
     fn test_trigger_order_snapshot_conversion_stop_loss() {
-        let snap = make_trigger_snapshot("trig-456", crate::shared::TriggerType::StopLoss);
+        let snap = make_trigger_snapshot("trig-456", TriggerType::StopLoss);
         let order: TriggerOrder = snap.into();
-        assert_eq!(order.trigger_type, crate::shared::TriggerType::StopLoss);
+        assert_eq!(order.trigger_type, TriggerType::StopLoss);
         assert_eq!(order.side, Side::Bid);
     }
 
@@ -245,8 +245,8 @@ mod tests {
         use super::UserTriggerOrders;
 
         let snapshots = vec![
-            make_trigger_snapshot("t1", crate::shared::TriggerType::TakeProfit),
-            make_trigger_snapshot("t2", crate::shared::TriggerType::StopLoss),
+            make_trigger_snapshot("t1", TriggerType::TakeProfit),
+            make_trigger_snapshot("t2", TriggerType::StopLoss),
         ];
         let uto: UserTriggerOrders = snapshots.into();
         // Both orders have orderbook_id "ob_test", so grouped under one key

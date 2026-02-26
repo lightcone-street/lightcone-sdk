@@ -21,6 +21,7 @@ use crate::domain::price_history::client::PriceHistoryClient;
 use crate::domain::trade::client::Trades;
 use crate::error::SdkError;
 use crate::http::LightconeHttp;
+use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 use crate::ws::WsConfig;
 
 use async_lock::RwLock;
@@ -153,8 +154,8 @@ pub struct LightconeClientBuilder {
 impl Default for LightconeClientBuilder {
     fn default() -> Self {
         Self {
-            base_url: crate::network::DEFAULT_API_URL.to_string(),
-            ws_url: crate::network::DEFAULT_WS_URL.to_string(),
+            base_url: DEFAULT_API_URL.to_string(),
+            ws_url: DEFAULT_WS_URL.to_string(),
             auth_credentials: None,
         }
     }
