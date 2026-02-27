@@ -13,4 +13,5 @@ pub mod order;
 pub mod orderbook;
 pub mod position;
 pub mod price_history;
+pub mod referral;
 pub mod trade;

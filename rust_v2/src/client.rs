@@ -18,6 +18,7 @@ use crate::domain::orderbook::client::Orderbooks;
 use crate::domain::orderbook::wire::DecimalsResponse;
 use crate::domain::position::client::Positions;
 use crate::domain::price_history::client::PriceHistoryClient;
+use crate::domain::referral::client::Referrals;
 use crate::domain::trade::client::Trades;
 use crate::error::SdkError;
 use crate::http::LightconeHttp;
@@ -35,6 +36,7 @@ pub use crate::domain::order::client::Orders as OrdersClient;
 pub use crate::domain::orderbook::client::Orderbooks as OrderbooksClient;
 pub use crate::domain::position::client::Positions as PositionsClient;
 pub use crate::domain::price_history::client::PriceHistoryClient as PriceHistorySubClient;
+pub use crate::domain::referral::client::Referrals as ReferralsClient;
 pub use crate::domain::trade::client::Trades as TradesClient;
 
 /// The primary entry point for the Lightcone SDK.
@@ -95,6 +97,10 @@ impl LightconeClient {
 
     pub fn privy(&self) -> Privy<'_> {
         Privy { client: self }
+    }
+
+    pub fn referrals(&self) -> Referrals<'_> {
+        Referrals { client: self }
     }
 
     /// Get the WS config for creating a WebSocket connection.
