@@ -33,11 +33,16 @@ pub struct SignAndSendTxResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignAndSendOrderRequest {
     pub wallet_id: String,
-    pub order: OrderForSigning,
+    pub order: PrivyOrderEnvelope,
 }
 
+/// Wire type for the backend's Privy sign-and-send-order endpoint.
+///
+/// Matches the backend's `OrderForSigning` struct exactly.
+/// Prefer using the `from_limit()` / `from_trigger()` constructors
+/// over building this manually.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderForSigning {
+pub struct PrivyOrderEnvelope {
     pub maker: String,
     pub nonce: u64,
     pub market_pubkey: String,
@@ -49,13 +54,103 @@ pub struct OrderForSigning {
     #[serde(default)]
     pub expiration: i64,
     pub orderbook_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
+    pub time_in_force: Option<crate::shared::TimeInForce>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<crate::shared::TriggerType>,
+}
+
+impl PrivyOrderEnvelope {
+    /// Build from a `LimitOrderEnvelope`. Trigger fields are left `None`.
+    pub fn from_limit(
+        envelope: &crate::program::envelope::LimitOrderEnvelope,
+        orderbook_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            maker: envelope
+                .fields_maker()
+                .expect("maker is required")
+                .to_string(),
+            nonce: envelope.fields_nonce().expect("nonce is required") as u64,
+            market_pubkey: envelope
+                .fields_market()
+                .expect("market is required")
+                .to_string(),
+            base_token: envelope
+                .fields_base_mint()
+                .expect("base_mint is required")
+                .to_string(),
+            quote_token: envelope
+                .fields_quote_mint()
+                .expect("quote_mint is required")
+                .to_string(),
+            side: envelope.fields_side().expect("side is required") as u32,
+            amount_in: envelope.fields_amount_in().expect("amount_in is required"),
+            amount_out: envelope
+                .fields_amount_out()
+                .expect("amount_out is required"),
+            expiration: envelope.fields_expiration(),
+            orderbook_id: orderbook_id.into(),
+            time_in_force: None,
+            trigger_price: None,
+            trigger_type: None,
+        }
+    }
+
+    /// Build from a `TriggerOrderEnvelope`.
+    pub fn from_trigger(
+        envelope: &crate::program::envelope::TriggerOrderEnvelope,
+        orderbook_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            maker: envelope
+                .fields_maker()
+                .expect("maker is required")
+                .to_string(),
+            nonce: envelope.fields_nonce().expect("nonce is required") as u64,
+            market_pubkey: envelope
+                .fields_market()
+                .expect("market is required")
+                .to_string(),
+            base_token: envelope
+                .fields_base_mint()
+                .expect("base_mint is required")
+                .to_string(),
+            quote_token: envelope
+                .fields_quote_mint()
+                .expect("quote_mint is required")
+                .to_string(),
+            side: envelope.fields_side().expect("side is required") as u32,
+            amount_in: envelope.fields_amount_in().expect("amount_in is required"),
+            amount_out: envelope
+                .fields_amount_out()
+                .expect("amount_out is required"),
+            expiration: envelope.fields_expiration(),
+            orderbook_id: orderbook_id.into(),
+            time_in_force: envelope.fields_time_in_force(),
+            trigger_price: envelope.fields_trigger_price(),
+            trigger_type: envelope.fields_trigger_type(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignAndCancelOrderRequest {
     pub wallet_id: String,
-    pub order_hash: String,
     pub maker: String,
+    #[serde(flatten)]
+    pub cancel: CancelTarget,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "cancel_type")]
+pub enum CancelTarget {
+    #[serde(rename = "limit")]
+    Limit { order_hash: String },
+    #[serde(rename = "trigger")]
+    Trigger { trigger_order_id: String },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

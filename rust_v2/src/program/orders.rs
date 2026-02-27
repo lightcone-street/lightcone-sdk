@@ -35,7 +35,7 @@ use crate::shared::SubmitOrderRequest;
 /// - [153..161] expiration (8 bytes)
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
-pub struct SignedOrder {
+pub struct OrderPayload {
     /// Unique order ID and replay protection (u32 range, serialized as u64 on wire)
     pub nonce: u32,
     /// Order maker's pubkey
@@ -58,7 +58,7 @@ pub struct SignedOrder {
     pub signature: [u8; 64],
 }
 
-impl SignedOrder {
+impl OrderPayload {
     /// Order size in bytes
     pub const LEN: usize = SIGNED_ORDER_SIZE;
 
@@ -266,24 +266,16 @@ impl SignedOrder {
         self.signature != [0u8; 64]
     }
 
-    // =========================================================================
-    // API Bridge Methods
-    // =========================================================================
-
-    /// Convert a signed order to an API SubmitOrderRequest.
+    /// Convert a signed payload to a `SubmitOrderRequest` (limit order, no trigger fields).
     ///
-    /// This bridges on-chain order creation with REST API submission.
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook_id` - Target orderbook (get from market API or use `derive_orderbook_id()`)
-    ///
-    /// # Errors
-    ///
-    /// Returns `SdkError::UnsignedOrder` if the order has not been signed.
-    pub fn to_submit_request(
+    /// Intended for internal use by envelope types. Prefer using
+    /// `LimitOrderEnvelope::sign()` or `TriggerOrderEnvelope::sign()`.
+    pub(crate) fn to_submit_request(
         &self,
         orderbook_id: impl Into<String>,
+        time_in_force: Option<crate::shared::TimeInForce>,
+        trigger_price: Option<f64>,
+        trigger_type: Option<crate::shared::TriggerType>,
     ) -> Result<SubmitOrderRequest, SdkError> {
         if self.signature == [0u8; 64] {
             return Err(SdkError::UnsignedOrder);
@@ -301,6 +293,9 @@ impl SignedOrder {
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
+            time_in_force,
+            trigger_price,
+            trigger_type,
         })
     }
 
@@ -399,8 +394,8 @@ impl Order {
         base_mint: Pubkey,
         quote_mint: Pubkey,
         signature: [u8; 64],
-    ) -> SignedOrder {
-        SignedOrder {
+    ) -> OrderPayload {
+        OrderPayload {
             nonce: self.nonce,
             maker,
             market,
@@ -420,14 +415,14 @@ impl Order {
 // ============================================================================
 
 /// Check if an order is expired.
-pub fn is_order_expired(order: &SignedOrder, current_time: i64) -> bool {
+pub fn is_order_expired(order: &OrderPayload, current_time: i64) -> bool {
     order.expiration != 0 && current_time >= order.expiration
 }
 
 /// Check if two orders can cross (prices are compatible).
 ///
 /// Returns true if the buyer's price >= seller's price.
-pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bool {
+pub fn orders_can_cross(buy_order: &OrderPayload, sell_order: &OrderPayload) -> bool {
     if buy_order.side != OrderSide::Bid || sell_order.side != OrderSide::Ask {
         return false;
     }
@@ -455,7 +450,7 @@ pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bo
 }
 
 /// Calculate the taker fill amount given a maker fill amount.
-pub fn calculate_taker_fill(maker_order: &SignedOrder, maker_fill_amount: u64) -> SdkResult<u64> {
+pub fn calculate_taker_fill(maker_order: &OrderPayload, maker_fill_amount: u64) -> SdkResult<u64> {
     if maker_order.amount_in == 0 {
         return Err(SdkError::Overflow);
     }
@@ -493,6 +488,13 @@ pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
     order_hash.as_bytes().to_vec()
 }
 
+/// Build the message bytes for cancelling a trigger order.
+///
+/// The message is the trigger_order_id as UTF-8 bytes.
+pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
+    trigger_order_id.as_bytes().to_vec()
+}
+
 /// Build the message string for cancelling all orders.
 ///
 /// Format: `"cancel_all:{pubkey}:{timestamp}"`
@@ -505,8 +507,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_signed_order_serialization_roundtrip() {
-        let order = SignedOrder {
+    fn test_order_payload_serialization_roundtrip() {
+        let order = OrderPayload {
             nonce: 12345,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -520,7 +522,7 @@ mod tests {
         };
 
         let serialized = order.serialize();
-        let deserialized = SignedOrder::deserialize(&serialized).unwrap();
+        let deserialized = OrderPayload::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.maker, deserialized.maker);
@@ -568,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_order_hash_consistency() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -588,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_signed_order_to_order_roundtrip() {
-        let signed = SignedOrder {
+        let signed = OrderPayload {
             nonce: 42,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -622,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_orders_can_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -635,7 +637,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -654,7 +656,7 @@ mod tests {
 
     #[test]
     fn test_orders_cannot_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -667,7 +669,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -686,7 +688,7 @@ mod tests {
 
     #[test]
     fn test_calculate_taker_fill() {
-        let maker_order = SignedOrder {
+        let maker_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -716,7 +718,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 42,
             maker,
             market,
@@ -731,7 +733,7 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook").unwrap();
+        let request = order.to_submit_request("test_orderbook", None, None, None).unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -748,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_derive_orderbook_id() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -776,7 +778,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -803,7 +805,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -833,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_to_submit_request_errors_unsigned() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -846,11 +848,18 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let result = order.to_submit_request("test_orderbook");
+        let result = order.to_submit_request("test_orderbook", None, None, None);
         assert!(result.is_err());
         assert!(
             result.unwrap_err().to_string().contains("must be signed"),
         );
+    }
+
+    #[test]
+    fn test_cancel_trigger_order_message() {
+        let id = "trigger-order-uuid-123";
+        let message = cancel_trigger_order_message(id);
+        assert_eq!(message, id.as_bytes());
     }
 
     #[test]
@@ -877,7 +886,7 @@ mod tests {
 
         let keypair = Keypair::new();
         let order_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-        let maker = keypair.pubkey().to_string();
+        let maker = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
 
         let body = CancelBody::signed(order_hash.to_string(), maker, &keypair);
         assert_eq!(body.signature.len(), 128);
@@ -896,18 +905,18 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let pubkey_str = keypair.pubkey().to_string();
+        let pubkey_str = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
         let timestamp = 1700000000i64;
 
         let body = CancelAllBody::signed(
             pubkey_str.clone(),
-            String::new(),
+            crate::shared::OrderBookId::from(""),
             timestamp,
             &keypair,
         );
         assert_eq!(body.signature.len(), 128);
 
-        let message = cancel_all_message(&pubkey_str, timestamp);
+        let message = cancel_all_message(pubkey_str.as_str(), timestamp);
         let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));

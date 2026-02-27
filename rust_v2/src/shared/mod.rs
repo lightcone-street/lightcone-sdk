@@ -173,6 +173,93 @@ impl std::fmt::Display for Side {
     }
 }
 
+// ─── TimeInForce ─────────────────────────────────────────────────────────────
+
+/// Time-in-force policy for order execution.
+///
+/// Serializes as uppercase strings: `"GTC"`, `"IOC"`, `"FOK"`, `"ALO"`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+pub enum TimeInForce {
+    /// Good-til-cancelled (default)
+    #[default]
+    #[serde(rename = "GTC")]
+    Gtc,
+    /// Immediate-or-cancel
+    #[serde(rename = "IOC")]
+    Ioc,
+    /// Fill-or-kill
+    #[serde(rename = "FOK")]
+    Fok,
+    /// Add-liquidity-only (post-only)
+    #[serde(rename = "ALO")]
+    Alo,
+}
+
+// ─── TriggerType ─────────────────────────────────────────────────────────────
+
+/// Trigger order type.
+///
+/// Serializes as `"TP"` (take-profit) or `"SL"` (stop-loss).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TriggerType {
+    #[serde(rename = "TP")]
+    TakeProfit,
+    #[serde(rename = "SL")]
+    StopLoss,
+}
+
+// ─── TriggerStatus ──────────────────────────────────────────────────────────
+
+/// Lifecycle status of a trigger order from WS updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TriggerStatus {
+    /// Trigger condition met, order was submitted.
+    Triggered,
+    /// Trigger condition met, but order submission failed.
+    Failed,
+    /// Trigger condition met, but the pre-signed order had expired.
+    Expired,
+}
+
+// ─── OrderUpdateType ────────────────────────────────────────────────────────
+
+/// WS limit order update type.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum OrderUpdateType {
+    Placement,
+    #[default]
+    Update,
+    Cancellation,
+}
+
+// ─── TriggerUpdateType ─────────────────────────────────────────────────────
+
+/// WS trigger order update type (uppercase version of TriggerStatus).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+pub enum TriggerUpdateType {
+    #[default]
+    Triggered,
+    Failed,
+    Expired,
+}
+
+// ─── TriggerResultStatus ────────────────────────────────────────────────────
+
+/// Result status of a triggered order after matching.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TriggerResultStatus {
+    /// Order matched (at least partially).
+    Filled,
+    /// Order placed on book (GTC with no immediate match).
+    Accepted,
+    /// FOK/IOC that couldn't fill.
+    Rejected,
+}
+
 // ─── Resolution ──────────────────────────────────────────────────────────────
 
 /// Price history candle resolution.
@@ -278,6 +365,95 @@ mod tests {
         assert_eq!(r, Resolution::Hour1);
         assert_eq!(r.seconds(), 3600);
     }
+
+    #[test]
+    fn test_time_in_force_serde_roundtrip() {
+        let cases = [
+            (TimeInForce::Gtc, "\"GTC\""),
+            (TimeInForce::Ioc, "\"IOC\""),
+            (TimeInForce::Fok, "\"FOK\""),
+            (TimeInForce::Alo, "\"ALO\""),
+        ];
+        for (variant, expected_json) in &cases {
+            let json = serde_json::to_string(variant).unwrap();
+            assert_eq!(&json, expected_json);
+            let back: TimeInForce = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, variant);
+        }
+    }
+
+    #[test]
+    fn test_time_in_force_default() {
+        assert_eq!(TimeInForce::default(), TimeInForce::Gtc);
+    }
+
+    #[test]
+    fn test_trigger_type_serde_roundtrip() {
+        let cases = [
+            (TriggerType::TakeProfit, "\"TP\""),
+            (TriggerType::StopLoss, "\"SL\""),
+        ];
+        for (variant, expected_json) in &cases {
+            let json = serde_json::to_string(variant).unwrap();
+            assert_eq!(&json, expected_json);
+            let back: TriggerType = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, variant);
+        }
+    }
+
+    #[test]
+    fn test_submit_order_request_without_tif_trigger() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            time_in_force: None,
+            trigger_price: None,
+            trigger_type: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        // Optional fields should be omitted when None
+        assert!(!json.contains("tif"));
+        assert!(!json.contains("trigger_price"));
+        assert!(!json.contains("trigger_type"));
+    }
+
+    #[test]
+    fn test_submit_order_request_with_tif_trigger() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            time_in_force: Some(TimeInForce::Ioc),
+            trigger_price: Some(0.55),
+            trigger_type: Some(TriggerType::TakeProfit),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"tif\":\"IOC\""));
+        assert!(json.contains("\"trigger_price\":0.55"));
+        assert!(json.contains("\"trigger_type\":\"TP\""));
+
+        let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.time_in_force, Some(TimeInForce::Ioc));
+        assert_eq!(back.trigger_price, Some(0.55));
+        assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
+    }
 }
 
 // ─── SubmitOrderRequest ──────────────────────────────────────────────────────
@@ -300,4 +476,10 @@ pub struct SubmitOrderRequest {
     pub expiration: i64,
     pub signature: String,
     pub orderbook_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
+    pub time_in_force: Option<TimeInForce>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_price: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trigger_type: Option<TriggerType>,
 }

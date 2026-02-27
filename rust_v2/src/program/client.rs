@@ -16,7 +16,7 @@ use crate::program::accounts::{Exchange, GlobalDepositToken, Market, Orderbook, 
 use crate::program::constants::PROGRAM_ID;
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
-use crate::program::orders::{derive_condition_id, SignedOrder};
+use crate::program::orders::{derive_condition_id, OrderPayload};
 use crate::program::pda::{
     get_all_conditional_mint_pdas, get_exchange_pda, get_global_deposit_token_pda,
     get_market_pda, get_order_status_pda, get_orderbook_pda, get_position_pda,
@@ -235,7 +235,7 @@ impl LightconePinocchioClient {
         &self,
         maker: &Pubkey,
         market: &Pubkey,
-        order: &SignedOrder,
+        order: &OrderPayload,
     ) -> SdkResult<Transaction> {
         let ix = build_cancel_order_ix(maker, market, order, &self.program_id);
         Ok(Transaction::new_with_payer(&[ix], Some(maker)))
@@ -375,13 +375,13 @@ impl LightconePinocchioClient {
     // ========================================================================
 
     /// Create an unsigned bid order.
-    pub fn create_bid_order(&self, params: BidOrderParams) -> SignedOrder {
-        SignedOrder::new_bid(params)
+    pub fn create_bid_order(&self, params: BidOrderParams) -> OrderPayload {
+        OrderPayload::new_bid(params)
     }
 
     /// Create an unsigned ask order.
-    pub fn create_ask_order(&self, params: AskOrderParams) -> SignedOrder {
-        SignedOrder::new_ask(params)
+    pub fn create_ask_order(&self, params: AskOrderParams) -> OrderPayload {
+        OrderPayload::new_ask(params)
     }
 
     /// Create and sign a bid order.
@@ -390,8 +390,8 @@ impl LightconePinocchioClient {
         &self,
         params: BidOrderParams,
         keypair: &Keypair,
-    ) -> SignedOrder {
-        SignedOrder::new_bid_signed(params, keypair)
+    ) -> OrderPayload {
+        OrderPayload::new_bid_signed(params, keypair)
     }
 
     /// Create and sign an ask order.
@@ -400,18 +400,18 @@ impl LightconePinocchioClient {
         &self,
         params: AskOrderParams,
         keypair: &Keypair,
-    ) -> SignedOrder {
-        SignedOrder::new_ask_signed(params, keypair)
+    ) -> OrderPayload {
+        OrderPayload::new_ask_signed(params, keypair)
     }
 
     /// Compute the hash of an order.
-    pub fn hash_order(&self, order: &SignedOrder) -> [u8; 32] {
+    pub fn hash_order(&self, order: &OrderPayload) -> [u8; 32] {
         order.hash()
     }
 
     /// Sign an order with the given keypair.
     #[cfg(feature = "native")]
-    pub fn sign_order(&self, order: &mut SignedOrder, keypair: &Keypair) {
+    pub fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair) {
         order.sign(keypair);
     }
 

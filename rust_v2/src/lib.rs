@@ -71,7 +71,7 @@ pub mod client;
 
 pub mod prelude {
     // Shared newtypes
-    pub use crate::shared::{OrderBookId, PubkeyStr, Resolution, Side};
+    pub use crate::shared::{OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType};
 
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
@@ -85,9 +85,11 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance, FillInfo,
-        Order, OrderStatus, OrderType, SubmitOrderResponse, UserOpenOrders, UserOrdersResponse,
-        UserSnapshotBalance, UserSnapshotOrder,
+        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
+        CancelTriggerSuccess, ConditionalBalance, FillInfo, Order, OrderEvent, OrderStatus,
+        OrderType, SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
+        UserOpenOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        UserTriggerOrders,
     };
 
     // Domain types — position (includes portfolio + token balances)
@@ -111,9 +113,14 @@ pub mod prelude {
         AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
     };
 
+    // Program — order envelopes and payload
+    pub use crate::program::{
+        LimitOrderEnvelope, OrderEnvelope, OrderPayload, TriggerOrderEnvelope,
+    };
+
     // Privy RPC types
     pub use crate::privy::{
-        ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndSendOrderRequest,
+        ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
         SignAndSendTxRequest, SignAndSendTxResponse,
     };
 

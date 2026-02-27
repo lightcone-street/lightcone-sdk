@@ -5,6 +5,8 @@ use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
+use crate::shared::{OrderBookId, PubkeyStr};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use solana_signature::Signature;
 
@@ -18,14 +20,14 @@ use solana_signer::Signer;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelBody {
     pub order_hash: String,
-    pub maker: String,
+    pub maker: PubkeyStr,
     pub signature: String,
 }
 
 impl CancelBody {
     /// Build a cancel request with a base58-encoded signature (from a wallet adapter).
     /// Converts base58 to the hex encoding the backend expects.
-    pub fn from_base58(order_hash: String, maker: String, sig_bs58: &str) -> SdkResult<Self> {
+    pub fn from_base58(order_hash: String, maker: PubkeyStr, sig_bs58: &str) -> SdkResult<Self> {
         let sig = sig_bs58
             .parse::<Signature>()
             .map_err(|_| ProgramSdkError::InvalidSignature)?;
@@ -39,7 +41,7 @@ impl CancelBody {
     /// Build a signed cancel request using a keypair.
     /// Signs `cancel_order_message(order_hash)` and hex-encodes the result.
     #[cfg(feature = "native-auth")]
-    pub fn signed(order_hash: String, maker: String, keypair: &Keypair) -> Self {
+    pub fn signed(order_hash: String, maker: PubkeyStr, keypair: &Keypair) -> Self {
         let message = crate::program::orders::cancel_order_message(&order_hash);
         let sig = keypair.sign_message(&message);
         Self {
@@ -52,9 +54,9 @@ impl CancelBody {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelAllBody {
-    pub user_pubkey: String,
+    pub user_pubkey: PubkeyStr,
     #[serde(default)]
-    pub orderbook_id: String,
+    pub orderbook_id: OrderBookId,
     pub signature: String,
     pub timestamp: i64,
 }
@@ -63,8 +65,8 @@ impl CancelAllBody {
     /// Build a cancel-all request with a base58-encoded signature (from a wallet adapter).
     /// Converts base58 to the hex encoding the backend expects.
     pub fn from_base58(
-        user_pubkey: String,
-        orderbook_id: String,
+        user_pubkey: PubkeyStr,
+        orderbook_id: OrderBookId,
         timestamp: i64,
         sig_bs58: &str,
     ) -> SdkResult<Self> {
@@ -83,13 +85,13 @@ impl CancelAllBody {
     /// Signs `cancel_all_message(user_pubkey, timestamp)` and hex-encodes the result.
     #[cfg(feature = "native-auth")]
     pub fn signed(
-        user_pubkey: String,
-        orderbook_id: String,
+        user_pubkey: PubkeyStr,
+        orderbook_id: OrderBookId,
         timestamp: i64,
         keypair: &Keypair,
     ) -> Self {
         let message =
-            crate::program::orders::cancel_all_message(&user_pubkey, timestamp);
+            crate::program::orders::cancel_all_message(user_pubkey.as_str(), timestamp);
         let sig = keypair.sign_message(message.as_bytes());
         Self {
             user_pubkey,
@@ -100,22 +102,62 @@ impl CancelAllBody {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelTriggerBody {
+    pub trigger_order_id: String,
+    pub maker: PubkeyStr,
+    pub signature: String,
+}
+
+impl CancelTriggerBody {
+    /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
+    /// Converts base58 to the hex encoding the backend expects.
+    pub fn from_base58(
+        trigger_order_id: String,
+        maker: PubkeyStr,
+        sig_bs58: &str,
+    ) -> SdkResult<Self> {
+        let sig = sig_bs58
+            .parse::<Signature>()
+            .map_err(|_| ProgramSdkError::InvalidSignature)?;
+        Ok(Self {
+            trigger_order_id,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        })
+    }
+
+    /// Build a signed cancel-trigger request using a native keypair.
+    /// Signs `cancel_trigger_order_message(trigger_order_id)` and hex-encodes the result.
+    #[cfg(feature = "native-auth")]
+    pub fn signed(trigger_order_id: String, maker: PubkeyStr, keypair: &Keypair) -> Self {
+        let message =
+            crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
+        let sig = keypair.sign_message(&message);
+        Self {
+            trigger_order_id,
+            maker,
+            signature: hex::encode(sig.as_ref()),
+        }
+    }
+}
+
 // ─── Response types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FillInfo {
-    pub counterparty: String,
+    pub counterparty: PubkeyStr,
     pub counterparty_order_hash: String,
-    pub fill_amount: String,
-    pub price: String,
+    pub fill_amount: Decimal,
+    pub price: Decimal,
     pub is_maker: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubmitOrderResponse {
     pub order_hash: String,
-    pub remaining: String,
-    pub filled: String,
+    pub remaining: Decimal,
+    pub filled: Decimal,
     pub fills: Vec<FillInfo>,
 }
 
@@ -126,19 +168,31 @@ pub enum PlaceResponse {
     PartialFill(SubmitOrderResponse),
     Filled(SubmitOrderResponse),
     Rejected {
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
+        order_hash: Option<String>,
+        remaining: Option<Decimal>,
+        filled: Option<Decimal>,
+    },
+    Error {
+        error: Option<String>,
     },
     BadRequest {
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
     },
+    NotFound {
+        error: Option<String>,
+    },
+    Forbidden {
+        error: Option<String>,
+    },
     InternalError {
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
+    },
+    ConfigurationError {
+        error: Option<String>,
     },
 }
 
@@ -152,16 +206,23 @@ pub struct CancelSuccess {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CancelResponse {
     Cancelled(CancelSuccess),
-    Error { message: String },
+    Error { error: String },
+    BadRequest { error: String },
     NotFound { error: String },
+    Forbidden { error: String },
+    InternalError {
+        error: String,
+        #[serde(default)]
+        details: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelAllSuccess {
     pub cancelled_order_hashes: Vec<String>,
     pub count: u64,
-    pub user_pubkey: String,
-    pub orderbook_id: String,
+    pub user_pubkey: PubkeyStr,
+    pub orderbook_id: OrderBookId,
     pub message: String,
 }
 
@@ -170,11 +231,78 @@ pub struct CancelAllSuccess {
 pub enum CancelAllResponse {
     Success(CancelAllSuccess),
     Error { message: String },
+    BadRequest { error: String },
+    NotFound { error: String },
+    Forbidden { error: String },
+    InternalError {
+        error: String,
+        #[serde(default)]
+        details: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TriggerOrderResponse {
+    pub trigger_order_id: String,
+    pub order_hash: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum TriggerSubmitResponse {
+    Accepted(TriggerOrderResponse),
+    Error {
+        error: String,
+    },
+    BadRequest {
+        error: String,
+    },
+    NotFound {
+        error: String,
+    },
+    Forbidden {
+        error: String,
+    },
+    InternalError {
+        error: String,
+        #[serde(default)]
+        details: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CancelTriggerSuccess {
+    pub trigger_order_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CancelTriggerResponse {
+    Cancelled(CancelTriggerSuccess),
+    Error {
+        error: String,
+    },
+    BadRequest {
+        error: String,
+    },
+    NotFound {
+        error: String,
+    },
+    Forbidden {
+        error: String,
+    },
+    InternalError {
+        error: String,
+        #[serde(default)]
+        details: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UserOrdersResponse {
-    pub user_pubkey: String,
+    pub user_pubkey: PubkeyStr,
+    /// All orders (both limit and trigger) in a single array.
+    /// Discriminated by `order_type` field on each order.
     pub orders: Vec<UserSnapshotOrder>,
     pub balances: Vec<UserSnapshotBalance>,
     pub next_cursor: Option<String>,
@@ -199,20 +327,55 @@ impl<'a> Orders<'a> {
             .post(&url, request, RetryPolicy::None)
             .await?;
 
-        let place: PlaceResponse = serde_json::from_value(raw)?;
+        let place: PlaceResponse = serde_json::from_value(raw.clone())
+            .map_err(|e| SdkError::Other(format!("{e} — raw response: {raw}")))?;
 
         match place {
             PlaceResponse::Accepted(data)
             | PlaceResponse::PartialFill(data)
             | PlaceResponse::Filled(data) => Ok(data),
-            PlaceResponse::Rejected { error, details }
-            | PlaceResponse::BadRequest { error, details }
-            | PlaceResponse::InternalError { error, details } => {
-                let msg = match details {
-                    Some(d) => format!("{}: {}", error, d),
-                    None => error,
+            PlaceResponse::Rejected {
+                error,
+                details,
+                order_hash,
+                remaining,
+                filled,
+            } => {
+                let msg = match (error.as_deref(), details.as_deref()) {
+                    (Some(e), Some(d)) => format!("{e}: {d}"),
+                    (Some(e), None) => e.to_string(),
+                    (None, Some(d)) => d.to_string(),
+                    (None, None) => {
+                        let mut parts = vec!["Rejected".to_string()];
+                        if let Some(h) = &order_hash {
+                            parts.push(format!("hash={h}"));
+                        }
+                        if let Some(f) = &filled {
+                            parts.push(format!("filled={f}"));
+                        }
+                        if let Some(r) = &remaining {
+                            parts.push(format!("remaining={r}"));
+                        }
+                        parts.join(", ")
+                    }
                 };
                 Err(SdkError::Other(msg))
+            }
+            PlaceResponse::BadRequest { error, details }
+            | PlaceResponse::InternalError { error, details } => {
+                let msg = match (error.as_deref(), details.as_deref()) {
+                    (Some(e), Some(d)) => format!("{e}: {d}"),
+                    (Some(e), None) => e.to_string(),
+                    (None, Some(d)) => d.to_string(),
+                    (None, None) => format!("Unknown error — raw response: {raw}"),
+                };
+                Err(SdkError::Other(msg))
+            }
+            PlaceResponse::Error { error }
+            | PlaceResponse::NotFound { error }
+            | PlaceResponse::Forbidden { error }
+            | PlaceResponse::ConfigurationError { error } => {
+                Err(SdkError::Other(error.unwrap_or_else(|| format!("Unknown error — raw response: {raw}"))))
             }
         }
     }
@@ -229,8 +392,17 @@ impl<'a> Orders<'a> {
 
         match resp {
             CancelResponse::Cancelled(data) => Ok(data),
-            CancelResponse::Error { message } => Err(SdkError::Other(message)),
-            CancelResponse::NotFound { error } => Err(SdkError::Other(error)),
+            CancelResponse::InternalError { error, details } => {
+                let msg = match details {
+                    Some(d) => format!("{error}: {d}"),
+                    None => error,
+                };
+                Err(SdkError::Other(msg))
+            }
+            CancelResponse::Error { error }
+            | CancelResponse::BadRequest { error }
+            | CancelResponse::NotFound { error }
+            | CancelResponse::Forbidden { error } => Err(SdkError::Other(error)),
         }
     }
 
@@ -247,6 +419,74 @@ impl<'a> Orders<'a> {
         match resp {
             CancelAllResponse::Success(data) => Ok(data),
             CancelAllResponse::Error { message } => Err(SdkError::Other(message)),
+            CancelAllResponse::InternalError { error, details } => {
+                let msg = match details {
+                    Some(d) => format!("{error}: {d}"),
+                    None => error,
+                };
+                Err(SdkError::Other(msg))
+            }
+            CancelAllResponse::BadRequest { error }
+            | CancelAllResponse::NotFound { error }
+            | CancelAllResponse::Forbidden { error } => Err(SdkError::Other(error)),
+        }
+    }
+
+    pub async fn submit_trigger(
+        &self,
+        request: &impl serde::Serialize,
+    ) -> Result<TriggerOrderResponse, SdkError> {
+        let url = format!("{}/api/orders/submit", self.client.http.base_url());
+        let raw: serde_json::Value = self
+            .client
+            .http
+            .post(&url, request, RetryPolicy::None)
+            .await?;
+
+        let resp: TriggerSubmitResponse = serde_json::from_value(raw)?;
+
+        match resp {
+            TriggerSubmitResponse::Accepted(data) => Ok(data),
+            TriggerSubmitResponse::InternalError { error, details } => {
+                let msg = match details {
+                    Some(d) => format!("{error}: {d}"),
+                    None => error,
+                };
+                Err(SdkError::Other(msg))
+            }
+            TriggerSubmitResponse::Error { error }
+            | TriggerSubmitResponse::BadRequest { error }
+            | TriggerSubmitResponse::NotFound { error }
+            | TriggerSubmitResponse::Forbidden { error } => Err(SdkError::Other(error)),
+        }
+    }
+
+    pub async fn cancel_trigger(
+        &self,
+        body: &CancelTriggerBody,
+    ) -> Result<CancelTriggerSuccess, SdkError> {
+        let url = format!("{}/api/orders/cancel", self.client.http.base_url());
+        let raw: serde_json::Value = self
+            .client
+            .http
+            .post(&url, body, RetryPolicy::None)
+            .await?;
+
+        let resp: CancelTriggerResponse = serde_json::from_value(raw)?;
+
+        match resp {
+            CancelTriggerResponse::Cancelled(data) => Ok(data),
+            CancelTriggerResponse::InternalError { error, details } => {
+                let msg = match details {
+                    Some(d) => format!("{error}: {d}"),
+                    None => error,
+                };
+                Err(SdkError::Other(msg))
+            }
+            CancelTriggerResponse::Error { error }
+            | CancelTriggerResponse::BadRequest { error }
+            | CancelTriggerResponse::NotFound { error }
+            | CancelTriggerResponse::Forbidden { error } => Err(SdkError::Other(error)),
         }
     }
 

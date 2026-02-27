@@ -5,17 +5,22 @@ mod convert;
 pub mod state;
 pub mod wire;
 
-use crate::shared::{OrderBookId, PubkeyStr, Side};
+use crate::shared::{OrderBookId, PubkeyStr, Side, TimeInForce, TriggerType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    FillInfo, PlaceResponse, SubmitOrderResponse, UserOrdersResponse,
+    CancelTriggerBody, CancelTriggerResponse, CancelTriggerSuccess, FillInfo, PlaceResponse,
+    SubmitOrderResponse, TriggerOrderResponse, TriggerSubmitResponse, UserOrdersResponse,
 };
-pub use state::UserOpenOrders;
-pub use wire::{ConditionalBalance, UserSnapshotBalance, UserSnapshotOrder};
+pub use convert::split_snapshot_orders;
+pub use state::{UserOpenOrders, UserTriggerOrders};
+pub use wire::{
+    ConditionalBalance, OrderEvent, TriggerOrderUpdate, UserSnapshotBalance,
+    UserSnapshotOrder, UserSnapshotOrderCommon,
+};
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
@@ -40,11 +45,15 @@ impl std::fmt::Display for OrderType {
 
 // ─── OrderStatus ─────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "UPPERCASE")]
 pub enum OrderStatus {
-    Filled,
+    #[default]
     Open,
+    Matching,
     Cancelled,
+    Filled,
+    Pending,
 }
 
 // ─── Order ───────────────────────────────────────────────────────────────────
@@ -66,5 +75,23 @@ pub struct Order {
     pub created_at: DateTime<Utc>,
     pub status: OrderStatus,
     pub outcome_index: i16,
+}
+
+// ─── TriggerOrder ───────────────────────────────────────────────────────────
+
+/// A validated, domain-level trigger order (take-profit / stop-loss).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TriggerOrder {
+    pub trigger_order_id: String,
+    pub order_hash: String,
+    pub market_pubkey: PubkeyStr,
+    pub orderbook_id: OrderBookId,
+    pub trigger_price: Decimal,
+    pub trigger_type: TriggerType,
+    pub side: Side,
+    pub amount_in: Decimal,
+    pub amount_out: Decimal,
+    pub time_in_force: TimeInForce,
+    pub created_at: DateTime<Utc>,
 }
 
