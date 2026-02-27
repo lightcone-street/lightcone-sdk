@@ -63,6 +63,33 @@ pub mod tif_numeric {
     }
 }
 
+/// Serializes/deserializes `Option<TimeInForce>` as a numeric u32.
+///
+/// `None` serializes as absent (via `skip_serializing_if`).
+/// On deserialize, reads a u32 and maps it to `Some(TimeInForce)`.
+/// Pair with `#[serde(default)]` so absent fields deserialize as `None`.
+pub mod tif_numeric_opt {
+    use crate::shared::TimeInForce;
+    use serde::{Deserializer, Serializer};
+
+    pub fn serialize<S>(value: &Option<TimeInForce>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            Some(tif) => super::tif_numeric::serialize(tif, serializer),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<TimeInForce>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        super::tif_numeric::deserialize(deserializer).map(Some)
+    }
+}
+
 /// Deserializes an empty string as `None`, non-empty string as `Some(T)`.
 pub mod empty_string_as_none {
     use serde::{Deserialize, Deserializer, Serialize, Serializer};

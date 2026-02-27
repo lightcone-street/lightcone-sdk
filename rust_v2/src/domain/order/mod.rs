@@ -19,7 +19,7 @@ pub use convert::split_snapshot_orders;
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
     ConditionalBalance, OrderEvent, TriggerOrderUpdate, UserSnapshotBalance,
-    UserSnapshotOrder,
+    UserSnapshotOrder, UserSnapshotOrderCommon,
 };
 
 // ─── OrderType ───────────────────────────────────────────────────────────────

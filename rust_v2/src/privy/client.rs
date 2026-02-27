@@ -5,9 +5,9 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 
 use super::{
-    ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndCancelAllRequest,
-    SignAndCancelOrderRequest, SignAndSendOrderRequest, SignAndSendTxRequest,
-    SignAndSendTxResponse,
+    CancelTarget, ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope,
+    SignAndCancelAllRequest, SignAndCancelOrderRequest, SignAndSendOrderRequest,
+    SignAndSendTxRequest, SignAndSendTxResponse,
 };
 
 /// Sub-client for Privy embedded wallet operations.
@@ -44,7 +44,7 @@ impl<'a> Privy<'a> {
     pub async fn sign_and_send_order(
         &self,
         wallet_id: &str,
-        order: OrderForSigning,
+        order: PrivyOrderEnvelope,
     ) -> Result<serde_json::Value, SdkError> {
         let url = format!(
             "{}/api/privy/sign_and_send_order",
@@ -57,7 +57,7 @@ impl<'a> Privy<'a> {
         self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
     }
 
-    /// Cancel an order via Privy signing.
+    /// Cancel a limit order via Privy signing.
     ///
     /// The backend signs the cancel message using the embedded wallet
     /// and submits the cancellation to the exchange engine.
@@ -73,8 +73,34 @@ impl<'a> Privy<'a> {
         );
         let req = SignAndCancelOrderRequest {
             wallet_id: wallet_id.to_string(),
-            order_hash: order_hash.to_string(),
             maker: maker.to_string(),
+            cancel: CancelTarget::Limit {
+                order_hash: order_hash.to_string(),
+            },
+        };
+        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+    }
+
+    /// Cancel a trigger order via Privy signing.
+    ///
+    /// The backend signs the trigger order ID using the embedded wallet
+    /// and submits the cancellation to the exchange engine.
+    pub async fn sign_and_cancel_trigger_order(
+        &self,
+        wallet_id: &str,
+        trigger_order_id: &str,
+        maker: &str,
+    ) -> Result<serde_json::Value, SdkError> {
+        let url = format!(
+            "{}/api/privy/sign_and_cancel_order",
+            self.client.http.base_url()
+        );
+        let req = SignAndCancelOrderRequest {
+            wallet_id: wallet_id.to_string(),
+            maker: maker.to_string(),
+            cancel: CancelTarget::Trigger {
+                trigger_order_id: trigger_order_id.to_string(),
+            },
         };
         self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
     }

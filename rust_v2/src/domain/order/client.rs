@@ -168,44 +168,31 @@ pub enum PlaceResponse {
     PartialFill(SubmitOrderResponse),
     Filled(SubmitOrderResponse),
     Rejected {
-        #[serde(default)]
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
-        #[serde(default)]
         order_hash: Option<String>,
-        #[serde(default)]
         remaining: Option<Decimal>,
-        #[serde(default)]
         filled: Option<Decimal>,
     },
     Error {
-        #[serde(default)]
-        error: String,
+        error: Option<String>,
     },
     BadRequest {
-        #[serde(default)]
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
     },
     NotFound {
-        #[serde(default)]
-        error: String,
+        error: Option<String>,
     },
     Forbidden {
-        #[serde(default)]
-        error: String,
+        error: Option<String>,
     },
     InternalError {
-        #[serde(default)]
-        error: String,
-        #[serde(default)]
+        error: Option<String>,
         details: Option<String>,
     },
     ConfigurationError {
-        #[serde(default)]
-        error: String,
+        error: Option<String>,
     },
 }
 
@@ -354,11 +341,11 @@ impl<'a> Orders<'a> {
                 remaining,
                 filled,
             } => {
-                let msg = match (error.is_empty(), &details) {
-                    (false, Some(d)) => format!("{error}: {d}"),
-                    (false, None) => error,
-                    (true, Some(d)) => d.clone(),
-                    (true, None) => {
+                let msg = match (error.as_deref(), details.as_deref()) {
+                    (Some(e), Some(d)) => format!("{e}: {d}"),
+                    (Some(e), None) => e.to_string(),
+                    (None, Some(d)) => d.to_string(),
+                    (None, None) => {
                         let mut parts = vec!["Rejected".to_string()];
                         if let Some(h) = &order_hash {
                             parts.push(format!("hash={h}"));
@@ -376,18 +363,20 @@ impl<'a> Orders<'a> {
             }
             PlaceResponse::BadRequest { error, details }
             | PlaceResponse::InternalError { error, details } => {
-                let msg = match (error.is_empty(), details) {
-                    (false, Some(d)) => format!("{error}: {d}"),
-                    (false, None) => error,
-                    (true, Some(d)) => d,
-                    (true, None) => format!("Unknown error — raw response: {raw}"),
+                let msg = match (error.as_deref(), details.as_deref()) {
+                    (Some(e), Some(d)) => format!("{e}: {d}"),
+                    (Some(e), None) => e.to_string(),
+                    (None, Some(d)) => d.to_string(),
+                    (None, None) => format!("Unknown error — raw response: {raw}"),
                 };
                 Err(SdkError::Other(msg))
             }
             PlaceResponse::Error { error }
             | PlaceResponse::NotFound { error }
             | PlaceResponse::Forbidden { error }
-            | PlaceResponse::ConfigurationError { error } => Err(SdkError::Other(error)),
+            | PlaceResponse::ConfigurationError { error } => {
+                Err(SdkError::Other(error.unwrap_or_else(|| format!("Unknown error — raw response: {raw}"))))
+            }
         }
     }
 

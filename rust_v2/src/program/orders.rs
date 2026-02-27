@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::{SubmitOrderRequest, TimeInForce, TriggerType};
+use crate::shared::SubmitOrderRequest;
 
 // ============================================================================
 // Signed Order (225 bytes)
@@ -35,7 +35,7 @@ use crate::shared::{SubmitOrderRequest, TimeInForce, TriggerType};
 /// - [153..161] expiration (8 bytes)
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
-pub struct SignedOrder {
+pub struct OrderPayload {
     /// Unique order ID and replay protection (u32 range, serialized as u64 on wire)
     pub nonce: u32,
     /// Order maker's pubkey
@@ -58,7 +58,7 @@ pub struct SignedOrder {
     pub signature: [u8; 64],
 }
 
-impl SignedOrder {
+impl OrderPayload {
     /// Order size in bytes
     pub const LEN: usize = SIGNED_ORDER_SIZE;
 
@@ -266,64 +266,19 @@ impl SignedOrder {
         self.signature != [0u8; 64]
     }
 
-    // =========================================================================
-    // API Bridge Methods
-    // =========================================================================
-
-    /// Convert a signed order to an API SubmitOrderRequest.
+    /// Convert a signed payload to a `SubmitOrderRequest` (limit order, no trigger fields).
     ///
-    /// This bridges on-chain order creation with REST API submission.
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook_id` - Target orderbook (get from market API or use `derive_orderbook_id()`)
-    ///
-    /// # Errors
-    ///
-    /// Returns `SdkError::UnsignedOrder` if the order has not been signed.
-    pub fn to_submit_request(
+    /// Intended for internal use by envelope types. Prefer using
+    /// `LimitOrderEnvelope::sign()` or `TriggerOrderEnvelope::sign()`.
+    pub(crate) fn to_submit_request(
         &self,
         orderbook_id: impl Into<String>,
-    ) -> Result<SubmitOrderRequest, SdkError> {
-        self.to_submit_request_with_options(orderbook_id, None, None, None)
-    }
-
-    /// Convert a signed order to an API SubmitOrderRequest with optional TIF and trigger fields.
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook_id` - Target orderbook
-    /// * `time_in_force` - Time-in-force policy (None = backend default GTC)
-    /// * `trigger_price` - Trigger price for conditional orders
-    /// * `trigger_type` - Trigger type (must be present if trigger_price is present, and vice versa)
-    ///
-    /// # Errors
-    ///
-    /// Returns `SdkError::UnsignedOrder` if the order has not been signed.
-    /// Returns `SdkError::MissingField` if only one of trigger_price/trigger_type is provided.
-    pub fn to_submit_request_with_options(
-        &self,
-        orderbook_id: impl Into<String>,
-        time_in_force: Option<TimeInForce>,
+        time_in_force: Option<crate::shared::TimeInForce>,
         trigger_price: Option<f64>,
-        trigger_type: Option<TriggerType>,
+        trigger_type: Option<crate::shared::TriggerType>,
     ) -> Result<SubmitOrderRequest, SdkError> {
         if self.signature == [0u8; 64] {
             return Err(SdkError::UnsignedOrder);
-        }
-
-        match (&trigger_price, &trigger_type) {
-            (Some(_), None) => {
-                return Err(SdkError::MissingField(
-                    "trigger_type is required when trigger_price is set".into(),
-                ));
-            }
-            (None, Some(_)) => {
-                return Err(SdkError::MissingField(
-                    "trigger_price is required when trigger_type is set".into(),
-                ));
-            }
-            _ => {}
         }
 
         Ok(SubmitOrderRequest {
@@ -439,8 +394,8 @@ impl Order {
         base_mint: Pubkey,
         quote_mint: Pubkey,
         signature: [u8; 64],
-    ) -> SignedOrder {
-        SignedOrder {
+    ) -> OrderPayload {
+        OrderPayload {
             nonce: self.nonce,
             maker,
             market,
@@ -460,14 +415,14 @@ impl Order {
 // ============================================================================
 
 /// Check if an order is expired.
-pub fn is_order_expired(order: &SignedOrder, current_time: i64) -> bool {
+pub fn is_order_expired(order: &OrderPayload, current_time: i64) -> bool {
     order.expiration != 0 && current_time >= order.expiration
 }
 
 /// Check if two orders can cross (prices are compatible).
 ///
 /// Returns true if the buyer's price >= seller's price.
-pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bool {
+pub fn orders_can_cross(buy_order: &OrderPayload, sell_order: &OrderPayload) -> bool {
     if buy_order.side != OrderSide::Bid || sell_order.side != OrderSide::Ask {
         return false;
     }
@@ -495,7 +450,7 @@ pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bo
 }
 
 /// Calculate the taker fill amount given a maker fill amount.
-pub fn calculate_taker_fill(maker_order: &SignedOrder, maker_fill_amount: u64) -> SdkResult<u64> {
+pub fn calculate_taker_fill(maker_order: &OrderPayload, maker_fill_amount: u64) -> SdkResult<u64> {
     if maker_order.amount_in == 0 {
         return Err(SdkError::Overflow);
     }
@@ -552,8 +507,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_signed_order_serialization_roundtrip() {
-        let order = SignedOrder {
+    fn test_order_payload_serialization_roundtrip() {
+        let order = OrderPayload {
             nonce: 12345,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -567,7 +522,7 @@ mod tests {
         };
 
         let serialized = order.serialize();
-        let deserialized = SignedOrder::deserialize(&serialized).unwrap();
+        let deserialized = OrderPayload::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.maker, deserialized.maker);
@@ -615,7 +570,7 @@ mod tests {
 
     #[test]
     fn test_order_hash_consistency() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -635,7 +590,7 @@ mod tests {
 
     #[test]
     fn test_signed_order_to_order_roundtrip() {
-        let signed = SignedOrder {
+        let signed = OrderPayload {
             nonce: 42,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -669,7 +624,7 @@ mod tests {
 
     #[test]
     fn test_orders_can_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -682,7 +637,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -701,7 +656,7 @@ mod tests {
 
     #[test]
     fn test_orders_cannot_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -714,7 +669,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -733,7 +688,7 @@ mod tests {
 
     #[test]
     fn test_calculate_taker_fill() {
-        let maker_order = SignedOrder {
+        let maker_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -763,7 +718,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 42,
             maker,
             market,
@@ -778,7 +733,7 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook").unwrap();
+        let request = order.to_submit_request("test_orderbook", None, None, None).unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -795,7 +750,7 @@ mod tests {
 
     #[test]
     fn test_derive_orderbook_id() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -823,7 +778,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -850,7 +805,7 @@ mod tests {
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -880,7 +835,7 @@ mod tests {
 
     #[test]
     fn test_to_submit_request_errors_unsigned() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -893,7 +848,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let result = order.to_submit_request("test_orderbook");
+        let result = order.to_submit_request("test_orderbook", None, None, None);
         assert!(result.is_err());
         assert!(
             result.unwrap_err().to_string().contains("must be signed"),
@@ -905,51 +860,6 @@ mod tests {
         let id = "trigger-order-uuid-123";
         let message = cancel_trigger_order_message(id);
         assert_eq!(message, id.as_bytes());
-    }
-
-    #[test]
-    fn test_to_submit_request_with_options_trigger_validation() {
-        use crate::shared::{TimeInForce, TriggerType};
-
-        let order = SignedOrder {
-            nonce: 1,
-            maker: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            base_mint: Pubkey::new_unique(),
-            quote_mint: Pubkey::new_unique(),
-            side: OrderSide::Bid,
-            amount_in: 100,
-            amount_out: 50,
-            expiration: 0,
-            signature: [1u8; 64], // non-zero = "signed"
-        };
-
-        // Both None: OK
-        assert!(order
-            .to_submit_request_with_options("ob", None, None, None)
-            .is_ok());
-
-        // Both present: OK
-        assert!(order
-            .to_submit_request_with_options(
-                "ob",
-                Some(TimeInForce::Gtc),
-                Some(0.55),
-                Some(TriggerType::TakeProfit),
-            )
-            .is_ok());
-
-        // Only trigger_price: error
-        let err = order
-            .to_submit_request_with_options("ob", None, Some(0.55), None)
-            .unwrap_err();
-        assert!(err.to_string().contains("trigger_type"));
-
-        // Only trigger_type: error
-        let err = order
-            .to_submit_request_with_options("ob", None, None, Some(TriggerType::StopLoss))
-            .unwrap_err();
-        assert!(err.to_string().contains("trigger_price"));
     }
 
     #[test]

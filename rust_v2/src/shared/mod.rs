@@ -195,17 +195,6 @@ pub enum TimeInForce {
     Alo,
 }
 
-// ─── SnapshotOrderType ──────────────────────────────────────────────────────
-
-/// Discriminator for orders in REST/WS snapshot arrays.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum SnapshotOrderType {
-    #[default]
-    Limit,
-    Trigger,
-}
-
 // ─── TriggerType ─────────────────────────────────────────────────────────────
 
 /// Trigger order type.

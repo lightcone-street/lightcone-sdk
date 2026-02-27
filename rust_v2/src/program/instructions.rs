@@ -16,7 +16,7 @@ use crate::program::constants::{
     TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
-use crate::program::orders::SignedOrder;
+use crate::program::orders::OrderPayload;
 use crate::program::pda::{
     get_conditional_mint_pda, get_exchange_pda, get_global_deposit_token_pda, get_market_pda,
     get_mint_authority_pda, get_order_status_pda, get_orderbook_pda, get_alt_pda,
@@ -316,7 +316,7 @@ pub fn build_merge_complete_set_ix(
 pub fn build_cancel_order_ix(
     maker: &Pubkey,
     market: &Pubkey,
-    order: &SignedOrder,
+    order: &OrderPayload,
     program_id: &Pubkey,
 ) -> Instruction {
     let order_hash = order.hash();
@@ -329,7 +329,7 @@ pub fn build_cancel_order_ix(
         readonly(system_program_id()),
     ];
 
-    // Data: [discriminator(1), order_hash(32), SignedOrder(225)] = 258 bytes
+    // Data: [discriminator(1), order_hash(32), OrderPayload(225)] = 258 bytes
     let mut data = Vec::with_capacity(258);
     data.push(instruction::CANCEL_ORDER);
     data.extend_from_slice(&order_hash);
@@ -1218,7 +1218,7 @@ mod tests {
         let market = Pubkey::new_unique();
         let program_id = test_program_id();
 
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker,
             market,
@@ -1299,7 +1299,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
@@ -1312,7 +1312,7 @@ mod tests {
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,
@@ -1356,7 +1356,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
@@ -1369,7 +1369,7 @@ mod tests {
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,
@@ -1476,7 +1476,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
@@ -1489,7 +1489,7 @@ mod tests {
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,

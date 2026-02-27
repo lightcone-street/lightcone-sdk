@@ -87,9 +87,9 @@ pub mod prelude {
     pub use crate::domain::order::{
         CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
         CancelTriggerSuccess, ConditionalBalance, FillInfo, Order, OrderEvent, OrderStatus,
-        OrderType, SubmitOrderResponse, TriggerOrder, TriggerOrderResponse,
-        TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse, UserSnapshotBalance,
-        UserSnapshotOrder, UserTriggerOrders,
+        OrderType, SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
+        UserOpenOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        UserTriggerOrders,
     };
 
     // Domain types — position (includes portfolio + token balances)
@@ -113,9 +113,14 @@ pub mod prelude {
         AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
     };
 
+    // Program — order envelopes and payload
+    pub use crate::program::{
+        LimitOrderEnvelope, OrderEnvelope, OrderPayload, TriggerOrderEnvelope,
+    };
+
     // Privy RPC types
     pub use crate::privy::{
-        ExportWalletRequest, ExportWalletResponse, OrderForSigning, SignAndSendOrderRequest,
+        ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
         SignAndSendTxRequest, SignAndSendTxResponse,
     };
 

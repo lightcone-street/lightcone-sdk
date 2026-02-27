@@ -6,7 +6,7 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::error::SdkError;
-use crate::program::orders::SignedOrder;
+use crate::program::orders::OrderPayload;
 
 // ============================================================================
 // Enums
@@ -231,9 +231,9 @@ pub struct MatchOrdersMultiParams {
     /// Quote mint pubkey
     pub quote_mint: Pubkey,
     /// Taker order (signed)
-    pub taker_order: SignedOrder,
+    pub taker_order: OrderPayload,
     /// Maker orders (signed)
-    pub maker_orders: Vec<SignedOrder>,
+    pub maker_orders: Vec<OrderPayload>,
     /// Fill amounts for each maker (maker side)
     pub maker_fill_amounts: Vec<u64>,
     /// Fill amounts for each maker (taker side)
@@ -326,9 +326,9 @@ pub struct DepositAndSwapParams {
     /// Quote mint pubkey (conditional token B)
     pub quote_mint: Pubkey,
     /// Taker order (signed)
-    pub taker_order: SignedOrder,
+    pub taker_order: OrderPayload,
     /// Maker orders (signed)
-    pub maker_orders: Vec<SignedOrder>,
+    pub maker_orders: Vec<OrderPayload>,
     /// Fill amounts for each maker (maker side)
     pub maker_fill_amounts: Vec<u64>,
     /// Fill amounts for each maker (taker side)

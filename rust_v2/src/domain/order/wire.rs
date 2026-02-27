@@ -1,7 +1,7 @@
 //! Wire types for order and user WS messages.
 
 use super::OrderStatus;
-use crate::shared::{serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, SnapshotOrderType, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType, TriggerUpdateType};
+use crate::shared::{serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType, TriggerUpdateType};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -78,13 +78,9 @@ pub struct WsOrder {
     pub balance: Option<UserOrderUpdateBalance>,
 }
 
-/// Order snapshot — unified type for both limit and trigger orders.
-///
-/// Used in both REST `GET /api/users/orders` and WS user snapshots.
-/// Limit and trigger orders appear in the same `orders` array,
-/// discriminated by `order_type`. Trigger-only fields are `Option`.
+/// Fields shared by both limit and trigger order snapshots.
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct UserSnapshotOrder {
+pub struct UserSnapshotOrderCommon {
     pub order_hash: String,
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
@@ -108,21 +104,31 @@ pub struct UserSnapshotOrder {
     pub outcome_index: i16,
     #[serde(default)]
     pub status: OrderStatus,
-    /// "limit" or "trigger" — discriminates order type in the array.
-    #[serde(default)]
-    pub order_type: SnapshotOrderType,
-    // ─── Limit-only optional fields ─────────────────────────────
-    #[serde(default)]
-    pub tx_signature: Option<String>,
-    // ─── Trigger-only optional fields ───────────────────────────
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_order_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_price: Option<Decimal>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_type: Option<TriggerType>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tif: Option<u32>,
+}
+
+/// Order snapshot — tagged enum discriminated by `order_type`.
+///
+/// Used in REST `GET /api/users/orders` and WS user snapshots.
+/// The backend returns limit and trigger orders in the same array,
+/// distinguished by the `order_type` field.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "order_type", rename_all = "lowercase")]
+pub enum UserSnapshotOrder {
+    Limit {
+        #[serde(flatten)]
+        common: UserSnapshotOrderCommon,
+        #[serde(default)]
+        tx_signature: Option<String>,
+    },
+    Trigger {
+        #[serde(flatten)]
+        common: UserSnapshotOrderCommon,
+        trigger_order_id: String,
+        trigger_price: Decimal,
+        trigger_type: TriggerType,
+        #[serde(default, with = "serde_util::tif_numeric_opt", skip_serializing_if = "Option::is_none")]
+        time_in_force: Option<TimeInForce>,
+    },
 }
 
 /// Balance information attached to an order update.
