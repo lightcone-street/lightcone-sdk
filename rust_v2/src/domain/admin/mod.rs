@@ -1,11 +1,15 @@
-//! Admin domain — metadata management types.
+//! Admin domain — metadata and referral management types.
 
 pub mod client;
 pub mod wire;
 
 use serde::{Deserialize, Serialize};
 
-pub use wire::{UnifiedMetadataRequest, UnifiedMetadataResponse};
+pub use wire::{
+    AllocateCodesRequest, AllocateCodesResponse, RevokeRequest, RevokeResponse, TargetSpec,
+    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
+    WhitelistRequest, WhitelistResponse,
+};
 
 /// Signed admin request envelope.
 ///

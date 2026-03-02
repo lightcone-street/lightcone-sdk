@@ -124,12 +124,15 @@ pub mod prelude {
         SignAndSendTxRequest, SignAndSendTxResponse,
     };
 
+    // Domain types — referral
+    pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
+
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
         AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
         MarketsResult, OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient,
-        TradesClient,
+        ReferralsClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
