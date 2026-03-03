@@ -16,8 +16,8 @@ import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
  *   .baseMint(baseMintPubkey)
  *   .quoteMint(quoteMintPubkey)
  *   .bid()
- *   .makerAmount(1000000n)
- *   .takerAmount(500000n)
+ *   .amountIn(1000000n)
+ *   .amountOut(500000n)
  *   .expiration(0n)
  *   .build();
  * ```
@@ -29,8 +29,8 @@ export class OrderBuilder {
   private _baseMint: PublicKey | null = null;
   private _quoteMint: PublicKey | null = null;
   private _side: OrderSide = OrderSide.BID;
-  private _makerAmount: bigint = 0n;
-  private _takerAmount: bigint = 0n;
+  private _amountIn: bigint = 0n;
+  private _amountOut: bigint = 0n;
   private _expiration: bigint = 0n;
 
   /** Set the order nonce (u32) */
@@ -81,16 +81,26 @@ export class OrderBuilder {
     return this;
   }
 
-  /** Set maker amount (what maker gives) */
-  makerAmount(value: bigint): this {
-    this._makerAmount = value;
+  /** Set amount in (what maker gives) */
+  amountIn(value: bigint): this {
+    this._amountIn = value;
     return this;
   }
 
-  /** Set taker amount (what maker receives) */
-  takerAmount(value: bigint): this {
-    this._takerAmount = value;
+  /** Set amount out (what maker receives) */
+  amountOut(value: bigint): this {
+    this._amountOut = value;
     return this;
+  }
+
+  /** @deprecated Use amountIn() */
+  makerAmount(value: bigint): this {
+    return this.amountIn(value);
+  }
+
+  /** @deprecated Use amountOut() */
+  takerAmount(value: bigint): this {
+    return this.amountOut(value);
   }
 
   /** Set expiration timestamp (0 = no expiration) */
@@ -100,26 +110,26 @@ export class OrderBuilder {
   }
 
   /**
-   * Set price and size, auto-computing maker_amount and taker_amount using decimal scaling.
+   * Set price and size, auto-computing amountIn and amountOut using decimal scaling.
    *
    * @param price - Price as a decimal string (e.g., "0.75")
    * @param size - Size as a decimal string (e.g., "100")
    * @param decimals - Orderbook decimal configuration
    */
   price(priceStr: string, sizeStr: string, decimals: OrderbookDecimals): this {
-    const { makerAmount, takerAmount } = scalePriceSize(
+    const { amountIn, amountOut } = scalePriceSize(
       priceStr,
       sizeStr,
       this._side,
       decimals
     );
-    this._makerAmount = makerAmount;
-    this._takerAmount = takerAmount;
+    this._amountIn = amountIn;
+    this._amountOut = amountOut;
     return this;
   }
 
   /**
-   * Apply decimal scaling to convert price/size to maker_amount/taker_amount.
+   * Apply decimal scaling to convert price/size to amountIn/amountOut.
    * Equivalent to calling price() but with separate method name for clarity.
    */
   applyScaling(
@@ -147,8 +157,8 @@ export class OrderBuilder {
       baseMint: this._baseMint,
       quoteMint: this._quoteMint,
       side: this._side,
-      makerAmount: this._makerAmount,
-      takerAmount: this._takerAmount,
+      amountIn: this._amountIn,
+      amountOut: this._amountOut,
       expiration: this._expiration,
       signature: Buffer.alloc(64),
     };
@@ -167,8 +177,8 @@ export class OrderBuilder {
         baseMint: unsigned.baseMint,
         quoteMint: unsigned.quoteMint,
         side: unsigned.side,
-        makerAmount: unsigned.makerAmount,
-        takerAmount: unsigned.takerAmount,
+        amountIn: unsigned.amountIn,
+        amountOut: unsigned.amountOut,
         expiration: unsigned.expiration,
       },
       keypair
@@ -183,13 +193,13 @@ export class OrderBuilder {
     orderbookId: string
   ): {
     maker: string;
-    nonce: string;
+    nonce: number;
     market_pubkey: string;
     base_token: string;
     quote_token: string;
     side: number;
-    maker_amount: string;
-    taker_amount: string;
+    amount_in: string;
+    amount_out: string;
     expiration: number;
     signature: string;
     orderbook_id: string;
@@ -197,13 +207,13 @@ export class OrderBuilder {
     const signed = this.buildAndSign(keypair);
     return {
       maker: signed.maker.toBase58(),
-      nonce: signed.nonce.toString(),
+      nonce: signed.nonce,
       market_pubkey: signed.market.toBase58(),
       base_token: signed.baseMint.toBase58(),
       quote_token: signed.quoteMint.toBase58(),
       side: signed.side,
-      maker_amount: signed.makerAmount.toString(),
-      taker_amount: signed.takerAmount.toString(),
+      amount_in: signed.amountIn.toString(),
+      amount_out: signed.amountOut.toString(),
       expiration: Number(signed.expiration),
       signature: signatureHex(signed),
       orderbook_id: orderbookId,

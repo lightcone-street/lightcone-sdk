@@ -6,6 +6,9 @@
 // CLIENT
 // ============================================================================
 export { LightconePinocchioClient } from "./client";
+export { LimitOrderEnvelope, TriggerOrderEnvelope, type OrderEnvelope } from "./envelope";
+export { ProgramSdkError, ProgramSdkError as SdkError } from "./error";
+export type { ProgramResult, ProgramResult as SdkResult } from "./error";
 
 // ============================================================================
 // TYPES
@@ -17,12 +20,14 @@ export {
 
 export type {
   Exchange,
+  GlobalDepositToken,
   Market,
   Position,
   OrderStatus,
   UserNonce,
   Orderbook,
   SignedOrder,
+  OrderPayload,
   Order,
   InitializeParams,
   CreateMarketParams,
@@ -41,6 +46,11 @@ export type {
   MatchOrdersMultiParams,
   SetAuthorityParams,
   CreateOrderbookParams,
+  WhitelistDepositTokenParams,
+  DepositToGlobalParams,
+  GlobalToMarketDepositParams,
+  InitPositionTokensParams,
+  DepositAndSwapParams,
   BuildResult,
   InitializeAccounts,
   CreateMarketAccounts,
@@ -118,6 +128,9 @@ export {
   getPositionPda,
   getOrderbookPda,
   getAltPda,
+  getGlobalDepositTokenPda,
+  getUserGlobalDepositPda,
+  getPositionAltPda,
   pda,
 } from "./pda";
 
@@ -131,12 +144,14 @@ export {
   deserializeOrderStatus,
   deserializeUserNonce,
   deserializeOrderbook,
+  deserializeGlobalDepositToken,
   isExchangeAccount,
   isMarketAccount,
   isPositionAccount,
   isOrderStatusAccount,
   isUserNonceAccount,
   isOrderbookAccount,
+  isGlobalDepositTokenAccount,
 } from "./accounts";
 
 // ============================================================================
@@ -159,6 +174,11 @@ export {
   buildMatchOrdersMultiIx,
   buildSetAuthorityIx,
   buildCreateOrderbookIx,
+  buildWhitelistDepositTokenIx,
+  buildDepositToGlobalIx,
+  buildGlobalToMarketDepositIx,
+  buildInitPositionTokensIx,
+  buildDepositAndSwapIx,
 } from "./instructions";
 
 // ============================================================================
@@ -189,8 +209,17 @@ export {
   toSubmitRequest,
   cancelOrderMessage,
   signCancelOrder,
+  cancelTriggerOrderMessage,
+  signCancelTriggerOrder,
   cancelAllMessage,
   signCancelAll,
+  is_order_expired,
+  orders_can_cross,
+  calculate_taker_fill,
+  cancel_order_message,
+  cancel_trigger_order_message,
+  cancel_all_message,
+  derive_condition_id,
 } from "./orders";
 
 // ============================================================================

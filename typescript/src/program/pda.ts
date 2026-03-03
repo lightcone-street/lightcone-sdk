@@ -180,6 +180,50 @@ export function getAltPda(
 }
 
 /**
+ * Derive GlobalDepositToken whitelist PDA.
+ * Seeds: ["global_deposit", mint]
+ */
+export function getGlobalDepositTokenPda(
+  mint: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.GLOBAL_DEPOSIT), mint.toBuffer()],
+    programId
+  );
+}
+
+/**
+ * Derive User Global Deposit PDA.
+ * Seeds: ["global_deposit", user, mint]
+ */
+export function getUserGlobalDepositPda(
+  user: PublicKey,
+  mint: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.GLOBAL_DEPOSIT), user.toBuffer(), mint.toBuffer()],
+    programId
+  );
+}
+
+/**
+ * Derive position ALT PDA used by initPositionTokens.
+ * Seeds: [position, recent_slot]
+ * Program: ALT_PROGRAM_ID
+ */
+export function getPositionAltPda(
+  position: PublicKey,
+  recentSlot: bigint
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [position.toBuffer(), toU64Le(recentSlot)],
+    ALT_PROGRAM_ID
+  );
+}
+
+/**
  * Collection of all PDA functions for easy access
  */
 export const pda = {
@@ -194,4 +238,7 @@ export const pda = {
   getPositionPda,
   getOrderbookPda,
   getAltPda,
+  getGlobalDepositTokenPda,
+  getUserGlobalDepositPda,
+  getPositionAltPda,
 };

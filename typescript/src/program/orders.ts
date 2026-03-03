@@ -8,7 +8,16 @@ import {
   AskOrderParams,
 } from "./types";
 import { ORDER_SIZE } from "./constants";
-import { keccak256, toU64Le, toI64Le, toU8, toU32Le, fromLeBytes, fromI64Le } from "./utils";
+import {
+  keccak256,
+  toU64Le,
+  toI64Le,
+  toU8,
+  toU32Le,
+  fromLeBytes,
+  fromI64Le,
+  deriveConditionId,
+} from "./utils";
 
 // ============================================================================
 // ORDER HASHING
@@ -18,7 +27,7 @@ import { keccak256, toU64Le, toI64Le, toU8, toU32Le, fromLeBytes, fromI64Le } fr
  * Hash an order using keccak256
  * Layout (161 bytes - order without signature):
  * nonce (8) || maker (32) || market (32) || baseMint (32) || quoteMint (32) ||
- * side (1) || makerAmount (8) || takerAmount (8) || expiration (8)
+ * side (1) || amountIn (8) || amountOut (8) || expiration (8)
  *
  * @returns 32-byte keccak256 hash
  */
@@ -30,8 +39,8 @@ export function hashOrder(order: SignedOrder): Buffer {
     order.baseMint.toBuffer(),
     order.quoteMint.toBuffer(),
     toU8(order.side),
-    toU64Le(order.makerAmount),
-    toU64Le(order.takerAmount),
+    toU64Le(order.amountIn),
+    toU64Le(order.amountOut),
     toI64Le(order.expiration),
   ]);
 
@@ -116,8 +125,8 @@ export function verifyOrderSignature(order: SignedOrder): boolean {
  * [72..104]  baseMint (Pubkey)
  * [104..136] quoteMint (Pubkey)
  * [136]      side (u8)
- * [137..145] makerAmount (u64)
- * [145..153] takerAmount (u64)
+ * [137..145] amountIn (u64)
+ * [145..153] amountOut (u64)
  * [153..161] expiration (i64)
  * [161..225] signature (64 bytes)
  */
@@ -143,10 +152,10 @@ export function serializeSignedOrder(order: SignedOrder): Buffer {
   buffer[offset] = order.side;
   offset += 1;
 
-  toU64Le(order.makerAmount).copy(buffer, offset);
+  toU64Le(order.amountIn).copy(buffer, offset);
   offset += 8;
 
-  toU64Le(order.takerAmount).copy(buffer, offset);
+  toU64Le(order.amountOut).copy(buffer, offset);
   offset += 8;
 
   toI64Le(order.expiration).copy(buffer, offset);
@@ -191,10 +200,10 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
   const side = data[offset] as OrderSide;
   offset += 1;
 
-  const makerAmount = fromLeBytes(data.subarray(offset, offset + 8));
+  const amountIn = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
-  const takerAmount = fromLeBytes(data.subarray(offset, offset + 8));
+  const amountOut = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
   const expiration = fromI64Le(data.subarray(offset, offset + 8));
@@ -209,8 +218,8 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
     baseMint,
     quoteMint,
     side,
-    makerAmount,
-    takerAmount,
+    amountIn,
+    amountOut,
     expiration,
     signature,
   };
@@ -226,8 +235,8 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
  * Layout:
  * [0..4]    nonce (u32)
  * [4]       side (u8)
- * [5..13]   makerAmount (u64)
- * [13..21]  takerAmount (u64)
+ * [5..13]   amountIn (u64)
+ * [13..21]  amountOut (u64)
  * [21..29]  expiration (i64)
  */
 export function serializeOrder(order: Order): Buffer {
@@ -240,10 +249,10 @@ export function serializeOrder(order: Order): Buffer {
   buffer[offset] = order.side;
   offset += 1;
 
-  toU64Le(order.makerAmount).copy(buffer, offset);
+  toU64Le(order.amountIn).copy(buffer, offset);
   offset += 8;
 
-  toU64Le(order.takerAmount).copy(buffer, offset);
+  toU64Le(order.amountOut).copy(buffer, offset);
   offset += 8;
 
   toI64Le(order.expiration).copy(buffer, offset);
@@ -269,10 +278,10 @@ export function deserializeOrder(data: Buffer): Order {
   const side = data[offset] as OrderSide;
   offset += 1;
 
-  const makerAmount = fromLeBytes(data.subarray(offset, offset + 8));
+  const amountIn = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
-  const takerAmount = fromLeBytes(data.subarray(offset, offset + 8));
+  const amountOut = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
   const expiration = fromI64Le(data.subarray(offset, offset + 8));
@@ -280,8 +289,8 @@ export function deserializeOrder(data: Buffer): Order {
   return {
     nonce,
     side,
-    makerAmount,
-    takerAmount,
+    amountIn,
+    amountOut,
     expiration,
   };
 }
@@ -293,8 +302,8 @@ export function signedOrderToOrder(order: SignedOrder): Order {
   return {
     nonce: order.nonce,
     side: order.side,
-    makerAmount: order.makerAmount,
-    takerAmount: order.takerAmount,
+    amountIn: order.amountIn,
+    amountOut: order.amountOut,
     expiration: order.expiration,
   };
 }
@@ -316,8 +325,8 @@ export function createBidOrder(
     baseMint: params.baseMint,
     quoteMint: params.quoteMint,
     side: OrderSide.BID,
-    makerAmount: params.makerAmount,
-    takerAmount: params.takerAmount,
+    amountIn: params.amountIn,
+    amountOut: params.amountOut,
     expiration: params.expiration ?? 0n,
   };
 }
@@ -335,8 +344,8 @@ export function createAskOrder(
     baseMint: params.baseMint,
     quoteMint: params.quoteMint,
     side: OrderSide.ASK,
-    makerAmount: params.makerAmount,
-    takerAmount: params.takerAmount,
+    amountIn: params.amountIn,
+    amountOut: params.amountOut,
     expiration: params.expiration ?? 0n,
   };
 }
@@ -392,8 +401,8 @@ export function ordersCanCross(
     return false;
   }
   return (
-    buyOrder.makerAmount * sellOrder.makerAmount >=
-    buyOrder.takerAmount * sellOrder.takerAmount
+    buyOrder.amountIn * sellOrder.amountIn >=
+    buyOrder.amountOut * sellOrder.amountOut
   );
 }
 
@@ -404,7 +413,7 @@ export function calculateTakerFill(
   makerOrder: SignedOrder,
   makerFillAmount: bigint
 ): bigint {
-  return (makerFillAmount * makerOrder.takerAmount) / makerOrder.makerAmount;
+  return (makerFillAmount * makerOrder.amountOut) / makerOrder.amountIn;
 }
 
 // ============================================================================
@@ -449,11 +458,29 @@ export function cancelOrderMessage(orderHash: string): Uint8Array {
 }
 
 /**
+ * Build the message bytes for cancelling a trigger order.
+ * The message is the trigger order ID as UTF-8 bytes.
+ */
+export function cancelTriggerOrderMessage(triggerOrderId: string): Uint8Array {
+  return Buffer.from(triggerOrderId, "ascii");
+}
+
+/**
  * Sign a cancel order request.
  * Returns the signature as a 128-char hex string.
  */
 export function signCancelOrder(orderHash: string, signer: Keypair): string {
   const message = cancelOrderMessage(orderHash);
+  const signature = sign.detached(message, signer.secretKey);
+  return Buffer.from(signature).toString("hex");
+}
+
+/**
+ * Sign a cancel trigger-order request.
+ * Returns the signature as a 128-char hex string.
+ */
+export function signCancelTriggerOrder(triggerOrderId: string, signer: Keypair): string {
+  const message = cancelTriggerOrderMessage(triggerOrderId);
   const signature = sign.detached(message, signer.secretKey);
   return Buffer.from(signature).toString("hex");
 }
@@ -489,28 +516,37 @@ export function toSubmitRequest(
   orderbookId: string
 ): {
   maker: string;
-  nonce: string;
+  nonce: number;
   market_pubkey: string;
   base_token: string;
   quote_token: string;
   side: number;
-  maker_amount: string;
-  taker_amount: string;
+  amount_in: string;
+  amount_out: string;
   expiration: number;
   signature: string;
   orderbook_id: string;
 } {
   return {
     maker: order.maker.toBase58(),
-    nonce: order.nonce.toString(),
+    nonce: order.nonce,
     market_pubkey: order.market.toBase58(),
     base_token: order.baseMint.toBase58(),
     quote_token: order.quoteMint.toBase58(),
     side: order.side,
-    maker_amount: order.makerAmount.toString(),
-    taker_amount: order.takerAmount.toString(),
+    amount_in: order.amountIn.toString(),
+    amount_out: order.amountOut.toString(),
     expiration: Number(order.expiration),
     signature: signatureHex(order),
     orderbook_id: orderbookId,
   };
 }
+
+// Rust-compatible snake_case aliases.
+export const is_order_expired = isOrderExpired;
+export const orders_can_cross = ordersCanCross;
+export const calculate_taker_fill = calculateTakerFill;
+export const cancel_order_message = cancelOrderMessage;
+export const cancel_trigger_order_message = cancelTriggerOrderMessage;
+export const cancel_all_message = cancelAllMessage;
+export const derive_condition_id = deriveConditionId;

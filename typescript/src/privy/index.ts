@@ -1,0 +1,134 @@
+export * from "./client";
+import type { LimitOrderEnvelope, TriggerOrderEnvelope } from "../program/envelope";
+
+export interface SignAndSendTxRequest {
+  wallet_id: string;
+  base64_tx: string;
+}
+
+export interface SignAndSendTxResponse {
+  hash: string;
+}
+
+export interface PrivyOrderEnvelope {
+  maker: string;
+  nonce: number;
+  market_pubkey: string;
+  base_token: string;
+  quote_token: string;
+  side: number;
+  amount_in: number;
+  amount_out: number;
+  expiration?: number;
+  orderbook_id: string;
+  tif?: import("../shared").TimeInForce;
+  trigger_price?: number;
+  trigger_type?: import("../shared").TriggerType;
+}
+
+export interface SignAndSendOrderRequest {
+  wallet_id: string;
+  order: PrivyOrderEnvelope;
+}
+
+export type CancelTarget =
+  | { cancel_type: "limit"; order_hash: string }
+  | { cancel_type: "trigger"; trigger_order_id: string };
+
+export type SignAndCancelOrderRequest = {
+  wallet_id: string;
+  maker: string;
+} & CancelTarget;
+
+export interface SignAndCancelAllRequest {
+  wallet_id: string;
+  user_pubkey: string;
+  orderbook_id?: string;
+  timestamp: number;
+}
+
+export interface ExportWalletRequest {
+  wallet_id: string;
+  decode_pubkey_base64: string;
+}
+
+export interface ExportWalletResponse {
+  encryption_type: string;
+  ciphertext: string;
+  encapsulated_key: string;
+}
+
+function requireDefined<T>(
+  value: T | undefined,
+  field: string
+): T {
+  if (value === undefined) {
+    throw new Error(`Missing required field: ${field}`);
+  }
+  return value;
+}
+
+function bigintToSafeNumber(value: bigint, field: string): number {
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (value > max || value < -max) {
+    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+  }
+  return Number(value);
+}
+
+export function privyOrderFromLimitEnvelope(
+  envelope: LimitOrderEnvelope,
+  orderbookId: string
+): PrivyOrderEnvelope {
+  const maker = requireDefined(envelope.fieldsMaker(), "maker");
+  const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
+  const market = requireDefined(envelope.fieldsMarket(), "market");
+  const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
+  const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
+  const side = requireDefined(envelope.fieldsSide(), "side");
+  const amountIn = requireDefined(envelope.fieldsAmountIn(), "amount_in");
+  const amountOut = requireDefined(envelope.fieldsAmountOut(), "amount_out");
+
+  return {
+    maker: maker.toBase58(),
+    nonce,
+    market_pubkey: market.toBase58(),
+    base_token: baseMint.toBase58(),
+    quote_token: quoteMint.toBase58(),
+    side,
+    amount_in: bigintToSafeNumber(amountIn, "amount_in"),
+    amount_out: bigintToSafeNumber(amountOut, "amount_out"),
+    expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
+    orderbook_id: orderbookId,
+  };
+}
+
+export function privyOrderFromTriggerEnvelope(
+  envelope: TriggerOrderEnvelope,
+  orderbookId: string
+): PrivyOrderEnvelope {
+  const maker = requireDefined(envelope.fieldsMaker(), "maker");
+  const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
+  const market = requireDefined(envelope.fieldsMarket(), "market");
+  const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
+  const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
+  const side = requireDefined(envelope.fieldsSide(), "side");
+  const amountIn = requireDefined(envelope.fieldsAmountIn(), "amount_in");
+  const amountOut = requireDefined(envelope.fieldsAmountOut(), "amount_out");
+
+  return {
+    maker: maker.toBase58(),
+    nonce,
+    market_pubkey: market.toBase58(),
+    base_token: baseMint.toBase58(),
+    quote_token: quoteMint.toBase58(),
+    side,
+    amount_in: bigintToSafeNumber(amountIn, "amount_in"),
+    amount_out: bigintToSafeNumber(amountOut, "amount_out"),
+    expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
+    orderbook_id: orderbookId,
+    tif: envelope.fieldsTimeInForce(),
+    trigger_price: envelope.fieldsTriggerPrice(),
+    trigger_type: envelope.fieldsTriggerType(),
+  };
+}

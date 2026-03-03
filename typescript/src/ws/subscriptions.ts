@@ -1,0 +1,77 @@
+import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
+
+export type SubscribeParams =
+  | { type: "book_update"; orderbook_ids: OrderBookId[] }
+  | { type: "trades"; orderbook_ids: OrderBookId[] }
+  | { type: "user"; wallet_address: PubkeyStr }
+  | {
+      type: "price_history";
+      orderbook_id: OrderBookId;
+      resolution: Resolution;
+      include_ohlcv?: boolean;
+    }
+  | { type: "ticker"; orderbook_ids: OrderBookId[] }
+  | { type: "market"; market_pubkey: PubkeyStr };
+
+export type UnsubscribeParams =
+  | { type: "book_update"; orderbook_ids: OrderBookId[] }
+  | { type: "trades"; orderbook_ids: OrderBookId[] }
+  | { type: "user"; wallet_address: PubkeyStr }
+  | { type: "price_history"; orderbook_id: OrderBookId; resolution: Resolution }
+  | { type: "ticker"; orderbook_ids: OrderBookId[] }
+  | { type: "market"; market_pubkey: PubkeyStr };
+
+export interface Subscription {
+  toSubscribeParams(): SubscribeParams;
+  toUnsubscribeParams(): UnsubscribeParams;
+  matchesUnsubscribe(unsubscribe: UnsubscribeParams): boolean;
+  subscriptionKey(): string;
+}
+
+export function subscriptionKey(params: SubscribeParams): string {
+  switch (params.type) {
+    case "book_update":
+      return `book:${idsKey(params.orderbook_ids)}`;
+    case "trades":
+      return `trades:${idsKey(params.orderbook_ids)}`;
+    case "user":
+      return `user:${params.wallet_address}`;
+    case "price_history":
+      return `price_history:${params.orderbook_id}:${params.resolution}`;
+    case "ticker":
+      return `ticker:${idsKey(params.orderbook_ids)}`;
+    case "market":
+      return `market:${params.market_pubkey}`;
+  }
+}
+
+export function unsubscribeMatches(
+  subscribe: SubscribeParams,
+  unsubscribe: UnsubscribeParams
+): boolean {
+  if (subscribe.type !== unsubscribe.type) {
+    return false;
+  }
+
+  switch (subscribe.type) {
+    case "book_update":
+      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
+    case "trades":
+      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
+    case "ticker":
+      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
+    case "user":
+      return subscribe.wallet_address === (unsubscribe as { wallet_address: PubkeyStr }).wallet_address;
+    case "price_history":
+      return (
+        subscribe.orderbook_id === (unsubscribe as { orderbook_id: OrderBookId }).orderbook_id &&
+        subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
+      );
+    case "market":
+      return subscribe.market_pubkey === (unsubscribe as { market_pubkey: PubkeyStr }).market_pubkey;
+  }
+}
+
+function idsKey(ids: readonly string[]): string {
+  return [...ids].sort().join(",");
+}

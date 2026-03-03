@@ -2,6 +2,7 @@ import { PublicKey } from "@solana/web3.js";
 import { DISCRIMINATOR, ACCOUNT_SIZE } from "./constants";
 import {
   Exchange,
+  GlobalDepositToken,
   Market,
   MarketStatus,
   OrderStatus,
@@ -77,6 +78,14 @@ export function isPositionAccount(data: Buffer): boolean {
 export function isOrderbookAccount(data: Buffer): boolean {
   if (data.length < 8) return false;
   return data.subarray(0, 8).equals(DISCRIMINATOR.ORDERBOOK);
+}
+
+/**
+ * Check if a buffer has a valid GlobalDepositToken discriminator
+ */
+export function isGlobalDepositTokenAccount(data: Buffer): boolean {
+  if (data.length < 8) return false;
+  return data.subarray(0, 8).equals(DISCRIMINATOR.GLOBAL_DEPOSIT_TOKEN);
 }
 
 // ============================================================================
@@ -389,6 +398,46 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
     mintA,
     mintB,
     lookupTable,
+    bump,
+  };
+}
+
+/**
+ * Deserialize GlobalDepositToken account data
+ *
+ * Layout (48 bytes):
+ * - discriminator: [u8; 8]
+ * - mint: Pubkey (32 bytes)
+ * - active: u8 (1 byte)
+ * - bump: u8 (1 byte)
+ * - _padding: [u8; 6]
+ */
+export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken {
+  if (data.length < ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN) {
+    throw new Error(
+      `Invalid GlobalDepositToken data length: ${data.length}, expected ${ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN}`
+    );
+  }
+
+  validateDiscriminator(data, DISCRIMINATOR.GLOBAL_DEPOSIT_TOKEN, "GlobalDepositToken");
+
+  let offset = 0;
+  const discriminator = data.subarray(offset, offset + 8);
+  offset += 8;
+
+  const mint = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const active = data[offset] !== 0;
+  offset += 1;
+
+  const bump = data[offset];
+  offset += 1;
+
+  return {
+    discriminator,
+    mint,
+    active,
     bump,
   };
 }

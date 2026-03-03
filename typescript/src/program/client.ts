@@ -11,6 +11,7 @@ import {
   Position,
   OrderStatus,
   Orderbook,
+  GlobalDepositToken,
   BuildResult,
   InitializeParams,
   CreateMarketParams,
@@ -24,6 +25,11 @@ import {
   MatchOrdersMultiParams,
   SetAuthorityParams,
   CreateOrderbookParams,
+  WhitelistDepositTokenParams,
+  DepositToGlobalParams,
+  GlobalToMarketDepositParams,
+  InitPositionTokensParams,
+  DepositAndSwapParams,
   SignedOrder,
   BidOrderParams,
   AskOrderParams,
@@ -42,6 +48,7 @@ import {
 import * as pda from "./pda";
 import {
   deserializeExchange,
+  deserializeGlobalDepositToken,
   deserializeMarket,
   deserializePosition,
   deserializeOrderStatus,
@@ -65,12 +72,19 @@ import {
   buildMatchOrdersMultiIx,
   buildSetAuthorityIx,
   buildCreateOrderbookIx,
+  buildWhitelistDepositTokenIx,
+  buildDepositToGlobalIx,
+  buildGlobalToMarketDepositIx,
+  buildInitPositionTokensIx,
+  buildDepositAndSwapIx,
 } from "./instructions";
 import {
   hashOrder,
   signOrder,
   createBidOrder,
   createAskOrder,
+  createSignedBidOrder,
+  createSignedAskOrder,
   signOrderFull,
 } from "./orders";
 import { deriveConditionId } from "./utils";
@@ -86,6 +100,18 @@ export class LightconePinocchioClient {
   constructor(connection: Connection, programId: PublicKey = PROGRAM_ID) {
     this.connection = connection;
     this.programId = programId;
+  }
+
+  static new(rpcUrl: string): LightconePinocchioClient {
+    return new LightconePinocchioClient(new Connection(rpcUrl), PROGRAM_ID);
+  }
+
+  static withProgramId(rpcUrl: string, programId: PublicKey): LightconePinocchioClient {
+    return new LightconePinocchioClient(new Connection(rpcUrl), programId);
+  }
+
+  static fromConnection(connection: Connection): LightconePinocchioClient {
+    return new LightconePinocchioClient(connection, PROGRAM_ID);
   }
 
   // ============================================================================
@@ -149,12 +175,16 @@ export class LightconePinocchioClient {
     return nonce.nonce;
   }
 
-  async getNextNonce(user: PublicKey): Promise<number> {
+  async getCurrentNonce(user: PublicKey): Promise<number> {
     const nonce = await this.getUserNonce(user);
     if (nonce > 0xFFFFFFFFn) {
       throw new Error(`Nonce exceeds u32 range: ${nonce}`);
     }
     return Number(nonce);
+  }
+
+  async getNextNonce(user: PublicKey): Promise<number> {
+    return this.getCurrentNonce(user);
   }
 
   async getNextMarketId(): Promise<bigint> {
@@ -172,6 +202,19 @@ export class LightconePinocchioClient {
       return null;
     }
     return deserializeOrderbook(accountInfo.data as Buffer);
+  }
+
+  async getGlobalDepositToken(mint: PublicKey): Promise<GlobalDepositToken> {
+    const [globalDepositTokenPda] = pda.getGlobalDepositTokenPda(mint, this.programId);
+    const accountInfo = await this.connection.getAccountInfo(globalDepositTokenPda);
+    if (!accountInfo) {
+      throw new Error(`GlobalDepositToken not found for mint ${mint.toBase58()}`);
+    }
+    return deserializeGlobalDepositToken(accountInfo.data as Buffer);
+  }
+
+  async getLatestBlockhash() {
+    return this.connection.getLatestBlockhash();
   }
 
   // ============================================================================
@@ -243,7 +286,7 @@ export class LightconePinocchioClient {
     const ix = buildAddDepositMintIx(params, market, numOutcomes, this.programId);
 
     return this.createBuildResult(
-      params.authority,
+      params.payer,
       { market, vault, mintAuthority, conditionalMints },
       ix
     );
@@ -474,6 +517,59 @@ export class LightconePinocchioClient {
     return this.createBuildResult(params.payer, { orderbook }, ix);
   }
 
+  async whitelistDepositToken(
+    params: WhitelistDepositTokenParams
+  ): Promise<BuildResult<{ globalDepositToken: PublicKey }>> {
+    const [globalDepositToken] = pda.getGlobalDepositTokenPda(params.mint, this.programId);
+    const ix = buildWhitelistDepositTokenIx(params, this.programId);
+    return this.createBuildResult(params.authority, { globalDepositToken }, ix);
+  }
+
+  async depositToGlobal(
+    params: DepositToGlobalParams
+  ): Promise<BuildResult<{ userGlobalDeposit: PublicKey }>> {
+    const [userGlobalDeposit] = pda.getUserGlobalDepositPda(params.user, params.mint, this.programId);
+    const ix = buildDepositToGlobalIx(params, this.programId);
+    return this.createBuildResult(params.user, { userGlobalDeposit }, ix);
+  }
+
+  async globalToMarketDeposit(
+    params: GlobalToMarketDepositParams,
+    numOutcomes: number
+  ): Promise<BuildResult<{ position: PublicKey; userGlobalDeposit: PublicKey }>> {
+    const [position] = pda.getPositionPda(params.user, params.market, this.programId);
+    const [userGlobalDeposit] = pda.getUserGlobalDepositPda(
+      params.user,
+      params.depositMint,
+      this.programId
+    );
+    const ix = buildGlobalToMarketDepositIx(params, numOutcomes, this.programId);
+    return this.createBuildResult(params.user, { position, userGlobalDeposit }, ix);
+  }
+
+  async initPositionTokens(
+    params: InitPositionTokensParams,
+    numOutcomes: number
+  ): Promise<BuildResult<{ position: PublicKey; lookupTable: PublicKey }>> {
+    const [position] = pda.getPositionPda(params.user, params.market, this.programId);
+    const [lookupTable] = pda.getPositionAltPda(position, params.recentSlot);
+    const ix = buildInitPositionTokensIx(params, numOutcomes, this.programId);
+    return this.createBuildResult(params.user, { position, lookupTable }, ix);
+  }
+
+  async depositAndSwap(
+    params: DepositAndSwapParams,
+    numOutcomes: number
+  ): Promise<BuildResult<{ takerPosition: PublicKey }>> {
+    const [takerPosition] = pda.getPositionPda(
+      params.takerOrder.maker,
+      params.market,
+      this.programId
+    );
+    const ix = buildDepositAndSwapIx(params, numOutcomes, this.programId);
+    return this.createBuildResult(params.operator, { takerPosition }, ix);
+  }
+
   // ============================================================================
   // ORDER HELPERS
   // ============================================================================
@@ -484,6 +580,14 @@ export class LightconePinocchioClient {
 
   createAskOrder(params: AskOrderParams): Omit<SignedOrder, "signature"> {
     return createAskOrder(params);
+  }
+
+  createSignedBidOrder(params: BidOrderParams, signer: Keypair): SignedOrder {
+    return createSignedBidOrder(params, signer);
+  }
+
+  createSignedAskOrder(params: AskOrderParams, signer: Keypair): SignedOrder {
+    return createSignedAskOrder(params, signer);
   }
 
   hashOrder(order: SignedOrder): Buffer {
@@ -526,5 +630,37 @@ export class LightconePinocchioClient {
         this.programId
       )
       .map(([mint]) => mint);
+  }
+
+  getExchangePda(): PublicKey {
+    return pda.getExchangePda(this.programId)[0];
+  }
+
+  getMarketPda(marketId: bigint): PublicKey {
+    return pda.getMarketPda(marketId, this.programId)[0];
+  }
+
+  getPositionPda(owner: PublicKey, market: PublicKey): PublicKey {
+    return pda.getPositionPda(owner, market, this.programId)[0];
+  }
+
+  getOrderStatusPda(orderHash: Buffer): PublicKey {
+    return pda.getOrderStatusPda(orderHash, this.programId)[0];
+  }
+
+  getUserNoncePda(user: PublicKey): PublicKey {
+    return pda.getUserNoncePda(user, this.programId)[0];
+  }
+
+  getOrderbookPda(mintA: PublicKey, mintB: PublicKey): PublicKey {
+    return pda.getOrderbookPda(mintA, mintB, this.programId)[0];
+  }
+
+  getGlobalDepositTokenPda(mint: PublicKey): PublicKey {
+    return pda.getGlobalDepositTokenPda(mint, this.programId)[0];
+  }
+
+  getUserGlobalDepositPda(user: PublicKey, mint: PublicKey): PublicKey {
+    return pda.getUserGlobalDepositPda(user, mint, this.programId)[0];
   }
 }

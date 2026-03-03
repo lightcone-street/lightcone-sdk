@@ -11,6 +11,7 @@ import {
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   ALT_PROGRAM_ID,
+  MAX_MAKERS,
 } from "./constants";
 import {
   InitializeParams,
@@ -25,6 +26,11 @@ import {
   MatchOrdersMultiParams,
   SetAuthorityParams,
   CreateOrderbookParams,
+  WhitelistDepositTokenParams,
+  DepositToGlobalParams,
+  GlobalToMarketDepositParams,
+  InitPositionTokensParams,
+  DepositAndSwapParams,
   SignedOrder,
   OutcomeMetadata,
 } from "./types";
@@ -39,6 +45,9 @@ import {
   getPositionPda,
   getOrderbookPda,
   getAltPda,
+  getGlobalDepositTokenPda,
+  getUserGlobalDepositPda,
+  getPositionAltPda,
 } from "./pda";
 import {
   toU8,
@@ -196,7 +205,7 @@ export function buildAddDepositMintIx(
   );
 
   const keys: AccountMeta[] = [
-    signerMut(params.authority),
+    signerMut(params.payer),
     writable(market),
     readonly(params.depositMint),
     writable(vault),
@@ -712,8 +721,8 @@ export function buildMatchOrdersMultiIx(
   if (params.makerOrders.length === 0) {
     throw new Error("At least one maker order is required");
   }
-  if (params.makerOrders.length > 3) {
-    throw new Error("Maximum 3 maker orders allowed");
+  if (params.makerOrders.length > MAX_MAKERS) {
+    throw new Error(`Maximum ${MAX_MAKERS} maker orders allowed`);
   }
   if (params.makerOrders.length !== params.makerFillAmounts.length) {
     throw new Error("Maker fill amounts must match maker orders count");
@@ -888,5 +897,348 @@ export function buildCreateOrderbookIx(
     keys,
     programId,
     data,
+  });
+}
+
+/**
+ * Build WhitelistDepositToken instruction
+ *
+ * Accounts:
+ * 0. authority (signer, mut)
+ * 1. exchange (readonly)
+ * 2. mint (readonly)
+ * 3. global_deposit_token (mut)
+ * 4. system_program (readonly)
+ *
+ * Data: [discriminator]
+ */
+export function buildWhitelistDepositTokenIx(
+  params: WhitelistDepositTokenParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.mint, programId);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.authority),
+    readonly(exchange),
+    readonly(params.mint),
+    writable(globalDepositToken),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.from([INSTRUCTION.WHITELIST_DEPOSIT_TOKEN]),
+  });
+}
+
+/**
+ * Build DepositToGlobal instruction
+ *
+ * Accounts:
+ * 0. user (signer, mut)
+ * 1. global_deposit_token (readonly)
+ * 2. mint (readonly)
+ * 3. user_global_deposit (mut)
+ * 4. user_token_account (mut)
+ * 5. token_program (readonly)
+ * 6. system_program (readonly)
+ *
+ * Data: [discriminator, amount (u64)]
+ */
+export function buildDepositToGlobalIx(
+  params: DepositToGlobalParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.mint, programId);
+  const [userGlobalDeposit] = getUserGlobalDepositPda(params.user, params.mint, programId);
+  const userTokenAccount = getDepositTokenAta(params.mint, params.user);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.user),
+    readonly(globalDepositToken),
+    readonly(params.mint),
+    writable(userGlobalDeposit),
+    writable(userTokenAccount),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.DEPOSIT_TO_GLOBAL]),
+    toU64Le(params.amount),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build GlobalToMarketDeposit instruction
+ *
+ * Accounts:
+ * 0. user (signer, mut)
+ * 1. exchange (readonly)
+ * 2. market (readonly)
+ * 3. deposit_mint (readonly)
+ * 4. vault (mut)
+ * 5. global_deposit_token (readonly)
+ * 6. user_global_deposit (mut)
+ * 7. position (mut)
+ * 8. position_collateral_ata (mut)
+ * 9. mint_authority (readonly)
+ * 10. token_program (readonly)
+ * 11. token_2022_program (readonly)
+ * 12. ata_program (readonly)
+ * 13. system_program (readonly)
+ * + per outcome: conditional_mint[i] (mut), position_conditional_ata[i] (mut)
+ *
+ * Data: [discriminator, amount (u64)]
+ */
+export function buildGlobalToMarketDepositIx(
+  params: GlobalToMarketDepositParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const [vault] = getVaultPda(params.depositMint, params.market, programId);
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.depositMint, programId);
+  const [userGlobalDeposit] = getUserGlobalDepositPda(params.user, params.depositMint, programId);
+  const [position] = getPositionPda(params.user, params.market, programId);
+  const positionCollateralAta = getDepositTokenAta(params.depositMint, position);
+  const [mintAuthority] = getMintAuthorityPda(params.market, programId);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.user),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.depositMint),
+    writable(vault),
+    readonly(globalDepositToken),
+    writable(userGlobalDeposit),
+    writable(position),
+    writable(positionCollateralAta),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  for (let i = 0; i < numOutcomes; i += 1) {
+    const [conditionalMint] = getAllConditionalMintPdas(
+      params.market,
+      params.depositMint,
+      numOutcomes,
+      programId
+    )[i];
+    keys.push(writable(conditionalMint));
+    keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
+  }
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.GLOBAL_TO_MARKET_DEPOSIT]),
+    toU64Le(params.amount),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build InitPositionTokens instruction
+ *
+ * Accounts:
+ * 0. user (signer, mut)
+ * 1. exchange (readonly)
+ * 2. market (readonly)
+ * 3. deposit_mint (readonly)
+ * 4. vault (readonly)
+ * 5. position (mut)
+ * 6. lookup_table (mut)
+ * 7. mint_authority (readonly)
+ * 8. token_2022_program (readonly)
+ * 9. ata_program (readonly)
+ * 10. alt_program (readonly)
+ * 11. system_program (readonly)
+ * + per outcome: conditional_mint[i] (readonly), position_conditional_ata[i] (mut)
+ *
+ * Data: [discriminator, recent_slot (u64)]
+ */
+export function buildInitPositionTokensIx(
+  params: InitPositionTokensParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const [vault] = getVaultPda(params.depositMint, params.market, programId);
+  const [position] = getPositionPda(params.user, params.market, programId);
+  const [lookupTable] = getPositionAltPda(position, params.recentSlot);
+  const [mintAuthority] = getMintAuthorityPda(params.market, programId);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.user),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.depositMint),
+    readonly(vault),
+    writable(position),
+    writable(lookupTable),
+    readonly(mintAuthority),
+    readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(ALT_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  for (let i = 0; i < numOutcomes; i += 1) {
+    const [conditionalMint] = getAllConditionalMintPdas(
+      params.market,
+      params.depositMint,
+      numOutcomes,
+      programId
+    )[i];
+    keys.push(readonly(conditionalMint));
+    keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
+  }
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.INIT_POSITION_TOKENS]),
+    toU64Le(params.recentSlot),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build DepositAndSwap instruction.
+ * Data format is identical to matchOrdersMulti.
+ */
+export function buildDepositAndSwapIx(
+  params: DepositAndSwapParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  if (params.makerOrders.length === 0) {
+    throw new Error("maker_orders is required");
+  }
+  if (params.makerOrders.length > MAX_MAKERS) {
+    throw new Error(`Too many makers: ${params.makerOrders.length}`);
+  }
+  if (params.makerOrders.length !== params.makerFillAmounts.length) {
+    throw new Error("maker_fill_amounts length must match maker_orders");
+  }
+  if (params.makerOrders.length !== params.takerFillAmounts.length) {
+    throw new Error("taker_fill_amounts length must match maker_orders");
+  }
+
+  const [exchange] = getExchangePda(programId);
+  const [vault] = getVaultPda(params.depositMint, params.market, programId);
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.depositMint, programId);
+  const [mintAuthority] = getMintAuthorityPda(params.market, programId);
+
+  const takerOrderHash = hashOrder(params.takerOrder);
+  const [takerNonce] = getUserNoncePda(params.takerOrder.maker, programId);
+  const [takerPosition] = getPositionPda(params.takerOrder.maker, params.market, programId);
+
+  const takerFullFill = ((params.fullFillBitmask >> 7) & 1) === 1;
+  const keys: AccountMeta[] = [];
+
+  keys.push(signerMut(params.operator));
+  keys.push(readonly(exchange));
+  keys.push(readonly(params.market));
+  keys.push(readonly(params.depositMint));
+  keys.push(writable(vault));
+  keys.push(readonly(globalDepositToken));
+  keys.push(readonly(mintAuthority));
+  keys.push(readonly(TOKEN_PROGRAM_ID));
+
+  if (!takerFullFill) {
+    const [takerOrderStatus] = getOrderStatusPda(takerOrderHash, programId);
+    keys.push(writable(takerOrderStatus));
+  }
+  keys.push(readonly(takerNonce));
+  keys.push(writable(takerPosition));
+  keys.push(readonly(params.baseMint));
+  keys.push(readonly(params.quoteMint));
+  keys.push(readonly(TOKEN_2022_PROGRAM_ID));
+  keys.push(readonly(SYSTEM_PROGRAM_ID));
+
+  for (let i = 0; i < numOutcomes; i += 1) {
+    const [conditionalMint] = getAllConditionalMintPdas(
+      params.market,
+      params.depositMint,
+      numOutcomes,
+      programId
+    )[i];
+    keys.push(writable(conditionalMint));
+    keys.push(writable(getConditionalTokenAta(conditionalMint, takerPosition)));
+  }
+
+  for (let i = 0; i < params.makerOrders.length; i += 1) {
+    const makerOrder = params.makerOrders[i];
+    const makerFullFill = ((params.fullFillBitmask >> i) & 1) === 1;
+
+    if (!makerFullFill) {
+      const makerOrderHash = hashOrder(makerOrder);
+      const [makerOrderStatus] = getOrderStatusPda(makerOrderHash, programId);
+      keys.push(writable(makerOrderStatus));
+    }
+
+    const [makerNonce] = getUserNoncePda(makerOrder.maker, programId);
+    const [makerPosition] = getPositionPda(makerOrder.maker, params.market, programId);
+    const [makerGlobalDeposit] = getUserGlobalDepositPda(
+      makerOrder.maker,
+      params.depositMint,
+      programId
+    );
+
+    keys.push(readonly(makerNonce));
+    keys.push(writable(makerPosition));
+    keys.push(writable(makerGlobalDeposit));
+
+    for (let j = 0; j < numOutcomes; j += 1) {
+      const [conditionalMint] = getAllConditionalMintPdas(
+        params.market,
+        params.depositMint,
+        numOutcomes,
+        programId
+      )[j];
+      keys.push(writable(getConditionalTokenAta(conditionalMint, makerPosition)));
+    }
+  }
+
+  const buffers: Buffer[] = [
+    Buffer.from([INSTRUCTION.DEPOSIT_AND_SWAP]),
+    serializeOrder(signedOrderToOrder(params.takerOrder)),
+    params.takerOrder.signature,
+    toU8(params.makerOrders.length),
+    toU8(params.fullFillBitmask),
+  ];
+
+  for (let i = 0; i < params.makerOrders.length; i += 1) {
+    const makerOrder = params.makerOrders[i];
+    buffers.push(serializeOrder(signedOrderToOrder(makerOrder)));
+    buffers.push(makerOrder.signature);
+    buffers.push(toU64Le(params.makerFillAmounts[i]));
+    buffers.push(toU64Le(params.takerFillAmounts[i]));
+  }
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.concat(buffers),
   });
 }

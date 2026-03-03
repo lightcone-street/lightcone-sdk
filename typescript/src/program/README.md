@@ -114,8 +114,8 @@ import type { FullOrder, CompactOrder } from "@lightcone/sdk";
 | `baseMint` | PublicKey | Base token mint |
 | `quoteMint` | PublicKey | Quote token mint |
 | `side` | OrderSide | BID or ASK |
-| `makerAmount` | bigint | Amount maker gives |
-| `takerAmount` | bigint | Amount maker receives |
+| `amountIn` | bigint | Amount maker gives |
+| `amountOut` | bigint | Amount maker receives |
 | `expiration` | bigint | Expiration timestamp (0 = no expiration) |
 | `signature` | Buffer | Ed25519 signature (64 bytes) |
 
@@ -128,8 +128,8 @@ Same as FullOrder but without `market`, `baseMint`, `quoteMint` (derived from in
 | `nonce` | bigint | Order nonce |
 | `maker` | PublicKey | Maker public key |
 | `side` | OrderSide | BID or ASK |
-| `makerAmount` | bigint | Amount maker gives |
-| `takerAmount` | bigint | Amount maker receives |
+| `amountIn` | bigint | Amount maker gives |
+| `amountOut` | bigint | Amount maker receives |
 | `expiration` | bigint | Expiration timestamp |
 
 ### Parameter Types
@@ -735,8 +735,8 @@ const order = client.createBidOrder({
   market: marketPubkey,
   baseMint: yesMint,     // Token to buy
   quoteMint: noMint,     // Token to pay with
-  makerAmount: 1_000_000n, // Quote tokens to give
-  takerAmount: 500_000n,   // Base tokens to receive
+  amountIn: 1_000_000n, // Quote tokens to give
+  amountOut: 500_000n,   // Base tokens to receive
   expiration: 0n,          // 0 = no expiration
 });
 ```
@@ -752,8 +752,8 @@ const order = client.createAskOrder({
   market: marketPubkey,
   baseMint: yesMint,     // Token to sell
   quoteMint: noMint,     // Token to receive
-  makerAmount: 500_000n,   // Base tokens to give
-  takerAmount: 1_000_000n, // Quote tokens to receive
+  amountIn: 500_000n,   // Base tokens to give
+  amountOut: 1_000_000n, // Quote tokens to receive
   expiration: 0n,
 });
 ```
@@ -924,8 +924,8 @@ const compactOrder = deserializeCompactOrder(bytes);
 
 ```typescript
 // Create unsigned orders
-const bid = createBidOrder({ nonce, maker, market, baseMint, quoteMint, makerAmount, takerAmount });
-const ask = createAskOrder({ nonce, maker, market, baseMint, quoteMint, makerAmount, takerAmount });
+const bid = createBidOrder({ nonce, maker, market, baseMint, quoteMint, amountIn, amountOut });
+const ask = createAskOrder({ nonce, maker, market, baseMint, quoteMint, amountIn, amountOut });
 
 // Create and sign in one step
 const signedBid = createSignedBidOrder(params, keypair);
@@ -1064,8 +1064,8 @@ async function main() {
       market: marketPda,
       baseMint: yesMint,
       quoteMint: noMint,
-      makerAmount: 500_000n,
-      takerAmount: 500_000n,
+      amountIn: 500_000n,
+      amountOut: 500_000n,
     }),
     maker
   );
@@ -1078,8 +1078,8 @@ async function main() {
       market: marketPda,
       baseMint: yesMint,
       quoteMint: noMint,
-      makerAmount: 500_000n,
-      takerAmount: 500_000n,
+      amountIn: 500_000n,
+      amountOut: 500_000n,
     }),
     taker
   );
