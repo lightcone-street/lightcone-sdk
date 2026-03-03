@@ -7,7 +7,7 @@
 //!
 //! Run with:
 //! ```bash
-//! cargo test -p lightcone-sdk-v2 --features ws-native --test ws_native_integration -- --ignored
+//! cargo test -p lightcone --features ws-native --test ws_native_integration -- --ignored
 //! ```
 
 use std::time::Duration;
@@ -15,9 +15,9 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
-use lightcone_sdk_v2::shared::OrderBookId;
-use lightcone_sdk_v2::ws::native::WsClient;
-use lightcone_sdk_v2::ws::{Kind, MessageOut, WsConfig, WsEvent};
+use lightcone::shared::OrderBookId;
+use lightcone::ws::native::WsClient;
+use lightcone::ws::{Kind, MessageOut, WsConfig, WsEvent};
 
 const WS_URL: &str = "wss://tws.lightcone.xyz/ws";
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);

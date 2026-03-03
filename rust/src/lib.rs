@@ -1,191 +1,146 @@
-//! # Lightcone Pinocchio Rust SDK
+//! # Lightcone SDK v2
 //!
-//! A Rust SDK for interacting with the Lightcone protocol.
+//! A unified Rust SDK for the Lightcone protocol supporting both native and WASM targets.
 //!
-//! ## Modules
+//! ## Architecture
 //!
-//! This SDK provides three main modules:
-//! - [`program`]: On-chain program interaction (smart contract)
-//! - [`api`]: REST API client for market data, orders, and positions
-//! - [`websocket`]: Real-time data streaming via WebSocket
+//! The SDK is organized in layers:
 //!
-//! Plus a shared module:
-//! - [`shared`]: Shared utilities, types, and constants
+//! 1. **Core** — Types, program logic, domain models (always available, WASM-safe)
+//! 2. **Auth** — Message generation + platform-dependent signing
+//! 3. **HTTP API** — `LightconeHttp` with per-endpoint retry policies
+//! 4. **WebSocket** — Compile-time dispatch: `tokio-tungstenite` (native) / `web-sys` (WASM)
+//! 5. **High-Level Client** — `LightconeClient` with nested sub-clients and caching
 //!
-//! ## Quick Start - REST API
-//!
-//! ```rust,ignore
-//! use lightcone_sdk::api::LightconeApiClient;
-//!
-//! #[tokio::main]
-//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     // Create API client
-//!     let api = LightconeApiClient::new("https://api.lightcone.xyz");
-//!
-//!     // Get all markets (first page)
-//!     let markets = api.get_markets(None, None).await?;
-//!     println!("Has more: {}", markets.has_more);
-//!
-//!     // Get orderbook
-//!     let orderbook = api.get_orderbook("orderbook_id", Some(10)).await?;
-//!     println!("Best bid: {:?}", orderbook.best_bid);
-//!
-//!     Ok(())
-//! }
-//! ```
-//!
-//! ## Quick Start - On-Chain Program
+//! ## Quick Start
 //!
 //! ```rust,ignore
-//! use lightcone_sdk::program::LightconePinocchioClient;
-//! use lightcone_sdk::shared::types::*;
-//! use solana_pubkey::Pubkey;
+//! use lightcone::prelude::*;
 //!
-//! #[tokio::main]
-//! async fn main() {
-//!     // Create on-chain client
-//!     let client = LightconePinocchioClient::new("https://api.devnet.solana.com");
+//! let client = LightconeClient::builder()
+//!     .base_url("https://tapi.lightcone.xyz")
+//!     .build()?;
 //!
-//!     // Fetch exchange state
-//!     let exchange = client.get_exchange().await.unwrap();
-//!     println!("Market count: {}", exchange.market_count);
-//!
-//!     // Create an order
-//!     let order = client.create_bid_order(BidOrderParams {
-//!         nonce: 1,
-//!         maker: Pubkey::new_unique(),
-//!         market: Pubkey::new_unique(),
-//!         base_mint: Pubkey::new_unique(),
-//!         quote_mint: Pubkey::new_unique(),
-//!         amount_in: 1000,
-//!         amount_out: 500,
-//!         expiration: 0,
-//!     });
-//! }
+//! let markets = client.markets().featured().await?;
+//! let orderbook = client.orderbooks().get("orderbook_id", Some(10)).await?;
 //! ```
 
-// ============================================================================
-// MODULES
-// ============================================================================
+// ── Layer 1: Core ────────────────────────────────────────────────────────────
 
-/// On-chain program interaction module.
-/// Contains the client and utilities for interacting with the Lightcone smart contract.
-pub mod program;
-
-/// Shared utilities, types, and constants.
-/// Used across all SDK modules.
+/// Shared newtypes used across all domains.
 pub mod shared;
 
-/// Network URL constants (API and WebSocket endpoints).
+/// Domain modules (vertical slices): types, wire types, conversions, state.
+pub mod domain;
+
+/// On-chain program interaction: instructions, orders, PDAs, accounts.
+pub mod program;
+
+/// Unified SDK error types.
+pub mod error;
+
+/// Network URL constants.
 pub mod network;
 
-/// Authentication module for obtaining JWT tokens.
-/// Types are always available; `authenticate()` requires the `auth` feature.
+// ── Layer 2: Auth ────────────────────────────────────────────────────────────
+
+/// Authentication: message generation, credentials, login/logout.
 pub mod auth;
 
-/// REST API client module for market data, orders, and positions.
-pub mod api;
+/// Privy embedded wallet RPC operations.
+pub mod privy;
 
-/// WebSocket client module for real-time data streaming.
-#[cfg(feature = "websocket")]
-pub mod websocket;
+// ── Layer 3: HTTP API ────────────────────────────────────────────────────────
 
-// ============================================================================
-// PRELUDE
-// ============================================================================
+/// HTTP client with retry policies.
+#[cfg(feature = "http")]
+pub mod http;
 
-/// Prelude module for convenient imports.
-///
-/// ```rust,ignore
-/// use lightcone_sdk::prelude::*;
-/// ```
+// ── Layer 4: WebSocket ───────────────────────────────────────────────────────
+
+/// WebSocket client: messages, subscriptions, events.
+pub mod ws;
+
+// ── Layer 5: High-Level Client ───────────────────────────────────────────────
+
+/// `LightconeClient` — the primary entry point.
+#[cfg(feature = "http")]
+pub mod client;
+
+// ── Prelude ──────────────────────────────────────────────────────────────────
+
 pub mod prelude {
-    // Program module exports
-    pub use crate::program::{
-        // Order utilities
-        calculate_taker_fill,
-        derive_condition_id,
-        is_order_expired,
-        orders_can_cross,
-        Order,
-        // Order builder
-        OrderBuilder,
-        OrderSide,
-        OrderStatus,
-        Orderbook,
-        OutcomeMetadata,
-        Position,
-        RedeemWinningsParams,
-        // Errors
-        SdkError,
-        SdkResult,
-        SetAuthorityParams,
-        SettleMarketParams,
-        SignedCancelAll,
-        SignedCancelOrder,
-        SignedOrder,
-        UserNonce,
-        WhitelistDepositTokenParams,
-        WithdrawFromPositionParams,
-        ASSOCIATED_TOKEN_PROGRAM_ID,
-        // Constants (moved from shared)
-        PROGRAM_ID,
-        TOKEN_2022_PROGRAM_ID,
-        TOKEN_PROGRAM_ID,
+    // Shared newtypes
+    pub use crate::shared::{DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType};
+
+    // Domain types — market (includes outcome + tokens)
+    pub use crate::domain::market::outcome::Outcome;
+    pub use crate::domain::market::tokens::{
+        ConditionalToken, DepositAsset, Token, TokenMetadata, ValidatedTokens,
+    };
+    pub use crate::domain::market::{Market, Status};
+
+    // Domain types — orderbook
+    pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};
+
+    // Domain types — order
+    pub use crate::domain::order::{
+        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
+        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance, Order,
+        OrderEvent, OrderStatus, OrderType, SubmitOrderResponse, TriggerOrder,
+        TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
+        UserSnapshotBalance, UserSnapshotOrder, UserTriggerOrders,
     };
 
-    // Client (conditionally exported)
-    #[cfg(feature = "native-client")]
-    pub use crate::program::LightconePinocchioClient;
-
-    // API module exports
-    pub use crate::api::{
-        ApiError,
-        ApiResult,
-        CancelAllResponse,
-        CancelResponse,
-        ConditionalToken,
-        DecimalsResponse,
-        DepositAsset,
-        LightconeApiClient,
-        LightconeApiClientBuilder,
-        Market as ApiMarket,
-        MarketInfoResponse,
-        MarketSearchResult,
-        // Common types
-        MarketsResponse,
-        OrderResponse,
-        OrderbookResponse,
-        OutcomeBalance,
-        Position as ApiPosition,
-        PositionsResponse,
-        PriceHistoryParams,
-        PriceHistoryResponse,
-        PriceLevel,
-        SearchOrderbook,
-        Trade,
-        TradesParams,
-        TradesResponse,
+    // Domain types — position (includes portfolio + token balances)
+    pub use crate::domain::position::{
+        DepositAssetMetadata, DepositTokenBalance, Portfolio, Position, PositionOutcome,
+        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletHolding,
     };
 
-    // Network constants
+    // Domain types — trade, price history
+    pub use crate::domain::price_history::{LineData, PriceHistoryState};
+    pub use crate::domain::trade::Trade;
+
+    // Errors
+    pub use crate::error::SdkError;
+
+    // Network
     pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 
-    // Auth module exports
-    #[cfg(feature = "auth")]
-    pub use crate::auth::{authenticate, authenticate_with_transaction};
-
-    // Shared utilities (used by both API and WebSocket)
-    pub use crate::shared::{
-        derive_orderbook_id, format_decimal, parse_decimal, scale_price_size, OrderbookDecimals,
-        Resolution, ScaledAmounts, ScalingError,
+    // Auth + User types
+    pub use crate::auth::{
+        AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
     };
 
-    // WebSocket module exports
-    #[cfg(feature = "websocket")]
-    pub use crate::websocket::{
-        BookUpdateData, ConnectionState, LightconeWebSocketClient, LocalOrderbook, MarketEventData,
-        PriceHistory, PriceHistoryData, TradeData, UserEventData, UserState, WebSocketConfig,
-        WebSocketError, WsEvent, WsResult,
+    // Program — order envelopes and payload
+    pub use crate::program::{
+        LimitOrderEnvelope, OrderEnvelope, OrderPayload, TriggerOrderEnvelope,
     };
+
+    // Privy RPC types
+    pub use crate::privy::{
+        ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
+        SignAndSendTxRequest, SignAndSendTxResponse,
+    };
+
+    // Domain types — referral
+    pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
+
+    // HTTP client + sub-clients
+    #[cfg(feature = "http")]
+    pub use crate::client::{
+        AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
+        MarketsResult, OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient,
+        ReferralsClient, TradesClient,
+    };
+    #[cfg(feature = "http")]
+    pub use crate::http::retry::{RetryConfig, RetryPolicy};
+
+    // WebSocket types
+    pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};
+
+    // State containers
+    pub use crate::domain::orderbook::state::OrderbookSnapshot;
+    pub use crate::domain::trade::TradeHistory;
 }

@@ -6,6 +6,7 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::error::SdkError;
+use crate::program::orders::OrderPayload;
 
 // ============================================================================
 // Enums
@@ -179,8 +180,8 @@ pub struct ActivateMarketParams {
 /// Parameters for creating a bid order
 #[derive(Debug, Clone)]
 pub struct BidOrderParams {
-    /// Order nonce (unique per user, u32 range)
-    pub nonce: u32,
+    /// Order nonce (unique per user)
+    pub nonce: u64,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -189,9 +190,9 @@ pub struct BidOrderParams {
     pub base_mint: Pubkey,
     /// Quote mint (token used for payment)
     pub quote_mint: Pubkey,
-    /// Quote tokens to give (amount_in)
+    /// Quote tokens to give (on-chain amount_in, maps to API `amount_in`)
     pub amount_in: u64,
-    /// Base tokens to receive (amount_out)
+    /// Base tokens to receive (on-chain amount_out, maps to API `amount_out`)
     pub amount_out: u64,
     /// Expiration timestamp (0 for no expiration)
     pub expiration: i64,
@@ -200,8 +201,8 @@ pub struct BidOrderParams {
 /// Parameters for creating an ask order
 #[derive(Debug, Clone)]
 pub struct AskOrderParams {
-    /// Order nonce (unique per user, u32 range)
-    pub nonce: u32,
+    /// Order nonce (unique per user)
+    pub nonce: u64,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -210,9 +211,9 @@ pub struct AskOrderParams {
     pub base_mint: Pubkey,
     /// Quote mint (token to receive)
     pub quote_mint: Pubkey,
-    /// Base tokens to give (amount_in)
+    /// Base tokens to give (on-chain amount_in, maps to API `amount_in`)
     pub amount_in: u64,
-    /// Quote tokens to receive (amount_out)
+    /// Quote tokens to receive (on-chain amount_out, maps to API `amount_out`)
     pub amount_out: u64,
     /// Expiration timestamp (0 for no expiration)
     pub expiration: i64,
@@ -230,9 +231,9 @@ pub struct MatchOrdersMultiParams {
     /// Quote mint pubkey
     pub quote_mint: Pubkey,
     /// Taker order (signed)
-    pub taker_order: crate::program::orders::SignedOrder,
+    pub taker_order: OrderPayload,
     /// Maker orders (signed)
-    pub maker_orders: Vec<crate::program::orders::SignedOrder>,
+    pub maker_orders: Vec<OrderPayload>,
     /// Fill amounts for each maker (maker side)
     pub maker_fill_amounts: Vec<u64>,
     /// Fill amounts for each maker (taker side)
@@ -325,13 +326,26 @@ pub struct DepositAndSwapParams {
     /// Quote mint pubkey (conditional token B)
     pub quote_mint: Pubkey,
     /// Taker order (signed)
-    pub taker_order: crate::program::orders::SignedOrder,
+    pub taker_order: OrderPayload,
     /// Maker orders (signed)
-    pub maker_orders: Vec<crate::program::orders::SignedOrder>,
+    pub maker_orders: Vec<OrderPayload>,
     /// Fill amounts for each maker (maker side)
     pub maker_fill_amounts: Vec<u64>,
     /// Fill amounts for each maker (taker side)
     pub taker_fill_amounts: Vec<u64>,
     /// Bitmask indicating which orders require full fill
     pub full_fill_bitmask: u8,
+}
+
+/// Parameters for extending a position ALT with new deposit mints
+#[derive(Debug, Clone)]
+pub struct ExtendPositionTokensParams {
+    /// Payer for account creation (signer)
+    pub payer: Pubkey,
+    /// Position owner (does not need to sign)
+    pub user: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// New deposit mints to add (must be in ascending GDT index order)
+    pub deposit_mints: Vec<Pubkey>,
 }

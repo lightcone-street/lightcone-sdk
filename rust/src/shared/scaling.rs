@@ -17,6 +17,29 @@ pub struct OrderbookDecimals {
     pub base_decimals: u8,
     pub quote_decimals: u8,
     pub price_decimals: u8,
+    /// Minimum price increment in quote-token lamports (e.g. 1000 for 0.001 with 6 decimals).
+    /// Set to 0 or 1 to disable tick alignment.
+    pub tick_size: u64,
+}
+
+/// Snap a human-readable price to the nearest valid tick.
+///
+/// Converts the price to quote-token lamports, truncates to the nearest
+/// `tick_size` multiple, and converts back to a `Decimal`.
+/// Returns the original price unchanged if `tick_size` is 0 or 1.
+pub fn align_price_to_tick(price: Decimal, decimals: &OrderbookDecimals) -> Decimal {
+    if decimals.tick_size <= 1 {
+        return price;
+    }
+
+    let quote_multiplier = Decimal::from(
+        10u64.pow(decimals.quote_decimals as u32),
+    );
+    let tick = Decimal::from(decimals.tick_size);
+
+    let lamports = (price * quote_multiplier).trunc();
+    let aligned_lamports = (lamports / tick).trunc() * tick;
+    aligned_lamports / quote_multiplier
 }
 
 /// Result of converting price + size to raw u64 amounts.
@@ -170,6 +193,7 @@ mod tests {
             base_decimals: 6,
             quote_decimals: 6,
             price_decimals: 2,
+            tick_size: 0,
         }
     }
 
@@ -179,6 +203,7 @@ mod tests {
             base_decimals: 6,
             quote_decimals: 9,
             price_decimals: 2,
+            tick_size: 0,
         }
     }
 
@@ -335,5 +360,45 @@ mod tests {
 
         assert_eq!(result.amount_in, 50_000_000);
         assert_eq!(result.amount_out, 100_000_000);
+    }
+
+    #[test]
+    fn test_align_price_to_tick_basic() {
+        let d = OrderbookDecimals {
+            orderbook_id: "t".into(),
+            base_decimals: 8,
+            quote_decimals: 6,
+            price_decimals: 2,
+            tick_size: 1000,
+        };
+        // 0.6005 * 10^6 = 600500 lamports, tick=1000 -> 600 * 1000 = 600000 -> 0.6
+        let aligned = align_price_to_tick(Decimal::from_str("0.6005").unwrap(), &d);
+        assert_eq!(aligned, Decimal::from_str("0.6").unwrap());
+    }
+
+    #[test]
+    fn test_align_price_to_tick_exact() {
+        let d = OrderbookDecimals {
+            orderbook_id: "t".into(),
+            base_decimals: 8,
+            quote_decimals: 6,
+            price_decimals: 2,
+            tick_size: 1000,
+        };
+        let aligned = align_price_to_tick(Decimal::from_str("0.65").unwrap(), &d);
+        assert_eq!(aligned, Decimal::from_str("0.65").unwrap());
+    }
+
+    #[test]
+    fn test_align_price_no_tick() {
+        let d = OrderbookDecimals {
+            orderbook_id: "t".into(),
+            base_decimals: 6,
+            quote_decimals: 6,
+            price_decimals: 2,
+            tick_size: 0,
+        };
+        let price = Decimal::from_str("0.12345").unwrap();
+        assert_eq!(align_price_to_tick(price, &d), price);
     }
 }

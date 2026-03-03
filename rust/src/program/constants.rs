@@ -12,7 +12,7 @@ use std::str::FromStr;
 
 lazy_static::lazy_static! {
     /// Lightcone Pinocchio Program ID
-    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A").unwrap();
+    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV").unwrap();
 
     /// Address Lookup Table Program ID
     pub static ref ALT_PROGRAM_ID: Pubkey = Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
@@ -60,6 +60,7 @@ pub mod instruction {
     pub const GLOBAL_TO_MARKET_DEPOSIT: u8 = 18;
     pub const INIT_POSITION_TOKENS: u8 = 19;
     pub const DEPOSIT_AND_SWAP: u8 = 20;
+    pub const EXTEND_POSITION_TOKENS: u8 = 21;
 }
 
 // ============================================================================
@@ -79,7 +80,8 @@ pub const POSITION_DISCRIMINATOR: [u8; 8] = [0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40,
 /// Orderbook account discriminator
 pub const ORDERBOOK_DISCRIMINATOR: [u8; 8] = [0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07];
 /// GlobalDepositToken account discriminator
-pub const GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR: [u8; 8] = [0x25, 0xbe, 0xa1, 0xe8, 0x7b, 0x92, 0x2a, 0x57];
+pub const GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR: [u8; 8] =
+    [0x25, 0xbe, 0xa1, 0xe8, 0x7b, 0x92, 0x2a, 0x57];
 
 // ============================================================================
 // PDA Seeds
@@ -145,4 +147,4 @@ pub const MAX_OUTCOMES: u8 = 6;
 /// Minimum outcomes per market
 pub const MIN_OUTCOMES: u8 = 2;
 /// Maximum makers in a single match_orders_multi instruction
-pub const MAX_MAKERS: usize = 7;
+pub const MAX_MAKERS: usize = 5;

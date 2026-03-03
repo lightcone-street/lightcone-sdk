@@ -7,15 +7,15 @@ use sha3::{Digest, Keccak256};
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 
-#[cfg(feature = "native-client")]
+#[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
-#[cfg(feature = "native-client")]
+#[cfg(feature = "native-auth")]
 use solana_signer::Signer;
 
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::{CancelAllOrdersRequest, CancelOrderRequest, SubmitOrderRequest};
+use crate::shared::SubmitOrderRequest;
 
 // ============================================================================
 // Signed Order (225 bytes)
@@ -24,7 +24,7 @@ use crate::shared::{CancelAllOrdersRequest, CancelOrderRequest, SubmitOrderReque
 /// Signed order structure with full context and signature.
 ///
 /// Layout (225 bytes):
-/// - [0..8]     nonce (u32 value, serialized as u64 LE for wire compatibility)
+/// - [0..8]     nonce (8 bytes, u64)
 /// - [8..40]    maker (32 bytes)
 /// - [40..72]   market (32 bytes)
 /// - [72..104]  base_mint (32 bytes)
@@ -35,9 +35,9 @@ use crate::shared::{CancelAllOrdersRequest, CancelOrderRequest, SubmitOrderReque
 /// - [153..161] expiration (8 bytes)
 /// - [161..225] signature (64 bytes)
 #[derive(Debug, Clone)]
-pub struct SignedOrder {
-    /// Unique order ID and replay protection (u32 range, serialized as u64 on wire)
-    pub nonce: u32,
+pub struct OrderPayload {
+    /// Unique order ID and replay protection
+    pub nonce: u64,
     /// Order maker's pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -58,7 +58,7 @@ pub struct SignedOrder {
     pub signature: [u8; 64],
 }
 
-impl SignedOrder {
+impl OrderPayload {
     /// Order size in bytes
     pub const LEN: usize = SIGNED_ORDER_SIZE;
 
@@ -102,7 +102,7 @@ impl SignedOrder {
     fn signing_message(&self) -> [u8; Self::HASH_SIZE] {
         let mut data = [0u8; Self::HASH_SIZE];
 
-        data[0..8].copy_from_slice(&(self.nonce as u64).to_le_bytes());
+        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
         data[8..40].copy_from_slice(self.maker.as_ref());
         data[40..72].copy_from_slice(self.market.as_ref());
         data[72..104].copy_from_slice(self.base_mint.as_ref());
@@ -126,7 +126,7 @@ impl SignedOrder {
     }
 
     /// Sign the order with the given keypair.
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     pub fn sign(&mut self, keypair: &Keypair) {
         let hash = self.hash_hex();
         let sig = keypair.sign_message(hash.as_bytes());
@@ -135,7 +135,7 @@ impl SignedOrder {
     }
 
     /// Create and sign an order in one step.
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     pub fn new_bid_signed(params: BidOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_bid(params);
         order.sign(keypair);
@@ -143,7 +143,7 @@ impl SignedOrder {
     }
 
     /// Create and sign an ask order in one step.
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     pub fn new_ask_signed(params: AskOrderParams, keypair: &Keypair) -> Self {
         let mut order = Self::new_ask(params);
         order.sign(keypair);
@@ -177,7 +177,7 @@ impl SignedOrder {
     pub fn serialize(&self) -> [u8; SIGNED_ORDER_SIZE] {
         let mut data = [0u8; SIGNED_ORDER_SIZE];
 
-        data[0..8].copy_from_slice(&(self.nonce as u64).to_le_bytes());
+        data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
         data[8..40].copy_from_slice(self.maker.as_ref());
         data[40..72].copy_from_slice(self.market.as_ref());
         data[72..104].copy_from_slice(self.base_mint.as_ref());
@@ -202,10 +202,6 @@ impl SignedOrder {
 
         let mut nonce_bytes = [0u8; 8];
         nonce_bytes.copy_from_slice(&data[0..8]);
-        let nonce_u64 = u64::from_le_bytes(nonce_bytes);
-        if nonce_u64 > u32::MAX as u64 {
-            return Err(SdkError::Overflow);
-        }
 
         let mut maker_bytes = [0u8; 32];
         maker_bytes.copy_from_slice(&data[8..40]);
@@ -232,7 +228,7 @@ impl SignedOrder {
         signature.copy_from_slice(&data[161..225]);
 
         Ok(Self {
-            nonce: nonce_u64 as u32,
+            nonce: u64::from_le_bytes(nonce_bytes),
             maker: Pubkey::new_from_array(maker_bytes),
             market: Pubkey::new_from_array(market_bytes),
             base_mint: Pubkey::new_from_array(base_mint_bytes),
@@ -248,7 +244,7 @@ impl SignedOrder {
     /// Convert to compact order format (29 bytes, no maker field).
     pub fn to_order(&self) -> Order {
         Order {
-            nonce: self.nonce,
+            nonce: self.nonce as u32,
             side: self.side,
             amount_in: self.amount_in,
             amount_out: self.amount_out,
@@ -266,28 +262,23 @@ impl SignedOrder {
         self.signature != [0u8; 64]
     }
 
-    // =========================================================================
-    // API Bridge Methods
-    // =========================================================================
+    /// Convert a signed payload to a `SubmitOrderRequest` (limit order, no trigger fields).
+    ///
+    /// Intended for internal use by envelope types. Prefer using
+    /// `LimitOrderEnvelope::sign()` or `TriggerOrderEnvelope::sign()`.
+    pub(crate) fn to_submit_request(
+        &self,
+        orderbook_id: impl Into<String>,
+        time_in_force: Option<crate::shared::TimeInForce>,
+        trigger_price: Option<f64>,
+        trigger_type: Option<crate::shared::TriggerType>,
+        deposit_source: Option<crate::shared::DepositSource>,
+    ) -> Result<SubmitOrderRequest, SdkError> {
+        if self.signature == [0u8; 64] {
+            return Err(SdkError::UnsignedOrder);
+        }
 
-    /// Convert a signed order to an API SubmitOrderRequest.
-    ///
-    /// This bridges on-chain order creation with REST API submission.
-    ///
-    /// # Arguments
-    ///
-    /// * `orderbook_id` - Target orderbook (get from market API or use `derive_orderbook_id()`)
-    ///
-    /// # Panics
-    ///
-    /// Panics if the order has not been signed (signature is all zeros).
-    pub fn to_submit_request(&self, orderbook_id: impl Into<String>) -> SubmitOrderRequest {
-        assert!(
-            self.signature != [0u8; 64],
-            "Order must be signed before converting to submit request"
-        );
-
-        SubmitOrderRequest {
+        Ok(SubmitOrderRequest {
             maker: self.maker.to_string(),
             nonce: self.nonce,
             market_pubkey: self.market.to_string(),
@@ -299,7 +290,11 @@ impl SignedOrder {
             expiration: self.expiration,
             signature: hex::encode(self.signature),
             orderbook_id: orderbook_id.into(),
-        }
+            time_in_force,
+            trigger_price,
+            trigger_type,
+            deposit_source,
+        })
     }
 
     /// Derive the orderbook ID for this order.
@@ -310,6 +305,7 @@ impl SignedOrder {
             &self.base_mint.to_string(),
             &self.quote_mint.to_string(),
         )
+        .to_string()
     }
 }
 
@@ -329,7 +325,7 @@ impl SignedOrder {
 /// - [21..29] expiration (8 bytes)
 #[derive(Debug, Clone)]
 pub struct Order {
-    /// Unique order ID and replay protection (truncated to u32)
+    /// Unique order ID and replay protection
     pub nonce: u32,
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
@@ -396,9 +392,9 @@ impl Order {
         base_mint: Pubkey,
         quote_mint: Pubkey,
         signature: [u8; 64],
-    ) -> SignedOrder {
-        SignedOrder {
-            nonce: self.nonce,
+    ) -> OrderPayload {
+        OrderPayload {
+            nonce: self.nonce as u64,
             maker,
             market,
             base_mint,
@@ -417,14 +413,14 @@ impl Order {
 // ============================================================================
 
 /// Check if an order is expired.
-pub fn is_order_expired(order: &SignedOrder, current_time: i64) -> bool {
+pub fn is_order_expired(order: &OrderPayload, current_time: i64) -> bool {
     order.expiration != 0 && current_time >= order.expiration
 }
 
 /// Check if two orders can cross (prices are compatible).
 ///
 /// Returns true if the buyer's price >= seller's price.
-pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bool {
+pub fn orders_can_cross(buy_order: &OrderPayload, sell_order: &OrderPayload) -> bool {
     if buy_order.side != OrderSide::Bid || sell_order.side != OrderSide::Ask {
         return false;
     }
@@ -452,7 +448,7 @@ pub fn orders_can_cross(buy_order: &SignedOrder, sell_order: &SignedOrder) -> bo
 }
 
 /// Calculate the taker fill amount given a maker fill amount.
-pub fn calculate_taker_fill(maker_order: &SignedOrder, maker_fill_amount: u64) -> SdkResult<u64> {
+pub fn calculate_taker_fill(maker_order: &OrderPayload, maker_fill_amount: u64) -> SdkResult<u64> {
     if maker_order.amount_in == 0 {
         return Err(SdkError::Overflow);
     }
@@ -480,235 +476,28 @@ pub fn derive_condition_id(oracle: &Pubkey, question_id: &[u8; 32], num_outcomes
 }
 
 // ============================================================================
-// Signed Cancel Order
+// Cancel Order Signing Helpers
 // ============================================================================
 
-/// Signed cancel-order request.
+/// Build the message bytes for cancelling an order.
 ///
-/// Mirrors the [`SignedOrder`] pattern: construct, sign (or apply external
-/// signature), then convert to an API request via [`to_cancel_request`].
-#[derive(Debug, Clone)]
-pub struct SignedCancelOrder {
-    /// Hex-encoded order hash (64-char hex string)
-    pub order_hash: String,
-    /// Order creator's pubkey
-    pub maker: Pubkey,
-    /// Ed25519 signature (64 bytes, all zeros until signed)
-    pub signature: [u8; 64],
+/// The message is the order hash hex string as UTF-8 bytes (same protocol as order signing).
+pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
+    order_hash.as_bytes().to_vec()
 }
 
-impl SignedCancelOrder {
-    /// Create a new unsigned cancel request.
-    pub fn new(order_hash: impl Into<String>, maker: Pubkey) -> Self {
-        Self {
-            order_hash: order_hash.into(),
-            maker,
-            signature: [0u8; 64],
-        }
-    }
-
-    /// The message bytes that get signed: the order hash hex as UTF-8 bytes.
-    pub fn signing_message(&self) -> Vec<u8> {
-        self.order_hash.as_bytes().to_vec()
-    }
-
-    /// Sign the cancel request with the given keypair.
-    #[cfg(feature = "client")]
-    pub fn sign(&mut self, keypair: &Keypair) {
-        let message = self.signing_message();
-        let sig = keypair.sign_message(&message);
-        self.signature.copy_from_slice(sig.as_ref());
-    }
-
-    /// Create and sign in one step.
-    #[cfg(feature = "client")]
-    pub fn new_signed(order_hash: impl Into<String>, maker: Pubkey, keypair: &Keypair) -> Self {
-        let mut cancel = Self::new(order_hash, maker);
-        cancel.sign(keypair);
-        cancel
-    }
-
-    /// Apply an externally-produced signature (Base58-encoded).
-    pub fn apply_signature(&mut self, sig_bs58: &str) -> SdkResult<()> {
-        let signature = sig_bs58
-            .parse::<Signature>()
-            .map_err(|_| SdkError::InvalidSignature)?;
-        self.signature = signature.into();
-        Ok(())
-    }
-
-    /// Verify the signature against the maker pubkey.
-    pub fn verify_signature(&self) -> SdkResult<()> {
-        let sig = Signature::try_from(self.signature.as_slice())
-            .map_err(|_| SdkError::InvalidSignature)?;
-        if !sig.verify(self.maker.as_ref(), &self.signing_message()) {
-            return Err(SdkError::SignatureVerificationFailed);
-        }
-        Ok(())
-    }
-
-    /// Get the signature as a hex string (128 chars).
-    pub fn signature_hex(&self) -> String {
-        hex::encode(self.signature)
-    }
-
-    /// Check if the cancel request has been signed.
-    pub fn is_signed(&self) -> bool {
-        self.signature != [0u8; 64]
-    }
-
-    /// Convert to the API payload type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the cancel request has not been signed.
-    pub fn to_cancel_request(&self) -> CancelOrderRequest {
-        assert!(
-            self.is_signed(),
-            "Cancel request must be signed before converting to API request"
-        );
-        CancelOrderRequest {
-            order_hash: self.order_hash.clone(),
-            maker: self.maker.to_string(),
-            signature: self.signature_hex(),
-        }
-    }
-}
-
-// ============================================================================
-// Signed Cancel All
-// ============================================================================
-
-/// Signed cancel-all-orders request.
+/// Build the message bytes for cancelling a trigger order.
 ///
-/// Mirrors the [`SignedOrder`] pattern: construct, sign (or apply external
-/// signature), then convert to an API request via [`to_cancel_all_request`].
-#[derive(Debug, Clone)]
-pub struct SignedCancelAll {
-    /// User's public key
-    pub user_pubkey: Pubkey,
-    /// Unix timestamp used in the signed message
-    pub timestamp: i64,
-    /// Optional: limit to a specific orderbook
-    pub orderbook_id: Option<String>,
-    /// Ed25519 signature (64 bytes, all zeros until signed)
-    pub signature: [u8; 64],
+/// The message is the trigger_order_id as UTF-8 bytes.
+pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
+    trigger_order_id.as_bytes().to_vec()
 }
 
-impl SignedCancelAll {
-    /// Create a new unsigned cancel-all request.
-    pub fn new(user_pubkey: Pubkey, timestamp: i64) -> Self {
-        Self {
-            user_pubkey,
-            timestamp,
-            orderbook_id: None,
-            signature: [0u8; 64],
-        }
-    }
-
-    /// Create with a specific orderbook scope.
-    pub fn new_for_orderbook(
-        user_pubkey: Pubkey,
-        timestamp: i64,
-        orderbook_id: impl Into<String>,
-    ) -> Self {
-        Self {
-            user_pubkey,
-            timestamp,
-            orderbook_id: Some(orderbook_id.into()),
-            signature: [0u8; 64],
-        }
-    }
-
-    /// Create with the current system timestamp.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the system clock is before the Unix epoch.
-    pub fn now(user_pubkey: Pubkey) -> Self {
-        let timestamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("system clock before epoch")
-            .as_secs() as i64;
-        Self::new(user_pubkey, timestamp)
-    }
-
-    /// The signing message: `"cancel_all:{pubkey}:{timestamp}"` as UTF-8 bytes.
-    pub fn signing_message(&self) -> Vec<u8> {
-        format!("cancel_all:{}:{}", self.user_pubkey, self.timestamp)
-            .into_bytes()
-    }
-
-    /// Sign the cancel-all request with the given keypair.
-    #[cfg(feature = "client")]
-    pub fn sign(&mut self, keypair: &Keypair) {
-        let message = self.signing_message();
-        let sig = keypair.sign_message(&message);
-        self.signature.copy_from_slice(sig.as_ref());
-    }
-
-    /// Create and sign in one step.
-    #[cfg(feature = "client")]
-    pub fn new_signed(user_pubkey: Pubkey, timestamp: i64, keypair: &Keypair) -> Self {
-        let mut cancel = Self::new(user_pubkey, timestamp);
-        cancel.sign(keypair);
-        cancel
-    }
-
-    /// Create with current timestamp and sign in one step.
-    #[cfg(feature = "client")]
-    pub fn now_signed(user_pubkey: Pubkey, keypair: &Keypair) -> Self {
-        let mut cancel = Self::now(user_pubkey);
-        cancel.sign(keypair);
-        cancel
-    }
-
-    /// Apply an externally-produced signature (Base58-encoded).
-    pub fn apply_signature(&mut self, sig_bs58: &str) -> SdkResult<()> {
-        let signature = sig_bs58
-            .parse::<Signature>()
-            .map_err(|_| SdkError::InvalidSignature)?;
-        self.signature = signature.into();
-        Ok(())
-    }
-
-    /// Verify the signature against the user pubkey.
-    pub fn verify_signature(&self) -> SdkResult<()> {
-        let sig = Signature::try_from(self.signature.as_slice())
-            .map_err(|_| SdkError::InvalidSignature)?;
-        if !sig.verify(self.user_pubkey.as_ref(), &self.signing_message()) {
-            return Err(SdkError::SignatureVerificationFailed);
-        }
-        Ok(())
-    }
-
-    /// Get the signature as a hex string (128 chars).
-    pub fn signature_hex(&self) -> String {
-        hex::encode(self.signature)
-    }
-
-    /// Check if the cancel request has been signed.
-    pub fn is_signed(&self) -> bool {
-        self.signature != [0u8; 64]
-    }
-
-    /// Convert to the API payload type.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the cancel request has not been signed.
-    pub fn to_cancel_all_request(&self) -> CancelAllOrdersRequest {
-        assert!(
-            self.is_signed(),
-            "Cancel-all request must be signed before converting to API request"
-        );
-        CancelAllOrdersRequest {
-            user_pubkey: self.user_pubkey.to_string(),
-            orderbook_id: self.orderbook_id.clone(),
-            signature: self.signature_hex(),
-            timestamp: self.timestamp,
-        }
-    }
+/// Build the message string for cancelling all orders.
+///
+/// Format: `"cancel_all:{pubkey}:{timestamp}"`
+pub fn cancel_all_message(user_pubkey: &str, timestamp: i64) -> String {
+    format!("cancel_all:{}:{}", user_pubkey, timestamp)
 }
 
 #[cfg(test)]
@@ -716,8 +505,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_signed_order_serialization_roundtrip() {
-        let order = SignedOrder {
+    fn test_order_payload_serialization_roundtrip() {
+        let order = OrderPayload {
             nonce: 12345,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -731,7 +520,7 @@ mod tests {
         };
 
         let serialized = order.serialize();
-        let deserialized = SignedOrder::deserialize(&serialized).unwrap();
+        let deserialized = OrderPayload::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
         assert_eq!(order.maker, deserialized.maker);
@@ -779,7 +568,7 @@ mod tests {
 
     #[test]
     fn test_order_hash_consistency() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -799,7 +588,7 @@ mod tests {
 
     #[test]
     fn test_signed_order_to_order_roundtrip() {
-        let signed = SignedOrder {
+        let signed = OrderPayload {
             nonce: 42,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -833,7 +622,7 @@ mod tests {
 
     #[test]
     fn test_orders_can_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -846,7 +635,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -865,7 +654,7 @@ mod tests {
 
     #[test]
     fn test_orders_cannot_cross() {
-        let buy_order = SignedOrder {
+        let buy_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -878,7 +667,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let sell_order = SignedOrder {
+        let sell_order = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
@@ -897,7 +686,7 @@ mod tests {
 
     #[test]
     fn test_calculate_taker_fill() {
-        let maker_order = SignedOrder {
+        let maker_order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -916,7 +705,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     fn test_to_submit_request() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;
@@ -927,7 +716,7 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 42,
             maker,
             market,
@@ -942,7 +731,7 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook");
+        let request = order.to_submit_request("test_orderbook", None, None, None, None).unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -959,7 +748,7 @@ mod tests {
 
     #[test]
     fn test_derive_orderbook_id() {
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
@@ -981,13 +770,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     fn test_is_signed() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -1008,13 +797,13 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native-auth")]
     fn test_signature_and_hash_hex() {
         use solana_keypair::Keypair;
         use solana_signer::Signer;
 
         let keypair = Keypair::new();
-        let mut order = SignedOrder {
+        let mut order = OrderPayload {
             nonce: 1,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
@@ -1043,9 +832,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Order must be signed before converting to submit request")]
-    fn test_to_submit_request_panics_unsigned() {
-        let order = SignedOrder {
+    fn test_to_submit_request_errors_unsigned() {
+        let order = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
@@ -1058,158 +846,77 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        order.to_submit_request("test_orderbook");
-    }
-
-    // ========================================================================
-    // SignedCancelOrder tests
-    // ========================================================================
-
-    #[test]
-    fn test_signed_cancel_order_new() {
-        let maker = Pubkey::new_unique();
-        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-        let cancel = SignedCancelOrder::new(hash, maker);
-        assert!(!cancel.is_signed());
-        assert_eq!(cancel.order_hash, hash);
-        assert_eq!(cancel.maker, maker);
-    }
-
-    #[test]
-    fn test_signed_cancel_order_signing_message() {
-        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-        let cancel = SignedCancelOrder::new(hash, Pubkey::new_unique());
-        assert_eq!(cancel.signing_message(), hash.as_bytes().to_vec());
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_order_sign_and_verify() {
-        let keypair = Keypair::new();
-        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
-
-        let mut cancel = SignedCancelOrder::new(hash, keypair.pubkey());
-        cancel.sign(&keypair);
-        assert!(cancel.is_signed());
-        assert_eq!(cancel.signature_hex().len(), 128);
-        cancel.verify_signature().expect("signature should verify");
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_order_new_signed() {
-        let keypair = Keypair::new();
-        let cancel = SignedCancelOrder::new_signed("abc123", keypair.pubkey(), &keypair);
-        assert!(cancel.is_signed());
-        cancel.verify_signature().expect("signature should verify");
-    }
-
-    #[test]
-    #[should_panic(expected = "Cancel request must be signed")]
-    fn test_signed_cancel_order_to_request_panics_unsigned() {
-        let cancel = SignedCancelOrder::new("abc123", Pubkey::new_unique());
-        cancel.to_cancel_request();
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_order_to_request() {
-        let keypair = Keypair::new();
-        let cancel = SignedCancelOrder::new_signed("abc123", keypair.pubkey(), &keypair);
-        let request = cancel.to_cancel_request();
-        assert_eq!(request.order_hash, "abc123");
-        assert_eq!(request.maker, keypair.pubkey().to_string());
-        assert_eq!(request.signature.len(), 128);
-    }
-
-    // ========================================================================
-    // SignedCancelAll tests
-    // ========================================================================
-
-    #[test]
-    fn test_signed_cancel_all_new() {
-        let pubkey = Pubkey::new_unique();
-        let cancel = SignedCancelAll::new(pubkey, 1700000000);
-        assert!(!cancel.is_signed());
-        assert_eq!(cancel.user_pubkey, pubkey);
-        assert_eq!(cancel.timestamp, 1700000000);
-        assert!(cancel.orderbook_id.is_none());
-    }
-
-    #[test]
-    fn test_signed_cancel_all_for_orderbook() {
-        let pubkey = Pubkey::new_unique();
-        let cancel = SignedCancelAll::new_for_orderbook(pubkey, 1700000000, "my_orderbook");
-        assert_eq!(cancel.orderbook_id, Some("my_orderbook".to_string()));
-    }
-
-    #[test]
-    fn test_signed_cancel_all_now() {
-        let pubkey = Pubkey::new_unique();
-        let cancel = SignedCancelAll::now(pubkey);
-        assert!(cancel.timestamp > 0);
-        assert!(!cancel.is_signed());
-    }
-
-    #[test]
-    fn test_signed_cancel_all_signing_message() {
-        let pubkey = Pubkey::new_unique();
-        let cancel = SignedCancelAll::new(pubkey, 1700000000);
-        let expected = format!("cancel_all:{}:1700000000", pubkey);
-        assert_eq!(cancel.signing_message(), expected.into_bytes());
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_all_sign_and_verify() {
-        let keypair = Keypair::new();
-
-        let mut cancel = SignedCancelAll::new(keypair.pubkey(), 1700000000);
-        cancel.sign(&keypair);
-        assert!(cancel.is_signed());
-        assert_eq!(cancel.signature_hex().len(), 128);
-        cancel.verify_signature().expect("signature should verify");
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_all_now_signed() {
-        let keypair = Keypair::new();
-        let cancel = SignedCancelAll::now_signed(keypair.pubkey(), &keypair);
-        assert!(cancel.is_signed());
-        cancel.verify_signature().expect("signature should verify");
-    }
-
-    #[test]
-    #[should_panic(expected = "Cancel-all request must be signed")]
-    fn test_signed_cancel_all_to_request_panics_unsigned() {
-        let cancel = SignedCancelAll::new(Pubkey::new_unique(), 1700000000);
-        cancel.to_cancel_all_request();
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_all_to_request() {
-        let keypair = Keypair::new();
-        let cancel = SignedCancelAll::new_signed(keypair.pubkey(), 1700000000, &keypair);
-        let request = cancel.to_cancel_all_request();
-        assert_eq!(request.user_pubkey, keypair.pubkey().to_string());
-        assert_eq!(request.timestamp, 1700000000);
-        assert!(request.orderbook_id.is_none());
-        assert_eq!(request.signature.len(), 128);
-    }
-
-    #[test]
-    #[cfg(feature = "client")]
-    fn test_signed_cancel_all_to_request_with_orderbook() {
-        let keypair = Keypair::new();
-        let mut cancel = SignedCancelAll::new_for_orderbook(
-            keypair.pubkey(),
-            1700000000,
-            "test_ob",
+        let result = order.to_submit_request("test_orderbook", None, None, None, None);
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("must be signed"),
         );
-        cancel.sign(&keypair);
-        let request = cancel.to_cancel_all_request();
-        assert_eq!(request.orderbook_id, Some("test_ob".to_string()));
+    }
+
+    #[test]
+    fn test_cancel_trigger_order_message() {
+        let id = "trigger-order-uuid-123";
+        let message = cancel_trigger_order_message(id);
+        assert_eq!(message, id.as_bytes());
+    }
+
+    #[test]
+    fn test_cancel_order_message() {
+        let hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let message = cancel_order_message(hash);
+        assert_eq!(message, hash.as_bytes());
+    }
+
+    #[test]
+    fn test_cancel_all_message() {
+        let pubkey = "SomePubkey123";
+        let timestamp = 1700000000i64;
+        let message = cancel_all_message(pubkey, timestamp);
+        assert_eq!(message, "cancel_all:SomePubkey123:1700000000");
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_cancel_body_signed() {
+        use crate::domain::order::CancelBody;
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
+
+        let keypair = Keypair::new();
+        let order_hash = "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890";
+        let maker = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
+
+        let body = CancelBody::signed(order_hash.to_string(), maker, &keypair);
+        assert_eq!(body.signature.len(), 128);
+        assert_eq!(body.order_hash, order_hash);
+
+        let sig_bytes = hex::decode(&body.signature).unwrap();
+        let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
+        assert!(sig.verify(keypair.pubkey().as_ref(), order_hash.as_bytes()));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_cancel_all_body_signed() {
+        use crate::domain::order::CancelAllBody;
+        use solana_keypair::Keypair;
+        use solana_signer::Signer;
+
+        let keypair = Keypair::new();
+        let pubkey_str = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
+        let timestamp = 1700000000i64;
+
+        let body = CancelAllBody::signed(
+            pubkey_str.clone(),
+            crate::shared::OrderBookId::from(""),
+            timestamp,
+            &keypair,
+        );
+        assert_eq!(body.signature.len(), 128);
+
+        let message = cancel_all_message(pubkey_str.as_str(), timestamp);
+        let sig_bytes = hex::decode(&body.signature).unwrap();
+        let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
+        assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));
     }
 }

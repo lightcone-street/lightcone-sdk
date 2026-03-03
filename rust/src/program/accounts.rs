@@ -47,7 +47,8 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
 /// - [72..80] market_count (8 bytes)
 /// - [80]     paused (1 byte)
 /// - [81]     bump (1 byte)
-/// - [82..88] _padding (6 bytes)
+/// - [82..84] deposit_token_count (2 bytes)
+/// - [84..88] _padding (4 bytes)
 #[derive(Debug, Clone)]
 pub struct Exchange {
     /// Account discriminator
@@ -62,6 +63,8 @@ pub struct Exchange {
     pub paused: bool,
     /// PDA bump seed
     pub bump: u8,
+    /// Number of whitelisted deposit tokens
+    pub deposit_token_count: u16,
 }
 
 impl Exchange {
@@ -92,6 +95,7 @@ impl Exchange {
             market_count: read_u64(data, 72),
             paused: data[80] != 0,
             bump: data[81],
+            deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 82)),
         })
     }
 
@@ -426,7 +430,8 @@ impl Orderbook {
 /// - [8..40]  mint (32 bytes)
 /// - [40]     active (1 byte)
 /// - [41]     bump (1 byte)
-/// - [42..48] _padding (6 bytes)
+/// - [42..44] index (2 bytes)
+/// - [44..48] _padding (4 bytes)
 #[derive(Debug, Clone)]
 pub struct GlobalDepositToken {
     /// Account discriminator
@@ -437,6 +442,8 @@ pub struct GlobalDepositToken {
     pub active: bool,
     /// PDA bump seed
     pub bump: u8,
+    /// Sequential index assigned at whitelist time
+    pub index: u16,
 }
 
 impl GlobalDepositToken {
@@ -465,6 +472,7 @@ impl GlobalDepositToken {
             mint: read_pubkey(data, 8),
             active: data[40] != 0,
             bump: data[41],
+            index: u16::from_le_bytes(read_bytes::<2>(data, 42)),
         })
     }
 
@@ -497,6 +505,7 @@ mod tests {
         assert_eq!(exchange.market_count, 5);
         assert!(!exchange.paused);
         assert_eq!(exchange.bump, 255);
+        assert_eq!(exchange.deposit_token_count, 0);
     }
 
     #[test]
@@ -609,6 +618,7 @@ mod tests {
         assert_eq!(gdt.mint, Pubkey::new_from_array([5u8; 32]));
         assert!(gdt.active);
         assert_eq!(gdt.bump, 251);
+        assert_eq!(gdt.index, 0);
     }
 
     #[test]

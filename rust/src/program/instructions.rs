@@ -16,19 +16,19 @@ use crate::program::constants::{
     TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
-use crate::program::orders::SignedOrder;
+use crate::program::orders::OrderPayload;
 use crate::program::pda::{
-    get_conditional_mint_pda, get_exchange_pda, get_global_deposit_token_pda, get_market_pda,
-    get_mint_authority_pda, get_order_status_pda, get_orderbook_pda, get_alt_pda,
+    get_alt_pda, get_conditional_mint_pda, get_exchange_pda, get_global_deposit_token_pda,
+    get_market_pda, get_mint_authority_pda, get_order_status_pda, get_orderbook_pda,
     get_position_alt_pda, get_position_pda, get_user_global_deposit_pda, get_user_nonce_pda,
     get_vault_pda,
 };
 use crate::program::types::{
     ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
-    DepositAndSwapParams, DepositToGlobalParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, MatchOrdersMultiParams, MergeCompleteSetParams,
-    MintCompleteSetParams, RedeemWinningsParams, SetAuthorityParams, SettleMarketParams,
-    WhitelistDepositTokenParams, WithdrawFromPositionParams,
+    DepositAndSwapParams, DepositToGlobalParams, ExtendPositionTokensParams,
+    GlobalToMarketDepositParams, InitPositionTokensParams, MatchOrdersMultiParams,
+    MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams, SetAuthorityParams,
+    SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_outcome_metadata,
@@ -145,7 +145,9 @@ pub fn build_add_deposit_mint_ix(
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
     if params.outcome_metadata.len() != num_outcomes as usize {
-        return Err(SdkError::InvalidOutcomeCount { count: params.outcome_metadata.len() as u8 });
+        return Err(SdkError::InvalidOutcomeCount {
+            count: params.outcome_metadata.len() as u8,
+        });
     }
 
     let (vault, _) = get_vault_pda(&params.deposit_mint, market, program_id);
@@ -316,7 +318,7 @@ pub fn build_merge_complete_set_ix(
 pub fn build_cancel_order_ix(
     maker: &Pubkey,
     market: &Pubkey,
-    order: &SignedOrder,
+    order: &OrderPayload,
     program_id: &Pubkey,
 ) -> Instruction {
     let order_hash = order.hash();
@@ -329,7 +331,7 @@ pub fn build_cancel_order_ix(
         readonly(system_program_id()),
     ];
 
-    // Data: [discriminator(1), order_hash(32), SignedOrder(225)] = 258 bytes
+    // Data: [discriminator(1), order_hash(32), OrderPayload(225)] = 258 bytes
     let mut data = Vec::with_capacity(258);
     data.push(instruction::CANCEL_ORDER);
     data.extend_from_slice(&order_hash);
@@ -433,11 +435,7 @@ pub fn build_redeem_winnings_ix(
 /// Build SetPaused instruction.
 ///
 /// Admin: pause/unpause exchange.
-pub fn build_set_paused_ix(
-    authority: &Pubkey,
-    paused: bool,
-    program_id: &Pubkey,
-) -> Instruction {
+pub fn build_set_paused_ix(authority: &Pubkey, paused: bool, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
     let keys = vec![signer_mut(*authority), writable(exchange)];
@@ -534,10 +532,7 @@ pub fn build_withdraw_from_position_ix(
 /// Build ActivateMarket instruction.
 ///
 /// Authority: Pending → Active.
-pub fn build_activate_market_ix(
-    params: &ActivateMarketParams,
-    program_id: &Pubkey,
-) -> Instruction {
+pub fn build_activate_market_ix(params: &ActivateMarketParams, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
     let (market, _) = get_market_pda(params.market_id, program_id);
 
@@ -581,7 +576,9 @@ pub fn build_match_orders_multi_ix(
         return Err(SdkError::MissingField("maker_orders".to_string()));
     }
     if params.maker_orders.len() > MAX_MAKERS {
-        return Err(SdkError::TooManyMakers { count: params.maker_orders.len() });
+        return Err(SdkError::TooManyMakers {
+            count: params.maker_orders.len(),
+        });
     }
     if params.maker_orders.len() != params.maker_fill_amounts.len() {
         return Err(SdkError::MissingField("maker_fill_amounts".to_string()));
@@ -728,10 +725,7 @@ pub fn build_create_orderbook_ix(
 /// Accounts (2):
 /// 0. authority (signer)
 /// 1. exchange (mut)
-pub fn build_set_authority_ix(
-    params: &SetAuthorityParams,
-    program_id: &Pubkey,
-) -> Instruction {
+pub fn build_set_authority_ix(params: &SetAuthorityParams, program_id: &Pubkey) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
 
     let keys = vec![signer_mut(params.current_authority), writable(exchange)];
@@ -851,8 +845,7 @@ pub fn build_global_to_market_deposit_ix(
 ) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
     let (vault, _) = get_vault_pda(&params.deposit_mint, &params.market, program_id);
-    let (global_deposit_token, _) =
-        get_global_deposit_token_pda(&params.deposit_mint, program_id);
+    let (global_deposit_token, _) = get_global_deposit_token_pda(&params.deposit_mint, program_id);
     let (user_global_deposit, _) =
         get_user_global_deposit_pda(&params.user, &params.deposit_mint, program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
@@ -979,7 +972,9 @@ pub fn build_deposit_and_swap_ix(
         return Err(SdkError::MissingField("maker_orders".to_string()));
     }
     if params.maker_orders.len() > MAX_MAKERS {
-        return Err(SdkError::TooManyMakers { count: params.maker_orders.len() });
+        return Err(SdkError::TooManyMakers {
+            count: params.maker_orders.len(),
+        });
     }
     if params.maker_orders.len() != params.maker_fill_amounts.len() {
         return Err(SdkError::MissingField("maker_fill_amounts".to_string()));
@@ -990,8 +985,7 @@ pub fn build_deposit_and_swap_ix(
 
     let (exchange, _) = get_exchange_pda(program_id);
     let (vault, _) = get_vault_pda(&params.deposit_mint, &params.market, program_id);
-    let (global_deposit_token, _) =
-        get_global_deposit_token_pda(&params.deposit_mint, program_id);
+    let (global_deposit_token, _) = get_global_deposit_token_pda(&params.deposit_mint, program_id);
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
 
     let taker_order_hash = params.taker_order.hash();
@@ -1045,8 +1039,7 @@ pub fn build_deposit_and_swap_ix(
         }
 
         let (maker_nonce, _) = get_user_nonce_pda(&maker_order.maker, program_id);
-        let (maker_position, _) =
-            get_position_pda(&maker_order.maker, &params.market, program_id);
+        let (maker_position, _) = get_position_pda(&maker_order.maker, &params.market, program_id);
         let (maker_global_deposit, _) =
             get_user_global_deposit_pda(&maker_order.maker, &params.deposit_mint, program_id);
 
@@ -1091,10 +1084,83 @@ pub fn build_deposit_and_swap_ix(
     })
 }
 
+/// Build ExtendPositionTokens instruction.
+///
+/// Extend an existing position ALT with entries for new deposit mints.
+/// Permissionless — anyone can pay to extend ALTs for any user.
+///
+/// Accounts (10 + per deposit_mint: 3 + num_outcomes*2):
+/// 0. payer (signer, mut)
+/// 1. user (readonly) - Position owner
+/// 2. exchange (readonly)
+/// 3. market (readonly)
+/// 4. position (readonly) - Existing Position PDA
+/// 5. lookup_table (mut) - Existing ALT (authority = position PDA)
+/// 6. token_2022_program (readonly)
+/// 7. ata_program (readonly)
+/// 8. alt_program (readonly)
+/// 9. system_program (readonly)
+/// + per deposit_mint: deposit_mint, vault, global_deposit_token,
+///   then per outcome: conditional_mint, position_conditional_ata
+pub fn build_extend_position_tokens_ix(
+    params: &ExtendPositionTokensParams,
+    num_outcomes: u8,
+    program_id: &Pubkey,
+) -> SdkResult<Instruction> {
+    if params.deposit_mints.is_empty() {
+        return Err(SdkError::MissingField("deposit_mints".to_string()));
+    }
+
+    let (exchange, _) = get_exchange_pda(program_id);
+    let (position, _) = get_position_pda(&params.user, &params.market, program_id);
+
+    let mut keys = vec![
+        signer_mut(params.payer),
+        readonly(params.user),
+        readonly(exchange),
+        readonly(params.market),
+        readonly(position),
+        writable(Pubkey::default()), // lookup_table placeholder — caller must set this
+        readonly(TOKEN_2022_PROGRAM_ID),
+        readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+        readonly(*ALT_PROGRAM_ID),
+        readonly(system_program_id()),
+    ];
+
+    for deposit_mint in &params.deposit_mints {
+        let (vault, _) = get_vault_pda(deposit_mint, &params.market, program_id);
+        let (global_deposit_token, _) = get_global_deposit_token_pda(deposit_mint, program_id);
+
+        keys.push(readonly(*deposit_mint));
+        keys.push(readonly(vault));
+        keys.push(readonly(global_deposit_token));
+
+        for i in 0..num_outcomes {
+            let (cond_mint, _) =
+                get_conditional_mint_pda(&params.market, deposit_mint, i, program_id);
+            let position_ata = get_conditional_token_ata(&position, &cond_mint);
+            keys.push(readonly(cond_mint));
+            keys.push(writable(position_ata));
+        }
+    }
+
+    let data = vec![
+        instruction::EXTEND_POSITION_TOKENS,
+        params.deposit_mints.len() as u8,
+    ];
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::program::constants::PROGRAM_ID;
+    use crate::program::types::OrderSide;
 
     fn test_program_id() -> Pubkey {
         *PROGRAM_ID
@@ -1218,13 +1284,13 @@ mod tests {
         let market = Pubkey::new_unique();
         let program_id = test_program_id();
 
-        let order = SignedOrder {
+        let order = OrderPayload {
             nonce: 1,
             maker,
             market,
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
-            side: crate::program::types::OrderSide::Bid,
+            side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
@@ -1299,26 +1365,26 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Bid,
+            side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Ask,
+            side: OrderSide::Ask,
             amount_in: 50,
             amount_out: 100,
             expiration: 0,
@@ -1356,26 +1422,26 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Bid,
+            side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Ask,
+            side: OrderSide::Ask,
             amount_in: 50,
             amount_out: 100,
             expiration: 0,
@@ -1476,26 +1542,26 @@ mod tests {
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
 
-        let taker = SignedOrder {
+        let taker = OrderPayload {
             nonce: 1,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Bid,
+            side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
             signature: [1u8; 64],
         };
 
-        let maker = SignedOrder {
+        let maker = OrderPayload {
             nonce: 2,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
             quote_mint,
-            side: crate::program::types::OrderSide::Ask,
+            side: OrderSide::Ask,
             amount_in: 50,
             amount_out: 100,
             expiration: 0,

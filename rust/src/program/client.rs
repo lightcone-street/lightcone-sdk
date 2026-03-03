@@ -9,14 +9,14 @@ use solana_hash::Hash;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
-#[cfg(feature = "native-client")]
+#[cfg(feature = "native")]
 use solana_keypair::Keypair;
 
 use crate::program::accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
 use crate::program::constants::PROGRAM_ID;
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::instructions::*;
-use crate::program::orders::{derive_condition_id, SignedOrder};
+use crate::program::orders::{derive_condition_id, OrderPayload};
 use crate::program::pda::{
     get_all_conditional_mint_pdas, get_exchange_pda, get_global_deposit_token_pda,
     get_market_pda, get_order_status_pda, get_orderbook_pda, get_position_pda,
@@ -128,13 +128,13 @@ impl LightconePinocchioClient {
         }
     }
 
-    /// Get the next available nonce for a user as u32 (the current stored nonce value).
+    /// Get the current on-chain nonce for a user as u32.
     ///
-    /// Orders should be signed with this nonce value.
-    /// Call `increment_nonce` to invalidate orders with the current nonce.
+    /// Orders must be signed with a nonce >= this value to be valid.
+    /// Call `increment_nonce` to bump it and invalidate all orders below the new value.
     ///
     /// Returns an error if the on-chain nonce exceeds u32::MAX.
-    pub async fn get_next_nonce(&self, user: &Pubkey) -> SdkResult<u32> {
+    pub async fn get_current_nonce(&self, user: &Pubkey) -> SdkResult<u32> {
         let nonce = self.get_user_nonce(user).await?;
         u32::try_from(nonce).map_err(|_| SdkError::Overflow)
     }
@@ -235,7 +235,7 @@ impl LightconePinocchioClient {
         &self,
         maker: &Pubkey,
         market: &Pubkey,
-        order: &SignedOrder,
+        order: &OrderPayload,
     ) -> SdkResult<Transaction> {
         let ix = build_cancel_order_ix(maker, market, order, &self.program_id);
         Ok(Transaction::new_with_payer(&[ix], Some(maker)))
@@ -375,43 +375,43 @@ impl LightconePinocchioClient {
     // ========================================================================
 
     /// Create an unsigned bid order.
-    pub fn create_bid_order(&self, params: BidOrderParams) -> SignedOrder {
-        SignedOrder::new_bid(params)
+    pub fn create_bid_order(&self, params: BidOrderParams) -> OrderPayload {
+        OrderPayload::new_bid(params)
     }
 
     /// Create an unsigned ask order.
-    pub fn create_ask_order(&self, params: AskOrderParams) -> SignedOrder {
-        SignedOrder::new_ask(params)
+    pub fn create_ask_order(&self, params: AskOrderParams) -> OrderPayload {
+        OrderPayload::new_ask(params)
     }
 
     /// Create and sign a bid order.
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native")]
     pub fn create_signed_bid_order(
         &self,
         params: BidOrderParams,
         keypair: &Keypair,
-    ) -> SignedOrder {
-        SignedOrder::new_bid_signed(params, keypair)
+    ) -> OrderPayload {
+        OrderPayload::new_bid_signed(params, keypair)
     }
 
     /// Create and sign an ask order.
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native")]
     pub fn create_signed_ask_order(
         &self,
         params: AskOrderParams,
         keypair: &Keypair,
-    ) -> SignedOrder {
-        SignedOrder::new_ask_signed(params, keypair)
+    ) -> OrderPayload {
+        OrderPayload::new_ask_signed(params, keypair)
     }
 
     /// Compute the hash of an order.
-    pub fn hash_order(&self, order: &SignedOrder) -> [u8; 32] {
+    pub fn hash_order(&self, order: &OrderPayload) -> [u8; 32] {
         order.hash()
     }
 
     /// Sign an order with the given keypair.
-    #[cfg(feature = "native-client")]
-    pub fn sign_order(&self, order: &mut SignedOrder, keypair: &Keypair) {
+    #[cfg(feature = "native")]
+    pub fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair) {
         order.sign(keypair);
     }
 

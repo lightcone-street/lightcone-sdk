@@ -11,12 +11,12 @@
 //!
 //! Run with:
 //! ```bash
-//! API_URL=http://localhost:3001 cargo test -p lightcone-sdk-v2 --features native \
+//! API_URL=http://localhost:3001 cargo test -p lightcone --features native \
 //!     --test nonce_auth_integration -- --ignored --nocapture
 //! ```
 
-use lightcone_sdk_v2::auth::{self, LoginRequest};
-use lightcone_sdk_v2::client::LightconeClient;
+use lightcone::auth::{self, LoginRequest};
+use lightcone::client::LightconeClient;
 
 use solana_keypair::Keypair;
 use solana_signer::Signer;

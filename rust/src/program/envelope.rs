@@ -16,7 +16,7 @@ use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce, TriggerType}
 
 #[derive(Debug, Clone, Default)]
 struct OrderFields {
-    nonce: Option<u32>,
+    nonce: Option<u64>,
     maker: Option<Pubkey>,
     market: Option<Pubkey>,
     base_mint: Option<Pubkey>,
@@ -96,7 +96,7 @@ impl OrderFields {
 pub trait OrderEnvelope: Sized {
     fn new() -> Self;
 
-    fn nonce(self, nonce: u32) -> Self;
+    fn nonce(self, nonce: u64) -> Self;
     fn maker(self, maker: Pubkey) -> Self;
     fn market(self, market: Pubkey) -> Self;
     fn base_mint(self, base_mint: Pubkey) -> Self;
@@ -140,7 +140,7 @@ macro_rules! impl_base_methods {
             Self::default()
         }
 
-        fn nonce(mut self, nonce: u32) -> Self {
+        fn nonce(mut self, nonce: u64) -> Self {
             self.fields.nonce = Some(nonce);
             self
         }
@@ -408,7 +408,7 @@ impl LimitOrderEnvelope {
     pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
     pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
     pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u32> { self.fields.nonce }
+    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
     pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
 }
 
@@ -421,7 +421,7 @@ impl TriggerOrderEnvelope {
     pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
     pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
     pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u32> { self.fields.nonce }
+    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
     pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
     pub fn fields_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
     pub fn fields_trigger_price(&self) -> Option<f64> { self.trigger_price }

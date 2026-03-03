@@ -2,14 +2,14 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "native-client")]
+#[cfg(feature = "native")]
 use solana_client::client_error::ClientError;
 
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
     /// RPC client error
-    #[cfg(feature = "native-client")]
+    #[cfg(feature = "native")]
     #[error("RPC error: {0}")]
     Rpc(#[from] ClientError),
 
@@ -106,6 +106,10 @@ pub enum SdkError {
     /// Scaling error (price/size conversion)
     #[error("Scaling error: {0}")]
     Scaling(#[from] crate::shared::scaling::ScalingError),
+
+    /// Order has not been signed
+    #[error("Order must be signed before converting to submit request")]
+    UnsignedOrder,
 }
 
 /// Result type alias for SDK operations
