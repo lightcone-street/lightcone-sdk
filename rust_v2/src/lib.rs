@@ -71,7 +71,7 @@ pub mod client;
 
 pub mod prelude {
     // Shared newtypes
-    pub use crate::shared::{OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType};
+    pub use crate::shared::{DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType};
 
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
@@ -86,10 +86,10 @@ pub mod prelude {
     // Domain types — order
     pub use crate::domain::order::{
         CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
-        CancelTriggerSuccess, ConditionalBalance, FillInfo, Order, OrderEvent, OrderStatus,
-        OrderType, SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
-        UserOpenOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
-        UserTriggerOrders,
+        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance, Order,
+        OrderEvent, OrderStatus, OrderType, SubmitOrderResponse, TriggerOrder,
+        TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
+        UserSnapshotBalance, UserSnapshotOrder, UserTriggerOrders,
     };
 
     // Domain types — position (includes portfolio + token balances)

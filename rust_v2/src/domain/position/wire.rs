@@ -13,6 +13,14 @@ pub struct OutcomeBalance {
     pub balance_on_book: String,
 }
 
+/// Vault balance for a deposit asset within a market.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VaultBalance {
+    pub deposit_mint: String,
+    pub vault: String,
+    pub balance: String,
+}
+
 /// A user's position in a market.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PositionEntry {
@@ -21,6 +29,8 @@ pub struct PositionEntry {
     pub owner: String,
     pub market_pubkey: String,
     pub outcomes: Vec<OutcomeBalance>,
+    #[serde(default)]
+    pub vault_balances: Vec<VaultBalance>,
     pub created_at: String,
     pub updated_at: String,
 }

@@ -260,6 +260,54 @@ pub enum TriggerResultStatus {
     Rejected,
 }
 
+// ─── DepositSource ──────────────────────────────────────────────────────────
+
+/// Where collateral should be sourced when matching an order.
+///
+/// Serializes as an integer (0, 1, 2) matching the backend gRPC protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum DepositSource {
+    /// Let the backend decide (global if available, then market).
+    Auto = 0,
+    /// Always use the user's global deposit balance.
+    Global = 1,
+    /// Only use market-level balance (no global fallback).
+    Market = 2,
+}
+
+impl Default for DepositSource {
+    fn default() -> Self {
+        Self::Auto
+    }
+}
+
+impl Serialize for DepositSource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u8(*self as u8)
+    }
+}
+
+impl<'de> Deserialize<'de> for DepositSource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v = u8::deserialize(deserializer)?;
+        match v {
+            0 => Ok(DepositSource::Auto),
+            1 => Ok(DepositSource::Global),
+            2 => Ok(DepositSource::Market),
+            _ => Err(serde::de::Error::custom(format!(
+                "invalid deposit_source value: {v}, expected 0, 1, or 2"
+            ))),
+        }
+    }
+}
+
 // ─── Resolution ──────────────────────────────────────────────────────────────
 
 /// Price history candle resolution.
@@ -418,12 +466,14 @@ mod tests {
             time_in_force: None,
             trigger_price: None,
             trigger_type: None,
+            deposit_source: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         // Optional fields should be omitted when None
         assert!(!json.contains("tif"));
         assert!(!json.contains("trigger_price"));
         assert!(!json.contains("trigger_type"));
+        assert!(!json.contains("deposit_source"));
     }
 
     #[test]
@@ -443,6 +493,7 @@ mod tests {
             time_in_force: Some(TimeInForce::Ioc),
             trigger_price: Some(0.55),
             trigger_type: Some(TriggerType::TakeProfit),
+            deposit_source: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("\"tif\":\"IOC\""));
@@ -453,6 +504,75 @@ mod tests {
         assert_eq!(back.time_in_force, Some(TimeInForce::Ioc));
         assert_eq!(back.trigger_price, Some(0.55));
         assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
+    }
+
+    #[test]
+    fn test_deposit_source_serde_roundtrip() {
+        let cases = [
+            (DepositSource::Auto, "0"),
+            (DepositSource::Global, "1"),
+            (DepositSource::Market, "2"),
+        ];
+        for (variant, expected_json) in &cases {
+            let json = serde_json::to_string(variant).unwrap();
+            assert_eq!(&json, expected_json);
+            let back: DepositSource = serde_json::from_str(&json).unwrap();
+            assert_eq!(&back, variant);
+        }
+    }
+
+    #[test]
+    fn test_deposit_source_default() {
+        assert_eq!(DepositSource::default(), DepositSource::Auto);
+    }
+
+    #[test]
+    fn test_submit_order_request_with_deposit_source() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            time_in_force: None,
+            trigger_price: None,
+            trigger_type: None,
+            deposit_source: Some(DepositSource::Global),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"deposit_source\":1"));
+
+        let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.deposit_source, Some(DepositSource::Global));
+    }
+
+    #[test]
+    fn test_submit_order_request_deposit_source_omitted_when_none() {
+        let req = SubmitOrderRequest {
+            maker: "maker".into(),
+            nonce: 1,
+            market_pubkey: "market".into(),
+            base_token: "base".into(),
+            quote_token: "quote".into(),
+            side: 0,
+            amount_in: 100,
+            amount_out: 50,
+            expiration: 0,
+            signature: "sig".into(),
+            orderbook_id: "ob".into(),
+            time_in_force: None,
+            trigger_price: None,
+            trigger_type: None,
+            deposit_source: None,
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(!json.contains("deposit_source"));
     }
 }
 
@@ -482,4 +602,6 @@ pub struct SubmitOrderRequest {
     pub trigger_price: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_type: Option<TriggerType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deposit_source: Option<DepositSource>,
 }

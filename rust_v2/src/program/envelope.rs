@@ -10,7 +10,7 @@ use crate::program::error::SdkError;
 use crate::program::orders::OrderPayload;
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
-use crate::shared::{SubmitOrderRequest, TimeInForce, TriggerType};
+use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce, TriggerType};
 
 // ─── Shared base fields ─────────────────────────────────────────────────────
 
@@ -27,6 +27,7 @@ struct OrderFields {
     expiration: i64,
     price_raw: Option<String>,
     size_raw: Option<String>,
+    deposit_source: Option<DepositSource>,
 }
 
 impl OrderFields {
@@ -108,6 +109,7 @@ pub trait OrderEnvelope: Sized {
     fn expiration(self, expiration: i64) -> Self;
     fn price(self, price: &str) -> Self;
     fn size(self, size: &str) -> Self;
+    fn deposit_source(self, ds: DepositSource) -> Self;
     fn apply_scaling(self, decimals: &OrderbookDecimals) -> Result<Self, ScalingError>;
 
     /// Build an unsigned `OrderPayload` without consuming the envelope.
@@ -203,6 +205,11 @@ macro_rules! impl_base_methods {
             self
         }
 
+        fn deposit_source(mut self, ds: DepositSource) -> Self {
+            self.fields.deposit_source = Some(ds);
+            self
+        }
+
         fn apply_scaling(mut self, decimals: &OrderbookDecimals) -> Result<Self, ScalingError> {
             self.fields.apply_scaling(decimals)?;
             Ok(self)
@@ -250,7 +257,7 @@ impl OrderEnvelope for LimitOrderEnvelope {
     ) -> Result<SubmitOrderRequest, SdkError> {
         let mut payload = self.fields.to_payload();
         payload.sign(keypair);
-        payload.to_submit_request(orderbook_id, None, None, None)
+        payload.to_submit_request(orderbook_id, None, None, None, self.fields.deposit_source)
     }
 
     fn finalize(
@@ -260,7 +267,7 @@ impl OrderEnvelope for LimitOrderEnvelope {
     ) -> Result<SubmitOrderRequest, SdkError> {
         let mut payload = self.fields.to_payload();
         payload.apply_signature(sig_bs58.to_string())?;
-        payload.to_submit_request(orderbook_id, None, None, None)
+        payload.to_submit_request(orderbook_id, None, None, None, self.fields.deposit_source)
     }
 }
 
@@ -320,6 +327,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             self.time_in_force,
             Some(trigger_price),
             Some(trigger_type),
+            self.fields.deposit_source,
         )
     }
 
@@ -342,6 +350,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             self.time_in_force,
             Some(trigger_price),
             Some(trigger_type),
+            self.fields.deposit_source,
         )
     }
 }
@@ -400,6 +409,7 @@ impl LimitOrderEnvelope {
     pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
     pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
     pub fn fields_nonce(&self) -> Option<u32> { self.fields.nonce }
+    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
 }
 
 impl TriggerOrderEnvelope {
@@ -412,6 +422,7 @@ impl TriggerOrderEnvelope {
     pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
     pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
     pub fn fields_nonce(&self) -> Option<u32> { self.fields.nonce }
+    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
     pub fn fields_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
     pub fn fields_trigger_price(&self) -> Option<f64> { self.trigger_price }
     pub fn fields_trigger_type(&self) -> Option<TriggerType> { self.trigger_type }
@@ -605,5 +616,54 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(500_000)
             .payload();
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_limit_envelope_with_deposit_source() {
+        let keypair = Keypair::new();
+        let maker = keypair.pubkey();
+
+        let request = LimitOrderEnvelope::new()
+            .nonce(1)
+            .maker(maker)
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .deposit_source(DepositSource::Global)
+            .sign(&keypair, "test_ob")
+            .unwrap();
+
+        assert_eq!(request.deposit_source, Some(DepositSource::Global));
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn test_limit_envelope_deposit_source_none_by_default() {
+        let keypair = Keypair::new();
+
+        let request = LimitOrderEnvelope::new()
+            .nonce(1)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .sign(&keypair, "test_ob")
+            .unwrap();
+
+        assert_eq!(request.deposit_source, None);
+    }
+
+    #[test]
+    fn test_limit_envelope_deposit_source_accessor() {
+        let env = LimitOrderEnvelope::new()
+            .deposit_source(DepositSource::Market);
+        assert_eq!(env.fields_deposit_source(), Some(DepositSource::Market));
     }
 }

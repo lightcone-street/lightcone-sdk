@@ -41,6 +41,13 @@ pub struct UserSnapshotBalance {
     pub outcomes: Vec<ConditionalBalance>,
 }
 
+/// Global deposit balance for a single mint.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct GlobalDepositBalance {
+    pub mint: PubkeyStr,
+    pub balance: Decimal,
+}
+
 // ─── WS order wire types ────────────────────────────────────────────────────
 
 /// WS order update event (limit orders).
@@ -142,6 +149,8 @@ pub struct UserOrderUpdateBalance {
 pub struct UserSnapshot {
     pub orders: Vec<UserSnapshotOrder>,
     pub balances: std::collections::HashMap<OrderBookId, UserSnapshotBalance>,
+    #[serde(default)]
+    pub global_deposits: Vec<GlobalDepositBalance>,
 }
 
 // ─── Trigger order wire types ───────────────────────────────────────────────

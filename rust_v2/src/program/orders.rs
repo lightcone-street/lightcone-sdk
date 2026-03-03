@@ -276,6 +276,7 @@ impl OrderPayload {
         time_in_force: Option<crate::shared::TimeInForce>,
         trigger_price: Option<f64>,
         trigger_type: Option<crate::shared::TriggerType>,
+        deposit_source: Option<crate::shared::DepositSource>,
     ) -> Result<SubmitOrderRequest, SdkError> {
         if self.signature == [0u8; 64] {
             return Err(SdkError::UnsignedOrder);
@@ -296,6 +297,7 @@ impl OrderPayload {
             time_in_force,
             trigger_price,
             trigger_type,
+            deposit_source,
         })
     }
 
@@ -733,7 +735,7 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook", None, None, None).unwrap();
+        let request = order.to_submit_request("test_orderbook", None, None, None, None).unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -848,7 +850,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        let result = order.to_submit_request("test_orderbook", None, None, None);
+        let result = order.to_submit_request("test_orderbook", None, None, None, None);
         assert!(result.is_err());
         assert!(
             result.unwrap_err().to_string().contains("must be signed"),
