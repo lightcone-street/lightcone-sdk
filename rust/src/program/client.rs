@@ -207,7 +207,7 @@ impl LightconePinocchioClient {
         num_outcomes: u8,
     ) -> SdkResult<Transaction> {
         let ix = build_add_deposit_mint_ix(&params, market, num_outcomes, &self.program_id)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
     /// Build MintCompleteSet transaction.
@@ -310,7 +310,7 @@ impl LightconePinocchioClient {
         params: CreateOrderbookParams,
     ) -> SdkResult<Transaction> {
         let ix = build_create_orderbook_ix(&params, &self.program_id);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
     /// Build SetAuthority transaction.
@@ -357,16 +357,15 @@ impl LightconePinocchioClient {
         num_outcomes: u8,
     ) -> SdkResult<Transaction> {
         let ix = build_init_position_tokens_ix(&params, num_outcomes, &self.program_id);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
 
     /// Build DepositAndSwap transaction.
     pub async fn deposit_and_swap(
         &self,
         params: DepositAndSwapParams,
-        num_outcomes: u8,
     ) -> SdkResult<Transaction> {
-        let ix = build_deposit_and_swap_ix(&params, num_outcomes, &self.program_id)?;
+        let ix = build_deposit_and_swap_ix(&params, &self.program_id)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 

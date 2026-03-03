@@ -93,10 +93,8 @@ pub struct OutcomeMetadata {
 /// Parameters for adding a deposit mint to a market
 #[derive(Debug, Clone)]
 pub struct AddDepositMintParams {
-    /// Payer for account creation
-    pub payer: Pubkey,
-    /// Market ID
-    pub market_id: u64,
+    /// Authority pubkey (must be exchange authority)
+    pub authority: Pubkey,
     /// Deposit mint pubkey
     pub deposit_mint: Pubkey,
     /// Metadata for each outcome token
@@ -245,8 +243,8 @@ pub struct MatchOrdersMultiParams {
 /// Parameters for creating an on-chain orderbook
 #[derive(Debug, Clone)]
 pub struct CreateOrderbookParams {
-    /// Payer for account creation
-    pub payer: Pubkey,
+    /// Authority pubkey (must be exchange authority, pays for account creation)
+    pub authority: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
     /// Mint A pubkey
@@ -299,17 +297,38 @@ pub struct GlobalToMarketDepositParams {
     pub amount: u64,
 }
 
-/// Parameters for initializing position token accounts and ALT
+/// Parameters for initializing position token accounts and ALT.
+///
+/// Permissionless — anyone can pay to create positions/ATAs/ALTs for any user.
 #[derive(Debug, Clone)]
 pub struct InitPositionTokensParams {
-    /// User pubkey (payer and position owner)
+    /// Payer for account creation (signer, does not need to be the user)
+    pub payer: Pubkey,
+    /// Position owner (does not need to sign)
     pub user: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Deposit mint pubkey
-    pub deposit_mint: Pubkey,
+    /// Deposit mints to initialize (must be in ascending GDT index order)
+    pub deposit_mints: Vec<Pubkey>,
     /// Recent slot for ALT address derivation
     pub recent_slot: u64,
+}
+
+/// Per-maker fill info for deposit_and_swap
+#[derive(Debug, Clone)]
+pub struct MakerFill {
+    /// Maker order (signed)
+    pub order: OrderPayload,
+    /// Fill amount (maker side)
+    pub maker_fill_amount: u64,
+    /// Fill amount (taker side)
+    pub taker_fill_amount: u64,
+    /// Whether this maker requires full fill (skips order_status account)
+    pub is_full_fill: bool,
+    /// Whether this maker deposits from global (vs swapping existing tokens)
+    pub is_deposit: bool,
+    /// Deposit mint for this maker (only used when is_deposit is true)
+    pub deposit_mint: Pubkey,
 }
 
 /// Parameters for deposit-and-swap (atomic deposit + mint + swap)
@@ -319,22 +338,22 @@ pub struct DepositAndSwapParams {
     pub operator: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Deposit mint pubkey (collateral, e.g., USDC)
-    pub deposit_mint: Pubkey,
     /// Base mint pubkey (conditional token A)
     pub base_mint: Pubkey,
     /// Quote mint pubkey (conditional token B)
     pub quote_mint: Pubkey,
     /// Taker order (signed)
     pub taker_order: OrderPayload,
-    /// Maker orders (signed)
-    pub maker_orders: Vec<OrderPayload>,
-    /// Fill amounts for each maker (maker side)
-    pub maker_fill_amounts: Vec<u64>,
-    /// Fill amounts for each maker (taker side)
-    pub taker_fill_amounts: Vec<u64>,
-    /// Bitmask indicating which orders require full fill
-    pub full_fill_bitmask: u8,
+    /// Whether the taker requires full fill
+    pub taker_is_full_fill: bool,
+    /// Whether the taker deposits from global
+    pub taker_is_deposit: bool,
+    /// Taker's deposit mint (only used when taker_is_deposit is true)
+    pub taker_deposit_mint: Pubkey,
+    /// Number of outcomes for the market
+    pub num_outcomes: u8,
+    /// Per-maker fill info
+    pub makers: Vec<MakerFill>,
 }
 
 /// Parameters for extending a position ALT with new deposit mints
@@ -346,6 +365,8 @@ pub struct ExtendPositionTokensParams {
     pub user: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
+    /// Existing ALT pubkey from init_position_tokens
+    pub lookup_table: Pubkey,
     /// New deposit mints to add (must be in ascending GDT index order)
     pub deposit_mints: Vec<Pubkey>,
 }
