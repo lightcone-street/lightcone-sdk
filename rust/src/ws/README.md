@@ -2,7 +2,7 @@
 
 Real-time data feeds for orderbooks, trades, user events, price history, ticker, and market lifecycle.
 
-[Back to SDK root](../../README.md)
+[← Overview](../../README.md#websocket)
 
 ## Table of Contents
 
@@ -267,3 +267,7 @@ fn setup_subscriptions(ws: &lightcone::ws::native::WsClient, orderbook_ids: Vec<
     }).unwrap();
 }
 ```
+
+---
+
+[← Overview](../../README.md#websocket)

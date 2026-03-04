@@ -2,7 +2,7 @@
 
 Internal admin operations for the Lightcone team. These endpoints require ED25519 signature authorization from a key registered in the backend.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md)
 
 ## Table of Contents
 
@@ -145,3 +145,7 @@ use lightcone::domain::admin::TargetSpec;
 let target = TargetSpec::wallet_address("7BgBvyjr...");
 let all = TargetSpec::all();
 ```
+
+---
+
+[← Overview](../../../README.md)

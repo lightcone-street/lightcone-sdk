@@ -2,7 +2,7 @@
 
 Beta access status and referral code management.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md)
 
 ## Table of Contents
 
@@ -97,3 +97,7 @@ async fn redeem_code(client: &LightconeClient, code: &str) -> Result<(), SdkErro
     Ok(())
 }
 ```
+
+---
+
+[← Overview](../../../README.md)

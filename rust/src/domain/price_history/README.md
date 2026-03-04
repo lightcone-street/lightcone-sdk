@@ -2,7 +2,7 @@
 
 OHLCV candle data and real-time price chart updates.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#price-history)
 
 ## Table of Contents
 
@@ -132,3 +132,7 @@ async fn live_chart(client: &LightconeClient, orderbook_id: OrderBookId) {
 ## Wire Types
 
 Raw types in `lightcone::domain::price_history::wire` include `PriceHistory` (WS snapshot/update), `PriceCandle`, and related types.
+
+---
+
+[← Overview](../../../README.md#price-history)

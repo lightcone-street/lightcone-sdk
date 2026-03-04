@@ -2,7 +2,7 @@
 
 Session management, login flows, and user profiles.
 
-[Back to SDK root](../../README.md)
+[← Overview](../../README.md#authentication)
 
 ## Table of Contents
 
@@ -244,3 +244,7 @@ async fn manage_session(client: &LightconeClient) -> Result<(), SdkError> {
     Ok(())
 }
 ```
+
+---
+
+[← Overview](../../README.md#authentication)

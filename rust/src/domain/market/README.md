@@ -2,7 +2,7 @@
 
 Fetch, search, and inspect prediction markets.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#markets)
 
 ## Table of Contents
 
@@ -203,3 +203,7 @@ async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
 ## Wire Types
 
 Raw backend response types are available in `lightcone::domain::market::wire` for consumers who need direct access to the REST response format. Domain types are converted from wire types via `TryFrom` with validation.
+
+---
+
+[← Overview](../../../README.md#markets)
