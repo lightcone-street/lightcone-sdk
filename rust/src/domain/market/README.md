@@ -2,7 +2,7 @@
 
 Fetch, search, and inspect prediction markets.
 
-[Back to SDK root](../../../../README.md)
+[Back to SDK root](../../../README.md)
 
 ## Table of Contents
 
