@@ -1,7 +1,4 @@
-//! On-chain program interaction module for Lightcone.
-//!
-//! This module provides the client and utilities for interacting with
-//! the Lightcone smart contract on Solana.
+#![doc = include_str!("README.md")]
 
 pub mod accounts;
 pub mod envelope;
