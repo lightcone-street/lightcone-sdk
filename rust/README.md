@@ -39,35 +39,7 @@ lightcone = { version = "0.3", features = ["wasm"] }
 
 ## How Lightcone Works
 
-Lightcone is a impact market protocol on Solana. Understanding the core domain model is essential before writing integration code.
-
-```mermaid
-flowchart LR
-    subgraph protocol [Lightcone Protocol]
-        M[Market] -->|has N| OB[Orderbooks]
-        OB -->|tracks| CT[Conditional Tokens]
-        M -->|accepts| DA[Deposit Assets]
-    end
-
-    subgraph trading [Trading Flow]
-        Sign[Build and Sign Order] --> Submit[Submit via REST]
-        Submit --> Engine[Matching Engine]
-        Engine -->|fills produce| Pos[Positions]
-        Engine -->|fills produce| Tr[Trades]
-    end
-
-    subgraph lifecycle [Market Lifecycle]
-        Pending --> Active --> Resolved
-        Resolved -->|winning tokens| Redeem[Redeem for Deposit]
-    end
-
-    subgraph realtime [Real-Time via WebSocket]
-        WS[WebSocket] -->|book updates| OB
-        WS -->|trade events| Tr
-        WS -->|user orders/balances| Pos
-        WS -->|ticker, price history| OB
-    end
-```
+Lightcone is an impact market protocol on Solana. Before writing integration code, read the [protocol overview](https://lightconelabs.mintlify.app/learn/about-lightcone/what-is-lightcone) to understand the core concepts: markets, conditional tokens, orderbooks, and the trading lifecycle.
 
 ### Markets
 
