@@ -2,7 +2,7 @@
 
 Orderbook depth, decimals, live state management, and ticker data.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#orderbooks)
 
 ## Table of Contents
 
@@ -170,3 +170,7 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
 ## Wire Types
 
 Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse`, `DecimalsResponse`, `BookOrder`, `OrderBook`, and `WsTickerData`.
+
+---
+
+[← Overview](../../../README.md#orderbooks)

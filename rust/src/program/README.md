@@ -2,7 +2,7 @@
 
 On-chain Solana smart contract interaction for Lightcone markets.
 
-[Back to SDK root](../../README.md)
+[← Overview](../../README.md#on-chain-program)
 
 ## Overview
 
@@ -612,3 +612,7 @@ pub enum SdkError {
 
 pub type SdkResult<T> = Result<T, SdkError>;
 ```
+
+---
+
+[← Overview](../../README.md#on-chain-program)

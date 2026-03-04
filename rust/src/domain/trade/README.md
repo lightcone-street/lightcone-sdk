@@ -2,7 +2,7 @@
 
 Trade execution history and real-time trade feeds.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#trades)
 
 ## Table of Contents
 
@@ -138,3 +138,7 @@ async fn live_trades(client: &LightconeClient, orderbook_id: OrderBookId) {
 ## Wire Types
 
 Raw types in `lightcone::domain::trade::wire` include `TradeResponse`, `WsTrade`, and `TradesResponse`.
+
+---
+
+[← Overview](../../../README.md#trades)

@@ -2,7 +2,7 @@
 
 Submit, cancel, and track limit and trigger orders.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#orders)
 
 ## Table of Contents
 
@@ -362,3 +362,7 @@ async fn place_take_profit(
 ## Wire Types
 
 Raw types in `lightcone::domain::order::wire` include `OrderUpdate`, `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `TriggerOrderUpdate`, `OrderEvent`, `ConditionalBalance`, `GlobalDepositBalance`, and `AuthUpdate`. These are the WebSocket and REST wire formats before domain conversion.
+
+---
+
+[← Overview](../../../README.md#orders)

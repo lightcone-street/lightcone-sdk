@@ -2,7 +2,7 @@
 
 User portfolio, token balances, and market positions.
 
-[Back to SDK root](../../../README.md)
+[← Overview](../../../README.md#positions)
 
 ## Table of Contents
 
@@ -133,3 +133,7 @@ async fn check_market_position(
 ## Wire Types
 
 Raw response types are available in `lightcone::domain::position::wire`, including `PositionsResponse` and `PositionResponse`.
+
+---
+
+[← Overview](../../../README.md#positions)
