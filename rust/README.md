@@ -1,6 +1,6 @@
 # Lightcone SDK
 
-Rust SDK for the [Lightcone](https://lightcone.xyz) prediction market protocol on Solana. Supports both native and WASM targets under a single crate with compile-time feature dispatch.
+Rust SDK for the [Lightcone](https://lightcone.xyz) impact market protocol on Solana. Supports both native and WASM targets under a single crate with compile-time feature dispatch.
 
 ## Table of Contents
 
@@ -12,7 +12,6 @@ Rust SDK for the [Lightcone](https://lightcone.xyz) prediction market protocol o
 - [Domain Types vs Wire Types](#domain-types-vs-wire-types)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
-- [Module Documentation](#module-documentation)
 
 ## Installation
 
@@ -40,7 +39,7 @@ lightcone = { version = "0.3", features = ["wasm"] }
 
 ## How Lightcone Works
 
-Lightcone is a prediction market protocol on Solana. Understanding the core domain model is essential before writing integration code.
+Lightcone is a impact market protocol on Solana. Understanding the core domain model is essential before writing integration code.
 
 ```mermaid
 flowchart LR
@@ -78,9 +77,13 @@ A **market** represents a question with N outcomes (e.g., "Who wins the election
 - **Deposit assets** -- collateral tokens (e.g., USDC) used to mint complete sets of conditional tokens. A market can accept multiple deposit assets.
 - **Lifecycle**: `Pending` -> `Active` (accepting orders) -> `Resolved` (winning outcome determined).
 
+[Module docs](src/domain/market/README.md)
+
 ### Orderbooks
 
 Each market has one or more **orderbooks**, each representing a tradable pair of conditional tokens (base/quote). Orderbooks are identified by an `OrderBookId` derived from the base and quote token mint prefixes (e.g., `"7BgBvyjr_EPjFWdd5"`). The orderbook's **decimals** define the precision for price and size values.
+
+[Module docs](src/domain/orderbook/README.md)
 
 ### Orders
 
@@ -88,10 +91,12 @@ Orders are **signed off-chain** and submitted to the matching engine via REST. T
 
 1. Build an `OrderPayload` using the envelope builder (`LimitOrderEnvelope` or `TriggerOrderEnvelope`)
 2. Apply scaling to convert human-readable price/size to raw amounts based on orderbook decimals
-3. Sign with your keypair (native) or Privy embedded wallet (browser)
+3. Sign with your keypair (native), browser extension wallet (browser), or Privy embedded wallet (browser)
 4. Submit via `client.orders().submit(&request)`
 
 **Limit orders** sit on the book until filled, cancelled, or expired. **Trigger orders** (take-profit / stop-loss) are held server-side and fire when a price threshold is hit.
+
+[Module docs](src/domain/order/README.md)
 
 ### Positions
 
@@ -102,9 +107,19 @@ After orders fill, users hold **conditional token balances** per market. Positio
 
 When a market resolves, holders of the winning outcome's conditional tokens can **redeem** them for the deposit asset (e.g., USDC).
 
+[Module docs](src/domain/position/README.md)
+
 ### Trades
 
 Every fill produces a **trade record** with price, size, side, and timestamp. Trades are queryable per-orderbook with cursor-based pagination and available in real-time via WebSocket.
+
+[Module docs](src/domain/trade/README.md)
+
+### Price History
+
+OHLCV candle data for orderbooks, available at multiple resolutions. Used for charting and historical analysis. Candle updates are also streamed in real-time via WebSocket.
+
+[Module docs](src/domain/price_history/README.md)
 
 ### WebSocket
 
@@ -118,6 +133,20 @@ The WebSocket feed provides real-time updates for:
 - **Market events** -- settlement, activation, pausing
 
 For live market making, the WebSocket feed is the primary data source.
+
+[Module docs](src/ws/README.md)
+
+### Authentication
+
+Session-based authentication using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token. Native clients use keypair signing directly; browser clients can use a wallet adapter or Privy embedded wallet.
+
+[Module docs](src/auth/README.md)
+
+### On-Chain Program
+
+Low-level interaction with the Lightcone Solana smart contract: account type definitions, instruction builders, PDA derivation, and order signing/verification. Used by the backend and external integrators; the SDK's HTTP client handles most use cases without touching this directly.
+
+[Module docs](src/program/README.md)
 
 ## Quick Start
 
@@ -257,16 +286,3 @@ Notable `HttpError` variants:
 - **POST requests** (order submit, cancel, auth): `RetryPolicy::None` -- no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
 
-## Module Documentation
-
-| Module | Description | Documentation |
-|--------|-------------|---------------|
-| Markets | Fetch and search prediction markets | [src/domain/market/](src/domain/market/README.md) |
-| Orderbooks | Orderbook depth, decimals, live state | [src/domain/orderbook/](src/domain/orderbook/README.md) |
-| Orders | Submit, cancel, and track limit/trigger orders | [src/domain/order/](src/domain/order/README.md) |
-| Positions | User portfolio and token balances | [src/domain/position/](src/domain/position/README.md) |
-| Trades | Trade history and live feed | [src/domain/trade/](src/domain/trade/README.md) |
-| Price History | OHLCV candle data | [src/domain/price_history/](src/domain/price_history/README.md) |
-| Auth | Authentication and session management | [src/auth/](src/auth/README.md) |
-| WebSocket | Real-time data feeds | [src/ws/](src/ws/README.md) |
-| Program | On-chain Solana program interaction | [src/program/](src/program/README.md) |
