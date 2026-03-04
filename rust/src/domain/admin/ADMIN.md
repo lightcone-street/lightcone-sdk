@@ -2,7 +2,7 @@
 
 Internal admin operations for the Lightcone team. These endpoints require ED25519 signature authorization from a key registered in the backend.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../../README.md)
 
 ## Table of Contents
 

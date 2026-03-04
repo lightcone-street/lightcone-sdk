@@ -2,7 +2,7 @@
 
 Session management, login flows, and user profiles.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../README.md)
 
 ## Table of Contents
 

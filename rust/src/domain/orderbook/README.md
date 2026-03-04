@@ -2,7 +2,7 @@
 
 Orderbook depth, decimals, live state management, and ticker data.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../../README.md)
 
 ## Table of Contents
 

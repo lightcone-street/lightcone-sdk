@@ -2,7 +2,7 @@
 
 OHLCV candle data and real-time price chart updates.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../../README.md)
 
 ## Table of Contents
 
