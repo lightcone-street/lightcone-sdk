@@ -1,4 +1,4 @@
-//! Position domain — user positions, portfolio, wallet holdings, token balances.
+#![doc = include_str!("README.md")]
 
 pub mod client;
 pub mod wire;

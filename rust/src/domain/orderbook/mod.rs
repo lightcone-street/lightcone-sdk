@@ -1,4 +1,4 @@
-//! Orderbook domain — orderbook pairs, validation, impact calculations.
+#![doc = include_str!("README.md")]
 
 pub mod client;
 mod convert;
