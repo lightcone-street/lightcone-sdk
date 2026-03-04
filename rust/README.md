@@ -267,8 +267,6 @@ Notable `HttpError` variants:
 | Positions | User portfolio and token balances | [src/domain/position/](src/domain/position/README.md) |
 | Trades | Trade history and live feed | [src/domain/trade/](src/domain/trade/README.md) |
 | Price History | OHLCV candle data | [src/domain/price_history/](src/domain/price_history/README.md) |
-| Referrals | Beta access and referral codes | [src/domain/referral/](src/domain/referral/README.md) |
 | Auth | Authentication and session management | [src/auth/](src/auth/README.md) |
 | WebSocket | Real-time data feeds | [src/ws/](src/ws/README.md) |
 | Program | On-chain Solana program interaction | [src/program/](src/program/README.md) |
-| Admin | Internal admin operations | [src/domain/admin/](src/domain/admin/ADMIN.md) |

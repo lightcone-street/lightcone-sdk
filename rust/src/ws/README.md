@@ -2,7 +2,7 @@
 
 Real-time data feeds for orderbooks, trades, user events, price history, ticker, and market lifecycle.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../README.md)
 
 ## Table of Contents
 

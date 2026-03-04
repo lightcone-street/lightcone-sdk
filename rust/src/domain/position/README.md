@@ -2,7 +2,7 @@
 
 User portfolio, token balances, and market positions.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../../README.md)
 
 ## Table of Contents
 

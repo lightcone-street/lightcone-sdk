@@ -2,7 +2,7 @@
 
 On-chain Solana smart contract interaction for Lightcone markets.
 
-[Back to SDK root](../../README.md)
+[Back to SDK root](../../../README.md)
 
 ## Overview
 
