@@ -44,6 +44,7 @@ pub struct User {
     pub x_username: Option<String>,
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
+    pub google_email: Option<String>,
 }
 
 /// A linked identity (wallet, Google OAuth, X OAuth) associated with a user.
@@ -181,6 +182,7 @@ pub struct LoginResponse {
     pub x_username: Option<String>,
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
+    pub google_email: Option<String>,
 }
 
 /// Response from `GET /api/auth/me`.
@@ -194,6 +196,7 @@ pub struct MeResponse {
     pub x_username: Option<String>,
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
+    pub google_email: Option<String>,
     pub expires_at: i64,
 }
 

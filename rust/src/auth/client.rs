@@ -86,6 +86,7 @@ impl<'a> Auth<'a> {
             x_username: login_resp.x_username,
             x_user_id: login_resp.x_user_id,
             x_display_name: login_resp.x_display_name,
+            google_email: login_resp.google_email,
         })
     }
 
@@ -126,6 +127,7 @@ impl<'a> Auth<'a> {
             x_username: me.x_username,
             x_user_id: me.x_user_id,
             x_display_name: me.x_display_name,
+            google_email: me.google_email,
         })
     }
 
