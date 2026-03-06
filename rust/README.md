@@ -45,11 +45,13 @@ lightcone = { version = "0.3", features = ["wasm"] }
 ```rust
 use lightcone::prelude::*;
 use lightcone::auth::native::sign_login_message;
+use lightcone::program::LightconePinocchioClient;
 use solana_keypair::Keypair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = LightconeClient::builder().build()?;
+    let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
     let keypair = Keypair::new();
 
     // 1. Authenticate
@@ -71,12 +73,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .decimals(orderbook.orderbook_id.as_str()).await?;
 
     // 4. Build, sign, and submit a limit order
-    let nonce = 1u32;
+    let nonce = u64::from(rpc.get_current_nonce(&keypair.pubkey()).await?);
     let request = LimitOrderEnvelope::new()
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey()?)
-        .base_mint(orderbook.base.mint.to_pubkey()?)
-        .quote_mint(orderbook.quote.mint.to_pubkey()?)
+        .base_mint(orderbook.base.pubkey().to_pubkey()?)
+        .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
         .bid()
         .price("0.55")
         .size("100")
