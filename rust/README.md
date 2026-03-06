@@ -213,7 +213,7 @@ tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
 ```
 
 ## Authentication
-Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token. Native clients use keypair signing directly; browser clients can use a wallet adapter or Privy embedded wallet.
+Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
 ## Examples
 All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
