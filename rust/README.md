@@ -100,17 +100,105 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Start Trading
 
+These snippets assume you already created a `LightconeClient`, a `LightconePinocchioClient`, and loaded a `Keypair`.
+
 ### Step 1: Find a Market
+
+```rust
+let market = client.markets().get_by_slug("some-market").await?;
+let orderbook = market
+    .orderbook_pairs
+    .iter()
+    .find(|pair| pair.active)
+    .or_else(|| market.orderbook_pairs.first())
+    .expect("market has no orderbooks");
+```
 
 ### Step 2: Deposit Collateral
 
+```rust
+let market_pubkey = market.pubkey.to_pubkey()?;
+let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
+let num_outcomes = u8::try_from(market.outcomes.len())?;
+let mut tx = rpc
+    .mint_complete_set(
+        MintCompleteSetParams {
+            user: keypair.pubkey(),
+            market: market_pubkey,
+            deposit_mint,
+            amount: 1_000_000,
+        },
+        num_outcomes,
+    )
+    .await?;
+tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
+```
+
 ### Step 3: Place an Order
+
+```rust
+let decimals = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
+let scales = OrderbookDecimals {
+    orderbook_id: decimals.orderbook_id,
+    base_decimals: decimals.base_decimals,
+    quote_decimals: decimals.quote_decimals,
+    price_decimals: decimals.price_decimals,
+    tick_size: orderbook.tick_size.max(0) as u64,
+};
+let request = LimitOrderEnvelope::new()
+    .maker(keypair.pubkey())
+    .market(market.pubkey.to_pubkey()?)
+    .base_mint(orderbook.base.pubkey().to_pubkey()?)
+    .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
+    .bid()
+    .price("0.55")
+    .size("1")
+    .nonce(u64::from(rpc.get_current_nonce(&keypair.pubkey()).await?))
+    .apply_scaling(&scales)?
+    .sign(&keypair, orderbook.orderbook_id.as_str())?;
+let order = client.orders().submit(&request).await?;
+```
 
 ### Step 4: Monitor
 
+```rust
+let open = client
+    .orders()
+    .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
+    .await?;
+let mut ws = client.ws_native();
+ws.connect().await?;
+ws.subscribe(SubscribeParams::Books {
+    orderbook_ids: vec![orderbook.orderbook_id.clone()],
+})?;
+ws.subscribe(SubscribeParams::User {
+    wallet_address: keypair.pubkey().into(),
+})?;
+```
+
 ### Step 5: Cancel an Order
 
+```rust
+let cancel = CancelBody::signed(order.order_hash.clone(), keypair.pubkey().into(), &keypair);
+client.orders().cancel(&cancel).await?;
+```
+
 ### Step 6: Exit a Position
+
+```rust
+let mut tx = rpc
+    .merge_complete_set(
+        MergeCompleteSetParams {
+            user: keypair.pubkey(),
+            market: market.pubkey.to_pubkey()?,
+            deposit_mint,
+            amount: 1_000_000,
+        },
+        num_outcomes,
+    )
+    .await?;
+tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
+```
 
 ## Examples
 All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
@@ -186,4 +274,3 @@ Notable `HttpError` variants:
 - **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
-
