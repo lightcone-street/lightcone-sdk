@@ -270,3 +270,34 @@ pub struct UnrevokeResponse {
     pub restored_count: u32,
     pub user_ids: Vec<String>,
 }
+
+// ============================================================================
+// NOTIFICATION ADMIN
+// ============================================================================
+
+/// Request payload for `POST /api/admin/notifications`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateNotificationRequest {
+    pub title: String,
+    pub message: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+/// Response from `POST /api/admin/notifications`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CreateNotificationResponse {
+    pub status: String,
+}
+
+/// Request payload for `POST /api/admin/notifications/dismiss`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DismissNotificationRequest {
+    pub notification_id: String,
+}
+
+/// Response from `POST /api/admin/notifications/dismiss`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct DismissNotificationResponse {
+    pub status: String,
+}

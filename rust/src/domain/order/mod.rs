@@ -18,7 +18,7 @@ pub use client::{
 pub use convert::split_snapshot_orders;
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
-    ConditionalBalance, GlobalDepositBalance, OrderEvent, TriggerOrderUpdate,
+    ConditionalBalance, GlobalDepositBalance, NotificationUpdate, OrderEvent, TriggerOrderUpdate,
     UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
 };
 

@@ -71,7 +71,9 @@ pub mod client;
 
 pub mod prelude {
     // Shared newtypes
-    pub use crate::shared::{DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType};
+    pub use crate::shared::{
+        DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType,
+    };
 
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
@@ -127,12 +129,17 @@ pub mod prelude {
     // Domain types — referral
     pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
 
+    // Domain types — notification
+    pub use crate::domain::notification::{
+        MarketData, MarketResolvedData, Notification, NotificationKind, OrderFilledData,
+    };
+
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
         AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
-        MarketsResult, OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient,
-        ReferralsClient, TradesClient,
+        MarketsResult, NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
+        PriceHistorySubClient, ReferralsClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

@@ -12,6 +12,7 @@ use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
 use crate::domain::admin::client::Admin;
 use crate::privy::client::Privy;
+use crate::domain::notification::client::Notifications;
 use crate::domain::market::client::Markets;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
@@ -37,6 +38,7 @@ pub use crate::domain::order::client::Orders as OrdersClient;
 pub use crate::domain::orderbook::client::Orderbooks as OrderbooksClient;
 pub use crate::domain::position::client::Positions as PositionsClient;
 pub use crate::domain::price_history::client::PriceHistoryClient as PriceHistorySubClient;
+pub use crate::domain::notification::client::Notifications as NotificationsClient;
 pub use crate::domain::referral::client::Referrals as ReferralsClient;
 pub use crate::domain::trade::client::Trades as TradesClient;
 
@@ -102,6 +104,10 @@ impl LightconeClient {
 
     pub fn referrals(&self) -> Referrals<'_> {
         Referrals { client: self }
+    }
+
+    pub fn notifications(&self) -> Notifications<'_> {
+        Notifications { client: self }
     }
 
     /// Get the WS config for creating a WebSocket connection.

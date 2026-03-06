@@ -2,9 +2,10 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
-    AdminEnvelope, AllocateCodesRequest, AllocateCodesResponse, RevokeRequest, RevokeResponse,
-    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
-    WhitelistRequest, WhitelistResponse,
+    AdminEnvelope, AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
+    CreateNotificationResponse, DismissNotificationRequest, DismissNotificationResponse,
+    RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
+    UnrevokeRequest, UnrevokeResponse, WhitelistRequest, WhitelistResponse,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -77,6 +78,36 @@ impl<'a> Admin<'a> {
     ) -> Result<UnrevokeResponse, SdkError> {
         let url = format!(
             "{}/api/admin/referral/unrevoke",
+            self.client.http.base_url()
+        );
+        Ok(self
+            .client
+            .http
+            .post(&url, envelope, RetryPolicy::None)
+            .await?)
+    }
+
+    pub async fn create_notification(
+        &self,
+        envelope: &AdminEnvelope<CreateNotificationRequest>,
+    ) -> Result<CreateNotificationResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/notifications",
+            self.client.http.base_url()
+        );
+        Ok(self
+            .client
+            .http
+            .post(&url, envelope, RetryPolicy::None)
+            .await?)
+    }
+
+    pub async fn dismiss_notification(
+        &self,
+        envelope: &AdminEnvelope<DismissNotificationRequest>,
+    ) -> Result<DismissNotificationResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/notifications/dismiss",
             self.client.http.base_url()
         );
         Ok(self

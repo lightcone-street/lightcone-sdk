@@ -9,6 +9,7 @@
 
 pub mod admin;
 pub mod market;
+pub mod notification;
 pub mod order;
 pub mod orderbook;
 pub mod position;
