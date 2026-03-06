@@ -14,6 +14,7 @@ Rust SDK for the Lightcone impact market protocol on Solana.
      - [Step 5: Cancel an Order](#step-5-cancel-an-order)
      - [Step 6: Exit a Position](#step-6-exit-a-position)
 - [Examples](#examples)
+- [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
 
@@ -210,6 +211,9 @@ let mut tx = rpc
     .await?;
 tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
 ```
+
+### Authentication
+Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token. Native clients use keypair signing directly; browser clients can use a wallet adapter or Privy embedded wallet.
 
 ## Examples
 All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
