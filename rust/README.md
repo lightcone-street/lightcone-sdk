@@ -213,7 +213,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by slug/pubkey, search |
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
@@ -223,7 +223,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | `OrderBuilder` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.rs) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
 
 ### Cancelling Orders
 
@@ -237,7 +237,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 | Example | Description |
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
-| [`onchain_transactions`](examples/onchain_transactions.rs) | Build and sign mint/merge complete set, withdraw from position, increment nonce |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 
 ### WebSocket Streaming
 
