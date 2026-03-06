@@ -151,6 +151,8 @@ pub struct UserSnapshot {
     pub balances: std::collections::HashMap<OrderBookId, UserSnapshotBalance>,
     #[serde(default)]
     pub global_deposits: Vec<GlobalDepositBalance>,
+    #[serde(default)]
+    pub notifications: Vec<crate::domain::notification::Notification>,
 }
 
 // ─── Trigger order wire types ───────────────────────────────────────────────
@@ -203,6 +205,14 @@ pub enum UserUpdate {
     Order(OrderEvent),
     #[serde(rename = "balance_update")]
     BalanceUpdate(UserBalanceUpdate),
+    #[serde(rename = "notification")]
+    Notification(NotificationUpdate),
+}
+
+/// WS notification push event.
+#[derive(Deserialize, Debug, Clone)]
+pub struct NotificationUpdate {
+    pub notification: crate::domain::notification::Notification,
 }
 
 /// WS auth update.

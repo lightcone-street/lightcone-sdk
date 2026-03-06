@@ -6,9 +6,10 @@ pub mod wire;
 use serde::{Deserialize, Serialize};
 
 pub use wire::{
-    AllocateCodesRequest, AllocateCodesResponse, RevokeRequest, RevokeResponse, TargetSpec,
-    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
-    WhitelistRequest, WhitelistResponse,
+    AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
+    CreateNotificationResponse, DismissNotificationRequest, DismissNotificationResponse,
+    RevokeRequest, RevokeResponse, TargetSpec, UnifiedMetadataRequest, UnifiedMetadataResponse,
+    UnrevokeRequest, UnrevokeResponse, WhitelistRequest, WhitelistResponse,
 };
 
 /// Signed admin request envelope.
