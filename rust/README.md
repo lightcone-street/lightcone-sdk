@@ -100,7 +100,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Start Trading
 
-These snippets assume you already created a `LightconeClient`, a `LightconePinocchioClient`, and loaded a `Keypair`.
+```rust
+use lightcone::prelude::*;
+use lightcone::program::LightconePinocchioClient;
+use solana_keypair::read_keypair_file;
+use solana_signer::Signer;
+
+let client = LightconeClient::builder().build()?;
+let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
+let keypair = read_keypair_file("~/.config/solana/id.json")?;
+```
 
 ### Step 1: Find a Market
 
