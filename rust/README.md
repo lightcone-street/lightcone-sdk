@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .decimals(orderbook.orderbook_id.as_str()).await?;
 
     // 4. Build, sign, and submit a limit order
-    let nonce = u64::from(rpc.get_current_nonce(&keypair.pubkey()).await?);
+    let nonce = rpc.get_user_nonce(&keypair.pubkey()).await?;
     let request = LimitOrderEnvelope::new()
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey()?)
@@ -164,7 +164,7 @@ let request = LimitOrderEnvelope::new()
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(u64::from(rpc.get_current_nonce(&keypair.pubkey()).await?))
+    .nonce(rpc.get_user_nonce(&keypair.pubkey()).await?)
     .apply_scaling(&scales)?
     .sign(&keypair, orderbook.orderbook_id.as_str())?;
 let order = client.orders().submit(&request).await?;

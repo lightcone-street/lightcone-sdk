@@ -29,7 +29,7 @@ pub async fn fresh_order_nonce(
     rpc: &LightconePinocchioClient,
     user: &Pubkey,
 ) -> ExampleResult<u64> {
-    Ok(u64::from(rpc.get_current_nonce(user).await?))
+    Ok(rpc.get_user_nonce(user).await?)
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
