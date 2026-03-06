@@ -1,15 +1,19 @@
 # Lightcone SDK
 
-Rust SDK for the [Lightcone](https://lightcone.xyz) impact market protocol on Solana. Supports both native and WASM targets under a single crate with compile-time feature dispatch.
+Rust SDK for the Lightcone impact market protocol on Solana.
 
 ## Table of Contents
-
 - [Installation](#installation)
 - [Feature Flags](#feature-flags)
-- [How Lightcone Works](#how-lightcone-works)
 - [Quick Start](#quick-start)
-- [Architecture](#architecture)
-- [Domain Types vs Wire Types](#domain-types-vs-wire-types)
+- [Start Trading](#start-trading)
+     - [Step 1: Find a Market](#step-1-find-a-market)
+     - [Step 2: Deposit Collateral](#step-2-deposit-collateral)
+     - [Step 3: Place an Order](#step-3-place-an-order)
+     - [Step 4: Monitor](#step-4-monitor)
+     - [Step 5: Cancel an Order](#step-5-cancel-an-order)
+     - [Step 6: Exit a Position](#step-6-exit-a-position)
+- [Examples](#examples)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
 
@@ -35,90 +39,6 @@ lightcone = { version = "0.3", features = ["wasm"] }
 |---------|-----------------|----------|
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
-
-
-## How Lightcone Works
-
-Lightcone is an impact market protocol on Solana. Before writing integration code, read the [protocol overview](https://lightconelabs.mintlify.app/learn/about-lightcone/what-is-lightcone) to understand the core concepts: markets, conditional tokens, orderbooks, and the trading lifecycle.
-
-### Markets
-
-A **market** represents a question with N outcomes (e.g., "Who wins the election?" with outcomes "Candidate A", "Candidate B"). Each market has:
-
-- **Conditional tokens** -- SPL tokens representing bets on outcomes. Each deposit asset produces its own set of conditional tokens (one per outcome), so a market with 2 outcomes and 2 deposit assets has 4 conditional tokens total.
-- **Deposit assets** -- collateral tokens (e.g., USDC) used to mint complete sets of conditional tokens. A market can accept multiple deposit assets.
-- **Lifecycle**: `Pending` -> `Active` (accepting orders) -> `Resolved` (winning outcome determined).
-
-[Module docs](src/domain/market/README.md)
-
-### Orderbooks
-
-Each market has one or more **orderbooks**, each representing a tradable pair of conditional tokens (base/quote). Orderbooks are identified by an `OrderBookId` derived from the base and quote token mint prefixes (e.g., `"7BgBvyjr_EPjFWdd5"`). The orderbook's **decimals** define the precision for price and size values.
-
-[Module docs](src/domain/orderbook/README.md)
-
-### Orders
-
-Orders are **signed off-chain** and submitted to the matching engine via REST. The signing flow:
-
-1. Build an `OrderPayload` using the envelope builder (`LimitOrderEnvelope` or `TriggerOrderEnvelope`)
-2. Apply scaling to convert human-readable price/size to raw amounts based on orderbook decimals
-3. Sign with your keypair (native), browser extension wallet (browser), or Privy embedded wallet (browser)
-4. Submit via `client.orders().submit(&request)`
-
-**Limit orders** sit on the book until filled, cancelled, or expired. **Trigger orders** (take-profit / stop-loss) are held server-side and fire when a price threshold is hit.
-
-[Module docs](src/domain/order/README.md)
-
-### Positions
-
-After orders fill, users hold **conditional token balances** per market. Positions track:
-
-- **Idle balance** -- tokens available for new orders or withdrawal
-- **On-book balance** -- tokens locked in open orders
-
-When a market resolves, holders of the winning outcome's conditional tokens can **redeem** them for the deposit asset (e.g., USDC).
-
-[Module docs](src/domain/position/README.md)
-
-### Trades
-
-Every fill produces a **trade record** with price, size, side, and timestamp. Trades are queryable per-orderbook with cursor-based pagination and available in real-time via WebSocket.
-
-[Module docs](src/domain/trade/README.md)
-
-### Price History
-
-OHLCV candle data for orderbooks, available at multiple resolutions. Used for charting and historical analysis. Candle updates are also streamed in real-time via WebSocket.
-
-[Module docs](src/domain/price_history/README.md)
-
-### WebSocket
-
-The WebSocket feed provides real-time updates for:
-
-- **Book depth** -- snapshots and deltas for orderbook state
-- **Trades** -- individual trade executions
-- **User events** -- order placements, fills, cancellations, balance updates
-- **Ticker** -- best bid/ask/mid prices
-- **Price history** -- OHLCV candle updates
-- **Market events** -- settlement, activation, pausing
-
-For live market making, the WebSocket feed is the primary data source.
-
-[Module docs](src/ws/README.md)
-
-### Authentication
-
-Session-based authentication using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token. Native clients use keypair signing directly; browser clients can use a wallet adapter or Privy embedded wallet.
-
-[Module docs](src/auth/README.md)
-
-### On-Chain Program
-
-Low-level interaction with the Lightcone Solana smart contract: account type definitions, instruction builders, PDA derivation, and order signing/verification. Used by the backend and external integrators; the SDK's HTTP client handles most use cases without touching this directly.
-
-[Module docs](src/program/README.md)
 
 ## Quick Start
 
@@ -178,57 +98,66 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Architecture
+## Start Trading
 
-The SDK is organized in five layers:
+### Step 1: Find a Market
 
-| Layer | Module | Purpose |
-|-------|--------|---------|
-| 1 | `shared`, `domain`, `program` | Core types, domain models, on-chain program logic. Always available, WASM-safe. |
-| 2 | `auth` | Message generation + platform-dependent signing. |
-| 3 | `http` | Low-level HTTP client with per-endpoint retry policies. |
-| 4 | `ws` | WebSocket with compile-time dispatch: `tokio-tungstenite` (native) / `web-sys` (WASM). |
-| 5 | `client` | `LightconeClient` -- high-level nested sub-client API. |
+### Step 2: Deposit Collateral
 
-```
-use lightcone::prelude::*;
+### Step 3: Place an Order
 
-client.markets()       -> Markets API
-client.orderbooks()    -> Orderbooks API
-client.orders()        -> Orders API
-client.positions()     -> Positions API
-client.trades()        -> Trades API
-client.price_history() -> Price History API
-client.auth()          -> Authentication
-client.referrals()     -> Referral System
-client.admin()         -> Admin Operations
-client.privy()         -> Privy Embedded Wallet
-client.ws_native()     -> Native WebSocket Client
-```
+### Step 4: Monitor
 
-### State Management
+### Step 5: Cancel an Order
 
-The SDK is intentionally **stateless** for HTTP data. Sub-clients fetch, convert, and return -- no internal caching. Different consumers want different caching strategies, so the SDK leaves that decision to you.
+### Step 6: Exit a Position
 
-The only exception: `orderbooks().decimals()` caches results because orderbook decimals are effectively immutable.
+## Examples
+All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
 
-For **WebSocket-driven live state**, the SDK provides standalone state containers with update methods:
+### Setup & Authentication
 
-- `OrderbookSnapshot` -- apply book snapshots/deltas, query best bid/ask/mid
-- `UserOpenOrders` -- track open orders by market
-- `TradeHistory` -- rolling trade buffer per orderbook
-- `PriceHistoryState` -- manage price chart data
+| Example | Description |
+|---------|-------------|
+| [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
 
-You instantiate these, wrap them in your application's reactive state, and feed them WS events.
+### Market Discovery & Data
 
-## Domain Types vs Wire Types
+| Example | Description |
+|---------|-------------|
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by slug/pubkey, search |
+| [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
+| [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
+| [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
+| [`positions`](examples/positions.rs) | User positions across all markets and per-market |
 
-The SDK exposes two type levels:
+### Placing Orders
 
-- **Domain types** (`lightcone::domain::*`) -- validated, rich types with business logic. These are the primary API. Example: `Market`, `Order`, `OrderBookPair`.
-- **Wire types** (`lightcone::domain::*/wire`) -- raw serde structs matching backend REST/WS responses. Public for consumers who need raw access (forwarding data, debugging).
+| Example | Description |
+|---------|-------------|
+| [`submit_order`](examples/submit_order.rs) | `OrderBuilder` with human-readable price/size, auto-scaling, and fill tracking |
 
-Always prefer domain types unless you have a specific reason to work with wire types.
+### Cancelling Orders
+
+| Example | Description |
+|---------|-------------|
+| [`cancel_order`](examples/cancel_order.rs) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`user_orders`](examples/user_orders.rs) | Fetch open orders for an authenticated user |
+
+### On-Chain Operations
+
+| Example | Description |
+|---------|-------------|
+| [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build and sign mint/merge complete set, withdraw from position, increment nonce |
+
+### WebSocket Streaming
+
+| Example | Description |
+|---------|-------------|
+| [`ws_book_and_trades`](examples/ws_book_and_trades.rs) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.rs) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
+| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Authenticated user stream (orders, balances) + market lifecycle events |
 
 ## Error Handling
 
@@ -248,13 +177,13 @@ Notable `HttpError` variants:
 | Variant | Meaning |
 |---------|---------|
 | `ServerError { status, body }` | Non-2xx response from the backend |
-| `RateLimited { retry_after_ms }` | 429 -- back off and retry |
-| `Unauthorized` | 401 -- session expired or missing |
+| `RateLimited { retry_after_ms }` | 429 - back off and retry |
+| `Unauthorized` | 401 - session expired or missing |
 | `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy::Idempotent` -- retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` -- no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
+- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
 
