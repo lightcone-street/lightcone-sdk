@@ -19,34 +19,6 @@ pub fn other(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, message.into())
 }
 
-pub fn load_env() {
-    let _ = dotenv();
-}
-
-pub fn optional_var(name: &str) -> Option<String> {
-    load_env();
-    env::var(name).ok().filter(|value| !value.is_empty())
-}
-
-pub fn required_var(name: &str) -> ExampleResult<String> {
-    optional_var(name).ok_or_else(|| other(format!("set {name} in .env or the environment")).into())
-}
-
-pub fn env_flag(name: &str) -> bool {
-    matches!(
-        optional_var(name).as_deref(),
-        Some("1" | "true" | "TRUE" | "yes" | "YES")
-    )
-}
-
-pub fn write_enabled() -> bool {
-    env_flag("LIGHTCONE_EXECUTE_WRITES")
-}
-
-pub fn token_2022() -> bool {
-    env_flag("LIGHTCONE_TOKEN_2022")
-}
-
 pub fn unix_timestamp() -> ExampleResult<i64> {
     Ok(i64::try_from(
         SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
@@ -57,29 +29,28 @@ pub async fn fresh_order_nonce(
     rpc: &LightconePinocchioClient,
     user: &Pubkey,
 ) -> ExampleResult<u64> {
-    Ok(u64::from(rpc.get_current_nonce(user).await?).max(unix_timestamp()? as u64))
+    Ok(u64::from(rpc.get_current_nonce(user).await?))
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
-    let mut builder = LightconeClient::builder();
-    if let Some(url) = optional_var("LIGHTCONE_API_URL") {
-        builder = builder.base_url(&url);
-    }
-    if let Some(url) = optional_var("LIGHTCONE_WS_URL") {
-        builder = builder.ws_url(&url);
-    }
-    Ok(builder.build()?)
+    Ok(LightconeClient::builder().build()?)
 }
 
 pub fn rpc_client() -> LightconePinocchioClient {
-    LightconePinocchioClient::new(
-        &optional_var("SOLANA_RPC_URL")
-            .unwrap_or_else(|| "https://api.mainnet-beta.solana.com".to_string()),
-    )
+    LightconePinocchioClient::new("https://api.devnet.solana.com")
 }
 
 pub fn wallet() -> ExampleResult<Keypair> {
-    Ok(read_keypair_file(required_var("LIGHTCONE_WALLET_PATH")?)?)
+    let _ = dotenv();
+    let raw = env::var("LIGHTCONE_WALLET_PATH")
+        .map_err(|_| other("set LIGHTCONE_WALLET_PATH in .env or the environment"))?;
+    let path = if let Some(rest) = raw.strip_prefix("~/") {
+        let home = env::var("HOME").map_err(|_| other("HOME not set"))?;
+        std::path::PathBuf::from(home).join(rest)
+    } else {
+        raw.into()
+    };
+    Ok(read_keypair_file(path)?)
 }
 
 pub async fn login(
@@ -101,21 +72,6 @@ pub async fn login(
 }
 
 pub async fn market(client: &LightconeClient) -> ExampleResult<Market> {
-    if let Some(slug) = optional_var("LIGHTCONE_MARKET_SLUG") {
-        return Ok(client.markets().get_by_slug(&slug).await?);
-    }
-
-    if let Some(slug) = client
-        .markets()
-        .featured()
-        .await?
-        .into_iter()
-        .next()
-        .map(|market| market.slug)
-    {
-        return Ok(client.markets().get_by_slug(&slug).await?);
-    }
-
     client
         .markets()
         .get(None, Some(1))

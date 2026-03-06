@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     fresh_order_nonce, market_and_orderbook, orderbook_mints, parse_pubkey, rest_client,
-    rpc_client, scaling_decimals, wallet, write_enabled, ExampleResult,
+    rpc_client, scaling_decimals, wallet, ExampleResult,
 };
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -27,15 +27,8 @@ async fn main() -> ExampleResult {
         .price("0.55")
         .size("1")
         .nonce(fresh_order_nonce(&rpc, &keypair.pubkey()).await?)
-        .deposit_source(DepositSource::Auto)
         .apply_scaling(&decimals)?
         .sign(&keypair, orderbook.orderbook_id.as_str())?;
-
-    if !write_enabled() {
-        println!("{}", serde_json::to_string_pretty(&request)?);
-        println!("Set LIGHTCONE_EXECUTE_WRITES=true to actually submit this order.");
-        return Ok(());
-    }
 
     let response = client.orders().submit(&request).await?;
     println!(

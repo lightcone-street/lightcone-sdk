@@ -1,12 +1,10 @@
 mod common;
 
 use common::{
-    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, rpc_client, token_2022, wallet,
+    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, rpc_client, wallet,
     ExampleResult,
 };
-use lightcone::program::{
-    MergeCompleteSetParams, MintCompleteSetParams, WithdrawFromPositionParams,
-};
+use lightcone::program::{MergeCompleteSetParams, MintCompleteSetParams};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
@@ -60,20 +58,6 @@ async fn main() -> ExampleResult {
             .await?,
         ),
         (
-            "withdraw_from_position",
-            rpc.withdraw_from_position(
-                WithdrawFromPositionParams {
-                    user: keypair.pubkey(),
-                    market: market_pubkey,
-                    mint: deposit_mint,
-                    amount,
-                    outcome_index: 255,
-                },
-                token_2022(),
-            )
-            .await?,
-        ),
-        (
             "increment_nonce",
             rpc.increment_nonce(&keypair.pubkey()).await?,
         ),
@@ -82,6 +66,8 @@ async fn main() -> ExampleResult {
     for (name, tx) in &mut transactions {
         tx.try_sign(&[&keypair], blockhash)?;
         describe_tx(name, tx)?;
+        let sig = rpc.rpc_client.send_and_confirm_transaction(tx).await?;
+        println!("{name}: confirmed {sig}");
     }
 
     Ok(())

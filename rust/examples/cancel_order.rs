@@ -1,6 +1,6 @@
 mod common;
 
-use common::{login, rest_client, unix_timestamp, wallet, write_enabled, ExampleResult};
+use common::{login, rest_client, unix_timestamp, wallet, ExampleResult};
 use lightcone::prelude::*;
 use solana_signer::Signer;
 
@@ -32,16 +32,6 @@ async fn main() -> ExampleResult {
         unix_timestamp()?,
         &keypair,
     );
-
-    if !write_enabled() {
-        println!("single cancel:\n{}", serde_json::to_string_pretty(&cancel)?);
-        println!(
-            "cancel all in orderbook:\n{}",
-            serde_json::to_string_pretty(&cancel_all)?
-        );
-        println!("Set LIGHTCONE_EXECUTE_WRITES=true to actually send these cancels.");
-        return Ok(());
-    }
 
     let cancelled = client.orders().cancel(&cancel).await?;
     let cleared = client.orders().cancel_all(&cancel_all).await?;

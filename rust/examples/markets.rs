@@ -1,6 +1,6 @@
 mod common;
 
-use common::{market, optional_var, rest_client, ExampleResult};
+use common::{market, rest_client, ExampleResult};
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -30,7 +30,7 @@ async fn main() -> ExampleResult {
             .name
     );
 
-    let query = optional_var("LIGHTCONE_SEARCH_QUERY").unwrap_or_else(|| market.slug.clone());
+    let query = market.slug.clone();
     let results = client.markets().search(&query, Some(5)).await?;
     println!("search '{query}': {} result(s)", results.len());
     Ok(())

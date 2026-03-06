@@ -169,7 +169,7 @@ let request = LimitOrderEnvelope::new()
     .size("100")                    // human-readable size
     .nonce(nonce)
     .expiration(0)                  // 0 = no expiration
-    .deposit_source(DepositSource::Auto)
+    // .deposit_source(DepositSource::Global) // omit for auto
     .apply_scaling(&decimals)?      // convert to raw amounts
     .sign(&keypair, orderbook_id)?; // sign and produce SubmitOrderRequest
 ```
