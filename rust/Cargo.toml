@@ -1,11 +1,11 @@
 [package]
 name = "lightcone"
-version = "0.3.2"
+version = "0.3.21"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
 license = "MIT"
-repository = "https://github.com/lightcone-street/lightcone-sdk/tree/main/rust_v2"
-keywords = ["solana", "lightcone", "sdk", "prediction-markets"]
+repository = "https://github.com/lightcone-street/lightcone-sdk/tree/main/rust"
+keywords = ["solana", "lightcone", "sdk", "impact-markets"]
 
 [dependencies]
 # ── Core types (always available, WASM-safe) ──────────────────────────────────
