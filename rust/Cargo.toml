@@ -1,6 +1,6 @@
 [package]
 name = "lightcone"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
 license = "MIT"
