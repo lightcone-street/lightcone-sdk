@@ -1,8 +1,11 @@
-import WebSocket from "ws";
+/**
+ * Browser WebSocket client using native `globalThis.WebSocket`.
+ *
+ * Selected at build time via the `"browser"` field in package.json.
+ */
 import {
   parseMessageIn,
   ping,
-  readyStateFrom,
   ReadyState,
   type MessageIn,
   type MessageOut,
@@ -16,22 +19,27 @@ import {
   type SubscribeParams,
   type UnsubscribeParams,
 } from "./subscriptions";
+import type { IWsClient } from "./types";
 
-export class WsClient {
+export class WsClient implements IWsClient {
   private readonly config: WsConfig;
-  private readonly authTokenRef?: () => Promise<string | undefined>;
   private socket?: WebSocket;
   private reconnectAttempts = 0;
   private userInitiatedClose = false;
-  private pingTimer?: NodeJS.Timeout;
-  private pongTimer?: NodeJS.Timeout;
+  private pingTimer?: ReturnType<typeof setInterval>;
+  private pongTimer?: ReturnType<typeof setTimeout>;
   private callbacks: Array<(event: WsEvent) => void> = [];
   private readonly activeSubscriptions: SubscribeParams[] = [];
   private readonly pendingMessages: MessageOut[] = [];
 
-  constructor(config?: Partial<WsConfig>, authTokenRef?: () => Promise<string | undefined>) {
+  /**
+   * @param config   - WebSocket configuration (url, reconnect settings, etc.)
+   * @param _authTokenRef - Ignored in browser builds. The browser automatically
+   *                        sends HTTP-only cookies with same-origin WebSocket
+   *                        connections, so manual token injection is unnecessary.
+   */
+  constructor(config?: Partial<WsConfig>, _authTokenRef?: () => Promise<string | undefined>) {
     this.config = { ...WS_DEFAULT_CONFIG, ...config };
-    this.authTokenRef = authTokenRef;
   }
 
   async connect(): Promise<void> {
@@ -54,9 +62,7 @@ export class WsClient {
     this.userInitiatedClose = true;
 
     await new Promise<void>((resolve) => {
-      socket.once("close", () => {
-        resolve();
-      });
+      socket.addEventListener("close", () => resolve(), { once: true });
       socket.close(1000, "Client disconnect");
     });
   }
@@ -88,7 +94,17 @@ export class WsClient {
     if (!this.socket) {
       return ReadyState.Closed;
     }
-    return readyStateFrom(this.socket.readyState);
+    switch (this.socket.readyState) {
+      case WebSocket.CONNECTING:
+        return ReadyState.Connecting;
+      case WebSocket.OPEN:
+        return ReadyState.Open;
+      case WebSocket.CLOSING:
+        return ReadyState.Closing;
+      case WebSocket.CLOSED:
+      default:
+        return ReadyState.Closed;
+    }
   }
 
   on(callback: (event: WsEvent) => void): () => void {
@@ -97,6 +113,8 @@ export class WsClient {
       this.callbacks = this.callbacks.filter((cb) => cb !== callback);
     };
   }
+
+  // ── Internal ────────────────────────────────────────────────────────────
 
   private emit(event: WsEvent): void {
     for (const callback of this.callbacks) {
@@ -108,41 +126,47 @@ export class WsClient {
     }
   }
 
-  private async connectInternal(): Promise<void> {
-    const headers: Record<string, string> = {};
-    const token = this.authTokenRef ? await this.authTokenRef() : undefined;
-    if (token) {
-      headers.Cookie = `auth_token=${token}`;
-    }
-
-    const socket = new WebSocket(this.config.url, { headers });
+  private connectInternal(): Promise<void> {
+    // Browser WebSocket automatically includes cookies for same-origin connections.
+    const socket = new WebSocket(this.config.url);
     this.socket = socket;
 
-    await new Promise<void>((resolve, reject) => {
-      socket.once("open", () => {
+    return new Promise<void>((resolve, reject) => {
+      const onOpen = (): void => {
+        cleanup();
         this.reconnectAttempts = 0;
         this.startHeartbeat();
         this.flushPendingMessages();
         this.resubscribeAll();
         this.emit({ type: "Connected" });
         resolve();
+      };
+
+      const onError = (event: Event): void => {
+        cleanup();
+        reject(new Error(`WebSocket connection error: ${(event as ErrorEvent).message ?? "unknown"}`));
+      };
+
+      const cleanup = (): void => {
+        socket.removeEventListener("open", onOpen);
+        socket.removeEventListener("error", onError);
+      };
+
+      socket.addEventListener("open", onOpen);
+      socket.addEventListener("error", onError);
+
+      // Persistent listeners (survive initial connection)
+      socket.addEventListener("message", (event: MessageEvent) => {
+        this.handleIncoming(event.data as string);
       });
 
-      socket.once("error", (error) => {
-        reject(error);
-      });
-
-      socket.on("message", (raw) => {
-        this.handleIncoming(raw.toString());
-      });
-
-      socket.on("close", (code, reason) => {
+      socket.addEventListener("close", (event: CloseEvent) => {
         const manualClose = this.userInitiatedClose;
         this.userInitiatedClose = false;
         this.stopHeartbeat();
-        this.emit({ type: "Disconnected", code, reason: reason.toString() });
+        this.emit({ type: "Disconnected", code: event.code, reason: event.reason });
         if (!manualClose) {
-          this.handleClose(code);
+          this.handleClose(event.code);
         }
       });
     });

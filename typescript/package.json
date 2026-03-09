@@ -24,6 +24,9 @@
       "default": "./dist/index.js"
     }
   },
+  "browser": {
+    "./dist/ws/client.node.js": "./dist/ws/client.browser.js"
+  },
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
@@ -38,7 +41,9 @@
     "bs58": "^5.0.0",
     "decimal.js": "^10.6.0",
     "js-sha3": "^0.9.3",
-    "tweetnacl": "^1.0.3",
+    "tweetnacl": "^1.0.3"
+  },
+  "optionalDependencies": {
     "ws": "^8.0.0"
   },
   "devDependencies": {

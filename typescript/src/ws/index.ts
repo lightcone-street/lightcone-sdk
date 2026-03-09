@@ -6,8 +6,9 @@ import type { WsTrade } from "../domain/trade";
 import { DEFAULT_WS_URL } from "../network";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
 
-export * from "./client";
+export * from "./client.node";
 export * from "./subscriptions";
+export type { IWsClient } from "./types";
 
 export type MessageOut =
   | { method: "subscribe"; params: import("./subscriptions").SubscribeParams }

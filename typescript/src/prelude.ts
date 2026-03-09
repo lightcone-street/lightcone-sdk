@@ -45,9 +45,11 @@ export type {
 } from "./domain/market";
 
 export type {
+  OrderBook,
   OrderBookPair,
   OutcomeImpact,
   TickerData,
+  WsBookLevel,
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
 export { OrderbookSnapshot } from "./domain/orderbook/state";
@@ -87,9 +89,15 @@ export type {
   DepositTokenBalance,
 } from "./domain/position";
 
-export type { Trade } from "./domain/trade";
+export type { Trade, WsTrade } from "./domain/trade";
 export { TradeHistory } from "./domain/trade/state";
-export type { LineData } from "./domain/price_history";
+export type {
+  LineData,
+  PriceCandle,
+  PriceHistory,
+  PriceHistorySnapshot,
+  PriceHistoryUpdate,
+} from "./domain/price_history";
 export { PriceHistoryState } from "./domain/price_history";
 
 export type {
@@ -129,11 +137,13 @@ export {
 } from "./http";
 
 export type {
+  IWsClient,
   Kind,
   MessageIn,
   MessageOut,
   SubscribeParams,
   UnsubscribeParams,
+  WsConfig,
   WsEvent,
 } from "./ws";
 

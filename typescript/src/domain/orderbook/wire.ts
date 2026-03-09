@@ -56,6 +56,7 @@ export interface OrderBook {
   orderbook_id: OrderBookId;
   is_snapshot?: boolean;
   seq?: number;
+  timestamp?: string;
   bids: WsBookLevel[];
   asks: WsBookLevel[];
 }
@@ -65,4 +66,5 @@ export interface WsTickerData {
   best_bid?: string;
   best_ask?: string;
   mid?: string;
+  timestamp?: string;
 }

@@ -18,6 +18,7 @@ export interface PriceHistorySnapshot {
   prices: PriceCandle[];
   last_timestamp?: number;
   server_time?: number;
+  include_ohlcv?: boolean;
 }
 
 export interface PriceHistoryUpdate {
@@ -40,6 +41,6 @@ export interface PriceHistoryHeartbeat {
 }
 
 export type PriceHistory =
-  | { event_type: "snapshot"; payload: PriceHistorySnapshot }
-  | { event_type: "update"; payload: PriceHistoryUpdate }
-  | { event_type: "heartbeat"; payload: PriceHistoryHeartbeat };
+  | ({ event_type: "snapshot" } & PriceHistorySnapshot)
+  | ({ event_type: "update" } & PriceHistoryUpdate)
+  | ({ event_type: "heartbeat" } & PriceHistoryHeartbeat);
