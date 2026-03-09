@@ -1,7 +1,7 @@
 {
   "name": "@lightconexyz/lightcone-sdk",
-  "version": "0.2.0",
-  "description": "TypeScript SDK v2 for the Lightcone Protocol",
+  "version": "0.2.1",
+  "description": "TypeScript SDK for Lightcone",
   "author": "Lightcone",
   "license": "MIT",
   "repository": {
