@@ -1,220 +1,291 @@
-# Lightcone Rust SDK
+# Lightcone SDK
 
-Rust SDK for the Lightcone protocol on Solana.
+Rust SDK for the Lightcone impact market protocol on Solana.
 
-## Installation (TBC)
+## Table of Contents
+- [Installation](#installation)
+- [Feature Flags](#feature-flags)
+- [Quick Start](#quick-start)
+- [Start Trading](#start-trading)
+     - [Step 1: Find a Market](#step-1-find-a-market)
+     - [Step 2: Deposit Collateral](#step-2-deposit-collateral)
+     - [Step 3: Place an Order](#step-3-place-an-order)
+     - [Step 4: Monitor](#step-4-monitor)
+     - [Step 5: Cancel an Order](#step-5-cancel-an-order)
+     - [Step 6: Exit a Position](#step-6-exit-a-position)
+- [Examples](#examples)
+- [Authentication](#authentication)
+- [Error Handling](#error-handling)
+- [Retry Strategy](#retry-strategy)
+
+## Installation
+
+Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone-pinocchio-sdk = "0.1.0"
+lightcone = { version = "0.3", features = ["native"] }
 ```
 
-## Modules
+For browser/WASM targets:
 
-| Module | Description |
-|--------|-------------|
-| [`program`](src/program/README.md) | On-chain Solana program interaction (accounts, transactions, orders, Ed25519 verification) |
-| [`api`](src/api/README.md) | REST API client for market data and order management |
-| [`websocket`](src/websocket/README.md) | Real-time data streaming via WebSocket |
-| [`shared`](src/shared/README.md) | Shared utilities (Resolution, decimal helpers) |
+```toml
+[dependencies]
+lightcone = { version = "0.3", features = ["wasm"] }
+```
+
+## Feature Flags
+
+| Feature | What it enables | Use case |
+|---------|-----------------|----------|
+| **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
+| **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
 
 ## Quick Start
 
 ```rust
-use lightcone_sdk::prelude::*;
-```
-
-### REST API
-
-Query markets, submit orders, and manage positions via the REST API.
-
-```rust
-use lightcone_sdk::api::LightconeApiClient;
+use lightcone::prelude::*;
+use lightcone::auth::native::sign_login_message;
+use lightcone::program::LightconePinocchioClient;
+use solana_keypair::Keypair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let api = LightconeApiClient::new("https://api.lightcone.xyz");
+    let client = LightconeClient::builder().build()?;
+    let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
+    let keypair = Keypair::new();
 
-    // Get markets
-    let markets = api.get_markets().await?;
+    // 1. Authenticate
+    let nonce = client.auth().get_nonce().await?;
+    let signed = sign_login_message(&keypair, &nonce);
+    let user = client.auth().login_with_message(
+        &signed.message,
+        &signed.signature_bs58,
+        &signed.pubkey_bytes,
+        None,
+    ).await?;
 
-    // Get orderbook depth
-    let orderbook = api.get_orderbook("orderbook_id", Some(10)).await?;
-    println!("Best bid: {:?}", orderbook.best_bid);
-    println!("Best ask: {:?}", orderbook.best_ask);
+    // 2. Find a market
+    let market = client.markets().get_by_slug("some-market").await?;
+    let orderbook = &market.orderbook_pairs[0];
 
-    // Get user positions
-    let positions = api.get_user_positions("user_pubkey").await?;
+    // 3. Get orderbook decimals for price scaling
+    let decimals = client.orderbooks()
+        .decimals(orderbook.orderbook_id.as_str()).await?;
+
+    // 4. Build, sign, and submit a limit order
+    let nonce = rpc.get_user_nonce(&keypair.pubkey()).await?;
+    let request = LimitOrderEnvelope::new()
+        .maker(keypair.pubkey())
+        .market(market.pubkey.to_pubkey()?)
+        .base_mint(orderbook.base.pubkey().to_pubkey()?)
+        .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
+        .bid()
+        .price("0.55")
+        .size("100")
+        .nonce(nonce)
+        .apply_scaling(&decimals)?
+        .sign(&keypair, orderbook.orderbook_id.as_str())?;
+
+    let response = client.orders().submit(&request).await?;
+    println!("Order submitted: {:?}", response);
+
+    // 5. Stream real-time updates
+    let mut ws = client.ws_native();
+    ws.connect().await?;
+    ws.subscribe(SubscribeParams::Books {
+        orderbook_ids: vec![orderbook.orderbook_id.clone()],
+    })?;
 
     Ok(())
 }
 ```
 
-### On-Chain Program
-
-Build transactions for on-chain operations: minting positions, matching orders, redeeming winnings.
+## Start Trading
 
 ```rust
-use lightcone_sdk::program::LightconePinocchioClient;
+use lightcone::prelude::*;
+use lightcone::program::LightconePinocchioClient;
+use solana_keypair::read_keypair_file;
+use solana_signer::Signer;
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LightconePinocchioClient::new("https://api.devnet.solana.com");
-
-    // Fetch account state
-    let exchange = client.get_exchange().await?;
-    let market = client.get_market(0).await?;
-
-    // Build transactions
-    let tx = client.mint_complete_set(MintCompleteSetParams {
-        user: &user,
-        market: &market_pda,
-        deposit_mint: &usdc_mint,
-        amount: 1_000_000,
-    }, 2).await?;
-
-    Ok(())
-}
+let client = LightconeClient::builder().build()?;
+let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
+let keypair = read_keypair_file("~/.config/solana/id.json")?;
 ```
 
-### WebSocket
-
-Stream real-time orderbook updates, trades, and user events.
+### Step 1: Find a Market
 
 ```rust
-use lightcone_sdk::websocket::*;
-use futures_util::StreamExt;
-
-#[tokio::main]
-async fn main() -> Result<(), WebSocketError> {
-    let mut client = LightconeWebSocketClient::connect_default().await?;
-
-    // Subscribe to orderbook updates
-    client.subscribe_book_updates(vec!["market:orderbook".to_string()]).await?;
-
-    // Process events
-    while let Some(event) = client.next().await {
-        match event {
-            WsEvent::BookUpdate { orderbook_id, .. } => {
-                if let Some(book) = client.get_orderbook(&orderbook_id) {
-                    println!("Best bid: {:?}", book.best_bid());
-                    println!("Best ask: {:?}", book.best_ask());
-                }
-            }
-            WsEvent::Trade { trade, .. } => {
-                println!("Trade: {} @ {}", trade.size, trade.price);
-            }
-            _ => {}
-        }
-    }
-    Ok(())
-}
+let market = client.markets().get_by_slug("some-market").await?;
+let orderbook = market
+    .orderbook_pairs
+    .iter()
+    .find(|pair| pair.active)
+    .or_else(|| market.orderbook_pairs.first())
+    .expect("market has no orderbooks");
 ```
 
-## Module Overview
-
-### Program Module
-
-Direct interaction with the Lightcone Solana program:
-
-- **Account Types**: Exchange, Market, Position, OrderStatus, UserNonce
-- **Transaction Builders**: All 14 instructions (mint, merge, match, settle, etc.)
-- **PDA Derivation**: 8 PDA functions with seeds
-- **Order Types**: FullOrder (225 bytes), CompactOrder (65 bytes)
-- **Ed25519 Verification**: Three strategies (individual, batch, cross-reference)
+### Step 2: Deposit Collateral
 
 ```rust
-use lightcone_sdk::program::*;
-
-// Create and sign an order
-let mut order = FullOrder::new_bid(BidOrderParams {
-    nonce: 1,
-    maker: pubkey,
-    market: market_pda,
-    base_mint: yes_token,
-    quote_mint: no_token,
-    amount_in: 100_000,
-    amount_out: 50_000,
-    expiration: 0,
-});
-order.sign(&keypair);
-let hash = order.hash();
+let market_pubkey = market.pubkey.to_pubkey()?;
+let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
+let num_outcomes = u8::try_from(market.outcomes.len())?;
+let mut tx = rpc
+    .mint_complete_set(
+        MintCompleteSetParams {
+            user: keypair.pubkey(),
+            market: market_pubkey,
+            deposit_mint,
+            amount: 1_000_000,
+        },
+        num_outcomes,
+    )
+    .await?;
+tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
 ```
 
-### API Module
-
-REST API client with typed requests and responses:
-
-- **Markets**: get_markets, get_market, get_market_by_slug
-- **Orderbooks**: get_orderbook with depth parameter
-- **Orders**: submit_order, cancel_order, cancel_all_orders
-- **Positions**: get_user_positions, get_user_market_positions
-- **Trades**: get_trades with filters
-- **Price History**: get_price_history with OHLCV
+### Step 3: Place an Order
 
 ```rust
-use lightcone_sdk::api::*;
-
-let response = client.submit_order(SubmitOrderRequest {
-    maker: "pubkey".to_string(),
-    nonce: 1,
-    market_pubkey: "market".to_string(),
-    base_token: "base".to_string(),
-    quote_token: "quote".to_string(),
-    side: 0,  // BID
-    amount_in: 1000000,
-    amount_out: 500000,
-    expiration: 0,
-    signature: "hex_signature".to_string(),
-    orderbook_id: "orderbook".to_string(),
-}).await?;
+let decimals = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
+let scales = OrderbookDecimals {
+    orderbook_id: decimals.orderbook_id,
+    base_decimals: decimals.base_decimals,
+    quote_decimals: decimals.quote_decimals,
+    price_decimals: decimals.price_decimals,
+    tick_size: orderbook.tick_size.max(0) as u64,
+};
+let request = LimitOrderEnvelope::new()
+    .maker(keypair.pubkey())
+    .market(market.pubkey.to_pubkey()?)
+    .base_mint(orderbook.base.pubkey().to_pubkey()?)
+    .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
+    .bid()
+    .price("0.55")
+    .size("1")
+    .nonce(rpc.get_user_nonce(&keypair.pubkey()).await?)
+    .apply_scaling(&scales)?
+    .sign(&keypair, orderbook.orderbook_id.as_str())?;
+let order = client.orders().submit(&request).await?;
 ```
 
-### WebSocket Module
-
-Real-time streaming with automatic state management:
-
-- **Subscriptions**: book_updates, trades, user, price_history, market
-- **State Management**: LocalOrderbook, UserState, PriceHistory
-- **Authentication**: Ed25519 sign-in for user streams
-- **Auto-Reconnect**: Configurable reconnection with exponential backoff
+### Step 4: Monitor
 
 ```rust
-use lightcone_sdk::websocket::*;
-
-// Authenticated connection for user streams
-let client = LightconeWebSocketClient::connect_authenticated(&signing_key).await?;
-client.subscribe_user("user_pubkey".to_string()).await?;
-
-// Access maintained state
-if let Some(state) = client.get_user_state("user_pubkey") {
-    println!("Open orders: {}", state.orders.len());
-}
+let open = client
+    .orders()
+    .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
+    .await?;
+let mut ws = client.ws_native();
+ws.connect().await?;
+ws.subscribe(SubscribeParams::Books {
+    orderbook_ids: vec![orderbook.orderbook_id.clone()],
+})?;
+ws.subscribe(SubscribeParams::User {
+    wallet_address: keypair.pubkey().into(),
+})?;
 ```
 
-### Shared Module
-
-Common utilities used across modules:
-
-- **Resolution**: Candle intervals (1m, 5m, 15m, 1h, 4h, 1d)
-- **Decimal Helpers**: parse_decimal, format_decimal for string price handling
+### Step 5: Cancel an Order
 
 ```rust
-use lightcone_sdk::shared::{Resolution, parse_decimal};
-
-let res = Resolution::OneHour;  // "1h"
-let price = parse_decimal("0.500000")?;  // 0.5
+let cancel = CancelBody::signed(order.order_hash.clone(), keypair.pubkey().into(), &keypair);
+client.orders().cancel(&cancel).await?;
 ```
 
-## Features
+### Step 6: Exit a Position
 
-- `default` - Standard features
-- `live_tests` - Enable live integration tests
+```rust
+let mut tx = rpc
+    .merge_complete_set(
+        MergeCompleteSetParams {
+            user: keypair.pubkey(),
+            market: market.pubkey.to_pubkey()?,
+            deposit_mint,
+            amount: 1_000_000,
+        },
+        num_outcomes,
+    )
+    .await?;
+tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
+```
 
-## Program ID
+## Authentication
+Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
-**Mainnet/Devnet**: `EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2`
+## Examples
+All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
 
-## License
+### Setup & Authentication
 
-MIT
+| Example | Description |
+|---------|-------------|
+| [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
+
+### Market Discovery & Data
+
+| Example | Description |
+|---------|-------------|
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
+| [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
+| [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
+| [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+
+### Placing Orders
+
+| Example | Description |
+|---------|-------------|
+| [`submit_order`](examples/submit_order.rs) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
+
+### Cancelling Orders
+
+| Example | Description |
+|---------|-------------|
+| [`cancel_order`](examples/cancel_order.rs) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`user_orders`](examples/user_orders.rs) | Fetch open orders for an authenticated user |
+
+### On-Chain Operations
+
+| Example | Description |
+|---------|-------------|
+| [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+
+### WebSocket Streaming
+
+| Example | Description |
+|---------|-------------|
+| [`ws_book_and_trades`](examples/ws_book_and_trades.rs) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.rs) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
+| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Authenticated user stream (orders, balances) + market lifecycle events |
+
+## Error Handling
+
+All SDK operations return `Result<T, SdkError>`:
+
+| Variant | When |
+|---------|------|
+| `SdkError::Http(HttpError)` | REST request failures |
+| `SdkError::Ws(WsError)` | WebSocket connection/protocol errors |
+| `SdkError::Auth(AuthError)` | Authentication failures |
+| `SdkError::Validation(String)` | Domain type conversion failures |
+| `SdkError::Serde(serde_json::Error)` | Serialization errors |
+| `SdkError::Other(String)` | Catch-all |
+
+Notable `HttpError` variants:
+
+| Variant | Meaning |
+|---------|---------|
+| `ServerError { status, body }` | Non-2xx response from the backend |
+| `RateLimited { retry_after_ms }` | 429 - back off and retry |
+| `Unauthorized` | 401 - session expired or missing |
+| `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
+
+## Retry Strategy
+
+- **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
+- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.

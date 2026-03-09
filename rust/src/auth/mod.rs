@@ -1,20 +1,4 @@
-//! Authentication — message generation, credentials, login/logout, user profile.
-//!
-//! ## Security Model
-//!
-//! - **Wasm/Browser**: Token lives ONLY in the HTTP-only cookie set by the backend.
-//!   The SDK never reads, stores, or exposes it. Browser auto-includes cookies.
-//! - **Native/CLI**: SDK stores the token internally (private field) and injects it
-//!   as a `Cookie: auth_token=<token>` header, matching the backend's cookie-only auth.
-//!   Token is NEVER exposed via public API — no `.token()` accessor.
-//! - **Logout**: MUST call `POST /api/auth/logout` to clear server-side cookie.
-//!   On native, also clears internal token + caches.
-//!
-//! ## Session Hydration
-//!
-//! Use `client.auth().check_session()` to validate the current cookie and
-//! retrieve the full user profile. Works identically on WASM (browser cookie)
-//! and native (injected cookie header). Returns [`User`] on success.
+#![doc = include_str!("README.md")]
 
 #[cfg(feature = "http")]
 pub mod client;

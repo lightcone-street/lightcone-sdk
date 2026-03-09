@@ -1,4 +1,4 @@
-//! Price history domain — chart data, candle resolution.
+#![doc = include_str!("README.md")]
 
 pub mod client;
 pub mod state;

@@ -264,48 +264,15 @@ pub enum TriggerResultStatus {
 
 /// Where collateral should be sourced when matching an order.
 ///
-/// Serializes as an integer (0, 1, 2) matching the backend gRPC protocol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
+/// Use `None` for the default behavior (auto: global if available, then market).
+/// Serializes as `"global"` or `"market"` to match the REST API.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum DepositSource {
-    /// Let the backend decide (global if available, then market).
-    Auto = 0,
     /// Always use the user's global deposit balance.
-    Global = 1,
+    Global,
     /// Only use market-level balance (no global fallback).
-    Market = 2,
-}
-
-impl Default for DepositSource {
-    fn default() -> Self {
-        Self::Auto
-    }
-}
-
-impl Serialize for DepositSource {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_u8(*self as u8)
-    }
-}
-
-impl<'de> Deserialize<'de> for DepositSource {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let v = u8::deserialize(deserializer)?;
-        match v {
-            0 => Ok(DepositSource::Auto),
-            1 => Ok(DepositSource::Global),
-            2 => Ok(DepositSource::Market),
-            _ => Err(serde::de::Error::custom(format!(
-                "invalid deposit_source value: {v}, expected 0, 1, or 2"
-            ))),
-        }
-    }
+    Market,
 }
 
 // ─── Resolution ──────────────────────────────────────────────────────────────
@@ -509,9 +476,8 @@ mod tests {
     #[test]
     fn test_deposit_source_serde_roundtrip() {
         let cases = [
-            (DepositSource::Auto, "0"),
-            (DepositSource::Global, "1"),
-            (DepositSource::Market, "2"),
+            (DepositSource::Global, "\"global\""),
+            (DepositSource::Market, "\"market\""),
         ];
         for (variant, expected_json) in &cases {
             let json = serde_json::to_string(variant).unwrap();
@@ -519,11 +485,6 @@ mod tests {
             let back: DepositSource = serde_json::from_str(&json).unwrap();
             assert_eq!(&back, variant);
         }
-    }
-
-    #[test]
-    fn test_deposit_source_default() {
-        assert_eq!(DepositSource::default(), DepositSource::Auto);
     }
 
     #[test]
@@ -546,7 +507,7 @@ mod tests {
             deposit_source: Some(DepositSource::Global),
         };
         let json = serde_json::to_string(&req).unwrap();
-        assert!(json.contains("\"deposit_source\":1"));
+        assert!(json.contains("\"deposit_source\":\"global\""));
 
         let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.deposit_source, Some(DepositSource::Global));

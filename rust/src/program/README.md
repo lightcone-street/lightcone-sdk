@@ -2,6 +2,8 @@
 
 On-chain Solana smart contract interaction for Lightcone markets.
 
+[← Overview](../../README.md#on-chain-program)
+
 ## Overview
 
 The program module provides:
@@ -82,7 +84,7 @@ User's nonce for mass order cancellation.
 ### Creation
 
 ```rust
-use lightcone_sdk::program::LightconePinocchioClient;
+use lightcone::program::LightconePinocchioClient;
 
 // Standard creation
 let client = LightconePinocchioClient::new("https://api.devnet.solana.com");
@@ -144,8 +146,7 @@ let tx = client.create_market(CreateMarketParams {
 }).await?;
 
 let tx = client.add_deposit_mint(AddDepositMintParams {
-    payer,
-    market_id,
+    authority,
     deposit_mint: usdc_mint,
     outcome_metadata: vec![
         OutcomeMetadata { name: "Yes".into(), symbol: "YES".into(), uri: "".into() },
@@ -208,15 +209,11 @@ let tx = client.match_orders_multi(MatchOrdersMultiParams {
     base_mint: yes_token,
     quote_mint: no_token,
     taker_order: taker,
-    maker_orders: makers,
-    fill_amounts: fills,
+    maker_orders: vec![maker],
+    maker_fill_amounts: vec![50],
+    taker_fill_amounts: vec![100],
+    full_fill_bitmask: 0,
 }).await?;
-
-// With batch Ed25519 verification
-let tx = client.match_orders_multi_with_verify(params).await?;
-
-// With cross-instruction Ed25519 references (most efficient)
-let tx = client.match_orders_multi_cross_ref(params).await?;
 ```
 
 ### Order Helpers
@@ -263,7 +260,7 @@ All functions return `(Pubkey, u8)` (address, bump).
 | `get_position_pda(owner, market, program_id)` | `["position", owner, market]` | User position |
 
 ```rust
-use lightcone_sdk::program::*;
+use lightcone::program::*;
 
 let (exchange, _) = get_exchange_pda(&program_id);
 let (market, _) = get_market_pda(market_id, &program_id);
@@ -274,7 +271,7 @@ let (cond_mint, _) = get_conditional_mint_pda(&market, &deposit_mint, 0, &progra
 
 ## Order Types
 
-### FullOrder (225 bytes)
+### OrderPayload (225 bytes)
 
 Complete order with signature for off-chain storage and API submission.
 
@@ -294,10 +291,10 @@ Complete order with signature for off-chain storage and API submission.
 **Methods:**
 ```rust
 // Construction
-FullOrder::new_bid(params) -> FullOrder
-FullOrder::new_ask(params) -> FullOrder
-FullOrder::new_bid_signed(params, &keypair) -> FullOrder
-FullOrder::new_ask_signed(params, &keypair) -> FullOrder
+OrderPayload::new_bid(params) -> OrderPayload
+OrderPayload::new_ask(params) -> OrderPayload
+OrderPayload::new_bid_signed(params, &keypair) -> OrderPayload
+OrderPayload::new_ask_signed(params, &keypair) -> OrderPayload
 
 // Hashing and signing
 order.hash() -> [u8; 32]           // Keccak256 of fields (excludes signature)
@@ -306,28 +303,26 @@ order.verify_signature() -> Result<()>
 
 // Serialization
 order.serialize() -> [u8; 225]
-FullOrder::deserialize(data) -> Result<FullOrder>
+OrderPayload::deserialize(data) -> Result<OrderPayload>
 
 // Conversion
-order.to_compact() -> CompactOrder
+order.to_order() -> Order
 ```
 
-### CompactOrder (65 bytes)
+### Order (29 bytes)
 
-On-chain transmission format. Excludes market/base_mint/quote_mint (passed via accounts).
+On-chain transmission format. Excludes maker/market/base_mint/quote_mint (passed via accounts).
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| nonce | 0 | 8 | `u64` | Order nonce |
-| maker | 8 | 32 | `Pubkey` | Order creator |
-| side | 40 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| amount_in | 41 | 8 | `u64` | Amount maker gives |
-| amount_out | 49 | 8 | `u64` | Amount maker receives |
-| expiration | 57 | 8 | `i64` | Expiration timestamp |
+| nonce | 0 | 4 | `u32` | Order nonce |
+| side | 4 | 1 | `OrderSide` | Bid=0, Ask=1 |
+| amount_in | 5 | 8 | `u64` | Amount maker gives |
+| amount_out | 13 | 8 | `u64` | Amount maker receives |
+| expiration | 21 | 8 | `i64` | Expiration timestamp |
 
 ```rust
-let compact = order.to_compact();
-let full = compact.to_full_order(&market, &base_mint, &quote_mint, &signature);
+let compact = order.to_order();
 ```
 
 ### Order Utilities
@@ -414,7 +409,7 @@ All instructions use a single-byte discriminator.
 ### Program IDs
 
 ```rust
-PROGRAM_ID: Pubkey                    // "EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2"
+PROGRAM_ID: Pubkey                    // "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
 TOKEN_PROGRAM_ID: Pubkey              // SPL Token
 TOKEN_2022_PROGRAM_ID: Pubkey         // Token-2022 (conditional tokens)
 ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey
@@ -455,8 +450,8 @@ MARKET_SIZE: usize                    // 120
 POSITION_SIZE: usize                  // 80
 ORDER_STATUS_SIZE: usize              // 24
 USER_NONCE_SIZE: usize                // 16
-FULL_ORDER_SIZE: usize                // 225
-COMPACT_ORDER_SIZE: usize             // 65
+SIGNED_ORDER_SIZE: usize             // 225
+ORDER_SIZE: usize                    // 29
 SIGNATURE_SIZE: usize                 // 64
 ```
 
@@ -505,8 +500,7 @@ pub struct CreateMarketParams {
 }
 
 pub struct AddDepositMintParams {
-    pub payer: Pubkey,
-    pub market_id: u64,
+    pub authority: Pubkey,
     pub deposit_mint: Pubkey,
     pub outcome_metadata: Vec<OutcomeMetadata>,
 }
@@ -561,9 +555,11 @@ pub struct MatchOrdersMultiParams {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
-    pub taker_order: FullOrder,
-    pub maker_orders: Vec<FullOrder>,
-    pub fill_amounts: Vec<u64>,
+    pub taker_order: OrderPayload,
+    pub maker_orders: Vec<OrderPayload>,
+    pub maker_fill_amounts: Vec<u64>,
+    pub taker_fill_amounts: Vec<u64>,
+    pub full_fill_bitmask: u8,
 }
 
 pub struct BidOrderParams {
@@ -616,3 +612,7 @@ pub enum SdkError {
 
 pub type SdkResult<T> = Result<T, SdkError>;
 ```
+
+---
+
+[← Overview](../../README.md#on-chain-program)

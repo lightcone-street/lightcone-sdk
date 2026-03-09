@@ -1,11 +1,4 @@
-//! WebSocket layer — messages, subscriptions, events.
-//!
-//! The actual WS transport is compile-time dispatched:
-//! - `ws-native` feature → `tokio-tungstenite` (native.rs)
-//! - `ws-wasm` feature → `web-sys::WebSocket` (wasm.rs)
-//!
-//! Both export the same `WsClient` type with identical methods.
-//! This module defines the shared message/event types.
+#![doc = include_str!("README.md")]
 
 pub mod subscriptions;
 

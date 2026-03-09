@@ -1,29 +1,4 @@
-//! # Lightcone SDK v2
-//!
-//! A unified Rust SDK for the Lightcone protocol supporting both native and WASM targets.
-//!
-//! ## Architecture
-//!
-//! The SDK is organized in layers:
-//!
-//! 1. **Core** — Types, program logic, domain models (always available, WASM-safe)
-//! 2. **Auth** — Message generation + platform-dependent signing
-//! 3. **HTTP API** — `LightconeHttp` with per-endpoint retry policies
-//! 4. **WebSocket** — Compile-time dispatch: `tokio-tungstenite` (native) / `web-sys` (WASM)
-//! 5. **High-Level Client** — `LightconeClient` with nested sub-clients and caching
-//!
-//! ## Quick Start
-//!
-//! ```rust,ignore
-//! use lightcone::prelude::*;
-//!
-//! let client = LightconeClient::builder()
-//!     .base_url("https://tapi.lightcone.xyz")
-//!     .build()?;
-//!
-//! let markets = client.markets().featured().await?;
-//! let orderbook = client.orderbooks().get("orderbook_id", Some(10)).await?;
-//! ```
+#![doc = include_str!("../README.md")]
 
 // ── Layer 1: Core ────────────────────────────────────────────────────────────
 

@@ -1,4 +1,4 @@
-//! Admin domain — metadata and referral management types.
+#![doc = include_str!("ADMIN.md")]
 
 pub mod client;
 pub mod wire;
