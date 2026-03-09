@@ -107,6 +107,18 @@ export interface Orderbook {
   bump: number; // u8
 }
 
+/**
+ * GlobalDepositToken whitelist account.
+ * PDA: ["global_deposit", mint]
+ * Size: 48 bytes
+ */
+export interface GlobalDepositToken {
+  discriminator: Buffer; // 8 bytes
+  mint: PublicKey; // 32 bytes
+  active: boolean; // u8
+  bump: number; // u8
+}
+
 // ============================================================================
 // ORDER TYPES
 // ============================================================================
@@ -122,11 +134,16 @@ export interface SignedOrder {
   baseMint: PublicKey; // 32 bytes - token being bought/sold
   quoteMint: PublicKey; // 32 bytes - payment token
   side: OrderSide; // u8 - 0=BID, 1=ASK
-  makerAmount: bigint; // u64 - what maker gives
-  takerAmount: bigint; // u64 - what maker receives
+  amountIn: bigint; // u64 - what maker gives
+  amountOut: bigint; // u64 - what maker receives
   expiration: bigint; // i64 - unix timestamp, 0=no expiration
   signature: Buffer; // 64 bytes - Ed25519 signature
 }
+
+/**
+ * Alias matching Rust v2 naming.
+ */
+export type OrderPayload = SignedOrder;
 
 /**
  * Compact order format (29 bytes)
@@ -135,8 +152,8 @@ export interface SignedOrder {
 export interface Order {
   nonce: number; // u32 (4 bytes) - truncated from SignedOrder's u64 nonce
   side: OrderSide; // u8
-  makerAmount: bigint; // u64
-  takerAmount: bigint; // u64
+  amountIn: bigint; // u64
+  amountOut: bigint; // u64
   expiration: bigint; // i64
 }
 
@@ -174,7 +191,7 @@ export interface OutcomeMetadata {
  * Parameters for addDepositMint instruction
  */
 export interface AddDepositMintParams {
-  authority: PublicKey;
+  payer: PublicKey;
   marketId: bigint;
   depositMint: PublicKey;
   outcomeMetadata: OutcomeMetadata[];
@@ -303,6 +320,59 @@ export interface CreateOrderbookParams {
   recentSlot: bigint;
 }
 
+/**
+ * Parameters for whitelistDepositToken instruction
+ */
+export interface WhitelistDepositTokenParams {
+  authority: PublicKey;
+  mint: PublicKey;
+}
+
+/**
+ * Parameters for depositToGlobal instruction
+ */
+export interface DepositToGlobalParams {
+  user: PublicKey;
+  mint: PublicKey;
+  amount: bigint;
+}
+
+/**
+ * Parameters for globalToMarketDeposit instruction
+ */
+export interface GlobalToMarketDepositParams {
+  user: PublicKey;
+  market: PublicKey;
+  depositMint: PublicKey;
+  amount: bigint;
+}
+
+/**
+ * Parameters for initPositionTokens instruction
+ */
+export interface InitPositionTokensParams {
+  user: PublicKey;
+  market: PublicKey;
+  depositMint: PublicKey;
+  recentSlot: bigint;
+}
+
+/**
+ * Parameters for depositAndSwap instruction
+ */
+export interface DepositAndSwapParams {
+  operator: PublicKey;
+  market: PublicKey;
+  depositMint: PublicKey;
+  baseMint: PublicKey;
+  quoteMint: PublicKey;
+  takerOrder: SignedOrder;
+  makerOrders: SignedOrder[];
+  makerFillAmounts: bigint[];
+  takerFillAmounts: bigint[];
+  fullFillBitmask: number;
+}
+
 // ============================================================================
 // BUILDER RESULT TYPES
 // ============================================================================
@@ -424,8 +494,8 @@ export interface BidOrderParams {
   market: PublicKey;
   baseMint: PublicKey; // Token to buy
   quoteMint: PublicKey; // Token to pay with
-  makerAmount: bigint; // Quote tokens to give
-  takerAmount: bigint; // Base tokens to receive
+  amountIn: bigint; // Quote tokens to give
+  amountOut: bigint; // Base tokens to receive
   expiration?: bigint; // 0 = no expiration
 }
 
@@ -438,7 +508,7 @@ export interface AskOrderParams {
   market: PublicKey;
   baseMint: PublicKey; // Token to sell
   quoteMint: PublicKey; // Token to receive
-  makerAmount: bigint; // Base tokens to give
-  takerAmount: bigint; // Quote tokens to receive
+  amountIn: bigint; // Base tokens to give
+  amountOut: bigint; // Quote tokens to receive
   expiration?: bigint; // 0 = no expiration
 }

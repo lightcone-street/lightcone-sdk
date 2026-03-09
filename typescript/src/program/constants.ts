@@ -68,6 +68,11 @@ export const INSTRUCTION = {
   MATCH_ORDERS_MULTI: 13,
   SET_AUTHORITY: 14,
   CREATE_ORDERBOOK: 15,
+  WHITELIST_DEPOSIT_TOKEN: 16,
+  DEPOSIT_TO_GLOBAL: 17,
+  GLOBAL_TO_MARKET_DEPOSIT: 18,
+  INIT_POSITION_TOKENS: 19,
+  DEPOSIT_AND_SWAP: 20,
 } as const;
 
 /**
@@ -81,6 +86,7 @@ export const DISCRIMINATOR = {
   USER_NONCE: Buffer.from([0xeb, 0x85, 0x01, 0xf3, 0x12, 0x87, 0x58, 0xe0]),
   POSITION: Buffer.from([0xaa, 0xbc, 0x8f, 0xe4, 0x7a, 0x40, 0xf7, 0xd0]),
   ORDERBOOK: Buffer.from([0x2b, 0x22, 0x19, 0x71, 0xc3, 0x45, 0x48, 0x07]),
+  GLOBAL_DEPOSIT_TOKEN: Buffer.from([0x25, 0xbe, 0xa1, 0xe8, 0x7b, 0x92, 0x2a, 0x57]),
 } as const;
 
 /**
@@ -93,6 +99,7 @@ export const ACCOUNT_SIZE = {
   USER_NONCE: 16,
   POSITION: 80,
   ORDERBOOK: 144,
+  GLOBAL_DEPOSIT_TOKEN: 48,
 } as const;
 
 /**
@@ -117,7 +124,7 @@ export const MIN_OUTCOMES = 2;
 /**
  * Maximum number of makers per match_orders_multi instruction
  */
-export const MAX_MAKERS = 3;
+export const MAX_MAKERS = 7;
 
 /**
  * PDA Seeds
@@ -132,4 +139,5 @@ export const SEEDS = {
   USER_NONCE: "user_nonce",
   POSITION: "position",
   ORDERBOOK: "orderbook",
+  GLOBAL_DEPOSIT: "global_deposit",
 } as const;

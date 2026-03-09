@@ -1,14 +1,34 @@
-/**
- * Shared utilities used across API and WebSocket modules.
- */
-
-export { Resolution } from "./types";
-export { parseDecimal, formatDecimal, isZero } from "./price";
 export {
-  scalePriceSize,
-  ScalingError,
-} from "./scaling";
-export type { OrderbookDecimals, ScaledAmounts } from "./scaling";
+  asOrderBookId,
+  asPubkeyStr,
+  deriveOrderbookId,
+  resolutionSeconds,
+  sideLabel,
+  OrderUpdateType,
+  Resolution,
+  Side,
+  TimeInForce,
+  TriggerResultStatus,
+  TriggerStatus,
+  TriggerType,
+  TriggerUpdateType,
+  type Branded,
+  type OrderBookId,
+  type PubkeyStr,
+  type SubmitOrderRequest,
+} from "./types";
 
-// deriveOrderbookId is exported from the program module (orders.ts)
-// Re-exported here for convenience via the shared module path
+export { formatDecimal, isZero, parseDecimal } from "./price";
+
+export {
+  alignPriceToTick,
+  scalePriceSize,
+  scalePriceSizeLegacy,
+  ScalingError,
+  type LegacyScaledAmounts,
+  type OrderbookDecimals,
+  type ScaledAmounts,
+} from "./scaling";
+
+// Backward-compatible name from v1.
+export { scalePriceSizeLegacy as scalePriceSizeV1 } from "./scaling";

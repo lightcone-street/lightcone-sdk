@@ -1,74 +1,47 @@
 /**
- * Lightcone SDK - TypeScript SDK for the Lightcone protocol on Solana.
- *
- * This SDK provides three main modules:
- * - `program`: On-chain program interaction (smart contract)
- * - `api`: REST API client for market data, orders, and positions
- * - `websocket`: Real-time data streaming for orderbooks, trades, and user events
- *
- * @example
- * ```typescript
- * import { LightconePinocchioClient, PROGRAM_ID, api, websocket } from "@lightcone/sdk";
- *
- * // On-chain program interaction
- * const programClient = new LightconePinocchioClient(connection, payer);
- *
- * // REST API client
- * const apiClient = new api.LightconeApiClient();
- * const markets = await apiClient.getMarkets();
- *
- * // WebSocket client for real-time data
- * const wsClient = await websocket.LightconeWebSocketClient.connectDefault();
- * await wsClient.subscribeBookUpdates(["market1:ob1"]);
- * ```
+ * Lightcone SDK v2 - TypeScript implementation mirroring Rust SDK v2 layers.
  */
 
-// ============================================================================
-// MODULE EXPORTS
-// ============================================================================
+// Layer 1: Core
+export * as shared from "./shared";
+export * as domain from "./domain";
+export * as program from "./program";
+export * from "./error";
+export * from "./network";
 
-/**
- * On-chain program interaction module.
- * Contains the client and utilities for interacting with the Lightcone smart contract.
- */
-export * from "./program";
-
-/**
- * Network URL constants (API and WebSocket endpoints).
- */
-export { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
-
-/**
- * Shared utilities, types, and constants.
- * Used across all SDK modules.
- */
-export * from "./shared";
-
-/**
- * REST API client module.
- * Provides HTTP client functionality for market data, orders, and positions.
- */
-export * as api from "./api";
-
-/**
- * WebSocket client module.
- * Provides real-time data streaming for orderbooks, trades, and user events.
- */
-export * as websocket from "./websocket";
-
-/**
- * Authentication module.
- * Provides authentication functionality shared by API and WebSocket clients.
- */
+// Layer 2: Auth + Privy
 export * as auth from "./auth";
+export * as privy from "./privy";
 
-// ============================================================================
-// RE-EXPORTS FROM DEPENDENCIES
-// ============================================================================
-export {
-  PublicKey,
-  Connection,
-  Keypair,
-  Transaction,
-  TransactionInstruction,
-} from "@solana/web3.js";
+// Layer 3: HTTP
+export * as http from "./http";
+
+// Layer 4: WebSocket
+export * as ws from "./ws";
+
+// Layer 5: High-level client
+export { LightconeClient, LightconeClientBuilder } from "./client";
+
+// Convenience top-level type exports
+export type {
+  AuthCredentials,
+  ChainType,
+  EmbeddedWallet,
+  LinkedAccount,
+  LinkedAccountType,
+  User,
+} from "./auth";
+
+export type {
+  AdminClient,
+  MarketsClient,
+  MarketsResult,
+  OrdersClient,
+  OrderbooksClient,
+  PositionsClient,
+  PriceHistorySubClient,
+  ReferralsClient,
+  TradesClient,
+} from "./prelude";
+
+export * from "./prelude";

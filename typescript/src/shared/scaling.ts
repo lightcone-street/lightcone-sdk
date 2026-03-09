@@ -1,109 +1,159 @@
 import Decimal from "decimal.js";
 import { OrderSide } from "../program/types";
 
-/**
- * Orderbook decimal configuration
- */
 export interface OrderbookDecimals {
   orderbookId: string;
   baseDecimals: number;
   quoteDecimals: number;
   priceDecimals: number;
+  tickSize?: bigint;
 }
 
-/**
- * Scaled amounts result
- */
 export interface ScaledAmounts {
+  amountIn: bigint;
+  amountOut: bigint;
+  // Backward-compatible aliases used by v1 builder code.
   makerAmount: bigint;
   takerAmount: bigint;
 }
 
-/**
- * Error thrown during price/size scaling
- */
+const U64_MAX = (1n << 64n) - 1n;
+
 export class ScalingError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "ScalingError";
   }
 
-  static zeroPriceOrSize(): ScalingError {
-    return new ScalingError("Price and size must be non-zero");
+  static nonPositivePrice(value: string): ScalingError {
+    return new ScalingError(`Price must be positive, got ${value}`);
   }
 
-  static negativeValue(field: string): ScalingError {
-    return new ScalingError(`${field} must be positive`);
+  static nonPositiveSize(value: string): ScalingError {
+    return new ScalingError(`Size must be positive, got ${value}`);
   }
 
-  static overflow(field: string): ScalingError {
-    return new ScalingError(`${field} exceeds u64 range`);
+  static overflow(context: string): ScalingError {
+    return new ScalingError(`Overflow: ${context}`);
+  }
+
+  static zeroAmount(): ScalingError {
+    return new ScalingError("Computed amount is zero");
+  }
+
+  static fractionalAmount(value: string): ScalingError {
+    return new ScalingError(`Fractional lamports not allowed: ${value}`);
+  }
+
+  static invalidDecimal(input: string, reason: string): ScalingError {
+    return new ScalingError(`Invalid decimal '${input}': ${reason}`);
   }
 }
 
-const U64_MAX = (1n << 64n) - 1n;
+export function alignPriceToTick(price: Decimal, decimals: OrderbookDecimals): Decimal {
+  const tickSize = decimals.tickSize ?? 0n;
+  if (tickSize <= 1n) {
+    return price;
+  }
 
-/**
- * Scale price and size to maker_amount and taker_amount using exact decimal arithmetic.
- *
- * For BID orders (buying base with quote):
- *   - maker_amount = price * size * 10^quoteDecimals (what maker gives in quote tokens)
- *   - taker_amount = size * 10^baseDecimals (what maker receives in base tokens)
- *
- * For ASK orders (selling base for quote):
- *   - maker_amount = size * 10^baseDecimals (what maker gives in base tokens)
- *   - taker_amount = price * size * 10^quoteDecimals (what maker receives in quote tokens)
- *
- * @param priceStr - Price as a decimal string (e.g., "0.75")
- * @param sizeStr - Size as a decimal string (e.g., "100")
- * @param side - Order side (BID or ASK)
- * @param decimals - Orderbook decimal configuration
- * @returns Scaled maker_amount and taker_amount as bigints
- */
+  const quoteMultiplier = new Decimal(10).pow(decimals.quoteDecimals);
+  const tick = new Decimal(tickSize.toString());
+  const lamports = price.mul(quoteMultiplier).trunc();
+  const aligned = lamports.div(tick).trunc().mul(tick);
+  return aligned.div(quoteMultiplier);
+}
+
 export function scalePriceSize(
-  priceStr: string,
-  sizeStr: string,
+  priceInput: string | Decimal,
+  sizeInput: string | Decimal,
   side: OrderSide,
   decimals: OrderbookDecimals
 ): ScaledAmounts {
-  const price = new Decimal(priceStr);
-  const size = new Decimal(sizeStr);
+  const price = normalizeDecimal(priceInput, "price");
+  const size = normalizeDecimal(sizeInput, "size");
 
-  if (price.isZero() || size.isZero()) {
-    throw ScalingError.zeroPriceOrSize();
+  if (price.lte(0)) {
+    throw ScalingError.nonPositivePrice(price.toString());
   }
-  if (price.isNegative()) {
-    throw ScalingError.negativeValue("price");
-  }
-  if (size.isNegative()) {
-    throw ScalingError.negativeValue("size");
+  if (size.lte(0)) {
+    throw ScalingError.nonPositiveSize(size.toString());
   }
 
-  const baseScale = new Decimal(10).pow(decimals.baseDecimals);
-  const quoteScale = new Decimal(10).pow(decimals.quoteDecimals);
+  const baseMultiplier = new Decimal(10).pow(decimals.baseDecimals);
+  const quoteMultiplier = new Decimal(10).pow(decimals.quoteDecimals);
 
-  const baseAmount = size.mul(baseScale).floor();
-  const quoteAmount = price.mul(size).mul(quoteScale).floor();
+  const baseLamports = size.mul(baseMultiplier);
+  const quoteLamports = price.mul(size).mul(quoteMultiplier);
 
-  const baseAmountBigInt = BigInt(baseAmount.toFixed(0));
-  const quoteAmountBigInt = BigInt(quoteAmount.toFixed(0));
+  assertWhole(baseLamports, "base_lamports");
+  assertWhole(quoteLamports, "quote_lamports");
 
-  if (baseAmountBigInt > U64_MAX) {
-    throw ScalingError.overflow("base amount");
-  }
-  if (quoteAmountBigInt > U64_MAX) {
-    throw ScalingError.overflow("quote amount");
+  const base = toU64(baseLamports, "base_lamports");
+  const quote = toU64(quoteLamports, "quote_lamports");
+
+  if (base === 0n || quote === 0n) {
+    throw ScalingError.zeroAmount();
   }
 
   if (side === OrderSide.BID) {
     return {
-      makerAmount: quoteAmountBigInt,
-      takerAmount: baseAmountBigInt,
-    };
-  } else {
-    return {
-      makerAmount: baseAmountBigInt,
-      takerAmount: quoteAmountBigInt,
+      amountIn: quote,
+      amountOut: base,
+      makerAmount: quote,
+      takerAmount: base,
     };
   }
+
+  return {
+    amountIn: base,
+    amountOut: quote,
+    makerAmount: base,
+    takerAmount: quote,
+  };
+}
+
+function normalizeDecimal(value: string | Decimal, field: string): Decimal {
+  if (value instanceof Decimal) {
+    return value;
+  }
+
+  try {
+    return new Decimal(value);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw ScalingError.invalidDecimal(value, reason || field);
+  }
+}
+
+function assertWhole(value: Decimal, label: string): void {
+  if (!value.isInteger()) {
+    throw ScalingError.fractionalAmount(`${label} = ${value.toString()}`);
+  }
+}
+
+function toU64(value: Decimal, label: string): bigint {
+  const bigint = BigInt(value.toFixed(0));
+  if (bigint < 0n || bigint > U64_MAX) {
+    throw ScalingError.overflow(`${label} ${value.toString()} does not fit in u64`);
+  }
+  return bigint;
+}
+
+// Legacy aliases kept for existing integrations.
+export interface LegacyScaledAmounts {
+  makerAmount: bigint;
+  takerAmount: bigint;
+}
+
+export function scalePriceSizeLegacy(
+  price: string,
+  size: string,
+  side: OrderSide,
+  decimals: OrderbookDecimals
+): LegacyScaledAmounts {
+  const scaled = scalePriceSize(price, size, side, decimals);
+  return {
+    makerAmount: scaled.amountIn,
+    takerAmount: scaled.amountOut,
+  };
 }

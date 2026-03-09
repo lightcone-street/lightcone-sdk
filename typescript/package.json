@@ -1,7 +1,7 @@
 {
   "name": "@lightconexyz/lightcone-sdk",
-  "version": "0.1.0",
-  "description": "TypeScript SDK for the Lightcone Protocol",
+  "version": "0.2.0",
+  "description": "TypeScript SDK v2 for the Lightcone Protocol",
   "author": "Lightcone",
   "license": "MIT",
   "repository": {
@@ -24,19 +24,16 @@
       "default": "./dist/index.js"
     }
   },
+  "browser": {
+    "./dist/ws/client.node.js": "./dist/ws/client.browser.js"
+  },
   "scripts": {
     "build": "tsc",
     "clean": "rm -rf dist",
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:legacy": "ts-node test/unit.test.ts",
-    "test:devnet": "ts-node test/devnet.test.ts",
-    "test:stress": "ts-node test/stress.test.ts",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run clean && npm run lint && npm run test && npm run build"
+    "prepublishOnly": "npm run clean && npm run lint && npm run typecheck && npm run build"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",
@@ -44,7 +41,9 @@
     "bs58": "^5.0.0",
     "decimal.js": "^10.6.0",
     "js-sha3": "^0.9.3",
-    "tweetnacl": "^1.0.3",
+    "tweetnacl": "^1.0.3"
+  },
+  "optionalDependencies": {
     "ws": "^8.0.0"
   },
   "devDependencies": {
@@ -53,9 +52,7 @@
     "@typescript-eslint/parser": "^7.0.0",
     "dotenv": "^17.2.3",
     "eslint": "^8.57.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3",
-    "vitest": "^1.6.0"
+    "typescript": "^5.9.3"
   },
   "peerDependencies": {
     "@solana/web3.js": "^1.90.0"
