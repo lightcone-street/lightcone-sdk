@@ -1,6 +1,7 @@
 export {
   asOrderBookId,
   asPubkeyStr,
+  DepositSource,
   deriveOrderbookId,
   OrderUpdateType,
   Resolution,

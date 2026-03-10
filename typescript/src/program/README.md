@@ -19,7 +19,7 @@ On-chain Solana program interaction for the Lightcone protocol. This module cont
 ### MarketStatus
 
 ```typescript
-import { MarketStatus } from "@lightcone/sdk";
+import { MarketStatus } from "@lightconexyz/lightcone-sdk";
 
 MarketStatus.Pending    // 0 - Not yet active
 MarketStatus.Active     // 1 - Trading enabled
@@ -30,7 +30,7 @@ MarketStatus.Cancelled  // 3 - Market cancelled
 ### OrderSide
 
 ```typescript
-import { OrderSide } from "@lightcone/sdk";
+import { OrderSide } from "@lightconexyz/lightcone-sdk";
 
 OrderSide.BID  // 0 - Buyer gives quote, receives base
 OrderSide.ASK  // 1 - Seller gives base, receives quote
@@ -45,7 +45,7 @@ import type {
   Position,
   OrderStatus,
   UserNonce,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 #### Exchange
@@ -101,14 +101,14 @@ import type {
 ### Order Types
 
 ```typescript
-import type { FullOrder, CompactOrder } from "@lightcone/sdk";
+import type { SignedOrder, Order } from "@lightconexyz/lightcone-sdk";
 ```
 
-#### FullOrder (225 bytes)
+#### SignedOrder (225 bytes)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `nonce` | bigint | Order nonce |
+| `nonce` | number | Order nonce |
 | `maker` | PublicKey | Maker public key |
 | `market` | PublicKey | Market address |
 | `baseMint` | PublicKey | Base token mint |
@@ -119,14 +119,13 @@ import type { FullOrder, CompactOrder } from "@lightcone/sdk";
 | `expiration` | bigint | Expiration timestamp (0 = no expiration) |
 | `signature` | Buffer | Ed25519 signature (64 bytes) |
 
-#### CompactOrder (65 bytes)
+#### Order (29 bytes)
 
-Same as FullOrder but without `market`, `baseMint`, `quoteMint` (derived from instruction context).
+Compact order payload without `maker`, `market`, `baseMint`, or `quoteMint`.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `nonce` | bigint | Order nonce |
-| `maker` | PublicKey | Maker public key |
+| `nonce` | number | Order nonce |
 | `side` | OrderSide | BID or ASK |
 | `amountIn` | bigint | Amount maker gives |
 | `amountOut` | bigint | Amount maker receives |
@@ -153,7 +152,7 @@ import type {
   MatchOrdersMultiParams,
   BidOrderParams,
   AskOrderParams,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 ### Build Result Types
@@ -172,7 +171,7 @@ import type {
   RedeemWinningsAccounts,
   ActivateMarketAccounts,
   MatchOrdersMultiAccounts,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 #### BuildResult<T>
@@ -197,26 +196,22 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   SYSTEM_PROGRAM_ID,
   RENT_SYSVAR_ID,
-  INSTRUCTIONS_SYSVAR_ID,
-  ED25519_PROGRAM_ID,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `PROGRAM_ID` | `EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2` | Lightcone program |
+| `PROGRAM_ID` | `8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV` | Lightcone program |
 | `TOKEN_PROGRAM_ID` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` | SPL Token program |
 | `TOKEN_2022_PROGRAM_ID` | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | Token-2022 program |
 | `ASSOCIATED_TOKEN_PROGRAM_ID` | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | ATA program |
 | `SYSTEM_PROGRAM_ID` | `11111111111111111111111111111111` | System program |
 | `RENT_SYSVAR_ID` | `SysvarRent111111111111111111111111111111111` | Rent sysvar |
-| `INSTRUCTIONS_SYSVAR_ID` | `Sysvar1nstructions1111111111111111111111111` | Instructions sysvar |
-| `ED25519_PROGRAM_ID` | `Ed25519SigVerify111111111111111111111111111` | Ed25519 verify program |
 
 ### PDA Seeds
 
 ```typescript
-import { SEEDS } from "@lightcone/sdk";
+import { SEEDS } from "@lightconexyz/lightcone-sdk";
 
 SEEDS.CENTRAL_STATE              // "central_state"
 SEEDS.MARKET                     // "market"
@@ -231,7 +226,7 @@ SEEDS.POSITION                   // "position"
 ### Account Discriminators
 
 ```typescript
-import { DISCRIMINATOR } from "@lightcone/sdk";
+import { DISCRIMINATOR } from "@lightconexyz/lightcone-sdk";
 
 DISCRIMINATOR.EXCHANGE      // Buffer.from("exchange")
 DISCRIMINATOR.MARKET        // Buffer.from("market\0\0")
@@ -243,7 +238,7 @@ DISCRIMINATOR.POSITION      // Buffer.from("position")
 ### Account Sizes
 
 ```typescript
-import { ACCOUNT_SIZE } from "@lightcone/sdk";
+import { ACCOUNT_SIZE } from "@lightconexyz/lightcone-sdk";
 
 ACCOUNT_SIZE.EXCHANGE      // 88
 ACCOUNT_SIZE.MARKET        // 120
@@ -255,17 +250,17 @@ ACCOUNT_SIZE.POSITION      // 80
 ### Order Sizes
 
 ```typescript
-import { ORDER_SIZE } from "@lightcone/sdk";
+import { ORDER_SIZE } from "@lightconexyz/lightcone-sdk";
 
-ORDER_SIZE.FULL       // 225
-ORDER_SIZE.COMPACT    // 65
+ORDER_SIZE.SIGNED_ORDER       // 225
+ORDER_SIZE.ORDER              // 29
 ORDER_SIZE.SIGNATURE  // 64
 ```
 
 ### Instruction Discriminators
 
 ```typescript
-import { INSTRUCTION } from "@lightcone/sdk";
+import { INSTRUCTION } from "@lightconexyz/lightcone-sdk";
 
 INSTRUCTION.INITIALIZE           // 0
 INSTRUCTION.CREATE_MARKET        // 1
@@ -286,7 +281,7 @@ INSTRUCTION.MATCH_ORDERS_MULTI   // 13
 ### Limits
 
 ```typescript
-import { MAX_OUTCOMES, MIN_OUTCOMES, MAX_MAKERS } from "@lightcone/sdk";
+import { MAX_OUTCOMES, MIN_OUTCOMES, MAX_MAKERS } from "@lightconexyz/lightcone-sdk";
 
 MAX_OUTCOMES  // 6
 MIN_OUTCOMES  // 2
@@ -309,7 +304,7 @@ import {
   toU64Le,
   toI64Le,
   fromI64Le,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Little-endian conversion
 const bytes = toLeBytes(1000n, 8);  // bigint to 8-byte LE buffer
@@ -329,7 +324,7 @@ const signed = fromI64Le(i64); // 8-byte LE buffer to signed bigint
 ### Hashing
 
 ```typescript
-import { keccak256 } from "@lightcone/sdk";
+import { keccak256 } from "@lightconexyz/lightcone-sdk";
 
 // Hash arbitrary data
 const hash = keccak256(Buffer.from("data"));  // Returns 32-byte Buffer
@@ -338,7 +333,7 @@ const hash = keccak256(Buffer.from("data"));  // Returns 32-byte Buffer
 ### Condition ID
 
 ```typescript
-import { deriveConditionId } from "@lightcone/sdk";
+import { deriveConditionId } from "@lightconexyz/lightcone-sdk";
 import { PublicKey } from "@solana/web3.js";
 
 const conditionId = deriveConditionId(
@@ -356,7 +351,7 @@ import {
   getAssociatedTokenAddress,
   getConditionalTokenAta,
   getDepositTokenAta,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 import { PublicKey } from "@solana/web3.js";
 
 const owner = new PublicKey("owner_pubkey");
@@ -376,7 +371,7 @@ const depositAta = getDepositTokenAta(mint, owner);          // SPL Token
 ### String Serialization
 
 ```typescript
-import { serializeString, deserializeString } from "@lightcone/sdk";
+import { serializeString, deserializeString } from "@lightconexyz/lightcone-sdk";
 
 // Serialize string with u16 length prefix
 const serialized = serializeString("Hello");  // [length (2 bytes)] + [utf-8 bytes]
@@ -393,7 +388,7 @@ import {
   validateOutcomes,
   validateOutcomeIndex,
   validate32Bytes,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Validate outcome count (2-6)
 validateOutcomes(3);  // OK
@@ -416,7 +411,7 @@ validate32Bytes(Buffer.alloc(16), "questionId");  // throws Error
 
 ```typescript
 import { Connection } from "@solana/web3.js";
-import { LightconePinocchioClient, PROGRAM_ID } from "@lightcone/sdk";
+import { LightconePinocchioClient, PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
 
 const connection = new Connection("https://api.devnet.solana.com");
 const client = new LightconePinocchioClient(connection);
@@ -542,13 +537,13 @@ Add a deposit mint to a market.
 const result = await client.addDepositMint(
   {
     authority: adminPubkey,
-    marketId: 0n,
     depositMint: usdcMint,
     outcomeMetadata: [
       { name: "Yes Token", symbol: "YES", uri: "..." },
       { name: "No Token", symbol: "NO", uri: "..." },
     ],
   },
+  marketPubkey,
   2 // numOutcomes
 );
 // result.accounts: { market, vault, mintAuthority, conditionalMints[] }
@@ -695,26 +690,40 @@ const result = await client.matchOrdersMulti({
   quoteMint: noMint,
   takerOrder: signedTakerOrder,
   makerOrders: [signedMakerOrder1, signedMakerOrder2],
-  fillAmounts: [100_000n, 50_000n],
+  makerFillAmounts: [100_000n, 50_000n],
+  takerFillAmounts: [75_000n, 37_500n],
+  fullFillBitmask: 0,
 });
 // result.accounts: { takerOrderStatus, takerPosition, makerOrderStatuses[], makerPositions[] }
 ```
 
-### matchOrdersMultiWithVerify
+### depositAndSwap
 
-Build complete match orders transaction with Ed25519 verification (recommended).
+Atomically deposit from global balances and swap in one instruction.
 
 ```typescript
-const result = await client.matchOrdersMultiWithVerify({
+const result = await client.depositAndSwap({
   operator: operatorPubkey,
   market: marketPubkey,
   baseMint: yesMint,
   quoteMint: noMint,
   takerOrder: signedTakerOrder,
-  makerOrders: [signedMakerOrder],
-  fillAmounts: [100_000n],
+  takerIsFullFill: false,
+  takerIsDeposit: true,
+  takerDepositMint: usdcMint,
+  numOutcomes: 2,
+  makers: [
+    {
+      order: signedMakerOrder,
+      makerFillAmount: 100_000n,
+      takerFillAmount: 75_000n,
+      isFullFill: false,
+      isDeposit: false,
+      depositMint: usdcMint,
+    },
+  ],
 });
-// Transaction includes Ed25519 verify instructions for all orders
+// result.accounts: { takerPosition: PublicKey }
 ```
 
 ## Order Creation and Signing
@@ -791,7 +800,7 @@ import {
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 ### Exchange PDA
@@ -874,10 +883,10 @@ import {
   signOrder,
   signOrderFull,
   verifyOrderSignature,
-  serializeFullOrder,
-  deserializeFullOrder,
-  serializeCompactOrder,
-  deserializeCompactOrder,
+  serializeSignedOrder,
+  deserializeSignedOrder,
+  serializeOrder,
+  deserializeOrder,
   createBidOrder,
   createAskOrder,
   createSignedBidOrder,
@@ -885,7 +894,7 @@ import {
   isOrderExpired,
   ordersCanCross,
   calculateTakerFill,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 ### Order Hashing
@@ -912,12 +921,12 @@ const valid = verifyOrderSignature(signedOrder);
 
 ```typescript
 // Full order (225 bytes)
-const bytes = serializeFullOrder(order);
-const order = deserializeFullOrder(bytes);
+const signedBytes = serializeSignedOrder(order);
+const signedOrder = deserializeSignedOrder(signedBytes);
 
-// Compact order (65 bytes)
-const bytes = serializeCompactOrder(compactOrder);
-const compactOrder = deserializeCompactOrder(bytes);
+// Compact order (29 bytes)
+const compactBytes = serializeOrder(compactOrder);
+const compactOrder = deserializeOrder(compactBytes);
 ```
 
 ### Order Creation
@@ -959,7 +968,7 @@ import {
   createEd25519VerifyInstruction,
   createOrderVerifyInstruction,
   buildMatchOrdersTransaction,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Create verify instruction for an order
 const verifyIx = createOrderVerifyInstruction(signedOrder);
@@ -977,7 +986,7 @@ All signatures in one Ed25519 instruction.
 import {
   createBatchEd25519VerifyInstruction,
   buildCompactMatchOrdersTransaction,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Build batch transaction
 const tx = buildCompactMatchOrdersTransaction(params, programId);
@@ -992,7 +1001,7 @@ Ed25519 instructions reference data in the match instruction.
 import {
   createCrossRefEd25519Instructions,
   buildCrossRefMatchOrdersTransaction,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Build cross-ref transaction (smallest size)
 const tx = buildCrossRefMatchOrdersTransaction(params, programId);
@@ -1013,7 +1022,7 @@ import {
   isPositionAccount,
   isOrderStatusAccount,
   isUserNonceAccount,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 // Deserialize account data
 const exchange = deserializeExchange(accountData);
@@ -1036,7 +1045,7 @@ import {
   LightconePinocchioClient,
   OrderSide,
   buildCrossRefMatchOrdersTransaction,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 
 async function main() {
   const connection = new Connection("https://api.devnet.solana.com");
@@ -1084,15 +1093,17 @@ async function main() {
     taker
   );
 
-  // Build match transaction with verification
-  const result = await client.matchOrdersMultiWithVerify({
+  // Build match transaction
+  const result = await client.matchOrdersMulti({
     operator: operatorPubkey,
     market: marketPda,
     baseMint: yesMint,
     quoteMint: noMint,
     takerOrder,
     makerOrders: [makerOrder],
-    fillAmounts: [500_000n],
+    makerFillAmounts: [500_000n],
+    takerFillAmounts: [500_000n],
+    fullFillBitmask: 0,
   });
 
   // Sign and send
@@ -1124,5 +1135,5 @@ import {
   buildWithdrawFromPositionIx,
   buildActivateMarketIx,
   buildMatchOrdersMultiIx,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```

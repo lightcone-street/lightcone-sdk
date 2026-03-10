@@ -35,23 +35,23 @@ export type NotificationKind =
   | { notification_type: "rules_clarified"; data: MarketData }
   | { notification_type: "global" };
 
-export interface Notification {
+interface NotificationBase {
   id: string;
-  notification_type: string;
-  data?: MarketResolvedData | OrderFilledData | MarketData;
   title: string;
   message: string;
   expires_at?: string;
   created_at: string;
 }
 
+export type Notification = NotificationBase & NotificationKind;
+
 export function isGlobal(notification: Notification): boolean {
   return notification.notification_type === "global";
 }
 
 export function marketSlug(notification: Notification): string | undefined {
-  const data = notification.data;
-  if (!data) return undefined;
-  if ("market_slug" in data) return data.market_slug;
-  return undefined;
+  if (notification.notification_type === "global") {
+    return undefined;
+  }
+  return notification.data.market_slug;
 }

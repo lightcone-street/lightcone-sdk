@@ -193,8 +193,7 @@ export interface OutcomeMetadata {
  * Parameters for addDepositMint instruction
  */
 export interface AddDepositMintParams {
-  payer: PublicKey;
-  marketId: bigint;
+  authority: PublicKey;
   depositMint: PublicKey;
   outcomeMetadata: OutcomeMetadata[];
 }
@@ -315,7 +314,7 @@ export interface SetAuthorityParams {
  * Parameters for createOrderbook instruction
  */
 export interface CreateOrderbookParams {
-  payer: PublicKey;
+  authority: PublicKey;
   market: PublicKey;
   mintA: PublicKey;
   mintB: PublicKey;
@@ -374,17 +373,26 @@ export interface ExtendPositionTokensParams {
   depositMints: PublicKey[];
 }
 
+export interface MakerFill {
+  order: SignedOrder;
+  makerFillAmount: bigint;
+  takerFillAmount: bigint;
+  isFullFill: boolean;
+  isDeposit: boolean;
+  depositMint: PublicKey;
+}
+
 export interface DepositAndSwapParams {
   operator: PublicKey;
   market: PublicKey;
-  depositMint: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
   takerOrder: SignedOrder;
-  makerOrders: SignedOrder[];
-  makerFillAmounts: bigint[];
-  takerFillAmounts: bigint[];
-  fullFillBitmask: number;
+  takerIsFullFill: boolean;
+  takerIsDeposit: boolean;
+  takerDepositMint: PublicKey;
+  numOutcomes: number;
+  makers: MakerFill[];
 }
 
 // ============================================================================

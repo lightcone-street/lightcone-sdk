@@ -78,19 +78,14 @@ export interface UserSnapshotOrderCommon {
 }
 
 export type UserSnapshotOrder =
-  | {
-      order_type: "limit";
-      tx_signature?: string;
-      common: UserSnapshotOrderCommon;
-    }
-  | {
+  | ({ order_type: "limit"; tx_signature?: string } & UserSnapshotOrderCommon)
+  | ({
       order_type: "trigger";
-      common: UserSnapshotOrderCommon;
       trigger_order_id: string;
       trigger_price: string;
       trigger_type: TriggerType;
       time_in_force?: TimeInForce;
-    };
+    } & UserSnapshotOrderCommon);
 
 export interface UserSnapshot {
   orders: UserSnapshotOrder[];
@@ -117,26 +112,25 @@ export interface TriggerOrderUpdate {
 }
 
 export type OrderEvent =
-  | { order_type: "limit"; payload: OrderUpdate }
-  | { order_type: "trigger"; payload: TriggerOrderUpdate };
+  | ({ order_type: "limit" } & OrderUpdate)
+  | ({ order_type: "trigger" } & TriggerOrderUpdate);
 
 export interface NotificationUpdate {
   notification: Notification;
 }
 
+export interface UserBalanceUpdate {
+  market_pubkey: PubkeyStr;
+  orderbook_id: OrderBookId;
+  balance: { outcomes: ConditionalBalance[] };
+  timestamp: string;
+}
+
 export type UserUpdate =
-  | { event_type: "snapshot"; payload: UserSnapshot }
-  | { event_type: "order"; payload: OrderEvent }
-  | {
-      event_type: "balance_update";
-      payload: {
-        market_pubkey: PubkeyStr;
-        orderbook_id: OrderBookId;
-        balance: { outcomes: ConditionalBalance[] };
-        timestamp: string;
-      };
-    }
-  | { event_type: "notification"; payload: NotificationUpdate };
+  | ({ event_type: "snapshot" } & UserSnapshot)
+  | ({ event_type: "order" } & OrderEvent)
+  | ({ event_type: "balance_update" } & UserBalanceUpdate)
+  | ({ event_type: "notification" } & NotificationUpdate);
 
 export type AuthUpdate =
   | { status: "authenticated"; wallet: PubkeyStr }

@@ -20,8 +20,8 @@ async function main() {
     return;
   }
 
-  const orderHash = limitOrder.common.order_hash;
-  const orderbookId = limitOrder.common.orderbook_id;
+  const orderHash = limitOrder.order_hash;
+  const orderbookId = limitOrder.orderbook_id;
   console.log("cancelling order:", orderHash);
 
   // 3. Cancel a single order

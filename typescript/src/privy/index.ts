@@ -24,6 +24,7 @@ export interface PrivyOrderEnvelope {
   tif?: import("../shared").TimeInForce;
   trigger_price?: number;
   trigger_type?: import("../shared").TriggerType;
+  deposit_source?: import("../shared").DepositSource;
 }
 
 export interface SignAndSendOrderRequest {
@@ -100,6 +101,7 @@ export function privyOrderFromLimitEnvelope(
     amount_out: bigintToSafeNumber(amountOut, "amount_out"),
     expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
     orderbook_id: orderbookId,
+    deposit_source: envelope.fieldsDepositSource(),
   };
 }
 
@@ -130,5 +132,6 @@ export function privyOrderFromTriggerEnvelope(
     tif: envelope.fieldsTimeInForce(),
     trigger_price: envelope.fieldsTriggerPrice(),
     trigger_type: envelope.fieldsTriggerType(),
+    deposit_source: envelope.fieldsDepositSource(),
   };
 }

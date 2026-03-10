@@ -17,11 +17,11 @@ async function main() {
   for (const order of snapshot.orders) {
     if (order.order_type === "limit") {
       console.log(
-        `  [limit] ${order.common.order_hash} ${order.common.side} @ ${order.common.price}`
+        `  [limit] ${order.order_hash} ${order.side} @ ${order.price}`
       );
     } else {
       console.log(
-        `  [trigger] ${order.trigger_order_id} ${order.common.side} @ ${order.common.price} trigger=${order.trigger_price}`
+        `  [trigger] ${order.trigger_order_id} ${order.side} @ ${order.price} trigger=${order.trigger_price}`
       );
     }
   }

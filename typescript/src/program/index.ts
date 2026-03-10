@@ -51,6 +51,7 @@ export type {
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
   ExtendPositionTokensParams,
+  MakerFill,
   DepositAndSwapParams,
   BuildResult,
   InitializeAccounts,

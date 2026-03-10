@@ -34,6 +34,7 @@ import {
   DepositAndSwapParams,
   SignedOrder,
   OutcomeMetadata,
+  OrderSide,
 } from "./types";
 import {
   getExchangePda,
@@ -172,8 +173,9 @@ function serializeOutcomeMetadata(metadata: OutcomeMetadata[]): Buffer {
  * Build AddDepositMint instruction
  *
  * Accounts:
- * 0. payer (signer)
- * 1. market
+ * 0. authority (signer)
+ * 1. exchange
+ * 2. market
  * 2. deposit_mint
  * 3. vault
  * 4. mint_authority
@@ -208,7 +210,7 @@ export function buildAddDepositMintIx(
   const [exchange] = getExchangePda(programId);
 
   const keys: AccountMeta[] = [
-    signerMut(params.payer),
+    signerMut(params.authority),
     readonly(exchange),
     writable(market),
     readonly(params.depositMint),
@@ -860,7 +862,7 @@ export function buildSetAuthorityIx(
  * Build CreateOrderbook instruction
  *
  * Accounts:
- * 0. payer (signer, mut)
+ * 0. authority (signer, mut)
  * 1. market (readonly)
  * 2. mint_a (readonly)
  * 3. mint_b (readonly)
@@ -881,7 +883,7 @@ export function buildCreateOrderbookIx(
   const [alt] = getAltPda(orderbook, params.recentSlot);
 
   const keys: AccountMeta[] = [
-    signerMut(params.payer),
+    signerMut(params.authority),
     readonly(params.market),
     readonly(params.mintA),
     readonly(params.mintB),
@@ -1213,116 +1215,164 @@ export function buildExtendPositionTokensIx(
 
 /**
  * Build DepositAndSwap instruction.
- * Data format is identical to matchOrdersMulti.
+ * Supports a mix of global deposits and token swaps in a single instruction.
  */
 export function buildDepositAndSwapIx(
   params: DepositAndSwapParams,
-  numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
-  if (params.makerOrders.length === 0) {
-    throw new Error("maker_orders is required");
+  validateOutcomes(params.numOutcomes);
+
+  if (params.makers.length === 0) {
+    throw new Error("makers is required");
   }
-  if (params.makerOrders.length > MAX_MAKERS) {
-    throw new Error(`Too many makers: ${params.makerOrders.length}`);
-  }
-  if (params.makerOrders.length !== params.makerFillAmounts.length) {
-    throw new Error("maker_fill_amounts length must match maker_orders");
-  }
-  if (params.makerOrders.length !== params.takerFillAmounts.length) {
-    throw new Error("taker_fill_amounts length must match maker_orders");
+  if (params.makers.length > MAX_MAKERS) {
+    throw new Error(`Too many makers: ${params.makers.length}`);
   }
 
   const [exchange] = getExchangePda(programId);
-  const [vault] = getVaultPda(params.depositMint, params.market, programId);
-  const [globalDepositToken] = getGlobalDepositTokenPda(params.depositMint, programId);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
-
-  const takerOrderHash = hashOrder(params.takerOrder);
   const [takerNonce] = getUserNoncePda(params.takerOrder.maker, programId);
   const [takerPosition] = getPositionPda(params.takerOrder.maker, params.market, programId);
+  const [receiveMint, giveMint] =
+    params.takerOrder.side === OrderSide.BID
+      ? [params.baseMint, params.quoteMint]
+      : [params.quoteMint, params.baseMint];
 
-  const takerFullFill = ((params.fullFillBitmask >> 7) & 1) === 1;
-  const keys: AccountMeta[] = [];
+  let fullFillBitmask = 0;
+  let depositBitmask = 0;
 
-  keys.push(signerMut(params.operator));
-  keys.push(readonly(exchange));
-  keys.push(readonly(params.market));
-  keys.push(readonly(params.depositMint));
-  keys.push(writable(vault));
-  keys.push(readonly(globalDepositToken));
-  keys.push(readonly(mintAuthority));
-  keys.push(readonly(TOKEN_PROGRAM_ID));
+  if (params.takerIsFullFill) {
+    fullFillBitmask |= 0x80;
+  }
+  if (params.takerIsDeposit) {
+    depositBitmask |= 0x80;
+  }
 
-  if (!takerFullFill) {
+  for (let i = 0; i < params.makers.length; i += 1) {
+    const maker = params.makers[i];
+    if (maker.isFullFill) {
+      fullFillBitmask |= 1 << i;
+    }
+    if (maker.isDeposit) {
+      depositBitmask |= 1 << i;
+    }
+  }
+
+  const keys: AccountMeta[] = [
+    signerMut(params.operator),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(mintAuthority),
+    readonly(TOKEN_PROGRAM_ID),
+  ];
+
+  if (!params.takerIsFullFill) {
+    const takerOrderHash = hashOrder(params.takerOrder);
     const [takerOrderStatus] = getOrderStatusPda(takerOrderHash, programId);
     keys.push(writable(takerOrderStatus));
   }
+
   keys.push(readonly(takerNonce));
   keys.push(writable(takerPosition));
   keys.push(readonly(params.baseMint));
   keys.push(readonly(params.quoteMint));
+  keys.push(writable(getConditionalTokenAta(receiveMint, takerPosition)));
+  keys.push(writable(getConditionalTokenAta(giveMint, takerPosition)));
   keys.push(readonly(TOKEN_2022_PROGRAM_ID));
   keys.push(readonly(SYSTEM_PROGRAM_ID));
 
-  for (let i = 0; i < numOutcomes; i += 1) {
-    const [conditionalMint] = getAllConditionalMintPdas(
+  if (params.takerIsDeposit) {
+    const [vault] = getVaultPda(
+      params.takerDepositMint,
       params.market,
-      params.depositMint,
-      numOutcomes,
       programId
-    )[i];
-    keys.push(writable(conditionalMint));
-    keys.push(writable(getConditionalTokenAta(conditionalMint, takerPosition)));
+    );
+    const [globalDepositToken] = getGlobalDepositTokenPda(
+      params.takerDepositMint,
+      programId
+    );
+    const [takerGlobalDeposit] = getUserGlobalDepositPda(
+      params.takerOrder.maker,
+      params.takerDepositMint,
+      programId
+    );
+
+    keys.push(readonly(params.takerDepositMint));
+    keys.push(writable(vault));
+    keys.push(readonly(globalDepositToken));
+    keys.push(writable(takerGlobalDeposit));
+
+    for (const [conditionalMint] of getAllConditionalMintPdas(
+      params.market,
+      params.takerDepositMint,
+      params.numOutcomes,
+      programId
+    )) {
+      keys.push(writable(conditionalMint));
+      keys.push(writable(getConditionalTokenAta(conditionalMint, takerPosition)));
+    }
   }
 
-  for (let i = 0; i < params.makerOrders.length; i += 1) {
-    const makerOrder = params.makerOrders[i];
-    const makerFullFill = ((params.fullFillBitmask >> i) & 1) === 1;
+  for (const maker of params.makers) {
+    const [makerNonce] = getUserNoncePda(maker.order.maker, programId);
+    const [makerPosition] = getPositionPda(maker.order.maker, params.market, programId);
 
-    if (!makerFullFill) {
-      const makerOrderHash = hashOrder(makerOrder);
+    if (!maker.isFullFill) {
+      const makerOrderHash = hashOrder(maker.order);
       const [makerOrderStatus] = getOrderStatusPda(makerOrderHash, programId);
       keys.push(writable(makerOrderStatus));
     }
 
-    const [makerNonce] = getUserNoncePda(makerOrder.maker, programId);
-    const [makerPosition] = getPositionPda(makerOrder.maker, params.market, programId);
-    const [makerGlobalDeposit] = getUserGlobalDepositPda(
-      makerOrder.maker,
-      params.depositMint,
-      programId
-    );
-
     keys.push(readonly(makerNonce));
     keys.push(writable(makerPosition));
-    keys.push(writable(makerGlobalDeposit));
 
-    for (let j = 0; j < numOutcomes; j += 1) {
-      const [conditionalMint] = getAllConditionalMintPdas(
-        params.market,
-        params.depositMint,
-        numOutcomes,
+    if (maker.isDeposit) {
+      const [vault] = getVaultPda(maker.depositMint, params.market, programId);
+      const [globalDepositToken] = getGlobalDepositTokenPda(
+        maker.depositMint,
         programId
-      )[j];
-      keys.push(writable(getConditionalTokenAta(conditionalMint, makerPosition)));
+      );
+      const [makerGlobalDeposit] = getUserGlobalDepositPda(
+        maker.order.maker,
+        maker.depositMint,
+        programId
+      );
+
+      keys.push(readonly(maker.depositMint));
+      keys.push(writable(vault));
+      keys.push(readonly(globalDepositToken));
+      keys.push(writable(makerGlobalDeposit));
+
+      for (const [conditionalMint] of getAllConditionalMintPdas(
+        params.market,
+        maker.depositMint,
+        params.numOutcomes,
+        programId
+      )) {
+        keys.push(writable(conditionalMint));
+        keys.push(writable(getConditionalTokenAta(conditionalMint, makerPosition)));
+      }
     }
+
+    keys.push(writable(getConditionalTokenAta(receiveMint, makerPosition)));
+    keys.push(writable(getConditionalTokenAta(giveMint, makerPosition)));
   }
 
   const buffers: Buffer[] = [
     Buffer.from([INSTRUCTION.DEPOSIT_AND_SWAP]),
     serializeOrder(signedOrderToOrder(params.takerOrder)),
     params.takerOrder.signature,
-    toU8(params.makerOrders.length),
-    toU8(params.fullFillBitmask),
+    toU8(params.makers.length),
+    toU8(fullFillBitmask),
+    toU8(depositBitmask),
   ];
 
-  for (let i = 0; i < params.makerOrders.length; i += 1) {
-    const makerOrder = params.makerOrders[i];
-    buffers.push(serializeOrder(signedOrderToOrder(makerOrder)));
-    buffers.push(makerOrder.signature);
-    buffers.push(toU64Le(params.makerFillAmounts[i]));
-    buffers.push(toU64Le(params.takerFillAmounts[i]));
+  for (const maker of params.makers) {
+    buffers.push(serializeOrder(signedOrderToOrder(maker.order)));
+    buffers.push(maker.order.signature);
+    buffers.push(toU64Le(maker.makerFillAmount));
+    buffers.push(toU64Le(maker.takerFillAmount));
   }
 
   return new TransactionInstruction({
