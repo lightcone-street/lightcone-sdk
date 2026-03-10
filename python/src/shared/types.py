@@ -44,6 +44,19 @@ class TriggerType(IntEnum):
     TAKE_PROFIT = 1
 
 
+class DepositSource(IntEnum):
+    """Where collateral should be sourced when matching an order.
+
+    Use None for the default behavior (auto: global if available, then market).
+    """
+
+    GLOBAL = 0
+    MARKET = 1
+
+    def as_str(self) -> str:
+        return "global" if self == DepositSource.GLOBAL else "market"
+
+
 class TriggerStatus(IntEnum):
     """Trigger order execution status."""
 
@@ -150,9 +163,13 @@ class SubmitOrderRequest:
     expiration: int
     signature: str
     orderbook_id: str
+    time_in_force: Optional[int] = None
+    trigger_price: Optional[float] = None
+    trigger_type: Optional[int] = None
+    deposit_source: Optional["DepositSource"] = None
 
     def to_dict(self) -> dict:
-        return {
+        d = {
             "maker": self.maker,
             "nonce": self.nonce,
             "market_pubkey": self.market_pubkey,
@@ -165,6 +182,15 @@ class SubmitOrderRequest:
             "signature": self.signature,
             "orderbook_id": self.orderbook_id,
         }
+        if self.time_in_force is not None:
+            d["time_in_force"] = self.time_in_force
+        if self.trigger_price is not None:
+            d["trigger_price"] = self.trigger_price
+        if self.trigger_type is not None:
+            d["trigger_type"] = self.trigger_type
+        if self.deposit_source is not None:
+            d["deposit_source"] = self.deposit_source.as_str()
+        return d
 
 
 @dataclass

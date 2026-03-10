@@ -198,6 +198,36 @@ def deserialize_orderbook(data: bytes) -> Orderbook:
     )
 
 
+def is_exchange_account(data: bytes) -> bool:
+    """Check if data has the Exchange discriminator."""
+    return len(data) >= 8 and data[:8] == EXCHANGE_DISCRIMINATOR
+
+
+def is_market_account(data: bytes) -> bool:
+    """Check if data has the Market discriminator."""
+    return len(data) >= 8 and data[:8] == MARKET_DISCRIMINATOR
+
+
+def is_position_account(data: bytes) -> bool:
+    """Check if data has the Position discriminator."""
+    return len(data) >= 8 and data[:8] == POSITION_DISCRIMINATOR
+
+
+def is_order_status_account(data: bytes) -> bool:
+    """Check if data has the OrderStatus discriminator."""
+    return len(data) >= 8 and data[:8] == ORDER_STATUS_DISCRIMINATOR
+
+
+def is_user_nonce_account(data: bytes) -> bool:
+    """Check if data has the UserNonce discriminator."""
+    return len(data) >= 8 and data[:8] == USER_NONCE_DISCRIMINATOR
+
+
+def is_orderbook_account(data: bytes) -> bool:
+    """Check if data has the Orderbook discriminator."""
+    return len(data) >= 8 and data[:8] == ORDERBOOK_DISCRIMINATOR
+
+
 def is_global_deposit_token(data: bytes) -> bool:
     """Check if data has the GlobalDepositToken discriminator."""
     return len(data) >= 8 and data[:8] == GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR

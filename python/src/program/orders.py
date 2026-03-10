@@ -428,12 +428,23 @@ def calculate_taker_fill(maker_order: SignedOrder, maker_fill_amount: int) -> in
     return result
 
 
-def to_submit_request(order: SignedOrder, orderbook_id: str):
+def to_submit_request(
+    order: SignedOrder,
+    orderbook_id: str,
+    time_in_force=None,
+    trigger_price=None,
+    trigger_type=None,
+    deposit_source=None,
+):
     """Convert a signed SignedOrder to a SubmitOrderRequest.
 
     Args:
         order: A signed SignedOrder
         orderbook_id: The orderbook identifier
+        time_in_force: Optional TimeInForce value
+        trigger_price: Optional trigger price (float)
+        trigger_type: Optional TriggerType value
+        deposit_source: Optional DepositSource value
 
     Returns:
         SubmitOrderRequest ready for API submission
@@ -459,4 +470,36 @@ def to_submit_request(order: SignedOrder, orderbook_id: str):
         expiration=order.expiration,
         signature=signature_hex(order),
         orderbook_id=orderbook_id,
+        time_in_force=int(time_in_force) if time_in_force is not None else None,
+        trigger_price=trigger_price,
+        trigger_type=int(trigger_type) if trigger_type is not None else None,
+        deposit_source=deposit_source,
     )
+
+
+def is_order_expired(order: SignedOrder, current_time: int) -> bool:
+    """Check if an order is expired. Expiration of 0 means no expiration."""
+    if order.expiration == 0:
+        return False
+    return current_time > order.expiration
+
+
+def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
+    """Apply a base58-encoded signature to an order in place."""
+    import base58
+    sig_bytes = base58.b58decode(sig_bs58)
+    if len(sig_bytes) != SIGNATURE_SIZE:
+        raise InvalidSignatureError(
+            f"Expected {SIGNATURE_SIZE} bytes, got {len(sig_bytes)}"
+        )
+    order.signature = sig_bytes
+
+
+def derive_orderbook_id(order: SignedOrder) -> str:
+    """Derive orderbook ID from order's base/quote mints.
+
+    Format: "{base_mint[:8]}_{quote_mint[:8]}"
+    """
+    base = str(order.base_mint)[:8]
+    quote = str(order.quote_mint)[:8]
+    return f"{base}_{quote}"
