@@ -17,6 +17,10 @@ pub mod error;
 /// Network URL constants.
 pub mod network;
 
+/// RPC sub-client: PDA helpers, account fetchers, blockhash access.
+#[cfg(feature = "http")]
+pub mod rpc;
+
 // ── Layer 2: Auth ────────────────────────────────────────────────────────────
 
 /// Authentication: message generation, credentials, login/logout.
@@ -114,7 +118,7 @@ pub mod prelude {
     pub use crate::client::{
         AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
         MarketsResult, NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
-        PriceHistorySubClient, ReferralsClient, TradesClient,
+        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

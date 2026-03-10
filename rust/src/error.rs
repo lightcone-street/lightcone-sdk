@@ -20,6 +20,9 @@ pub enum SdkError {
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
+    #[error("Program error: {0}")]
+    Program(#[from] crate::program::error::SdkError),
+
     #[error("{0}")]
     Other(String),
 }

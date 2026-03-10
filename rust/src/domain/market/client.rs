@@ -1,11 +1,15 @@
-//! Markets sub-client — fetch, search.
+//! Markets sub-client — fetch, search, and on-chain market operations.
 
 use crate::client::LightconeClient;
 use crate::domain::market::{self, Market, Status};
 use crate::domain::market::wire::{MarketSearchResult, MarketsResponse, SingleMarketResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::instructions;
+use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
+use solana_transaction::Transaction;
 
 /// Result of fetching multiple markets. Contains valid markets and any
 /// validation errors encountered (invalid markets are skipped, not fatal).
@@ -150,5 +154,59 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
+    }
+
+    // ── On-chain transaction builders ────────────────────────────────────
+
+    /// Build MintCompleteSet transaction.
+    pub fn mint_complete_set_ix(
+        &self,
+        params: MintCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_mint_complete_set_ix(&params, num_outcomes, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build MergeCompleteSet transaction.
+    pub fn merge_complete_set_ix(
+        &self,
+        params: MergeCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_merge_complete_set_ix(&params, num_outcomes, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    // ── Market helpers ───────────────────────────────────────────────────
+
+    /// Derive the condition ID for a market.
+    pub fn derive_condition_id(
+        &self,
+        oracle: &Pubkey,
+        question_id: &[u8; 32],
+        num_outcomes: u8,
+    ) -> [u8; 32] {
+        crate::program::orders::derive_condition_id(oracle, question_id, num_outcomes)
+    }
+
+    /// Get all conditional mint pubkeys for a market.
+    pub fn get_conditional_mints(
+        &self,
+        market: &Pubkey,
+        deposit_mint: &Pubkey,
+        num_outcomes: u8,
+    ) -> Vec<Pubkey> {
+        crate::program::pda::get_all_conditional_mint_pdas(
+            market,
+            deposit_mint,
+            num_outcomes,
+            &self.client.program_id,
+        )
+        .into_iter()
+        .map(|(pubkey, _)| pubkey)
+        .collect()
     }
 }

@@ -79,148 +79,169 @@ User's nonce for mass order cancellation.
 | discriminator | 0 | 8 | `[u8; 8]` | `"usrnonce"` |
 | nonce | 8 | 8 | `u64` | Current nonce value |
 
-## LightconePinocchioClient
+## LightconeClient — On-Chain Operations
+
+All on-chain operations are available through `LightconeClient` and its domain sub-clients.
+Configure with `.rpc_url()` on the builder for RPC-dependent operations.
 
 ### Creation
 
 ```rust
-use lightcone::program::LightconePinocchioClient;
+use lightcone::prelude::*;
 
-// Standard creation
-let client = LightconePinocchioClient::new("https://api.devnet.solana.com");
+// Standard creation with RPC
+let client = LightconeClient::builder()
+    .rpc_url("https://api.devnet.solana.com")
+    .build()?;
 
 // With custom program ID
-let client = LightconePinocchioClient::with_program_id(rpc_url, program_id);
-
-// From existing RpcClient
-let client = LightconePinocchioClient::from_rpc_client(rpc_client);
+let client = LightconeClient::builder()
+    .rpc_url("https://api.devnet.solana.com")
+    .program_id(custom_program_id)
+    .build()?;
 ```
 
 ### Account Fetchers
 
+Account fetchers are on the `client.rpc()` sub-client (require RPC):
+
 ```rust
+let rpc = client.rpc();
+
 // Exchange (singleton)
-let exchange = client.get_exchange().await?;
+let exchange = rpc.get_exchange().await?;
 
-// Market by ID
-let market = client.get_market(0).await?;
-
-// Market by pubkey
-let market = client.get_market_by_pubkey(&market_pda).await?;
+// Market by ID or pubkey
+let market = rpc.get_market_by_id(0).await?;
+let market = rpc.get_market_onchain(&market_pda).await?;
 
 // Position (returns None if not found)
-let position = client.get_position(&owner, &market_pda).await?;
+let position = rpc.get_position_onchain(&owner, &market_pda).await?;
 
 // Order status (returns None if not found)
-let status = client.get_order_status(&order_hash).await?;
+let status = rpc.get_order_status(&order_hash).await?;
 
 // User nonce (returns 0 if account doesn't exist)
-let nonce = client.get_user_nonce(&user).await?;
-
-// Next available nonce for new orders
-let next_nonce = client.get_next_nonce(&user).await?;
+let nonce = rpc.get_user_nonce(&user).await?;
+let nonce_u32 = rpc.get_current_nonce(&user).await?;
 
 // Next market ID
-let next_id = client.get_next_market_id().await?;
+let next_id = rpc.get_next_market_id().await?;
+
+// Orderbook by mint pair
+let orderbook = rpc.get_orderbook_onchain(&mint_a, &mint_b).await?;
+
+// Global deposit token
+let gdt = rpc.get_global_deposit_token(&mint).await?;
+
+// Latest blockhash
+let blockhash = rpc.get_latest_blockhash().await?;
+
+// Access the underlying Solana RpcClient
+let solana_rpc = rpc.inner()?;
 ```
 
 ### Transaction Builders
 
-All builders return `SdkResult<Transaction>`.
+Transaction builders are organized by domain sub-client. All return `Result<Transaction, SdkError>`.
 
-**Exchange Management:**
+**Admin — Exchange Management (`client.admin()`):**
 ```rust
-let tx = client.initialize(&authority).await?;
-let tx = client.set_paused(&authority, true).await?;
-let tx = client.set_operator(&authority, &new_operator).await?;
+let tx = client.admin().initialize_ix(&authority)?;
+let tx = client.admin().set_paused_ix(&authority, true)?;
+let tx = client.admin().set_operator_ix(&authority, &new_operator)?;
+let tx = client.admin().set_authority_ix(SetAuthorityParams { ... })?;
+let tx = client.admin().whitelist_deposit_token_ix(WhitelistDepositTokenParams { ... })?;
 ```
 
-**Market Lifecycle:**
+**Admin — Market Lifecycle (`client.admin()`):**
 ```rust
-// market_id is automatically fetched via get_next_market_id()
-let tx = client.create_market(CreateMarketParams {
+// create_market_ix is async (fetches next market ID via RPC)
+let tx = client.admin().create_market_ix(CreateMarketParams {
     authority,
     oracle,
     question_id,
     num_outcomes,
 }).await?;
 
-let tx = client.add_deposit_mint(AddDepositMintParams {
+let tx = client.admin().add_deposit_mint_ix(AddDepositMintParams {
     authority,
     deposit_mint: usdc_mint,
     outcome_metadata: vec![
         OutcomeMetadata { name: "Yes".into(), symbol: "YES".into(), uri: "".into() },
         OutcomeMetadata { name: "No".into(), symbol: "NO".into(), uri: "".into() },
     ],
-}, &market, num_outcomes).await?;
+}, &market, num_outcomes)?;
 
-let tx = client.activate_market(ActivateMarketParams {
+let tx = client.admin().activate_market_ix(ActivateMarketParams {
     authority,
     market_id,
-}).await?;
+})?;
 
-let tx = client.settle_market(SettleMarketParams {
+let tx = client.admin().settle_market_ix(SettleMarketParams {
     oracle,
     market_id,
     winning_outcome,
-}).await?;
+})?;
 ```
 
-**Position Operations:**
+**Admin — Operator (`client.admin()`):**
 ```rust
-let tx = client.mint_complete_set(MintCompleteSetParams {
-    user,
-    market,
-    deposit_mint: usdc_mint,
-    amount,
-}, num_outcomes).await?;
-
-let tx = client.merge_complete_set(MergeCompleteSetParams {
-    user,
-    market,
-    deposit_mint: usdc_mint,
-    amount,
-}, num_outcomes).await?;
-
-let tx = client.redeem_winnings(RedeemWinningsParams {
-    user,
-    market,
-    deposit_mint: usdc_mint,
-    amount,
-}, winning_outcome).await?;
-
-let tx = client.withdraw_from_position(WithdrawFromPositionParams {
-    user,
-    market,
-    mint: conditional_mint,
-    amount,
-}, is_token_2022).await?;
+let tx = client.admin().match_orders_multi_ix(MatchOrdersMultiParams { ... })?;
+let tx = client.admin().deposit_and_swap_ix(DepositAndSwapParams { ... })?;
 ```
 
-**Order Operations:**
+**Markets — Position Operations (`client.markets()`):**
 ```rust
-let tx = client.cancel_order(&maker, &order).await?;
-let tx = client.increment_nonce(&user).await?;
+let tx = client.markets().mint_complete_set_ix(MintCompleteSetParams {
+    user, market, deposit_mint: usdc_mint, amount,
+}, num_outcomes)?;
 
-// With individual Ed25519 verification
-let tx = client.match_orders_multi(MatchOrdersMultiParams {
-    operator,
-    market,
-    base_mint: yes_token,
-    quote_mint: no_token,
-    taker_order: taker,
-    maker_orders: vec![maker],
-    maker_fill_amounts: vec![50],
-    taker_fill_amounts: vec![100],
-    full_fill_bitmask: 0,
-}).await?;
+let tx = client.markets().merge_complete_set_ix(MergeCompleteSetParams {
+    user, market, deposit_mint: usdc_mint, amount,
+}, num_outcomes)?;
+```
+
+**Orders — On-Chain Order Operations (`client.orders()`):**
+```rust
+let tx = client.orders().cancel_order_ix(&maker, &market, &order)?;
+let tx = client.orders().increment_nonce_ix(&user)?;
+```
+
+**Positions — Position Management (`client.positions()`):**
+```rust
+let tx = client.positions().redeem_winnings_ix(RedeemWinningsParams {
+    user, market, deposit_mint: usdc_mint, amount,
+}, winning_outcome)?;
+
+let tx = client.positions().withdraw_from_position_ix(WithdrawFromPositionParams {
+    user, market, mint: conditional_mint, amount, outcome_index,
+}, is_token_2022)?;
+
+let tx = client.positions().init_position_tokens_ix(InitPositionTokensParams {
+    payer, user, market, deposit_mints, recent_slot,
+}, num_outcomes)?;
+
+let tx = client.positions().extend_position_tokens_ix(ExtendPositionTokensParams {
+    payer, user, market, lookup_table, deposit_mints,
+}, num_outcomes)?;
+
+let tx = client.positions().deposit_to_global_ix(DepositToGlobalParams {
+    user, mint, amount,
+})?;
+
+let tx = client.positions().global_to_market_deposit_ix(GlobalToMarketDepositParams {
+    user, market, deposit_mint, amount,
+}, num_outcomes)?;
 ```
 
 ### Order Helpers
 
+Order helpers are on the `client.orders()` sub-client:
+
 ```rust
 // Create unsigned orders
-let order = client.create_bid_order(BidOrderParams {
+let order = client.orders().create_bid_order(BidOrderParams {
     nonce: 1,
     maker: pubkey,
     market: market_pda,
@@ -231,17 +252,17 @@ let order = client.create_bid_order(BidOrderParams {
     expiration: 0,
 });
 
-let order = client.create_ask_order(AskOrderParams { ... });
+let order = client.orders().create_ask_order(AskOrderParams { ... });
 
-// Create and sign in one step
-let order = client.create_signed_bid_order(params, &keypair);
-let order = client.create_signed_ask_order(params, &keypair);
+// Create and sign in one step (native-auth feature)
+let order = client.orders().create_signed_bid_order(params, &keypair);
+let order = client.orders().create_signed_ask_order(params, &keypair);
 
 // Manual signing
-client.sign_order(&mut order, &keypair);
+client.orders().sign_order(&mut order, &keypair);
 
 // Get order hash
-let hash = client.hash_order(&order);
+let hash = client.orders().hash_order(&order);
 ```
 
 ## PDA Derivation
@@ -341,7 +362,7 @@ let taker_fill = calculate_taker_fill(&maker_order, maker_fill_amount)?;
 let condition_id = derive_condition_id(&oracle, &question_id, num_outcomes);
 
 // Get all conditional mints for a market
-let mints = client.get_conditional_mints(&market, &deposit_mint, num_outcomes);
+let mints = client.markets().get_conditional_mints(&market, &deposit_mint, num_outcomes);
 ```
 
 ## Ed25519 Signature Verification

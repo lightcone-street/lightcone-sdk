@@ -2,7 +2,7 @@ mod common;
 
 use common::{
     fresh_order_nonce, market_and_orderbook, orderbook_mints, parse_pubkey, rest_client,
-    rpc_client, scaling_decimals, wallet, ExampleResult,
+    scaling_decimals, wallet, ExampleResult,
 };
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -10,7 +10,6 @@ use solana_signer::Signer;
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let rpc = rpc_client();
     let keypair = wallet()?;
     common::login(&client, &keypair, false).await?;
 
@@ -26,7 +25,7 @@ async fn main() -> ExampleResult {
         .bid()
         .price("0.55")
         .size("1")
-        .nonce(fresh_order_nonce(&rpc, &keypair.pubkey()).await?)
+        .nonce(fresh_order_nonce(&client, &keypair.pubkey()).await?)
         .apply_scaling(&decimals)?
         .sign(&keypair, orderbook.orderbook_id.as_str())?;
 
