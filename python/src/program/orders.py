@@ -348,6 +348,14 @@ def cancel_order_message(order_hash: str) -> bytes:
     return order_hash.encode("ascii")
 
 
+def cancel_trigger_order_message(trigger_order_id: str) -> bytes:
+    """Build the message bytes for cancelling a trigger order.
+
+    The message is the trigger_order_id as ASCII bytes.
+    """
+    return trigger_order_id.encode("ascii")
+
+
 def sign_cancel_order(order_hash: str, keypair: Keypair) -> str:
     """Sign a cancel order request.
 
@@ -400,6 +408,24 @@ def signature_hex(order: SignedOrder) -> str:
 def is_signed(order: SignedOrder) -> bool:
     """Check if an order has a non-zero signature."""
     return order.signature != bytes(SIGNATURE_SIZE)
+
+
+def calculate_taker_fill(maker_order: SignedOrder, maker_fill_amount: int) -> int:
+    """Calculate the taker fill amount given a maker fill amount.
+
+    Returns the taker fill amount based on maker's price ratio.
+
+    Raises:
+        InvalidOrderError: If maker_order.amount_in is zero or overflow occurs
+    """
+    if maker_order.amount_in == 0:
+        raise InvalidOrderError("maker_order.amount_in cannot be zero")
+
+    result = (maker_fill_amount * maker_order.amount_out) // maker_order.amount_in
+    if result > MAX_U64:
+        raise InvalidOrderError("taker fill calculation overflow")
+
+    return result
 
 
 def to_submit_request(order: SignedOrder, orderbook_id: str):

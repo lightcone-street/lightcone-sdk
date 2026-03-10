@@ -14,77 +14,96 @@ class Status(str, Enum):
 
 @dataclass
 class Outcome:
-    name: str
     index: int
-    mint: Optional[str] = None
-    symbol: Optional[str] = None
+    name: str
+    icon_url: str = ""
 
 
 @dataclass
 class ConditionalToken:
     mint: str
     outcome_index: int
-    name: Optional[str] = None
-    symbol: Optional[str] = None
-    uri: Optional[str] = None
+    outcome: str = ""
+    deposit_asset: str = ""
+    deposit_symbol: str = ""
+    name: str = ""
+    symbol: str = ""
+    description: Optional[str] = None
     decimals: int = 6
+    icon_url: str = ""
 
 
 @dataclass
 class DepositAsset:
-    mint: str
-    symbol: Optional[str] = None
-    name: Optional[str] = None
+    id: int = 0
+    market_pda: str = ""
+    deposit_asset: str = ""
+    num_outcomes: int = 0
+    name: str = ""
+    symbol: str = ""
+    description: Optional[str] = None
     decimals: int = 6
-    icon_url: Optional[str] = None
+    icon_url: str = ""
 
 
 @dataclass
 class ValidatedTokens:
-    conditional_tokens: list[ConditionalToken] = field(default_factory=list)
-    deposit_assets: list[DepositAsset] = field(default_factory=list)
+    token: Optional[DepositAsset] = None
+    conditionals: list[ConditionalToken] = field(default_factory=list)
+    metadata: dict[str, "TokenMetadata"] = field(default_factory=dict)
 
 
 @dataclass
 class TokenMetadata:
-    mint: str
-    name: Optional[str] = None
-    symbol: Optional[str] = None
+    pubkey: str = ""
+    symbol: str = ""
     decimals: int = 6
-    icon_url: Optional[str] = None
+    icon_url: str = ""
+    name: str = ""
 
 
 @dataclass
 class OrderBookPairSummary:
-    id: str
-    base_token: str
-    quote_token: str
-    outcome_index: int
-    tick_size: Optional[str] = None
+    id: int = 0
+    market_pubkey: str = ""
+    orderbook_id: str = ""
+    base_token: str = ""
+    quote_token: str = ""
+    outcome_index: int = 0
+    tick_size: int = 0
+    total_bids: int = 0
+    total_asks: int = 0
+    last_trade_price: Optional[str] = None
+    last_trade_time: Optional[str] = None
     active: bool = True
 
 
 @dataclass
 class Market:
     """Rich market domain type."""
-    id: str
+    id: int
     pubkey: str
     name: str
-    slug: Optional[str] = None
-    description: Optional[str] = None
+    banner_image_url: str = ""
+    icon_url: str = ""
+    featured_rank: Optional[int] = None
+    volume: str = "0"
+    slug: str = ""
     status: Status = Status.PENDING
-    volume: Optional[str] = None
-    outcomes: list[Outcome] = field(default_factory=list)
-    conditional_tokens: list[ConditionalToken] = field(default_factory=list)
-    deposit_assets: list[DepositAsset] = field(default_factory=list)
-    orderbook_pairs: list[OrderBookPairSummary] = field(default_factory=list)
-    token_metadata: list[TokenMetadata] = field(default_factory=list)
-    icon_url: Optional[str] = None
-    category: Optional[str] = None
-    featured: bool = False
     created_at: Optional[str] = None
-    resolved_at: Optional[str] = None
+    activated_at: Optional[str] = None
+    settled_at: Optional[str] = None
     winning_outcome: Optional[int] = None
+    description: str = ""
+    definition: str = ""
+    category: Optional[str] = None
+    tags: list[str] = field(default_factory=list)
+    deposit_assets: list[DepositAsset] = field(default_factory=list)
+    conditional_tokens: list[ConditionalToken] = field(default_factory=list)
+    outcomes: list[Outcome] = field(default_factory=list)
+    orderbook_pairs: list[OrderBookPairSummary] = field(default_factory=list)
+    orderbook_ids: list[str] = field(default_factory=list)
+    token_metadata: dict[str, TokenMetadata] = field(default_factory=dict)
 
 
 class MarketValidationError(Exception):

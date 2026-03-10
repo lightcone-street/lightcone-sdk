@@ -168,7 +168,7 @@ def derive_condition_id(
 
 
 def encode_string(s: str, max_len: int) -> bytes:
-    """Encode a string with u16 length prefix (matches Rust SDK).
+    """Encode a string with u16 length prefix.
 
     Format: [length (2 bytes LE)][utf-8 bytes]
     """

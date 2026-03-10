@@ -31,7 +31,7 @@ class Orderbooks:
         if orderbook_id in self._decimals_cache:
             return self._decimals_cache[orderbook_id]
 
-        data = await self._http.get(f"/api/orderbook/{orderbook_id}/decimals")
+        data = await self._http.get(f"/api/orderbooks/{orderbook_id}/decimals")
         result = DecimalsResponse.from_dict(data)
         self._decimals_cache[orderbook_id] = result
         return result

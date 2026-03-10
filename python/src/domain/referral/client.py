@@ -16,7 +16,7 @@ class Referrals:
 
     async def get_status(self) -> ReferralStatus:
         """Get referral status for the authenticated user."""
-        data = await self._http.get("/api/referrals/status")
+        data = await self._http.get("/api/referral/status")
         codes = [
             ReferralCodeInfo(
                 code=c.get("code", ""),
@@ -33,7 +33,7 @@ class Referrals:
 
     async def redeem(self, code: str) -> RedeemResult:
         """Redeem a referral code."""
-        data = await self._http.post("/api/referrals/redeem", {"code": code})
+        data = await self._http.post("/api/referral/redeem", {"code": code})
         return RedeemResult(
             success=data.get("success", False),
             is_beta=data.get("is_beta", False),

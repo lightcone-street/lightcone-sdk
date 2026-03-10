@@ -1,7 +1,6 @@
 """Order envelope builders for the Lightcone SDK.
 
 Provides fluent builder pattern for constructing limit and trigger orders.
-Matches TS program/envelope.ts.
 """
 
 from typing import Optional
@@ -16,7 +15,7 @@ from ..shared.scaling import OrderbookDecimals, scale_price_size
 
 
 class LimitOrderEnvelope:
-    """Fluent builder for limit orders, matching TS LimitOrderEnvelope."""
+    """Fluent builder for limit orders."""
 
     def __init__(self):
         self._nonce: int = 0
@@ -107,7 +106,7 @@ class LimitOrderEnvelope:
 
 
 class TriggerOrderEnvelope:
-    """Fluent builder for trigger orders, matching TS TriggerOrderEnvelope."""
+    """Fluent builder for trigger orders."""
 
     def __init__(self):
         self._limit = LimitOrderEnvelope()

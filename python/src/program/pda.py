@@ -194,3 +194,32 @@ def get_all_conditional_mints(
         get_conditional_mint_pda(market, deposit_mint, i, program_id)[0]
         for i in range(num_outcomes)
     ]
+
+
+def get_user_global_deposit_pda(
+    user: Pubkey,
+    mint: Pubkey,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Tuple[Pubkey, int]:
+    """Derive the user global deposit PDA (token account owned by PDA).
+
+    Seeds: ["global_deposit", user, mint]
+    """
+    return Pubkey.find_program_address(
+        [SEED_GLOBAL_DEPOSIT, bytes(user), bytes(mint)],
+        program_id,
+    )
+
+
+def get_position_alt_pda(
+    position: Pubkey,
+    recent_slot: int,
+) -> Tuple[Pubkey, int]:
+    """Derive the Address Lookup Table PDA for a position.
+
+    Seeds: [position, slot_le], program: ALT_PROGRAM_ID
+    """
+    return Pubkey.find_program_address(
+        [bytes(position), encode_u64(recent_slot)],
+        ALT_PROGRAM_ID,
+    )

@@ -1,11 +1,4 @@
-"""Unified error types for the Lightcone SDK.
-
-Matches the TS/Rust SDKs' error hierarchy:
-- SdkError (base)
-  - HttpError (REST API errors)
-  - WsError (WebSocket errors)
-  - AuthError (Authentication errors)
-"""
+"""Unified error types for the Lightcone SDK."""
 
 from enum import Enum
 from typing import Optional
@@ -23,7 +16,7 @@ class SdkError(Exception):
 
 
 class HttpErrorKind(str, Enum):
-    """HTTP error variants matching TS HttpError."""
+    """HTTP error variants."""
 
     REQUEST = "Request"
     SERVER_ERROR = "ServerError"
@@ -43,10 +36,12 @@ class HttpError(SdkError):
         message: str,
         kind: HttpErrorKind = HttpErrorKind.REQUEST,
         status: Optional[int] = None,
+        retry_after_ms: Optional[int] = None,
     ):
         super().__init__(message)
         self.kind = kind
         self.status = status
+        self.retry_after_ms = retry_after_ms
 
     @staticmethod
     def request(message: str) -> "HttpError":
@@ -57,8 +52,8 @@ class HttpError(SdkError):
         return HttpError(message, HttpErrorKind.SERVER_ERROR, status)
 
     @staticmethod
-    def rate_limited(message: str = "Rate limited") -> "HttpError":
-        return HttpError(message, HttpErrorKind.RATE_LIMITED, 429)
+    def rate_limited(message: str = "Rate limited", retry_after_ms: Optional[int] = None) -> "HttpError":
+        return HttpError(message, HttpErrorKind.RATE_LIMITED, 429, retry_after_ms=retry_after_ms)
 
     @staticmethod
     def unauthorized(message: str = "Unauthorized") -> "HttpError":
@@ -69,17 +64,17 @@ class HttpError(SdkError):
         return HttpError(message, HttpErrorKind.NOT_FOUND, 404)
 
     @staticmethod
-    def bad_request(message: str) -> "HttpError":
-        return HttpError(message, HttpErrorKind.BAD_REQUEST, 400)
+    def bad_request(message: str, status: int = 400) -> "HttpError":
+        return HttpError(message, HttpErrorKind.BAD_REQUEST, status)
 
     @staticmethod
     def timeout(message: str = "Request timed out") -> "HttpError":
         return HttpError(message, HttpErrorKind.TIMEOUT)
 
     @staticmethod
-    def max_retries_exceeded(attempts: int) -> "HttpError":
+    def max_retries_exceeded(attempts: int, last_error: str = "unknown") -> "HttpError":
         return HttpError(
-            f"Max retries exceeded after {attempts} attempts",
+            f"Max retries exceeded after {attempts} attempts: {last_error}",
             HttpErrorKind.MAX_RETRIES_EXCEEDED,
         )
 
@@ -97,7 +92,7 @@ class HttpError(SdkError):
 
 
 class WsErrorKind(str, Enum):
-    """WebSocket error variants matching TS WsError."""
+    """WebSocket error variants."""
 
     NOT_CONNECTED = "NotConnected"
     CONNECTION_FAILED = "ConnectionFailed"
@@ -152,7 +147,7 @@ class WsError(SdkError):
 
 
 class AuthErrorKind(str, Enum):
-    """Authentication error variants matching TS AuthError."""
+    """Authentication error variants."""
 
     NOT_AUTHENTICATED = "NotAuthenticated"
     LOGIN_FAILED = "LoginFailed"

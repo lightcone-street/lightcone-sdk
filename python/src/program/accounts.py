@@ -209,9 +209,10 @@ def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
     Layout (48 bytes):
     - [0..8]: discriminator
     - [8..40]: mint (Pubkey)
-    - [40..42]: index (u16 LE)
-    - [42]: bump (u8)
-    - [43..48]: padding
+    - [40]: active (bool)
+    - [41]: bump (u8)
+    - [42..44]: index (u16 LE)
+    - [44..48]: padding
     """
     _validate_discriminator(data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken")
 
@@ -222,6 +223,7 @@ def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
 
     return GlobalDepositToken(
         mint=decode_pubkey(data, 8),
-        index=decode_u16(data, 40),
-        bump=decode_u8(data, 42),
+        active=decode_bool(data, 40),
+        bump=decode_u8(data, 41),
+        index=decode_u16(data, 42),
     )

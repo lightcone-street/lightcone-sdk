@@ -138,10 +138,14 @@ class OutcomeMetadata:
 
 @dataclass
 class MakerFill:
-    """Maker order with fill amount for matching."""
+    """Per-maker fill info for deposit_and_swap."""
 
     order: SignedOrder
-    fill_amount: int
+    maker_fill_amount: int
+    taker_fill_amount: int
+    is_full_fill: bool = False
+    is_deposit: bool = False
+    deposit_mint: Optional[Pubkey] = None
 
 
 # Parameter types for client methods
@@ -168,8 +172,7 @@ class CreateMarketParams:
 class AddDepositMintParams:
     """Parameters for adding a deposit mint to a market."""
 
-    payer: Pubkey
-    market: Pubkey
+    authority: Pubkey
     deposit_mint: Pubkey
     outcome_metadata: list[OutcomeMetadata]
 
@@ -251,7 +254,7 @@ class MatchOrdersMultiParams:
 class CreateOrderbookParams:
     """Parameters for creating an orderbook."""
 
-    payer: Pubkey
+    authority: Pubkey
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
@@ -299,8 +302,78 @@ class GlobalDepositToken:
     """Global deposit token account data (48 bytes)."""
 
     mint: Pubkey
-    index: int  # u16
+    active: bool
     bump: int
+    index: int  # u16
+
+
+@dataclass
+class WhitelistDepositTokenParams:
+    """Parameters for whitelisting a deposit token for global deposits."""
+
+    authority: Pubkey
+    mint: Pubkey
+
+
+@dataclass
+class DepositToGlobalParams:
+    """Parameters for depositing tokens to a global deposit account."""
+
+    user: Pubkey
+    mint: Pubkey
+    amount: int
+
+
+@dataclass
+class GlobalToMarketDepositParams:
+    """Parameters for transferring from global deposit to a market vault."""
+
+    user: Pubkey
+    market: Pubkey
+    deposit_mint: Pubkey
+    amount: int
+
+
+@dataclass
+class InitPositionTokensParams:
+    """Parameters for initializing position token accounts and ALT."""
+
+    payer: Pubkey
+    user: Pubkey
+    market: Pubkey
+    deposit_mints: list[Pubkey] = field(default_factory=list)
+    recent_slot: int = 0
+
+
+@dataclass
+class DepositAndSwapParams:
+    """Parameters for deposit-and-swap (atomic deposit + mint + swap)."""
+
+    operator: Pubkey
+    market: Pubkey
+    base_mint: Pubkey
+    quote_mint: Pubkey
+    taker_order: SignedOrder = field(default_factory=lambda: SignedOrder(
+        nonce=0, maker=Pubkey.default(), market=Pubkey.default(),
+        base_mint=Pubkey.default(), quote_mint=Pubkey.default(),
+        side=OrderSide.BID, amount_in=0, amount_out=0, expiration=0,
+    ))
+    taker_is_full_fill: bool = False
+    taker_is_deposit: bool = False
+    taker_deposit_mint: Optional[Pubkey] = None
+    num_outcomes: int = 2
+    makers: list[MakerFill] = field(default_factory=list)
+
+
+@dataclass
+class ExtendPositionTokensParams:
+    """Parameters for extending a position ALT with new deposit mints."""
+
+    payer: Pubkey
+    user: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+    deposit_mints: list[Pubkey] = field(default_factory=list)
 
 
 @dataclass

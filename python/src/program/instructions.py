@@ -14,7 +14,6 @@ from .constants import (
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
     INSTRUCTION_CANCEL_ORDER,
-    INSTRUCTION_CLAIM_ORDER_STATUS_RENT,
     INSTRUCTION_CREATE_MARKET,
     INSTRUCTION_CREATE_ORDERBOOK,
     INSTRUCTION_DEPOSIT_AND_SWAP,
@@ -53,10 +52,12 @@ from .pda import (
     get_orderbook_pda,
     get_alt_pda,
     get_position_pda,
+    get_position_alt_pda,
+    get_user_global_deposit_pda,
     get_user_nonce_pda,
     get_vault_pda,
 )
-from .types import SignedOrder, OutcomeMetadata
+from .types import MakerFill, SignedOrder, OutcomeMetadata
 
 # Backward compatibility alias
 FullOrder = SignedOrder
@@ -125,7 +126,7 @@ def build_create_market_instruction(
 
 
 def build_add_deposit_mint_instruction(
-    payer: Pubkey,
+    authority: Pubkey,
     market: Pubkey,
     deposit_mint: Pubkey,
     outcome_metadata: List[OutcomeMetadata],
@@ -135,23 +136,26 @@ def build_add_deposit_mint_instruction(
     """Build the add_deposit_mint instruction.
 
     Accounts:
-    0. payer (signer, writable)
-    1. market (writable)
-    2. deposit_mint
-    3. vault (writable)
-    4. mint_authority
-    5. token_program
-    6. token_2022_program
-    7. system_program
-    8+. conditional_mints[0..num_outcomes] (writable)
+    0. authority (signer, writable)
+    1. exchange (readonly)
+    2. market (writable)
+    3. deposit_mint (readonly)
+    4. vault (writable)
+    5. mint_authority (readonly)
+    6. token_program (readonly)
+    7. token_2022_program (readonly)
+    8. system_program (readonly)
+    9+. conditional_mints[0..num_outcomes] (writable)
 
     Data: [2, ...metadata for each outcome]
     """
+    exchange, _ = get_exchange_pda(program_id)
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
     accounts = [
-        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=True),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
@@ -778,18 +782,26 @@ def build_set_authority_instruction(
 
 def build_whitelist_deposit_token_instruction(
     authority: Pubkey,
-    deposit_mint: Pubkey,
+    mint: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the whitelist_deposit_token instruction."""
+    """Build the whitelist_deposit_token instruction.
+
+    Accounts:
+    0. authority (signer, writable)
+    1. exchange (readonly)
+    2. mint (readonly)
+    3. global_deposit_token (writable)
+    4. system_program (readonly)
+    """
     exchange, _ = get_exchange_pda(program_id)
-    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
+    global_deposit_token, _ = get_global_deposit_pda(mint, program_id)
 
     accounts = [
         AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=True),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
@@ -799,22 +811,33 @@ def build_whitelist_deposit_token_instruction(
 
 def build_deposit_to_global_instruction(
     user: Pubkey,
-    deposit_mint: Pubkey,
+    mint: Pubkey,
     amount: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the deposit_to_global instruction."""
-    exchange, _ = get_exchange_pda(program_id)
-    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
-    user_ata = get_associated_token_address(user, deposit_mint)
+    """Build the deposit_to_global instruction.
+
+    Accounts:
+    0. user (signer, writable)
+    1. global_deposit_token (readonly) - Whitelist PDA
+    2. mint (readonly)
+    3. user_global_deposit (writable) - User's deposit PDA
+    4. user_token_account (writable) - User's source token account
+    5. token_program (readonly)
+    6. system_program (readonly)
+    """
+    global_deposit_token, _ = get_global_deposit_pda(mint, program_id)
+    user_global_deposit, _ = get_user_global_deposit_pda(user, mint, program_id)
+    user_token_account = get_associated_token_address(user, mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=user_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=user_global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=user_token_account, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
     data = bytearray([INSTRUCTION_DEPOSIT_TO_GLOBAL])
@@ -827,25 +850,58 @@ def build_global_to_market_deposit_instruction(
     market: Pubkey,
     deposit_mint: Pubkey,
     amount: int,
+    num_outcomes: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the global_to_market_deposit instruction."""
+    """Build the global_to_market_deposit instruction.
+
+    Accounts (14 + num_outcomes*2):
+    0. user (signer, writable)
+    1. exchange (readonly)
+    2. market (readonly)
+    3. deposit_mint (readonly)
+    4. vault (writable)
+    5. global_deposit_token (readonly)
+    6. user_global_deposit (writable)
+    7. position (writable)
+    8. position_collateral_ata (writable)
+    9. mint_authority (readonly)
+    10. token_program (readonly)
+    11. token_2022_program (readonly)
+    12. ata_program (readonly)
+    13. system_program (readonly)
+    + per outcome: conditional_mint[i] (writable), position_conditional_ata[i] (writable)
+    """
     exchange, _ = get_exchange_pda(program_id)
-    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
+    global_deposit_token, _ = get_global_deposit_pda(deposit_mint, program_id)
+    user_global_deposit, _ = get_user_global_deposit_pda(user, deposit_mint, program_id)
     position, _ = get_position_pda(user, market, program_id)
+    position_collateral_ata = get_associated_token_address(position, deposit_mint)
+    mint_authority, _ = get_mint_authority_pda(market, program_id)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=user_global_deposit, is_signer=False, is_writable=True),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=position_collateral_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
+
+    for i in range(num_outcomes):
+        cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
+        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True))
+        accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
 
     data = bytearray([INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT])
     data.extend(encode_u64(amount))
@@ -858,14 +914,30 @@ def build_init_position_tokens_instruction(
     market: Pubkey,
     deposit_mints: list[Pubkey],
     num_outcomes: int,
+    recent_slot: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the init_position_tokens instruction.
 
     Permissionless: separate payer from user, supports multiple deposit mints.
+
+    Accounts (11 + per deposit_mint: 3 + num_outcomes*2):
+    0. payer (signer, writable)
+    1. user (readonly)
+    2. exchange (readonly)
+    3. market (readonly)
+    4. position (writable)
+    5. lookup_table (writable)
+    6. mint_authority (readonly)
+    7. token_2022_program (readonly)
+    8. ata_program (readonly)
+    9. alt_program (readonly)
+    10. system_program (readonly)
+    + per deposit_mint: deposit_mint, vault, gdt, [cond_mint, ata] x num_outcomes
     """
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
+    lookup_table, _ = get_position_alt_pda(position, recent_slot)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
     accounts = [
@@ -874,66 +946,188 @@ def build_init_position_tokens_instruction(
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    # Add conditional mint + position ATA pairs for each deposit mint and outcome
+    # Per deposit_mint: deposit_mint, vault, gdt, then [cond_mint, ata] x num_outcomes
     for deposit_mint in deposit_mints:
+        vault, _ = get_vault_pda(deposit_mint, market, program_id)
+        gdt, _ = get_global_deposit_pda(deposit_mint, program_id)
+        accounts.append(AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=vault, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=gdt, is_signer=False, is_writable=False))
+
         for i in range(num_outcomes):
             cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
             position_cond_ata = get_associated_token_address_2022(position, cond_mint)
             accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False))
             accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
 
-    data = bytes([INSTRUCTION_INIT_POSITION_TOKENS])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    data = bytearray([INSTRUCTION_INIT_POSITION_TOKENS])
+    data.extend(encode_u64(recent_slot))
+    data.append(len(deposit_mints))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
 def build_deposit_and_swap_instruction(
-    user: Pubkey,
+    operator: Pubkey,
     market: Pubkey,
-    deposit_mint: Pubkey,
-    amount: int,
-    num_outcomes: int,
-    deposit_bitmask: int = 0,
+    base_mint: Pubkey,
+    quote_mint: Pubkey,
+    taker_order: SignedOrder,
+    taker_is_full_fill: bool = False,
+    taker_is_deposit: bool = False,
+    taker_deposit_mint: Pubkey = None,
+    num_outcomes: int = 2,
+    makers: list = None,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the deposit_and_swap instruction.
 
-    Uses depositBitmask for per-participant deposit vs swap routing.
+    Unified order execution: participants can deposit from global deposits and/or swap
+    conditional tokens in a single instruction.
+
+    Account layout:
+      Fixed (5): operator, exchange, market, mint_authority, token_program
+      Taker block (8-9): [order_status], nonce, position, base_mint, quote_mint,
+                          taker_receive_ata, taker_give_ata, token_2022_program, system_program
+      Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
+                                       [cond_mint, ata] x num_outcomes
+      Per-maker blocks: [order_status], nonce, position,
+                         [deposit block if depositing],
+                         maker_receive_ata, maker_give_ata
     """
+    if makers is None:
+        makers = []
+
     exchange, _ = get_exchange_pda(program_id)
-    vault, _ = get_vault_pda(deposit_mint, market, program_id)
-    position, _ = get_position_pda(user, market, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
-    user_deposit_ata = get_associated_token_address(user, deposit_mint)
+    taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
+    taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
 
-    accounts = [
-        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
+    taker_side = int(taker_order.side)
+    if taker_side == 0:  # BID
+        receive_mint, give_mint = base_mint, quote_mint
+    else:  # ASK
+        receive_mint, give_mint = quote_mint, base_mint
 
-    for i in range(num_outcomes):
-        cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
-        accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True))
-        accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+    # Build bitmasks
+    full_fill_bitmask = 0
+    deposit_bitmask = 0
+    if taker_is_full_fill:
+        full_fill_bitmask |= 0x80
+    if taker_is_deposit:
+        deposit_bitmask |= 0x80
+    for i, maker in enumerate(makers):
+        if maker.is_full_fill:
+            full_fill_bitmask |= 1 << i
+        if maker.is_deposit:
+            deposit_bitmask |= 1 << i
 
-    data = bytearray([INSTRUCTION_DEPOSIT_AND_SWAP])
-    data.extend(encode_u64(amount))
+    accounts = []
+
+    # Fixed accounts (5)
+    accounts.append(AccountMeta(pubkey=operator, is_signer=True, is_writable=True))
+    accounts.append(AccountMeta(pubkey=exchange, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=market, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False))
+
+    # Taker order_status (only if not full fill)
+    if not taker_is_full_fill:
+        taker_hash = hash_order(taker_order)
+        taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
+        accounts.append(AccountMeta(pubkey=taker_order_status, is_signer=False, is_writable=True))
+
+    # Taker common block
+    taker_receive_ata = get_associated_token_address_2022(taker_position, receive_mint)
+    taker_give_ata = get_associated_token_address_2022(taker_position, give_mint)
+    accounts.append(AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True))
+    accounts.append(AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=quote_mint, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=taker_receive_ata, is_signer=False, is_writable=True))
+    accounts.append(AccountMeta(pubkey=taker_give_ata, is_signer=False, is_writable=True))
+    accounts.append(AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False))
+    accounts.append(AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False))
+
+    # Taker deposit block (only if taker deposits)
+    if taker_is_deposit and taker_deposit_mint is not None:
+        dm = taker_deposit_mint
+        vault, _ = get_vault_pda(dm, market, program_id)
+        gdt, _ = get_global_deposit_pda(dm, program_id)
+        taker_global_deposit, _ = get_user_global_deposit_pda(taker_order.maker, dm, program_id)
+        accounts.append(AccountMeta(pubkey=dm, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=vault, is_signer=False, is_writable=True))
+        accounts.append(AccountMeta(pubkey=gdt, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=taker_global_deposit, is_signer=False, is_writable=True))
+
+        for i in range(num_outcomes):
+            cond_mint, _ = get_conditional_mint_pda(market, dm, i, program_id)
+            ata = get_associated_token_address_2022(taker_position, cond_mint)
+            accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True))
+            accounts.append(AccountMeta(pubkey=ata, is_signer=False, is_writable=True))
+
+    # Per-maker blocks
+    for maker in makers:
+        maker_nonce, _ = get_user_nonce_pda(maker.order.maker, program_id)
+        maker_position, _ = get_position_pda(maker.order.maker, market, program_id)
+
+        if not maker.is_full_fill:
+            maker_hash = hash_order(maker.order)
+            maker_order_status, _ = get_order_status_pda(maker_hash, program_id)
+            accounts.append(AccountMeta(pubkey=maker_order_status, is_signer=False, is_writable=True))
+
+        accounts.append(AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=maker_position, is_signer=False, is_writable=True))
+
+        # Maker deposit block (only if maker deposits)
+        if maker.is_deposit and maker.deposit_mint is not None:
+            dm = maker.deposit_mint
+            vault, _ = get_vault_pda(dm, market, program_id)
+            gdt, _ = get_global_deposit_pda(dm, program_id)
+            maker_global_deposit, _ = get_user_global_deposit_pda(maker.order.maker, dm, program_id)
+            accounts.append(AccountMeta(pubkey=dm, is_signer=False, is_writable=False))
+            accounts.append(AccountMeta(pubkey=vault, is_signer=False, is_writable=True))
+            accounts.append(AccountMeta(pubkey=gdt, is_signer=False, is_writable=False))
+            accounts.append(AccountMeta(pubkey=maker_global_deposit, is_signer=False, is_writable=True))
+
+            for j in range(num_outcomes):
+                cond_mint, _ = get_conditional_mint_pda(market, dm, j, program_id)
+                maker_ata = get_associated_token_address_2022(maker_position, cond_mint)
+                accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True))
+                accounts.append(AccountMeta(pubkey=maker_ata, is_signer=False, is_writable=True))
+
+        # Swap ATAs (always present)
+        maker_receive_ata = get_associated_token_address_2022(maker_position, receive_mint)
+        maker_give_ata = get_associated_token_address_2022(maker_position, give_mint)
+        accounts.append(AccountMeta(pubkey=maker_receive_ata, is_signer=False, is_writable=True))
+        accounts.append(AccountMeta(pubkey=maker_give_ata, is_signer=False, is_writable=True))
+
+    # Build instruction data
+    taker_compact = to_order(taker_order)
+    num_makers = len(makers)
+
+    data = bytearray()
+    data.append(INSTRUCTION_DEPOSIT_AND_SWAP)
+    data.extend(serialize_order(taker_compact))
+    data.extend(taker_order.signature)
+    data.append(num_makers)
+    data.append(full_fill_bitmask & 0xFF)
     data.append(deposit_bitmask & 0xFF)
+
+    for maker in makers:
+        maker_compact = to_order(maker.order)
+        data.extend(serialize_order(maker_compact))
+        data.extend(maker.order.signature)
+        data.extend(encode_u64(maker.maker_fill_amount))
+        data.extend(encode_u64(maker.taker_fill_amount))
+
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
@@ -941,46 +1135,59 @@ def build_extend_position_tokens_instruction(
     payer: Pubkey,
     user: Pubkey,
     market: Pubkey,
-    deposit_mint: Pubkey,
+    lookup_table: Pubkey,
+    deposit_mints: list[Pubkey],
     num_outcomes: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the extend_position_tokens instruction."""
+    """Build the extend_position_tokens instruction.
+
+    Accounts (10 + per deposit_mint: 3 + num_outcomes*2):
+    0. payer (signer, writable)
+    1. user (readonly)
+    2. exchange (readonly)
+    3. market (readonly)
+    4. position (readonly)
+    5. lookup_table (writable)
+    6. token_2022_program (readonly)
+    7. ata_program (readonly)
+    8. alt_program (readonly)
+    9. system_program (readonly)
+    + per deposit_mint: deposit_mint, vault, global_deposit_token,
+      then per outcome: conditional_mint, position_conditional_ata
+    """
+    exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
 
     accounts = [
         AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
         AccountMeta(pubkey=user, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    for i in range(num_outcomes):
-        cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
-        accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False))
-        accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+    for deposit_mint in deposit_mints:
+        vault, _ = get_vault_pda(deposit_mint, market, program_id)
+        global_deposit_token, _ = get_global_deposit_pda(deposit_mint, program_id)
 
-    data = bytes([INSTRUCTION_EXTEND_POSITION_TOKENS])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+        accounts.append(AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=vault, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False))
+
+        for i in range(num_outcomes):
+            cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
+            position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+            accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False))
+            accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+
+    data = bytearray([INSTRUCTION_EXTEND_POSITION_TOKENS])
+    data.append(len(deposit_mints))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
-def build_claim_order_status_rent_instruction(
-    user: Pubkey,
-    order_hash: bytes,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the claim_order_status_rent instruction."""
-    order_status, _ = get_order_status_pda(order_hash, program_id)
-
-    accounts = [
-        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=order_status, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    data = bytes([INSTRUCTION_CLAIM_ORDER_STATUS_RENT])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)

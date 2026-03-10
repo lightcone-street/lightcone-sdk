@@ -1,7 +1,4 @@
-"""Authentication types and utilities for the Lightcone SDK.
-
-Matches TS auth/index.ts with User, AuthCredentials, LinkedAccount types.
-"""
+"""Authentication types and utilities for the Lightcone SDK."""
 
 from dataclasses import dataclass, field
 from typing import Optional, Literal
@@ -22,77 +19,100 @@ ChainType = Literal["solana", "ethereum"]
 
 @dataclass
 class LinkedAccount:
-    """A linked account (wallet, Twitter, Google, etc.)."""
+    """A linked identity (wallet, Google OAuth, X OAuth) associated with a user."""
 
-    type: LinkedAccountType
-    address: Optional[str] = None
-    chain_type: Optional[ChainType] = None
-    wallet_client_type: Optional[str] = None
-    connector_type: Optional[str] = None
-    subject: Optional[str] = None
-    name: Optional[str] = None
-    email: Optional[str] = None
-    username: Optional[str] = None
+    id: str = ""
+    type: LinkedAccountType = "wallet"
+    chain: Optional[ChainType] = None
+    address: str = ""
 
 
 @dataclass
 class EmbeddedWallet:
-    """An embedded (Privy-managed) wallet."""
+    """A Privy-managed embedded wallet."""
 
-    address: str
-    chain_type: ChainType = "solana"
+    privy_id: str = ""
+    chain: ChainType = "solana"
+    address: str = ""
 
 
 @dataclass
 class User:
-    """Authenticated user profile."""
+    """Full user profile from the Lightcone platform."""
 
-    id: str
-    created_at: Optional[str] = None
-    linked_accounts: list[LinkedAccount] = field(default_factory=list)
-    mfa_methods: list[str] = field(default_factory=list)
-    has_accepted_terms: bool = False
-    is_guest: bool = False
-    wallet_address: Optional[str] = None
+    id: str = ""
+    wallet_address: str = ""
+    linked_account: Optional[LinkedAccount] = None
     privy_id: Optional[str] = None
     embedded_wallet: Optional[EmbeddedWallet] = None
     x_username: Optional[str] = None
+    x_user_id: Optional[str] = None
+    x_display_name: Optional[str] = None
+    google_email: Optional[str] = None
 
 
 @dataclass
 class AuthCredentials:
-    """Authentication credentials."""
+    """Internal auth session state. Token is NOT exposed."""
 
-    token: str
-    user: Optional[User] = None
-    user_id: Optional[str] = None
-    wallet_address: Optional[str] = None
-    expires_at: Optional[int] = None
+    user_id: str = ""
+    wallet_address: str = ""
+    expires_at: int = 0
+
+    def is_valid(self) -> bool:
+        """Whether the session is still valid (not expired)."""
+        import time
+        return time.time() < self.expires_at
 
 
 @dataclass
 class LoginRequest:
-    """Login request body."""
+    """Login request body sent to the backend."""
 
-    pubkey_bytes: list[int]
-    message: str
-    signature_bs58: str
+    message: str = ""
+    signature_bs58: str = ""
+    pubkey_bytes: list[int] = field(default_factory=list)
+    use_embedded_wallet: Optional[bool] = None
 
 
 @dataclass
 class LoginResponse:
-    """Login response body."""
+    """Login response from the backend."""
 
-    token: str
-    user_id: str
-    expires_at: int
+    token: str = ""
+    user_id: str = ""
+    wallet_address: str = ""
+    expires_at: int = 0
+    linked_account: Optional[LinkedAccount] = None
+    privy_id: Optional[str] = None
+    embedded_wallet: Optional[EmbeddedWallet] = None
+    x_username: Optional[str] = None
+    x_user_id: Optional[str] = None
+    x_display_name: Optional[str] = None
+    google_email: Optional[str] = None
+
+
+@dataclass
+class MeResponse:
+    """Response from GET /api/auth/me."""
+
+    user_id: str = ""
+    wallet_address: str = ""
+    linked_account: Optional[LinkedAccount] = None
+    privy_id: Optional[str] = None
+    embedded_wallet: Optional[EmbeddedWallet] = None
+    x_username: Optional[str] = None
+    x_user_id: Optional[str] = None
+    x_display_name: Optional[str] = None
+    google_email: Optional[str] = None
+    expires_at: int = 0
 
 
 @dataclass
 class NonceResponse:
     """Nonce response from the auth endpoint."""
 
-    nonce: str
+    nonce: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -103,15 +123,9 @@ class NonceResponse:
 def generate_signin_message(nonce: str) -> str:
     """Generate the sign-in message with a nonce.
 
-    Format: "Sign in to Lightcone\\n\\nNonce: {nonce}"
-    Matches TS auth/index.ts generateSigninMessage.
+    Format: "Sign in to Lightcone\\nNonce: {nonce}"
     """
-    return f"Sign in to Lightcone\n\nNonce: {nonce}"
-
-
-def is_authenticated(credentials: Optional[AuthCredentials]) -> bool:
-    """Check if credentials are present and have a token."""
-    return credentials is not None and bool(credentials.token)
+    return f"Sign in to Lightcone\nNonce: {nonce}"
 
 
 __all__ = [
@@ -123,7 +137,7 @@ __all__ = [
     "AuthCredentials",
     "LoginRequest",
     "LoginResponse",
+    "MeResponse",
     "NonceResponse",
     "generate_signin_message",
-    "is_authenticated",
 ]

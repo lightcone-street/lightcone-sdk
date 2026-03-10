@@ -1,12 +1,4 @@
-"""Lightcone SDK - Python SDK for the Lightcone protocol on Solana.
-
-Layered exports matching TS index.ts / Rust lib.rs:
-- Layer 1: Core (shared, domain, program, error, network)
-- Layer 2: Auth + Privy
-- Layer 3: HTTP
-- Layer 4: WebSocket
-- Layer 5: Client (LightconeClient + Builder)
-"""
+"""Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
 __version__ = "0.3.0"
 
@@ -66,9 +58,9 @@ from .auth import (
     ChainType,
     LoginRequest,
     LoginResponse,
+    MeResponse,
     NonceResponse,
     generate_signin_message,
-    is_authenticated,
 )
 
 from .auth.client import Auth, sign_login_message
@@ -78,11 +70,15 @@ from .privy import (
     SignAndSendTxRequest,
     SignAndSendTxResponse,
     SignAndSendOrderRequest,
+    SignAndCancelOrderRequest,
+    SignAndCancelAllRequest,
     ExportWalletRequest,
     ExportWalletResponse,
     privy_order_from_limit_envelope,
     privy_order_from_trigger_envelope,
 )
+
+from .privy.client import Privy
 
 # ============================================================================
 # Layer 3: HTTP
@@ -174,6 +170,12 @@ from .program import (
     BidOrderParams,
     AskOrderParams,
     BuildResult,
+    WhitelistDepositTokenParams,
+    DepositToGlobalParams,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
+    DepositAndSwapParams,
+    ExtendPositionTokensParams,
     # Constants
     PROGRAM_ID,
     ALT_PROGRAM_ID,
@@ -234,6 +236,8 @@ from .program import (
     get_alt_pda,
     get_all_conditional_mints,
     get_global_deposit_pda,
+    get_position_alt_pda,
+    get_user_global_deposit_pda,
     # Order Functions
     create_bid_order,
     create_ask_order,
@@ -256,8 +260,10 @@ from .program import (
     signature_hex,
     validate_order,
     validate_signed_order,
+    calculate_taker_fill,
     cancel_all_message,
     cancel_order_message,
+    cancel_trigger_order_message,
     sign_cancel_all,
     sign_cancel_order,
     # Instruction Builders
@@ -283,7 +289,6 @@ from .program import (
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
     build_extend_position_tokens_instruction,
-    build_claim_order_status_rent_instruction,
     # Envelope & Builder
     LimitOrderEnvelope,
     TriggerOrderEnvelope,
@@ -351,9 +356,9 @@ __all__ = [
     "EmbeddedWallet",
     "LoginRequest",
     "LoginResponse",
+    "MeResponse",
     "NonceResponse",
     "generate_signin_message",
-    "is_authenticated",
     "Auth",
     "sign_login_message",
     # Privy
@@ -361,8 +366,11 @@ __all__ = [
     "SignAndSendTxRequest",
     "SignAndSendTxResponse",
     "SignAndSendOrderRequest",
+    "SignAndCancelOrderRequest",
+    "SignAndCancelAllRequest",
     "ExportWalletRequest",
     "ExportWalletResponse",
+    "Privy",
     "privy_order_from_limit_envelope",
     "privy_order_from_trigger_envelope",
     # HTTP
@@ -429,6 +437,12 @@ __all__ = [
     "BidOrderParams",
     "AskOrderParams",
     "BuildResult",
+    "WhitelistDepositTokenParams",
+    "DepositToGlobalParams",
+    "GlobalToMarketDepositParams",
+    "InitPositionTokensParams",
+    "DepositAndSwapParams",
+    "ExtendPositionTokensParams",
     # Program - Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -489,6 +503,8 @@ __all__ = [
     "get_alt_pda",
     "get_all_conditional_mints",
     "get_global_deposit_pda",
+    "get_position_alt_pda",
+    "get_user_global_deposit_pda",
     # Program - Orders
     "create_bid_order",
     "create_ask_order",
@@ -511,8 +527,10 @@ __all__ = [
     "signature_hex",
     "validate_order",
     "validate_signed_order",
+    "calculate_taker_fill",
     "cancel_all_message",
     "cancel_order_message",
+    "cancel_trigger_order_message",
     "sign_cancel_all",
     "sign_cancel_order",
     # Program - Instructions (all 23)
@@ -538,7 +556,6 @@ __all__ = [
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
-    "build_claim_order_status_rent_instruction",
     # Program - Envelope & Builder
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",

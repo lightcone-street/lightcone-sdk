@@ -1,7 +1,4 @@
-"""OrderBuilder - fluent API for constructing orders.
-
-Matches TS program/builder.ts.
-"""
+"""OrderBuilder - fluent API for constructing orders."""
 
 from typing import Optional
 

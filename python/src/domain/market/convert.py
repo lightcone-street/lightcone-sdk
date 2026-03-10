@@ -21,77 +21,98 @@ def market_from_wire(wire: MarketWire) -> Market:
     """Convert a MarketWire to a Market domain type."""
     outcomes = [
         Outcome(
-            name=o.get("name", ""),
             index=o.get("index", i),
-            mint=o.get("mint"),
-            symbol=o.get("symbol"),
+            name=o.get("name", ""),
+            icon_url=o.get("icon_url", ""),
         )
         for i, o in enumerate(wire.outcomes)
     ]
 
-    conditional_tokens = [
-        ConditionalToken(
-            mint=ct.get("mint", ""),
-            outcome_index=ct.get("outcome_index", 0),
-            name=ct.get("name"),
-            symbol=ct.get("symbol"),
-            uri=ct.get("uri"),
-            decimals=ct.get("decimals", 6),
-        )
-        for ct in wire.conditional_tokens
-    ]
+    # Build conditional tokens and token_metadata from deposit_assets wire
+    conditional_tokens: list[ConditionalToken] = []
+    token_metadata: dict[str, TokenMetadata] = {}
+    deposit_assets: list[DepositAsset] = []
+    orderbook_ids: list[str] = []
 
-    deposit_assets = [
-        DepositAsset(
-            mint=da.get("mint", ""),
-            symbol=da.get("symbol"),
-            name=da.get("name"),
-            decimals=da.get("decimals", 6),
-            icon_url=da.get("icon_url"),
+    for da in wire.deposit_assets:
+        deposit_asset = DepositAsset(
+            id=da.get("id", 0),
+            market_pda=da.get("market_pubkey", ""),
+            deposit_asset=da.get("deposit_asset", ""),
+            num_outcomes=da.get("num_outcomes", 0),
+            name=da.get("display_name", ""),
+            symbol=da.get("token_symbol", da.get("symbol", "")),
+            description=da.get("description"),
+            decimals=da.get("decimals") or 6,
+            icon_url=da.get("icon_url", ""),
         )
-        for da in wire.deposit_assets
-    ]
+        deposit_assets.append(deposit_asset)
 
-    orderbook_pairs = [
-        OrderBookPairSummary(
-            id=ob.get("id", ""),
+        for ct in da.get("conditional_mints", []):
+            conditional_tokens.append(ConditionalToken(
+                mint=ct.get("token_address", ""),
+                outcome_index=ct.get("outcome_index", 0),
+                outcome=ct.get("outcome", ""),
+                deposit_asset=da.get("deposit_asset", ""),
+                deposit_symbol=da.get("token_symbol", da.get("symbol", "")),
+                name=ct.get("display_name", ct.get("name", "")),
+                symbol=ct.get("short_name", ct.get("symbol", "")),
+                description=ct.get("description"),
+                decimals=ct.get("decimals") or 6,
+                icon_url=ct.get("icon_url", ""),
+            ))
+            mint = ct.get("token_address", "")
+            if mint:
+                token_metadata[mint] = TokenMetadata(
+                    pubkey=mint,
+                    symbol=ct.get("short_name", ct.get("symbol", "")),
+                    decimals=ct.get("decimals") or 6,
+                    icon_url=ct.get("icon_url", ""),
+                    name=ct.get("display_name", ct.get("name", "")),
+                )
+
+    orderbook_pairs = []
+    for ob in wire.orderbooks:
+        ob_id = ob.get("orderbook_id", "")
+        orderbook_pairs.append(OrderBookPairSummary(
+            id=ob.get("id", 0),
+            market_pubkey=ob.get("market_pubkey", wire.market_pubkey),
+            orderbook_id=ob_id,
             base_token=ob.get("base_token", ""),
             quote_token=ob.get("quote_token", ""),
             outcome_index=ob.get("outcome_index", 0),
-            tick_size=ob.get("tick_size"),
+            tick_size=ob.get("tick_size", 0),
+            total_bids=ob.get("total_bids", 0),
+            total_asks=ob.get("total_asks", 0),
+            last_trade_price=ob.get("last_trade_price"),
+            last_trade_time=ob.get("last_trade_time"),
             active=ob.get("active", True),
-        )
-        for ob in wire.orderbook_pairs
-    ]
-
-    token_metadata = [
-        TokenMetadata(
-            mint=tm.get("mint", ""),
-            name=tm.get("name"),
-            symbol=tm.get("symbol"),
-            decimals=tm.get("decimals", 6),
-            icon_url=tm.get("icon_url"),
-        )
-        for tm in wire.token_metadata
-    ]
+        ))
+        if ob_id:
+            orderbook_ids.append(ob_id)
 
     return Market(
-        id=wire.id,
-        pubkey=wire.pubkey,
-        name=wire.name,
-        slug=wire.slug,
-        description=wire.description,
-        status=_parse_status(wire.status),
-        volume=wire.volume,
-        outcomes=outcomes,
-        conditional_tokens=conditional_tokens,
-        deposit_assets=deposit_assets,
-        orderbook_pairs=orderbook_pairs,
-        token_metadata=token_metadata,
-        icon_url=wire.icon_url,
-        category=wire.category,
-        featured=wire.featured,
+        id=wire.market_id,
+        pubkey=wire.market_pubkey,
+        name=wire.market_name,
+        banner_image_url=wire.banner_image_url or "",
+        icon_url=wire.icon_url or "",
+        featured_rank=wire.featured_rank,
+        volume=wire.volume or "0",
+        slug=wire.slug or "",
+        status=_parse_status(wire.market_status),
         created_at=wire.created_at,
-        resolved_at=wire.resolved_at,
+        activated_at=wire.activated_at,
+        settled_at=wire.settled_at,
         winning_outcome=wire.winning_outcome,
+        description=wire.description or "",
+        definition=wire.definition or "",
+        category=wire.category,
+        tags=wire.tags,
+        deposit_assets=deposit_assets,
+        conditional_tokens=conditional_tokens,
+        outcomes=outcomes,
+        orderbook_pairs=orderbook_pairs,
+        orderbook_ids=orderbook_ids,
+        token_metadata=token_metadata,
     )

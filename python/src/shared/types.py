@@ -1,7 +1,4 @@
-"""Shared type definitions used across the Lightcone SDK.
-
-Matches TS shared/types.ts with branded types, enums, and request shapes.
-"""
+"""Shared type definitions used across the Lightcone SDK."""
 
 from dataclasses import dataclass
 from enum import IntEnum
@@ -140,7 +137,7 @@ _RESOLUTION_SECONDS: dict[int, int] = {
 
 @dataclass
 class SubmitOrderRequest:
-    """Order submission request matching TS shared SubmitOrderRequest."""
+    """Order submission request."""
 
     maker: str
     nonce: int

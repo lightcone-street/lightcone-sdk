@@ -1,7 +1,4 @@
-"""WebSocket client protocol (interface).
-
-Matches TS ws/types.ts IWsClient interface.
-"""
+"""WebSocket client protocol (interface)."""
 
 from typing import Any, Callable, Optional, Protocol
 

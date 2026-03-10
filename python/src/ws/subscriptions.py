@@ -1,7 +1,4 @@
-"""WebSocket subscription management.
-
-Matches TS ws/subscriptions.ts with subscription types and matching.
-"""
+"""WebSocket subscription management."""
 
 from dataclasses import dataclass
 from typing import Optional, Union
@@ -35,7 +32,7 @@ class TradesParams:
 @dataclass
 class UserParams:
     type: str = "user"
-    user: str = ""
+    wallet_address: str = ""
 
 
 @dataclass
@@ -43,6 +40,7 @@ class PriceHistoryParams:
     type: str = "price_history"
     orderbook_id: str = ""
     resolution: str = "1m"
+    include_ohlcv: bool = False
 
 
 @dataclass
@@ -82,12 +80,12 @@ def subscription_key(params: SubscribeParams) -> str:
     """Generate a unique key for a subscription for deduplication."""
     if isinstance(params, BookUpdateParams):
         ids = ",".join(sorted(params.orderbook_ids))
-        return f"book_update:{ids}"
+        return f"book:{ids}"
     elif isinstance(params, TradesParams):
         ids = ",".join(sorted(params.orderbook_ids))
         return f"trades:{ids}"
     elif isinstance(params, UserParams):
-        return f"user:{params.user}"
+        return f"user:{params.wallet_address}"
     elif isinstance(params, PriceHistoryParams):
         return f"price_history:{params.orderbook_id}:{params.resolution}"
     elif isinstance(params, TickerParams):

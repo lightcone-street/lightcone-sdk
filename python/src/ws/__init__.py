@@ -1,7 +1,4 @@
-"""WebSocket module for the Lightcone SDK.
-
-Matches TS ws/index.ts with message types, config, events, and helper functions.
-"""
+"""WebSocket module for the Lightcone SDK."""
 
 import json
 from dataclasses import dataclass, field
@@ -51,23 +48,27 @@ def unsubscribe_trades(orderbook_ids: list[str]) -> dict:
     }
 
 
-def subscribe_user(user: str) -> dict:
+def subscribe_user(wallet_address: str) -> dict:
     """Create a user subscribe message."""
     return {
         "method": "subscribe",
-        "params": {"type": "user", "user": user},
+        "params": {"type": "user", "wallet_address": wallet_address},
     }
 
 
-def unsubscribe_user(user: str) -> dict:
+def unsubscribe_user(wallet_address: str) -> dict:
     """Create a user unsubscribe message."""
     return {
         "method": "unsubscribe",
-        "params": {"type": "user", "user": user},
+        "params": {"type": "user", "wallet_address": wallet_address},
     }
 
 
-def subscribe_price_history(orderbook_id: str, resolution: str) -> dict:
+def subscribe_price_history(
+    orderbook_id: str,
+    resolution: str,
+    include_ohlcv: bool = False,
+) -> dict:
     """Create a price_history subscribe message."""
     return {
         "method": "subscribe",
@@ -75,6 +76,7 @@ def subscribe_price_history(orderbook_id: str, resolution: str) -> dict:
             "type": "price_history",
             "orderbook_id": orderbook_id,
             "resolution": resolution,
+            "include_ohlcv": include_ohlcv,
         },
     }
 
@@ -148,7 +150,7 @@ class MessageIn:
 
     type: str
     data: Any = None
-    version: Optional[int] = None
+    version: Optional[float] = None
 
     @staticmethod
     def from_dict(d: dict) -> "MessageIn":
@@ -179,7 +181,7 @@ class WsConfig:
     max_reconnect_attempts: int = 10
     base_reconnect_delay_ms: int = 1000
     ping_interval_ms: int = 30_000
-    pong_timeout_ms: int = 10_000
+    pong_timeout_ms: int = 1_000
 
 
 WS_DEFAULT_CONFIG = WsConfig()
@@ -207,6 +209,8 @@ class WsEvent:
     type: WsEventType
     message: Optional[MessageIn] = None
     error: Optional[str] = None
+    code: Optional[int] = None
+    reason: str = ""
 
 
 # ---------------------------------------------------------------------------

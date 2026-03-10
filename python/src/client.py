@@ -1,7 +1,4 @@
-"""High-level Lightcone SDK client with builder pattern.
-
-Matches TS client.ts with LightconeClient and LightconeClientBuilder.
-"""
+"""High-level Lightcone SDK client with builder pattern."""
 
 from typing import Optional
 

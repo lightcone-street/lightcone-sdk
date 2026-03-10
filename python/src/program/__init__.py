@@ -36,6 +36,12 @@ from .types import (
     BidOrderParams,
     AskOrderParams,
     BuildResult,
+    WhitelistDepositTokenParams,
+    DepositToGlobalParams,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
+    DepositAndSwapParams,
+    ExtendPositionTokensParams,
 )
 
 # Constants
@@ -90,7 +96,6 @@ from .constants import (
     INSTRUCTION_INIT_POSITION_TOKENS,
     INSTRUCTION_DEPOSIT_AND_SWAP,
     INSTRUCTION_EXTEND_POSITION_TOKENS,
-    INSTRUCTION_CLAIM_ORDER_STATUS_RENT,
 )
 
 # Errors
@@ -151,7 +156,6 @@ from .instructions import (
     build_activate_market_instruction,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
-    build_claim_order_status_rent_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
     build_deposit_and_swap_instruction,
@@ -175,8 +179,10 @@ from .instructions import (
 
 # Order functions
 from .orders import (
+    calculate_taker_fill,
     cancel_all_message,
     cancel_order_message,
+    cancel_trigger_order_message,
     create_ask_order,
     create_bid_order,
     create_signed_ask_order,
@@ -214,6 +220,8 @@ from .pda import (
     get_order_status_pda,
     get_orderbook_pda,
     get_position_pda,
+    get_position_alt_pda,
+    get_user_global_deposit_pda,
     get_user_nonce_pda,
     get_vault_pda,
 )
@@ -256,6 +264,12 @@ __all__ = [
     "BidOrderParams",
     "AskOrderParams",
     "BuildResult",
+    "WhitelistDepositTokenParams",
+    "DepositToGlobalParams",
+    "GlobalToMarketDepositParams",
+    "InitPositionTokensParams",
+    "DepositAndSwapParams",
+    "ExtendPositionTokensParams",
     # Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -333,9 +347,13 @@ __all__ = [
     "get_orderbook_pda",
     "get_alt_pda",
     "get_all_conditional_mints",
+    "get_position_alt_pda",
+    "get_user_global_deposit_pda",
     # Order Functions
+    "calculate_taker_fill",
     "cancel_all_message",
     "cancel_order_message",
+    "cancel_trigger_order_message",
     "create_bid_order",
     "create_ask_order",
     "create_signed_bid_order",
@@ -382,7 +400,6 @@ __all__ = [
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
-    "build_claim_order_status_rent_instruction",
     # Envelope Builders
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",
