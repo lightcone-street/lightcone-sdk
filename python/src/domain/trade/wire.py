@@ -13,8 +13,11 @@ class TradeResponseWire:
     side: int = 0
     size: str = "0"
     price: str = "0"
+    taker_fee: Optional[str] = None
+    maker_fee: Optional[str] = None
     fees: Optional[str] = None
     executed_at: Optional[str] = None
+    market_pubkey: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "TradeResponseWire":
@@ -26,8 +29,11 @@ class TradeResponseWire:
             side=d.get("side", 0),
             size=str(d.get("size", "0")),
             price=str(d.get("price", "0")),
+            taker_fee=d.get("taker_fee"),
+            maker_fee=d.get("maker_fee"),
             fees=d.get("fees"),
             executed_at=d.get("executed_at"),
+            market_pubkey=d.get("market_pubkey"),
         )
 
 

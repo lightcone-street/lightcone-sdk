@@ -12,6 +12,7 @@ def trade_from_wire(wire: TradeResponseWire) -> Trade:
         price=wire.price,
         size=wire.size,
         side=wire.side,
+        market_pubkey=wire.market_pubkey or "",
     )
 
 

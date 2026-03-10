@@ -1,7 +1,9 @@
 """Order wire-to-domain conversion."""
 
-from . import Order, OrderStatus, SubmitOrderResponse, FillInfo
+from typing import Optional
+from . import Order, OrderStatus, SubmitOrderResponse, FillInfo, TriggerOrder, UserSnapshotOrder
 from .wire import WsOrder
+from .state import UserOpenOrders, UserTriggerOrders
 
 
 def order_from_ws(ws: WsOrder, market_pubkey: str, orderbook_id: str) -> Order:
@@ -42,3 +44,62 @@ def submit_response_from_dict(d: dict) -> SubmitOrderResponse:
         remaining=d.get("remaining", "0"),
         fills=fills,
     )
+
+
+def limit_snapshot_to_order(snapshot: UserSnapshotOrder) -> Order:
+    """Convert a limit-type UserSnapshotOrder to an Order domain type."""
+    try:
+        status = OrderStatus(snapshot.status.upper())
+    except ValueError:
+        status = OrderStatus.OPEN
+
+    return Order(
+        market_pubkey=snapshot.market_pubkey,
+        orderbook_id=snapshot.orderbook_id,
+        order_hash=snapshot.order_hash,
+        side=snapshot.side,
+        size=snapshot.size,
+        price=snapshot.price,
+        filled_size=snapshot.filled,
+        remaining_size=snapshot.remaining,
+        created_at=snapshot.created_at,
+        status=status,
+        outcome_index=snapshot.outcome_index,
+        tx_signature=snapshot.tx_signature,
+        base_mint=snapshot.base_mint,
+        quote_mint=snapshot.quote_mint,
+    )
+
+
+def trigger_snapshot_to_order(snapshot: UserSnapshotOrder) -> TriggerOrder:
+    """Convert a trigger-type UserSnapshotOrder to a TriggerOrder domain type."""
+    return TriggerOrder(
+        trigger_order_id=snapshot.trigger_order_id or "",
+        order_hash=snapshot.order_hash,
+        market_pubkey=snapshot.market_pubkey,
+        orderbook_id=snapshot.orderbook_id,
+        trigger_price=snapshot.trigger_price or "0",
+        trigger_type=snapshot.trigger_type or 0,
+        side=snapshot.side,
+        amount_in=snapshot.amount_in,
+        amount_out=snapshot.amount_out,
+        time_in_force=snapshot.time_in_force or 0,
+        created_at=snapshot.created_at,
+    )
+
+
+def split_snapshot_orders(
+    snapshots: list[UserSnapshotOrder],
+) -> tuple[UserOpenOrders, UserTriggerOrders]:
+    """Split a list of UserSnapshotOrders into limit and trigger containers."""
+    open_orders = UserOpenOrders()
+    trigger_orders = UserTriggerOrders()
+
+    for s in snapshots:
+        if s.order_type == "trigger":
+            trigger_orders.insert(trigger_snapshot_to_order(s))
+        else:
+            order = limit_snapshot_to_order(s)
+            open_orders.upsert(order)
+
+    return open_orders, trigger_orders

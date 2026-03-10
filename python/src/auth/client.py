@@ -41,7 +41,7 @@ class Auth:
         """Check if authenticated (based on cached credentials + expiry)."""
         if self._credentials is None:
             return False
-        return self._credentials.is_valid()
+        return self._credentials.is_authenticated()
 
     async def get_nonce(self) -> str:
         """Fetch a single-use nonce from the server for the sign-in challenge.
@@ -199,7 +199,6 @@ class Auth:
 
 def _user_from_dict(d: dict) -> User:
     """Parse a User from an API response dict."""
-    linked_account = None
     la = d.get("linked_account")
     if la and isinstance(la, dict):
         linked_account = LinkedAccount(
@@ -208,6 +207,8 @@ def _user_from_dict(d: dict) -> User:
             chain=la.get("chain"),
             address=la.get("address", ""),
         )
+    else:
+        linked_account = LinkedAccount()
 
     embedded_wallet = None
     ew = d.get("embedded_wallet")

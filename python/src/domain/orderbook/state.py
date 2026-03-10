@@ -60,6 +60,16 @@ class OrderbookSnapshot:
             return None
         return (float(bb) + float(ba)) / 2
 
+    def spread(self) -> Optional[float]:
+        bb = self.best_bid()
+        ba = self.best_ask()
+        if bb is None or ba is None:
+            return None
+        return float(ba) - float(bb)
+
+    def is_empty(self) -> bool:
+        return not self.bids and not self.asks
+
     def clear(self) -> None:
         self.bids.clear()
         self.asks.clear()

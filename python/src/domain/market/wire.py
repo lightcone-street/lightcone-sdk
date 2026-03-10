@@ -112,10 +112,16 @@ class MarketEvent:
     """WebSocket market event."""
     event_type: str = ""
     market_pubkey: str = ""
+    status: Optional[str] = None
+    winning_outcome: Optional[int] = None
+    orderbook_id: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "MarketEvent":
         return MarketEvent(
             event_type=d.get("event_type", ""),
             market_pubkey=d.get("market_pubkey", ""),
+            status=d.get("status"),
+            winning_outcome=d.get("winning_outcome"),
+            orderbook_id=d.get("orderbook_id"),
         )

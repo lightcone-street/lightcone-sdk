@@ -1,7 +1,7 @@
 """Authentication types and utilities for the Lightcone SDK."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal
+from typing import Optional, Literal, ClassVar
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +42,7 @@ class User:
 
     id: str = ""
     wallet_address: str = ""
-    linked_account: Optional[LinkedAccount] = None
+    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
     privy_id: Optional[str] = None
     embedded_wallet: Optional[EmbeddedWallet] = None
     x_username: Optional[str] = None
@@ -59,7 +59,7 @@ class AuthCredentials:
     wallet_address: str = ""
     expires_at: int = 0
 
-    def is_valid(self) -> bool:
+    def is_authenticated(self) -> bool:
         """Whether the session is still valid (not expired)."""
         import time
         return time.time() < self.expires_at
@@ -83,7 +83,7 @@ class LoginResponse:
     user_id: str = ""
     wallet_address: str = ""
     expires_at: int = 0
-    linked_account: Optional[LinkedAccount] = None
+    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
     privy_id: Optional[str] = None
     embedded_wallet: Optional[EmbeddedWallet] = None
     x_username: Optional[str] = None
@@ -98,7 +98,7 @@ class MeResponse:
 
     user_id: str = ""
     wallet_address: str = ""
-    linked_account: Optional[LinkedAccount] = None
+    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
     privy_id: Optional[str] = None
     embedded_wallet: Optional[EmbeddedWallet] = None
     x_username: Optional[str] = None

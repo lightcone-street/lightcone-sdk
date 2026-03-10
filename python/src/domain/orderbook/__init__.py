@@ -14,7 +14,10 @@ class OrderBookPair:
     quote_token: str
     outcome_index: int
     tick_size: Optional[str] = None
+    total_bids: int = 0
+    total_asks: int = 0
     last_trade_price: Optional[str] = None
+    last_trade_time: Optional[str] = None
     active: bool = True
 
 
@@ -23,6 +26,8 @@ class OutcomeImpact:
     """Price impact calculation result."""
     pct: float
     dollar: float
+    sign: str = ""
+    is_positive: bool = False
 
 
 def impact(current_price: float, new_price: float) -> float:

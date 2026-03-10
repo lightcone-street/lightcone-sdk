@@ -19,43 +19,52 @@ class TokenBalance:
 
 @dataclass
 class PositionOutcome:
-    condition_id: Optional[str] = None
-    name: Optional[str] = None
-    mint: Optional[str] = None
+    condition_id: int = 0
+    condition_name: str = ""
+    token_mint: str = ""
     amount: int = 0
-    usd_value: Optional[str] = None
+    usd_value: str = "0"
 
 
 @dataclass
 class Position:
     """Position in a single market."""
     event_pubkey: str
-    event_name: Optional[str] = None
+    event_name: str = ""
+    event_img_src: str = ""
     outcomes: list[PositionOutcome] = field(default_factory=list)
-    total_value: Optional[str] = None
+    total_value: str = "0"
+    created_at: Optional[str] = None
 
 
 @dataclass
 class WalletHolding:
     token_mint: str
-    symbol: Optional[str] = None
+    symbol: str = ""
     amount: int = 0
     decimals: int = 6
-    usd_value: Optional[str] = None
+    usd_value: str = "0"
+    img_src: str = ""
 
 
 @dataclass
 class DepositAssetMetadata:
     mint: str
-    symbol: Optional[str] = None
+    symbol: str = ""
+    name: str = ""
+    icon_url: str = ""
     decimals: int = 6
+    value: str = "0"
 
 
 @dataclass
 class DepositTokenBalance:
     mint: str
     amount: int = 0
-    symbol: Optional[str] = None
+    idle: int = 0
+    symbol: str = ""
+    name: str = ""
+    icon_url: str = ""
 
 
 @dataclass
@@ -64,15 +73,16 @@ class Portfolio:
     user_address: str
     wallet_holdings: list[WalletHolding] = field(default_factory=list)
     positions: list[Position] = field(default_factory=list)
-    total_wallet_value: Optional[str] = None
-    total_positions_value: Optional[str] = None
+    total_wallet_value: str = "0"
+    total_positions_value: str = "0"
 
 
 @dataclass
 class TokenBalanceComputedBase:
     mint: str
-    idle: int = 0
-    on_book: int = 0
+    value: str = "0"
+    size: str = "0"
+    price: str = "0"
 
 
 __all__ = [

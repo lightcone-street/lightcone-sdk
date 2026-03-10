@@ -11,10 +11,7 @@ from .wire import MarketWire
 def _parse_status(s: Optional[str]) -> Status:
     if s is None:
         return Status.PENDING
-    try:
-        return Status(s.lower())
-    except ValueError:
-        return Status.PENDING
+    return Status.from_str(s)
 
 
 def market_from_wire(wire: MarketWire) -> Market:

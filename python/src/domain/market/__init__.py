@@ -10,6 +10,17 @@ class Status(str, Enum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     CANCELLED = "cancelled"
+    SETTLED = "settled"
+
+    def as_str(self) -> str:
+        return self.value
+
+    @staticmethod
+    def from_str(s: str) -> "Status":
+        try:
+            return Status(s.lower())
+        except ValueError:
+            return Status.PENDING
 
 
 @dataclass

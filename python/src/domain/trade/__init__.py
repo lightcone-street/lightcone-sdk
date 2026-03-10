@@ -13,6 +13,8 @@ class Trade:
     price: str
     size: str
     side: int
+    market_pubkey: str = ""
+    taker_side: Optional[int] = None
 
 
 @dataclass

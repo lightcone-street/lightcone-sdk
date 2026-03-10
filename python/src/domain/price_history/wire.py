@@ -36,13 +36,17 @@ class PriceHistorySnapshot:
     orderbook_id: str
     resolution: str
     candles: list[PriceCandle] = field(default_factory=list)
+    last_timestamp: Optional[int] = None
+    server_time: Optional[int] = None
 
     @staticmethod
     def from_dict(d: dict) -> "PriceHistorySnapshot":
         return PriceHistorySnapshot(
             orderbook_id=d.get("orderbook_id", ""),
             resolution=d.get("resolution", "1m"),
-            candles=[PriceCandle.from_dict(c) for c in d.get("candles", [])],
+            candles=[PriceCandle.from_dict(c) for c in d.get("candles", d.get("prices", []))],
+            last_timestamp=d.get("last_timestamp"),
+            server_time=d.get("server_time"),
         )
 
 
@@ -65,7 +69,11 @@ class PriceHistoryUpdate:
 @dataclass
 class PriceHistoryHeartbeat:
     server_time: int = 0
+    last_processed: Optional[int] = None
 
     @staticmethod
     def from_dict(d: dict) -> "PriceHistoryHeartbeat":
-        return PriceHistoryHeartbeat(server_time=d.get("server_time", 0))
+        return PriceHistoryHeartbeat(
+            server_time=d.get("server_time", 0),
+            last_processed=d.get("last_processed"),
+        )
