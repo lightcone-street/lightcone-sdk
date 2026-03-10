@@ -125,3 +125,21 @@ export interface UnrevokeResponse {
   restored_count: number;
   user_ids: string[];
 }
+
+export interface CreateNotificationRequest {
+  title: string;
+  message: string;
+  expires_at?: string;
+}
+
+export interface CreateNotificationResponse {
+  status: string;
+}
+
+export interface DismissNotificationRequest {
+  notification_id: string;
+}
+
+export interface DismissNotificationResponse {
+  status: string;
+}

@@ -30,6 +30,7 @@ import {
   DepositToGlobalParams,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
+  ExtendPositionTokensParams,
   DepositAndSwapParams,
   SignedOrder,
   OutcomeMetadata,
@@ -204,8 +205,11 @@ export function buildAddDepositMintIx(
     programId
   );
 
+  const [exchange] = getExchangePda(programId);
+
   const keys: AccountMeta[] = [
     signerMut(params.payer),
+    readonly(exchange),
     writable(market),
     readonly(params.depositMint),
     writable(vault),
@@ -1079,17 +1083,15 @@ export function buildInitPositionTokensIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   const [exchange] = getExchangePda(programId);
-  const [vault] = getVaultPda(params.depositMint, params.market, programId);
   const [position] = getPositionPda(params.user, params.market, programId);
   const [lookupTable] = getPositionAltPda(position, params.recentSlot);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
 
   const keys: AccountMeta[] = [
-    signerMut(params.user),
+    signerMut(params.payer),
+    readonly(params.user),
     readonly(exchange),
     readonly(params.market),
-    readonly(params.depositMint),
-    readonly(vault),
     writable(position),
     writable(lookupTable),
     readonly(mintAuthority),
@@ -1099,20 +1101,107 @@ export function buildInitPositionTokensIx(
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  for (let i = 0; i < numOutcomes; i += 1) {
-    const [conditionalMint] = getAllConditionalMintPdas(
-      params.market,
-      params.depositMint,
-      numOutcomes,
-      programId
-    )[i];
-    keys.push(readonly(conditionalMint));
-    keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
+  for (const depositMint of params.depositMints) {
+    const [vault] = getVaultPda(depositMint, params.market, programId);
+    const [gdt] = getGlobalDepositTokenPda(depositMint, programId);
+    keys.push(readonly(depositMint));
+    keys.push(readonly(vault));
+    keys.push(readonly(gdt));
+
+    for (let i = 0; i < numOutcomes; i += 1) {
+      const [conditionalMint] = getAllConditionalMintPdas(
+        params.market,
+        depositMint,
+        numOutcomes,
+        programId
+      )[i];
+      keys.push(readonly(conditionalMint));
+      keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
+    }
   }
 
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.INIT_POSITION_TOKENS]),
     toU64Le(params.recentSlot),
+    toU8(params.depositMints.length),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+/**
+ * Build ExtendPositionTokens instruction
+ *
+ * Extends an existing position's lookup table with new deposit mints.
+ *
+ * Accounts:
+ * 0. payer (signer, mut)
+ * 1. user (readonly)
+ * 2. exchange (readonly)
+ * 3. market (readonly)
+ * 4. position (readonly)
+ * 5. lookup_table (mut)
+ * 6. token_2022_program (readonly)
+ * 7. ata_program (readonly)
+ * 8. alt_program (readonly)
+ * 9. system_program (readonly)
+ * Per deposit_mint:
+ *   deposit_mint (readonly), vault (readonly), gdt (readonly),
+ *   per outcome: conditional_mint (readonly), position_ata (mut)
+ *
+ * Data: [discriminator, num_deposit_mints (u8)]
+ */
+export function buildExtendPositionTokensIx(
+  params: ExtendPositionTokensParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  if (params.depositMints.length === 0) {
+    throw new Error("deposit_mints is required");
+  }
+
+  const [exchange] = getExchangePda(programId);
+  const [position] = getPositionPda(params.user, params.market, programId);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.payer),
+    readonly(params.user),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(position),
+    writable(params.lookupTable),
+    readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(ALT_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  for (const depositMint of params.depositMints) {
+    const [vault] = getVaultPda(depositMint, params.market, programId);
+    const [gdt] = getGlobalDepositTokenPda(depositMint, programId);
+    keys.push(readonly(depositMint));
+    keys.push(readonly(vault));
+    keys.push(readonly(gdt));
+
+    for (let i = 0; i < numOutcomes; i += 1) {
+      const [conditionalMint] = getAllConditionalMintPdas(
+        params.market,
+        depositMint,
+        numOutcomes,
+        programId
+      )[i];
+      keys.push(readonly(conditionalMint));
+      keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
+    }
+  }
+
+  const data = Buffer.from([
+    INSTRUCTION.EXTEND_POSITION_TOKENS,
+    params.depositMints.length,
   ]);
 
   return new TransactionInstruction({

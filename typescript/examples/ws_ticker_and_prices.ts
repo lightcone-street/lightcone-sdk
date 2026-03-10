@@ -45,7 +45,7 @@ async function main() {
         if (data.event_type === "snapshot") {
           const prices: LineData[] = data.prices.map((c) => ({
             time: c.t,
-            value: c.m ? parseFloat(c.m) : 0,
+            value: c.m ?? "0",
           }));
           history.applySnapshot(
             asOrderBookId(data.orderbook_id),
@@ -56,7 +56,7 @@ async function main() {
         } else if (data.event_type === "update") {
           const point: LineData = {
             time: data.t,
-            value: data.m ? parseFloat(data.m) : 0,
+            value: data.m ?? "0",
           };
           history.applyUpdate(
             asOrderBookId(data.orderbook_id),

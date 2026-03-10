@@ -31,6 +31,7 @@ export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
 export { Trades } from "./domain/trade";
 export { PriceHistoryClient } from "./domain/price_history";
+export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
 
 export type {
@@ -126,6 +127,14 @@ export type {
 } from "./privy";
 
 export type {
+  Notification,
+  NotificationKind,
+  MarketResolvedData,
+  OrderFilledData,
+  MarketData,
+} from "./domain/notification";
+
+export type {
   RedeemResult,
   ReferralCodeInfo,
   ReferralStatus,
@@ -156,4 +165,5 @@ export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;
 export type TradesClient = import("./domain/trade").Trades;
 export type PriceHistorySubClient = import("./domain/price_history").PriceHistoryClient;
+export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;

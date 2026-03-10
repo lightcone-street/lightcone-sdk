@@ -2,7 +2,7 @@ import bs58 from "bs58";
 import { SdkError } from "../../error";
 import { RetryPolicy, type LightconeHttp } from "../../http";
 import type { OrderBookId, PubkeyStr } from "../../shared";
-import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
+import type { GlobalDepositBalance, UserSnapshotBalance, UserSnapshotOrder } from "./wire";
 
 export interface CancelBody {
   order_hash: string;
@@ -153,6 +153,7 @@ export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
   balances: UserSnapshotBalance[];
+  global_deposits: GlobalDepositBalance[];
   next_cursor?: string;
   has_more: boolean;
 }

@@ -9,6 +9,7 @@ import type {
   TriggerType,
   TriggerUpdateType,
 } from "../../shared";
+import type { Notification } from "../notification";
 import type { OrderStatus } from "./index";
 
 export interface ConditionalBalance {
@@ -22,6 +23,11 @@ export interface UserSnapshotBalance {
   market_pubkey: PubkeyStr;
   orderbook_id: OrderBookId;
   outcomes: ConditionalBalance[];
+}
+
+export interface GlobalDepositBalance {
+  mint: PubkeyStr;
+  balance: string;
 }
 
 export interface UserOrderUpdateBalance {
@@ -89,6 +95,8 @@ export type UserSnapshotOrder =
 export interface UserSnapshot {
   orders: UserSnapshotOrder[];
   balances: Record<string, UserSnapshotBalance>;
+  global_deposits: GlobalDepositBalance[];
+  notifications: Notification[];
 }
 
 export interface TriggerOrderUpdate {
@@ -112,6 +120,10 @@ export type OrderEvent =
   | { order_type: "limit"; payload: OrderUpdate }
   | { order_type: "trigger"; payload: TriggerOrderUpdate };
 
+export interface NotificationUpdate {
+  notification: Notification;
+}
+
 export type UserUpdate =
   | { event_type: "snapshot"; payload: UserSnapshot }
   | { event_type: "order"; payload: OrderEvent }
@@ -123,7 +135,8 @@ export type UserUpdate =
         balance: { outcomes: ConditionalBalance[] };
         timestamp: string;
       };
-    };
+    }
+  | { event_type: "notification"; payload: NotificationUpdate };
 
 export type AuthUpdate =
   | { status: "authenticated"; wallet: PubkeyStr }

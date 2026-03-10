@@ -1,6 +1,7 @@
 import { Auth, type AuthCredentials } from "./auth";
 import { Admin } from "./domain/admin";
 import { Markets } from "./domain/market";
+import { Notifications } from "./domain/notification";
 import { Orders } from "./domain/order";
 import { Orderbooks } from "./domain/orderbook";
 import type { DecimalsResponse } from "./domain/orderbook";
@@ -102,6 +103,10 @@ export class LightconeClient {
 
   priceHistory(): PriceHistoryClient {
     return new PriceHistoryClient(this);
+  }
+
+  notifications(): Notifications {
+    return new Notifications(this);
   }
 
   admin(): Admin {

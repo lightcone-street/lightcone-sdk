@@ -50,6 +50,7 @@ export type {
   DepositToGlobalParams,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
+  ExtendPositionTokensParams,
   DepositAndSwapParams,
   BuildResult,
   InitializeAccounts,
@@ -178,6 +179,7 @@ export {
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
   buildInitPositionTokensIx,
+  buildExtendPositionTokensIx,
   buildDepositAndSwapIx,
 } from "./instructions";
 

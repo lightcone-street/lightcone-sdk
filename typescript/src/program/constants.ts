@@ -13,7 +13,7 @@ import {
  * Lightcone Pinocchio Program ID
  */
 export const PROGRAM_ID = new PublicKey(
-  "9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A"
+  "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
 );
 
 /**
@@ -73,6 +73,7 @@ export const INSTRUCTION = {
   GLOBAL_TO_MARKET_DEPOSIT: 18,
   INIT_POSITION_TOKENS: 19,
   DEPOSIT_AND_SWAP: 20,
+  EXTEND_POSITION_TOKENS: 21,
 } as const;
 
 /**
@@ -124,7 +125,7 @@ export const MIN_OUTCOMES = 2;
 /**
  * Maximum number of makers per match_orders_multi instruction
  */
-export const MAX_MAKERS = 7;
+export const MAX_MAKERS = 5;
 
 /**
  * PDA Seeds

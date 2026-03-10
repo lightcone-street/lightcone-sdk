@@ -29,6 +29,7 @@ import {
   DepositToGlobalParams,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
+  ExtendPositionTokensParams,
   DepositAndSwapParams,
   SignedOrder,
   BidOrderParams,
@@ -76,6 +77,7 @@ import {
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
   buildInitPositionTokensIx,
+  buildExtendPositionTokensIx,
   buildDepositAndSwapIx,
 } from "./instructions";
 import {
@@ -554,7 +556,16 @@ export class LightconePinocchioClient {
     const [position] = pda.getPositionPda(params.user, params.market, this.programId);
     const [lookupTable] = pda.getPositionAltPda(position, params.recentSlot);
     const ix = buildInitPositionTokensIx(params, numOutcomes, this.programId);
-    return this.createBuildResult(params.user, { position, lookupTable }, ix);
+    return this.createBuildResult(params.payer, { position, lookupTable }, ix);
+  }
+
+  async extendPositionTokens(
+    params: ExtendPositionTokensParams,
+    numOutcomes: number
+  ): Promise<BuildResult<{ position: PublicKey; lookupTable: PublicKey }>> {
+    const [position] = pda.getPositionPda(params.user, params.market, this.programId);
+    const ix = buildExtendPositionTokensIx(params, numOutcomes, this.programId);
+    return this.createBuildResult(params.payer, { position, lookupTable: params.lookupTable }, ix);
   }
 
   async depositAndSwap(

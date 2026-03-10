@@ -6,12 +6,19 @@ export interface OutcomeBalance {
   balance_on_book: string;
 }
 
+export interface VaultBalance {
+  deposit_mint: string;
+  vault: string;
+  balance: string;
+}
+
 export interface PositionEntry {
   id: number;
   position_pubkey: string;
   owner: string;
   market_pubkey: string;
   outcomes: OutcomeBalance[];
+  vault_balances: VaultBalance[];
   created_at: string;
   updated_at: string;
 }

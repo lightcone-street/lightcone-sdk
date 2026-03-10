@@ -40,6 +40,7 @@ export interface Exchange {
   marketCount: bigint; // u64 - incremented for each market
   paused: boolean; // u8 - 0 = active, 1 = paused
   bump: number; // u8
+  depositTokenCount: number; // u16 - number of whitelisted deposit tokens
 }
 
 /**
@@ -117,6 +118,7 @@ export interface GlobalDepositToken {
   mint: PublicKey; // 32 bytes
   active: boolean; // u8
   bump: number; // u8
+  index: number; // u16 - ALT ordering index
 }
 
 // ============================================================================
@@ -351,15 +353,27 @@ export interface GlobalToMarketDepositParams {
  * Parameters for initPositionTokens instruction
  */
 export interface InitPositionTokensParams {
+  payer: PublicKey;
   user: PublicKey;
   market: PublicKey;
-  depositMint: PublicKey;
+  depositMints: PublicKey[];
   recentSlot: bigint;
 }
 
 /**
  * Parameters for depositAndSwap instruction
  */
+/**
+ * Parameters for extendPositionTokens instruction
+ */
+export interface ExtendPositionTokensParams {
+  payer: PublicKey;
+  user: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+  depositMints: PublicKey[];
+}
+
 export interface DepositAndSwapParams {
   operator: PublicKey;
   market: PublicKey;
