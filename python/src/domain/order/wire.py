@@ -1,7 +1,10 @@
 """Order wire types - raw API shapes."""
 
 from dataclasses import dataclass, field
+from decimal import Decimal, InvalidOperation
 from typing import Optional
+
+from ...shared.types import Side
 
 
 @dataclass
@@ -25,18 +28,23 @@ class WsOrder:
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrder":
+        remaining = str(d.get("remaining", d.get("remaining_size", "0")))
+        filled = str(d.get("filled", d.get("filled_size", "0")))
+        size = d.get("size")
+        if size is None:
+            size = _sum_decimal_strings(remaining, filled)
         return WsOrder(
             order_hash=d.get("order_hash", ""),
-            side=d.get("side", 0),
-            price=d.get("price", "0"),
-            size=d.get("size", "0"),
-            filled_size=d.get("filled_size"),
-            remaining_size=d.get("remaining_size"),
+            side=int(Side.from_wire(d.get("side", 0))),
+            price=str(d.get("price", "0")),
+            size=str(size),
+            filled_size=filled,
+            remaining_size=remaining,
             status=d.get("status"),
             is_maker=d.get("is_maker", False),
-            remaining=d.get("remaining"),
-            filled=d.get("filled"),
-            fill_amount=d.get("fill_amount"),
+            remaining=remaining,
+            filled=filled,
+            fill_amount=str(d.get("fill_amount", "0")),
             base_mint=d.get("base_mint", ""),
             quote_mint=d.get("quote_mint", ""),
             outcome_index=d.get("outcome_index", 0),
@@ -62,7 +70,7 @@ class OrderUpdate:
             orderbook_id=d.get("orderbook_id", ""),
             timestamp=d.get("timestamp"),
             tx_signature=d.get("tx_signature"),
-            update_type=d.get("update_type"),
+            update_type=d.get("type", d.get("update_type")),
             order=WsOrder.from_dict(order_data) if order_data else None,
         )
 
@@ -81,6 +89,7 @@ class TriggerOrderUpdate:
     result_filled: Optional[str] = None
     result_remaining: Optional[str] = None
     timestamp: Optional[str] = None
+    side: int = 0
 
     @staticmethod
     def from_dict(d: dict) -> "TriggerOrderUpdate":
@@ -90,13 +99,14 @@ class TriggerOrderUpdate:
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
             order_hash=d.get("order_hash", ""),
-            trigger_price=d.get("trigger_price"),
+            trigger_price=str(d.get("trigger_price")) if d.get("trigger_price") is not None else None,
             trigger_above=d.get("trigger_above"),
-            update_type=d.get("update_type"),
+            update_type=d.get("type", d.get("update_type")),
             result_status=d.get("result_status"),
-            result_filled=d.get("result_filled"),
-            result_remaining=d.get("result_remaining"),
+            result_filled=str(d.get("result_filled", "0")) if d.get("result_filled") is not None else None,
+            result_remaining=str(d.get("result_remaining", "0")) if d.get("result_remaining") is not None else None,
             timestamp=d.get("timestamp"),
+            side=int(Side.from_wire(d.get("side", 0))),
         )
 
 
@@ -138,16 +148,42 @@ class UserSnapshot:
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshot":
+        balances = d.get("balances", [])
+        if isinstance(balances, dict):
+            balances = list(balances.values())
         return UserSnapshot(
             orders=d.get("orders", []),
-            balances=d.get("balances", []),
+            balances=balances,
             global_deposits=d.get("global_deposits", []),
             notifications=d.get("notifications", []),
         )
 
 
 @dataclass
+class UserUpdate:
+    event_type: str = ""
+    data: Optional[object] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserUpdate":
+        event_type = d.get("event_type", "")
+        if event_type == "snapshot":
+            payload = UserSnapshot.from_dict(d)
+        elif event_type == "order":
+            payload = _parse_order_event(d)
+        elif event_type == "balance_update":
+            payload = UserBalanceUpdate.from_dict(d)
+        elif event_type == "notification":
+            payload = NotificationUpdate.from_dict(d)
+        else:
+            payload = d
+
+        return UserUpdate(event_type=event_type, data=payload)
+
+
+@dataclass
 class AuthUpdate:
+    status: str = "anonymous"
     authenticated: bool = False
     wallet_address: Optional[str] = None
     code: Optional[str] = None
@@ -155,9 +191,30 @@ class AuthUpdate:
 
     @staticmethod
     def from_dict(d: dict) -> "AuthUpdate":
+        status = d.get("status")
+        if status is None:
+            authenticated = d.get("authenticated", False)
+            status = "authenticated" if authenticated else "anonymous"
+        else:
+            authenticated = status == "authenticated"
+
         return AuthUpdate(
-            authenticated=d.get("authenticated", False),
-            wallet_address=d.get("wallet_address"),
+            status=status,
+            authenticated=authenticated,
+            wallet_address=d.get("wallet", d.get("wallet_address")),
             code=d.get("code"),
             message=d.get("message"),
         )
+
+
+def _parse_order_event(d: dict) -> object:
+    if d.get("order_type") == "trigger":
+        return TriggerOrderUpdate.from_dict(d)
+    return OrderUpdate.from_dict(d)
+
+
+def _sum_decimal_strings(left: str, right: str) -> str:
+    try:
+        return format(Decimal(left) + Decimal(right), "f")
+    except (InvalidOperation, ValueError):
+        return "0"

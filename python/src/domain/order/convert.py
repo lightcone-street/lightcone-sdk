@@ -1,9 +1,11 @@
 """Order wire-to-domain conversion."""
 
 from typing import Optional
+
 from . import Order, OrderStatus, SubmitOrderResponse, FillInfo, TriggerOrder, UserSnapshotOrder
 from .wire import WsOrder
 from .state import UserOpenOrders, UserTriggerOrders
+from ...shared.types import TimeInForce, TriggerType
 
 
 def order_from_ws(ws: WsOrder, market_pubkey: str, orderbook_id: str) -> Order:
@@ -79,11 +81,11 @@ def trigger_snapshot_to_order(snapshot: UserSnapshotOrder) -> TriggerOrder:
         market_pubkey=snapshot.market_pubkey,
         orderbook_id=snapshot.orderbook_id,
         trigger_price=snapshot.trigger_price or "0",
-        trigger_type=snapshot.trigger_type or 0,
+        trigger_type=snapshot.trigger_type or TriggerType.STOP_LOSS,
         side=snapshot.side,
         amount_in=snapshot.amount_in,
         amount_out=snapshot.amount_out,
-        time_in_force=snapshot.time_in_force or 0,
+        time_in_force=snapshot.time_in_force or TimeInForce.GTC,
         created_at=snapshot.created_at,
     )
 

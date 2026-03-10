@@ -1,7 +1,6 @@
 """Orders sub-client."""
 
 from typing import Optional, TYPE_CHECKING
-from urllib.parse import quote as url_quote
 
 from . import (
     SubmitOrderResponse,
@@ -19,7 +18,14 @@ from . import (
     ConditionalBalance,
 )
 from .convert import submit_response_from_dict
-from ...shared.types import SubmitOrderRequest, SubmitTriggerOrderRequest
+from ...error import SdkError
+from ...shared.types import (
+    Side,
+    SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
+    TimeInForce,
+    TriggerType,
+)
 
 if TYPE_CHECKING:
     from ...http.client import LightconeHttp
@@ -34,11 +40,17 @@ class Orders:
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
         """Submit a limit order."""
         data = await self._http.post("/api/orders/submit", request.to_dict())
-        return submit_response_from_dict(data)
+        place = _unwrap_status(
+            data,
+            success_statuses={"accepted", "partial_fill", "filled"},
+            rejected_statuses={"rejected"},
+        )
+        return submit_response_from_dict(place)
 
     async def cancel(self, body: CancelBody) -> CancelSuccess:
         """Cancel a single order."""
         data = await self._http.post("/api/orders/cancel", body.to_dict())
+        data = _unwrap_status(data, success_statuses={"cancelled"})
         return CancelSuccess(
             order_hash=data.get("order_hash", body.order_hash),
             remaining=data.get("remaining", 0),
@@ -47,6 +59,7 @@ class Orders:
     async def cancel_all(self, body: CancelAllBody) -> CancelAllSuccess:
         """Cancel all orders for a user."""
         data = await self._http.post("/api/orders/cancel-all", body.to_dict())
+        data = _unwrap_status(data, success_statuses={"success"})
         return CancelAllSuccess(
             cancelled_order_hashes=data.get("cancelled_order_hashes", []),
             count=data.get("count", 0),
@@ -58,6 +71,7 @@ class Orders:
     async def submit_trigger(self, request: SubmitTriggerOrderRequest) -> TriggerOrderResponse:
         """Submit a trigger order."""
         data = await self._http.post("/api/orders/submit", request.to_dict())
+        data = _unwrap_status(data, success_statuses={"accepted"})
         return TriggerOrderResponse(
             trigger_order_id=data.get("trigger_order_id", ""),
             order_hash=data.get("order_hash", ""),
@@ -66,6 +80,7 @@ class Orders:
     async def cancel_trigger(self, body: CancelTriggerBody) -> CancelTriggerSuccess:
         """Cancel a trigger order."""
         data = await self._http.post("/api/orders/cancel", body.to_dict())
+        data = _unwrap_status(data, success_statuses={"cancelled"})
         return CancelTriggerSuccess(
             trigger_order_id=data.get("trigger_order_id", body.trigger_order_id),
         )
@@ -88,7 +103,7 @@ class Orders:
         orders = [
             UserSnapshotOrder(
                 order_hash=o.get("order_hash", ""),
-                side=o.get("side", 0),
+                side=int(Side.from_wire(o.get("side", 0))),
                 price=o.get("price", "0"),
                 size=o.get("size", "0"),
                 orderbook_id=o.get("orderbook_id", ""),
@@ -106,8 +121,8 @@ class Orders:
                 created_at=o.get("created_at"),
                 trigger_order_id=o.get("trigger_order_id"),
                 trigger_price=o.get("trigger_price"),
-                trigger_type=o.get("trigger_type"),
-                time_in_force=o.get("time_in_force"),
+                trigger_type=_parse_trigger_type(o.get("trigger_type")),
+                time_in_force=_parse_time_in_force(o.get("time_in_force")),
             )
             for o in data.get("orders", [])
         ]
@@ -145,3 +160,61 @@ class Orders:
             next_cursor=data.get("next_cursor"),
             has_more=data.get("has_more", False),
         )
+
+
+def _parse_time_in_force(value: object) -> Optional[TimeInForce]:
+    if value is None:
+        return None
+    return TimeInForce.from_wire(value)
+
+
+def _parse_trigger_type(value: object) -> Optional[TriggerType]:
+    if value is None:
+        return None
+    return TriggerType.from_wire(value)
+
+
+def _unwrap_status(
+    data: dict,
+    *,
+    success_statuses: set[str],
+    rejected_statuses: Optional[set[str]] = None,
+) -> dict:
+    status = data.get("status")
+    if status is None or status in success_statuses:
+        return data
+
+    rejected_statuses = rejected_statuses or set()
+    if status in rejected_statuses:
+        error = data.get("error")
+        details = data.get("details")
+        if error and details:
+            raise SdkError(f"{error}: {details}")
+        if error:
+            raise SdkError(error)
+        if details:
+            raise SdkError(details)
+
+        parts = ["Rejected"]
+        if data.get("order_hash"):
+            parts.append(f"hash={data['order_hash']}")
+        if data.get("filled") is not None:
+            parts.append(f"filled={data['filled']}")
+        if data.get("remaining") is not None:
+            parts.append(f"remaining={data['remaining']}")
+        raise SdkError(", ".join(parts))
+
+    message = data.get("message")
+    error = data.get("error")
+    details = data.get("details")
+
+    if error and details:
+        raise SdkError(f"{error}: {details}")
+    if error:
+        raise SdkError(error)
+    if message:
+        raise SdkError(message)
+    if details:
+        raise SdkError(details)
+
+    raise SdkError(f"Unexpected status: {status}")

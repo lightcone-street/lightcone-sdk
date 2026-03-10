@@ -5,6 +5,7 @@ from typing import Optional
 from .auth import AuthCredentials
 from .auth.client import Auth
 from .domain.market.client import Markets
+from .domain.notification.client import Notifications
 from .domain.order.client import Orders
 from .domain.orderbook.client import Orderbooks
 from .domain.orderbook.wire import DecimalsResponse
@@ -16,6 +17,7 @@ from .domain.referral.client import Referrals
 from .http.client import LightconeHttp
 from .http.retry import RetryConfig
 from .network import DEFAULT_API_URL, DEFAULT_WS_URL
+from .privy.client import Privy
 from .ws import WsConfig, WS_DEFAULT_CONFIG
 from .ws.client import WsClient
 
@@ -44,12 +46,10 @@ class LightconeClient:
         self._trades = Trades(http)
         self._price_history = PriceHistoryClient(http)
         self._admin = Admin(http)
-        self._auth = Auth(http)
+        self._auth = Auth(http, auth_credentials)
+        self._privy = Privy(http)
         self._referrals = Referrals(http)
-
-        # Apply auth if provided
-        if auth_credentials:
-            self._http.set_auth_token(auth_credentials.token)
+        self._notifications = Notifications(http)
 
     def markets(self) -> Markets:
         return self._markets
@@ -75,8 +75,14 @@ class LightconeClient:
     def auth(self) -> Auth:
         return self._auth
 
+    def privy(self) -> Privy:
+        return self._privy
+
     def referrals(self) -> Referrals:
         return self._referrals
+
+    def notifications(self) -> Notifications:
+        return self._notifications
 
     def ws(self) -> WsClient:
         """Create a new WebSocket client with the current config."""
@@ -141,7 +147,6 @@ class LightconeClientBuilder:
         """Build the LightconeClient."""
         http = LightconeHttp(
             base_url=self._base_url,
-            auth_token=self._auth_credentials.token if self._auth_credentials else None,
             retry_config=self._retry_config,
             timeout=self._timeout,
         )
@@ -152,7 +157,7 @@ class LightconeClientBuilder:
             max_reconnect_attempts=10,
             base_reconnect_delay_ms=1000,
             ping_interval_ms=30_000,
-            pong_timeout_ms=10_000,
+            pong_timeout_ms=1_000,
         )
 
         return LightconeClient(

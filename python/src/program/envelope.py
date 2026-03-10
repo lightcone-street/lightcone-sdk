@@ -319,11 +319,37 @@ class TriggerOrderEnvelope:
 
     def finalize(self, sig_bs58: Optional[str] = None, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
         """Build the order, optionally applying external signature."""
-        return self._limit.finalize(sig_bs58, orderbook_id)
+        order = self.payload()
+        if sig_bs58 is not None and orderbook_id is not None:
+            assert self._trigger_price is not None, "trigger_price is required"
+            assert self._trigger_type is not None, "trigger_type is required"
+            apply_signature(order, sig_bs58)
+            return to_submit_request(
+                order,
+                orderbook_id,
+                time_in_force=self._time_in_force,
+                trigger_price=self._trigger_price,
+                trigger_type=self._trigger_type,
+                deposit_source=self._limit.fields_deposit_source,
+            )
+        return order
 
     def sign(self, keypair: Keypair, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
         """Build and sign the underlying order."""
-        return self._limit.sign(keypair, orderbook_id)
+        order = self.payload()
+        sign_order(order, keypair)
+        if orderbook_id is not None:
+            assert self._trigger_price is not None, "trigger_price is required"
+            assert self._trigger_type is not None, "trigger_type is required"
+            return to_submit_request(
+                order,
+                orderbook_id,
+                time_in_force=self._time_in_force,
+                trigger_price=self._trigger_price,
+                trigger_type=self._trigger_type,
+                deposit_source=self._limit.fields_deposit_source,
+            )
+        return order
 
     def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
         """Convert to a SubmitTriggerOrderRequest."""
@@ -340,8 +366,8 @@ class TriggerOrderEnvelope:
             signature=signature_hex(order),
             orderbook_id=orderbook_id,
             trigger_price=str(self._trigger_price) if self._trigger_price is not None else "0",
-            trigger_type=int(self._trigger_type) if self._trigger_type is not None else 0,
-            time_in_force=int(self._time_in_force),
+            trigger_type=self._trigger_type or TriggerType.STOP_LOSS,
+            time_in_force=self._time_in_force,
         )
 
     # Field accessors

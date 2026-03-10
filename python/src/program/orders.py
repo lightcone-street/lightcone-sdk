@@ -470,9 +470,9 @@ def to_submit_request(
         expiration=order.expiration,
         signature=signature_hex(order),
         orderbook_id=orderbook_id,
-        time_in_force=int(time_in_force) if time_in_force is not None else None,
+        time_in_force=time_in_force,
         trigger_price=trigger_price,
-        trigger_type=int(trigger_type) if trigger_type is not None else None,
+        trigger_type=trigger_type,
         deposit_source=deposit_source,
     )
 

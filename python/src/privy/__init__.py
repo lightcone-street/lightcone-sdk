@@ -166,12 +166,12 @@ def privy_order_from_trigger_envelope(envelope, orderbook_id: str) -> PrivyOrder
     trigger_type = None
     tt = getattr(envelope, "_trigger_type", None)
     if tt is not None:
-        trigger_type = str(tt.value) if hasattr(tt, "value") else str(tt)
+        trigger_type = tt.as_wire() if hasattr(tt, "as_wire") else str(tt)
 
     time_in_force = None
     tif = getattr(envelope, "_time_in_force", None)
     if tif is not None:
-        time_in_force = str(tif.value) if hasattr(tif, "value") else str(tif)
+        time_in_force = tif.as_wire() if hasattr(tif, "as_wire") else str(tif)
 
     return PrivyOrderEnvelope(
         maker=str(order.maker),

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 
+from ...shared.types import TimeInForce, TriggerType
+
 
 class OrderType(str, Enum):
     LIMIT = "limit"
@@ -64,11 +66,11 @@ class TriggerOrder:
     market_pubkey: str
     orderbook_id: str
     trigger_price: str
-    trigger_type: int
+    trigger_type: TriggerType
     side: int
     amount_in: str
     amount_out: str
-    time_in_force: int
+    time_in_force: TimeInForce
     created_at: Optional[str] = None
 
 
@@ -193,8 +195,8 @@ class UserSnapshotOrder:
     # Trigger-specific fields (present when order_type == "trigger")
     trigger_order_id: Optional[str] = None
     trigger_price: Optional[str] = None
-    trigger_type: Optional[int] = None
-    time_in_force: Optional[int] = None
+    trigger_type: Optional[TriggerType] = None
+    time_in_force: Optional[TimeInForce] = None
     # Limit-specific fields
     tx_signature: Optional[str] = None
 

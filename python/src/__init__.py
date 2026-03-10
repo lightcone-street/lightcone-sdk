@@ -1,6 +1,6 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.3.0"
+__version__ = "0.3.21"
 
 # ============================================================================
 # Layer 1: Core
@@ -17,6 +17,7 @@ from .shared import (
     TriggerResultStatus,
     OrderUpdateType,
     TriggerUpdateType,
+    DepositSource,
     Resolution,
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
@@ -326,6 +327,7 @@ __all__ = [
     "TriggerResultStatus",
     "OrderUpdateType",
     "TriggerUpdateType",
+    "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
     "SubmitTriggerOrderRequest",

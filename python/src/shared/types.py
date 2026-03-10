@@ -27,6 +27,21 @@ class Side(IntEnum):
     def label(self) -> str:
         return "Bid" if self == Side.BID else "Ask"
 
+    def as_wire(self) -> str:
+        return "bid" if self == Side.BID else "ask"
+
+    @classmethod
+    def from_wire(cls, value: "Side | int | str") -> "Side":
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            normalized = value.lower()
+            if normalized in {"bid", "buy"}:
+                return cls.BID
+            if normalized in {"ask", "sell"}:
+                return cls.ASK
+        return cls(int(value))
+
 
 class TimeInForce(IntEnum):
     """Time-in-force policy for orders."""
@@ -36,12 +51,38 @@ class TimeInForce(IntEnum):
     FOK = 2   # Fill or kill
     ALO = 3   # Add liquidity only
 
+    def as_wire(self) -> str:
+        return _TIME_IN_FORCE_TO_STR[self.value]
+
+    @classmethod
+    def from_wire(cls, value: "TimeInForce | int | str") -> "TimeInForce":
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            normalized = value.upper()
+            if normalized in _STR_TO_TIME_IN_FORCE:
+                return cls(_STR_TO_TIME_IN_FORCE[normalized])
+        return cls(int(value))
+
 
 class TriggerType(IntEnum):
     """Trigger order type."""
 
     STOP_LOSS = 0
     TAKE_PROFIT = 1
+
+    def as_wire(self) -> str:
+        return _TRIGGER_TYPE_TO_STR[self.value]
+
+    @classmethod
+    def from_wire(cls, value: "TriggerType | int | str") -> "TriggerType":
+        if isinstance(value, cls):
+            return value
+        if isinstance(value, str):
+            normalized = value.upper()
+            if normalized in _STR_TO_TRIGGER_TYPE:
+                return cls(_STR_TO_TRIGGER_TYPE[normalized])
+        return cls(int(value))
 
 
 class DepositSource(IntEnum):
@@ -141,6 +182,22 @@ _RESOLUTION_SECONDS: dict[int, int] = {
     4: 14400,
     5: 86400,
 }
+_TIME_IN_FORCE_TO_STR: dict[int, str] = {
+    TimeInForce.GTC.value: "GTC",
+    TimeInForce.IOC.value: "IOC",
+    TimeInForce.FOK.value: "FOK",
+    TimeInForce.ALO.value: "ALO",
+}
+_STR_TO_TIME_IN_FORCE: dict[str, int] = {
+    value: key for key, value in _TIME_IN_FORCE_TO_STR.items()
+}
+_TRIGGER_TYPE_TO_STR: dict[int, str] = {
+    TriggerType.STOP_LOSS.value: "SL",
+    TriggerType.TAKE_PROFIT.value: "TP",
+}
+_STR_TO_TRIGGER_TYPE: dict[str, int] = {
+    value: key for key, value in _TRIGGER_TYPE_TO_STR.items()
+}
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +220,9 @@ class SubmitOrderRequest:
     expiration: int
     signature: str
     orderbook_id: str
-    time_in_force: Optional[int] = None
+    time_in_force: Optional[TimeInForce] = None
     trigger_price: Optional[float] = None
-    trigger_type: Optional[int] = None
+    trigger_type: Optional[TriggerType] = None
     deposit_source: Optional["DepositSource"] = None
 
     def to_dict(self) -> dict:
@@ -183,11 +240,11 @@ class SubmitOrderRequest:
             "orderbook_id": self.orderbook_id,
         }
         if self.time_in_force is not None:
-            d["time_in_force"] = self.time_in_force
+            d["tif"] = self.time_in_force.as_wire()
         if self.trigger_price is not None:
             d["trigger_price"] = self.trigger_price
         if self.trigger_type is not None:
-            d["trigger_type"] = self.trigger_type
+            d["trigger_type"] = self.trigger_type.as_wire()
         if self.deposit_source is not None:
             d["deposit_source"] = self.deposit_source.as_str()
         return d
@@ -209,8 +266,8 @@ class SubmitTriggerOrderRequest:
     signature: str
     orderbook_id: str
     trigger_price: str
-    trigger_type: int
-    time_in_force: int
+    trigger_type: TriggerType
+    time_in_force: TimeInForce
 
     def to_dict(self) -> dict:
         return {
@@ -226,8 +283,8 @@ class SubmitTriggerOrderRequest:
             "signature": self.signature,
             "orderbook_id": self.orderbook_id,
             "trigger_price": self.trigger_price,
-            "trigger_type": self.trigger_type,
-            "time_in_force": self.time_in_force,
+            "trigger_type": self.trigger_type.as_wire(),
+            "tif": self.time_in_force.as_wire(),
         }
 
 
@@ -241,6 +298,7 @@ __all__ = [
     "TriggerResultStatus",
     "OrderUpdateType",
     "TriggerUpdateType",
+    "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
     "SubmitTriggerOrderRequest",

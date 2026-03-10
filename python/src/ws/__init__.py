@@ -152,11 +152,17 @@ class MessageIn:
     data: Any = None
     version: Optional[float] = None
 
+    @property
+    def kind(self) -> Any:
+        """Rust-compatible alias for the typed payload."""
+        return self.data
+
     @staticmethod
     def from_dict(d: dict) -> "MessageIn":
+        message_type = d.get("type", "")
         return MessageIn(
-            type=d.get("type", ""),
-            data=d.get("data"),
+            type=message_type,
+            data=_parse_message_data(message_type, d.get("data")),
             version=d.get("version"),
         )
 
@@ -165,6 +171,59 @@ def parse_message_in(text: str) -> MessageIn:
     """Parse a raw WebSocket text message."""
     data = json.loads(text)
     return MessageIn.from_dict(data)
+
+
+def _parse_message_data(message_type: str, data: Any) -> Any:
+    if not isinstance(data, dict):
+        return data
+
+    if message_type == MessageInType.BOOK_UPDATE.value:
+        from ..domain.orderbook.wire import WsOrderBook
+
+        return WsOrderBook.from_dict(data)
+
+    if message_type == MessageInType.USER.value:
+        from ..domain.order.wire import UserUpdate
+
+        return UserUpdate.from_dict(data)
+
+    if message_type == MessageInType.ERROR.value:
+        return WsErrorData.from_dict(data)
+
+    if message_type == MessageInType.PRICE_HISTORY.value:
+        from ..domain.price_history.wire import (
+            PriceHistoryHeartbeat,
+            PriceHistorySnapshot,
+            PriceHistoryUpdate,
+        )
+
+        if "candle" in data:
+            return PriceHistoryUpdate.from_dict(data)
+        if "server_time" in data and "orderbook_id" not in data:
+            return PriceHistoryHeartbeat.from_dict(data)
+        return PriceHistorySnapshot.from_dict(data)
+
+    if message_type == MessageInType.TRADES.value:
+        from ..domain.trade.wire import WsTrade
+
+        return WsTrade.from_dict(data)
+
+    if message_type == MessageInType.AUTH.value:
+        from ..domain.order.wire import AuthUpdate
+
+        return AuthUpdate.from_dict(data)
+
+    if message_type == MessageInType.TICKER.value:
+        from ..domain.orderbook.wire import WsTickerData
+
+        return WsTickerData.from_dict(data)
+
+    if message_type == MessageInType.MARKET.value:
+        from ..domain.market.wire import MarketEvent
+
+        return MarketEvent.from_dict(data)
+
+    return data
 
 
 # ---------------------------------------------------------------------------

@@ -29,9 +29,13 @@ class Auth:
     3. Submit signed message to login
     """
 
-    def __init__(self, http: "LightconeHttp"):
+    def __init__(
+        self,
+        http: "LightconeHttp",
+        credentials: Optional[AuthCredentials] = None,
+    ):
         self._http = http
-        self._credentials: Optional[AuthCredentials] = None
+        self._credentials: Optional[AuthCredentials] = credentials
 
     def credentials(self) -> Optional[AuthCredentials]:
         """Get current credentials."""
