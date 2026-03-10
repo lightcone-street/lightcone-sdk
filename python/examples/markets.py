@@ -1,0 +1,35 @@
+"""Featured markets, paginated listing, fetch by pubkey, search."""
+
+import asyncio
+
+from common import rest_client, market
+
+
+async def main():
+    client = rest_client()
+
+    # 1. Featured markets
+    featured = await client.markets().featured()
+    print("featured markets:", len(featured))
+    if featured:
+        print(f"  {featured[0].name} ({featured[0].slug})")
+
+    # 2. Paginated listing
+    markets, next_cursor = await client.markets().get(None, 5)
+    print(f"paginated listing: {len(markets)} markets")
+
+    # 3. Lookup by pubkey
+    m = await market(client)
+    print(f"by slug: {m.slug} -> {m.pubkey}")
+    by_pubkey = await client.markets().get_by_pubkey(m.pubkey)
+    print(f"by pubkey: {by_pubkey.name}")
+
+    # 4. Search
+    query = m.slug
+    results = await client.markets().search(query, 5)
+    print(f"search '{query}': {len(results)} result(s)")
+
+    await client.close()
+
+
+asyncio.run(main())
