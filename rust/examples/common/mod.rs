@@ -9,7 +9,7 @@ use std::{
 
 use dotenvy::dotenv;
 use lightcone::shared::OrderbookDecimals;
-use lightcone::{auth::native::sign_login_message, prelude::*, program::LightconePinocchioClient};
+use lightcone::{auth::native::sign_login_message, prelude::*};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 
@@ -32,18 +32,16 @@ pub fn unix_timestamp_ms() -> ExampleResult<i64> {
 }
 
 pub async fn fresh_order_nonce(
-    rpc: &LightconePinocchioClient,
+    client: &LightconeClient,
     user: &Pubkey,
 ) -> ExampleResult<u64> {
-    Ok(rpc.get_user_nonce(user).await?)
+    Ok(client.rpc().get_user_nonce(user).await?)
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
-    Ok(LightconeClient::builder().build()?)
-}
-
-pub fn rpc_client() -> LightconePinocchioClient {
-    LightconePinocchioClient::new("https://api.devnet.solana.com")
+    Ok(LightconeClient::builder()
+        .rpc_url("https://api.devnet.solana.com")
+        .build()?)
 }
 
 pub fn wallet() -> ExampleResult<Keypair> {

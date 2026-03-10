@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, rpc_client, wallet,
+    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, wallet,
     ExampleResult,
 };
 use solana_signer::Signer;
@@ -9,7 +9,6 @@ use solana_signer::Signer;
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let rpc = rpc_client();
     let keypair = wallet()?;
     let market = market(&client).await?;
     let market_pubkey = parse_pubkey(&market.pubkey)?;
@@ -21,11 +20,12 @@ async fn main() -> ExampleResult {
         .ok_or_else(|| common::other("selected market has no orderbooks"))?;
     let (base_mint, quote_mint) = orderbook_mints(orderbook)?;
 
+    let rpc = client.rpc();
     let exchange = rpc.get_exchange().await?;
-    let onchain_market = rpc.get_market_by_pubkey(&market_pubkey).await?;
-    let onchain_orderbook = rpc.get_orderbook(&base_mint, &quote_mint).await?;
+    let onchain_market = rpc.get_market_onchain(&market_pubkey).await?;
+    let onchain_orderbook = rpc.get_orderbook_onchain(&base_mint, &quote_mint).await?;
     let nonce = rpc.get_current_nonce(&keypair.pubkey()).await?;
-    let position = rpc.get_position(&keypair.pubkey(), &market_pubkey).await?;
+    let position = rpc.get_position_onchain(&keypair.pubkey(), &market_pubkey).await?;
     let deposit_mint = deposit_mint(&market)?;
 
     println!(

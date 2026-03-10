@@ -1,14 +1,18 @@
-//! Orders sub-client — submit, cancel, query.
+//! Orders sub-client — submit, cancel, query, and on-chain order operations.
 
 use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
+use crate::program::instructions;
+use crate::program::orders::OrderPayload;
 use crate::shared::{OrderBookId, PubkeyStr};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use solana_transaction::Transaction;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
@@ -526,5 +530,79 @@ impl<'a> Orders<'a> {
             .http
             .get(&url, RetryPolicy::Idempotent)
             .await?)
+    }
+
+    // ── On-chain transaction builders ────────────────────────────────────
+
+    /// Build CancelOrder transaction (on-chain cancellation).
+    pub fn cancel_order_ix(
+        &self,
+        maker: &Pubkey,
+        market: &Pubkey,
+        order: &OrderPayload,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_cancel_order_ix(maker, market, order, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(maker)))
+    }
+
+    /// Build IncrementNonce transaction.
+    pub fn increment_nonce_ix(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_increment_nonce_ix(user, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(user)))
+    }
+
+    // ── Order helpers ────────────────────────────────────────────────────
+
+    /// Create an unsigned bid order.
+    pub fn create_bid_order(
+        &self,
+        params: crate::program::types::BidOrderParams,
+    ) -> OrderPayload {
+        OrderPayload::new_bid(params)
+    }
+
+    /// Create an unsigned ask order.
+    pub fn create_ask_order(
+        &self,
+        params: crate::program::types::AskOrderParams,
+    ) -> OrderPayload {
+        OrderPayload::new_ask(params)
+    }
+
+    /// Create and sign a bid order.
+    #[cfg(feature = "native-auth")]
+    pub fn create_signed_bid_order(
+        &self,
+        params: crate::program::types::BidOrderParams,
+        keypair: &Keypair,
+    ) -> OrderPayload {
+        OrderPayload::new_bid_signed(params, keypair)
+    }
+
+    /// Create and sign an ask order.
+    #[cfg(feature = "native-auth")]
+    pub fn create_signed_ask_order(
+        &self,
+        params: crate::program::types::AskOrderParams,
+        keypair: &Keypair,
+    ) -> OrderPayload {
+        OrderPayload::new_ask_signed(params, keypair)
+    }
+
+    /// Compute the hash of an order.
+    pub fn hash_order(&self, order: &OrderPayload) -> [u8; 32] {
+        order.hash()
+    }
+
+    /// Sign an order with the given keypair.
+    #[cfg(feature = "native-auth")]
+    pub fn sign_order(
+        &self,
+        order: &mut OrderPayload,
+        keypair: &Keypair,
+    ) {
+        order.sign(keypair);
     }
 }
