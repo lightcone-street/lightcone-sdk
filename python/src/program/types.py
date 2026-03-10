@@ -33,6 +33,7 @@ class Exchange:
     market_count: int
     paused: bool
     bump: int
+    deposit_token_count: int = 0
 
 
 @dataclass
@@ -85,8 +86,8 @@ class Orderbook:
 
 
 @dataclass
-class FullOrder:
-    """Full order structure with all fields including signature (225 bytes).
+class SignedOrder:
+    """Signed order structure with all fields including signature (225 bytes).
 
     Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
     """
@@ -97,24 +98,28 @@ class FullOrder:
     base_mint: Pubkey
     quote_mint: Pubkey
     side: OrderSide
-    maker_amount: int
-    taker_amount: int
+    amount_in: int
+    amount_out: int
     expiration: int
     signature: bytes = field(default_factory=lambda: bytes(64))
+
+
+# Backward compatibility alias
+FullOrder = SignedOrder
 
 
 @dataclass
 class Order:
     """Compact order structure for instruction data (29 bytes, no maker field).
 
-    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] maker_amount(u64) |
-            [13..21] taker_amount(u64) | [21..29] expiration(i64)
+    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] amount_in(u64) |
+            [13..21] amount_out(u64) | [21..29] expiration(i64)
     """
 
     nonce: int
     side: OrderSide
-    maker_amount: int
-    taker_amount: int
+    amount_in: int
+    amount_out: int
     expiration: int
 
 
@@ -135,7 +140,7 @@ class OutcomeMetadata:
 class MakerFill:
     """Maker order with fill amount for matching."""
 
-    order: FullOrder
+    order: SignedOrder
     fill_amount: int
 
 
@@ -235,8 +240,8 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    taker_order: FullOrder
-    maker_orders: list[FullOrder]
+    taker_order: SignedOrder
+    maker_orders: list[SignedOrder]
     maker_fill_amounts: list[int]
     taker_fill_amounts: list[int]
     full_fill_bitmask: int
@@ -270,8 +275,8 @@ class BidOrderParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    maker_amount: int  # Quote tokens given
-    taker_amount: int  # Base tokens received
+    amount_in: int  # Quote tokens given
+    amount_out: int  # Base tokens received
     expiration: int
 
 
@@ -284,9 +289,18 @@ class AskOrderParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    maker_amount: int  # Base tokens given
-    taker_amount: int  # Quote tokens received
+    amount_in: int  # Base tokens given
+    amount_out: int  # Quote tokens received
     expiration: int
+
+
+@dataclass
+class GlobalDepositToken:
+    """Global deposit token account data (48 bytes)."""
+
+    mint: Pubkey
+    index: int  # u16
+    bump: int
 
 
 @dataclass

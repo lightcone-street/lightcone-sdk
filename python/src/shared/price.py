@@ -1,4 +1,4 @@
-"""Price utilities used by API and WebSocket modules."""
+"""Price utilities used across the Lightcone SDK."""
 
 from decimal import Decimal
 
@@ -17,3 +17,11 @@ def format_decimal(value: float, precision: int = 6) -> str:
     Used for formatting price values for API requests.
     """
     return f"{value:.{precision}f}"
+
+
+def is_zero(value: str) -> bool:
+    """Check if a decimal string represents zero."""
+    try:
+        return Decimal(value) == 0
+    except Exception:
+        return False

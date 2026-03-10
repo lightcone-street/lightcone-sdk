@@ -10,6 +10,7 @@ from .constants import (
     PROGRAM_ID,
     SEED_CENTRAL_STATE,
     SEED_CONDITIONAL_MINT,
+    SEED_GLOBAL_DEPOSIT,
     SEED_MARKET,
     SEED_MINT_AUTHORITY,
     SEED_ORDER_STATUS,
@@ -146,6 +147,20 @@ def get_orderbook_pda(
     """
     return Pubkey.find_program_address(
         [ORDERBOOK_SEED, bytes(mint_a), bytes(mint_b)],
+        program_id,
+    )
+
+
+def get_global_deposit_pda(
+    mint: Pubkey,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Tuple[Pubkey, int]:
+    """Derive the global deposit token PDA.
+
+    Seeds: ["global_deposit", mint]
+    """
+    return Pubkey.find_program_address(
+        [SEED_GLOBAL_DEPOSIT, bytes(mint)],
         program_id,
     )
 

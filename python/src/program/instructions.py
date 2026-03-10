@@ -14,9 +14,15 @@ from .constants import (
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
     INSTRUCTION_CANCEL_ORDER,
+    INSTRUCTION_CLAIM_ORDER_STATUS_RENT,
     INSTRUCTION_CREATE_MARKET,
     INSTRUCTION_CREATE_ORDERBOOK,
+    INSTRUCTION_DEPOSIT_AND_SWAP,
+    INSTRUCTION_DEPOSIT_TO_GLOBAL,
+    INSTRUCTION_EXTEND_POSITION_TOKENS,
+    INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT,
     INSTRUCTION_INCREMENT_NONCE,
+    INSTRUCTION_INIT_POSITION_TOKENS,
     INSTRUCTION_INITIALIZE,
     INSTRUCTION_MATCH_ORDERS_MULTI,
     INSTRUCTION_MERGE_COMPLETE_SET,
@@ -26,6 +32,7 @@ from .constants import (
     INSTRUCTION_SET_OPERATOR,
     INSTRUCTION_SET_PAUSED,
     INSTRUCTION_SETTLE_MARKET,
+    INSTRUCTION_WHITELIST_DEPOSIT_TOKEN,
     INSTRUCTION_WITHDRAW_FROM_POSITION,
     MAX_OUTCOME_NAME_LEN,
     MAX_OUTCOME_SYMBOL_LEN,
@@ -39,6 +46,7 @@ from .orders import hash_order, serialize_order, serialize_full_order, to_order
 from .pda import (
     get_conditional_mint_pda,
     get_exchange_pda,
+    get_global_deposit_pda,
     get_market_pda,
     get_mint_authority_pda,
     get_order_status_pda,
@@ -48,7 +56,10 @@ from .pda import (
     get_user_nonce_pda,
     get_vault_pda,
 )
-from .types import FullOrder, OutcomeMetadata
+from .types import SignedOrder, OutcomeMetadata
+
+# Backward compatibility alias
+FullOrder = SignedOrder
 from .utils import (
     encode_string,
     encode_u64,
@@ -306,7 +317,7 @@ def build_merge_complete_set_instruction(
 def build_cancel_order_instruction(
     maker: Pubkey,
     market: Pubkey,
-    order: FullOrder,
+    order: SignedOrder,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the cancel_order instruction.
@@ -575,8 +586,8 @@ def build_match_orders_multi_instruction(
     market: Pubkey,
     base_mint: Pubkey,
     quote_mint: Pubkey,
-    taker_order: FullOrder,
-    maker_orders: List[FullOrder],
+    taker_order: SignedOrder,
+    maker_orders: List[SignedOrder],
     maker_fill_amounts: List[int],
     taker_fill_amounts: List[int],
     full_fill_bitmask: int = 0,
@@ -763,3 +774,213 @@ def build_set_authority_instruction(
     data.extend(bytes(new_authority))
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_whitelist_deposit_token_instruction(
+    authority: Pubkey,
+    deposit_mint: Pubkey,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the whitelist_deposit_token instruction."""
+    exchange, _ = get_exchange_pda(program_id)
+    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytes([INSTRUCTION_WHITELIST_DEPOSIT_TOKEN])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_deposit_to_global_instruction(
+    user: Pubkey,
+    deposit_mint: Pubkey,
+    amount: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the deposit_to_global instruction."""
+    exchange, _ = get_exchange_pda(program_id)
+    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
+    user_ata = get_associated_token_address(user, deposit_mint)
+
+    accounts = [
+        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=user_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytearray([INSTRUCTION_DEPOSIT_TO_GLOBAL])
+    data.extend(encode_u64(amount))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_global_to_market_deposit_instruction(
+    user: Pubkey,
+    market: Pubkey,
+    deposit_mint: Pubkey,
+    amount: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the global_to_market_deposit instruction."""
+    exchange, _ = get_exchange_pda(program_id)
+    global_deposit, _ = get_global_deposit_pda(deposit_mint, program_id)
+    vault, _ = get_vault_pda(deposit_mint, market, program_id)
+    position, _ = get_position_pda(user, market, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytearray([INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT])
+    data.extend(encode_u64(amount))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_init_position_tokens_instruction(
+    payer: Pubkey,
+    user: Pubkey,
+    market: Pubkey,
+    deposit_mints: list[Pubkey],
+    num_outcomes: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the init_position_tokens instruction.
+
+    Permissionless: separate payer from user, supports multiple deposit mints.
+    """
+    exchange, _ = get_exchange_pda(program_id)
+    position, _ = get_position_pda(user, market, program_id)
+    mint_authority, _ = get_mint_authority_pda(market, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=user, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    # Add conditional mint + position ATA pairs for each deposit mint and outcome
+    for deposit_mint in deposit_mints:
+        for i in range(num_outcomes):
+            cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
+            position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+            accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False))
+            accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+
+    data = bytes([INSTRUCTION_INIT_POSITION_TOKENS])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_deposit_and_swap_instruction(
+    user: Pubkey,
+    market: Pubkey,
+    deposit_mint: Pubkey,
+    amount: int,
+    num_outcomes: int,
+    deposit_bitmask: int = 0,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the deposit_and_swap instruction.
+
+    Uses depositBitmask for per-participant deposit vs swap routing.
+    """
+    exchange, _ = get_exchange_pda(program_id)
+    vault, _ = get_vault_pda(deposit_mint, market, program_id)
+    position, _ = get_position_pda(user, market, program_id)
+    mint_authority, _ = get_mint_authority_pda(market, program_id)
+    user_deposit_ata = get_associated_token_address(user, deposit_mint)
+
+    accounts = [
+        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    for i in range(num_outcomes):
+        cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
+        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True))
+        accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+
+    data = bytearray([INSTRUCTION_DEPOSIT_AND_SWAP])
+    data.extend(encode_u64(amount))
+    data.append(deposit_bitmask & 0xFF)
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_extend_position_tokens_instruction(
+    payer: Pubkey,
+    user: Pubkey,
+    market: Pubkey,
+    deposit_mint: Pubkey,
+    num_outcomes: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the extend_position_tokens instruction."""
+    position, _ = get_position_pda(user, market, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=user, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    for i in range(num_outcomes):
+        cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
+        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        accounts.append(AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False))
+        accounts.append(AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True))
+
+    data = bytes([INSTRUCTION_EXTEND_POSITION_TOKENS])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_claim_order_status_rent_instruction(
+    user: Pubkey,
+    order_hash: bytes,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the claim_order_status_rent instruction."""
+    order_status, _ = get_order_status_pda(order_hash, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=order_status, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytes([INSTRUCTION_CLAIM_ORDER_STATUS_RENT])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)

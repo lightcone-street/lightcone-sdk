@@ -1,6 +1,87 @@
-"""Shared type definitions used by API and WebSocket modules."""
+"""Shared type definitions used across the Lightcone SDK.
 
+Matches TS shared/types.ts with branded types, enums, and request shapes.
+"""
+
+from dataclasses import dataclass
 from enum import IntEnum
+from typing import NewType, Optional
+
+
+# ---------------------------------------------------------------------------
+# Branded types (NewType for type safety)
+# ---------------------------------------------------------------------------
+
+OrderBookId = NewType("OrderBookId", str)
+PubkeyStr = NewType("PubkeyStr", str)
+
+
+# ---------------------------------------------------------------------------
+# Enums
+# ---------------------------------------------------------------------------
+
+
+class Side(IntEnum):
+    """Order side."""
+
+    BID = 0
+    ASK = 1
+
+    def label(self) -> str:
+        return "Bid" if self == Side.BID else "Ask"
+
+
+class TimeInForce(IntEnum):
+    """Time-in-force policy for orders."""
+
+    GTC = 0   # Good til cancelled
+    IOC = 1   # Immediate or cancel
+    FOK = 2   # Fill or kill
+    ALO = 3   # Add liquidity only
+
+
+class TriggerType(IntEnum):
+    """Trigger order type."""
+
+    STOP_LOSS = 0
+    TAKE_PROFIT = 1
+
+
+class TriggerStatus(IntEnum):
+    """Trigger order execution status."""
+
+    PENDING = 0
+    TRIGGERED = 1
+    CANCELLED = 2
+    EXPIRED = 3
+    FAILED = 4
+
+
+class TriggerResultStatus(IntEnum):
+    """Result status for a triggered order."""
+
+    SUCCESS = 0
+    FAILED = 1
+    PARTIAL = 2
+
+
+class OrderUpdateType(IntEnum):
+    """Type of order update received via WebSocket."""
+
+    NEW = 0
+    FILL = 1
+    CANCEL = 2
+    EXPIRE = 3
+
+
+class TriggerUpdateType(IntEnum):
+    """Type of trigger order update received via WebSocket."""
+
+    NEW = 0
+    TRIGGERED = 1
+    CANCELLED = 2
+    EXPIRED = 3
+    FAILED = 4
 
 
 class Resolution(IntEnum):
@@ -24,6 +105,10 @@ class Resolution(IntEnum):
             raise ValueError(f"Invalid resolution: {s}")
         return cls(_STR_TO_RESOLUTION[s])
 
+    def seconds(self) -> int:
+        """Get the resolution in seconds."""
+        return _RESOLUTION_SECONDS[self.value]
+
     def __str__(self) -> str:
         return self.as_str()
 
@@ -38,3 +123,102 @@ _RESOLUTION_TO_STR: dict[int, str] = {
     5: "1d",
 }
 _STR_TO_RESOLUTION: dict[str, int] = {v: k for k, v in _RESOLUTION_TO_STR.items()}
+_RESOLUTION_SECONDS: dict[int, int] = {
+    0: 60,
+    1: 300,
+    2: 900,
+    3: 3600,
+    4: 14400,
+    5: 86400,
+}
+
+
+# ---------------------------------------------------------------------------
+# Request / response shapes
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SubmitOrderRequest:
+    """Order submission request matching TS shared SubmitOrderRequest."""
+
+    maker: str
+    nonce: int
+    market_pubkey: str
+    base_token: str
+    quote_token: str
+    side: int
+    amount_in: int
+    amount_out: int
+    expiration: int
+    signature: str
+    orderbook_id: str
+
+    def to_dict(self) -> dict:
+        return {
+            "maker": self.maker,
+            "nonce": self.nonce,
+            "market_pubkey": self.market_pubkey,
+            "base_token": self.base_token,
+            "quote_token": self.quote_token,
+            "side": self.side,
+            "amount_in": self.amount_in,
+            "amount_out": self.amount_out,
+            "expiration": self.expiration,
+            "signature": self.signature,
+            "orderbook_id": self.orderbook_id,
+        }
+
+
+@dataclass
+class SubmitTriggerOrderRequest:
+    """Trigger order submission request."""
+
+    maker: str
+    nonce: int
+    market_pubkey: str
+    base_token: str
+    quote_token: str
+    side: int
+    amount_in: int
+    amount_out: int
+    expiration: int
+    signature: str
+    orderbook_id: str
+    trigger_price: str
+    trigger_type: int
+    time_in_force: int
+
+    def to_dict(self) -> dict:
+        return {
+            "maker": self.maker,
+            "nonce": self.nonce,
+            "market_pubkey": self.market_pubkey,
+            "base_token": self.base_token,
+            "quote_token": self.quote_token,
+            "side": self.side,
+            "amount_in": self.amount_in,
+            "amount_out": self.amount_out,
+            "expiration": self.expiration,
+            "signature": self.signature,
+            "orderbook_id": self.orderbook_id,
+            "trigger_price": self.trigger_price,
+            "trigger_type": self.trigger_type,
+            "time_in_force": self.time_in_force,
+        }
+
+
+__all__ = [
+    "OrderBookId",
+    "PubkeyStr",
+    "Side",
+    "TimeInForce",
+    "TriggerType",
+    "TriggerStatus",
+    "TriggerResultStatus",
+    "OrderUpdateType",
+    "TriggerUpdateType",
+    "Resolution",
+    "SubmitOrderRequest",
+    "SubmitTriggerOrderRequest",
+]
