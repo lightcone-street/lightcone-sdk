@@ -32,9 +32,7 @@ pub fn align_price_to_tick(price: Decimal, decimals: &OrderbookDecimals) -> Deci
         return price;
     }
 
-    let quote_multiplier = Decimal::from(
-        10u64.pow(decimals.quote_decimals as u32),
-    );
+    let quote_multiplier = Decimal::from(10u64.pow(decimals.quote_decimals as u32));
     let tick = Decimal::from(decimals.tick_size);
 
     let lamports = (price * quote_multiplier).trunc();
@@ -125,11 +123,15 @@ pub fn scale_price_size(
             })?,
     );
 
-    let base_lamports = size
-        .checked_mul(base_multiplier)
-        .ok_or_else(|| ScalingError::Overflow {
-            context: "size * 10^base_decimals".to_string(),
-        })?;
+    // Truncate size to base_decimals — digits beyond the token's precision
+    // are unrepresentable on-chain and are always f64 noise (e.g. 15.763000000000002)
+    let size = size.trunc_with_scale(decimals.base_decimals as u32);
+
+    let base_lamports =
+        size.checked_mul(base_multiplier)
+            .ok_or_else(|| ScalingError::Overflow {
+                context: "size * 10^base_decimals".to_string(),
+            })?;
 
     let quote_lamports = price
         .checked_mul(size)
@@ -305,15 +307,31 @@ mod tests {
     }
 
     #[test]
-    fn test_fractional_lamports_rejected() {
-        // size=0.0000001 with 6 decimals = 0.1 lamports (fractional)
+    fn test_sub_lamport_size_becomes_zero() {
+        // size=0.0000001 with 6 decimals truncates to 0, yielding ZeroAmount
         let result = scale_price_size(
             Decimal::from_str("1").unwrap(),
             Decimal::from_str("0.0000001").unwrap(),
             OrderSide::Bid,
             &decimals_6_6(),
         );
-        assert!(matches!(result, Err(ScalingError::FractionalAmount { .. })));
+        assert!(matches!(result, Err(ScalingError::ZeroAmount)));
+    }
+
+    #[test]
+    fn test_f64_noise_in_size_is_truncated() {
+        // Simulates f64 floating-point noise: 15.763000000000002 instead of 15.763
+        // With base_decimals=6, truncates to 15.763000 and succeeds
+        let result = scale_price_size(
+            Decimal::from_str("1").unwrap(),
+            Decimal::from_str("15.763000000000002").unwrap(),
+            OrderSide::Bid,
+            &decimals_6_6(),
+        )
+        .unwrap();
+
+        assert_eq!(result.amount_in, 15_763_000);
+        assert_eq!(result.amount_out, 15_763_000);
     }
 
     #[test]
