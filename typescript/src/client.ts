@@ -6,6 +6,7 @@ import { Orders } from "./domain/order";
 import { Orderbooks } from "./domain/orderbook";
 import type { DecimalsResponse } from "./domain/orderbook";
 import { Positions } from "./domain/position";
+import { DepositPriceClient } from "./domain/deposit_price";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
@@ -103,6 +104,10 @@ export class LightconeClient {
 
   priceHistory(): PriceHistoryClient {
     return new PriceHistoryClient(this);
+  }
+
+  depositPrice(): DepositPriceClient {
+    return new DepositPriceClient(this);
   }
 
   notifications(): Notifications {

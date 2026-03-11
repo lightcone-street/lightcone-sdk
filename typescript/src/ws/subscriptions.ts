@@ -11,7 +11,8 @@ export type SubscribeParams =
       include_ohlcv?: boolean;
     }
   | { type: "ticker"; orderbook_ids: OrderBookId[] }
-  | { type: "market"; market_pubkey: PubkeyStr };
+  | { type: "market"; market_pubkey: PubkeyStr }
+  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution };
 
 export type UnsubscribeParams =
   | { type: "book_update"; orderbook_ids: OrderBookId[] }
@@ -19,7 +20,8 @@ export type UnsubscribeParams =
   | { type: "user"; wallet_address: PubkeyStr }
   | { type: "price_history"; orderbook_id: OrderBookId; resolution: Resolution }
   | { type: "ticker"; orderbook_ids: OrderBookId[] }
-  | { type: "market"; market_pubkey: PubkeyStr };
+  | { type: "market"; market_pubkey: PubkeyStr }
+  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution };
 
 export interface Subscription {
   toSubscribeParams(): SubscribeParams;
@@ -42,6 +44,8 @@ export function subscriptionKey(params: SubscribeParams): string {
       return `ticker:${idsKey(params.orderbook_ids)}`;
     case "market":
       return `market:${params.market_pubkey}`;
+    case "deposit_price":
+      return `deposit_price:${params.deposit_asset}:${params.resolution}`;
   }
 }
 
@@ -69,6 +73,11 @@ export function unsubscribeMatches(
       );
     case "market":
       return subscribe.market_pubkey === (unsubscribe as { market_pubkey: PubkeyStr }).market_pubkey;
+    case "deposit_price":
+      return (
+        subscribe.deposit_asset === (unsubscribe as { deposit_asset: string }).deposit_asset &&
+        subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
+      );
   }
 }
 
