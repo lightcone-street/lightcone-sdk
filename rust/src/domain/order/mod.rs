@@ -102,3 +102,29 @@ pub struct TriggerOrder {
     pub time_in_force: TimeInForce,
     pub created_at: DateTime<Utc>,
 }
+
+impl TriggerOrder {
+    /// Derive the human-readable limit price from raw lamport amounts.
+    ///
+    /// For Ask: amount_in = base_lamports, amount_out = quote_lamports
+    ///   price = (amount_out / 10^quote_decimals) / (amount_in / 10^base_decimals)
+    ///         = amount_out * 10^base_decimals / (amount_in * 10^quote_decimals)
+    ///
+    /// For Bid: amount_in = quote_lamports, amount_out = base_lamports
+    ///   price = (amount_in / 10^quote_decimals) / (amount_out / 10^base_decimals)
+    ///         = amount_in * 10^base_decimals / (amount_out * 10^quote_decimals)
+    pub fn limit_price(&self, base_decimals: u8, quote_decimals: u8) -> Option<Decimal> {
+        let base_mult = Decimal::from(10u64.pow(base_decimals as u32));
+        let quote_mult = Decimal::from(10u64.pow(quote_decimals as u32));
+
+        match self.side {
+            Side::Ask if self.amount_in > Decimal::ZERO => {
+                Some(self.amount_out * base_mult / (self.amount_in * quote_mult))
+            }
+            Side::Bid if self.amount_out > Decimal::ZERO => {
+                Some(self.amount_in * base_mult / (self.amount_out * quote_mult))
+            }
+            _ => None,
+        }
+    }
+}

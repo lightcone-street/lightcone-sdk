@@ -13,7 +13,7 @@ pub use price::{format_decimal, parse_decimal};
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::str::FromStr;
+use std::{path::Display, str::FromStr};
 
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 
@@ -206,6 +206,15 @@ pub enum TriggerType {
     TakeProfit,
     #[serde(rename = "SL")]
     StopLoss,
+}
+
+impl std::fmt::Display for TriggerType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TriggerType::TakeProfit => write!(f, "TP"),
+            TriggerType::StopLoss => write!(f, "SL"),
+        }
+    }
 }
 
 // ─── TriggerStatus ──────────────────────────────────────────────────────────
