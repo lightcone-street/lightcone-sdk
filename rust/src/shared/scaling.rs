@@ -133,6 +133,9 @@ pub fn scale_price_size(
                 context: "size * 10^base_decimals".to_string(),
             })?;
 
+    // Truncate quote_lamports to discard sub-lamport dust (analogous to the
+    // size truncation above).  price * size can produce fractions beyond the
+    // token's representable precision; these are meaningless on-chain.
     let quote_lamports = price
         .checked_mul(size)
         .ok_or_else(|| ScalingError::Overflow {
@@ -141,17 +144,13 @@ pub fn scale_price_size(
         .checked_mul(quote_multiplier)
         .ok_or_else(|| ScalingError::Overflow {
             context: "price * size * 10^quote_decimals".to_string(),
-        })?;
+        })?
+        .trunc();
 
     // 3. Validate whole numbers (no fractional lamports)
     if base_lamports.fract() != Decimal::ZERO {
         return Err(ScalingError::FractionalAmount {
             value: format!("base_lamports = {}", base_lamports),
-        });
-    }
-    if quote_lamports.fract() != Decimal::ZERO {
-        return Err(ScalingError::FractionalAmount {
-            value: format!("quote_lamports = {}", quote_lamports),
         });
     }
 

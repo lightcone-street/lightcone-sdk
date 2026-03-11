@@ -26,10 +26,7 @@ impl UserOpenOrders {
 
     /// Insert or update an order from a WS order update.
     pub fn upsert(&mut self, update: &wire::OrderUpdate) {
-        let market_orders = self
-            .orders
-            .entry(update.market_pubkey.clone())
-            .or_default();
+        let market_orders = self.orders.entry(update.market_pubkey.clone()).or_default();
 
         market_orders.retain(|o| o.order_hash != update.order.order_hash);
         market_orders.push(update.clone().into());
@@ -65,6 +62,7 @@ impl Default for UserOpenOrders {
 ///
 /// Keyed by `OrderBookId` for O(1) lookup by orderbook, matching the
 /// `UserOpenOrders` pattern (keyed by market pubkey).
+#[derive(Debug, Clone)]
 pub struct UserTriggerOrders {
     pub orders: HashMap<OrderBookId, Vec<TriggerOrder>>,
 }
