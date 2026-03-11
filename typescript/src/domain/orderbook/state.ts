@@ -53,7 +53,7 @@ export class OrderbookSnapshot {
       return undefined;
     }
 
-    return Array.from(this.bidsMap.keys()).sort((a, b) => new Decimal(a).cmp(b)).at(-1);
+    return Array.from(this.bidsMap.keys()).sort((a, b) => new Decimal(a).cmp(new Decimal(b))).at(-1);
   }
 
   bestAsk(): string | undefined {
@@ -61,7 +61,7 @@ export class OrderbookSnapshot {
       return undefined;
     }
 
-    return Array.from(this.asksMap.keys()).sort((a, b) => new Decimal(a).cmp(b))[0];
+    return Array.from(this.asksMap.keys()).sort((a, b) => new Decimal(a).cmp(new Decimal(b)))[0];
   }
 
   midPrice(): string | undefined {

@@ -4,8 +4,11 @@ import type {
   ExportWalletResponse,
   PrivyOrderEnvelope,
   SignAndCancelAllRequest,
+  SignAndCancelAllResponse,
   SignAndCancelOrderRequest,
+  SignAndCancelOrderResponse,
   SignAndSendOrderRequest,
+  SignAndSendOrderResponse,
   SignAndSendTxRequest,
   SignAndSendTxResponse,
 } from "./index";
@@ -30,16 +33,16 @@ export class Privy {
     );
   }
 
-  async signAndSendOrder(walletId: string, order: PrivyOrderEnvelope): Promise<unknown> {
+  async signAndSendOrder(walletId: string, order: PrivyOrderEnvelope): Promise<SignAndSendOrderResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_send_order`;
     const body: SignAndSendOrderRequest = {
       wallet_id: walletId,
       order,
     };
-    return this.client.http.post<unknown, SignAndSendOrderRequest>(url, body, RetryPolicy.None);
+    return this.client.http.post<SignAndSendOrderResponse, SignAndSendOrderRequest>(url, body, RetryPolicy.None);
   }
 
-  async signAndCancelOrder(walletId: string, orderHash: string, maker: string): Promise<unknown> {
+  async signAndCancelOrder(walletId: string, orderHash: string, maker: string): Promise<SignAndCancelOrderResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
     const body: SignAndCancelOrderRequest = {
       wallet_id: walletId,
@@ -47,22 +50,7 @@ export class Privy {
       cancel_type: "limit",
       order_hash: orderHash,
     };
-    return this.client.http.post<unknown, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
-  }
-
-  async signAndCancelTriggerOrder(
-    walletId: string,
-    triggerOrderId: string,
-    maker: string
-  ): Promise<unknown> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
-    const body: SignAndCancelOrderRequest = {
-      wallet_id: walletId,
-      maker,
-      cancel_type: "trigger",
-      trigger_order_id: triggerOrderId,
-    };
-    return this.client.http.post<unknown, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
+    return this.client.http.post<SignAndCancelOrderResponse, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
   }
 
   async signAndCancelAllOrders(
@@ -70,7 +58,7 @@ export class Privy {
     userPubkey: string,
     orderbookId: string = "",
     timestamp: number
-  ): Promise<unknown> {
+  ): Promise<SignAndCancelAllResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_all_orders`;
     const body: SignAndCancelAllRequest = {
       wallet_id: walletId,
@@ -78,7 +66,7 @@ export class Privy {
       orderbook_id: orderbookId,
       timestamp,
     };
-    return this.client.http.post<unknown, SignAndCancelAllRequest>(url, body, RetryPolicy.None);
+    return this.client.http.post<SignAndCancelAllResponse, SignAndCancelAllRequest>(url, body, RetryPolicy.None);
   }
 
   async exportWallet(walletId: string, decodePubkeyBase64: string): Promise<ExportWalletResponse> {

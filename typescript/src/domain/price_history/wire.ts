@@ -44,3 +44,28 @@ export type PriceHistory =
   | ({ event_type: "snapshot" } & PriceHistorySnapshot)
   | ({ event_type: "update" } & PriceHistoryUpdate)
   | ({ event_type: "heartbeat" } & PriceHistoryHeartbeat);
+
+export interface PriceHistoryRestResponse {
+  orderbook_id: string;
+  resolution: string;
+  include_ohlcv: boolean;
+  prices: PriceCandle[];
+  next_cursor: number | null;
+  has_more: boolean;
+  decimals: { price: number; volume: number };
+}
+
+export interface DepositPriceCandle {
+  t: number;
+  tc?: number;
+  c: string;
+}
+
+export interface DepositPriceRestResponse {
+  deposit_asset: string;
+  binance_symbol: string;
+  resolution: string;
+  prices: DepositPriceCandle[];
+  next_cursor: number | null;
+  has_more: boolean;
+}

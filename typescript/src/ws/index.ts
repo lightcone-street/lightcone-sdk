@@ -236,5 +236,9 @@ export function unsubscribeDepositPrice(depositAsset: string, resolution: Resolu
 }
 
 export function parseMessageIn(input: string): MessageIn {
-  return JSON.parse(input) as MessageIn;
+  const parsed: unknown = JSON.parse(input);
+  if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
+    throw new Error(`Invalid WS message: missing "type" field`);
+  }
+  return parsed as MessageIn;
 }

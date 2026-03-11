@@ -103,8 +103,8 @@ export class WsClient implements IWsClient {
     for (const callback of this.callbacks) {
       try {
         callback(event);
-      } catch {
-        // Consumer callback errors should not break WS loop.
+      } catch (err) {
+        console.warn("WsClient: listener threw", err instanceof Error ? err.message : String(err));
       }
     }
   }

@@ -20,7 +20,7 @@ export class Notifications {
 
   async dismiss(notificationId: string): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/notifications/dismiss`;
-    await this.client.http.post<unknown, { notification_id: string }>(
+    await this.client.http.post<{ status: string }, { notification_id: string }>(
       url,
       { notification_id: notificationId },
       RetryPolicy.None

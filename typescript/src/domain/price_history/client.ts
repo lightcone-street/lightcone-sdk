@@ -1,5 +1,6 @@
 import type { Resolution } from "../../shared";
 import { RetryPolicy, type LightconeHttp } from "../../http";
+import type { PriceHistoryRestResponse } from "./wire";
 
 interface ClientContext {
   http: LightconeHttp;
@@ -13,7 +14,7 @@ export class PriceHistoryClient {
     resolution: Resolution,
     from?: number,
     to?: number
-  ): Promise<unknown> {
+  ): Promise<PriceHistoryRestResponse> {
     const params = new URLSearchParams({
       orderbook_id: orderbookId,
       resolution,
@@ -22,6 +23,6 @@ export class PriceHistoryClient {
     if (to !== undefined) params.set("to", String(to));
 
     const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
-    return this.client.http.get<unknown>(url, RetryPolicy.Idempotent);
+    return this.client.http.get<PriceHistoryRestResponse>(url, RetryPolicy.Idempotent);
   }
 }
