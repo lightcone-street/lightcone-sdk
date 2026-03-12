@@ -1,7 +1,7 @@
 """Shared type definitions used across the Lightcone SDK."""
 
 from dataclasses import dataclass
-from enum import IntEnum
+from enum import Enum, IntEnum
 from typing import NewType, Optional
 
 
@@ -98,41 +98,72 @@ class DepositSource(IntEnum):
         return "global" if self == DepositSource.GLOBAL else "market"
 
 
-class TriggerStatus(IntEnum):
-    """Trigger order execution status."""
+class TriggerStatus(str, Enum):
+    """Lifecycle status of a trigger order from WS updates."""
 
-    PENDING = 0
-    TRIGGERED = 1
-    CANCELLED = 2
-    EXPIRED = 3
-    FAILED = 4
+    TRIGGERED = "triggered"
+    FAILED = "failed"
+    EXPIRED = "expired"
 
+    def as_wire(self) -> str:
+        return self.value
 
-class TriggerResultStatus(IntEnum):
-    """Result status for a triggered order."""
-
-    SUCCESS = 0
-    FAILED = 1
-    PARTIAL = 2
-
-
-class OrderUpdateType(IntEnum):
-    """Type of order update received via WebSocket."""
-
-    NEW = 0
-    FILL = 1
-    CANCEL = 2
-    EXPIRE = 3
+    @classmethod
+    def from_wire(cls, value: "TriggerStatus | str") -> "TriggerStatus":
+        if isinstance(value, cls):
+            return value
+        return cls(str(value).lower())
 
 
-class TriggerUpdateType(IntEnum):
-    """Type of trigger order update received via WebSocket."""
+class TriggerResultStatus(str, Enum):
+    """Result status of a triggered order after matching."""
 
-    NEW = 0
-    TRIGGERED = 1
-    CANCELLED = 2
-    EXPIRED = 3
-    FAILED = 4
+    FILLED = "filled"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+    def as_wire(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_wire(cls, value: "TriggerResultStatus | str") -> "TriggerResultStatus":
+        if isinstance(value, cls):
+            return value
+        return cls(str(value).lower())
+
+
+class OrderUpdateType(str, Enum):
+    """Rust-aligned limit-order WS update type."""
+
+    PLACEMENT = "PLACEMENT"
+    UPDATE = "UPDATE"
+    CANCELLATION = "CANCELLATION"
+
+    def as_wire(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_wire(cls, value: "OrderUpdateType | str") -> "OrderUpdateType":
+        if isinstance(value, cls):
+            return value
+        return cls(str(value).upper())
+
+
+class TriggerUpdateType(str, Enum):
+    """Rust-aligned trigger-order WS update type."""
+
+    TRIGGERED = "TRIGGERED"
+    FAILED = "FAILED"
+    EXPIRED = "EXPIRED"
+
+    def as_wire(self) -> str:
+        return self.value
+
+    @classmethod
+    def from_wire(cls, value: "TriggerUpdateType | str") -> "TriggerUpdateType":
+        if isinstance(value, cls):
+            return value
+        return cls(str(value).upper())
 
 
 class Resolution(IntEnum):
@@ -252,7 +283,11 @@ class SubmitOrderRequest:
 
 @dataclass
 class SubmitTriggerOrderRequest:
-    """Trigger order submission request."""
+    """Compatibility shim for trigger order submission.
+
+    Rust models trigger and limit submissions with the same request shape. This
+    helper still exists for callers that build trigger orders directly.
+    """
 
     maker: str
     nonce: int
@@ -268,24 +303,29 @@ class SubmitTriggerOrderRequest:
     trigger_price: str
     trigger_type: TriggerType
     time_in_force: TimeInForce
+    deposit_source: Optional["DepositSource"] = None
+
+    def to_submit_order_request(self) -> SubmitOrderRequest:
+        return SubmitOrderRequest(
+            maker=self.maker,
+            nonce=self.nonce,
+            market_pubkey=self.market_pubkey,
+            base_token=self.base_token,
+            quote_token=self.quote_token,
+            side=self.side,
+            amount_in=self.amount_in,
+            amount_out=self.amount_out,
+            expiration=self.expiration,
+            signature=self.signature,
+            orderbook_id=self.orderbook_id,
+            time_in_force=self.time_in_force,
+            trigger_price=float(self.trigger_price),
+            trigger_type=self.trigger_type,
+            deposit_source=self.deposit_source,
+        )
 
     def to_dict(self) -> dict:
-        return {
-            "maker": self.maker,
-            "nonce": self.nonce,
-            "market_pubkey": self.market_pubkey,
-            "base_token": self.base_token,
-            "quote_token": self.quote_token,
-            "side": self.side,
-            "amount_in": self.amount_in,
-            "amount_out": self.amount_out,
-            "expiration": self.expiration,
-            "signature": self.signature,
-            "orderbook_id": self.orderbook_id,
-            "trigger_price": self.trigger_price,
-            "trigger_type": self.trigger_type.as_wire(),
-            "tif": self.time_in_force.as_wire(),
-        }
+        return self.to_submit_order_request().to_dict()
 
 
 __all__ = [

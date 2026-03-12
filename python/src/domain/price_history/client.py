@@ -29,10 +29,10 @@ class PriceHistoryClient:
             "resolution": resolution,
         }
         if from_ts is not None:
-            params["from"] = str(from_ts)
+            params["from"] = str(from_ts * 1000)
         if to_ts is not None:
-            params["to"] = str(to_ts)
+            params["to"] = str(to_ts * 1000)
 
         data = await self._http.get("/api/price-history", params=params)
-        candles = [PriceCandle.from_dict(c) for c in data.get("candles", data.get("data", []))]
+        candles = [PriceCandle.from_dict(c) for c in data.get("prices", [])]
         return [line_data_from_candle(c) for c in candles]

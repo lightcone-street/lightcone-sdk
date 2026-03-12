@@ -15,8 +15,18 @@ from .types import (
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
 )
+from .fmt import (
+    abbr_number,
+    display,
+    display_decimal,
+    display_formatted_string,
+    display_with_decimals,
+    from_decimal_value,
+    to_base_units,
+    to_decimal_value,
+)
 from .price import parse_decimal, format_decimal, is_zero
-from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, scale_price_size
+from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, align_price_to_tick, scale_price_size
 
 
 def derive_orderbook_id(base_token: str, quote_token: str) -> str:
@@ -42,6 +52,15 @@ __all__ = [
     "Resolution",
     "SubmitOrderRequest",
     "SubmitTriggerOrderRequest",
+    # Formatting
+    "abbr_number",
+    "display",
+    "display_decimal",
+    "display_formatted_string",
+    "display_with_decimals",
+    "from_decimal_value",
+    "to_base_units",
+    "to_decimal_value",
     # Price
     "parse_decimal",
     "format_decimal",
@@ -50,6 +69,7 @@ __all__ = [
     "OrderbookDecimals",
     "ScaledAmounts",
     "ScalingError",
+    "align_price_to_tick",
     "scale_price_size",
     # Utils
     "derive_orderbook_id",

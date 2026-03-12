@@ -117,6 +117,12 @@ class Market:
     token_metadata: dict[str, TokenMetadata] = field(default_factory=dict)
 
 
+@dataclass
+class MarketsResult:
+    markets: list[Market] = field(default_factory=list)
+    validation_errors: list[str] = field(default_factory=list)
+
+
 class MarketValidationError(Exception):
     def __init__(self, message: str, details: Optional[list[str]] = None):
         super().__init__(message)
@@ -132,5 +138,6 @@ __all__ = [
     "TokenMetadata",
     "OrderBookPairSummary",
     "Market",
+    "MarketsResult",
     "MarketValidationError",
 ]

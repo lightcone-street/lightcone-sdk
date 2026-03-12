@@ -21,10 +21,16 @@ from .shared import (
     Resolution,
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
+    abbr_number,
+    display,
+    display_decimal,
+    display_formatted_string,
+    display_with_decimals,
     # Price
     parse_decimal,
     format_decimal,
     is_zero,
+    from_decimal_value,
     # Scaling
     OrderbookDecimals,
     ScaledAmounts,
@@ -32,6 +38,8 @@ from .shared import (
     scale_price_size,
     # Utils
     derive_orderbook_id,
+    to_base_units,
+    to_decimal_value,
 )
 
 from .error import (
@@ -332,14 +340,22 @@ __all__ = [
     "SubmitOrderRequest",
     "SubmitTriggerOrderRequest",
     # Shared utils
+    "abbr_number",
+    "display",
+    "display_decimal",
+    "display_formatted_string",
+    "display_with_decimals",
     "parse_decimal",
     "format_decimal",
     "is_zero",
+    "from_decimal_value",
     "OrderbookDecimals",
     "ScaledAmounts",
     "ScalingError",
     "scale_price_size",
     "derive_orderbook_id",
+    "to_base_units",
+    "to_decimal_value",
     # Errors
     "SdkError",
     "HttpError",

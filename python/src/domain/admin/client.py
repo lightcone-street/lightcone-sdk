@@ -2,7 +2,16 @@
 
 from typing import TYPE_CHECKING
 
-from . import AdminEnvelope
+from . import (
+    AdminEnvelope,
+    AllocateCodesResponse,
+    CreateNotificationResponse,
+    DismissNotificationResponse,
+    RevokeResponse,
+    UnifiedMetadataResponse,
+    UnrevokeResponse,
+    WhitelistResponse,
+)
 
 if TYPE_CHECKING:
     from ...http.client import LightconeHttp
@@ -14,51 +23,40 @@ class Admin:
     def __init__(self, http: "LightconeHttp"):
         self._http = http
 
-    async def upsert_metadata(self, envelope: AdminEnvelope) -> dict:
+    async def upsert_metadata(self, envelope: AdminEnvelope) -> UnifiedMetadataResponse:
         """Upsert market/token metadata."""
-        return await self._http.post("/api/admin/metadata", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/metadata", envelope.to_dict())
+        return UnifiedMetadataResponse.from_dict(data)
 
-    async def allocate_codes(self, envelope: AdminEnvelope) -> dict:
+    async def allocate_codes(self, envelope: AdminEnvelope) -> AllocateCodesResponse:
         """Allocate referral codes."""
-        return await self._http.post("/api/admin/referral/allocate", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/referral/allocate", envelope.to_dict())
+        return AllocateCodesResponse.from_dict(data)
 
-    async def whitelist(self, envelope: AdminEnvelope) -> dict:
+    async def whitelist(self, envelope: AdminEnvelope) -> WhitelistResponse:
         """Whitelist wallet addresses."""
-        return await self._http.post("/api/admin/referral/whitelist", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/referral/whitelist", envelope.to_dict())
+        return WhitelistResponse.from_dict(data)
 
-    async def revoke(self, envelope: AdminEnvelope) -> dict:
+    async def revoke(self, envelope: AdminEnvelope) -> RevokeResponse:
         """Revoke access."""
-        return await self._http.post("/api/admin/referral/revoke", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/referral/revoke", envelope.to_dict())
+        return RevokeResponse.from_dict(data)
 
-    async def unrevoke(self, envelope: AdminEnvelope) -> dict:
+    async def unrevoke(self, envelope: AdminEnvelope) -> UnrevokeResponse:
         """Unrevoke access."""
-        return await self._http.post("/api/admin/referral/unrevoke", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/referral/unrevoke", envelope.to_dict())
+        return UnrevokeResponse.from_dict(data)
 
-    async def create_notification(self, envelope: AdminEnvelope) -> dict:
+    async def create_notification(self, envelope: AdminEnvelope) -> CreateNotificationResponse:
         """Create a notification."""
-        return await self._http.post("/api/admin/notifications", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/notifications", envelope.to_dict())
+        return CreateNotificationResponse.from_dict(data)
 
-    async def dismiss_notification(self, envelope: AdminEnvelope) -> dict:
+    async def dismiss_notification(
+        self,
+        envelope: AdminEnvelope,
+    ) -> DismissNotificationResponse:
         """Dismiss a notification."""
-        return await self._http.post("/api/admin/notifications/dismiss", {
-            "payload": envelope.payload,
-            "signature": envelope.signature,
-        })
+        data = await self._http.post("/api/admin/notifications/dismiss", envelope.to_dict())
+        return DismissNotificationResponse.from_dict(data)

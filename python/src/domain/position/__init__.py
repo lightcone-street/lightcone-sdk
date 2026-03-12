@@ -85,6 +85,13 @@ class TokenBalanceComputedBase:
     price: str = "0"
 
 
+from .wire import (  # noqa: E402
+    GlobalDeposit,
+    MarketPositionsResponseWire as MarketPositionsResponse,
+    PositionsResponseWire as PositionsResponse,
+)
+
+
 __all__ = [
     "TokenBalanceTokenType",
     "TokenBalance",
@@ -95,4 +102,7 @@ __all__ = [
     "DepositTokenBalance",
     "Portfolio",
     "TokenBalanceComputedBase",
+    "GlobalDeposit",
+    "PositionsResponse",
+    "MarketPositionsResponse",
 ]

@@ -78,6 +78,8 @@ async def scaling_decimals(
     return OrderbookDecimals(
         base_decimals=decimals.base_decimals,
         quote_decimals=decimals.quote_decimals,
+        price_decimals=decimals.price_decimals,
+        tick_size=max(orderbook.tick_size, 0),
     )
 
 

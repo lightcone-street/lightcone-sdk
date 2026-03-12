@@ -14,6 +14,31 @@ def _parse_status(s: Optional[str]) -> Status:
     return Status.from_str(s)
 
 
+def validation_errors_from_wire(wire: MarketWire) -> list[str]:
+    errors: list[str] = []
+
+    if not wire.slug:
+        errors.append("Missing slug")
+    if not wire.market_name:
+        errors.append("Missing name")
+    if not wire.description:
+        errors.append("Missing description")
+    if not wire.definition:
+        errors.append("Missing definition")
+    if not wire.icon_url:
+        errors.append("Missing thumbnail image")
+    if not wire.banner_image_url:
+        errors.append("Missing banner image")
+    if wire.market_status and wire.market_status not in {"Pending", "Active", "Resolved", "Cancelled"}:
+        errors.append("Invalid status")
+
+    if not errors:
+        return []
+
+    identifier = wire.market_pubkey or str(wire.market_id)
+    return [f"Market validation errors ({identifier}): {', '.join(errors)}"]
+
+
 def market_from_wire(wire: MarketWire) -> Market:
     """Convert a MarketWire to a Market domain type."""
     outcomes = [

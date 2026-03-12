@@ -18,7 +18,7 @@ from ..shared.types import (
     TimeInForce,
     TriggerType,
 )
-from ..shared.scaling import OrderbookDecimals, scale_price_size
+from ..shared.scaling import OrderbookDecimals, align_price_to_tick, scale_price_size
 
 
 class LimitOrderEnvelope:
@@ -101,14 +101,16 @@ class LimitOrderEnvelope:
         """Apply price/size scaling to set amount_in and amount_out.
 
         Can be called with explicit price/size args or uses deferred values
-        set via .price()/.size().
+        set via .price()/.size(). Price is aligned to the tick size before scaling.
         """
+        from decimal import Decimal
         p = price or self._price_str
         s = size or self._size_str
         assert p is not None, "price is required (set via .price() or pass directly)"
         assert s is not None, "size is required (set via .size() or pass directly)"
         assert decimals is not None, "decimals is required"
-        scaled = scale_price_size(p, s, int(self._side), decimals)
+        aligned = align_price_to_tick(Decimal(p), decimals)
+        scaled = scale_price_size(str(aligned), s, int(self._side), decimals)
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
         return self
