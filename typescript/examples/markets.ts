@@ -21,8 +21,8 @@ async function main() {
     console.log("by pubkey:", byPubkey.name);
   }
 
-  // 4. Search by slug
-  const query = first?.slug ?? "market";
+  // 4. Search by keyword (search is keyword-based, not slug-based)
+  const query = first?.name.split(" ").find((w) => w.length > 3) ?? "market";
   const results = await client.markets().search(query, 5);
   console.log("search results:", results.length);
   for (const result of results) {

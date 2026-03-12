@@ -37,9 +37,9 @@ async function main() {
       if (msg.type === "auth") {
         console.log("[auth]", JSON.stringify(msg.data));
       } else if (msg.type === "user") {
-        console.log("[user]", JSON.stringify(msg.data).slice(0, 200));
+        console.log("[user]", JSON.stringify(msg.data).slice(0, 500));
       } else if (msg.type === "market") {
-        console.log("[market]", JSON.stringify(msg.data).slice(0, 200));
+        console.log("[market]", JSON.stringify(msg.data).slice(0, 500));
       }
     } else if (event.type === "Error") {
       console.error("ws error:", event.error);
