@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ...error import _require
+
 
 @dataclass
 class MarketWire:
@@ -37,7 +39,7 @@ class MarketWire:
     def from_dict(d: dict) -> "MarketWire":
         return MarketWire(
             market_id=d.get("market_id", 0),
-            market_pubkey=d.get("market_pubkey", ""),
+            market_pubkey=_require(d, "market_pubkey", "MarketWire"),
             market_name=d.get("market_name", ""),
             slug=d.get("slug"),
             description=d.get("description"),

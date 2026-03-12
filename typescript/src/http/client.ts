@@ -85,9 +85,11 @@ export class LightconeHttp {
   }
 
   private async doRequest<T>(method: "GET" | "POST", url: string, body?: object): Promise<T> {
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-    };
+    const headers: Record<string, string> = {};
+
+    if (body) {
+      headers["Content-Type"] = "application/json";
+    }
 
     if (this.authToken && !hasBrowserWindow()) {
       headers.Cookie = `auth_token=${this.authToken}`;
@@ -119,7 +121,7 @@ export class LightconeHttp {
     if (response.ok) {
       const text = await response.text();
       if (!text) {
-        return undefined as T;
+        throw HttpError.request("Empty response body");
       }
       return JSON.parse(text) as T;
     }

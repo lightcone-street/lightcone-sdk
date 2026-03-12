@@ -1,6 +1,6 @@
 """WebSocket subscription management."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Union
 
 
@@ -12,21 +12,13 @@ from typing import Optional, Union
 @dataclass
 class BookUpdateParams:
     type: str = "book_update"
-    orderbook_ids: list[str] = None  # type: ignore
-
-    def __post_init__(self):
-        if self.orderbook_ids is None:
-            self.orderbook_ids = []
+    orderbook_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
 class TradesParams:
     type: str = "trades"
-    orderbook_ids: list[str] = None  # type: ignore
-
-    def __post_init__(self):
-        if self.orderbook_ids is None:
-            self.orderbook_ids = []
+    orderbook_ids: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -46,11 +38,7 @@ class PriceHistoryParams:
 @dataclass
 class TickerParams:
     type: str = "ticker"
-    orderbook_ids: list[str] = None  # type: ignore
-
-    def __post_init__(self):
-        if self.orderbook_ids is None:
-            self.orderbook_ids = []
+    orderbook_ids: list[str] = field(default_factory=list)
 
 
 @dataclass

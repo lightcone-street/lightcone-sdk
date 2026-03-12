@@ -98,7 +98,9 @@ export interface SubmitOrderRequest {
   base_token: string;
   quote_token: string;
   side: number;
+  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
   amount_in: number;
+  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
   amount_out: number;
   expiration: number;
   signature: string;

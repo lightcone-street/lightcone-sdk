@@ -254,12 +254,19 @@ class LightconePinocchioClient:
         return await self._build_transaction([ix])
 
     async def add_deposit_mint(
-        self, params: AddDepositMintParams, num_outcomes: int
+        self, params: AddDepositMintParams, market: Pubkey, num_outcomes: int
     ) -> Transaction:
-        """Build an add_deposit_mint transaction."""
+        """Build an add_deposit_mint transaction.
+
+        Args:
+            params: Deposit mint parameters (authority, deposit_mint, outcome_metadata)
+            market: Market pubkey (passed separately, matching Rust SDK)
+            num_outcomes: Number of outcomes for the market
+        """
+        payer = params.payer or params.authority
         ix = build_add_deposit_mint_instruction(
-            payer=params.payer,
-            market=params.market,
+            payer=payer,
+            market=market,
             deposit_mint=params.deposit_mint,
             outcome_metadata=params.outcome_metadata,
             num_outcomes=num_outcomes,
@@ -386,7 +393,7 @@ class LightconePinocchioClient:
     async def create_orderbook(self, params: CreateOrderbookParams) -> Transaction:
         """Build a create_orderbook transaction."""
         ix = build_create_orderbook_instruction(
-            payer=params.payer,
+            payer=params.authority,
             market=params.market,
             mint_a=params.mint_a,
             mint_b=params.mint_b,

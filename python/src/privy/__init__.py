@@ -156,22 +156,22 @@ def privy_order_from_trigger_envelope(envelope, orderbook_id: str) -> PrivyOrder
     Returns:
         PrivyOrderEnvelope with trigger fields populated
     """
-    order = envelope._limit.finalize()
+    order = envelope.payload()
 
     trigger_price = None
-    tp = getattr(envelope, "_trigger_price", None)
-    if tp is not None and tp != "0":
+    tp = envelope.fields_trigger_price
+    if tp is not None and tp != 0:
         trigger_price = float(tp)
 
     trigger_type = None
-    tt = getattr(envelope, "_trigger_type", None)
+    tt = envelope.fields_trigger_type
     if tt is not None:
-        trigger_type = tt.as_wire() if hasattr(tt, "as_wire") else str(tt)
+        trigger_type = tt.as_wire()
 
     time_in_force = None
-    tif = getattr(envelope, "_time_in_force", None)
+    tif = envelope.fields_time_in_force
     if tif is not None:
-        time_in_force = tif.as_wire() if hasattr(tif, "as_wire") else str(tif)
+        time_in_force = tif.as_wire()
 
     return PrivyOrderEnvelope(
         maker=str(order.maker),

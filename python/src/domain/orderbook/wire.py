@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ...error import _require
+
 
 @dataclass
 class PriceLevel:
@@ -122,8 +124,12 @@ class WsOrderBook:
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrderBook":
+        ob_id = d.get("orderbook_id") or d.get("id")
+        if ob_id is None:
+            from ...error import DeserializationError
+            raise DeserializationError("Missing required field 'orderbook_id' in WsOrderBook")
         return WsOrderBook(
-            orderbook_id=d.get("orderbook_id", d.get("id", "")),
+            orderbook_id=ob_id,
             is_snapshot=d.get("is_snapshot", False),
             seq=d.get("seq", 0),
             bids=[WsBookLevel.from_dict(b) for b in d.get("bids", [])],

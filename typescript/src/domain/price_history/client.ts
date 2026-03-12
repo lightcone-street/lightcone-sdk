@@ -19,8 +19,8 @@ export class PriceHistoryClient {
       orderbook_id: orderbookId,
       resolution,
     });
-    if (from !== undefined) params.set("from", String(from * 1000));
-    if (to !== undefined) params.set("to", String(to * 1000));
+    if (from !== undefined) params.set("from", String(from));
+    if (to !== undefined) params.set("to", String(to));
 
     const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
     return this.client.http.get<PriceHistoryRestResponse>(url, RetryPolicy.Idempotent);

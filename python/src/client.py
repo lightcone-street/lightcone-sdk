@@ -88,7 +88,7 @@ class LightconeClient:
         """Create a new WebSocket client with the current config."""
         client = WsClient(self._ws_config)
         if self._http.has_auth_token():
-            client.set_auth_token(self._http._auth_token)
+            client.set_auth_token(self._http.auth_token)
         return client
 
     def ws_config(self) -> WsConfig:

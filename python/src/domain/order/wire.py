@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 
+from ...error import _require
 from ...shared.types import Side
 
 
@@ -34,7 +35,7 @@ class WsOrder:
         if size is None:
             size = _sum_decimal_strings(remaining, filled)
         return WsOrder(
-            order_hash=d.get("order_hash", ""),
+            order_hash=_require(d, "order_hash", "WsOrder"),
             side=int(Side.from_wire(d.get("side", 0))),
             price=str(d.get("price", "0")),
             size=str(size),
@@ -66,8 +67,8 @@ class OrderUpdate:
     def from_dict(d: dict) -> "OrderUpdate":
         order_data = d.get("order")
         return OrderUpdate(
-            market_pubkey=d.get("market_pubkey", ""),
-            orderbook_id=d.get("orderbook_id", ""),
+            market_pubkey=_require(d, "market_pubkey", "OrderUpdate"),
+            orderbook_id=_require(d, "orderbook_id", "OrderUpdate"),
             timestamp=d.get("timestamp"),
             tx_signature=d.get("tx_signature"),
             update_type=d.get("type", d.get("update_type")),
@@ -94,8 +95,8 @@ class TriggerOrderUpdate:
     @staticmethod
     def from_dict(d: dict) -> "TriggerOrderUpdate":
         return TriggerOrderUpdate(
-            trigger_order_id=d.get("trigger_order_id", ""),
-            status=d.get("status", ""),
+            trigger_order_id=_require(d, "trigger_order_id", "TriggerOrderUpdate"),
+            status=_require(d, "status", "TriggerOrderUpdate"),
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
             order_hash=d.get("order_hash", ""),

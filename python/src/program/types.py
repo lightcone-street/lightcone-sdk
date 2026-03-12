@@ -175,6 +175,8 @@ class AddDepositMintParams:
     authority: Pubkey
     deposit_mint: Pubkey
     outcome_metadata: list[OutcomeMetadata]
+    payer: Optional[Pubkey] = None
+    market: Optional[Pubkey] = None
 
 
 @dataclass

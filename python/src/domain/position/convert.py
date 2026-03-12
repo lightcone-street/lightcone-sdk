@@ -8,9 +8,9 @@ def position_from_wire(wire: PositionEntryWire) -> Position:
     outcomes = [
         PositionOutcome(
             condition_id=o.outcome_index,
-            condition_name=o.name or "",
+            condition_name="",
             token_mint=o.conditional_token,
-            amount=o.balance_idle + o.balance_on_book,
+            amount=int(o.balance_idle) + int(o.balance_on_book),
         )
         for o in wire.outcomes
     ]

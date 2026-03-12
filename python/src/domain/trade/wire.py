@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ...error import _require
+
 
 @dataclass
 class TradeResponseWire:
@@ -22,8 +24,8 @@ class TradeResponseWire:
     @staticmethod
     def from_dict(d: dict) -> "TradeResponseWire":
         return TradeResponseWire(
-            id=d.get("id", ""),
-            orderbook_id=d.get("orderbook_id", ""),
+            id=_require(d, "id", "TradeResponseWire"),
+            orderbook_id=_require(d, "orderbook_id", "TradeResponseWire"),
             taker_pubkey=d.get("taker_pubkey"),
             maker_pubkey=d.get("maker_pubkey"),
             side=d.get("side", 0),
@@ -64,10 +66,10 @@ class WsTrade:
     @staticmethod
     def from_dict(d: dict) -> "WsTrade":
         return WsTrade(
-            orderbook_id=d.get("orderbook_id", ""),
+            orderbook_id=_require(d, "orderbook_id", "WsTrade"),
             price=str(d.get("price", "0")),
             size=str(d.get("size", "0")),
             side=d.get("side", 0),
             timestamp=d.get("timestamp", ""),
-            trade_id=d.get("trade_id", ""),
+            trade_id=_require(d, "trade_id", "WsTrade"),
         )

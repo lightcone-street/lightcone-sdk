@@ -33,6 +33,7 @@ function bigintToSafeNumber(value: bigint, field: string): number {
   return Number(value);
 }
 
+
 // ============================================================================
 // ORDER HASHING
 // ============================================================================
@@ -449,15 +450,10 @@ export function isSigned(order: SignedOrder): boolean {
 }
 
 /**
- * Derive orderbook ID from base and quote token addresses
- * Format: "{base[0:8]}_{quote[0:8]}"
+ * Derive orderbook ID from base and quote token addresses.
+ * Delegates to the canonical implementation in shared/types.
  */
-export function deriveOrderbookId(
-  baseToken: string,
-  quoteToken: string
-): string {
-  return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}`;
-}
+export { deriveOrderbookId } from "../shared/types";
 
 // ============================================================================
 // CANCEL ORDER SIGNING

@@ -10,6 +10,20 @@ class SdkError(Exception):
     pass
 
 
+class DeserializationError(SdkError):
+    """Raised when a required field is missing during wire type deserialization."""
+
+    pass
+
+
+def _require(d: dict, key: str, type_name: str = ""):
+    """Extract a required field from a dict, raising DeserializationError if missing."""
+    if key not in d:
+        ctx = f" in {type_name}" if type_name else ""
+        raise DeserializationError(f"Missing required field '{key}'{ctx}")
+    return d[key]
+
+
 # ---------------------------------------------------------------------------
 # HTTP Errors
 # ---------------------------------------------------------------------------
@@ -185,6 +199,8 @@ class AuthError(SdkError):
 
 __all__ = [
     "SdkError",
+    "DeserializationError",
+    "_require",
     "HttpError",
     "HttpErrorKind",
     "WsError",

@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from ...error import _require
+
 
 @dataclass
 class GlobalDeposit:
@@ -31,7 +33,7 @@ class PositionOutcomeWire:
     @staticmethod
     def from_dict(d: dict) -> "PositionOutcomeWire":
         return PositionOutcomeWire(
-            conditional_token=d.get("conditional_token", ""),
+            conditional_token=_require(d, "conditional_token", "PositionOutcomeWire"),
             outcome_index=d.get("outcome_index", 0),
             balance=str(d.get("balance", "0")),
             balance_idle=str(d.get("balance_idle", "0")),
@@ -52,9 +54,9 @@ class PositionEntryWire:
     @staticmethod
     def from_dict(d: dict) -> "PositionEntryWire":
         return PositionEntryWire(
-            id=d.get("id", ""),
-            owner=d.get("owner", ""),
-            market_pubkey=d.get("market_pubkey", ""),
+            id=_require(d, "id", "PositionEntryWire"),
+            owner=_require(d, "owner", "PositionEntryWire"),
+            market_pubkey=_require(d, "market_pubkey", "PositionEntryWire"),
             position_pubkey=d.get("position_pubkey", ""),
             outcomes=[PositionOutcomeWire.from_dict(o) for o in d.get("outcomes", [])],
             created_at=d.get("created_at"),

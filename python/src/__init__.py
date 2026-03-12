@@ -44,6 +44,7 @@ from .shared import (
 
 from .error import (
     SdkError,
+    DeserializationError,
     HttpError,
     HttpErrorKind,
     WsError,

@@ -39,6 +39,11 @@ class LightconeHttp:
     def base_url(self) -> str:
         return self._base_url
 
+    @property
+    def auth_token(self) -> Optional[str]:
+        """Public accessor for the auth token."""
+        return self._auth_token
+
     def set_auth_token(self, token: Optional[str]) -> None:
         """Set or clear the auth token."""
         self._auth_token = token
@@ -103,7 +108,7 @@ class LightconeHttp:
         else:
             return HttpError.server_error(message, status)
 
-    async def _do_request(self, method: str, path: str, **kwargs: Any) -> dict:
+    async def _do_request(self, method: str, path: str, **kwargs: Any) -> Any:
         """Execute a single HTTP request (no retry)."""
         session = await self._ensure_session()
         url = f"{self._base_url}{path}"
@@ -137,7 +142,7 @@ class LightconeHttp:
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         **kwargs: Any,
-    ) -> dict:
+    ) -> Any:
         """Make an HTTP request with retry logic."""
         config = self._resolve_retry_config(retry_policy)
 
@@ -202,7 +207,7 @@ class LightconeHttp:
         path: str,
         params: Optional[dict] = None,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
-    ) -> dict:
+    ) -> Any:
         """Make a GET request.
 
         Args:
@@ -219,7 +224,7 @@ class LightconeHttp:
         path: str,
         body: Optional[Any] = None,
         retry_policy: RetryPolicy = RetryPolicy.NONE,
-    ) -> dict:
+    ) -> Any:
         """Make a POST request.
 
         Args:

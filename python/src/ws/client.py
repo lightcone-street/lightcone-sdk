@@ -68,9 +68,18 @@ class WsClient:
             try:
                 result = cb(event)
                 if asyncio.iscoroutine(result):
-                    asyncio.ensure_future(result)
+                    task = asyncio.ensure_future(result)
+                    task.add_done_callback(self._handle_callback_error)
             except Exception as e:
                 logger.warning(f"Callback error: {e}")
+
+    @staticmethod
+    def _handle_callback_error(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning(f"Async callback error: {exc}")
 
     async def connect(self) -> None:
         """Connect to the WebSocket server."""

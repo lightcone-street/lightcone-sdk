@@ -235,10 +235,33 @@ export function unsubscribeDepositPrice(depositAsset: string, resolution: Resolu
   };
 }
 
+const VALID_MESSAGE_TYPES = new Set([
+  "book_update",
+  "pong",
+  "user",
+  "error",
+  "price_history",
+  "trades",
+  "auth",
+  "ticker",
+  "market",
+  "deposit_price",
+]);
+
 export function parseMessageIn(input: string): MessageIn {
   const parsed: unknown = JSON.parse(input);
   if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
     throw new Error(`Invalid WS message: missing "type" field`);
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.type !== "string" || !VALID_MESSAGE_TYPES.has(obj.type)) {
+    throw new Error(`Invalid WS message type: "${String(obj.type)}"`);
+  }
+  if (!("version" in obj) || typeof obj.version !== "number") {
+    throw new Error(`Invalid WS message: missing or invalid "version" field`);
+  }
+  if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
+    throw new Error(`Invalid WS message: missing or invalid "data" field`);
   }
   return parsed as MessageIn;
 }
