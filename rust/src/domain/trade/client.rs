@@ -13,13 +13,13 @@ pub struct Trades<'a> {
 impl<'a> Trades<'a> {
     /// Get trades for an orderbook.
     ///
-    /// `before` is a cursor (trade ID) for pagination — pass `next_cursor`
+    /// `cursor` is a trade ID for pagination — pass `next_cursor`
     /// from a previous response to get the next page.
     pub async fn get(
         &self,
         orderbook_id: &str,
         limit: Option<u32>,
-        before: Option<i64>,
+        cursor: Option<i64>,
     ) -> Result<TradesPage, SdkError> {
         let mut url = format!(
             "{}/api/trades?orderbook_id={}",
@@ -29,8 +29,8 @@ impl<'a> Trades<'a> {
         if let Some(l) = limit {
             url = format!("{}&limit={}", url, l);
         }
-        if let Some(b) = before {
-            url = format!("{}&before={}", url, b);
+        if let Some(c) = cursor {
+            url = format!("{}&cursor={}", url, c);
         }
 
         let resp: TradesResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;

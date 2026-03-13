@@ -10,10 +10,10 @@ interface ClientContext {
 export class Trades {
   constructor(private readonly client: ClientContext) {}
 
-  async get(orderbookId: string, limit?: number, before?: number): Promise<TradesPage> {
+  async get(orderbookId: string, limit?: number, cursor?: number): Promise<TradesPage> {
     const params = new URLSearchParams({ orderbook_id: orderbookId });
     if (limit !== undefined) params.set("limit", String(limit));
-    if (before !== undefined) params.set("before", String(before));
+    if (cursor !== undefined) params.set("cursor", String(cursor));
 
     const url = `${this.client.http.baseUrl()}/api/trades?${params.toString()}`;
     const response = await this.client.http.get<TradesResponse>(url, RetryPolicy.Idempotent);

@@ -42,7 +42,7 @@ class TradeResponseWire:
 @dataclass
 class TradesResponseWire:
     trades: list[TradeResponseWire]
-    next_cursor: Optional[str] = None
+    next_cursor: Optional[int] = None
     has_more: bool = False
 
     @staticmethod

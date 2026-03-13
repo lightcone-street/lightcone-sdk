@@ -48,7 +48,7 @@ async fn get(
     &self,
     orderbook_id: &str,
     limit: Option<u32>,
-    before: Option<i64>,
+    cursor: Option<i64>,
 ) -> Result<TradesPage, SdkError>
 ```
 
@@ -57,7 +57,7 @@ Fetch trades for an orderbook with cursor-based pagination.
 **Parameters:**
 - `orderbook_id` -- which orderbook to query
 - `limit` -- maximum number of trades to return
-- `before` -- cursor from `next_cursor` of a previous response (fetch older trades)
+- `cursor` -- cursor from `next_cursor` of a previous response (fetch older trades)
 
 ## State Container: TradeHistory
 
