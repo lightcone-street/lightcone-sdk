@@ -77,3 +77,62 @@ class PriceHistoryHeartbeat:
             server_time=d.get("server_time", 0),
             last_processed=d.get("last_processed"),
         )
+
+
+@dataclass
+class OrderbookPriceHistoryResponse:
+    orderbook_id: str = ""
+    resolution: str = "1m"
+    include_ohlcv: bool = False
+    prices: list[PriceCandle] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+    decimals: dict[str, int] = field(default_factory=dict)
+
+    @staticmethod
+    def from_dict(d: dict) -> "OrderbookPriceHistoryResponse":
+        return OrderbookPriceHistoryResponse(
+            orderbook_id=d.get("orderbook_id", ""),
+            resolution=d.get("resolution", "1m"),
+            include_ohlcv=d.get("include_ohlcv", False),
+            prices=[PriceCandle.from_dict(c) for c in d.get("prices", [])],
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+            decimals=d.get("decimals") or {},
+        )
+
+
+@dataclass
+class DepositTokenCandle:
+    t: int = 0
+    tc: int = 0
+    c: str = "0"
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenCandle":
+        return DepositTokenCandle(
+            t=d.get("t", 0),
+            tc=d.get("tc", 0),
+            c=str(d.get("c", "0")),
+        )
+
+
+@dataclass
+class DepositPriceHistoryResponse:
+    deposit_asset: str = ""
+    binance_symbol: str = ""
+    resolution: str = "1m"
+    prices: list[DepositTokenCandle] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositPriceHistoryResponse":
+        return DepositPriceHistoryResponse(
+            deposit_asset=d.get("deposit_asset", ""),
+            binance_symbol=d.get("binance_symbol", ""),
+            resolution=d.get("resolution", "1m"),
+            prices=[DepositTokenCandle.from_dict(c) for c in d.get("prices", [])],
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+        )
