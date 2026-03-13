@@ -325,6 +325,11 @@ pub struct Orders<'a> {
 }
 
 impl<'a> Orders<'a> {
+    /// Generate a random salt for cancel-all replay protection.
+    pub fn generate_cancel_all_salt(&self) -> String {
+        crate::program::orders::generate_cancel_all_salt()
+    }
+
     pub async fn submit(
         &self,
         request: &impl serde::Serialize,
