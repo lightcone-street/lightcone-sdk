@@ -28,9 +28,11 @@ async def main():
     print(f"by pubkey: {by_pubkey.name}")
 
     # 4. Search
-    query = m.slug
+    query = next((word for word in m.name.split() if len(word) > 3), "market")
     results = await client.markets().search(query, 5)
     print(f"search '{query}': {len(results)} result(s)")
+    for result in results:
+        print(f"  - {result.slug}")
 
     await client.close()
 
