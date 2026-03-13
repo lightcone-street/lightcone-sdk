@@ -20,7 +20,7 @@ class Trade:
 @dataclass
 class TradesPage:
     trades: list[Trade] = field(default_factory=list)
-    next_cursor: Optional[str] = None
+    next_cursor: Optional[int] = None
     has_more: bool = False
 
 
