@@ -497,18 +497,37 @@ export function signCancelTriggerOrder(triggerOrderId: string, signer: Keypair):
 
 /**
  * Build the message string for cancelling all orders.
- * Format: "cancel_all:{pubkey}:{timestamp}"
+ * Format: "cancel_all:{pubkey}:{orderbook_id}:{timestamp}:{salt}"
  */
-export function cancelAllMessage(userPubkey: string, timestamp: number): string {
-  return `cancel_all:${userPubkey}:${timestamp}`;
+export function cancelAllMessage(
+  userPubkey: string,
+  orderbookId: string,
+  timestamp: number,
+  salt: string
+): string {
+  return `cancel_all:${userPubkey}:${orderbookId}:${timestamp}:${salt}`;
+}
+
+/**
+ * Generate a random salt for cancel-all replay protection.
+ * Returns an RFC 4122 UUID v4 string.
+ */
+export function generateCancelAllSalt(): string {
+  return globalThis.crypto.randomUUID();
 }
 
 /**
  * Sign a cancel-all orders request.
  * Returns the signature as a 128-char hex string.
  */
-export function signCancelAll(userPubkey: string, timestamp: number, signer: Keypair): string {
-  const message = cancelAllMessage(userPubkey, timestamp);
+export function signCancelAll(
+  userPubkey: string,
+  orderbookId: string,
+  timestamp: number,
+  salt: string,
+  signer: Keypair
+): string {
+  const message = cancelAllMessage(userPubkey, orderbookId, timestamp, salt);
   const messageBytes = Buffer.from(message, "ascii");
   const signature = sign.detached(messageBytes, signer.secretKey);
   return Buffer.from(signature).toString("hex");
@@ -559,4 +578,5 @@ export const calculate_taker_fill = calculateTakerFill;
 export const cancel_order_message = cancelOrderMessage;
 export const cancel_trigger_order_message = cancelTriggerOrderMessage;
 export const cancel_all_message = cancelAllMessage;
+export const generate_cancel_all_salt = generateCancelAllSalt;
 export const derive_condition_id = deriveConditionId;

@@ -495,9 +495,33 @@ pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
 
 /// Build the message string for cancelling all orders.
 ///
-/// Format: `"cancel_all:{pubkey}:{timestamp}"`
-pub fn cancel_all_message(user_pubkey: &str, timestamp: i64) -> String {
-    format!("cancel_all:{}:{}", user_pubkey, timestamp)
+/// Format: `"cancel_all:{pubkey}:{orderbook_id}:{timestamp}:{salt}"`
+pub fn cancel_all_message(
+    user_pubkey: &str,
+    orderbook_id: &str,
+    timestamp: i64,
+    salt: &str,
+) -> String {
+    format!(
+        "cancel_all:{}:{}:{}:{}",
+        user_pubkey, orderbook_id, timestamp, salt
+    )
+}
+
+/// Generate a random UUID v4 salt for cancel-all replay protection.
+pub fn generate_cancel_all_salt() -> String {
+    let mut bytes = rand::random::<[u8; 16]>();
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    format!(
+        "{}-{}-{}-{}-{}",
+        hex::encode(&bytes[0..4]),
+        hex::encode(&bytes[4..6]),
+        hex::encode(&bytes[6..8]),
+        hex::encode(&bytes[8..10]),
+        hex::encode(&bytes[10..16]),
+    )
 }
 
 #[cfg(test)]
@@ -870,9 +894,22 @@ mod tests {
     #[test]
     fn test_cancel_all_message() {
         let pubkey = "SomePubkey123";
+        let orderbook_id = "test_orderbook";
         let timestamp = 1700000000i64;
-        let message = cancel_all_message(pubkey, timestamp);
-        assert_eq!(message, "cancel_all:SomePubkey123:1700000000");
+        let salt = "550e8400-e29b-41d4-a716-446655440000";
+        let message = cancel_all_message(pubkey, orderbook_id, timestamp, salt);
+        assert_eq!(
+            message,
+            "cancel_all:SomePubkey123:test_orderbook:1700000000:550e8400-e29b-41d4-a716-446655440000"
+        );
+    }
+
+    #[test]
+    fn test_generate_cancel_all_salt() {
+        let salt = generate_cancel_all_salt();
+        assert_eq!(salt.len(), 36);
+        assert_eq!(salt.chars().filter(|c| *c == '-').count(), 4);
+        assert_eq!(salt.chars().nth(14), Some('4'));
     }
 
     #[test]
@@ -904,17 +941,21 @@ mod tests {
 
         let keypair = Keypair::new();
         let pubkey_str = crate::shared::PubkeyStr::from_pubkey(keypair.pubkey());
+        let orderbook_id = crate::shared::OrderBookId::from("");
         let timestamp = 1700000000i64;
+        let salt = "550e8400-e29b-41d4-a716-446655440000".to_string();
 
         let body = CancelAllBody::signed(
             pubkey_str.clone(),
-            crate::shared::OrderBookId::from(""),
+            orderbook_id.clone(),
             timestamp,
+            salt.clone(),
             &keypair,
         );
         assert_eq!(body.signature.len(), 128);
+        assert_eq!(body.salt, salt);
 
-        let message = cancel_all_message(pubkey_str.as_str(), timestamp);
+        let message = cancel_all_message(pubkey_str.as_str(), orderbook_id.as_str(), timestamp, &salt);
         let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));

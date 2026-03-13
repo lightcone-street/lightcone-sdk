@@ -160,6 +160,7 @@ pub struct SignAndCancelAllRequest {
     #[serde(default)]
     pub orderbook_id: String,
     pub timestamp: i64,
+    pub salt: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

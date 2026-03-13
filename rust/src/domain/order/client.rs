@@ -59,6 +59,7 @@ pub struct CancelAllBody {
     pub orderbook_id: OrderBookId,
     pub signature: String,
     pub timestamp: i64,
+    pub salt: String,
 }
 
 impl CancelAllBody {
@@ -68,6 +69,7 @@ impl CancelAllBody {
         user_pubkey: PubkeyStr,
         orderbook_id: OrderBookId,
         timestamp: i64,
+        salt: String,
         sig_bs58: &str,
     ) -> SdkResult<Self> {
         let sig = sig_bs58
@@ -78,26 +80,33 @@ impl CancelAllBody {
             orderbook_id,
             signature: hex::encode(sig.as_ref()),
             timestamp,
+            salt,
         })
     }
 
     /// Build a signed cancel-all request using a native keypair.
-    /// Signs `cancel_all_message(user_pubkey, timestamp)` and hex-encodes the result.
+    /// Signs `cancel_all_message(user_pubkey, orderbook_id, timestamp, salt)` and hex-encodes the result.
     #[cfg(feature = "native-auth")]
     pub fn signed(
         user_pubkey: PubkeyStr,
         orderbook_id: OrderBookId,
         timestamp: i64,
+        salt: String,
         keypair: &Keypair,
     ) -> Self {
-        let message =
-            crate::program::orders::cancel_all_message(user_pubkey.as_str(), timestamp);
+        let message = crate::program::orders::cancel_all_message(
+            user_pubkey.as_str(),
+            orderbook_id.as_str(),
+            timestamp,
+            &salt,
+        );
         let sig = keypair.sign_message(message.as_bytes());
         Self {
             user_pubkey,
             orderbook_id,
             signature: hex::encode(sig.as_ref()),
             timestamp,
+            salt,
         }
     }
 }

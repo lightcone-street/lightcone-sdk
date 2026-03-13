@@ -115,6 +115,7 @@ impl<'a> Privy<'a> {
         user_pubkey: &str,
         orderbook_id: &str,
         timestamp: i64,
+        salt: &str,
     ) -> Result<serde_json::Value, SdkError> {
         let url = format!(
             "{}/api/privy/sign_and_cancel_all_orders",
@@ -125,6 +126,7 @@ impl<'a> Privy<'a> {
             user_pubkey: user_pubkey.to_string(),
             orderbook_id: orderbook_id.to_string(),
             timestamp,
+            salt: salt.to_string(),
         };
         self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
     }

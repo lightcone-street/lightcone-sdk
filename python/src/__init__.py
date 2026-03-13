@@ -274,6 +274,7 @@ from .program import (
     cancel_all_message,
     cancel_order_message,
     cancel_trigger_order_message,
+    generate_cancel_all_salt,
     sign_cancel_all,
     sign_cancel_order,
     # Instruction Builders
@@ -550,6 +551,7 @@ __all__ = [
     "cancel_all_message",
     "cancel_order_message",
     "cancel_trigger_order_message",
+    "generate_cancel_all_salt",
     "sign_cancel_all",
     "sign_cancel_order",
     # Program - Instructions (all 23)

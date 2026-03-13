@@ -95,6 +95,7 @@ class Privy:
         user_pubkey: str,
         orderbook_id: str,
         timestamp: int,
+        salt: str,
     ) -> dict:
         """Cancel all orders for a user via Privy signing."""
         return await self._http.post(
@@ -104,6 +105,7 @@ class Privy:
                 "user_pubkey": user_pubkey,
                 "orderbook_id": orderbook_id,
                 "timestamp": timestamp,
+                "salt": salt,
             },
             retry_policy=RetryPolicy.NONE,
         )

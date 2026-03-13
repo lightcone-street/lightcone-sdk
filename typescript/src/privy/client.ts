@@ -56,8 +56,9 @@ export class Privy {
   async signAndCancelAllOrders(
     walletId: string,
     userPubkey: string,
-    orderbookId: string = "",
-    timestamp: number
+    orderbookId: string,
+    timestamp: number,
+    salt: string
   ): Promise<SignAndCancelAllResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_all_orders`;
     const body: SignAndCancelAllRequest = {
@@ -65,6 +66,7 @@ export class Privy {
       user_pubkey: userPubkey,
       orderbook_id: orderbookId,
       timestamp,
+      salt,
     };
     return this.client.http.post<SignAndCancelAllResponse, SignAndCancelAllRequest>(url, body, RetryPolicy.None);
   }

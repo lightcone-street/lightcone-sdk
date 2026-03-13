@@ -92,7 +92,8 @@ pub mod prelude {
 
     // Program — order envelopes and payload
     pub use crate::program::{
-        LimitOrderEnvelope, OrderEnvelope, OrderPayload, TriggerOrderEnvelope,
+        generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
+        TriggerOrderEnvelope,
     };
 
     // Privy RPC types

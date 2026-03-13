@@ -21,8 +21,9 @@ pub use constants::*;
 pub use error::{SdkError, SdkResult};
 pub use instructions::*;
 pub use orders::{
-    calculate_taker_fill, cancel_all_message, cancel_order_message, derive_condition_id,
-    is_order_expired, orders_can_cross, Order, OrderPayload,
+    calculate_taker_fill, cancel_all_message, cancel_order_message,
+    derive_condition_id, generate_cancel_all_salt, is_order_expired,
+    orders_can_cross, Order, OrderPayload,
 };
 pub use pda::*;
 pub use types::*;

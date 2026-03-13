@@ -4,7 +4,11 @@ import asyncio
 
 from common import rest_client, wallet, login, unix_timestamp
 from src.domain.order import CancelBody, CancelAllBody
-from src.program.orders import sign_cancel_order, sign_cancel_all
+from src.program.orders import (
+    generate_cancel_all_salt,
+    sign_cancel_order,
+    sign_cancel_all,
+)
 
 
 async def main():
@@ -36,13 +40,15 @@ async def main():
 
     # 3. Cancel all orders in an orderbook
     timestamp = unix_timestamp()
-    cancel_all_sig = sign_cancel_all(pubkey, timestamp, keypair)
+    salt = generate_cancel_all_salt()
+    cancel_all_sig = sign_cancel_all(pubkey, orderbook_id, timestamp, salt, keypair)
     cleared = await client.orders().cancel_all(
         CancelAllBody(
             user_pubkey=pubkey,
             orderbook_id=orderbook_id,
             signature=cancel_all_sig,
             timestamp=timestamp,
+            salt=salt,
         )
     )
     print(f"cancel-all removed {cleared.count} order(s) in {cleared.orderbook_id}")

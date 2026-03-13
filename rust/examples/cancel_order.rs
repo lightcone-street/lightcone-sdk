@@ -26,10 +26,12 @@ async fn main() -> ExampleResult {
     };
 
     let cancel = CancelBody::signed(order_hash, keypair.pubkey().into(), &keypair);
+    let salt = generate_cancel_all_salt();
     let cancel_all = CancelAllBody::signed(
         keypair.pubkey().into(),
         orderbook_id,
         unix_timestamp()?,
+        salt,
         &keypair,
     );
 

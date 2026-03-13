@@ -119,6 +119,10 @@ async fn cancel_all(&self, body: &CancelAllBody) -> Result<CancelAllSuccess, Sdk
 
 Cancel all open orders, optionally scoped to a specific orderbook. **Not retried.**
 
+`CancelAllBody` must include:
+- `orderbook_id` in the signed message, using `""` to mean all markets
+- `salt`, a unique UUID-like string for replay protection
+
 ### `submit_trigger`
 
 ```rust
@@ -320,8 +324,11 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
 
     // 5. Cancel all orders
     client.orders().cancel_all(&CancelAllBody {
-        wallet_address: keypair.pubkey().to_string(),
-        orderbook_id: None,
+        user_pubkey: keypair.pubkey().into(),
+        orderbook_id: OrderBookId::from(""),
+        signature: "...".into(),
+        timestamp: 1_710_300_000,
+        salt: generate_cancel_all_salt(),
     }).await?;
 
     Ok(())

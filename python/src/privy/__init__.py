@@ -102,6 +102,7 @@ class SignAndCancelAllRequest:
     user_pubkey: str = ""
     orderbook_id: str = ""
     timestamp: int = 0
+    salt: str = ""
 
 
 @dataclass

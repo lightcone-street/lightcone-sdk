@@ -27,12 +27,14 @@ export interface CancelAllBody {
   orderbook_id: OrderBookId;
   signature: string;
   timestamp: number;
+  salt: string;
 }
 
 export function cancelAllBodyFromBase58(
   userPubkey: PubkeyStr,
   orderbookId: OrderBookId,
   timestamp: number,
+  salt: string,
   signatureBase58: string
 ): CancelAllBody {
   return {
@@ -40,6 +42,7 @@ export function cancelAllBodyFromBase58(
     orderbook_id: orderbookId,
     signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
     timestamp,
+    salt,
   };
 }
 

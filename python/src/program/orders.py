@@ -1,6 +1,7 @@
 """Order creation, hashing, signing, and serialization for the Lightcone SDK."""
 
 import time
+import uuid
 
 import nacl.exceptions
 from nacl.signing import SigningKey, VerifyKey
@@ -371,20 +372,33 @@ def sign_cancel_order(order_hash: str, keypair: Keypair) -> str:
     return signed.signature.hex()
 
 
-def cancel_all_message(user_pubkey: str, timestamp: int) -> str:
+def cancel_all_message(
+    user_pubkey: str, orderbook_id: str, timestamp: int, salt: str
+) -> str:
     """Build the message string for cancelling all orders.
 
-    Format: "cancel_all:{pubkey}:{timestamp}"
+    Format: "cancel_all:{pubkey}:{orderbook_id}:{timestamp}:{salt}"
     """
-    return f"cancel_all:{user_pubkey}:{timestamp}"
+    return f"cancel_all:{user_pubkey}:{orderbook_id}:{timestamp}:{salt}"
 
 
-def sign_cancel_all(user_pubkey: str, timestamp: int, keypair: Keypair) -> str:
+def generate_cancel_all_salt() -> str:
+    """Generate a random UUID v4 salt for cancel-all replay protection."""
+    return str(uuid.uuid4())
+
+
+def sign_cancel_all(
+    user_pubkey: str,
+    orderbook_id: str,
+    timestamp: int,
+    salt: str,
+    keypair: Keypair,
+) -> str:
     """Sign a cancel-all orders request.
 
     Returns the signature as a 128-char hex string.
     """
-    message = cancel_all_message(user_pubkey, timestamp)
+    message = cancel_all_message(user_pubkey, orderbook_id, timestamp, salt)
     message_bytes = message.encode("ascii")
 
     secret_bytes = bytes(keypair)

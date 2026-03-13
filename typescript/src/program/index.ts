@@ -215,6 +215,7 @@ export {
   cancelTriggerOrderMessage,
   signCancelTriggerOrder,
   cancelAllMessage,
+  generateCancelAllSalt,
   signCancelAll,
   is_order_expired,
   orders_can_cross,
@@ -222,6 +223,7 @@ export {
   cancel_order_message,
   cancel_trigger_order_message,
   cancel_all_message,
+  generate_cancel_all_salt,
   derive_condition_id,
 } from "./orders";
 

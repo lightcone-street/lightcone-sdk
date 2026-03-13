@@ -114,6 +114,7 @@ class CancelAllBody:
     orderbook_id: str
     signature: str
     timestamp: int
+    salt: str
 
     def to_dict(self) -> dict:
         return {
@@ -121,6 +122,7 @@ class CancelAllBody:
             "orderbook_id": self.orderbook_id,
             "signature": self.signature,
             "timestamp": self.timestamp,
+            "salt": self.salt,
         }
 
 

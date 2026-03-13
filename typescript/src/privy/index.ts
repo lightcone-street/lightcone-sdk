@@ -44,8 +44,9 @@ export type SignAndCancelOrderRequest = {
 export interface SignAndCancelAllRequest {
   wallet_id: string;
   user_pubkey: string;
-  orderbook_id?: string;
+  orderbook_id: string;
   timestamp: number;
+  salt: string;
 }
 
 export interface ExportWalletRequest {

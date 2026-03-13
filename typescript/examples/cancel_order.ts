@@ -1,5 +1,9 @@
 import { asPubkeyStr } from "../src";
-import { signCancelAll, signCancelOrder } from "../src/program";
+import {
+  generateCancelAllSalt,
+  signCancelAll,
+  signCancelOrder,
+} from "../src/program";
 import { login, restClient, unixTimestamp, wallet } from "./common";
 
 async function main() {
@@ -27,12 +31,14 @@ async function main() {
   console.log(`cancelled: ${cancelled.order_hash} remaining=${cancelled.remaining}`);
 
   const timestamp = unixTimestamp();
-  const cancelAllSig = signCancelAll(pubkey, timestamp, keypair);
+  const salt = generateCancelAllSalt();
+  const cancelAllSig = signCancelAll(pubkey, orderbookId, timestamp, salt, keypair);
   const cleared = await client.orders().cancelAll({
     user_pubkey: asPubkeyStr(pubkey),
     orderbook_id: orderbookId,
     signature: cancelAllSig,
     timestamp,
+    salt,
   });
   console.log(`cancel-all removed ${cleared.count} order(s) in ${cleared.orderbook_id}`);
 }
