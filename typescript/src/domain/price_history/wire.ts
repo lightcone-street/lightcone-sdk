@@ -1,16 +1,21 @@
 import type { OrderBookId, Resolution } from "../../shared";
 
-export interface PriceCandle {
+export interface MidpointPriceCandle {
   t: number;
-  m?: string;
-  o?: string;
-  h?: string;
-  l?: string;
-  c?: string;
-  v?: string;
-  bb?: string;
-  ba?: string;
+  m: string | null;
 }
+
+export interface OhlcvPriceCandle extends MidpointPriceCandle {
+  o: string | null;
+  h: string | null;
+  l: string | null;
+  c: string | null;
+  v: string;
+  bb: string | null;
+  ba: string | null;
+}
+
+export type PriceCandle = MidpointPriceCandle | OhlcvPriceCandle;
 
 export interface PriceHistorySnapshot {
   orderbook_id: OrderBookId;
@@ -45,27 +50,17 @@ export type PriceHistory =
   | ({ event_type: "update" } & PriceHistoryUpdate)
   | ({ event_type: "heartbeat" } & PriceHistoryHeartbeat);
 
-export interface PriceHistoryRestResponse {
+interface OrderbookPriceHistoryResponseBase<TCandle extends PriceCandle> {
   orderbook_id: string;
-  resolution: string;
-  include_ohlcv: boolean;
-  prices: PriceCandle[];
+  resolution: Resolution;
+  prices: TCandle[];
   next_cursor: number | null;
   has_more: boolean;
   decimals: { price: number; volume: number };
 }
 
-export interface DepositPriceCandle {
-  t: number;
-  tc?: number;
-  c: string;
-}
+export type OrderbookPriceHistoryResponse =
+  | (OrderbookPriceHistoryResponseBase<MidpointPriceCandle> & { include_ohlcv: false })
+  | (OrderbookPriceHistoryResponseBase<OhlcvPriceCandle> & { include_ohlcv: true });
 
-export interface DepositPriceRestResponse {
-  deposit_asset: string;
-  binance_symbol: string;
-  resolution: string;
-  prices: DepositPriceCandle[];
-  next_cursor: number | null;
-  has_more: boolean;
-}
+export type PriceHistoryRestResponse = OrderbookPriceHistoryResponse;
