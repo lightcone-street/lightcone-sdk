@@ -53,7 +53,8 @@ async def login(client: LightconeClient, keypair: Keypair) -> User:
 
 
 async def market(client: LightconeClient) -> Market:
-    markets, _ = await client.markets().get(None, 1)
+    result = await client.markets().get(None, 1)
+    markets = result.markets
     if not markets:
         raise RuntimeError("no markets returned by the API")
     return markets[0]

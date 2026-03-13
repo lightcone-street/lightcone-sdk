@@ -1,7 +1,17 @@
 """Position wire-to-domain conversion."""
 
+from decimal import Decimal, InvalidOperation
+
 from . import Position, PositionOutcome
 from .wire import PositionEntryWire
+
+
+def _sum_balances(idle: str, on_book: str) -> str:
+    """Sum two decimal-string balances, returning a decimal string."""
+    try:
+        return str(Decimal(idle) + Decimal(on_book))
+    except (InvalidOperation, ValueError):
+        return "0"
 
 
 def position_from_wire(wire: PositionEntryWire) -> Position:
@@ -10,7 +20,7 @@ def position_from_wire(wire: PositionEntryWire) -> Position:
             condition_id=o.outcome_index,
             condition_name="",
             token_mint=o.conditional_token,
-            amount=int(o.balance_idle) + int(o.balance_on_book),
+            amount=o.balance or _sum_balances(o.balance_idle, o.balance_on_book),
         )
         for o in wire.outcomes
     ]

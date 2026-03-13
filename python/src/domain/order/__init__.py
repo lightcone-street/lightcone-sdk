@@ -159,11 +159,27 @@ class ConditionalBalance:
     idle: str = "0"
     on_book: str = "0"
 
+    @staticmethod
+    def from_dict(d: dict) -> "ConditionalBalance":
+        return ConditionalBalance(
+            outcome_index=d.get("outcome_index", 0),
+            mint=d.get("mint", d.get("conditional_token", "")),
+            idle=d.get("idle", "0"),
+            on_book=d.get("on_book", "0"),
+        )
+
 
 @dataclass
 class GlobalDepositBalance:
     mint: str = ""
     balance: str = "0"
+
+    @staticmethod
+    def from_dict(d: dict) -> "GlobalDepositBalance":
+        return GlobalDepositBalance(
+            mint=d.get("mint", ""),
+            balance=d.get("balance", "0"),
+        )
 
 
 @dataclass
@@ -171,6 +187,17 @@ class UserSnapshotBalance:
     market_pubkey: str = ""
     orderbook_id: str = ""
     outcomes: list[ConditionalBalance] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserSnapshotBalance":
+        return UserSnapshotBalance(
+            market_pubkey=d.get("market_pubkey", ""),
+            orderbook_id=d.get("orderbook_id", ""),
+            outcomes=[
+                ConditionalBalance.from_dict(c)
+                for c in d.get("outcomes", [])
+            ],
+        )
 
 
 @dataclass
@@ -199,6 +226,37 @@ class UserSnapshotOrder:
     time_in_force: Optional[TimeInForce] = None
     # Limit-specific fields
     tx_signature: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserSnapshotOrder":
+        from ...shared.types import Side as _Side
+
+        trigger_type_raw = d.get("trigger_type")
+        time_in_force_raw = d.get("time_in_force")
+        return UserSnapshotOrder(
+            order_hash=d.get("order_hash", ""),
+            side=int(_Side.from_wire(d.get("side", 0))),
+            price=d.get("price", "0"),
+            size=d.get("size", "0"),
+            orderbook_id=d.get("orderbook_id", ""),
+            market_pubkey=d.get("market_pubkey", ""),
+            amount_in=d.get("amount_in", d.get("maker_amount", "0")),
+            amount_out=d.get("amount_out", d.get("taker_amount", "0")),
+            remaining=d.get("remaining", "0"),
+            filled=d.get("filled", "0"),
+            expiration=d.get("expiration", 0),
+            base_mint=d.get("base_mint", ""),
+            quote_mint=d.get("quote_mint", ""),
+            outcome_index=d.get("outcome_index", 0),
+            status=d.get("status", "open"),
+            order_type=d.get("order_type", "limit"),
+            created_at=d.get("created_at"),
+            trigger_order_id=d.get("trigger_order_id"),
+            trigger_price=d.get("trigger_price"),
+            trigger_type=TriggerType.from_wire(trigger_type_raw) if trigger_type_raw is not None else None,
+            time_in_force=TimeInForce.from_wire(time_in_force_raw) if time_in_force_raw is not None else None,
+            tx_signature=d.get("tx_signature"),
+        )
 
 
 @dataclass

@@ -2,10 +2,12 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Optional, Union
 
 from ...error import _require
 from ...shared.types import Side
+from . import UserSnapshotOrder, UserSnapshotBalance, GlobalDepositBalance, ConditionalBalance
+from ..notification import Notification
 
 
 @dataclass
@@ -116,15 +118,19 @@ class UserBalanceUpdate:
     """WebSocket user balance update."""
     market_pubkey: str = ""
     orderbook_id: str = ""
-    balance: Optional[dict] = None
+    balance: Optional[UserSnapshotBalance] = None
     timestamp: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserBalanceUpdate":
+        bal_raw = d.get("balance")
+        bal = None
+        if isinstance(bal_raw, dict):
+            bal = UserSnapshotBalance.from_dict(bal_raw)
         return UserBalanceUpdate(
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
-            balance=d.get("balance"),
+            balance=bal,
             timestamp=d.get("timestamp"),
         )
 
@@ -132,38 +138,46 @@ class UserBalanceUpdate:
 @dataclass
 class NotificationUpdate:
     """WebSocket notification push."""
-    notification: Optional[dict] = None
+    notification: Optional[Notification] = None
 
     @staticmethod
     def from_dict(d: dict) -> "NotificationUpdate":
-        return NotificationUpdate(notification=d.get("notification"))
+        notif_raw = d.get("notification")
+        notif = Notification.from_dict(notif_raw) if isinstance(notif_raw, dict) else None
+        return NotificationUpdate(notification=notif)
 
 
 @dataclass
 class UserSnapshot:
     """WebSocket user snapshot."""
-    orders: list[dict] = field(default_factory=list)
-    balances: list[dict] = field(default_factory=list)
-    global_deposits: list[dict] = field(default_factory=list)
-    notifications: list[dict] = field(default_factory=list)
+    orders: list[UserSnapshotOrder] = field(default_factory=list)
+    balances: list[UserSnapshotBalance] = field(default_factory=list)
+    global_deposits: list[GlobalDepositBalance] = field(default_factory=list)
+    notifications: list[Notification] = field(default_factory=list)
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshot":
-        balances = d.get("balances", [])
-        if isinstance(balances, dict):
-            balances = list(balances.values())
+        balances_raw = d.get("balances", [])
+        if isinstance(balances_raw, dict):
+            balances_raw = list(balances_raw.values())
         return UserSnapshot(
-            orders=d.get("orders", []),
-            balances=balances,
-            global_deposits=d.get("global_deposits", []),
-            notifications=d.get("notifications", []),
+            orders=[UserSnapshotOrder.from_dict(o) for o in d.get("orders", [])],
+            balances=[UserSnapshotBalance.from_dict(b) for b in balances_raw],
+            global_deposits=[GlobalDepositBalance.from_dict(g) for g in d.get("global_deposits", [])],
+            notifications=[Notification.from_dict(n) for n in d.get("notifications", [])],
         )
+
+
+UserUpdateData = Union[
+    "UserSnapshot", "OrderUpdate", "TriggerOrderUpdate",
+    "UserBalanceUpdate", "NotificationUpdate", dict,
+]
 
 
 @dataclass
 class UserUpdate:
     event_type: str = ""
-    data: Optional[object] = None
+    data: Optional[UserUpdateData] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserUpdate":
@@ -208,7 +222,7 @@ class AuthUpdate:
         )
 
 
-def _parse_order_event(d: dict) -> object:
+def _parse_order_event(d: dict) -> Union[OrderUpdate, TriggerOrderUpdate]:
     if d.get("order_type") == "trigger":
         return TriggerOrderUpdate.from_dict(d)
     return OrderUpdate.from_dict(d)

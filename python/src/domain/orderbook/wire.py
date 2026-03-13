@@ -166,6 +166,6 @@ class WsTickerData:
             orderbook_id=d.get("orderbook_id", ""),
             best_bid=d.get("best_bid"),
             best_ask=d.get("best_ask"),
-            mid_price=d.get("mid_price"),
+            mid_price=d.get("mid_price") or d.get("mid"),
             last_trade_price=d.get("last_trade_price"),
         )

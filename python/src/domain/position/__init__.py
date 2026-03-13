@@ -22,7 +22,7 @@ class PositionOutcome:
     condition_id: int = 0
     condition_name: str = ""
     token_mint: str = ""
-    amount: int = 0
+    amount: str = "0"
     usd_value: str = "0"
 
 

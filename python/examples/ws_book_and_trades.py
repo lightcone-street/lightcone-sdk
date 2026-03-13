@@ -38,24 +38,24 @@ async def main():
             msg = event.message
 
             if msg.type == MessageInType.BOOK_UPDATE.value:
-                book.apply(msg.data if isinstance(msg.data, dict) else vars(msg.data))
+                book.apply(msg.data)
                 print(
                     f"[book] seq={book.sequence} "
                     f"best_bid={book.best_bid() or '-'} "
                     f"best_ask={book.best_ask() or '-'}"
                 )
+
             elif msg.type == MessageInType.TRADES.value:
                 ws_trade = msg.data
-                if hasattr(ws_trade, "size"):
-                    trades.push(Trade(
-                        orderbook_id=orderbook_id,
-                        trade_id=getattr(ws_trade, "trade_id", ""),
-                        timestamp=getattr(ws_trade, "timestamp", ""),
-                        price=str(ws_trade.price),
-                        size=str(ws_trade.size),
-                        side=getattr(ws_trade, "side", ""),
-                    ))
-                    print(f"[trade] {ws_trade.side} {ws_trade.size} @ {ws_trade.price}")
+                trades.push(Trade(
+                    orderbook_id=orderbook_id,
+                    trade_id=ws_trade.trade_id,
+                    timestamp=ws_trade.timestamp,
+                    price=ws_trade.price,
+                    size=ws_trade.size,
+                    side=ws_trade.side,
+                ))
+                print(f"[trade] {ws_trade.size} {ws_trade.side} @ {ws_trade.price}")
 
         elif event.type == WsEventType.ERROR:
             print("ws error:", event.error)
@@ -66,7 +66,6 @@ async def main():
 
     ws.on(on_event)
 
-    # Wait for events or timeout
     try:
         await asyncio.wait_for(done.wait(), timeout=30)
     except asyncio.TimeoutError:
@@ -74,7 +73,6 @@ async def main():
 
     await ws.disconnect()
     print(f"buffered trades: {len(trades)}")
-
     await client.close()
 
 

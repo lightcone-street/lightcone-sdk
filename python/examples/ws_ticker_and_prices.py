@@ -7,6 +7,11 @@ from src.ws import WsEventType, MessageInType
 from src.ws.subscriptions import TickerParams, PriceHistoryParams
 from src.domain.price_history.state import PriceHistoryState
 from src.domain.price_history import LineData
+from src.domain.price_history.wire import (
+    PriceHistorySnapshot,
+    PriceHistoryUpdate,
+    PriceHistoryHeartbeat,
+)
 from src.shared.types import Resolution
 
 
@@ -44,19 +49,18 @@ async def main():
             if msg.type == MessageInType.TICKER.value:
                 ticker = msg.data
                 print(
-                    f"[ticker] bid={getattr(ticker, 'best_bid', '-')} "
-                    f"ask={getattr(ticker, 'best_ask', '-')} "
-                    f"mid={getattr(ticker, 'mid', '-')}"
+                    f"[ticker] bid={ticker.best_bid or '-'} "
+                    f"ask={ticker.best_ask or '-'} "
+                    f"mid={ticker.mid_price or '-'}"
                 )
 
             elif msg.type == MessageInType.PRICE_HISTORY.value:
                 data = msg.data
 
-                # Snapshot
-                if hasattr(data, "prices"):
+                if isinstance(data, PriceHistorySnapshot):
                     prices = [
-                        LineData(time=c.t, value=getattr(c, "m", "0") or "0")
-                        for c in data.prices
+                        LineData(time=c.t, value=c.m or "0")
+                        for c in data.candles
                     ]
                     history.apply_snapshot(
                         data.orderbook_id, data.resolution, prices
@@ -64,19 +68,23 @@ async def main():
                     candles = history.get(orderbook_id, resolution.as_str())
                     print(f"[price_history] snapshot: {len(candles)} candle(s)")
 
-                # Update
-                elif hasattr(data, "t") and hasattr(data, "m"):
-                    point = LineData(time=data.t, value=data.m or "0")
-                    history.apply_update(
-                        data.orderbook_id, data.resolution, point
-                    )
-                    candles = history.get(orderbook_id, resolution.as_str())
-                    print(f"[price_history] update: t={data.t} mid={data.m or '-'}")
-                    if candles:
-                        print(f"  total candles: {len(candles)}")
+                elif isinstance(data, PriceHistoryUpdate):
+                    if data.candle:
+                        point = LineData(
+                            time=data.candle.t, value=data.candle.m or "0"
+                        )
+                        history.apply_update(
+                            data.orderbook_id, data.resolution, point
+                        )
+                        candles = history.get(orderbook_id, resolution.as_str())
+                        print(
+                            f"[price_history] update: t={data.candle.t} "
+                            f"mid={data.candle.m or '-'}"
+                        )
+                        if candles:
+                            print(f"  total candles: {len(candles)}")
 
-                # Heartbeat
-                elif hasattr(data, "server_time"):
+                elif isinstance(data, PriceHistoryHeartbeat):
                     print(f"[price_history] heartbeat: server_time={data.server_time}")
 
         elif event.type == WsEventType.ERROR:

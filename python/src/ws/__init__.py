@@ -3,7 +3,23 @@
 import json
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional, TYPE_CHECKING, Union
+
+if TYPE_CHECKING:
+    from ..domain.orderbook.wire import WsOrderBook, WsTickerData
+    from ..domain.order.wire import UserUpdate, AuthUpdate
+    from ..domain.trade.wire import WsTrade
+    from ..domain.price_history.wire import (
+        PriceHistorySnapshot, PriceHistoryUpdate, PriceHistoryHeartbeat,
+    )
+    from ..domain.market.wire import MarketEvent
+
+MessageData = Union[
+    "WsOrderBook", "UserUpdate", "WsErrorData", "WsTrade", "AuthUpdate",
+    "WsTickerData", "MarketEvent",
+    "PriceHistorySnapshot", "PriceHistoryUpdate", "PriceHistoryHeartbeat",
+    dict,
+]
 
 
 # ---------------------------------------------------------------------------
@@ -11,12 +27,12 @@ from typing import Any, Callable, Optional, Union
 # ---------------------------------------------------------------------------
 
 
-def ping() -> dict:
+def ping() -> dict[str, Any]:
     """Create a ping message."""
     return {"method": "ping"}
 
 
-def subscribe_books(orderbook_ids: list[str]) -> dict:
+def subscribe_books(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a book_update subscribe message."""
     return {
         "method": "subscribe",
@@ -24,7 +40,7 @@ def subscribe_books(orderbook_ids: list[str]) -> dict:
     }
 
 
-def unsubscribe_books(orderbook_ids: list[str]) -> dict:
+def unsubscribe_books(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a book_update unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -32,7 +48,7 @@ def unsubscribe_books(orderbook_ids: list[str]) -> dict:
     }
 
 
-def subscribe_trades(orderbook_ids: list[str]) -> dict:
+def subscribe_trades(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a trades subscribe message."""
     return {
         "method": "subscribe",
@@ -40,7 +56,7 @@ def subscribe_trades(orderbook_ids: list[str]) -> dict:
     }
 
 
-def unsubscribe_trades(orderbook_ids: list[str]) -> dict:
+def unsubscribe_trades(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a trades unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -48,7 +64,7 @@ def unsubscribe_trades(orderbook_ids: list[str]) -> dict:
     }
 
 
-def subscribe_user(wallet_address: str) -> dict:
+def subscribe_user(wallet_address: str) -> dict[str, Any]:
     """Create a user subscribe message."""
     return {
         "method": "subscribe",
@@ -56,7 +72,7 @@ def subscribe_user(wallet_address: str) -> dict:
     }
 
 
-def unsubscribe_user(wallet_address: str) -> dict:
+def unsubscribe_user(wallet_address: str) -> dict[str, Any]:
     """Create a user unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -68,7 +84,7 @@ def subscribe_price_history(
     orderbook_id: str,
     resolution: str,
     include_ohlcv: bool = False,
-) -> dict:
+) -> dict[str, Any]:
     """Create a price_history subscribe message."""
     return {
         "method": "subscribe",
@@ -81,7 +97,7 @@ def subscribe_price_history(
     }
 
 
-def unsubscribe_price_history(orderbook_id: str, resolution: str) -> dict:
+def unsubscribe_price_history(orderbook_id: str, resolution: str) -> dict[str, Any]:
     """Create a price_history unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -93,7 +109,7 @@ def unsubscribe_price_history(orderbook_id: str, resolution: str) -> dict:
     }
 
 
-def subscribe_ticker(orderbook_ids: list[str]) -> dict:
+def subscribe_ticker(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a ticker subscribe message."""
     return {
         "method": "subscribe",
@@ -101,7 +117,7 @@ def subscribe_ticker(orderbook_ids: list[str]) -> dict:
     }
 
 
-def unsubscribe_ticker(orderbook_ids: list[str]) -> dict:
+def unsubscribe_ticker(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a ticker unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -109,7 +125,7 @@ def unsubscribe_ticker(orderbook_ids: list[str]) -> dict:
     }
 
 
-def subscribe_market(market_pubkey: str) -> dict:
+def subscribe_market(market_pubkey: str) -> dict[str, Any]:
     """Create a market subscribe message."""
     return {
         "method": "subscribe",
@@ -117,7 +133,7 @@ def subscribe_market(market_pubkey: str) -> dict:
     }
 
 
-def unsubscribe_market(market_pubkey: str) -> dict:
+def unsubscribe_market(market_pubkey: str) -> dict[str, Any]:
     """Create a market unsubscribe message."""
     return {
         "method": "unsubscribe",
@@ -149,11 +165,11 @@ class MessageIn:
     """Parsed incoming WebSocket message."""
 
     type: str
-    data: Any = None
+    data: Optional[MessageData] = None
     version: Optional[float] = None
 
     @property
-    def kind(self) -> Any:
+    def kind(self) -> Optional[MessageData]:
         """Rust-compatible alias for the typed payload."""
         return self.data
 
@@ -173,7 +189,7 @@ def parse_message_in(text: str) -> MessageIn:
     return MessageIn.from_dict(data)
 
 
-def _parse_message_data(message_type: str, data: Any) -> Any:
+def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
     if not isinstance(data, dict):
         return data
 
