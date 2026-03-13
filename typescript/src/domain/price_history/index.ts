@@ -20,3 +20,8 @@ export interface PriceHistoryKey {
   orderbookId: OrderBookId;
   resolution: Resolution;
 }
+
+export interface DepositPriceKey {
+  depositAsset: string;
+  resolution: Resolution;
+}

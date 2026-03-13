@@ -1,7 +1,10 @@
 import { SdkError } from "../../error";
 import { Resolution } from "../../shared";
 import { RetryPolicy, type LightconeHttp } from "../../http";
-import type { OrderbookPriceHistoryResponse } from "./wire";
+import type {
+  DepositTokenPriceHistoryResponse,
+  OrderbookPriceHistoryResponse,
+} from "./wire";
 
 interface ClientContext {
   http: LightconeHttp;
@@ -14,6 +17,14 @@ export interface OrderbookPriceHistoryQuery {
   cursor?: number;
   limit?: number;
   includeOhlcv?: boolean;
+}
+
+export interface DepositPriceHistoryQuery {
+  resolution?: Resolution;
+  from?: number;
+  to?: number;
+  cursor?: number;
+  limit?: number;
 }
 
 export class PriceHistoryClient {
@@ -62,6 +73,56 @@ export class PriceHistoryClient {
     const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
     return this.client.http.get<OrderbookPriceHistoryResponse>(url, RetryPolicy.Idempotent);
   }
+
+  async getDepositAsset(
+    depositAsset: string,
+    resolution?: Resolution,
+    from?: number,
+    to?: number,
+    cursor?: number,
+    limit?: number
+  ): Promise<DepositTokenPriceHistoryResponse>;
+
+  async getDepositAsset(
+    depositAsset: string,
+    query?: DepositPriceHistoryQuery
+  ): Promise<DepositTokenPriceHistoryResponse>;
+
+  async getDepositAsset(
+    depositAsset: string,
+    resolutionOrQuery: Resolution | DepositPriceHistoryQuery = Resolution.Minute1,
+    from?: number,
+    to?: number,
+    cursor?: number,
+    limit?: number
+  ): Promise<DepositTokenPriceHistoryResponse> {
+    const query = normalizeDepositPriceHistoryQuery(
+      resolutionOrQuery,
+      from,
+      to,
+      cursor,
+      limit
+    );
+    const params = new URLSearchParams({
+      deposit_asset: depositAsset,
+      resolution: query.resolution,
+    });
+    if (query.from !== undefined) {
+      params.set("from", String(ensureUnixMilliseconds("from", query.from)));
+    }
+    if (query.to !== undefined) {
+      params.set("to", String(ensureUnixMilliseconds("to", query.to)));
+    }
+    if (query.cursor !== undefined) {
+      params.set("cursor", String(ensureUnixMilliseconds("cursor", query.cursor)));
+    }
+    if (query.limit !== undefined) {
+      params.set("limit", String(ensurePageLimit(query.limit)));
+    }
+
+    const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
+    return this.client.http.get<DepositTokenPriceHistoryResponse>(url, RetryPolicy.Idempotent);
+  }
 }
 
 function normalizeOrderbookPriceHistoryQuery(
@@ -84,6 +145,72 @@ function normalizeOrderbookPriceHistoryQuery(
     cursor: resolutionOrQuery.cursor,
     limit: resolutionOrQuery.limit,
     includeOhlcv: resolutionOrQuery.includeOhlcv,
+  };
+}
+
+export class DepositPriceClient {
+  constructor(private readonly client: ClientContext) {}
+
+  async get(
+    depositAsset: string,
+    resolution?: Resolution,
+    from?: number,
+    to?: number,
+    cursor?: number,
+    limit?: number
+  ): Promise<DepositTokenPriceHistoryResponse>;
+
+  async get(
+    depositAsset: string,
+    query?: DepositPriceHistoryQuery
+  ): Promise<DepositTokenPriceHistoryResponse>;
+
+  async get(
+    depositAsset: string,
+    resolutionOrQuery: Resolution | DepositPriceHistoryQuery = Resolution.Minute1,
+    from?: number,
+    to?: number,
+    cursor?: number,
+    limit?: number
+  ): Promise<DepositTokenPriceHistoryResponse> {
+    const priceHistory = new PriceHistoryClient(this.client);
+    if (typeof resolutionOrQuery === "string") {
+      return priceHistory.getDepositAsset(depositAsset, {
+        resolution: resolutionOrQuery,
+        from,
+        to,
+        cursor,
+        limit,
+      });
+    }
+
+    return priceHistory.getDepositAsset(depositAsset, resolutionOrQuery);
+  }
+}
+
+function normalizeDepositPriceHistoryQuery(
+  resolutionOrQuery: Resolution | DepositPriceHistoryQuery,
+  from?: number,
+  to?: number,
+  cursor?: number,
+  limit?: number
+): Required<Pick<DepositPriceHistoryQuery, "resolution">> & Omit<DepositPriceHistoryQuery, "resolution"> {
+  if (typeof resolutionOrQuery === "string") {
+    return {
+      resolution: resolutionOrQuery,
+      from,
+      to,
+      cursor,
+      limit,
+    };
+  }
+
+  return {
+    resolution: resolutionOrQuery.resolution ?? Resolution.Minute1,
+    from: resolutionOrQuery.from,
+    to: resolutionOrQuery.to,
+    cursor: resolutionOrQuery.cursor,
+    limit: resolutionOrQuery.limit,
   };
 }
 

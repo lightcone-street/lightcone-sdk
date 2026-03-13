@@ -31,8 +31,7 @@ export { Orderbooks } from "./domain/orderbook";
 export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
 export { Trades } from "./domain/trade";
-export { PriceHistoryClient } from "./domain/price_history";
-export { DepositPriceClient } from "./domain/deposit_price";
+export { DepositPriceClient, PriceHistoryClient } from "./domain/price_history";
 export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
 
@@ -95,6 +94,14 @@ export type {
 export type { Trade, WsTrade } from "./domain/trade";
 export { TradeHistory } from "./domain/trade/state";
 export type {
+  DepositPrice,
+  DepositPriceCandleUpdate,
+  DepositPriceHistoryQuery,
+  DepositPriceKey,
+  DepositPriceSnapshot,
+  DepositPriceTick,
+  DepositTokenCandle,
+  DepositTokenPriceHistoryResponse,
   LineData,
   MidpointPriceCandle,
   OhlcvPriceCandle,
@@ -106,19 +113,7 @@ export type {
   PriceHistorySnapshot,
   PriceHistoryUpdate,
 } from "./domain/price_history";
-export { PriceHistoryState } from "./domain/price_history";
-
-export type {
-  DepositPriceHistoryQuery,
-  DepositTokenCandle,
-  DepositPrice,
-  DepositPriceSnapshot,
-  DepositPriceTick,
-  DepositPriceCandleUpdate,
-  DepositTokenPriceHistoryResponse,
-  DepositPriceKey,
-} from "./domain/deposit_price";
-export { DepositPriceState } from "./domain/deposit_price";
+export { DepositPriceState, PriceHistoryState } from "./domain/price_history";
 
 export type {
   AuthCredentials,
@@ -184,6 +179,6 @@ export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;
 export type TradesClient = import("./domain/trade").Trades;
 export type PriceHistorySubClient = import("./domain/price_history").PriceHistoryClient;
-export type DepositPriceSubClient = import("./domain/deposit_price").DepositPriceClient;
+export type DepositPriceSubClient = import("./domain/price_history").DepositPriceClient;
 export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;

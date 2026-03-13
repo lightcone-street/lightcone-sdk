@@ -1,8 +1,7 @@
-import type { DepositPrice } from "../domain/deposit_price";
 import type { MarketEvent } from "../domain/market";
 import type { AuthUpdate, UserUpdate } from "../domain/order";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
-import type { PriceHistory } from "../domain/price_history";
+import type { DepositPrice, PriceHistory } from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
 import { DEFAULT_WS_URL } from "../network";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
