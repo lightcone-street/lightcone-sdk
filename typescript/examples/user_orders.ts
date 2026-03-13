@@ -16,9 +16,7 @@ async function main() {
   );
 
   console.log(`orders: ${counts[0]} limit / ${counts[1]} trigger`);
-  console.log(
-    `balances: ${snapshot.balances.length} market / ${snapshot.global_deposits.length} global`
-  );
+  console.log(`balances: ${snapshot.balances.length} market`);
   console.log(`has more: ${snapshot.has_more}`);
 
   const firstOrder = snapshot.orders[0];

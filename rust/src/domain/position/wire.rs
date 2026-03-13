@@ -21,6 +21,14 @@ pub struct VaultBalance {
     pub balance: String,
 }
 
+/// Global deposit balance attached to positions REST responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GlobalDeposit {
+    pub deposit_mint: String,
+    pub symbol: String,
+    pub balance: String,
+}
+
 /// A user's position in a market.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PositionEntry {
@@ -41,6 +49,8 @@ pub struct PositionsResponse {
     pub owner: String,
     pub total_markets: usize,
     pub positions: Vec<PositionEntry>,
+    #[serde(default)]
+    pub global_deposits: Vec<GlobalDeposit>,
     pub decimals: HashMap<String, u8>,
 }
 
@@ -50,5 +60,7 @@ pub struct MarketPositionsResponse {
     pub owner: String,
     pub market_pubkey: String,
     pub positions: Vec<PositionEntry>,
+    #[serde(default)]
+    pub global_deposits: Vec<GlobalDeposit>,
     pub decimals: HashMap<String, u8>,
 }

@@ -19,7 +19,7 @@ async def main():
     trigger_orders = [o for o in snapshot.orders if o.order_type == "trigger"]
 
     print(f"orders: {len(limit_orders)} limit / {len(trigger_orders)} trigger")
-    print(f"balances: {len(snapshot.balances)} market / {len(snapshot.global_deposits)} global")
+    print(f"balances: {len(snapshot.balances)} market")
     print(f"has more: {snapshot.has_more}")
 
     if snapshot.orders:

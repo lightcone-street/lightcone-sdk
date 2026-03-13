@@ -14,7 +14,6 @@ from . import (
     UserOrdersResponse,
     UserSnapshotOrder,
     UserSnapshotBalance,
-    GlobalDepositBalance,
 )
 from .convert import submit_response_from_dict
 from ...error import SdkError
@@ -100,7 +99,6 @@ class Orders:
             user_pubkey=data.get("user_pubkey", wallet),
             orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
             balances=[UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])],
-            global_deposits=[GlobalDepositBalance.from_dict(g) for g in data.get("global_deposits", [])],
             next_cursor=data.get("next_cursor"),
             has_more=data.get("has_more", False),
         )

@@ -29,9 +29,8 @@ async fn main() -> ExampleResult {
         limit_orders, trigger_orders
     );
     println!(
-        "balances: {} market / {} global",
-        snapshot.balances.len(),
-        snapshot.global_deposits.len()
+        "balances: {} market",
+        snapshot.balances.len()
     );
     println!("has more: {}", snapshot.has_more);
 

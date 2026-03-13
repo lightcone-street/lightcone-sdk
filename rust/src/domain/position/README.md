@@ -134,6 +134,18 @@ async fn check_market_position(
 
 Raw response types are available in `lightcone::domain::position::wire`, including `PositionsResponse` and `PositionResponse`.
 
+`global_deposits` on positions REST responses uses the REST shape:
+
+```rust
+pub struct GlobalDeposit {
+    pub deposit_mint: String,
+    pub symbol: String,
+    pub balance: String,
+}
+```
+
+This differs from the WebSocket user snapshot shape in `domain::order::wire`, which uses `{ mint, balance }`.
+
 ---
 
 [← Overview](../../../README.md#positions)

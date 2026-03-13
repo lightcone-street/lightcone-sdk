@@ -1,6 +1,6 @@
 //! Orders sub-client — submit, cancel, query.
 
-use super::wire::{GlobalDepositBalance, UserSnapshotBalance, UserSnapshotOrder};
+use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -305,8 +305,6 @@ pub struct UserOrdersResponse {
     /// Discriminated by `order_type` field on each order.
     pub orders: Vec<UserSnapshotOrder>,
     pub balances: Vec<UserSnapshotBalance>,
-    #[serde(default)]
-    pub global_deposits: Vec<GlobalDepositBalance>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }

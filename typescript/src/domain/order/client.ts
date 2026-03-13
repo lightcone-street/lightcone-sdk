@@ -2,7 +2,7 @@ import bs58 from "bs58";
 import { SdkError } from "../../error";
 import { RetryPolicy, type LightconeHttp } from "../../http";
 import type { OrderBookId, PubkeyStr } from "../../shared";
-import type { GlobalDepositBalance, UserSnapshotBalance, UserSnapshotOrder } from "./wire";
+import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
 
 export interface CancelBody {
   order_hash: string;
@@ -153,7 +153,6 @@ export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
   balances: UserSnapshotBalance[];
-  global_deposits: GlobalDepositBalance[];
   next_cursor?: string;
   has_more: boolean;
 }
@@ -277,6 +276,20 @@ export class Orders {
     if (cursor) params.set("cursor", cursor);
 
     const url = `${this.client.http.baseUrl()}/api/users/orders?${params.toString()}`;
-    return this.client.http.get<UserOrdersResponse>(url, RetryPolicy.Idempotent);
+    const response = await this.client.http.get<{
+      user_pubkey: PubkeyStr;
+      orders?: UserSnapshotOrder[];
+      balances?: UserSnapshotBalance[];
+      next_cursor?: string | null;
+      has_more?: boolean;
+    }>(url, RetryPolicy.Idempotent);
+
+    return {
+      user_pubkey: response.user_pubkey,
+      orders: response.orders ?? [],
+      balances: response.balances ?? [],
+      next_cursor: response.next_cursor ?? undefined,
+      has_more: response.has_more ?? false,
+    };
   }
 }

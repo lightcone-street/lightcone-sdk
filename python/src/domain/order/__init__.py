@@ -264,7 +264,6 @@ class UserOrdersResponse:
     user_pubkey: str = ""
     orders: list[UserSnapshotOrder] = field(default_factory=list)
     balances: list[UserSnapshotBalance] = field(default_factory=list)
-    global_deposits: list[GlobalDepositBalance] = field(default_factory=list)
     next_cursor: Optional[str] = None
     has_more: bool = False
 

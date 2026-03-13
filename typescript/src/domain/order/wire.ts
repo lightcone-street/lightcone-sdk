@@ -14,7 +14,7 @@ import type { OrderStatus } from "./index";
 
 export interface ConditionalBalance {
   outcome_index: number;
-  mint: PubkeyStr;
+  conditional_token: PubkeyStr;
   idle: string;
   on_book: string;
 }
