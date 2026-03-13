@@ -1,13 +1,13 @@
 import { Resolution } from "../src";
-import { restClient, marketAndOrderbook } from "./common";
+import { restClient, marketAndOrderbook, unixTimestampMs } from "./common";
 
 async function main() {
   const client = restClient();
   const [, orderbook] = await marketAndOrderbook(client);
   const orderbookId = orderbook.orderbookId;
 
-  const now = Math.floor(Date.now() / 1000);
-  const sevenDaysAgo = now - 7 * 24 * 60 * 60;
+  const now = unixTimestampMs();
+  const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
 
   const history = await client
     .priceHistory()

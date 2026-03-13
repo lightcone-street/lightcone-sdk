@@ -1,14 +1,14 @@
 mod common;
 
-use common::{market_and_orderbook, rest_client, unix_timestamp, ExampleResult};
+use common::{market_and_orderbook, rest_client, unix_timestamp_ms, ExampleResult};
 use lightcone::prelude::*;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
     let (_, orderbook) = market_and_orderbook(&client).await?;
-    let to = unix_timestamp()? as u64;
-    let from = to.saturating_sub(7 * 24 * 60 * 60);
+    let to = unix_timestamp_ms()? as u64;
+    let from = to.saturating_sub(7 * 24 * 60 * 60 * 1000);
 
     let history = client
         .price_history()

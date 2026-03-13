@@ -25,6 +25,12 @@ pub fn unix_timestamp() -> ExampleResult<i64> {
     )?)
 }
 
+pub fn unix_timestamp_ms() -> ExampleResult<i64> {
+    Ok(i64::try_from(
+        SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis(),
+    )?)
+}
+
 pub async fn fresh_order_nonce(
     rpc: &LightconePinocchioClient,
     user: &Pubkey,

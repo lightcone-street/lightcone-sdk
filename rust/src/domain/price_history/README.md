@@ -59,8 +59,8 @@ Fetch OHLCV price history for an orderbook.
 **Parameters:**
 - `orderbook_id` -- which orderbook to query
 - `resolution` -- candle resolution
-- `from` -- optional start time as Unix timestamp
-- `to` -- optional end time as Unix timestamp
+- `from` -- optional start time as Unix timestamp in milliseconds
+- `to` -- optional end time as Unix timestamp in milliseconds
 
 ## State Container: PriceHistoryState
 

@@ -3,7 +3,7 @@
 import asyncio
 import json
 
-from common import rest_client, market_and_orderbook, unix_timestamp
+from common import rest_client, market_and_orderbook, unix_timestamp_ms
 from src.shared.types import Resolution
 
 
@@ -13,8 +13,8 @@ async def main():
     orderbook_id = orderbook.orderbook_id
 
     # Fetch 7-day history at 1-hour resolution
-    to_ts = unix_timestamp()
-    from_ts = to_ts - 7 * 24 * 60 * 60
+    to_ts = unix_timestamp_ms()
+    from_ts = to_ts - 7 * 24 * 60 * 60 * 1000
 
     history = await client.price_history().get(
         orderbook_id, Resolution.ONE_HOUR.as_str(), from_ts, to_ts

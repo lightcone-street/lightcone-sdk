@@ -10,6 +10,7 @@ pub struct PriceHistoryClient<'a> {
 }
 
 impl<'a> PriceHistoryClient<'a> {
+    /// `from` and `to` are Unix timestamps in milliseconds.
     pub async fn get(
         &self,
         orderbook_id: &str,
@@ -24,10 +25,10 @@ impl<'a> PriceHistoryClient<'a> {
             resolution.as_str()
         );
         if let Some(f) = from {
-            url = format!("{}&from={}", url, f);
+            url = format!("{}&from={}", url, ensure_unix_milliseconds("from", f)?);
         }
         if let Some(t) = to {
-            url = format!("{}&to={}", url, t);
+            url = format!("{}&to={}", url, ensure_unix_milliseconds("to", t)?);
         }
 
         Ok(self
@@ -36,4 +37,13 @@ impl<'a> PriceHistoryClient<'a> {
             .get(&url, RetryPolicy::Idempotent)
             .await?)
     }
+}
+
+fn ensure_unix_milliseconds(name: &str, value: u64) -> Result<u64, SdkError> {
+    if value < 10_000_000_000 {
+        return Err(SdkError::Validation(format!(
+            "{name} must be a Unix timestamp in milliseconds, not seconds"
+        )));
+    }
+    Ok(value)
 }

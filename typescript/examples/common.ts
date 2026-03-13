@@ -99,6 +99,10 @@ export function unixTimestamp(): number {
   return Math.floor(Date.now() / 1000);
 }
 
+export function unixTimestampMs(): number {
+  return Date.now();
+}
+
 export async function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
