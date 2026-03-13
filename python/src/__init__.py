@@ -128,6 +128,8 @@ from .ws import (
     unsubscribe_ticker,
     subscribe_market,
     unsubscribe_market,
+    subscribe_deposit_price,
+    unsubscribe_deposit_price,
     parse_message_in,
 )
 
@@ -422,6 +424,8 @@ __all__ = [
     "unsubscribe_ticker",
     "subscribe_market",
     "unsubscribe_market",
+    "subscribe_deposit_price",
+    "unsubscribe_deposit_price",
     "parse_message_in",
     # Program - Client
     "LightconePinocchioClient",

@@ -9,6 +9,7 @@ pub mod native;
 pub mod wasm;
 
 use crate::domain::market::wire::MarketEvent;
+use crate::domain::deposit_price::wire::DepositPrice;
 use crate::domain::order::wire::{AuthUpdate, UserUpdate};
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
 use crate::domain::price_history::wire::PriceHistory;
@@ -120,6 +121,28 @@ impl MessageOut {
     pub fn unsubscribe_market(market_pubkey: PubkeyStr) -> MessageOut {
         UnsubscribeParams::Market { market_pubkey }.into()
     }
+
+    pub fn subscribe_deposit_price(
+        deposit_asset: PubkeyStr,
+        resolution: Resolution,
+    ) -> MessageOut {
+        SubscribeParams::DepositPrice {
+            deposit_asset,
+            resolution,
+        }
+        .into()
+    }
+
+    pub fn unsubscribe_deposit_price(
+        deposit_asset: PubkeyStr,
+        resolution: Resolution,
+    ) -> MessageOut {
+        UnsubscribeParams::DepositPrice {
+            deposit_asset,
+            resolution,
+        }
+        .into()
+    }
 }
 
 // ─── Inbound messages ────────────────────────────────────────────────────────
@@ -156,6 +179,8 @@ pub enum Kind {
     Ticker(WsTickerData),
     #[serde(rename = "market")]
     Market(MarketEvent),
+    #[serde(rename = "deposit_price")]
+    DepositPrice(DepositPrice),
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -171,6 +196,8 @@ pub struct WsError {
     pub orderbook_id: Option<String>,
     #[serde(default)]
     pub wallet_address: Option<String>,
+    #[serde(default)]
+    pub deposit_asset: Option<String>,
     #[serde(default)]
     pub hint: Option<String>,
     #[serde(default)]
@@ -340,6 +367,13 @@ mod tests {
         let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid"}, "version": 0.1}"#;
         let msg: MessageIn = serde_json::from_str(json).unwrap();
         assert!(matches!(msg.kind, Kind::Trade(_)));
+    }
+
+    #[test]
+    fn test_kind_deposit_price_deserialization() {
+        let json = r#"{"type":"deposit_price","data":{"event_type":"price","deposit_asset":"mint123","price":"1.0001","event_time":1710300000000},"version":0.1}"#;
+        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        assert!(matches!(msg.kind, Kind::DepositPrice(_)));
     }
 
     #[test]

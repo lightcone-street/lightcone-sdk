@@ -6,6 +6,11 @@ from enum import Enum, IntEnum
 from typing import Any, Callable, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
+    from ..domain.deposit_price.wire import (
+        DepositPriceCandleUpdate,
+        DepositPriceSnapshot,
+        DepositPriceTick,
+    )
     from ..domain.orderbook.wire import WsOrderBook, WsTickerData
     from ..domain.order.wire import UserUpdate, AuthUpdate
     from ..domain.trade.wire import WsTrade
@@ -18,6 +23,7 @@ MessageData = Union[
     "WsOrderBook", "UserUpdate", "WsErrorData", "WsTrade", "AuthUpdate",
     "WsTickerData", "MarketEvent",
     "PriceHistorySnapshot", "PriceHistoryUpdate", "PriceHistoryHeartbeat",
+    "DepositPriceSnapshot", "DepositPriceTick", "DepositPriceCandleUpdate",
     dict,
 ]
 
@@ -141,6 +147,30 @@ def unsubscribe_market(market_pubkey: str) -> dict[str, Any]:
     }
 
 
+def subscribe_deposit_price(deposit_asset: str, resolution: str) -> dict[str, Any]:
+    """Create a deposit_price subscribe message."""
+    return {
+        "method": "subscribe",
+        "params": {
+            "type": "deposit_price",
+            "deposit_asset": deposit_asset,
+            "resolution": resolution,
+        },
+    }
+
+
+def unsubscribe_deposit_price(deposit_asset: str, resolution: str) -> dict[str, Any]:
+    """Create a deposit_price unsubscribe message."""
+    return {
+        "method": "unsubscribe",
+        "params": {
+            "type": "deposit_price",
+            "deposit_asset": deposit_asset,
+            "resolution": resolution,
+        },
+    }
+
+
 # ---------------------------------------------------------------------------
 # Message types (incoming)
 # ---------------------------------------------------------------------------
@@ -158,6 +188,7 @@ class MessageInType(str, Enum):
     AUTH = "auth"
     TICKER = "ticker"
     MARKET = "market"
+    DEPOSIT_PRICE = "deposit_price"
 
 
 @dataclass
@@ -240,6 +271,20 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
 
         return MarketEvent.from_dict(data)
 
+    if message_type == MessageInType.DEPOSIT_PRICE.value:
+        from ..domain.deposit_price.wire import (
+            DepositPriceCandleUpdate,
+            DepositPriceSnapshot,
+            DepositPriceTick,
+        )
+
+        event_type = data.get("event_type", "")
+        if event_type == "price":
+            return DepositPriceTick.from_dict(data)
+        if event_type == "candle":
+            return DepositPriceCandleUpdate.from_dict(data)
+        return DepositPriceSnapshot.from_dict(data)
+
     return data
 
 
@@ -316,6 +361,7 @@ class WsErrorData:
     code: Optional[str] = None
     orderbook_id: Optional[str] = None
     wallet_address: Optional[str] = None
+    deposit_asset: Optional[str] = None
     hint: Optional[str] = None
     details: Optional[str] = None
 
@@ -326,6 +372,7 @@ class WsErrorData:
             code=d.get("code"),
             orderbook_id=d.get("orderbook_id"),
             wallet_address=d.get("wallet_address"),
+            deposit_asset=d.get("deposit_asset"),
             hint=d.get("hint"),
             details=d.get("details"),
         )
@@ -346,6 +393,8 @@ __all__ = [
     "unsubscribe_ticker",
     "subscribe_market",
     "unsubscribe_market",
+    "subscribe_deposit_price",
+    "unsubscribe_deposit_price",
     # Incoming message types
     "MessageInType",
     "MessageIn",

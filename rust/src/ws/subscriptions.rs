@@ -38,6 +38,11 @@ pub enum SubscribeParams {
     Market {
         market_pubkey: PubkeyStr,
     },
+    #[serde(rename = "deposit_price")]
+    DepositPrice {
+        deposit_asset: PubkeyStr,
+        resolution: Resolution,
+    },
 }
 
 /// Parameters for unsubscribing from a WS channel.
@@ -71,6 +76,11 @@ pub enum UnsubscribeParams {
     #[serde(rename = "market")]
     Market {
         market_pubkey: PubkeyStr,
+    },
+    #[serde(rename = "deposit_price")]
+    DepositPrice {
+        deposit_asset: PubkeyStr,
+        resolution: Resolution,
     },
 }
 
@@ -111,6 +121,13 @@ impl Subscription for SubscribeParams {
             },
             SubscribeParams::Market { market_pubkey } => UnsubscribeParams::Market {
                 market_pubkey: market_pubkey.clone(),
+            },
+            SubscribeParams::DepositPrice {
+                deposit_asset,
+                resolution,
+            } => UnsubscribeParams::DepositPrice {
+                deposit_asset: deposit_asset.clone(),
+                resolution: *resolution,
             },
         }
     }
@@ -180,6 +197,16 @@ impl Subscription for SubscribeParams {
                     market_pubkey: unsub_pk,
                 },
             ) => sub_pk == unsub_pk,
+            (
+                SubscribeParams::DepositPrice {
+                    deposit_asset: sub_asset,
+                    resolution: sub_res,
+                },
+                UnsubscribeParams::DepositPrice {
+                    deposit_asset: unsub_asset,
+                    resolution: unsub_res,
+                },
+            ) => sub_asset == unsub_asset && sub_res == unsub_res,
             _ => false,
         }
     }
@@ -206,6 +233,10 @@ impl Subscription for SubscribeParams {
             SubscribeParams::Market { market_pubkey } => {
                 format!("market:{}", market_pubkey)
             }
+            SubscribeParams::DepositPrice {
+                deposit_asset,
+                resolution,
+            } => format!("deposit_price:{}:{}", deposit_asset, resolution),
         }
     }
 }
@@ -270,6 +301,20 @@ mod tests {
 
         assert_eq!(parsed["type"], "price_history");
         assert_eq!(parsed["include_ohlcv"], false);
+    }
+
+    #[test]
+    fn test_deposit_price_serialization() {
+        let params = SubscribeParams::DepositPrice {
+            deposit_asset: PubkeyStr::new("mint123"),
+            resolution: Resolution::Hour1,
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["type"], "deposit_price");
+        assert_eq!(parsed["deposit_asset"], "mint123");
+        assert_eq!(parsed["resolution"], "1h");
     }
 
     #[test]

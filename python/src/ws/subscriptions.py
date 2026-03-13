@@ -47,6 +47,13 @@ class MarketParams:
     market_pubkey: str = ""
 
 
+@dataclass
+class DepositPriceParams:
+    type: str = "deposit_price"
+    deposit_asset: str = ""
+    resolution: str = "1m"
+
+
 SubscribeParams = Union[
     BookUpdateParams,
     TradesParams,
@@ -54,6 +61,7 @@ SubscribeParams = Union[
     PriceHistoryParams,
     TickerParams,
     MarketParams,
+    DepositPriceParams,
 ]
 
 UnsubscribeParams = SubscribeParams  # Same shapes for unsubscribe
@@ -81,6 +89,8 @@ def subscription_key(params: SubscribeParams) -> str:
         return f"ticker:{ids}"
     elif isinstance(params, MarketParams):
         return f"market:{params.market_pubkey}"
+    elif isinstance(params, DepositPriceParams):
+        return f"deposit_price:{params.deposit_asset}:{params.resolution}"
     return f"unknown:{id(params)}"
 
 
@@ -98,6 +108,7 @@ __all__ = [
     "PriceHistoryParams",
     "TickerParams",
     "MarketParams",
+    "DepositPriceParams",
     "SubscribeParams",
     "UnsubscribeParams",
     "subscription_key",
