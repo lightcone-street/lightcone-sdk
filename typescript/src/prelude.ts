@@ -96,14 +96,20 @@ export type { Trade, WsTrade } from "./domain/trade";
 export { TradeHistory } from "./domain/trade/state";
 export type {
   LineData,
+  MidpointPriceCandle,
+  OhlcvPriceCandle,
+  OrderbookPriceHistoryQuery,
+  OrderbookPriceHistoryResponse,
   PriceCandle,
   PriceHistory,
+  PriceHistoryRestResponse,
   PriceHistorySnapshot,
   PriceHistoryUpdate,
 } from "./domain/price_history";
 export { PriceHistoryState } from "./domain/price_history";
 
 export type {
+  DepositPriceHistoryQuery,
   DepositTokenCandle,
   DepositPrice,
   DepositPriceSnapshot,

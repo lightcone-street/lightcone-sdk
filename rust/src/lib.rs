@@ -76,7 +76,11 @@ pub mod prelude {
     };
 
     // Domain types — trade, price history
-    pub use crate::domain::price_history::{LineData, PriceHistoryState};
+    pub use crate::domain::price_history::{
+        DepositPriceCandle, DepositPriceHistoryQuery, DepositPriceHistoryResponse,
+        LineData, OrderbookPriceCandle, OrderbookPriceHistoryQuery,
+        OrderbookPriceHistoryResponse, PriceHistoryDecimals, PriceHistoryState,
+    };
     pub use crate::domain::trade::Trade;
 
     // Errors

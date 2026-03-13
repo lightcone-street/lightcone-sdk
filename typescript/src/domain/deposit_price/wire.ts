@@ -1,3 +1,5 @@
+import type { Resolution } from "../../shared";
+
 export interface DepositTokenCandle {
   t: number;
   tc: number;
@@ -7,7 +9,7 @@ export interface DepositTokenCandle {
 export interface DepositPriceSnapshot {
   event_type: "snapshot";
   deposit_asset: string;
-  resolution: string;
+  resolution: Resolution;
   prices: DepositTokenCandle[];
 }
 
@@ -21,7 +23,7 @@ export interface DepositPriceTick {
 export interface DepositPriceCandleUpdate {
   event_type: "candle";
   deposit_asset: string;
-  resolution: string;
+  resolution: Resolution;
   t: number;
   tc: number;
   c: string;
@@ -35,8 +37,7 @@ export type DepositPrice =
 export interface DepositTokenPriceHistoryResponse {
   deposit_asset: string;
   binance_symbol: string;
-  quote_asset: string;
-  resolution: string;
+  resolution: Resolution;
   prices: DepositTokenCandle[];
   next_cursor: number | null;
   has_more: boolean;
