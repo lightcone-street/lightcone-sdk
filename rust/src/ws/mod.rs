@@ -9,10 +9,9 @@ pub mod native;
 pub mod wasm;
 
 use crate::domain::market::wire::MarketEvent;
-use crate::domain::deposit_price::wire::DepositPrice;
 use crate::domain::order::wire::{AuthUpdate, UserUpdate};
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
-use crate::domain::price_history::wire::PriceHistory;
+use crate::domain::price_history::wire::{DepositPrice, PriceHistory};
 use crate::domain::trade::wire::WsTrade;
 use crate::network::DEFAULT_WS_URL;
 use crate::shared::{OrderBookId, PubkeyStr, Resolution};

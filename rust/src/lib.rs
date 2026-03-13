@@ -76,14 +76,12 @@ pub mod prelude {
     };
 
     // Domain types — trade, price history
-    pub use crate::domain::deposit_price::{
-        DepositPrice, DepositPriceCandleUpdate, DepositPriceKey, DepositPriceSnapshot,
-        DepositPriceState, DepositPriceTick, DepositTokenCandle, LatestDepositPrice,
-    };
     pub use crate::domain::price_history::{
-        DepositPriceCandle, DepositPriceHistoryQuery, DepositPriceHistoryResponse,
-        LineData, OrderbookPriceCandle, OrderbookPriceHistoryQuery,
-        OrderbookPriceHistoryResponse, PriceHistoryDecimals, PriceHistoryState,
+        DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryQuery,
+        DepositPriceHistoryResponse, DepositPriceKey, DepositPriceSnapshot, DepositPriceState,
+        DepositPriceTick, DepositTokenCandle, LatestDepositPrice, LineData,
+        OrderbookPriceCandle, OrderbookPriceHistoryQuery, OrderbookPriceHistoryResponse,
+        PriceHistoryDecimals, PriceHistoryState,
     };
     pub use crate::domain::trade::Trade;
 

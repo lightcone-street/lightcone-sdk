@@ -4,12 +4,13 @@ pub mod client;
 pub mod state;
 pub mod wire;
 
-use crate::shared::Resolution;
+use crate::shared::{PubkeyStr, Resolution};
 use serde::{Deserialize, Serialize};
 
-pub use state::PriceHistoryState;
+pub use state::{DepositPriceState, LatestDepositPrice, PriceHistoryState};
 pub use wire::{
-    DepositPriceCandle, DepositPriceHistoryResponse, OrderbookPriceCandle,
+    DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryResponse,
+    DepositPriceSnapshot, DepositPriceTick, DepositTokenCandle, OrderbookPriceCandle,
     OrderbookPriceHistoryResponse, PriceHistoryDecimals,
 };
 
@@ -38,6 +39,13 @@ impl From<wire::OrderbookPriceCandle> for LineData {
             value: c.m.or(c.c).unwrap_or_default(),
         }
     }
+}
+
+/// Key for deposit-price lookups.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct DepositPriceKey {
+    pub deposit_asset: PubkeyStr,
+    pub resolution: Resolution,
 }
 
 /// Query options for orderbook price history REST requests.
