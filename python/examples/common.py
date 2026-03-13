@@ -12,14 +12,14 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 # Allow imports from the SDK source
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from src.client import LightconeClientBuilder, LightconeClient
-from src.auth.client import sign_login_message
-from src.auth import User
-from src.domain.market import Market, OrderBookPairSummary
-from src.program.client import LightconePinocchioClient
-from src.shared.scaling import OrderbookDecimals
+from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
+from lightcone_sdk.auth.client import sign_login_message
+from lightcone_sdk.auth import User
+from lightcone_sdk.domain.market import Market, OrderBookPairSummary
+from lightcone_sdk.program.client import LightconePinocchioClient
+from lightcone_sdk.shared.scaling import OrderbookDecimals
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 

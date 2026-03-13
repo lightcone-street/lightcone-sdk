@@ -5,7 +5,7 @@ import asyncio
 from solders.pubkey import Pubkey
 
 from common import rest_client, rpc_client, wallet, market, deposit_mint, num_outcomes
-from src.program.types import MintCompleteSetParams, MergeCompleteSetParams
+from lightcone_sdk.program.types import MintCompleteSetParams, MergeCompleteSetParams
 
 
 async def submit_transaction(name, rpc, tx, keypair, blockhash):

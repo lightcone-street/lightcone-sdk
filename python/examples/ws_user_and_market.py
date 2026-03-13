@@ -3,8 +3,8 @@
 import asyncio
 
 from common import rest_client, wallet, login, market
-from src.ws import WsEventType, MessageInType
-from src.ws.subscriptions import UserParams, MarketParams
+from lightcone_sdk.ws import WsEventType, MessageInType
+from lightcone_sdk.ws.subscriptions import UserParams, MarketParams
 
 
 async def main():

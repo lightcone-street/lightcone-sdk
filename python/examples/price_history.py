@@ -5,7 +5,7 @@ import json
 from dataclasses import asdict
 
 from common import rest_client, market_and_orderbook, unix_timestamp_ms
-from src.shared.types import Resolution
+from lightcone_sdk.shared.types import Resolution
 
 
 async def main():

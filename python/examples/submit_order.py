@@ -13,7 +13,7 @@ from common import (
     scaling_decimals,
     fresh_order_nonce,
 )
-from src.program.envelope import LimitOrderEnvelope
+from lightcone_sdk.program.envelope import LimitOrderEnvelope
 
 
 async def main():

@@ -5,7 +5,7 @@ import asyncio
 from solders.pubkey import Pubkey
 
 from common import rest_client, rpc_client, wallet, market_and_orderbook, deposit_mint
-from src.program.pda import (
+from lightcone_sdk.program.pda import (
     get_exchange_pda,
     get_market_pda,
     get_position_pda,

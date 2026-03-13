@@ -3,8 +3,8 @@
 import asyncio
 
 from common import rest_client, wallet, login, unix_timestamp
-from src.domain.order import CancelBody, CancelAllBody
-from src.program.orders import (
+from lightcone_sdk.domain.order import CancelBody, CancelAllBody
+from lightcone_sdk.program.orders import (
     generate_cancel_all_salt,
     sign_cancel_order,
     sign_cancel_all,

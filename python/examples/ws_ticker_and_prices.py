@@ -3,16 +3,16 @@
 import asyncio
 
 from common import rest_client, market_and_orderbook
-from src.ws import WsEventType, MessageInType
-from src.ws.subscriptions import TickerParams, PriceHistoryParams
-from src.domain.price_history.state import PriceHistoryState
-from src.domain.price_history import LineData
-from src.domain.price_history.wire import (
+from lightcone_sdk.ws import WsEventType, MessageInType
+from lightcone_sdk.ws.subscriptions import TickerParams, PriceHistoryParams
+from lightcone_sdk.domain.price_history.state import PriceHistoryState
+from lightcone_sdk.domain.price_history import LineData
+from lightcone_sdk.domain.price_history.wire import (
     PriceHistorySnapshot,
     PriceHistoryUpdate,
     PriceHistoryHeartbeat,
 )
-from src.shared.types import Resolution
+from lightcone_sdk.shared.types import Resolution
 
 
 async def main():

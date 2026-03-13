@@ -3,11 +3,11 @@
 import asyncio
 
 from common import rest_client, market_and_orderbook
-from src.ws import WsEventType, MessageInType
-from src.ws.subscriptions import BookUpdateParams, TradesParams
-from src.domain.orderbook.state import OrderbookSnapshot
-from src.domain.trade.state import TradeHistory
-from src.domain.trade import Trade
+from lightcone_sdk.ws import WsEventType, MessageInType
+from lightcone_sdk.ws.subscriptions import BookUpdateParams, TradesParams
+from lightcone_sdk.domain.orderbook.state import OrderbookSnapshot
+from lightcone_sdk.domain.trade.state import TradeHistory
+from lightcone_sdk.domain.trade import Trade
 
 
 async def main():

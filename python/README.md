@@ -23,8 +23,6 @@ Python SDK for the Lightcone impact market protocol on Solana.
 pip install lightcone-sdk
 ```
 
-The current Python package exports the `src` module, so the examples below use
-`from src import ...`.
 
 ## Quick Start
 
@@ -35,14 +33,14 @@ from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from src import (
+from lightcone_sdk import (
     LightconeClientBuilder,
     LightconePinocchioClient,
     LimitOrderEnvelope,
     OrderbookDecimals,
 )
-from src.auth.client import sign_login_message
-from src.ws.subscriptions import BookUpdateParams
+from lightcone_sdk.auth.client import sign_login_message
+from lightcone_sdk.ws.subscriptions import BookUpdateParams
 
 
 async def main():
@@ -113,7 +111,7 @@ from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from src import LightconeClientBuilder, LightconePinocchioClient
+from lightcone_sdk import LightconeClientBuilder, LightconePinocchioClient
 
 client = LightconeClientBuilder().build()
 rpc = LightconePinocchioClient(AsyncClient("https://api.devnet.solana.com"))
@@ -135,7 +133,7 @@ orderbook = next(
 ### Step 2: Deposit Collateral
 
 ```python
-from src import MintCompleteSetParams
+from lightcone_sdk import MintCompleteSetParams
 
 market_pubkey = Pubkey.from_string(market.pubkey)
 deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
@@ -155,7 +153,7 @@ tx.sign([keypair], await rpc.get_latest_blockhash())
 ### Step 3: Place an Order
 
 ```python
-from src import LimitOrderEnvelope, OrderbookDecimals
+from lightcone_sdk import LimitOrderEnvelope, OrderbookDecimals
 
 decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
 decimals = OrderbookDecimals(
@@ -183,7 +181,7 @@ order = await client.orders().submit(request)
 ### Step 4: Monitor
 
 ```python
-from src.ws.subscriptions import BookUpdateParams, UserParams
+from lightcone_sdk.ws.subscriptions import BookUpdateParams, UserParams
 
 open_orders = await client.orders().get_user_orders(str(keypair.pubkey()), 50)
 ws = client.ws()
@@ -195,8 +193,8 @@ await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ### Step 5: Cancel an Order
 
 ```python
-from src import sign_cancel_order
-from src.domain.order import CancelBody
+from lightcone_sdk import sign_cancel_order
+from lightcone_sdk.domain.order import CancelBody
 
 signature = sign_cancel_order(order.order_hash, keypair)
 await client.orders().cancel(
@@ -211,7 +209,7 @@ await client.orders().cancel(
 ### Step 6: Exit a Position
 
 ```python
-from src import MergeCompleteSetParams
+from lightcone_sdk import MergeCompleteSetParams
 
 tx = await rpc.merge_complete_set(
     MergeCompleteSetParams(

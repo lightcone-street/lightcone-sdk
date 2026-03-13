@@ -3,7 +3,7 @@
 import asyncio
 
 from common import rest_client, wallet
-from src.auth.client import sign_login_message
+from lightcone_sdk.auth.client import sign_login_message
 
 
 async def main():
