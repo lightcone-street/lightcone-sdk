@@ -30,8 +30,16 @@ async fn main() -> ExampleResult {
             .name
     );
 
-    let query = market.slug.clone();
+    let query = market
+        .name
+        .split_whitespace()
+        .find(|word| word.len() > 3)
+        .unwrap_or("market")
+        .to_string();
     let results = client.markets().search(&query, Some(5)).await?;
     println!("search '{query}': {} result(s)", results.len());
+    for result in &results {
+        println!("  - {}", result.slug);
+    }
     Ok(())
 }

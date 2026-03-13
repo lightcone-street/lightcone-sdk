@@ -1,6 +1,21 @@
 mod common;
 
 use common::{market_and_orderbook, rest_client, ExampleResult};
+use lightcone::domain::trade::Trade;
+
+fn print_trades(page_label: &str, trades: &[Trade]) {
+    println!("{page_label}: {} trade(s)", trades.len());
+    for trade in trades {
+        println!(
+            "  {} {} {} {} @ {}",
+            trade.trade_id,
+            trade.timestamp.to_rfc3339(),
+            trade.size,
+            trade.side,
+            trade.price
+        );
+    }
+}
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -11,7 +26,7 @@ async fn main() -> ExampleResult {
         .trades()
         .get(orderbook.orderbook_id.as_str(), Some(10), None)
         .await?;
-    println!("page 1: {} trade(s)", first_page.trades.len());
+    print_trades("page 1", &first_page.trades);
     if let Some(trade) = first_page.trades.first() {
         println!("latest: {} {} @ {}", trade.size, trade.side, trade.price);
     }
@@ -21,7 +36,7 @@ async fn main() -> ExampleResult {
             .trades()
             .get(orderbook.orderbook_id.as_str(), Some(10), Some(cursor))
             .await?;
-        println!("page 2: {} trade(s)", next_page.trades.len());
+        print_trades("page 2", &next_page.trades);
     }
 
     Ok(())
