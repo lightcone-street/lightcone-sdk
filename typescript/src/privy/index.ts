@@ -24,6 +24,7 @@ export interface PrivyOrderEnvelope {
   tif?: import("../shared").TimeInForce;
   trigger_price?: number;
   trigger_type?: import("../shared").TriggerType;
+  deposit_source?: import("../shared").DepositSource;
 }
 
 export interface SignAndSendOrderRequest {
@@ -56,6 +57,52 @@ export interface ExportWalletResponse {
   encryption_type: string;
   ciphertext: string;
   encapsulated_key: string;
+}
+
+export interface OrderFill {
+  counterparty: string;
+  counterparty_order_hash: string;
+  fill_amount: string;
+  price: string;
+  is_maker: boolean;
+}
+
+export interface LimitOrderResponse {
+  order_hash: string;
+  status: string;
+  remaining: string;
+  filled: string;
+  fills: OrderFill[];
+}
+
+export interface TriggerOrderResponse {
+  trigger_order_id: string;
+  order_hash: string;
+  status: string;
+}
+
+export type SignAndSendOrderResponse = LimitOrderResponse | TriggerOrderResponse;
+
+export interface LimitCancelResponse {
+  status: string;
+  order_hash: string;
+  remaining: string;
+}
+
+export interface TriggerCancelResponse {
+  status: string;
+  trigger_order_id: string;
+}
+
+export type SignAndCancelOrderResponse = LimitCancelResponse | TriggerCancelResponse;
+
+export interface SignAndCancelAllResponse {
+  status: string;
+  user_pubkey: string;
+  orderbook_id: string;
+  cancelled_order_hashes: string[];
+  count: number;
+  message: string;
 }
 
 function requireDefined<T>(
@@ -100,6 +147,7 @@ export function privyOrderFromLimitEnvelope(
     amount_out: bigintToSafeNumber(amountOut, "amount_out"),
     expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
     orderbook_id: orderbookId,
+    deposit_source: envelope.fieldsDepositSource(),
   };
 }
 
@@ -130,5 +178,6 @@ export function privyOrderFromTriggerEnvelope(
     tif: envelope.fieldsTimeInForce(),
     trigger_price: envelope.fieldsTriggerPrice(),
     trigger_type: envelope.fieldsTriggerType(),
+    deposit_source: envelope.fieldsDepositSource(),
   };
 }

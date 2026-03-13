@@ -133,7 +133,10 @@ export function deserializeExchange(data: Buffer): Exchange {
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 6 bytes
+  const depositTokenCount = data.readUInt16LE(offset);
+  offset += 2;
+
+  // Skip padding: 4 bytes
 
   return {
     discriminator,
@@ -142,6 +145,7 @@ export function deserializeExchange(data: Buffer): Exchange {
     marketCount,
     paused,
     bump,
+    depositTokenCount,
   };
 }
 
@@ -434,10 +438,14 @@ export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken 
   const bump = data[offset];
   offset += 1;
 
+  const index = data.readUInt16LE(offset);
+  offset += 2;
+
   return {
     discriminator,
     mint,
     active,
     bump,
+    index,
   };
 }

@@ -12,6 +12,7 @@ from solders.transaction import Transaction
 
 from .accounts import (
     deserialize_exchange,
+    deserialize_global_deposit_token,
     deserialize_market,
     deserialize_order_status,
     deserialize_orderbook,
@@ -26,7 +27,12 @@ from .instructions import (
     build_cancel_order_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
+    build_deposit_and_swap_instruction,
+    build_deposit_to_global_instruction,
+    build_extend_position_tokens_instruction,
+    build_global_to_market_deposit_instruction,
     build_increment_nonce_instruction,
+    build_init_position_tokens_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
     build_merge_complete_set_instruction,
@@ -36,6 +42,7 @@ from .instructions import (
     build_set_operator_instruction,
     build_set_paused_instruction,
     build_settle_market_instruction,
+    build_whitelist_deposit_token_instruction,
     build_withdraw_from_position_instruction,
 )
 from .orders import (
@@ -50,10 +57,12 @@ from .pda import (
     get_all_conditional_mints,
     get_conditional_mint_pda,
     get_exchange_pda,
+    get_global_deposit_pda,
     get_market_pda,
     get_order_status_pda,
     get_orderbook_pda,
     get_position_pda,
+    get_user_global_deposit_pda,
     get_user_nonce_pda,
 )
 from .types import (
@@ -62,8 +71,14 @@ from .types import (
     AskOrderParams,
     BidOrderParams,
     CreateOrderbookParams,
+    DepositAndSwapParams,
+    DepositToGlobalParams,
     Exchange,
+    ExtendPositionTokensParams,
     FullOrder,
+    GlobalDepositToken,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
     Market,
     MatchOrdersMultiParams,
     MergeCompleteSetParams,
@@ -74,6 +89,7 @@ from .types import (
     RedeemWinningsParams,
     SetAuthorityParams,
     SettleMarketParams,
+    WhitelistDepositTokenParams,
     WithdrawFromPositionParams,
 )
 from .utils import derive_condition_id
@@ -120,7 +136,7 @@ class LightconePinocchioClient:
 
         return deserialize_market(response.value.data)
 
-    async def get_market_by_address(self, market_address: Pubkey) -> Market:
+    async def get_market_by_pubkey(self, market_address: Pubkey) -> Market:
         """Fetch and deserialize a market account by its address."""
         response = await self.connection.get_account_info(market_address)
 
@@ -128,6 +144,9 @@ class LightconePinocchioClient:
             raise AccountNotFoundError(str(market_address))
 
         return deserialize_market(response.value.data)
+
+    # Backward compat alias
+    get_market_by_address = get_market_by_pubkey
 
     async def get_position(
         self, owner: Pubkey, market: Pubkey
@@ -191,6 +210,21 @@ class LightconePinocchioClient:
 
         return deserialize_orderbook(response.value.data)
 
+    async def get_global_deposit_token(self, mint: Pubkey) -> GlobalDepositToken:
+        """Fetch and deserialize a GlobalDepositToken account."""
+        pda, _ = get_global_deposit_pda(mint, self.program_id)
+        response = await self.connection.get_account_info(pda)
+
+        if response.value is None:
+            raise AccountNotFoundError(str(pda))
+
+        return deserialize_global_deposit_token(response.value.data)
+
+    async def get_current_nonce(self, user: Pubkey) -> int:
+        """Get the current nonce value (does not increment). Returns u32."""
+        nonce = await self.get_user_nonce(user)
+        return nonce & 0xFFFFFFFF
+
     # =========================================================================
     # Transaction Builders
     # =========================================================================
@@ -220,12 +254,19 @@ class LightconePinocchioClient:
         return await self._build_transaction([ix])
 
     async def add_deposit_mint(
-        self, params: AddDepositMintParams, num_outcomes: int
+        self, params: AddDepositMintParams, market: Pubkey, num_outcomes: int
     ) -> Transaction:
-        """Build an add_deposit_mint transaction."""
+        """Build an add_deposit_mint transaction.
+
+        Args:
+            params: Deposit mint parameters (authority, deposit_mint, outcome_metadata)
+            market: Market pubkey (passed separately, matching Rust SDK)
+            num_outcomes: Number of outcomes for the market
+        """
+        payer = params.payer or params.authority
         ix = build_add_deposit_mint_instruction(
-            payer=params.payer,
-            market=params.market,
+            payer=payer,
+            market=market,
             deposit_mint=params.deposit_mint,
             outcome_metadata=params.outcome_metadata,
             num_outcomes=num_outcomes,
@@ -352,7 +393,7 @@ class LightconePinocchioClient:
     async def create_orderbook(self, params: CreateOrderbookParams) -> Transaction:
         """Build a create_orderbook transaction."""
         ix = build_create_orderbook_instruction(
-            payer=params.payer,
+            payer=params.authority,
             market=params.market,
             mint_a=params.mint_a,
             mint_b=params.mint_b,
@@ -368,6 +409,42 @@ class LightconePinocchioClient:
             new_authority=params.new_authority,
             program_id=self.program_id,
         )
+        return await self._build_transaction([ix])
+
+    async def whitelist_deposit_token(self, params: WhitelistDepositTokenParams) -> Transaction:
+        """Build a whitelist_deposit_token transaction."""
+        ix = build_whitelist_deposit_token_instruction(params, self.program_id)
+        return await self._build_transaction([ix])
+
+    async def deposit_to_global(self, params: DepositToGlobalParams) -> Transaction:
+        """Build a deposit_to_global transaction."""
+        ix = build_deposit_to_global_instruction(params, self.program_id)
+        return await self._build_transaction([ix])
+
+    async def global_to_market_deposit(
+        self, params: GlobalToMarketDepositParams, num_outcomes: int
+    ) -> Transaction:
+        """Build a global_to_market_deposit transaction."""
+        ix = build_global_to_market_deposit_instruction(params, num_outcomes, self.program_id)
+        return await self._build_transaction([ix])
+
+    async def init_position_tokens(
+        self, params: InitPositionTokensParams, num_outcomes: int
+    ) -> Transaction:
+        """Build an init_position_tokens transaction."""
+        ix = build_init_position_tokens_instruction(params, num_outcomes, self.program_id)
+        return await self._build_transaction([ix])
+
+    async def deposit_and_swap(self, params: DepositAndSwapParams) -> Transaction:
+        """Build a deposit_and_swap transaction."""
+        ix = build_deposit_and_swap_instruction(params, self.program_id)
+        return await self._build_transaction([ix])
+
+    async def extend_position_tokens(
+        self, params: ExtendPositionTokensParams, num_outcomes: int
+    ) -> Transaction:
+        """Build an extend_position_tokens transaction."""
+        ix = build_extend_position_tokens_instruction(params, num_outcomes, self.program_id)
         return await self._build_transaction([ix])
 
     # =========================================================================
@@ -450,6 +527,16 @@ class LightconePinocchioClient:
         pda, _ = get_orderbook_pda(mint_a, mint_b, self.program_id)
         return pda
 
+    def get_global_deposit_token_address(self, mint: Pubkey) -> Pubkey:
+        """Get a global deposit token PDA address."""
+        pda, _ = get_global_deposit_pda(mint, self.program_id)
+        return pda
+
+    def get_user_global_deposit_address(self, user: Pubkey, mint: Pubkey) -> Pubkey:
+        """Get a user global deposit PDA address."""
+        pda, _ = get_user_global_deposit_pda(user, mint, self.program_id)
+        return pda
+
     # =========================================================================
     # Internal Helpers
     # =========================================================================
@@ -471,7 +558,10 @@ class LightconePinocchioClient:
 
         return Transaction.new_unsigned(message)
 
-    async def _get_blockhash(self) -> Hash:
+    async def get_latest_blockhash(self) -> Hash:
         """Get the latest blockhash."""
         response = await self.connection.get_latest_blockhash()
         return response.value.blockhash
+
+    # Backward compat alias
+    _get_blockhash = get_latest_blockhash

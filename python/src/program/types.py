@@ -33,6 +33,7 @@ class Exchange:
     market_count: int
     paused: bool
     bump: int
+    deposit_token_count: int = 0
 
 
 @dataclass
@@ -85,8 +86,8 @@ class Orderbook:
 
 
 @dataclass
-class FullOrder:
-    """Full order structure with all fields including signature (225 bytes).
+class SignedOrder:
+    """Signed order structure with all fields including signature (225 bytes).
 
     Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
     """
@@ -97,24 +98,28 @@ class FullOrder:
     base_mint: Pubkey
     quote_mint: Pubkey
     side: OrderSide
-    maker_amount: int
-    taker_amount: int
+    amount_in: int
+    amount_out: int
     expiration: int
     signature: bytes = field(default_factory=lambda: bytes(64))
+
+
+# Backward compatibility alias
+FullOrder = SignedOrder
 
 
 @dataclass
 class Order:
     """Compact order structure for instruction data (29 bytes, no maker field).
 
-    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] maker_amount(u64) |
-            [13..21] taker_amount(u64) | [21..29] expiration(i64)
+    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] amount_in(u64) |
+            [13..21] amount_out(u64) | [21..29] expiration(i64)
     """
 
     nonce: int
     side: OrderSide
-    maker_amount: int
-    taker_amount: int
+    amount_in: int
+    amount_out: int
     expiration: int
 
 
@@ -133,10 +138,14 @@ class OutcomeMetadata:
 
 @dataclass
 class MakerFill:
-    """Maker order with fill amount for matching."""
+    """Per-maker fill info for deposit_and_swap."""
 
-    order: FullOrder
-    fill_amount: int
+    order: SignedOrder
+    maker_fill_amount: int
+    taker_fill_amount: int
+    is_full_fill: bool = False
+    is_deposit: bool = False
+    deposit_mint: Optional[Pubkey] = None
 
 
 # Parameter types for client methods
@@ -163,10 +172,11 @@ class CreateMarketParams:
 class AddDepositMintParams:
     """Parameters for adding a deposit mint to a market."""
 
-    payer: Pubkey
-    market: Pubkey
+    authority: Pubkey
     deposit_mint: Pubkey
     outcome_metadata: list[OutcomeMetadata]
+    payer: Optional[Pubkey] = None
+    market: Optional[Pubkey] = None
 
 
 @dataclass
@@ -235,8 +245,8 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    taker_order: FullOrder
-    maker_orders: list[FullOrder]
+    taker_order: SignedOrder
+    maker_orders: list[SignedOrder]
     maker_fill_amounts: list[int]
     taker_fill_amounts: list[int]
     full_fill_bitmask: int
@@ -246,7 +256,7 @@ class MatchOrdersMultiParams:
 class CreateOrderbookParams:
     """Parameters for creating an orderbook."""
 
-    payer: Pubkey
+    authority: Pubkey
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
@@ -270,8 +280,8 @@ class BidOrderParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    maker_amount: int  # Quote tokens given
-    taker_amount: int  # Base tokens received
+    amount_in: int  # Quote tokens given
+    amount_out: int  # Base tokens received
     expiration: int
 
 
@@ -284,9 +294,88 @@ class AskOrderParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    maker_amount: int  # Base tokens given
-    taker_amount: int  # Quote tokens received
+    amount_in: int  # Base tokens given
+    amount_out: int  # Quote tokens received
     expiration: int
+
+
+@dataclass
+class GlobalDepositToken:
+    """Global deposit token account data (48 bytes)."""
+
+    mint: Pubkey
+    active: bool
+    bump: int
+    index: int  # u16
+
+
+@dataclass
+class WhitelistDepositTokenParams:
+    """Parameters for whitelisting a deposit token for global deposits."""
+
+    authority: Pubkey
+    mint: Pubkey
+
+
+@dataclass
+class DepositToGlobalParams:
+    """Parameters for depositing tokens to a global deposit account."""
+
+    user: Pubkey
+    mint: Pubkey
+    amount: int
+
+
+@dataclass
+class GlobalToMarketDepositParams:
+    """Parameters for transferring from global deposit to a market vault."""
+
+    user: Pubkey
+    market: Pubkey
+    deposit_mint: Pubkey
+    amount: int
+
+
+@dataclass
+class InitPositionTokensParams:
+    """Parameters for initializing position token accounts and ALT."""
+
+    payer: Pubkey
+    user: Pubkey
+    market: Pubkey
+    deposit_mints: list[Pubkey] = field(default_factory=list)
+    recent_slot: int = 0
+
+
+@dataclass
+class DepositAndSwapParams:
+    """Parameters for deposit-and-swap (atomic deposit + mint + swap)."""
+
+    operator: Pubkey
+    market: Pubkey
+    base_mint: Pubkey
+    quote_mint: Pubkey
+    taker_order: SignedOrder = field(default_factory=lambda: SignedOrder(
+        nonce=0, maker=Pubkey.default(), market=Pubkey.default(),
+        base_mint=Pubkey.default(), quote_mint=Pubkey.default(),
+        side=OrderSide.BID, amount_in=0, amount_out=0, expiration=0,
+    ))
+    taker_is_full_fill: bool = False
+    taker_is_deposit: bool = False
+    taker_deposit_mint: Optional[Pubkey] = None
+    num_outcomes: int = 2
+    makers: list[MakerFill] = field(default_factory=list)
+
+
+@dataclass
+class ExtendPositionTokensParams:
+    """Parameters for extending a position ALT with new deposit mints."""
+
+    payer: Pubkey
+    user: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+    deposit_mints: list[Pubkey] = field(default_factory=list)
 
 
 @dataclass

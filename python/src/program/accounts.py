@@ -5,6 +5,8 @@ from typing import Optional
 from .constants import (
     EXCHANGE_DISCRIMINATOR,
     EXCHANGE_SIZE,
+    GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
+    GLOBAL_DEPOSIT_TOKEN_SIZE,
     MARKET_DISCRIMINATOR,
     MARKET_SIZE,
     NO_WINNING_OUTCOME,
@@ -18,8 +20,8 @@ from .constants import (
     USER_NONCE_SIZE,
 )
 from .errors import InvalidAccountDataError, InvalidDiscriminatorError
-from .types import Exchange, Market, MarketStatus, Orderbook, OrderStatus, Position, UserNonce
-from .utils import decode_bool, decode_pubkey, decode_u64, decode_u8
+from .types import Exchange, GlobalDepositToken, Market, MarketStatus, Orderbook, OrderStatus, Position, UserNonce
+from .utils import decode_bool, decode_pubkey, decode_u16, decode_u64, decode_u8
 
 
 def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:
@@ -41,7 +43,8 @@ def deserialize_exchange(data: bytes) -> Exchange:
     - [72..80]: market_count (u64 LE)
     - [80]: paused (bool)
     - [81]: bump (u8)
-    - [82..88]: padding
+    - [82..84]: deposit_token_count (u16 LE)
+    - [84..88]: padding
     """
     _validate_discriminator(data, EXCHANGE_DISCRIMINATOR, "Exchange")
 
@@ -56,6 +59,7 @@ def deserialize_exchange(data: bytes) -> Exchange:
         market_count=decode_u64(data, 72),
         paused=decode_bool(data, 80),
         bump=decode_u8(data, 81),
+        deposit_token_count=decode_u16(data, 82),
     )
 
 
@@ -191,4 +195,65 @@ def deserialize_orderbook(data: bytes) -> Orderbook:
         mint_b=decode_pubkey(data, 72),
         lookup_table=decode_pubkey(data, 104),
         bump=decode_u8(data, 136),
+    )
+
+
+def is_exchange_account(data: bytes) -> bool:
+    """Check if data has the Exchange discriminator."""
+    return len(data) >= 8 and data[:8] == EXCHANGE_DISCRIMINATOR
+
+
+def is_market_account(data: bytes) -> bool:
+    """Check if data has the Market discriminator."""
+    return len(data) >= 8 and data[:8] == MARKET_DISCRIMINATOR
+
+
+def is_position_account(data: bytes) -> bool:
+    """Check if data has the Position discriminator."""
+    return len(data) >= 8 and data[:8] == POSITION_DISCRIMINATOR
+
+
+def is_order_status_account(data: bytes) -> bool:
+    """Check if data has the OrderStatus discriminator."""
+    return len(data) >= 8 and data[:8] == ORDER_STATUS_DISCRIMINATOR
+
+
+def is_user_nonce_account(data: bytes) -> bool:
+    """Check if data has the UserNonce discriminator."""
+    return len(data) >= 8 and data[:8] == USER_NONCE_DISCRIMINATOR
+
+
+def is_orderbook_account(data: bytes) -> bool:
+    """Check if data has the Orderbook discriminator."""
+    return len(data) >= 8 and data[:8] == ORDERBOOK_DISCRIMINATOR
+
+
+def is_global_deposit_token(data: bytes) -> bool:
+    """Check if data has the GlobalDepositToken discriminator."""
+    return len(data) >= 8 and data[:8] == GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR
+
+
+def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
+    """Deserialize a GlobalDepositToken account.
+
+    Layout (48 bytes):
+    - [0..8]: discriminator
+    - [8..40]: mint (Pubkey)
+    - [40]: active (bool)
+    - [41]: bump (u8)
+    - [42..44]: index (u16 LE)
+    - [44..48]: padding
+    """
+    _validate_discriminator(data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken")
+
+    if len(data) < GLOBAL_DEPOSIT_TOKEN_SIZE:
+        raise InvalidAccountDataError(
+            f"GlobalDepositToken data too short: {len(data)} bytes (expected {GLOBAL_DEPOSIT_TOKEN_SIZE})"
+        )
+
+    return GlobalDepositToken(
+        mint=decode_pubkey(data, 8),
+        active=decode_bool(data, 40),
+        bump=decode_u8(data, 41),
+        index=decode_u16(data, 42),
     )

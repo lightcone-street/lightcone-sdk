@@ -103,7 +103,7 @@ export class Auth {
   async logout(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/logout`;
     try {
-      await this.client.http.post<unknown, Record<string, never>>(url, {}, RetryPolicy.None);
+      await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
     } catch {
       // Backend cookie clear can fail in local/dev setups; still clear local state.
     }
@@ -115,7 +115,7 @@ export class Auth {
 
   async disconnectX(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/disconnect_x`;
-    await this.client.http.post<unknown, Record<string, never>>(url, {}, RetryPolicy.None);
+    await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
   }
 
   async connectX(
@@ -124,7 +124,7 @@ export class Auth {
     xDisplayName?: string
   ): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/connect_x`;
-    await this.client.http.post<unknown, { x_user_id: string; x_username: string; x_display_name?: string }>(
+    await this.client.http.post<{ success: boolean }, { x_user_id: string; x_username: string; x_display_name?: string }>(
       url,
       {
         x_user_id: xUserId,

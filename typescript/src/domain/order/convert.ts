@@ -73,15 +73,15 @@ export function splitSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenOrder
 
   for (const snapshot of orders) {
     if (snapshot.order_type === "limit") {
-      if (!new Decimal(snapshot.common.remaining).isZero()) {
-        openOrders.insert(limitSnapshotToOrder(snapshot.common, snapshot.tx_signature));
+      if (!new Decimal(snapshot.remaining).isZero()) {
+        openOrders.insert(limitSnapshotToOrder(snapshot, snapshot.tx_signature));
       }
       continue;
     }
 
     triggerOrders.insert(
       triggerSnapshotToOrder(
-        snapshot.common,
+        snapshot,
         snapshot.trigger_order_id,
         snapshot.trigger_price,
         snapshot.trigger_type,

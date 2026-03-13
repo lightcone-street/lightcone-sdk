@@ -1,7 +1,8 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { SignedOrder, OrderSide } from "./types";
-import { signOrderFull, signatureHex } from "./orders";
+import { signOrderFull, toSubmitRequest as orderToSubmitRequest } from "./orders";
 import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
+import type { DepositSource, SubmitOrderRequest } from "../shared";
 
 /**
  * Fluent builder for creating orders.
@@ -32,6 +33,7 @@ export class OrderBuilder {
   private _amountIn: bigint = 0n;
   private _amountOut: bigint = 0n;
   private _expiration: bigint = 0n;
+  private _depositSource?: DepositSource;
 
   /** Set the order nonce (u32) */
   nonce(value: number): this {
@@ -106,6 +108,12 @@ export class OrderBuilder {
   /** Set expiration timestamp (0 = no expiration) */
   expiration(value: bigint): this {
     this._expiration = value;
+    return this;
+  }
+
+  /** Set deposit source for order submission */
+  depositSource(value: DepositSource): this {
+    this._depositSource = value;
     return this;
   }
 
@@ -191,32 +199,10 @@ export class OrderBuilder {
   toSubmitRequest(
     keypair: Keypair,
     orderbookId: string
-  ): {
-    maker: string;
-    nonce: number;
-    market_pubkey: string;
-    base_token: string;
-    quote_token: string;
-    side: number;
-    amount_in: string;
-    amount_out: string;
-    expiration: number;
-    signature: string;
-    orderbook_id: string;
-  } {
+  ): SubmitOrderRequest {
     const signed = this.buildAndSign(keypair);
-    return {
-      maker: signed.maker.toBase58(),
-      nonce: signed.nonce,
-      market_pubkey: signed.market.toBase58(),
-      base_token: signed.baseMint.toBase58(),
-      quote_token: signed.quoteMint.toBase58(),
-      side: signed.side,
-      amount_in: signed.amountIn.toString(),
-      amount_out: signed.amountOut.toString(),
-      expiration: Number(signed.expiration),
-      signature: signatureHex(signed),
-      orderbook_id: orderbookId,
-    };
+    return orderToSubmitRequest(signed, orderbookId, {
+      depositSource: this._depositSource,
+    });
   }
 }

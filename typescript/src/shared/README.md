@@ -17,47 +17,47 @@ This module exports:
 Enum for price history candle intervals. Used by both REST API and WebSocket for price history queries.
 
 ```typescript
-import { Resolution } from "@lightcone/sdk";
+import { Resolution } from "@lightconexyz/lightcone-sdk";
 
 // Values
-Resolution.OneMinute      // "1m"
-Resolution.FiveMinutes    // "5m"
-Resolution.FifteenMinutes // "15m"
-Resolution.OneHour        // "1h"
-Resolution.FourHours      // "4h"
-Resolution.OneDay         // "1d"
+Resolution.Minute1      // "1m"
+Resolution.Minute5    // "5m"
+Resolution.Minute15 // "15m"
+Resolution.Hour1        // "1h"
+Resolution.Hour4      // "4h"
+Resolution.Day1         // "1d"
 ```
 
 ### Usage
 
 ```typescript
-import { Resolution } from "@lightcone/sdk";
+import { Resolution } from "@lightconexyz/lightcone-sdk";
 
 // Use in API calls
 const response = await client.getPriceHistory({
   orderbook_id: "orderbook_id",
-  resolution: Resolution.OneHour,
+  resolution: Resolution.Hour1,
 });
 
 // Use in WebSocket subscriptions
-client.subscribePriceHistory("orderbook_id", Resolution.OneHour, true);
+client.subscribePriceHistory("orderbook_id", Resolution.Hour1, true);
 ```
 
 ### Resolution Mapping
 
 | Enum | String | Description |
 |------|--------|-------------|
-| `OneMinute` | "1m" | 1-minute candles |
-| `FiveMinutes` | "5m" | 5-minute candles |
-| `FifteenMinutes` | "15m" | 15-minute candles |
-| `OneHour` | "1h" | 1-hour candles |
-| `FourHours` | "4h" | 4-hour candles |
-| `OneDay` | "1d" | Daily candles |
+| `Minute1` | "1m" | 1-minute candles |
+| `Minute5` | "5m" | 5-minute candles |
+| `Minute15` | "15m" | 15-minute candles |
+| `Hour1` | "1h" | 1-hour candles |
+| `Hour4` | "4h" | 4-hour candles |
+| `Day1` | "1d" | Daily candles |
 
 ## Price Utilities
 
 ```typescript
-import { parseDecimal, formatDecimal, isZero } from "@lightcone/sdk";
+import { parseDecimal, formatDecimal, isZero } from "@lightconexyz/lightcone-sdk";
 
 // Parse decimal string to number
 const price = parseDecimal("0.500000");  // 0.5
@@ -82,7 +82,7 @@ import {
   OrderSide,
   Exchange,
   Market,
-  FullOrder,
+  SignedOrder,
 
   // Constants
   PROGRAM_ID,
@@ -93,7 +93,7 @@ import {
   keccak256,
   deriveConditionId,
   getAssociatedTokenAddress,
-} from "@lightcone/sdk";
+} from "@lightconexyz/lightcone-sdk";
 ```
 
 See the [Program Module README](../program/README.md) for complete documentation.

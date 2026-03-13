@@ -56,6 +56,11 @@ export enum TriggerResultStatus {
   Rejected = "rejected",
 }
 
+export enum DepositSource {
+  Global = "global",
+  Market = "market",
+}
+
 export enum Resolution {
   Minute1 = "1m",
   Minute5 = "5m",
@@ -93,12 +98,15 @@ export interface SubmitOrderRequest {
   base_token: string;
   quote_token: string;
   side: number;
-  amount_in: string;
-  amount_out: string;
-  expiration?: number;
+  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
+  amount_in: number;
+  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
+  amount_out: number;
+  expiration: number;
   signature: string;
   orderbook_id: string;
   tif?: TimeInForce;
   trigger_price?: number;
   trigger_type?: TriggerType;
+  deposit_source?: DepositSource;
 }

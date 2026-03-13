@@ -160,6 +160,9 @@ export class SdkError extends Error {
     if (error instanceof Error) {
       return new SdkError("Other", error.message, error);
     }
+    if (typeof error === "object" && error !== null) {
+      return new SdkError("Other", JSON.stringify(error));
+    }
     return new SdkError("Other", String(error));
   }
 

@@ -29,6 +29,7 @@ import {
   DepositToGlobalParams,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
+  ExtendPositionTokensParams,
   DepositAndSwapParams,
   SignedOrder,
   BidOrderParams,
@@ -76,6 +77,7 @@ import {
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
   buildInitPositionTokensIx,
+  buildExtendPositionTokensIx,
   buildDepositAndSwapIx,
 } from "./instructions";
 import {
@@ -195,11 +197,13 @@ export class LightconePinocchioClient {
   async getOrderbook(
     mintA: PublicKey,
     mintB: PublicKey
-  ): Promise<Orderbook | null> {
+  ): Promise<Orderbook> {
     const [orderbookPda] = pda.getOrderbookPda(mintA, mintB, this.programId);
     const accountInfo = await this.connection.getAccountInfo(orderbookPda);
     if (!accountInfo) {
-      return null;
+      throw new Error(
+        `Orderbook not found for ${mintA.toBase58()} / ${mintB.toBase58()}`
+      );
     }
     return deserializeOrderbook(accountInfo.data as Buffer);
   }
@@ -269,9 +273,9 @@ export class LightconePinocchioClient {
 
   async addDepositMint(
     params: AddDepositMintParams,
+    market: PublicKey,
     numOutcomes: number
   ): Promise<BuildResult<AddDepositMintAccounts>> {
-    const [market] = pda.getMarketPda(params.marketId, this.programId);
     const [vault] = pda.getVaultPda(params.depositMint, market, this.programId);
     const [mintAuthority] = pda.getMintAuthorityPda(market, this.programId);
     const conditionalMints = pda
@@ -286,7 +290,7 @@ export class LightconePinocchioClient {
     const ix = buildAddDepositMintIx(params, market, numOutcomes, this.programId);
 
     return this.createBuildResult(
-      params.payer,
+      params.authority,
       { market, vault, mintAuthority, conditionalMints },
       ix
     );
@@ -514,7 +518,7 @@ export class LightconePinocchioClient {
       this.programId
     );
     const ix = buildCreateOrderbookIx(params, this.programId);
-    return this.createBuildResult(params.payer, { orderbook }, ix);
+    return this.createBuildResult(params.authority, { orderbook }, ix);
   }
 
   async whitelistDepositToken(
@@ -554,19 +558,27 @@ export class LightconePinocchioClient {
     const [position] = pda.getPositionPda(params.user, params.market, this.programId);
     const [lookupTable] = pda.getPositionAltPda(position, params.recentSlot);
     const ix = buildInitPositionTokensIx(params, numOutcomes, this.programId);
-    return this.createBuildResult(params.user, { position, lookupTable }, ix);
+    return this.createBuildResult(params.payer, { position, lookupTable }, ix);
+  }
+
+  async extendPositionTokens(
+    params: ExtendPositionTokensParams,
+    numOutcomes: number
+  ): Promise<BuildResult<{ position: PublicKey; lookupTable: PublicKey }>> {
+    const [position] = pda.getPositionPda(params.user, params.market, this.programId);
+    const ix = buildExtendPositionTokensIx(params, numOutcomes, this.programId);
+    return this.createBuildResult(params.payer, { position, lookupTable: params.lookupTable }, ix);
   }
 
   async depositAndSwap(
-    params: DepositAndSwapParams,
-    numOutcomes: number
+    params: DepositAndSwapParams
   ): Promise<BuildResult<{ takerPosition: PublicKey }>> {
     const [takerPosition] = pda.getPositionPda(
       params.takerOrder.maker,
       params.market,
       this.programId
     );
-    const ix = buildDepositAndSwapIx(params, numOutcomes, this.programId);
+    const ix = buildDepositAndSwapIx(params, this.programId);
     return this.createBuildResult(params.operator, { takerPosition }, ix);
   }
 

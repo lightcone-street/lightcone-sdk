@@ -1,11 +1,32 @@
-"""Shared utilities used across API and WebSocket modules.
+"""Shared utilities used across the Lightcone SDK."""
 
-Program-specific code has been moved to the program module.
-"""
-
-from .types import Resolution
-from .price import parse_decimal, format_decimal
-from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, scale_price_size
+from .types import (
+    OrderBookId,
+    PubkeyStr,
+    Side,
+    TimeInForce,
+    TriggerType,
+    TriggerStatus,
+    TriggerResultStatus,
+    OrderUpdateType,
+    TriggerUpdateType,
+    DepositSource,
+    Resolution,
+    SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
+)
+from .fmt import (
+    abbr_number,
+    display,
+    display_decimal,
+    display_formatted_string,
+    display_with_decimals,
+    from_decimal_value,
+    to_base_units,
+    to_decimal_value,
+)
+from .price import parse_decimal, format_decimal, is_zero
+from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, align_price_to_tick, scale_price_size
 
 
 def derive_orderbook_id(base_token: str, quote_token: str) -> str:
@@ -17,12 +38,39 @@ def derive_orderbook_id(base_token: str, quote_token: str) -> str:
 
 
 __all__ = [
+    # Types
+    "OrderBookId",
+    "PubkeyStr",
+    "Side",
+    "TimeInForce",
+    "TriggerType",
+    "TriggerStatus",
+    "TriggerResultStatus",
+    "OrderUpdateType",
+    "TriggerUpdateType",
+    "DepositSource",
     "Resolution",
+    "SubmitOrderRequest",
+    "SubmitTriggerOrderRequest",
+    # Formatting
+    "abbr_number",
+    "display",
+    "display_decimal",
+    "display_formatted_string",
+    "display_with_decimals",
+    "from_decimal_value",
+    "to_base_units",
+    "to_decimal_value",
+    # Price
     "parse_decimal",
     "format_decimal",
-    "derive_orderbook_id",
+    "is_zero",
+    # Scaling
     "OrderbookDecimals",
     "ScaledAmounts",
     "ScalingError",
+    "align_price_to_tick",
     "scale_price_size",
+    # Utils
+    "derive_orderbook_id",
 ]

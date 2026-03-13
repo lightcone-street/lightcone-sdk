@@ -3,6 +3,10 @@ import type { AdminEnvelope } from "./index";
 import type {
   AllocateCodesRequest,
   AllocateCodesResponse,
+  CreateNotificationRequest,
+  CreateNotificationResponse,
+  DismissNotificationRequest,
+  DismissNotificationResponse,
   RevokeRequest,
   RevokeResponse,
   UnifiedMetadataRequest,
@@ -63,6 +67,28 @@ export class Admin {
   async unrevoke(envelope: AdminEnvelope<UnrevokeRequest>): Promise<UnrevokeResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/referral/unrevoke`;
     return this.client.http.post<UnrevokeResponse, AdminEnvelope<UnrevokeRequest>>(
+      url,
+      envelope,
+      RetryPolicy.None
+    );
+  }
+
+  async createNotification(
+    envelope: AdminEnvelope<CreateNotificationRequest>
+  ): Promise<CreateNotificationResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/notifications`;
+    return this.client.http.post<CreateNotificationResponse, AdminEnvelope<CreateNotificationRequest>>(
+      url,
+      envelope,
+      RetryPolicy.None
+    );
+  }
+
+  async dismissNotification(
+    envelope: AdminEnvelope<DismissNotificationRequest>
+  ): Promise<DismissNotificationResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/notifications/dismiss`;
+    return this.client.http.post<DismissNotificationResponse, AdminEnvelope<DismissNotificationRequest>>(
       url,
       envelope,
       RetryPolicy.None

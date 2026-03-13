@@ -63,14 +63,53 @@ export interface DepositTokenMetadataPayload {
   s3_synced?: boolean;
   s3_synced_at?: string;
   s3_error?: string;
+  binance_symbol?: string;
+  binance_enabled?: boolean;
+}
+
+export interface MarketMetadataResponse extends MarketMetadataPayload {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OutcomeMetadataResponse extends OutcomeMetadataPayload {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ConditionalTokenMetadataResponse extends ConditionalTokenMetadataPayload {
+  id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DepositTokenMetadataResponse {
+  id: number;
+  deposit_asset: string;
+  display_name: string;
+  symbol: string;
+  token_symbol: string | null;
+  binance_symbol: string | null;
+  binance_enabled: boolean;
+  description: string | null;
+  icon_url: string | null;
+  metadata_uri: string | null;
+  decimals: number | null;
+  s3_synced: boolean;
+  s3_synced_at: string | null;
+  s3_error: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface UnifiedMetadataResponse {
   status: string;
-  markets?: unknown[];
-  outcomes?: unknown[];
-  conditional_tokens?: unknown[];
-  deposit_tokens?: unknown[];
+  markets?: MarketMetadataResponse[];
+  outcomes?: OutcomeMetadataResponse[];
+  conditional_tokens?: ConditionalTokenMetadataResponse[];
+  deposit_tokens?: DepositTokenMetadataResponse[];
 }
 
 export type TargetSpec =
@@ -124,4 +163,22 @@ export interface UnrevokeRequest {
 export interface UnrevokeResponse {
   restored_count: number;
   user_ids: string[];
+}
+
+export interface CreateNotificationRequest {
+  title: string;
+  message: string;
+  expires_at?: string;
+}
+
+export interface CreateNotificationResponse {
+  status: string;
+}
+
+export interface DismissNotificationRequest {
+  notification_id: string;
+}
+
+export interface DismissNotificationResponse {
+  status: string;
 }

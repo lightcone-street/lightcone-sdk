@@ -1,12 +1,18 @@
 import { Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 import { scalePriceSize, type OrderbookDecimals } from "../shared/scaling";
-import type { SubmitOrderRequest, TimeInForce, TriggerType } from "../shared";
+import type {
+  DepositSource,
+  SubmitOrderRequest,
+  TimeInForce,
+  TriggerType,
+} from "../shared";
 import { ProgramSdkError } from "./error";
 import {
   signOrder,
   signOrderFull,
   toSubmitRequest,
+  type SubmitRequestOptions,
 } from "./orders";
 import { OrderSide, type SignedOrder } from "./types";
 
@@ -22,6 +28,7 @@ interface OrderFields {
   expiration: bigint;
   priceRaw?: string;
   sizeRaw?: string;
+  depositSource?: DepositSource;
 }
 
 function defaultFields(): OrderFields {
@@ -67,6 +74,7 @@ export interface OrderEnvelope {
   expiration(value: bigint): this;
   price(value: string): this;
   size(value: string): this;
+  depositSource(value: DepositSource): this;
   applyScaling(decimals: OrderbookDecimals): this;
   payload(): Omit<SignedOrder, "signature">;
   sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest;
@@ -145,6 +153,11 @@ class BaseEnvelope {
     return this;
   }
 
+  depositSource(value: DepositSource): this {
+    this.fields.depositSource = value;
+    return this;
+  }
+
   applyScaling(decimals: OrderbookDecimals): this {
     if (!this.fields.priceRaw) throw ProgramSdkError.missingField("price");
     if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("size");
@@ -196,18 +209,27 @@ class BaseEnvelope {
     return this.fields.expiration;
   }
 
-  protected finalizeWithHexSignature(signatureHex: string, orderbookId: string): SubmitOrderRequest {
+  fieldsDepositSource(): DepositSource | undefined {
+    return this.fields.depositSource;
+  }
+
+  protected finalizeWithHexSignature(
+    signatureHex: string,
+    orderbookId: string,
+    options: SubmitRequestOptions = {}
+  ): SubmitOrderRequest {
     const unsigned = toUnsignedOrder(this.fields);
-    return {
-      ...toSubmitRequest(
-        {
-          ...unsigned,
-          signature: Buffer.from(signatureHex, "hex"),
-        },
-        orderbookId
-      ),
-      signature: signatureHex,
-    };
+    return toSubmitRequest(
+      {
+        ...unsigned,
+        signature: Buffer.from(signatureHex, "hex"),
+      },
+      orderbookId,
+      {
+        ...options,
+        depositSource: this.fields.depositSource,
+      }
+    );
   }
 }
 
@@ -218,7 +240,9 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
 
   sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest {
     const signed = signOrderFull(this.payload(), keypair);
-    return toSubmitRequest(signed, orderbookId);
+    return toSubmitRequest(signed, orderbookId, {
+      depositSource: this.fieldsDepositSource(),
+    });
   }
 
   finalize(signatureBase58: string, orderbookId: string): SubmitOrderRequest {
@@ -298,23 +322,22 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
   sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest {
     this.requireTriggerFields();
     const signed = signOrderFull(this.payload(), keypair);
-    return {
-      ...toSubmitRequest(signed, orderbookId),
-      tif: this.timeInForceValue,
-      trigger_price: this.triggerPriceValue,
-      trigger_type: this.triggerTypeValue,
-    };
+    return toSubmitRequest(signed, orderbookId, {
+      timeInForce: this.timeInForceValue,
+      triggerPrice: this.triggerPriceValue,
+      triggerType: this.triggerTypeValue,
+      depositSource: this.fieldsDepositSource(),
+    });
   }
 
   finalize(signatureBase58: string, orderbookId: string): SubmitOrderRequest {
     this.requireTriggerFields();
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return {
-      ...this.finalizeWithHexSignature(signatureHex, orderbookId),
-      tif: this.timeInForceValue,
-      trigger_price: this.triggerPriceValue,
-      trigger_type: this.triggerTypeValue,
-    };
+    return this.finalizeWithHexSignature(signatureHex, orderbookId, {
+      timeInForce: this.timeInForceValue,
+      triggerPrice: this.triggerPriceValue,
+      triggerType: this.triggerTypeValue,
+    });
   }
 
   private requireTriggerFields(): void {

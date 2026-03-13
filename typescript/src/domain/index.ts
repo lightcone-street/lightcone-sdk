@@ -1,5 +1,7 @@
 export * as admin from "./admin";
+export * as depositPrice from "./deposit_price";
 export * as market from "./market";
+export * as notification from "./notification";
 export * as order from "./order";
 export * as orderbook from "./orderbook";
 export * as position from "./position";

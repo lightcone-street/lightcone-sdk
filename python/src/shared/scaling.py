@@ -17,14 +17,30 @@ class OrderbookDecimals:
     base_decimals: int
     quote_decimals: int
     price_decimals: int
+    tick_size: int = 0
 
 
 @dataclass
 class ScaledAmounts:
     """Result of scaling a price and size to raw lamport amounts."""
 
-    maker_amount: int
-    taker_amount: int
+    amount_in: int
+    amount_out: int
+
+
+def align_price_to_tick(price: Decimal, decimals: OrderbookDecimals) -> Decimal:
+    """Snap a price to the nearest valid tick.
+
+    Converts to quote-token lamports, truncates to the nearest tick_size
+    multiple, and converts back. Returns unchanged if tick_size is 0 or 1.
+    """
+    if decimals.tick_size <= 1:
+        return price
+    quote_multiplier = Decimal(10) ** decimals.quote_decimals
+    tick = Decimal(decimals.tick_size)
+    lamports = (price * quote_multiplier).to_integral_value()
+    aligned = (lamports / tick).to_integral_value() * tick
+    return aligned / quote_multiplier
 
 
 def scale_price_size(
@@ -42,7 +58,7 @@ def scale_price_size(
         decimals: Decimal configuration for the orderbook
 
     Returns:
-        ScaledAmounts with maker_amount and taker_amount in raw lamports
+        ScaledAmounts with amount_in and amount_out in raw lamports
 
     Raises:
         ScalingError: If inputs are invalid or result in overflow
@@ -85,13 +101,13 @@ def scale_price_size(
     # ASK: maker gives base, wants quote
     if side == 0:  # BID
         return ScaledAmounts(
-            maker_amount=quote_lamports_int,
-            taker_amount=base_lamports_int,
+            amount_in=quote_lamports_int,
+            amount_out=base_lamports_int,
         )
     elif side == 1:  # ASK
         return ScaledAmounts(
-            maker_amount=base_lamports_int,
-            taker_amount=quote_lamports_int,
+            amount_in=base_lamports_int,
+            amount_out=quote_lamports_int,
         )
     else:
         raise ScalingError(f"Invalid side: {side} (must be 0=BID or 1=ASK)")

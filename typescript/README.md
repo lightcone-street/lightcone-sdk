@@ -1,232 +1,276 @@
-# Lightcone TypeScript SDK
+# Lightcone SDK
 
-TypeScript SDK for the Lightcone protocol on Solana.
+TypeScript SDK for the Lightcone impact market protocol on Solana.
+
+## Table of Contents
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+- [Start Trading](#start-trading)
+     - [Step 1: Find a Market](#step-1-find-a-market)
+     - [Step 2: Deposit Collateral](#step-2-deposit-collateral)
+     - [Step 3: Place an Order](#step-3-place-an-order)
+     - [Step 4: Monitor](#step-4-monitor)
+     - [Step 5: Cancel an Order](#step-5-cancel-an-order)
+     - [Step 6: Exit a Position](#step-6-exit-a-position)
+- [Examples](#examples)
+- [Authentication](#authentication)
+- [Error Handling](#error-handling)
+- [Retry Strategy](#retry-strategy)
 
 ## Installation
 
 ```bash
-npm install @lightcone/sdk
+npm install @lightconexyz/lightcone-sdk
 ```
-
-## Modules
-
-| Module | Description |
-|--------|-------------|
-| [`program`](src/program/README.md) | On-chain Solana program interaction (accounts, transactions, orders, Ed25519 verification) |
-| [`api`](src/api/README.md) | REST API client for market data and order management |
-| [`websocket`](src/websocket/README.md) | Real-time data streaming via WebSocket |
-| [`shared`](src/shared/README.md) | Shared utilities (Resolution, constants, decimal helpers) |
 
 ## Quick Start
 
 ```typescript
-import { LightconePinocchioClient, PROGRAM_ID, api, websocket } from "@lightcone/sdk";
-```
-
-### REST API
-
-Query markets, submit orders, and manage positions via the REST API.
-
-```typescript
-import { api } from "@lightcone/sdk";
-
-const client = new api.LightconeApiClient();
-
-// Get markets
-const markets = await client.getMarkets();
-console.log(`Found ${markets.total} markets`);
-
-// Get orderbook depth
-const orderbook = await client.getOrderbook("orderbook_id", 10);
-console.log(`Best bid: ${orderbook.best_bid}`);
-console.log(`Best ask: ${orderbook.best_ask}`);
-
-// Get user positions
-const positions = await client.getUserPositions("user_pubkey");
-```
-
-### On-Chain Program
-
-Build transactions for on-chain operations: minting positions, matching orders, redeeming winnings.
-
-```typescript
-import { Connection, Keypair } from "@solana/web3.js";
-import { LightconePinocchioClient, BidOrderParams } from "@lightcone/sdk";
-
-const connection = new Connection("https://api.devnet.solana.com");
-const client = new LightconePinocchioClient(connection);
-
-// Fetch account state
-const exchange = await client.getExchange();
-const market = await client.getMarket(0n);
-console.log(`Market status: ${market.status}`);
-
-// Create a signed order
-const keypair = Keypair.generate();
-const nonce = await client.getNextNonce(keypair.publicKey);
-
-const order = client.signFullOrder(
-  client.createBidOrder({
-    nonce,
-    maker: keypair.publicKey,
-    market: client.pda.getMarketPda(0n, client.programId)[0],
-    baseMint: conditionalTokenMint,
-    quoteMint: usdcMint,
-    makerAmount: 1_000_000n, // 1 USDC
-    takerAmount: 500_000n,   // 0.5 outcome tokens
-    expiration: 0n,
-  }),
-  keypair
-);
-```
-
-### WebSocket
-
-Stream real-time orderbook updates, trades, and user events.
-
-```typescript
-import { websocket } from "@lightcone/sdk";
-
-const client = await websocket.LightconeWebSocketClient.connectDefault();
-
-// Subscribe to orderbook updates
-client.subscribeBookUpdates(["market:orderbook"]);
-
-// Register event handler
-client.on((event) => {
-  if (event.type === "BookUpdate") {
-    const book = client.getOrderbook(event.orderbookId);
-    if (book) {
-      console.log(`Best bid: ${book.bestBid()}`);
-      console.log(`Best ask: ${book.bestAsk()}`);
-    }
-  } else if (event.type === "Trade") {
-    console.log(`Trade: ${event.trade.size} @ ${event.trade.price}`);
-  } else if (event.type === "Disconnected") {
-    console.log(`Disconnected: ${event.reason}`);
-  }
-});
-```
-
-## Module Overview
-
-### Program Module
-
-Direct interaction with the Lightcone Solana program:
-
-- **Account Types**: Exchange, Market, Position, OrderStatus, UserNonce
-- **Transaction Builders**: All 14 instructions (mint, merge, match, settle, etc.)
-- **PDA Derivation**: 8 PDA functions with seeds
-- **Order Types**: FullOrder (225 bytes), CompactOrder (65 bytes)
-- **Ed25519 Verification**: Three strategies (individual, batch, cross-reference)
-
-```typescript
+import { Keypair, PublicKey } from "@solana/web3.js";
 import {
-  LightconePinocchioClient,
-  createBidOrder,
-  signOrderFull,
-  hashOrder,
-} from "@lightcone/sdk";
+  LightconeClient,
+  LimitOrderEnvelope,
+  auth,
+  program,
+} from "@lightconexyz/lightcone-sdk";
 
-// Create and sign an order
-const order = signOrderFull(
-  createBidOrder({
-    nonce: 1n,
-    maker: pubkey,
-    market: marketPda,
-    baseMint: yesToken,
-    quoteMint: noToken,
-    makerAmount: 100_000n,
-    takerAmount: 50_000n,
-    expiration: 0n,
-  }),
-  keypair
-);
-const orderHash = hashOrder(order);
+async function main() {
+  const client = LightconeClient.builder().build();
+  const rpc = program.LightconePinocchioClient.new("https://api.devnet.solana.com");
+  const keypair = Keypair.generate();
+
+  // 1. Authenticate
+  const nonce = await client.auth().getNonce();
+  const signed = auth.signLoginMessage(keypair, nonce);
+  const user = await client.auth().loginWithMessage(
+    signed.message,
+    signed.signature_bs58,
+    signed.pubkey_bytes
+  );
+
+  // 2. Find a market
+  const market = await client.markets().getBySlug("some-market");
+  const orderbook = market.orderbookPairs[0];
+
+  // 3. Get orderbook decimals for price scaling
+  const raw = await client.orderbooks().decimals(orderbook.orderbookId);
+  const decimals = {
+    baseDecimals: raw.base_decimals,
+    quoteDecimals: raw.quote_decimals,
+    priceDecimals: raw.price_decimals,
+    tickSize: Math.max(orderbook.tickSize, 0),
+  };
+
+  // 4. Build, sign, and submit a limit order
+  const nonceTx = await rpc.getCurrentNonce(keypair.publicKey);
+  const request = LimitOrderEnvelope.new()
+    .maker(keypair.publicKey)
+    .market(new PublicKey(market.pubkey))
+    .baseMint(new PublicKey(orderbook.base.pubkey))
+    .quoteMint(new PublicKey(orderbook.quote.pubkey))
+    .bid()
+    .price("0.55")
+    .size("100")
+    .nonce(nonceTx)
+    .applyScaling(decimals)
+    .sign(keypair, orderbook.orderbookId);
+
+  const response = await client.orders().submit(request);
+  console.log("Order submitted:", response);
+
+  // 5. Stream real-time updates
+  const ws = client.ws();
+  await ws.connect();
+  ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId] });
+}
+
+main().catch(console.error);
 ```
 
-### API Module
-
-REST API client with typed requests and responses:
-
-- **Markets**: getMarkets, getMarket, getMarketBySlug
-- **Orderbooks**: getOrderbook with depth parameter
-- **Orders**: submitOrder, cancelOrder, cancelAllOrders
-- **Positions**: getUserPositions, getUserMarketPositions
-- **Trades**: getTrades with filters
-- **Price History**: getPriceHistory with OHLCV
+## Start Trading
 
 ```typescript
-import { api } from "@lightcone/sdk";
+import * as fs from "fs";
+import { Keypair, PublicKey } from "@solana/web3.js";
+import { LightconeClient, program } from "@lightconexyz/lightcone-sdk";
 
-const client = new api.LightconeApiClient();
-const response = await client.submitOrder({
-  maker: "pubkey",
-  nonce: 1,
-  market_pubkey: "market",
-  base_token: "base",
-  quote_token: "quote",
-  side: 0, // BID
-  maker_amount: 1000000,
-  taker_amount: 500000,
-  expiration: 0,
-  signature: "hex_signature",
-  orderbook_id: "orderbook",
+const client = LightconeClient.builder().build();
+const rpc = program.LightconePinocchioClient.new("https://api.devnet.solana.com");
+const secret = JSON.parse(fs.readFileSync("~/.config/solana/id.json", "utf-8"));
+const keypair = Keypair.fromSecretKey(Uint8Array.from(secret));
+```
+
+### Step 1: Find a Market
+
+```typescript
+const market = await client.markets().getBySlug("some-market");
+const orderbook =
+  market.orderbookPairs.find((p) => p.active) ?? market.orderbookPairs[0];
+```
+
+### Step 2: Deposit Collateral
+
+```typescript
+const marketPubkey = new PublicKey(market.pubkey);
+const depositMint = new PublicKey(market.depositAssets[0].pubkey);
+const numOutcomes = market.outcomes.length;
+const mintResult = await rpc.mintCompleteSet(
+  {
+    user: keypair.publicKey,
+    market: marketPubkey,
+    depositMint,
+    amount: 1_000_000n,
+  },
+  numOutcomes
+);
+mintResult.transaction.sign(keypair);
+```
+
+### Step 3: Place an Order
+
+```typescript
+import { LimitOrderEnvelope } from "@lightconexyz/lightcone-sdk";
+
+const raw = await client.orderbooks().decimals(orderbook.orderbookId);
+const decimals = {
+  baseDecimals: raw.base_decimals,
+  quoteDecimals: raw.quote_decimals,
+  priceDecimals: raw.price_decimals,
+  tickSize: Math.max(orderbook.tickSize, 0),
+};
+const request = LimitOrderEnvelope.new()
+  .maker(keypair.publicKey)
+  .market(new PublicKey(market.pubkey))
+  .baseMint(new PublicKey(orderbook.base.pubkey))
+  .quoteMint(new PublicKey(orderbook.quote.pubkey))
+  .bid()
+  .price("0.55")
+  .size("1")
+  .nonce(await rpc.getCurrentNonce(keypair.publicKey))
+  .applyScaling(decimals)
+  .sign(keypair, orderbook.orderbookId);
+const order = await client.orders().submit(request);
+```
+
+### Step 4: Monitor
+
+```typescript
+import { asPubkeyStr } from "@lightconexyz/lightcone-sdk";
+
+const open = await client
+  .orders()
+  .getUserOrders(keypair.publicKey.toBase58(), 50);
+const ws = client.ws();
+await ws.connect();
+ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId] });
+ws.subscribe({
+  type: "user",
+  wallet_address: asPubkeyStr(keypair.publicKey.toBase58()),
 });
 ```
 
-### WebSocket Module
-
-Real-time streaming with automatic state management:
-
-- **Subscriptions**: book_updates, trades, user, price_history, market
-- **State Management**: LocalOrderbook, UserState, PriceHistory
-- **Authentication**: Ed25519 sign-in for user streams
-- **Auto-Reconnect**: Configurable reconnection with exponential backoff and jitter
+### Step 5: Cancel an Order
 
 ```typescript
-import { websocket } from "@lightcone/sdk";
-import { Keypair } from "@solana/web3.js";
+import { program, asPubkeyStr } from "@lightconexyz/lightcone-sdk";
 
-// Authenticated connection for user streams
-const keypair = Keypair.generate();
-const client = await websocket.LightconeWebSocketClient.connectAuthenticated(keypair);
-client.subscribeUser(keypair.publicKey.toBase58());
-
-// Access maintained state
-const state = client.getUserState(keypair.publicKey.toBase58());
-if (state) {
-  console.log(`Open orders: ${state.orderCount()}`);
-}
+const signature = program.signCancelOrder(order.order_hash, keypair);
+await client.orders().cancel({
+  order_hash: order.order_hash,
+  maker: asPubkeyStr(keypair.publicKey.toBase58()),
+  signature,
+});
 ```
 
-### Shared Module
-
-Common utilities used across modules:
-
-- **Resolution**: Candle intervals (1m, 5m, 15m, 1h, 4h, 1d)
-- **Constants**: Program IDs, seeds, discriminators, sizes
-- **Types**: MarketStatus, OrderSide, account data interfaces
+### Step 6: Exit a Position
 
 ```typescript
-import { Resolution, PROGRAM_ID } from "@lightcone/sdk";
-
-const res = Resolution.OneHour; // "1h"
-console.log(res); // "1h"
+const mergeResult = await rpc.mergeCompleteSet(
+  {
+    user: keypair.publicKey,
+    market: new PublicKey(market.pubkey),
+    depositMint,
+    amount: 1_000_000n,
+  },
+  numOutcomes
+);
+mergeResult.transaction.sign(keypair);
 ```
 
-## Features
+## Authentication
+Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
-- **Full TypeScript support**: Comprehensive types for all APIs
-- **Zero-copy serialization**: Efficient binary order formats
-- **Cross-instruction Ed25519**: Optimized transaction sizes
-- **Automatic reconnection**: Jittered exponential backoff
-- **State management**: Local orderbook and user state tracking
+## Examples
+All examples are runnable with `npx tsx examples/<name>.ts`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
 
-## Program ID
+### Setup & Authentication
 
-**Mainnet/Devnet**: `EfRvELrn4b5aJRwddD1VUrqzsfm1pewBLPebq3iMPDp2`
+| Example | Description |
+|---------|-------------|
+| [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
 
-## License
+### Market Discovery & Data
 
-MIT
+| Example | Description |
+|---------|-------------|
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
+| [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination |
+| [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
+| [`positions`](examples/positions.ts) | User positions across all markets and per-market |
+
+### Placing Orders
+
+| Example | Description |
+|---------|-------------|
+| [`submit_order`](examples/submit_order.ts) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
+
+### Cancelling Orders
+
+| Example | Description |
+|---------|-------------|
+| [`cancel_order`](examples/cancel_order.ts) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`user_orders`](examples/user_orders.ts) | Fetch open orders for an authenticated user |
+
+### On-Chain Operations
+
+| Example | Description |
+|---------|-------------|
+| [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
+| [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+
+### WebSocket Streaming
+
+| Example | Description |
+|---------|-------------|
+| [`ws_book_and_trades`](examples/ws_book_and_trades.ts) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.ts) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
+| [`ws_user_and_market`](examples/ws_user_and_market.ts) | Authenticated user stream (orders, balances) + market lifecycle events |
+
+## Error Handling
+
+All SDK operations return promises that reject with `SdkError`:
+
+| Variant | When |
+|---------|------|
+| `SdkError.Http(HttpError)` | REST request failures |
+| `SdkError.Ws(WsError)` | WebSocket connection/protocol errors |
+| `SdkError.Auth(AuthError)` | Authentication failures |
+| `SdkError.Validation(string)` | Domain type conversion failures |
+| `SdkError.Serde(Error)` | Serialization errors |
+| `SdkError.Other(string)` | Catch-all |
+
+Notable `HttpError` variants:
+
+| Variant | Meaning |
+|---------|---------|
+| `ServerError { status, body }` | Non-2xx response from the backend |
+| `RateLimited { retryAfterMs }` | 429 - back off and retry |
+| `Unauthorized` | 401 - session expired or missing |
+| `MaxRetriesExceeded { attempts, lastError }` | All retry attempts exhausted |
+
+## Retry Strategy
+
+- **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
+- **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- Customizable per-call with `RetryPolicy.custom(config)`.

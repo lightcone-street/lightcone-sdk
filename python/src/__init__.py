@@ -1,57 +1,238 @@
-"""Lightcone SDK - Python SDK for the Lightcone protocol on Solana.
+"""Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-This SDK provides three main modules:
-- `program`: On-chain program interaction (smart contract)
-- `api`: REST API client
-- `websocket`: Real-time data streaming
-
-Example:
-    from lightcone_sdk import LightconePinocchioClient, PROGRAM_ID
-
-    # Or import from specific modules
-    from lightcone_sdk.program import LightconePinocchioClient
-    from lightcone_sdk.program import PROGRAM_ID
-
-    # API client
-    from lightcone_sdk.api import LightconeApiClient
-
-    # WebSocket client
-    from lightcone_sdk.websocket import LightconeWebSocketClient
-"""
-
-__version__ = "0.2.0"
+__version__ = "0.3.21"
 
 # ============================================================================
-# MODULE IMPORTS
+# Layer 1: Core
 # ============================================================================
 
-# Import submodules for namespace access
-from . import api
-from . import network
-from . import program
-from . import shared
-from . import websocket
-from . import auth
+from .shared import (
+    # Types
+    OrderBookId,
+    PubkeyStr,
+    Side,
+    TimeInForce,
+    TriggerType,
+    TriggerStatus,
+    TriggerResultStatus,
+    OrderUpdateType,
+    TriggerUpdateType,
+    DepositSource,
+    Resolution,
+    SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
+    abbr_number,
+    display,
+    display_decimal,
+    display_formatted_string,
+    display_with_decimals,
+    # Price
+    parse_decimal,
+    format_decimal,
+    is_zero,
+    from_decimal_value,
+    # Scaling
+    OrderbookDecimals,
+    ScaledAmounts,
+    ScalingError,
+    scale_price_size,
+    # Utils
+    derive_orderbook_id,
+    to_base_units,
+    to_decimal_value,
+)
 
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM NETWORK MODULE
-# ============================================================================
+from .error import (
+    SdkError,
+    DeserializationError,
+    HttpError,
+    HttpErrorKind,
+    WsError,
+    WsErrorKind,
+    AuthError,
+    AuthErrorKind,
+)
 
 from .network import DEFAULT_API_URL, DEFAULT_WS_URL
 
 # ============================================================================
-# CONVENIENCE RE-EXPORTS FROM PROGRAM MODULE
+# Layer 2: Auth + Privy
+# ============================================================================
+
+from .auth import (
+    User,
+    AuthCredentials,
+    LinkedAccount,
+    EmbeddedWallet,
+    LinkedAccountType,
+    ChainType,
+    LoginRequest,
+    LoginResponse,
+    MeResponse,
+    NonceResponse,
+    generate_signin_message,
+)
+
+from .auth.client import Auth, sign_login_message
+
+from .privy import (
+    PrivyOrderEnvelope,
+    SignAndSendTxRequest,
+    SignAndSendTxResponse,
+    SignAndSendOrderRequest,
+    SignAndCancelOrderRequest,
+    SignAndCancelAllRequest,
+    ExportWalletRequest,
+    ExportWalletResponse,
+    privy_order_from_limit_envelope,
+    privy_order_from_trigger_envelope,
+)
+
+from .privy.client import Privy
+
+# ============================================================================
+# Layer 3: HTTP
+# ============================================================================
+
+from .http import (
+    LightconeHttp,
+    RetryPolicy,
+    RetryConfig,
+    DEFAULT_RETRY_CONFIG,
+    delay_for_attempt,
+)
+
+# ============================================================================
+# Layer 4: WebSocket
+# ============================================================================
+
+from .ws import (
+    WsConfig,
+    WS_DEFAULT_CONFIG,
+    WsEvent,
+    WsEventType,
+    MessageIn,
+    MessageInType,
+    ReadyState,
+    WsErrorData,
+    ping,
+    subscribe_books,
+    unsubscribe_books,
+    subscribe_trades,
+    unsubscribe_trades,
+    subscribe_user,
+    unsubscribe_user,
+    subscribe_price_history,
+    unsubscribe_price_history,
+    subscribe_ticker,
+    unsubscribe_ticker,
+    subscribe_market,
+    unsubscribe_market,
+    parse_message_in,
+)
+
+from .ws.client import WsClient
+
+# ============================================================================
+# Layer 5: Client
+# ============================================================================
+
+from .client import LightconeClient, LightconeClientBuilder
+
+# ============================================================================
+# Program layer (on-chain interaction)
 # ============================================================================
 
 from .program import (
+    # Client
     LightconePinocchioClient,
+    # Types - Enums
+    MarketStatus,
+    OrderSide,
+    # Types - Account Data
+    Exchange,
+    Market,
+    Position,
+    OrderStatus,
+    UserNonce,
+    Orderbook,
+    GlobalDepositToken,
+    # Types - Orders
+    SignedOrder,
+    FullOrder,
+    Order,
+    CompactOrder,
+    OutcomeMetadata,
+    MakerFill,
+    # Types - Params
+    InitializeParams,
+    CreateMarketParams,
+    AddDepositMintParams,
+    MintCompleteSetParams,
+    MergeCompleteSetParams,
+    SettleMarketParams,
+    RedeemWinningsParams,
+    WithdrawFromPositionParams,
+    ActivateMarketParams,
+    MatchOrdersMultiParams,
+    CreateOrderbookParams,
+    SetAuthorityParams,
+    BidOrderParams,
+    AskOrderParams,
+    BuildResult,
+    WhitelistDepositTokenParams,
+    DepositToGlobalParams,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
+    DepositAndSwapParams,
+    ExtendPositionTokensParams,
+    # Constants
+    PROGRAM_ID,
+    ALT_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    SYSTEM_PROGRAM_ID,
+    RENT_SYSVAR_ID,
+    INSTRUCTIONS_SYSVAR_ID,
+    SIGNED_ORDER_SIZE,
+    ORDER_SIZE,
+    ORDERBOOK_SIZE,
+    MAX_OUTCOMES,
+    MIN_OUTCOMES,
+    MAX_MAKERS,
+    SEED_GLOBAL_DEPOSIT,
+    GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
+    GLOBAL_DEPOSIT_TOKEN_SIZE,
+    # Errors
+    LightconeError,
+    InvalidDiscriminatorError,
+    AccountNotFoundError,
+    InvalidAccountDataError,
+    InvalidOrderError,
+    InvalidSignatureError,
+    OrderExpiredError,
+    InsufficientBalanceError,
+    MarketNotActiveError,
+    ExchangePausedError,
+    InvalidOutcomeError,
+    TooManyMakersError,
+    OrdersDoNotCrossError,
+    # Utils
+    keccak256,
+    derive_condition_id,
+    get_associated_token_address,
+    get_associated_token_address_2022,
+    orders_cross,
     # Account Deserialization
     deserialize_exchange,
     deserialize_market,
+    deserialize_position,
     deserialize_order_status,
     deserialize_orderbook,
-    deserialize_position,
     deserialize_user_nonce,
+    deserialize_global_deposit_token,
+    is_global_deposit_token,
     # PDA Functions
     get_exchange_pda,
     get_market_pda,
@@ -64,6 +245,9 @@ from .program import (
     get_orderbook_pda,
     get_alt_pda,
     get_all_conditional_mints,
+    get_global_deposit_pda,
+    get_position_alt_pda,
+    get_user_global_deposit_pda,
     # Order Functions
     create_bid_order,
     create_ask_order,
@@ -86,6 +270,12 @@ from .program import (
     signature_hex,
     validate_order,
     validate_signed_order,
+    calculate_taker_fill,
+    cancel_all_message,
+    cancel_order_message,
+    cancel_trigger_order_message,
+    sign_cancel_all,
+    sign_cancel_order,
     # Instruction Builders
     build_initialize_instruction,
     build_create_market_instruction,
@@ -103,146 +293,154 @@ from .program import (
     build_match_orders_multi_instruction,
     build_create_orderbook_instruction,
     build_set_authority_instruction,
-    # Constants
-    PROGRAM_ID,
-    ALT_PROGRAM_ID,
-    TOKEN_PROGRAM_ID,
-    TOKEN_2022_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    SYSTEM_PROGRAM_ID,
-    RENT_SYSVAR_ID,
-    INSTRUCTIONS_SYSVAR_ID,
-    MAX_OUTCOMES,
-    MIN_OUTCOMES,
-    MAX_MAKERS,
-    SIGNED_ORDER_SIZE,
-    ORDER_SIZE,
-    ORDERBOOK_SIZE,
-    # Types - Enums
-    MarketStatus,
-    OrderSide,
-    # Types - Account Data
-    Exchange,
-    Market,
-    Position,
-    OrderStatus,
-    UserNonce,
-    Orderbook,
-    # Types - Orders
-    FullOrder,
-    Order,
-    CompactOrder,
-    OutcomeMetadata,
-    MakerFill,
-    # Types - Params
-    InitializeParams,
-    CreateMarketParams,
-    AddDepositMintParams,
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
-    SettleMarketParams,
-    RedeemWinningsParams,
-    WithdrawFromPositionParams,
-    ActivateMarketParams,
-    MatchOrdersMultiParams,
-    CreateOrderbookParams,
-    SetAuthorityParams,
-    BidOrderParams,
-    AskOrderParams,
-    BuildResult,
-    # Errors
-    LightconeError,
-    InvalidDiscriminatorError,
-    AccountNotFoundError,
-    InvalidAccountDataError,
-    InvalidOrderError,
-    InvalidSignatureError,
-    OrderExpiredError,
-    InsufficientBalanceError,
-    MarketNotActiveError,
-    ExchangePausedError,
-    InvalidOutcomeError,
-    TooManyMakersError,
-    OrdersDoNotCrossError,
-    # Utils
-    keccak256,
-    derive_condition_id,
-    get_associated_token_address,
-    get_associated_token_address_2022,
-    orders_cross,
+    build_whitelist_deposit_token_instruction,
+    build_deposit_to_global_instruction,
+    build_global_to_market_deposit_instruction,
+    build_init_position_tokens_instruction,
+    build_deposit_and_swap_instruction,
+    build_extend_position_tokens_instruction,
+    # Envelope & Builder
+    LimitOrderEnvelope,
+    TriggerOrderEnvelope,
+    OrderBuilder,
 )
 
 # ============================================================================
-# CONVENIENCE RE-EXPORTS FROM API MODULE
+# Submodule access
 # ============================================================================
 
-from .api import LightconeApiClient
+from . import shared
+from . import program
+from . import domain
+from . import auth
+from . import privy
+from . import http
+from . import ws
+from . import error
+from . import network
 
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM WEBSOCKET MODULE
-# ============================================================================
-
-from .websocket import LightconeWebSocketClient
-
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM SHARED MODULE
-# ============================================================================
-
-from .shared import (
-    derive_orderbook_id,
-    OrderbookDecimals,
-    ScaledAmounts,
-    ScalingError,
-    scale_price_size,
-)
-
-# ============================================================================
-# CONVENIENCE RE-EXPORTS FROM AUTH MODULE
-# ============================================================================
-
-from .auth import (
-    AuthCredentials,
-    AuthError,
-    authenticate,
-    generate_signin_message,
-    generate_signin_message_with_timestamp,
-    sign_message,
-)
 
 __all__ = [
     # Version
     "__version__",
-    # Modules
-    "program",
-    "shared",
-    "api",
-    "network",
-    "websocket",
-    "auth",
-    # Network constants
+    # Client
+    "LightconeClient",
+    "LightconeClientBuilder",
+    # Shared types
+    "OrderBookId",
+    "PubkeyStr",
+    "Side",
+    "TimeInForce",
+    "TriggerType",
+    "TriggerStatus",
+    "TriggerResultStatus",
+    "OrderUpdateType",
+    "TriggerUpdateType",
+    "DepositSource",
+    "Resolution",
+    "SubmitOrderRequest",
+    "SubmitTriggerOrderRequest",
+    # Shared utils
+    "abbr_number",
+    "display",
+    "display_decimal",
+    "display_formatted_string",
+    "display_with_decimals",
+    "parse_decimal",
+    "format_decimal",
+    "is_zero",
+    "from_decimal_value",
+    "OrderbookDecimals",
+    "ScaledAmounts",
+    "ScalingError",
+    "scale_price_size",
+    "derive_orderbook_id",
+    "to_base_units",
+    "to_decimal_value",
+    # Errors
+    "SdkError",
+    "HttpError",
+    "HttpErrorKind",
+    "WsError",
+    "WsErrorKind",
+    "AuthError",
+    "AuthErrorKind",
+    # Network
     "DEFAULT_API_URL",
     "DEFAULT_WS_URL",
-    # Clients
+    # Auth
+    "User",
+    "AuthCredentials",
+    "LinkedAccount",
+    "EmbeddedWallet",
+    "LoginRequest",
+    "LoginResponse",
+    "MeResponse",
+    "NonceResponse",
+    "generate_signin_message",
+    "Auth",
+    "sign_login_message",
+    # Privy
+    "PrivyOrderEnvelope",
+    "SignAndSendTxRequest",
+    "SignAndSendTxResponse",
+    "SignAndSendOrderRequest",
+    "SignAndCancelOrderRequest",
+    "SignAndCancelAllRequest",
+    "ExportWalletRequest",
+    "ExportWalletResponse",
+    "Privy",
+    "privy_order_from_limit_envelope",
+    "privy_order_from_trigger_envelope",
+    # HTTP
+    "LightconeHttp",
+    "RetryPolicy",
+    "RetryConfig",
+    "DEFAULT_RETRY_CONFIG",
+    "delay_for_attempt",
+    # WebSocket
+    "WsConfig",
+    "WS_DEFAULT_CONFIG",
+    "WsEvent",
+    "WsEventType",
+    "MessageIn",
+    "MessageInType",
+    "ReadyState",
+    "WsErrorData",
+    "WsClient",
+    "ping",
+    "subscribe_books",
+    "unsubscribe_books",
+    "subscribe_trades",
+    "unsubscribe_trades",
+    "subscribe_user",
+    "unsubscribe_user",
+    "subscribe_price_history",
+    "unsubscribe_price_history",
+    "subscribe_ticker",
+    "unsubscribe_ticker",
+    "subscribe_market",
+    "unsubscribe_market",
+    "parse_message_in",
+    # Program - Client
     "LightconePinocchioClient",
-    "LightconeApiClient",
-    "LightconeWebSocketClient",
-    # Types - Enums
+    # Program - Types
     "MarketStatus",
     "OrderSide",
-    # Types - Account Data
     "Exchange",
     "Market",
     "Position",
     "OrderStatus",
     "UserNonce",
     "Orderbook",
-    # Types - Orders
+    "GlobalDepositToken",
+    "SignedOrder",
     "FullOrder",
     "Order",
     "CompactOrder",
     "OutcomeMetadata",
     "MakerFill",
-    # Types - Params
+    # Program - Params
     "InitializeParams",
     "CreateMarketParams",
     "AddDepositMintParams",
@@ -258,7 +456,31 @@ __all__ = [
     "BidOrderParams",
     "AskOrderParams",
     "BuildResult",
-    # Errors
+    "WhitelistDepositTokenParams",
+    "DepositToGlobalParams",
+    "GlobalToMarketDepositParams",
+    "InitPositionTokensParams",
+    "DepositAndSwapParams",
+    "ExtendPositionTokensParams",
+    # Program - Constants
+    "PROGRAM_ID",
+    "ALT_PROGRAM_ID",
+    "TOKEN_PROGRAM_ID",
+    "TOKEN_2022_PROGRAM_ID",
+    "ASSOCIATED_TOKEN_PROGRAM_ID",
+    "SYSTEM_PROGRAM_ID",
+    "RENT_SYSVAR_ID",
+    "INSTRUCTIONS_SYSVAR_ID",
+    "SIGNED_ORDER_SIZE",
+    "ORDER_SIZE",
+    "ORDERBOOK_SIZE",
+    "MAX_OUTCOMES",
+    "MIN_OUTCOMES",
+    "MAX_MAKERS",
+    "SEED_GLOBAL_DEPOSIT",
+    "GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR",
+    "GLOBAL_DEPOSIT_TOKEN_SIZE",
+    # Program - Errors
     "LightconeError",
     "InvalidDiscriminatorError",
     "AccountNotFoundError",
@@ -272,22 +494,22 @@ __all__ = [
     "InvalidOutcomeError",
     "TooManyMakersError",
     "OrdersDoNotCrossError",
-    # Constants
-    "PROGRAM_ID",
-    "ALT_PROGRAM_ID",
-    "TOKEN_PROGRAM_ID",
-    "TOKEN_2022_PROGRAM_ID",
-    "ASSOCIATED_TOKEN_PROGRAM_ID",
-    "SYSTEM_PROGRAM_ID",
-    "RENT_SYSVAR_ID",
-    "INSTRUCTIONS_SYSVAR_ID",
-    "MAX_OUTCOMES",
-    "MIN_OUTCOMES",
-    "MAX_MAKERS",
-    "SIGNED_ORDER_SIZE",
-    "ORDER_SIZE",
-    "ORDERBOOK_SIZE",
-    # PDA Functions
+    # Program - Utils
+    "keccak256",
+    "derive_condition_id",
+    "get_associated_token_address",
+    "get_associated_token_address_2022",
+    "orders_cross",
+    # Program - Accounts
+    "deserialize_exchange",
+    "deserialize_market",
+    "deserialize_position",
+    "deserialize_order_status",
+    "deserialize_orderbook",
+    "deserialize_user_nonce",
+    "deserialize_global_deposit_token",
+    "is_global_deposit_token",
+    # Program - PDAs
     "get_exchange_pda",
     "get_market_pda",
     "get_vault_pda",
@@ -299,14 +521,10 @@ __all__ = [
     "get_orderbook_pda",
     "get_alt_pda",
     "get_all_conditional_mints",
-    # Account Deserialization
-    "deserialize_exchange",
-    "deserialize_market",
-    "deserialize_position",
-    "deserialize_order_status",
-    "deserialize_orderbook",
-    "deserialize_user_nonce",
-    # Order Functions
+    "get_global_deposit_pda",
+    "get_position_alt_pda",
+    "get_user_global_deposit_pda",
+    # Program - Orders
     "create_bid_order",
     "create_ask_order",
     "create_signed_bid_order",
@@ -328,7 +546,13 @@ __all__ = [
     "signature_hex",
     "validate_order",
     "validate_signed_order",
-    # Instruction Builders
+    "calculate_taker_fill",
+    "cancel_all_message",
+    "cancel_order_message",
+    "cancel_trigger_order_message",
+    "sign_cancel_all",
+    "sign_cancel_order",
+    # Program - Instructions (all 23)
     "build_initialize_instruction",
     "build_create_market_instruction",
     "build_add_deposit_mint_instruction",
@@ -345,23 +569,24 @@ __all__ = [
     "build_match_orders_multi_instruction",
     "build_create_orderbook_instruction",
     "build_set_authority_instruction",
-    # Utility Functions
-    "keccak256",
-    "derive_condition_id",
-    "get_associated_token_address",
-    "get_associated_token_address_2022",
-    "orders_cross",
-    # Shared
-    "derive_orderbook_id",
-    "OrderbookDecimals",
-    "ScaledAmounts",
-    "ScalingError",
-    "scale_price_size",
-    # Auth
-    "AuthCredentials",
-    "AuthError",
-    "authenticate",
-    "generate_signin_message",
-    "generate_signin_message_with_timestamp",
-    "sign_message",
+    "build_whitelist_deposit_token_instruction",
+    "build_deposit_to_global_instruction",
+    "build_global_to_market_deposit_instruction",
+    "build_init_position_tokens_instruction",
+    "build_deposit_and_swap_instruction",
+    "build_extend_position_tokens_instruction",
+    # Program - Envelope & Builder
+    "LimitOrderEnvelope",
+    "TriggerOrderEnvelope",
+    "OrderBuilder",
+    # Submodules
+    "shared",
+    "program",
+    "domain",
+    "auth",
+    "privy",
+    "http",
+    "ws",
+    "error",
+    "network",
 ]

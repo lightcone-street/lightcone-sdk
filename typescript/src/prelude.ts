@@ -1,6 +1,7 @@
 export {
   asOrderBookId,
   asPubkeyStr,
+  DepositSource,
   deriveOrderbookId,
   OrderUpdateType,
   Resolution,
@@ -31,6 +32,8 @@ export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
 export { Trades } from "./domain/trade";
 export { PriceHistoryClient } from "./domain/price_history";
+export { DepositPriceClient } from "./domain/deposit_price";
+export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
 
 export type {
@@ -101,6 +104,17 @@ export type {
 export { PriceHistoryState } from "./domain/price_history";
 
 export type {
+  DepositTokenCandle,
+  DepositPrice,
+  DepositPriceSnapshot,
+  DepositPriceTick,
+  DepositPriceCandleUpdate,
+  DepositTokenPriceHistoryResponse,
+  DepositPriceKey,
+} from "./domain/deposit_price";
+export { DepositPriceState } from "./domain/deposit_price";
+
+export type {
   AuthCredentials,
   ChainType,
   EmbeddedWallet,
@@ -124,6 +138,14 @@ export type {
   SignAndSendTxRequest,
   SignAndSendTxResponse,
 } from "./privy";
+
+export type {
+  Notification,
+  NotificationKind,
+  MarketResolvedData,
+  OrderFilledData,
+  MarketData,
+} from "./domain/notification";
 
 export type {
   RedeemResult,
@@ -156,4 +178,6 @@ export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;
 export type TradesClient = import("./domain/trade").Trades;
 export type PriceHistorySubClient = import("./domain/price_history").PriceHistoryClient;
+export type DepositPriceSubClient = import("./domain/deposit_price").DepositPriceClient;
+export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;

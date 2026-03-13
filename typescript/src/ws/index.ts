@@ -1,3 +1,4 @@
+import type { DepositPrice } from "../domain/deposit_price";
 import type { MarketEvent } from "../domain/market";
 import type { AuthUpdate, UserUpdate } from "../domain/order";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
@@ -24,7 +25,8 @@ export type MessageIn =
   | { type: "trades"; version: number; data: WsTrade }
   | { type: "auth"; version: number; data: AuthUpdate }
   | { type: "ticker"; version: number; data: WsTickerData }
-  | { type: "market"; version: number; data: MarketEvent };
+  | { type: "market"; version: number; data: MarketEvent }
+  | { type: "deposit_price"; version: number; data: DepositPrice };
 
 export type Kind = MessageIn;
 
@@ -33,6 +35,7 @@ export interface WsError {
   code?: string;
   orderbook_id?: string;
   wallet_address?: string;
+  deposit_asset?: string;
   hint?: string;
   details?: string;
 }
@@ -210,6 +213,55 @@ export function unsubscribeMarket(marketPubkey: PubkeyStr): MessageOut {
   };
 }
 
+export function subscribeDepositPrice(depositAsset: string, resolution: Resolution): MessageOut {
+  return {
+    method: "subscribe",
+    params: {
+      type: "deposit_price",
+      deposit_asset: depositAsset,
+      resolution,
+    },
+  };
+}
+
+export function unsubscribeDepositPrice(depositAsset: string, resolution: Resolution): MessageOut {
+  return {
+    method: "unsubscribe",
+    params: {
+      type: "deposit_price",
+      deposit_asset: depositAsset,
+      resolution,
+    },
+  };
+}
+
+const VALID_MESSAGE_TYPES = new Set([
+  "book_update",
+  "pong",
+  "user",
+  "error",
+  "price_history",
+  "trades",
+  "auth",
+  "ticker",
+  "market",
+  "deposit_price",
+]);
+
 export function parseMessageIn(input: string): MessageIn {
-  return JSON.parse(input) as MessageIn;
+  const parsed: unknown = JSON.parse(input);
+  if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
+    throw new Error(`Invalid WS message: missing "type" field`);
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (typeof obj.type !== "string" || !VALID_MESSAGE_TYPES.has(obj.type)) {
+    throw new Error(`Invalid WS message type: "${String(obj.type)}"`);
+  }
+  if (!("version" in obj) || typeof obj.version !== "number") {
+    throw new Error(`Invalid WS message: missing or invalid "version" field`);
+  }
+  if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
+    throw new Error(`Invalid WS message: missing or invalid "data" field`);
+  }
+  return parsed as MessageIn;
 }

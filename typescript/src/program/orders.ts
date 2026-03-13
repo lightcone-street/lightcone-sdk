@@ -1,5 +1,11 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { sign } from "tweetnacl";
+import type {
+  DepositSource,
+  SubmitOrderRequest,
+  TimeInForce,
+  TriggerType,
+} from "../shared";
 import {
   SignedOrder,
   Order,
@@ -18,6 +24,15 @@ import {
   fromI64Le,
   deriveConditionId,
 } from "./utils";
+
+function bigintToSafeNumber(value: bigint, field: string): number {
+  const max = BigInt(Number.MAX_SAFE_INTEGER);
+  if (value > max || value < -max) {
+    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+  }
+  return Number(value);
+}
+
 
 // ============================================================================
 // ORDER HASHING
@@ -435,15 +450,10 @@ export function isSigned(order: SignedOrder): boolean {
 }
 
 /**
- * Derive orderbook ID from base and quote token addresses
- * Format: "{base[0:8]}_{quote[0:8]}"
+ * Derive orderbook ID from base and quote token addresses.
+ * Delegates to the canonical implementation in shared/types.
  */
-export function deriveOrderbookId(
-  baseToken: string,
-  quoteToken: string
-): string {
-  return `${baseToken.slice(0, 8)}_${quoteToken.slice(0, 8)}`;
-}
+export { deriveOrderbookId } from "../shared/types";
 
 // ============================================================================
 // CANCEL ORDER SIGNING
@@ -511,22 +521,18 @@ export function signCancelAll(userPubkey: string, timestamp: number, signer: Key
 /**
  * Convert a SignedOrder to a SubmitOrderRequest-compatible object
  */
+export interface SubmitRequestOptions {
+  timeInForce?: TimeInForce;
+  triggerPrice?: number;
+  triggerType?: TriggerType;
+  depositSource?: DepositSource;
+}
+
 export function toSubmitRequest(
   order: SignedOrder,
-  orderbookId: string
-): {
-  maker: string;
-  nonce: number;
-  market_pubkey: string;
-  base_token: string;
-  quote_token: string;
-  side: number;
-  amount_in: string;
-  amount_out: string;
-  expiration: number;
-  signature: string;
-  orderbook_id: string;
-} {
+  orderbookId: string,
+  options: SubmitRequestOptions = {}
+): SubmitOrderRequest {
   return {
     maker: order.maker.toBase58(),
     nonce: order.nonce,
@@ -534,11 +540,15 @@ export function toSubmitRequest(
     base_token: order.baseMint.toBase58(),
     quote_token: order.quoteMint.toBase58(),
     side: order.side,
-    amount_in: order.amountIn.toString(),
-    amount_out: order.amountOut.toString(),
-    expiration: Number(order.expiration),
+    amount_in: bigintToSafeNumber(order.amountIn, "amount_in"),
+    amount_out: bigintToSafeNumber(order.amountOut, "amount_out"),
+    expiration: bigintToSafeNumber(order.expiration, "expiration"),
     signature: signatureHex(order),
     orderbook_id: orderbookId,
+    tif: options.timeInForce,
+    trigger_price: options.triggerPrice,
+    trigger_type: options.triggerType,
+    deposit_source: options.depositSource,
   };
 }
 
