@@ -1,32 +1,33 @@
-import { restClient } from "./common";
+import { market, restClient } from "./common";
 
 async function main() {
   const client = restClient();
 
-  // 1. Featured markets
   const featured = await client.markets().featured();
   console.log("featured markets:", featured.length);
+  const firstFeatured = featured[0];
+  if (firstFeatured) {
+    console.log(`featured: ${firstFeatured.market_name} (${firstFeatured.slug})`);
+  }
 
-  // 2. Paginated listing
   const page = await client.markets().get(undefined, 5);
-  console.log("markets:", page.markets.length);
-  if (page.validationErrors.length > 0) {
-    console.log("validation errors:", page.validationErrors);
-  }
+  console.log(
+    `paginated listing: ${page.markets.length} markets, ${page.validationErrors.length} validation errors`
+  );
 
-  // 3. Lookup by pubkey
-  const first = page.markets[0];
-  if (first) {
-    const byPubkey = await client.markets().getByPubkey(first.pubkey);
-    console.log("by pubkey:", byPubkey.name);
-  }
+  const selectedMarket = await market(client);
+  console.log(`by slug: ${selectedMarket.slug} -> ${selectedMarket.pubkey}`);
+  console.log(
+    "by pubkey:",
+    (await client.markets().getByPubkey(selectedMarket.pubkey)).name
+  );
 
-  // 4. Search by keyword (search is keyword-based, not slug-based)
-  const query = first?.name.split(" ").find((w) => w.length > 3) ?? "market";
+  const query =
+    selectedMarket.name.split(/\s+/).find((word) => word.length > 3) ?? "market";
   const results = await client.markets().search(query, 5);
-  console.log("search results:", results.length);
+  console.log(`search '${query}': ${results.length} result(s)`);
   for (const result of results) {
-    console.log(" -", result.slug);
+    console.log(`  - ${result.slug}`);
   }
 }
 

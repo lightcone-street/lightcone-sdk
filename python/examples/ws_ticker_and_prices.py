@@ -1,4 +1,4 @@
-"""Best bid/ask ticker + price history candles with PriceHistoryState."""
+"""Best bid/ask ticker + price history line data with PriceHistoryState."""
 
 import asyncio
 
@@ -20,6 +20,7 @@ async def main():
     _, orderbook = await market_and_orderbook(client)
     orderbook_id = orderbook.orderbook_id
     resolution = Resolution.ONE_MINUTE
+    resolution_str = resolution.as_str()
 
     # State tracker
     history = PriceHistoryState()
@@ -38,7 +39,7 @@ async def main():
     ))
 
     event_count = 0
-    max_events = 20
+    max_events = 4
     done = asyncio.Event()
 
     def on_event(event):
@@ -49,10 +50,11 @@ async def main():
             if msg.type == MessageInType.TICKER.value:
                 ticker = msg.data
                 print(
-                    f"[ticker] bid={ticker.best_bid or '-'} "
-                    f"ask={ticker.best_ask or '-'} "
-                    f"mid={ticker.mid_price or '-'}"
+                    f"ticker: bid={ticker.best_bid} "
+                    f"ask={ticker.best_ask} "
+                    f"mid={ticker.mid_price}"
                 )
+                event_count += 1
 
             elif msg.type == MessageInType.PRICE_HISTORY.value:
                 data = msg.data
@@ -65,8 +67,9 @@ async def main():
                     history.apply_snapshot(
                         data.orderbook_id, data.resolution, prices
                     )
-                    candles = history.get(orderbook_id, resolution.as_str())
-                    print(f"[price_history] snapshot: {len(candles)} candle(s)")
+                    candles = history.get(orderbook_id, resolution_str)
+                    print(f"price snapshot: {len(candles)} candle(s)")
+                    event_count += 1
 
                 elif isinstance(data, PriceHistoryUpdate):
                     if data.candle:
@@ -76,21 +79,17 @@ async def main():
                         history.apply_update(
                             data.orderbook_id, data.resolution, point
                         )
-                        candles = history.get(orderbook_id, resolution.as_str())
-                        print(
-                            f"[price_history] update: t={data.candle.t} "
-                            f"mid={data.candle.m or '-'}"
-                        )
-                        if candles:
-                            print(f"  total candles: {len(candles)}")
+                        candles = history.get(orderbook_id, resolution_str)
+                        latest = candles[-1] if candles else None
+                        print(f"latest candle: {latest}")
+                        event_count += 1
 
                 elif isinstance(data, PriceHistoryHeartbeat):
-                    print(f"[price_history] heartbeat: server_time={data.server_time}")
+                    print(f"heartbeat: {data.server_time}")
 
         elif event.type == WsEventType.ERROR:
-            print("ws error:", event.error)
+            print(f"ws error: {event.error}")
 
-        event_count += 1
         if event_count >= max_events:
             done.set()
 

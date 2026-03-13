@@ -15,7 +15,7 @@ from solders.pubkey import Pubkey
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.client import LightconeClientBuilder, LightconeClient
-from src.auth.client import sign_login_message, Auth
+from src.auth.client import sign_login_message
 from src.auth import User
 from src.domain.market import Market, OrderBookPairSummary
 from src.program.client import LightconePinocchioClient
@@ -37,18 +37,24 @@ def wallet() -> Keypair:
     raw = os.environ.get("LIGHTCONE_WALLET_PATH")
     if not raw:
         raise RuntimeError("set LIGHTCONE_WALLET_PATH in .env or the environment")
-    if raw.startswith("~/"):
-        raw = str(Path.home() / raw[2:])
-    with open(raw) as f:
+    path = Path(raw).expanduser()
+    with path.open() as f:
         secret = json.load(f)
     return Keypair.from_bytes(bytes(secret))
 
 
-async def login(client: LightconeClient, keypair: Keypair) -> User:
+async def login(
+    client: LightconeClient,
+    keypair: Keypair,
+    use_embedded_wallet: bool = False,
+) -> User:
     nonce = await client.auth().get_nonce()
     message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
     return await client.auth().login_with_message(
-        message, signature_bs58, pubkey_bytes
+        message,
+        signature_bs58,
+        pubkey_bytes,
+        True if use_embedded_wallet else None,
     )
 
 

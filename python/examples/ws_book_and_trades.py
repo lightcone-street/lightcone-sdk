@@ -28,22 +28,23 @@ async def main():
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook_id]))
     await ws.subscribe(TradesParams(orderbook_ids=[orderbook_id]))
 
-    event_count = 0
-    max_events = 20
+    hits = 0
+    max_hits = 4
     done = asyncio.Event()
 
     def on_event(event):
-        nonlocal event_count
+        nonlocal hits
         if event.type == WsEventType.MESSAGE and event.message:
             msg = event.message
 
             if msg.type == MessageInType.BOOK_UPDATE.value:
                 book.apply(msg.data)
                 print(
-                    f"[book] seq={book.sequence} "
-                    f"best_bid={book.best_bid() or '-'} "
-                    f"best_ask={book.best_ask() or '-'}"
+                    f"book: seq={book.sequence} "
+                    f"bid={book.best_bid()} "
+                    f"ask={book.best_ask()}"
                 )
+                hits += 1
 
             elif msg.type == MessageInType.TRADES.value:
                 ws_trade = msg.data
@@ -55,13 +56,13 @@ async def main():
                     size=ws_trade.size,
                     side=ws_trade.side,
                 ))
-                print(f"[trade] {ws_trade.size} {ws_trade.side} @ {ws_trade.price}")
+                print(f"trade: {ws_trade.size} {ws_trade.side} @ {ws_trade.price}")
+                hits += 1
 
         elif event.type == WsEventType.ERROR:
-            print("ws error:", event.error)
+            print(f"ws error: {event.error}")
 
-        event_count += 1
-        if event_count >= max_events:
+        if hits >= max_hits:
             done.set()
 
     ws.on(on_event)

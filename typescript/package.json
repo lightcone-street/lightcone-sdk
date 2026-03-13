@@ -33,7 +33,8 @@
     "lint": "eslint src",
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run clean && npm run lint && npm run typecheck && npm run build"
+    "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
+    "prepublishOnly": "npm run clean && npm run lint && npm run typecheck && npm run typecheck:examples && npm run build"
   },
   "dependencies": {
     "@solana/spl-token": "^0.4.14",

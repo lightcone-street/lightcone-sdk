@@ -19,7 +19,12 @@ async def main():
 
     # 2. Fetch decimal precision metadata
     decimals = await client.orderbooks().decimals(orderbook_id)
-    print(f"decimals: base={decimals.base_decimals}, quote={decimals.quote_decimals}")
+    print(
+        "decimals: "
+        f"price={decimals.price_decimals}, "
+        f"base={decimals.base_decimals}, "
+        f"quote={decimals.quote_decimals}"
+    )
 
     await client.close()
 

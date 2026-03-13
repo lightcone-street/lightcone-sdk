@@ -1,4 +1,4 @@
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
 import {
   restClient,
   rpcClient,
@@ -7,6 +7,12 @@ import {
   depositMint,
   numOutcomes,
 } from "./common";
+
+function describeTx(name: string, tx: Transaction): void {
+  console.log(
+    `${name}: ${tx.instructions.length} instruction(s), ${tx.serialize().length} bytes, signature=${tx.signature?.toString("base64") ?? "unsigned"}`
+  );
+}
 
 async function main() {
   const client = restClient();
@@ -18,65 +24,45 @@ async function main() {
   const dMint = depositMint(m);
   const outcomes = numOutcomes(m);
 
-  // 1. Mint complete set (deposit collateral -> outcome tokens)
-  const mintResult = await rpc.mintCompleteSet(
-    {
-      user: keypair.publicKey,
-      market: marketPubkey,
-      depositMint: dMint,
-      amount: 1_000_000n,
-    },
-    outcomes
-  );
-  const mintTx = mintResult.transaction;
-  mintTx.sign(keypair);
-  console.log(
-    "mint complete set:",
-    mintTx.instructions.length,
-    "instructions,",
-    mintTx.serialize().length,
-    "bytes"
-  );
-  console.log("signature:", mintTx.signatures[0]?.signature?.toString("base64") ?? "unsigned");
+  const transactions: Array<[string, Transaction]> = [
+    [
+      "mint_complete_set",
+      (
+        await rpc.mintCompleteSet(
+          {
+            user: keypair.publicKey,
+            market: marketPubkey,
+            depositMint: dMint,
+            amount: 1_000_000n,
+          },
+          outcomes
+        )
+      ).transaction,
+    ],
+    [
+      "merge_complete_set",
+      (
+        await rpc.mergeCompleteSet(
+          {
+            user: keypair.publicKey,
+            market: marketPubkey,
+            depositMint: dMint,
+            amount: 1_000_000n,
+          },
+          outcomes
+        )
+      ).transaction,
+    ],
+    ["increment_nonce", (await rpc.incrementNonce(keypair.publicKey)).transaction],
+  ];
 
-  // 2. Merge complete set (outcome tokens -> withdraw collateral)
-  const mergeResult = await rpc.mergeCompleteSet(
-    {
-      user: keypair.publicKey,
-      market: marketPubkey,
-      depositMint: dMint,
-      amount: 1_000_000n,
-    },
-    outcomes
-  );
-  const mergeTx = mergeResult.transaction;
-  mergeTx.sign(keypair);
-  console.log(
-    "merge complete set:",
-    mergeTx.instructions.length,
-    "instructions,",
-    mergeTx.serialize().length,
-    "bytes"
-  );
-  console.log("signature:", mergeTx.signatures[0]?.signature?.toString("base64") ?? "unsigned");
-
-  // 3. Increment nonce
-  const nonceResult = await rpc.incrementNonce(keypair.publicKey);
-  const nonceTx = nonceResult.transaction;
-  nonceTx.sign(keypair);
-  console.log(
-    "increment nonce:",
-    nonceTx.instructions.length,
-    "instructions,",
-    nonceTx.serialize().length,
-    "bytes"
-  );
-  console.log("signature:", nonceTx.signatures[0]?.signature?.toString("base64") ?? "unsigned");
-
-  // To actually submit:
-  // const txid = await rpc.connection.sendRawTransaction(mintTx.serialize());
-  // await rpc.connection.confirmTransaction(txid);
-  // console.log("submitted:", txid);
+  for (const [name, tx] of transactions) {
+    tx.sign(keypair);
+    describeTx(name, tx);
+    const signature = await rpc.connection.sendRawTransaction(tx.serialize());
+    await rpc.connection.confirmTransaction(signature);
+    console.log(`${name}: confirmed ${signature}`);
+  }
 }
 
 main().catch(console.error);

@@ -23,21 +23,27 @@ Python SDK for the Lightcone impact market protocol on Solana.
 pip install lightcone-sdk
 ```
 
+The current Python package exports the `src` module, so the examples below use
+`from src import ...`.
+
 ## Quick Start
 
 ```python
 import asyncio
+
 from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import (
+from src import (
     LightconeClientBuilder,
-    LimitOrderEnvelope,
-    Resolution,
-    sign_login_message,
     LightconePinocchioClient,
+    LimitOrderEnvelope,
+    OrderbookDecimals,
 )
+from src.auth.client import sign_login_message
+from src.ws.subscriptions import BookUpdateParams
+
 
 async def main():
     client = LightconeClientBuilder().build()
@@ -47,25 +53,26 @@ async def main():
     # 1. Authenticate
     nonce = await client.auth().get_nonce()
     message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
-    user = await client.auth().login_with_message(
-        message, signature_bs58, pubkey_bytes
+    await client.auth().login_with_message(
+        message,
+        signature_bs58,
+        pubkey_bytes,
     )
 
     # 2. Find a market
-    markets, _ = await client.markets().get(None, 1)
-    market = markets[0]
+    market = await client.markets().get_by_slug("some-market")
     orderbook = market.orderbook_pairs[0]
 
     # 3. Get orderbook decimals for price scaling
     decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
-    from lightcone_sdk import OrderbookDecimals
     decimals = OrderbookDecimals(
         base_decimals=decimals_resp.base_decimals,
         quote_decimals=decimals_resp.quote_decimals,
+        price_decimals=decimals_resp.price_decimals,
+        tick_size=max(orderbook.tick_size, 0),
     )
 
     # 4. Build, sign, and submit a limit order
-    nonce_val = await rpc.get_current_nonce(keypair.pubkey())
     request = (
         LimitOrderEnvelope()
         .maker(keypair.pubkey())
@@ -75,7 +82,7 @@ async def main():
         .bid()
         .price("0.55")
         .size("100")
-        .nonce(nonce_val)
+        .nonce(await rpc.get_current_nonce(keypair.pubkey()))
         .apply_scaling(decimals=decimals)
         .sign(keypair, orderbook.orderbook_id)
     )
@@ -84,12 +91,14 @@ async def main():
     print("Order submitted:", response)
 
     # 5. Stream real-time updates
-    from lightcone_sdk.ws.subscriptions import BookUpdateParams
     ws = client.ws()
     await ws.connect()
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
 
+    await ws.disconnect()
     await client.close()
+    await rpc.connection.close()
+
 
 asyncio.run(main())
 ```
@@ -98,16 +107,17 @@ asyncio.run(main())
 
 ```python
 import json
-import asyncio
+from pathlib import Path
+
 from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import LightconeClientBuilder, LightconePinocchioClient
+from src import LightconeClientBuilder, LightconePinocchioClient
 
 client = LightconeClientBuilder().build()
 rpc = LightconePinocchioClient(AsyncClient("https://api.devnet.solana.com"))
-with open("~/.config/solana/id.json") as f:
+with Path("~/.config/solana/id.json").expanduser().open() as f:
     secret = json.load(f)
 keypair = Keypair.from_bytes(bytes(secret))
 ```
@@ -115,18 +125,17 @@ keypair = Keypair.from_bytes(bytes(secret))
 ### Step 1: Find a Market
 
 ```python
-markets, _ = await client.markets().get(None, 1)
-market = markets[0]
+market = await client.markets().get_by_slug("some-market")
 orderbook = next(
-    (p for p in market.orderbook_pairs if p.active),
-    market.orderbook_pairs[0] if market.orderbook_pairs else None,
+    (pair for pair in market.orderbook_pairs if pair.active),
+    market.orderbook_pairs[0],
 )
 ```
 
 ### Step 2: Deposit Collateral
 
 ```python
-from lightcone_sdk import MintCompleteSetParams
+from src import MintCompleteSetParams
 
 market_pubkey = Pubkey.from_string(market.pubkey)
 deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
@@ -140,19 +149,20 @@ tx = await rpc.mint_complete_set(
     ),
     num_outcomes,
 )
-blockhash = await rpc.get_latest_blockhash()
-tx.sign([keypair], blockhash)
+tx.sign([keypair], await rpc.get_latest_blockhash())
 ```
 
 ### Step 3: Place an Order
 
 ```python
-from lightcone_sdk import LimitOrderEnvelope, OrderbookDecimals
+from src import LimitOrderEnvelope, OrderbookDecimals
 
 decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
 decimals = OrderbookDecimals(
     base_decimals=decimals_resp.base_decimals,
     quote_decimals=decimals_resp.quote_decimals,
+    price_decimals=decimals_resp.price_decimals,
+    tick_size=max(orderbook.tick_size, 0),
 )
 request = (
     LimitOrderEnvelope()
@@ -173,11 +183,9 @@ order = await client.orders().submit(request)
 ### Step 4: Monitor
 
 ```python
-from lightcone_sdk.ws.subscriptions import BookUpdateParams, UserParams
+from src.ws.subscriptions import BookUpdateParams, UserParams
 
-open_orders = await client.orders().get_user_orders(
-    str(keypair.pubkey()), 50
-)
+open_orders = await client.orders().get_user_orders(str(keypair.pubkey()), 50)
 ws = client.ws()
 await ws.connect()
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
@@ -187,8 +195,8 @@ await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ### Step 5: Cancel an Order
 
 ```python
-from lightcone_sdk import sign_cancel_order
-from lightcone_sdk.domain.order import CancelBody
+from src import sign_cancel_order
+from src.domain.order import CancelBody
 
 signature = sign_cancel_order(order.order_hash, keypair)
 await client.orders().cancel(
@@ -203,7 +211,7 @@ await client.orders().cancel(
 ### Step 6: Exit a Position
 
 ```python
-from lightcone_sdk import MergeCompleteSetParams
+from src import MergeCompleteSetParams
 
 tx = await rpc.merge_complete_set(
     MergeCompleteSetParams(
@@ -214,8 +222,7 @@ tx = await rpc.merge_complete_set(
     ),
     num_outcomes,
 )
-blockhash = await rpc.get_latest_blockhash()
-tx.sign([keypair], blockhash)
+tx.sign([keypair], await rpc.get_latest_blockhash())
 ```
 
 ## Authentication
@@ -237,7 +244,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 | [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search |
 | [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination |
-| [`price_history`](examples/price_history.py) | Historical candlestick data (OHLCV) at various resolutions |
+| [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
 
 ### Placing Orders
@@ -265,31 +272,34 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 | Example | Description |
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
-| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
+| [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history line data with `PriceHistoryState` |
 | [`ws_user_and_market`](examples/ws_user_and_market.py) | Authenticated user stream (orders, balances) + market lifecycle events |
 
 ## Error Handling
 
-All SDK operations raise `SdkError` on failure:
+All SDK operations raise `SdkError` or one of its subclasses:
 
 | Variant | When |
 |---------|------|
-| `HttpError` | REST request failures |
+| `HttpError` | REST request failures, including auth endpoints |
 | `WsError` | WebSocket connection/protocol errors |
-| `AuthError` | Authentication failures |
-| `SdkError` | Catch-all |
+| `DeserializationError` | Required fields are missing while decoding REST or WS payloads |
+| `SdkError` | Catch-all, including rejected order responses |
 
-Notable `HttpError` variants (`HttpErrorKind`):
+Notable `HttpErrorKind` variants:
 
 | Variant | Meaning |
 |---------|---------|
-| `SERVER_ERROR` | Non-2xx response from the backend |
+| `SERVER_ERROR` | Non-2xx 5xx response from the backend |
 | `RATE_LIMITED` | 429 - back off and retry |
 | `UNAUTHORIZED` | 401 - session expired or missing |
+| `BAD_REQUEST` | Other 4xx response from the backend |
+| `NOT_FOUND` | 404 - resource does not exist |
+| `TIMEOUT` | Request timed out |
 | `MAX_RETRIES_EXCEEDED` | All retry attempts exhausted |
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
+- **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
-- Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`.
+- Customize the default idempotent retry config with `LightconeClientBuilder().retry_config(RetryConfig(...))`. If you use `LightconeHttp` directly, you can pass `RetryPolicy.custom(RetryConfig(...))` per request.

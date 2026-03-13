@@ -1,4 +1,4 @@
-"""Historical candlestick data (OHLCV) at various resolutions."""
+"""Historical price history line data at various resolutions."""
 
 import asyncio
 import json

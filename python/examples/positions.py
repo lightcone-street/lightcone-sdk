@@ -21,10 +21,6 @@ async def main():
         user.wallet_address, m.pubkey
     )
     print(f"positions in {m.slug}: {len(per_market.positions)}")
-    for pos in per_market.positions:
-        print(f"  market: {pos.market_pubkey}")
-        for o in pos.outcomes:
-            print(f"    outcome {o.outcome_index}: idle={o.balance_idle} on_book={o.balance_on_book} total={o.balance}")
 
     await client.close()
 

@@ -22,29 +22,19 @@ async def main():
     print(f"balances: {len(snapshot.balances)} market / {len(snapshot.global_deposits)} global")
     print(f"has more: {snapshot.has_more}")
 
-    for order in snapshot.orders:
-        side = "BID" if order.side == 0 else "ASK"
-        if order.order_type == "limit":
-            print(
-                f"  [limit] {order.order_hash} {side} @ {order.price} "
-                f"size={order.size} remaining={order.remaining} filled={order.filled}"
-            )
+    if snapshot.orders:
+        first = snapshot.orders[0]
+        side = "BID" if first.side == 0 else "ASK"
+        if first.order_type == "limit":
+            print(f"first limit: {first.order_hash} {side} @ {first.price}")
         else:
             print(
-                f"  [trigger] {order.trigger_order_id} {side} @ {order.price} "
-                f"trigger={order.trigger_price} size={order.size}"
+                f"first trigger: {first.trigger_order_id} {side} @ {first.price} "
+                f"(trigger {first.trigger_price})"
             )
 
-    for bal in snapshot.balances:
-        print(f"  balance: market={bal.market_pubkey} orderbook={bal.orderbook_id}")
-        for out in bal.outcomes:
-            print(f"    outcome {out.outcome_index}: idle={out.idle} on_book={out.on_book}")
-
-    for gd in snapshot.global_deposits:
-        print(f"  global deposit: {gd.mint} = {gd.balance}")
-
     # 2. Pagination
-    if snapshot.has_more and snapshot.next_cursor:
+    if snapshot.next_cursor:
         page2 = await client.orders().get_user_orders(
             pubkey, 50, snapshot.next_cursor
         )

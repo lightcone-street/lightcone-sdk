@@ -40,13 +40,15 @@ async function main() {
   const keypair = Keypair.generate();
 
   // 1. Authenticate
-  const nonce = await client.auth().getNonce();
-  const signed = auth.signLoginMessage(keypair, nonce);
-  const user = await client.auth().loginWithMessage(
-    signed.message,
-    signed.signature_bs58,
-    signed.pubkey_bytes
-  );
+  {
+    const nonce = await client.auth().getNonce();
+    const signed = auth.signLoginMessage(keypair, nonce);
+    const user = await client.auth().loginWithMessage(
+      signed.message,
+      signed.signature_bs58,
+      signed.pubkey_bytes
+    );
+  }
 
   // 2. Find a market
   const market = await client.markets().getBySlug("some-market");
@@ -55,14 +57,15 @@ async function main() {
   // 3. Get orderbook decimals for price scaling
   const raw = await client.orderbooks().decimals(orderbook.orderbookId);
   const decimals = {
+    orderbookId: raw.orderbook_id,
     baseDecimals: raw.base_decimals,
     quoteDecimals: raw.quote_decimals,
     priceDecimals: raw.price_decimals,
-    tickSize: Math.max(orderbook.tickSize, 0),
+    tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
   };
 
   // 4. Build, sign, and submit a limit order
-  const nonceTx = await rpc.getCurrentNonce(keypair.publicKey);
+  const nonce = await rpc.getCurrentNonce(keypair.publicKey);
   const request = LimitOrderEnvelope.new()
     .maker(keypair.publicKey)
     .market(new PublicKey(market.pubkey))
@@ -71,7 +74,7 @@ async function main() {
     .bid()
     .price("0.55")
     .size("100")
-    .nonce(nonceTx)
+    .nonce(nonce)
     .applyScaling(decimals)
     .sign(keypair, orderbook.orderbookId);
 
@@ -91,13 +94,21 @@ main().catch(console.error);
 
 ```typescript
 import * as fs from "fs";
+import * as path from "path";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { LightconeClient, program } from "@lightconexyz/lightcone-sdk";
 
+function readKeypairFile(filePath: string): Keypair {
+  const resolved = filePath.startsWith("~")
+    ? path.join(process.env.HOME ?? "", filePath.slice(1))
+    : filePath;
+  const secret = JSON.parse(fs.readFileSync(resolved, "utf-8"));
+  return Keypair.fromSecretKey(Uint8Array.from(secret));
+}
+
 const client = LightconeClient.builder().build();
 const rpc = program.LightconePinocchioClient.new("https://api.devnet.solana.com");
-const secret = JSON.parse(fs.readFileSync("~/.config/solana/id.json", "utf-8"));
-const keypair = Keypair.fromSecretKey(Uint8Array.from(secret));
+const keypair = readKeypairFile("~/.config/solana/id.json");
 ```
 
 ### Step 1: Find a Market
@@ -105,7 +116,7 @@ const keypair = Keypair.fromSecretKey(Uint8Array.from(secret));
 ```typescript
 const market = await client.markets().getBySlug("some-market");
 const orderbook =
-  market.orderbookPairs.find((p) => p.active) ?? market.orderbookPairs[0];
+  market.orderbookPairs.find((pair) => pair.active) ?? market.orderbookPairs[0];
 ```
 
 ### Step 2: Deposit Collateral
@@ -131,12 +142,13 @@ mintResult.transaction.sign(keypair);
 ```typescript
 import { LimitOrderEnvelope } from "@lightconexyz/lightcone-sdk";
 
-const raw = await client.orderbooks().decimals(orderbook.orderbookId);
-const decimals = {
-  baseDecimals: raw.base_decimals,
-  quoteDecimals: raw.quote_decimals,
-  priceDecimals: raw.price_decimals,
-  tickSize: Math.max(orderbook.tickSize, 0),
+const decimals = await client.orderbooks().decimals(orderbook.orderbookId);
+const scales = {
+  orderbookId: decimals.orderbook_id,
+  baseDecimals: decimals.base_decimals,
+  quoteDecimals: decimals.quote_decimals,
+  priceDecimals: decimals.price_decimals,
+  tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
 };
 const request = LimitOrderEnvelope.new()
   .maker(keypair.publicKey)
@@ -147,7 +159,7 @@ const request = LimitOrderEnvelope.new()
   .price("0.55")
   .size("1")
   .nonce(await rpc.getCurrentNonce(keypair.publicKey))
-  .applyScaling(decimals)
+  .applyScaling(scales)
   .sign(keypair, orderbook.orderbookId);
 const order = await client.orders().submit(request);
 ```

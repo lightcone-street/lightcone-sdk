@@ -20,13 +20,12 @@ async def main():
     )
 
     if limit_order is None:
-        print("no open limit orders to cancel")
+        print("No open limit orders to cancel.")
         await client.close()
         return
 
     order_hash = limit_order.order_hash
     orderbook_id = limit_order.orderbook_id
-    print("cancelling order:", order_hash)
 
     # 2. Cancel a single order
     signature = sign_cancel_order(order_hash, keypair)

@@ -3,13 +3,10 @@ import * as path from "path";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import { config } from "dotenv";
 
-import { LightconeClient } from "../src/client";
-import { signLoginMessage } from "../src/auth/native";
-import { LightconePinocchioClient } from "../src/program/client";
-import type { Market } from "../src/domain/market";
-import type { OrderBookPair } from "../src/domain/orderbook";
-import type { OrderbookDecimals } from "../src/shared/scaling";
-import type { User } from "../src/auth";
+import { LightconeClient, type Market, type OrderBookPair } from "../src";
+import { signLoginMessage, type User } from "../src/auth";
+import { LightconePinocchioClient } from "../src/program";
+import type { OrderbookDecimals } from "../src/shared";
 
 config({ path: path.resolve(__dirname, "../.env") });
 
@@ -73,10 +70,11 @@ export async function scalingDecimals(
 ): Promise<OrderbookDecimals> {
   const decimals = await client.orderbooks().decimals(orderbook.orderbookId);
   return {
+    orderbookId: decimals.orderbook_id,
     baseDecimals: decimals.base_decimals,
     quoteDecimals: decimals.quote_decimals,
     priceDecimals: decimals.price_decimals,
-    tickSize: Math.max(orderbook.tickSize, 0),
+    tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
   };
 }
 
@@ -95,4 +93,30 @@ export async function freshOrderNonce(
   user: PublicKey
 ): Promise<number> {
   return rpc.getCurrentNonce(user);
+}
+
+export function unixTimestamp(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+export async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(message));
+      }, timeoutMs);
+
+      promise.then(resolve, reject);
+    });
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
 }

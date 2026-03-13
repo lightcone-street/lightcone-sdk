@@ -8,6 +8,17 @@ from common import rest_client, rpc_client, wallet, market, deposit_mint, num_ou
 from src.program.types import MintCompleteSetParams, MergeCompleteSetParams
 
 
+async def submit_transaction(name, rpc, tx, keypair, blockhash):
+    tx.sign([keypair], blockhash)
+    print(
+        f"{name}: {len(tx.message.instructions)} instruction(s), "
+        f"{len(bytes(tx))} bytes, signature={tx.signatures[0]}"
+    )
+    result = await rpc.connection.send_raw_transaction(bytes(tx))
+    await rpc.connection.confirm_transaction(result.value)
+    print(f"{name}: confirmed {result.value}")
+
+
 async def main():
     client = rest_client()
     rpc = rpc_client()
@@ -20,50 +31,39 @@ async def main():
     amount = 1_000_000
     blockhash = await rpc.get_latest_blockhash()
 
-    # 1. Mint complete set (deposit collateral -> outcome tokens)
-    mint_tx = await rpc.mint_complete_set(
-        MintCompleteSetParams(
-            user=keypair.pubkey(),
-            market=market_pubkey,
-            deposit_mint=d_mint,
-            amount=amount,
+    transactions = [
+        (
+            "mint_complete_set",
+            await rpc.mint_complete_set(
+                MintCompleteSetParams(
+                    user=keypair.pubkey(),
+                    market=market_pubkey,
+                    deposit_mint=d_mint,
+                    amount=amount,
+                ),
+                outcomes,
+            ),
         ),
-        outcomes,
-    )
-    mint_tx.sign([keypair], blockhash)
-    print(
-        f"mint_complete_set: {len(mint_tx.message.instructions)} instruction(s), "
-        f"signature={mint_tx.signatures[0]}"
-    )
-
-    # 2. Merge complete set (outcome tokens -> withdraw collateral)
-    merge_tx = await rpc.merge_complete_set(
-        MergeCompleteSetParams(
-            user=keypair.pubkey(),
-            market=market_pubkey,
-            deposit_mint=d_mint,
-            amount=amount,
+        (
+            "merge_complete_set",
+            await rpc.merge_complete_set(
+                MergeCompleteSetParams(
+                    user=keypair.pubkey(),
+                    market=market_pubkey,
+                    deposit_mint=d_mint,
+                    amount=amount,
+                ),
+                outcomes,
+            ),
         ),
-        outcomes,
-    )
-    merge_tx.sign([keypair], blockhash)
-    print(
-        f"merge_complete_set: {len(merge_tx.message.instructions)} instruction(s), "
-        f"signature={merge_tx.signatures[0]}"
-    )
+        (
+            "increment_nonce",
+            await rpc.increment_nonce(keypair.pubkey()),
+        ),
+    ]
 
-    # 3. Increment nonce
-    nonce_tx = await rpc.increment_nonce(keypair.pubkey())
-    nonce_tx.sign([keypair], blockhash)
-    print(
-        f"increment_nonce: {len(nonce_tx.message.instructions)} instruction(s), "
-        f"signature={nonce_tx.signatures[0]}"
-    )
-
-    # To actually submit:
-    # sig = await rpc.connection.send_raw_transaction(bytes(mint_tx))
-    # await rpc.connection.confirm_transaction(sig.value)
-    # print("submitted:", sig.value)
+    for name, tx in transactions:
+        await submit_transaction(name, rpc, tx, keypair, blockhash)
 
     await client.close()
     await rpc.connection.close()
