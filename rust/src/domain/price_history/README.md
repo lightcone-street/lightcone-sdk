@@ -38,6 +38,31 @@ Candle resolution for price history queries.
 
 `Resolution::seconds()` returns the duration of one candle in seconds.
 
+### `OrderbookPriceHistoryQuery`
+
+Query options for `GET /api/price-history?orderbook_id=...`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resolution` | `Resolution` | Candle resolution |
+| `from` | `Option<u64>` | Optional start time in Unix milliseconds |
+| `to` | `Option<u64>` | Optional end time in Unix milliseconds |
+| `cursor` | `Option<u64>` | Optional pagination cursor (`next_cursor`) |
+| `limit` | `Option<usize>` | Optional page size, max 1000 |
+| `include_ohlcv` | `bool` | Whether to request full OHLCV candles |
+
+### `DepositPriceHistoryQuery`
+
+Query options for `GET /api/price-history?deposit_asset=...`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `resolution` | `Resolution` | Candle resolution |
+| `from` | `Option<u64>` | Optional start time in Unix milliseconds |
+| `to` | `Option<u64>` | Optional end time in Unix milliseconds |
+| `cursor` | `Option<u64>` | Optional pagination cursor (`next_cursor`) |
+| `limit` | `Option<usize>` | Optional page size, max 1000 |
+
 ## Client Methods
 
 Access via `client.price_history()`.
@@ -51,16 +76,40 @@ async fn get(
     resolution: Resolution,
     from: Option<u64>,
     to: Option<u64>,
-) -> Result<serde_json::Value, SdkError>
+) -> Result<OrderbookPriceHistoryResponse, SdkError>
 ```
 
-Fetch OHLCV price history for an orderbook.
+Fetch orderbook price history for an orderbook with the simple parameter set.
 
 **Parameters:**
 - `orderbook_id` -- which orderbook to query
 - `resolution` -- candle resolution
 - `from` -- optional start time as Unix timestamp in milliseconds
 - `to` -- optional end time as Unix timestamp in milliseconds
+
+### `get_with_query`
+
+```rust
+async fn get_with_query(
+    &self,
+    orderbook_id: &str,
+    query: OrderbookPriceHistoryQuery,
+) -> Result<OrderbookPriceHistoryResponse, SdkError>
+```
+
+Fetch orderbook price history with support for `cursor`, `limit`, and `include_ohlcv`.
+
+### `get_deposit_asset`
+
+```rust
+async fn get_deposit_asset(
+    &self,
+    deposit_asset: &str,
+    query: DepositPriceHistoryQuery,
+) -> Result<DepositPriceHistoryResponse, SdkError>
+```
+
+Fetch deposit-token price history from the same endpoint using `deposit_asset`.
 
 ## State Container: PriceHistoryState
 
@@ -94,10 +143,44 @@ async fn get_price_chart(
     orderbook_id: &str,
 ) -> Result<(), SdkError> {
     let data = client.price_history()
-        .get(orderbook_id, Resolution::Hour1, None, None)
+        .get_with_query(
+            orderbook_id,
+            OrderbookPriceHistoryQuery {
+                resolution: Resolution::Hour1,
+                include_ohlcv: true,
+                limit: Some(10),
+                ..OrderbookPriceHistoryQuery::default()
+            },
+        )
         .await?;
 
     println!("Price history: {}", serde_json::to_string_pretty(&data)?);
+    Ok(())
+}
+```
+
+### Fetch deposit-token candles
+
+```rust
+use lightcone::domain::price_history::DepositPriceHistoryQuery;
+use lightcone::prelude::*;
+
+async fn get_deposit_price_chart(
+    client: &LightconeClient,
+    deposit_asset: &str,
+) -> Result<(), SdkError> {
+    let data = client.price_history()
+        .get_deposit_asset(
+            deposit_asset,
+            DepositPriceHistoryQuery {
+                resolution: Resolution::Hour1,
+                limit: Some(10),
+                ..DepositPriceHistoryQuery::default()
+            },
+        )
+        .await?;
+
+    println!("Deposit price history: {}", serde_json::to_string_pretty(&data)?);
     Ok(())
 }
 ```
@@ -131,7 +214,12 @@ async fn live_chart(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw types in `lightcone::domain::price_history::wire` include `PriceHistory` (WS snapshot/update), `PriceCandle`, and related types.
+Raw types in `lightcone::domain::price_history::wire` include:
+- `PriceHistory`, `PriceCandle`, and related WS types
+- `OrderbookPriceHistoryResponse`
+- `DepositPriceHistoryResponse`
+- `OrderbookPriceCandle`
+- `DepositPriceCandle`
 
 ---
 
