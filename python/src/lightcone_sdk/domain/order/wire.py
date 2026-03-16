@@ -82,6 +82,7 @@ class OrderUpdate:
 class TriggerOrderUpdate:
     trigger_order_id: str
     status: str
+    user_pubkey: str = ""
     market_pubkey: str = ""
     orderbook_id: str = ""
     order_hash: str = ""
@@ -99,6 +100,7 @@ class TriggerOrderUpdate:
         return TriggerOrderUpdate(
             trigger_order_id=_require(d, "trigger_order_id", "TriggerOrderUpdate"),
             status=_require(d, "status", "TriggerOrderUpdate"),
+            user_pubkey=d.get("user_pubkey", ""),
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
             order_hash=d.get("order_hash", ""),

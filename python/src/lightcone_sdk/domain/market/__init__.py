@@ -1,8 +1,12 @@
 """Market domain types."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
+
+from ..orderbook import OrderBookPair
 
 
 class Status(str, Enum):
@@ -73,22 +77,6 @@ class TokenMetadata:
 
 
 @dataclass
-class OrderBookPairSummary:
-    id: int = 0
-    market_pubkey: str = ""
-    orderbook_id: str = ""
-    base_token: str = ""
-    quote_token: str = ""
-    outcome_index: int = 0
-    tick_size: int = 0
-    total_bids: int = 0
-    total_asks: int = 0
-    last_trade_price: Optional[str] = None
-    last_trade_time: Optional[str] = None
-    active: bool = True
-
-
-@dataclass
 class Market:
     """Rich market domain type."""
     id: int
@@ -111,7 +99,7 @@ class Market:
     deposit_assets: list[DepositAsset] = field(default_factory=list)
     conditional_tokens: list[ConditionalToken] = field(default_factory=list)
     outcomes: list[Outcome] = field(default_factory=list)
-    orderbook_pairs: list[OrderBookPairSummary] = field(default_factory=list)
+    orderbook_pairs: list[OrderBookPair] = field(default_factory=list)
     orderbook_ids: list[str] = field(default_factory=list)
     token_metadata: dict[str, TokenMetadata] = field(default_factory=dict)
 
@@ -135,7 +123,7 @@ __all__ = [
     "DepositAsset",
     "ValidatedTokens",
     "TokenMetadata",
-    "OrderBookPairSummary",
+    "OrderBookPair",
     "Market",
     "MarketsResult",
     "MarketValidationError",

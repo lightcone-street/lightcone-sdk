@@ -1,6 +1,7 @@
 """Order domain types."""
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from typing import Optional
 
@@ -76,6 +77,19 @@ class TriggerOrder:
     amount_out: str
     time_in_force: TimeInForce
     created_at: Optional[str] = None
+
+    def limit_price(self, base_decimals: int, quote_decimals: int) -> Optional[Decimal]:
+        """Derive the human-readable limit price from raw lamport amounts."""
+        base_mult = Decimal(10) ** base_decimals
+        quote_mult = Decimal(10) ** quote_decimals
+        amount_in = Decimal(self.amount_in)
+        amount_out = Decimal(self.amount_out)
+
+        if self.side == 1 and amount_in > 0:  # Ask
+            return amount_out * base_mult / (amount_in * quote_mult)
+        elif self.side == 0 and amount_out > 0:  # Bid
+            return amount_in * base_mult / (amount_out * quote_mult)
+        return None
 
 
 @dataclass

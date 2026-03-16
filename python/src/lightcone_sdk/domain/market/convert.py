@@ -3,8 +3,9 @@
 from typing import Optional
 from . import (
     Market, Status, Outcome, ConditionalToken, DepositAsset,
-    OrderBookPairSummary, TokenMetadata,
+    TokenMetadata,
 )
+from ..orderbook import OrderBookPair
 from .wire import MarketWire
 
 
@@ -93,16 +94,21 @@ def market_from_wire(wire: MarketWire) -> Market:
                     name=ct_name,
                 )
 
+    # Build a lookup from mint address to ConditionalToken for orderbook pairs.
+    ct_by_mint: dict[str, ConditionalToken] = {ct.mint: ct for ct in conditional_tokens}
+
     orderbook_pairs = []
     for ob in wire.orderbooks:
-        orderbook_pairs.append(OrderBookPairSummary(
+        base_ct = ct_by_mint.get(ob.base_token, ConditionalToken(mint=ob.base_token, outcome_index=0))
+        quote_ct = ct_by_mint.get(ob.quote_token, ConditionalToken(mint=ob.quote_token, outcome_index=0))
+        orderbook_pairs.append(OrderBookPair(
             id=ob.id,
             market_pubkey=ob.market_pubkey or wire.market_pubkey,
             orderbook_id=ob.orderbook_id,
-            base_token=ob.base_token,
-            quote_token=ob.quote_token,
+            base=base_ct,
+            quote=quote_ct,
             outcome_index=ob.outcome_index,
-            tick_size=ob.tick_size,
+            tick_size=int(ob.tick_size) if ob.tick_size is not None else 0,
             total_bids=ob.total_bids,
             total_asks=ob.total_asks,
             last_trade_price=ob.last_trade_price,

@@ -10,10 +10,11 @@ from ...error import _require
 class PriceLevel:
     price: str
     size: str
+    orders: Optional[int] = None
 
     @staticmethod
     def from_dict(d: dict) -> "PriceLevel":
-        return PriceLevel(price=d.get("price", "0"), size=d.get("size", "0"))
+        return PriceLevel(price=d.get("price", "0"), size=d.get("size", "0"), orders=d.get("orders"))
 
     @staticmethod
     def from_list(lst: list) -> "PriceLevel":
@@ -139,6 +140,7 @@ class WsOrderBook:
 
 @dataclass
 class DecimalsResponse:
+    orderbook_id: str = ""
     base_decimals: int = 6
     quote_decimals: int = 6
     price_decimals: int = 6
@@ -146,6 +148,7 @@ class DecimalsResponse:
     @staticmethod
     def from_dict(d: dict) -> "DecimalsResponse":
         return DecimalsResponse(
+            orderbook_id=d.get("orderbook_id", ""),
             base_decimals=d.get("base_decimals", 6),
             quote_decimals=d.get("quote_decimals", 6),
             price_decimals=d.get("price_decimals", 6),

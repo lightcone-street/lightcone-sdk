@@ -49,19 +49,16 @@ class WalletHolding:
 
 @dataclass
 class DepositAssetMetadata:
-    mint: str
     symbol: str = ""
     name: str = ""
     icon_url: str = ""
-    decimals: int = 6
     value: str = "0"
 
 
 @dataclass
 class DepositTokenBalance:
     mint: str
-    amount: int = 0
-    idle: int = 0
+    idle: str = "0"
     symbol: str = ""
     name: str = ""
     icon_url: str = ""
@@ -79,7 +76,6 @@ class Portfolio:
 
 @dataclass
 class TokenBalanceComputedBase:
-    mint: str
     value: str = "0"
     size: str = "0"
     price: str = "0"
