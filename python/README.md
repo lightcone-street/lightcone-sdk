@@ -64,6 +64,7 @@ async def main():
     # 3. Get orderbook decimals for price scaling
     decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
     decimals = OrderbookDecimals(
+        orderbook_id=orderbook.orderbook_id,
         base_decimals=decimals_resp.base_decimals,
         quote_decimals=decimals_resp.quote_decimals,
         price_decimals=decimals_resp.price_decimals,
@@ -75,8 +76,8 @@ async def main():
         LimitOrderEnvelope()
         .maker(keypair.pubkey())
         .market(Pubkey.from_string(market.pubkey))
-        .base_mint(Pubkey.from_string(orderbook.base_token))
-        .quote_mint(Pubkey.from_string(orderbook.quote_token))
+        .base_mint(Pubkey.from_string(orderbook.base.mint))
+        .quote_mint(Pubkey.from_string(orderbook.quote.mint))
         .bid()
         .price("0.55")
         .size("100")
@@ -157,6 +158,7 @@ from lightcone_sdk import LimitOrderEnvelope, OrderbookDecimals
 
 decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
 decimals = OrderbookDecimals(
+    orderbook_id=orderbook.orderbook_id,
     base_decimals=decimals_resp.base_decimals,
     quote_decimals=decimals_resp.quote_decimals,
     price_decimals=decimals_resp.price_decimals,
@@ -166,8 +168,8 @@ request = (
     LimitOrderEnvelope()
     .maker(keypair.pubkey())
     .market(Pubkey.from_string(market.pubkey))
-    .base_mint(Pubkey.from_string(orderbook.base_token))
-    .quote_mint(Pubkey.from_string(orderbook.quote_token))
+    .base_mint(Pubkey.from_string(orderbook.base.mint))
+    .quote_mint(Pubkey.from_string(orderbook.quote.mint))
     .bid()
     .price("0.55")
     .size("1")
