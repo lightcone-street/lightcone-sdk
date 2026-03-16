@@ -1,4 +1,6 @@
+import Decimal from "decimal.js";
 import type { OrderBookId, PubkeyStr } from "../../shared";
+import { display } from "../../shared/fmt/decimal";
 
 export * from "./client";
 export * from "./wire";
@@ -72,4 +74,22 @@ export interface DepositTokenBalance {
   symbol: string;
   name: string;
   iconUrl: string;
+}
+
+export function computedBase(
+  balance: TokenBalance,
+  conditionalPrice: Decimal
+): TokenBalanceComputedBase {
+  const size = new Decimal(balance.idle).plus(balance.onBook);
+  const value = size.mul(conditionalPrice);
+  return {
+    value: display(value),
+    size: display(size),
+    price: display(conditionalPrice),
+  };
+}
+
+export function computedQuote(balance: TokenBalance): string {
+  const size = new Decimal(balance.idle).plus(balance.onBook);
+  return display(size);
 }
