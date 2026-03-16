@@ -25,8 +25,8 @@ async def main():
     # 1. Fetch market, orderbook, and decimals
     m, orderbook = await market_and_orderbook(client)
     decimals = await scaling_decimals(client, orderbook)
-    base_mint = Pubkey.from_string(orderbook.base_token)
-    quote_mint = Pubkey.from_string(orderbook.quote_token)
+    base_mint = Pubkey.from_string(orderbook.base.mint)
+    quote_mint = Pubkey.from_string(orderbook.quote.mint)
 
     # 2. Get a fresh nonce from on-chain
     nonce = await fresh_order_nonce(rpc, keypair.pubkey())
