@@ -389,6 +389,7 @@ export function buildMergeCompleteSetIx(
  */
 export function buildCancelOrderIx(
   maker: PublicKey,
+  market: PublicKey,
   order: SignedOrder,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
@@ -397,7 +398,7 @@ export function buildCancelOrderIx(
 
   const keys: AccountMeta[] = [
     signerMut(maker),
-    readonly(order.market),
+    readonly(market),
     writable(orderStatus),
     readonly(SYSTEM_PROGRAM_ID),
   ];
@@ -927,7 +928,7 @@ export function buildWhitelistDepositTokenIx(
 
   const keys: AccountMeta[] = [
     signerMut(params.authority),
-    readonly(exchange),
+    writable(exchange),
     readonly(params.mint),
     writable(globalDepositToken),
     readonly(SYSTEM_PROGRAM_ID),

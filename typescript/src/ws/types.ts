@@ -19,5 +19,7 @@ export interface IWsClient {
   unsubscribe(params: UnsubscribeParams): void;
   isConnected(): boolean;
   readyState(): ReadyState;
+  restartConnection(): Promise<void>;
+  clearAuthedSubscriptions(): void;
   on(callback: (event: WsEvent) => void): () => void;
 }

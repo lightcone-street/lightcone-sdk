@@ -3,6 +3,7 @@ export {
   asPubkeyStr,
   DepositSource,
   deriveOrderbookId,
+  parseSide,
   resolutionSeconds,
   sideLabel,
   OrderUpdateType,

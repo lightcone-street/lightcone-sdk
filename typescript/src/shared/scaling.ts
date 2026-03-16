@@ -82,11 +82,16 @@ export function scalePriceSize(
   const baseMultiplier = new Decimal(10).pow(decimals.baseDecimals);
   const quoteMultiplier = new Decimal(10).pow(decimals.quoteDecimals);
 
-  const baseLamports = size.mul(baseMultiplier);
-  const quoteLamports = price.mul(size).mul(quoteMultiplier);
+  // Truncate size to base_decimals — digits beyond the token's precision
+  // are unrepresentable on-chain and are always f64 noise
+  const truncatedSize = size.toDecimalPlaces(decimals.baseDecimals, Decimal.ROUND_DOWN);
+
+  const baseLamports = truncatedSize.mul(baseMultiplier);
+  // Truncate quote_lamports to discard sub-lamport dust (price * size can
+  // produce fractions beyond the token's representable precision).
+  const quoteLamports = price.mul(truncatedSize).mul(quoteMultiplier).trunc();
 
   assertWhole(baseLamports, "base_lamports");
-  assertWhole(quoteLamports, "quote_lamports");
 
   const base = toU64(baseLamports, "base_lamports");
   const quote = toU64(quoteLamports, "quote_lamports");

@@ -402,7 +402,7 @@ export function isOrderExpired(
     return false;
   }
   const now = currentTime ?? BigInt(Math.floor(Date.now() / 1000));
-  return order.expiration < now;
+  return order.expiration <= now;
 }
 
 /**
@@ -415,6 +415,16 @@ export function ordersCanCross(
   if (buyOrder.side !== OrderSide.BID || sellOrder.side !== OrderSide.ASK) {
     return false;
   }
+
+  if (
+    buyOrder.amountIn === 0n ||
+    buyOrder.amountOut === 0n ||
+    sellOrder.amountIn === 0n ||
+    sellOrder.amountOut === 0n
+  ) {
+    return false;
+  }
+
   return (
     buyOrder.amountIn * sellOrder.amountIn >=
     buyOrder.amountOut * sellOrder.amountOut
@@ -428,7 +438,17 @@ export function calculateTakerFill(
   makerOrder: SignedOrder,
   makerFillAmount: bigint
 ): bigint {
-  return (makerFillAmount * makerOrder.amountOut) / makerOrder.amountIn;
+  if (makerOrder.amountIn === 0n) {
+    throw new Error("Overflow: makerOrder.amountIn is zero");
+  }
+
+  const result = (makerFillAmount * makerOrder.amountOut) / makerOrder.amountIn;
+
+  if (result > BigInt("18446744073709551615")) {
+    throw new Error("Overflow: taker fill exceeds u64 max");
+  }
+
+  return result;
 }
 
 // ============================================================================

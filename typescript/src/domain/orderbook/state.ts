@@ -7,12 +7,16 @@ export class OrderbookSnapshot {
   seq: number;
   private readonly bidsMap: Map<string, string>;
   private readonly asksMap: Map<string, string>;
+  private cachedBestBid: string | undefined | null;
+  private cachedBestAsk: string | undefined | null;
 
   constructor(orderbookId: OrderBookId) {
     this.orderbookId = orderbookId;
     this.seq = 0;
     this.bidsMap = new Map();
     this.asksMap = new Map();
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 
   apply(book: OrderBook): void {
@@ -38,6 +42,9 @@ export class OrderbookSnapshot {
         this.asksMap.set(level.price, level.size);
       }
     }
+
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 
   bids(): ReadonlyMap<string, string> {
@@ -49,19 +56,32 @@ export class OrderbookSnapshot {
   }
 
   bestBid(): string | undefined {
+    if (this.cachedBestBid !== null) {
+      return this.cachedBestBid;
+    }
     if (this.bidsMap.size === 0) {
+      this.cachedBestBid = undefined;
       return undefined;
     }
-
-    return Array.from(this.bidsMap.keys()).sort((a, b) => new Decimal(a).cmp(new Decimal(b))).at(-1);
+    const result = Array.from(this.bidsMap.keys())
+      .sort((a, b) => new Decimal(a).cmp(new Decimal(b)))
+      .at(-1);
+    this.cachedBestBid = result;
+    return result;
   }
 
   bestAsk(): string | undefined {
+    if (this.cachedBestAsk !== null) {
+      return this.cachedBestAsk;
+    }
     if (this.asksMap.size === 0) {
+      this.cachedBestAsk = undefined;
       return undefined;
     }
-
-    return Array.from(this.asksMap.keys()).sort((a, b) => new Decimal(a).cmp(new Decimal(b)))[0];
+    const result = Array.from(this.asksMap.keys())
+      .sort((a, b) => new Decimal(a).cmp(new Decimal(b)))[0];
+    this.cachedBestAsk = result;
+    return result;
   }
 
   midPrice(): string | undefined {
@@ -92,5 +112,7 @@ export class OrderbookSnapshot {
     this.bidsMap.clear();
     this.asksMap.clear();
     this.seq = 0;
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 }

@@ -366,7 +366,7 @@ export class LightconePinocchioClient {
   ): Promise<BuildResult<CancelOrderAccounts>> {
     const orderHash = hashOrder(order);
     const [orderStatus] = pda.getOrderStatusPda(orderHash, this.programId);
-    const ix = buildCancelOrderIx(maker, order, this.programId);
+    const ix = buildCancelOrderIx(maker, order.market, order, this.programId);
     return this.createBuildResult(maker, { orderStatus }, ix);
   }
 

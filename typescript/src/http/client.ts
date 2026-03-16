@@ -60,9 +60,7 @@ export class LightconeHttp {
         }
 
         lastError = error;
-        const delay = error.variant === "RateLimited" && error.retryAfterMs !== undefined
-          ? error.retryAfterMs
-          : delayForAttempt(config, attempt);
+        const delay = delayForAttempt(config, attempt);
 
         await sleep(delay);
       }
@@ -106,7 +104,7 @@ export class LightconeHttp {
         headers,
         body: body ? JSON.stringify(body) : undefined,
         signal: controller.signal,
-        credentials: "include",
+        ...(hasBrowserWindow() ? { credentials: "include" as RequestCredentials } : {}),
       });
     } catch (error) {
       clearTimeout(timeoutId);
@@ -120,48 +118,22 @@ export class LightconeHttp {
 
     if (response.ok) {
       const text = await response.text();
-      if (!text) {
-        throw HttpError.request("Empty response body");
+      try {
+        return JSON.parse(text) as T;
+      } catch (e) {
+        throw HttpError.request(e instanceof Error ? e.message : "JSON parse failed");
       }
-      return JSON.parse(text) as T;
     }
 
     const bodyText = await response.text().catch(() => "");
 
-    switch (response.status) {
-      case 400:
-        throw HttpError.badRequest(bodyText);
-      case 401:
-        throw HttpError.unauthorized();
-      case 404:
-        throw HttpError.notFound(bodyText);
-      case 429:
-        throw HttpError.rateLimited(parseRetryAfterMs(response.headers.get("retry-after")));
-      default:
-        if (response.status >= 500) {
-          throw HttpError.serverError(response.status, bodyText);
-        }
-        throw HttpError.badRequest(bodyText || `HTTP ${response.status}`);
-    }
+    const statusCode = response.status;
+    if (statusCode === 401) throw HttpError.unauthorized();
+    if (statusCode === 404) throw HttpError.notFound(bodyText);
+    if (statusCode === 429) throw HttpError.rateLimited();
+    if (statusCode >= 400 && statusCode < 500) throw HttpError.badRequest(bodyText);
+    throw HttpError.serverError(statusCode, bodyText);
   }
-}
-
-function parseRetryAfterMs(header: string | null): number | undefined {
-  if (!header) {
-    return undefined;
-  }
-
-  const seconds = Number.parseFloat(header);
-  if (Number.isFinite(seconds) && seconds >= 0) {
-    return Math.floor(seconds * 1000);
-  }
-
-  const retryDate = Date.parse(header);
-  if (Number.isFinite(retryDate)) {
-    return Math.max(0, retryDate - Date.now());
-  }
-
-  return undefined;
 }
 
 function sleep(ms: number): Promise<void> {

@@ -65,7 +65,7 @@ export interface DepositAssetMetadata {
   symbol: string;
   name: string;
   iconUrl: string;
-  value: string;
+  value: Decimal;
 }
 
 export interface DepositTokenBalance {

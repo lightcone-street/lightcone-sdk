@@ -1,4 +1,4 @@
-import { AuthError, SdkError } from "../error";
+import { SdkError } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
 import type { AuthCredentials, LoginRequest, LoginResponse, MeResponse, NonceResponse, User } from "./index";
@@ -37,16 +37,11 @@ export class Auth {
       use_embedded_wallet: useEmbeddedWallet,
     };
 
-    let response: LoginResponse;
-    try {
-      response = await this.client.http.post<LoginResponse, LoginRequest>(
-        url,
-        body,
-        RetryPolicy.None
-      );
-    } catch (error) {
-      throw SdkError.from(new AuthError("LoginFailed", error instanceof Error ? error.message : String(error)));
-    }
+    const response = await this.client.http.post<LoginResponse, LoginRequest>(
+      url,
+      body,
+      RetryPolicy.None
+    );
 
     if (response.token) {
       await this.client.http.setAuthToken(response.token);
@@ -68,6 +63,7 @@ export class Auth {
       x_username: response.x_username,
       x_user_id: response.x_user_id,
       x_display_name: response.x_display_name,
+      google_email: response.google_email,
     };
   }
 
@@ -97,6 +93,7 @@ export class Auth {
       x_username: response.x_username,
       x_user_id: response.x_user_id,
       x_display_name: response.x_display_name,
+      google_email: response.google_email,
     };
   }
 

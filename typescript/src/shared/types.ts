@@ -16,6 +16,12 @@ export enum Side {
   Ask = "ask",
 }
 
+export function parseSide(value: string): Side {
+  if (value === "bid" || value === "buy") return Side.Bid;
+  if (value === "ask" || value === "sell") return Side.Ask;
+  throw new Error(`Invalid side: ${value}`);
+}
+
 export function sideLabel(side: Side): "Buy" | "Sell" {
   return side === Side.Bid ? "Buy" : "Sell";
 }

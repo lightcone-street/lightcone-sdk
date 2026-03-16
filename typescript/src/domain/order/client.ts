@@ -1,6 +1,8 @@
 import bs58 from "bs58";
+import { Keypair } from "@solana/web3.js";
 import { SdkError } from "../../error";
 import { RetryPolicy, type LightconeHttp } from "../../http";
+import { signCancelOrder, signCancelTriggerOrder, signCancelAll } from "../../program/orders";
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
 
@@ -20,6 +22,15 @@ export function cancelBodyFromBase58(
     maker,
     signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
   };
+}
+
+export function cancelBodySigned(
+  orderHash: string,
+  maker: PubkeyStr,
+  keypair: Keypair
+): CancelBody {
+  const signature = signCancelOrder(orderHash, keypair);
+  return { order_hash: orderHash, maker, signature };
 }
 
 export interface CancelAllBody {
@@ -46,6 +57,17 @@ export function cancelAllBodyFromBase58(
   };
 }
 
+export function cancelAllBodySigned(
+  userPubkey: PubkeyStr,
+  orderbookId: OrderBookId,
+  timestamp: number,
+  salt: string,
+  keypair: Keypair
+): CancelAllBody {
+  const signature = signCancelAll(userPubkey, orderbookId, timestamp, salt, keypair);
+  return { user_pubkey: userPubkey, orderbook_id: orderbookId, signature, timestamp, salt };
+}
+
 export interface CancelTriggerBody {
   trigger_order_id: string;
   maker: PubkeyStr;
@@ -62,6 +84,15 @@ export function cancelTriggerBodyFromBase58(
     maker,
     signature: Buffer.from(bs58.decode(signatureBase58)).toString("hex"),
   };
+}
+
+export function cancelTriggerBodySigned(
+  triggerOrderId: string,
+  maker: PubkeyStr,
+  keypair: Keypair
+): CancelTriggerBody {
+  const signature = signCancelTriggerOrder(triggerOrderId, keypair);
+  return { trigger_order_id: triggerOrderId, maker, signature };
 }
 
 export interface FillInfo {

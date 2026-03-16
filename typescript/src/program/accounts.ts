@@ -102,7 +102,8 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
  * - market_count: u64 (8 bytes)
  * - paused: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 6]
+ * - deposit_token_count: u16 (2 bytes)
+ * - _padding: [u8; 4]
  */
 export function deserializeExchange(data: Buffer): Exchange {
   if (data.length < ACCOUNT_SIZE.EXCHANGE) {

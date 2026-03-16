@@ -92,6 +92,32 @@ export class WsClient implements IWsClient {
     return readyStateFrom(this.socket.readyState);
   }
 
+  async restartConnection(): Promise<void> {
+    if (this.socket && this.readyState() === ReadyState.Connecting) {
+      return;
+    }
+
+    if (this.socket) {
+      this.stopHeartbeat();
+      const socket = this.socket;
+      this.socket = undefined;
+      this.userInitiatedClose = true;
+      await new Promise<void>((resolve) => {
+        socket.once("close", () => resolve());
+        socket.close(1000, "Restart connection");
+      });
+    }
+
+    this.reconnectAttempts = 0;
+    await this.connectInternal();
+  }
+
+  clearAuthedSubscriptions(): void {
+    const next = this.activeSubscriptions.filter((params) => params.type !== "user");
+    this.activeSubscriptions.length = 0;
+    this.activeSubscriptions.push(...next);
+  }
+
   on(callback: (event: WsEvent) => void): () => void {
     this.callbacks.push(callback);
     return () => {
@@ -119,8 +145,11 @@ export class WsClient implements IWsClient {
     const socket = new WebSocket(this.config.url, { headers });
     this.socket = socket;
 
-    await new Promise<void>((resolve, reject) => {
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const connectionPromise = new Promise<void>((resolve, reject) => {
       socket.once("open", () => {
+        clearTimeout(timeoutId);
         this.reconnectAttempts = 0;
         this.startHeartbeat();
         this.flushPendingMessages();
@@ -130,6 +159,7 @@ export class WsClient implements IWsClient {
       });
 
       socket.once("error", (error) => {
+        clearTimeout(timeoutId);
         reject(error);
       });
 
@@ -147,6 +177,15 @@ export class WsClient implements IWsClient {
         }
       });
     });
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        socket.close();
+        reject(new Error("WebSocket connection timeout (30s)"));
+      }, 30_000);
+    });
+
+    await Promise.race([connectionPromise, timeoutPromise]);
   }
 
   private handleIncoming(raw: string): void {
@@ -163,6 +202,7 @@ export class WsClient implements IWsClient {
     }
 
     if (message.type === "pong") {
+      this.reconnectAttempts = 0;
       this.resetPongTimeout();
     }
 
@@ -171,6 +211,10 @@ export class WsClient implements IWsClient {
 
   private handleClose(code: number): void {
     if (!this.config.reconnect) {
+      return;
+    }
+
+    if (code === 1000) {
       return;
     }
 
@@ -195,11 +239,12 @@ export class WsClient implements IWsClient {
   }
 
   private backoffDelayMs(attempt: number, isRateLimited: boolean): number {
-    const exponent = Math.max(0, attempt - 1);
-    const raw = this.config.baseReconnectDelayMs * 2 ** exponent;
-    const jitter = Math.random() * raw;
-    const rateLimitPenalty = isRateLimited ? this.config.baseReconnectDelayMs : 0;
-    return Math.floor(Math.min(raw + jitter + rateLimitPenalty, 60_000));
+    const exponent = Math.min(Math.max(0, attempt - 1), 10);
+    const base = this.config.baseReconnectDelayMs * 2 ** exponent;
+    const jitterMax = isRateLimited ? 1000 : 500;
+    const jitter = Math.floor(Math.random() * (jitterMax + 1));
+    const cap = isRateLimited ? 300_000 : 60_000;
+    return Math.min(base + jitter, cap);
   }
 
   private startHeartbeat(): void {

@@ -25,8 +25,8 @@ export function display(value: Decimal): string {
   return displayFormattedString(value.toSignificantDigits(8).toString());
 }
 
-export function abbrNumber(value: Decimal, digits = 2): string {
-  const sign = value.isNegative() ? "-" : "";
+export function abbrNumber(value: Decimal, digits = 2, showSign = true): string {
+  const sign = showSign && value.isNegative() ? "-" : "";
   const abs = value.abs();
 
   const units: Array<[Decimal, string]> = [

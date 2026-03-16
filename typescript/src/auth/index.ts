@@ -12,6 +12,7 @@ export interface User {
   x_username?: string;
   x_user_id?: string;
   x_display_name?: string;
+  google_email?: string;
 }
 
 export interface LinkedAccount {
@@ -73,6 +74,7 @@ export interface LoginResponse {
   x_username?: string;
   x_user_id?: string;
   x_display_name?: string;
+  google_email?: string;
 }
 
 export interface MeResponse {
@@ -84,6 +86,7 @@ export interface MeResponse {
   x_username?: string;
   x_user_id?: string;
   x_display_name?: string;
+  google_email?: string;
   expires_at: number;
 }
 
