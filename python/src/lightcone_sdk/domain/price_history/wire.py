@@ -6,6 +6,31 @@ from typing import Optional
 
 @dataclass
 class PriceCandle:
+    """WS price candle (no best bid/ask)."""
+    t: int = 0
+    m: Optional[str] = None
+    o: Optional[str] = None
+    h: Optional[str] = None
+    l: Optional[str] = None
+    c: Optional[str] = None
+    v: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "PriceCandle":
+        return PriceCandle(
+            t=d.get("t", 0),
+            m=d.get("m"),
+            o=d.get("o"),
+            h=d.get("h"),
+            l=d.get("l"),
+            c=d.get("c"),
+            v=d.get("v"),
+        )
+
+
+@dataclass
+class OrderbookPriceCandle:
+    """REST orderbook price candle (includes best bid/ask)."""
     t: int = 0
     m: Optional[str] = None
     o: Optional[str] = None
@@ -17,8 +42,8 @@ class PriceCandle:
     ba: Optional[str] = None
 
     @staticmethod
-    def from_dict(d: dict) -> "PriceCandle":
-        return PriceCandle(
+    def from_dict(d: dict) -> "OrderbookPriceCandle":
+        return OrderbookPriceCandle(
             t=d.get("t", 0),
             m=d.get("m"),
             o=d.get("o"),
@@ -84,7 +109,7 @@ class OrderbookPriceHistoryResponse:
     orderbook_id: str = ""
     resolution: str = "1m"
     include_ohlcv: bool = False
-    prices: list[PriceCandle] = field(default_factory=list)
+    prices: list[OrderbookPriceCandle] = field(default_factory=list)
     next_cursor: Optional[int] = None
     has_more: bool = False
     decimals: dict[str, int] = field(default_factory=dict)
@@ -95,7 +120,7 @@ class OrderbookPriceHistoryResponse:
             orderbook_id=d.get("orderbook_id", ""),
             resolution=d.get("resolution", "1m"),
             include_ohlcv=d.get("include_ohlcv", False),
-            prices=[PriceCandle.from_dict(c) for c in d.get("prices", [])],
+            prices=[OrderbookPriceCandle.from_dict(c) for c in d.get("prices", [])],
             next_cursor=d.get("next_cursor"),
             has_more=d.get("has_more", False),
             decimals=d.get("decimals") or {},
@@ -189,6 +214,7 @@ class DepositPriceHistoryResponse:
 
 __all__ = [
     "PriceCandle",
+    "OrderbookPriceCandle",
     "PriceHistorySnapshot",
     "PriceHistoryUpdate",
     "PriceHistoryHeartbeat",

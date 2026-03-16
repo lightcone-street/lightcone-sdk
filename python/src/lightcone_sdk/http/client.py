@@ -8,8 +8,7 @@ from typing import Any, Optional
 import aiohttp
 
 from ..error import HttpError, HttpErrorKind
-from ..network import DEFAULT_API_URL
-from .retry import RetryConfig, RetryPolicy, delay_for_attempt
+from .retry import RetryPolicy, delay_for_attempt
 
 logger = logging.getLogger(__name__)
 
@@ -24,14 +23,11 @@ class LightconeHttp:
 
     def __init__(
         self,
-        base_url: str = DEFAULT_API_URL,
-        auth_token: Optional[str] = None,
-        retry_config: Optional[RetryConfig] = None,
+        base_url: str,
         timeout: int = DEFAULT_TIMEOUT_SECS,
     ):
         self._base_url = base_url.rstrip("/")
-        self._auth_token: Optional[str] = auth_token
-        self._default_retry_config = retry_config
+        self._auth_token: Optional[str] = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -86,15 +82,6 @@ class LightconeHttp:
             headers["Cookie"] = f"auth_token={self._auth_token}"
         return headers
 
-    def _resolve_retry_config(self, policy: RetryPolicy) -> Optional[RetryConfig]:
-        """Resolve a retry policy to a RetryConfig, or None for no retries."""
-        if policy.is_none():
-            return None
-        if policy._kind == "custom":
-            return policy._config
-        # Idempotent: use client's override if provided, otherwise standard idempotent
-        return self._default_retry_config or RetryConfig.idempotent()
-
     def _map_status_error(self, status: int, message: str) -> HttpError:
         """Map HTTP status to HttpError variant."""
         if status == 401:
@@ -104,7 +91,7 @@ class LightconeHttp:
         elif status == 429:
             return HttpError.rate_limited(message)
         elif 400 <= status <= 499:
-            return HttpError.bad_request(message, status)
+            return HttpError.bad_request(message)
         else:
             return HttpError.server_error(message, status)
 
@@ -123,18 +110,8 @@ class LightconeHttp:
                 except (ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
                     raise HttpError.request(f"Failed to parse response: {e}")
             else:
-                error_text = await response.text()
-                try:
-                    error_data = json.loads(error_text)
-                    error_msg = (
-                        error_data.get("error")
-                        or error_data.get("message")
-                        or error_text
-                    )
-                except (ValueError, json.JSONDecodeError):
-                    error_msg = error_text or "Unknown error"
-
-                raise self._map_status_error(response.status, error_msg)
+                body_text = await response.text()
+                raise self._map_status_error(response.status, body_text or "")
 
     async def _request_with_retry(
         self,
@@ -144,7 +121,7 @@ class LightconeHttp:
         **kwargs: Any,
     ) -> Any:
         """Make an HTTP request with retry logic."""
-        config = self._resolve_retry_config(retry_policy)
+        config = retry_policy.resolve_config()
 
         if config is None:
             # RetryPolicy.NONE — single attempt, no retry loop
@@ -189,13 +166,15 @@ class LightconeHttp:
                     continue
                 raise last_error
             except aiohttp.ClientError as e:
-                # Transport errors (connect, DNS, etc.) — always retryable
-                last_error = HttpError.request(str(e))
-                if attempt < config.max_retries:
+                # Only retry connect errors (matches Rust's is_connect/is_request)
+                # Don't retry SSL errors, server disconnects, etc.
+                retryable = isinstance(e, aiohttp.ClientConnectorError) and not isinstance(e, aiohttp.ClientSSLError)
+                if retryable and attempt < config.max_retries:
+                    last_error = HttpError.request(str(e))
                     delay = delay_for_attempt(attempt, config)
                     await asyncio.sleep(delay)
                     continue
-                raise last_error
+                raise HttpError.request(str(e))
 
         raise HttpError.max_retries_exceeded(
             config.max_retries + 1,
@@ -205,31 +184,29 @@ class LightconeHttp:
     async def get(
         self,
         path: str,
-        params: Optional[dict] = None,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
     ) -> Any:
         """Make a GET request.
 
         Args:
             path: URL path (appended to base_url)
-            params: Optional query parameters
             retry_policy: Retry policy (default: IDEMPOTENT with retries)
         """
         return await self._request_with_retry(
-            "GET", path, retry_policy=retry_policy, params=params
+            "GET", path, retry_policy=retry_policy
         )
 
     async def post(
         self,
         path: str,
-        body: Optional[Any] = None,
+        body: Any,
         retry_policy: RetryPolicy = RetryPolicy.NONE,
     ) -> Any:
         """Make a POST request.
 
         Args:
             path: URL path (appended to base_url)
-            body: Optional JSON body
+            body: JSON body
             retry_policy: Retry policy (default: NONE for non-idempotent)
         """
         return await self._request_with_retry(

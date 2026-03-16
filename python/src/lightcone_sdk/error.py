@@ -78,8 +78,8 @@ class HttpError(SdkError):
         return HttpError(message, HttpErrorKind.NOT_FOUND, 404)
 
     @staticmethod
-    def bad_request(message: str, status: int = 400) -> "HttpError":
-        return HttpError(message, HttpErrorKind.BAD_REQUEST, status)
+    def bad_request(message: str) -> "HttpError":
+        return HttpError(message, HttpErrorKind.BAD_REQUEST)
 
     @staticmethod
     def timeout(message: str = "Request timed out") -> "HttpError":

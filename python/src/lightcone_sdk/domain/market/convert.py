@@ -76,6 +76,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             conditional_tokens.append(ConditionalToken(
                 mint=ct.token_address,
                 outcome_index=ct.outcome_index,
+                id=ct.id,
                 outcome=ct.outcome,
                 deposit_asset=da.deposit_asset,
                 deposit_symbol=da_symbol,

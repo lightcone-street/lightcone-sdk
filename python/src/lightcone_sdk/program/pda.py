@@ -180,19 +180,31 @@ def get_alt_pda(
     )
 
 
+def get_all_conditional_mint_pdas(
+    market: Pubkey,
+    deposit_mint: Pubkey,
+    num_outcomes: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> list[tuple[Pubkey, int]]:
+    """Derive all conditional mint PDAs for a market.
+
+    Returns a list of (address, bump) tuples for outcomes 0 to num_outcomes-1.
+    """
+    return [
+        get_conditional_mint_pda(market, deposit_mint, i, program_id)
+        for i in range(num_outcomes)
+    ]
+
+
 def get_all_conditional_mints(
     market: Pubkey,
     deposit_mint: Pubkey,
     num_outcomes: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> list[Pubkey]:
-    """Derive all conditional mint PDAs for a market.
-
-    Returns a list of conditional mint addresses for outcomes 0 to num_outcomes-1.
-    """
+    """Deprecated: Use get_all_conditional_mint_pdas instead."""
     return [
-        get_conditional_mint_pda(market, deposit_mint, i, program_id)[0]
-        for i in range(num_outcomes)
+        addr for addr, _ in get_all_conditional_mint_pdas(market, deposit_mint, num_outcomes, program_id)
     ]
 
 

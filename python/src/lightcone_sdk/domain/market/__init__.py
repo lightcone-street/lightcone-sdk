@@ -37,6 +37,7 @@ class Outcome:
 class ConditionalToken:
     mint: str
     outcome_index: int
+    id: int = 0
     outcome: str = ""
     deposit_asset: str = ""
     deposit_symbol: str = ""

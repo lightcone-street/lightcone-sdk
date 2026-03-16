@@ -54,7 +54,7 @@ from .orders import (
     sign_order,
 )
 from .pda import (
-    get_all_conditional_mints,
+    get_all_conditional_mint_pdas,
     get_conditional_mint_pda,
     get_exchange_pda,
     get_global_deposit_pda,
@@ -263,9 +263,8 @@ class LightconePinocchioClient:
             market: Market pubkey (passed separately, matching Rust SDK)
             num_outcomes: Number of outcomes for the market
         """
-        payer = params.payer or params.authority
         ix = build_add_deposit_mint_instruction(
-            payer=payer,
+            authority=params.authority,
             market=market,
             deposit_mint=params.deposit_mint,
             outcome_metadata=params.outcome_metadata,
@@ -493,9 +492,11 @@ class LightconePinocchioClient:
         self, market: Pubkey, deposit_mint: Pubkey, num_outcomes: int
     ) -> List[Pubkey]:
         """Get all conditional mint addresses for a market."""
-        return get_all_conditional_mints(
-            market, deposit_mint, num_outcomes, self.program_id
-        )
+        return [
+            addr for addr, _ in get_all_conditional_mint_pdas(
+                market, deposit_mint, num_outcomes, self.program_id
+            )
+        ]
 
     def get_exchange_address(self) -> Pubkey:
         """Get the exchange PDA address."""

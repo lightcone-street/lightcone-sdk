@@ -83,6 +83,7 @@ async def scaling_decimals(
 ) -> OrderbookDecimals:
     decimals = await client.orderbooks().decimals(orderbook.orderbook_id)
     return OrderbookDecimals(
+        orderbook_id=orderbook.orderbook_id,
         base_decimals=decimals.base_decimals,
         quote_decimals=decimals.quote_decimals,
         price_decimals=decimals.price_decimals,

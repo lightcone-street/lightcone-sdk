@@ -25,6 +25,7 @@ class OutcomeWire:
 @dataclass
 class ConditionalMintWire:
     """Raw conditional mint nested inside a deposit asset."""
+    id: int = 0
     token_address: str = ""
     outcome_index: int = 0
     outcome: str = ""
@@ -39,6 +40,7 @@ class ConditionalMintWire:
     @staticmethod
     def from_dict(d: dict) -> "ConditionalMintWire":
         return ConditionalMintWire(
+            id=d.get("id", 0),
             token_address=d.get("token_address", ""),
             outcome_index=d.get("outcome_index", 0),
             outcome=d.get("outcome", ""),

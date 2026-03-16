@@ -23,13 +23,16 @@ class Markets:
         limit: Optional[int] = None,
     ) -> MarketsResult:
         """Get markets with Rust-aligned filtering and validation reporting."""
-        params: dict = {}
+        url = "/api/markets"
+        query_parts: list[str] = []
         if cursor is not None:
-            params["cursor"] = str(cursor)
+            query_parts.append(f"cursor={cursor}")
         if limit is not None:
-            params["limit"] = str(limit)
+            query_parts.append(f"limit={limit}")
+        if query_parts:
+            url += "?" + "&".join(query_parts)
 
-        data = await self._http.get("/api/markets", params=params or None)
+        data = await self._http.get(url)
         resp = MarketResponse.from_dict(data)
         markets: list[Market] = []
         validation_errors: list[str] = []
@@ -64,13 +67,10 @@ class Markets:
     async def search(self, query: str, limit: Optional[int] = None) -> list[MarketSearchResult]:
         """Search markets by query string."""
         encoded = url_quote(query, safe='')
-        params: dict = {}
+        url = f"/api/markets/search/by-query/{encoded}"
         if limit is not None:
-            params["limit"] = str(limit)
-        data = await self._http.get(
-            f"/api/markets/search/by-query/{encoded}",
-            params=params or None,
-        )
+            url += f"?limit={limit}"
+        data = await self._http.get(url)
         markets_data = data if isinstance(data, list) else data.get("markets", [])
         return [MarketSearchResult.from_dict(m) for m in markets_data]
 

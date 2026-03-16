@@ -87,13 +87,13 @@ class Orders:
         cursor: Optional[str] = None,
     ) -> UserOrdersResponse:
         """Get user's orders with pagination."""
-        params: dict = {"wallet_address": wallet}
+        url = f"/api/users/orders?wallet_address={wallet}"
         if limit is not None:
-            params["limit"] = str(limit)
+            url += f"&limit={limit}"
         if cursor is not None:
-            params["cursor"] = cursor
+            url += f"&cursor={cursor}"
 
-        data = await self._http.get("/api/users/orders", params=params)
+        data = await self._http.get(url)
 
         return UserOrdersResponse(
             user_pubkey=data.get("user_pubkey", wallet),

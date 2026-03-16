@@ -15,7 +15,6 @@ from .domain.price_history.client import PriceHistoryClient
 from .domain.admin.client import Admin
 from .domain.referral.client import Referrals
 from .http.client import LightconeHttp
-from .http.retry import RetryConfig
 from .network import DEFAULT_API_URL, DEFAULT_WS_URL
 from .privy.client import Privy
 from .ws import WsConfig, WS_DEFAULT_CONFIG
@@ -115,7 +114,6 @@ class LightconeClientBuilder:
         self._base_url: str = DEFAULT_API_URL
         self._ws_url: str = DEFAULT_WS_URL
         self._auth_credentials: Optional[AuthCredentials] = None
-        self._retry_config: Optional[RetryConfig] = None
         self._ws_config: Optional[WsConfig] = None
         self._timeout: int = 30
 
@@ -131,10 +129,6 @@ class LightconeClientBuilder:
         self._auth_credentials = credentials
         return self
 
-    def retry_config(self, config: RetryConfig) -> "LightconeClientBuilder":
-        self._retry_config = config
-        return self
-
     def ws_config(self, config: WsConfig) -> "LightconeClientBuilder":
         self._ws_config = config
         return self
@@ -147,7 +141,6 @@ class LightconeClientBuilder:
         """Build the LightconeClient."""
         http = LightconeHttp(
             base_url=self._base_url,
-            retry_config=self._retry_config,
             timeout=self._timeout,
         )
 

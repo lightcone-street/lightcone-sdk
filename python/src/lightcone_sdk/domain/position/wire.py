@@ -42,12 +42,29 @@ class PositionOutcomeWire:
 
 
 @dataclass
+class VaultBalance:
+    """Vault balance for a deposit mint within a position."""
+    deposit_mint: str = ""
+    vault: str = ""
+    balance: str = "0"
+
+    @staticmethod
+    def from_dict(d: dict) -> "VaultBalance":
+        return VaultBalance(
+            deposit_mint=d.get("deposit_mint", ""),
+            vault=d.get("vault", ""),
+            balance=str(d.get("balance", "0")),
+        )
+
+
+@dataclass
 class PositionEntryWire:
     id: str
     owner: str
     market_pubkey: str
     position_pubkey: str = ""
     outcomes: list[PositionOutcomeWire] = field(default_factory=list)
+    vault_balances: list[VaultBalance] = field(default_factory=list)
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
 
@@ -59,6 +76,7 @@ class PositionEntryWire:
             market_pubkey=_require(d, "market_pubkey", "PositionEntryWire"),
             position_pubkey=d.get("position_pubkey", ""),
             outcomes=[PositionOutcomeWire.from_dict(o) for o in d.get("outcomes", [])],
+            vault_balances=[VaultBalance.from_dict(v) for v in d.get("vault_balances", [])],
             created_at=d.get("created_at"),
             updated_at=d.get("updated_at"),
         )

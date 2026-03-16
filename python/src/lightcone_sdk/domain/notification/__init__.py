@@ -61,6 +61,8 @@ class Notification:
     def market_slug(self) -> Optional[str]:
         if self.market_resolved_data:
             return self.market_resolved_data.market_slug
+        if self.order_filled_data:
+            return self.order_filled_data.market_slug
         if self.market_data:
             return self.market_data.market_slug
         return None

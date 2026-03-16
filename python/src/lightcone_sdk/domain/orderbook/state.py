@@ -1,6 +1,7 @@
 """Orderbook state for WebSocket updates."""
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import Optional, Union
 
 
@@ -62,7 +63,7 @@ class OrderbookSnapshot:
             if size == "0":
                 self.asks.pop(price, None)
             else:
-                self.asks[ask.price] = size
+                self.asks[price] = size
 
         seq = update.get("seq")
         if seq is not None:
@@ -78,19 +79,19 @@ class OrderbookSnapshot:
             return None
         return min(self.asks.keys(), key=lambda p: float(p))
 
-    def mid_price(self) -> Optional[float]:
+    def mid_price(self) -> Optional[str]:
         bb = self.best_bid()
         ba = self.best_ask()
         if bb is None or ba is None:
             return None
-        return (float(bb) + float(ba)) / 2
+        return str((Decimal(bb) + Decimal(ba)) / 2)
 
-    def spread(self) -> Optional[float]:
+    def spread(self) -> Optional[str]:
         bb = self.best_bid()
         ba = self.best_ask()
         if bb is None or ba is None:
             return None
-        return float(ba) - float(bb)
+        return str(Decimal(ba) - Decimal(bb))
 
     def is_empty(self) -> bool:
         return not self.bids and not self.asks

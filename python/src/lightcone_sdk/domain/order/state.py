@@ -7,29 +7,42 @@ from . import Order, TriggerOrder
 
 @dataclass
 class UserOpenOrders:
-    """Container for a user's open orders."""
-    orders: dict[str, Order] = field(default_factory=dict)
+    """Container for a user's open orders, grouped by market_pubkey."""
+    orders: dict[str, list[Order]] = field(default_factory=dict)
 
     def upsert(self, order: Order) -> None:
-        self.orders[order.order_hash] = order
+        market = order.market_pubkey
+        if market not in self.orders:
+            self.orders[market] = []
+        lst = self.orders[market]
+        # Remove existing order with same hash before appending
+        self.orders[market] = [o for o in lst if o.order_hash != order.order_hash]
+        self.orders[market].append(order)
 
     def remove(self, order_hash: str) -> Optional[Order]:
-        return self.orders.pop(order_hash, None)
+        for market, lst in self.orders.items():
+            for i, o in enumerate(lst):
+                if o.order_hash == order_hash:
+                    return lst.pop(i)
+        return None
 
     def update(self, order: Order) -> None:
         if order.status in ("cancelled", "filled"):
-            self.orders.pop(order.order_hash, None)
+            self.remove(order.order_hash)
         else:
-            self.orders[order.order_hash] = order
+            self.upsert(order)
 
-    def get(self, order_hash: str) -> Optional[Order]:
-        return self.orders.get(order_hash)
+    def get(self, market_pubkey: str) -> Optional[list[Order]]:
+        return self.orders.get(market_pubkey)
 
     def all(self) -> list[Order]:
-        return list(self.orders.values())
+        result = []
+        for lst in self.orders.values():
+            result.extend(lst)
+        return result
 
     def is_empty(self) -> bool:
-        return len(self.orders) == 0
+        return all(len(v) == 0 for v in self.orders.values())
 
     def clear(self) -> None:
         self.orders.clear()

@@ -40,17 +40,38 @@ class TradeResponseWire:
 
 
 @dataclass
+class TradesDecimals:
+    """Decimal precision metadata for trade fields."""
+    price: Optional[int] = None
+    size: Optional[int] = None
+    fee: Optional[int] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "TradesDecimals":
+        return TradesDecimals(
+            price=d.get("price"),
+            size=d.get("size"),
+            fee=d.get("fee"),
+        )
+
+
+@dataclass
 class TradesResponseWire:
     trades: list[TradeResponseWire]
+    orderbook_id: str = ""
     next_cursor: Optional[int] = None
     has_more: bool = False
+    decimals: Optional[TradesDecimals] = None
 
     @staticmethod
     def from_dict(d: dict) -> "TradesResponseWire":
+        dec_raw = d.get("decimals")
         return TradesResponseWire(
             trades=[TradeResponseWire.from_dict(t) for t in d.get("trades", [])],
+            orderbook_id=d.get("orderbook_id", ""),
             next_cursor=d.get("next_cursor"),
             has_more=d.get("has_more", False),
+            decimals=TradesDecimals.from_dict(dec_raw) if isinstance(dec_raw, dict) else None,
         )
 
 

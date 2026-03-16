@@ -11,6 +11,18 @@ from ..notification import Notification
 
 
 @dataclass
+class UserOrderUpdateBalance:
+    """Balance update included with order events."""
+    outcomes: list[ConditionalBalance] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserOrderUpdateBalance":
+        return UserOrderUpdateBalance(
+            outcomes=[ConditionalBalance.from_dict(o) for o in d.get("outcomes", [])],
+        )
+
+
+@dataclass
 class WsOrder:
     """WebSocket order update."""
     order_hash: str
@@ -28,6 +40,7 @@ class WsOrder:
     quote_mint: str = ""
     outcome_index: int = 0
     created_at: Optional[str] = None
+    balance: Optional[UserOrderUpdateBalance] = None
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrder":
@@ -36,6 +49,8 @@ class WsOrder:
         size = d.get("size")
         if size is None:
             size = _sum_decimal_strings(remaining, filled)
+        bal_raw = d.get("balance")
+        balance = UserOrderUpdateBalance.from_dict(bal_raw) if isinstance(bal_raw, dict) else None
         return WsOrder(
             order_hash=_require(d, "order_hash", "WsOrder"),
             side=int(Side.from_wire(d.get("side", 0))),
@@ -52,6 +67,7 @@ class WsOrder:
             quote_mint=d.get("quote_mint", ""),
             outcome_index=d.get("outcome_index", 0),
             created_at=d.get("created_at"),
+            balance=balance,
         )
 
 

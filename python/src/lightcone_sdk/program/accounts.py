@@ -1,7 +1,5 @@
 """Account deserialization for the Lightcone SDK."""
 
-from typing import Optional
-
 from .constants import (
     EXCHANGE_DISCRIMINATOR,
     EXCHANGE_SIZE,
@@ -9,7 +7,6 @@ from .constants import (
     GLOBAL_DEPOSIT_TOKEN_SIZE,
     MARKET_DISCRIMINATOR,
     MARKET_SIZE,
-    NO_WINNING_OUTCOME,
     ORDERBOOK_DISCRIMINATOR,
     ORDERBOOK_SIZE,
     ORDER_STATUS_DISCRIMINATOR,
@@ -86,18 +83,12 @@ def deserialize_market(data: bytes) -> Market:
             f"Market data too short: {len(data)} bytes (expected {MARKET_SIZE})"
         )
 
-    winning_outcome_raw = decode_u8(data, 18)
-    has_winning_outcome = decode_bool(data, 19)
-
-    winning_outcome: Optional[int] = None
-    if has_winning_outcome and winning_outcome_raw != NO_WINNING_OUTCOME:
-        winning_outcome = winning_outcome_raw
-
     return Market(
         market_id=decode_u64(data, 8),
         num_outcomes=decode_u8(data, 16),
         status=MarketStatus(decode_u8(data, 17)),
-        winning_outcome=winning_outcome,
+        winning_outcome=decode_u8(data, 18),
+        has_winning_outcome=decode_bool(data, 19),
         bump=decode_u8(data, 20),
         oracle=decode_pubkey(data, 24),
         question_id=data[56:88],

@@ -102,6 +102,7 @@ def split_snapshot_orders(
             trigger_orders.insert(trigger_snapshot_to_order(s))
         else:
             order = limit_snapshot_to_order(s)
-            open_orders.upsert(order)
+            if order.remaining_size not in ("0", "", None):
+                open_orders.upsert(order)
 
     return open_orders, trigger_orders

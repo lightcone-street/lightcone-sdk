@@ -1,20 +1,33 @@
 """Position domain types."""
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, Union
 
 
-class TokenBalanceTokenType:
-    DEPOSIT_ASSET = "deposit_asset"
-    CONDITIONAL_TOKEN = "conditional_token"
+@dataclass
+class DepositAssetType:
+    """Token type for deposit assets."""
+    kind: str = "deposit_asset"
+
+
+@dataclass
+class ConditionalTokenType:
+    """Token type for conditional tokens with associated data."""
+    kind: str = "conditional_token"
+    orderbook_id: str = ""
+    market_pubkey: str = ""
+    outcome_index: int = 0
+
+
+TokenBalanceTokenType = Union[DepositAssetType, ConditionalTokenType]
 
 
 @dataclass
 class TokenBalance:
     mint: str
-    idle: int = 0
-    on_book: int = 0
-    token_type: str = TokenBalanceTokenType.CONDITIONAL_TOKEN
+    idle: str = "0"
+    on_book: str = "0"
+    token_type: TokenBalanceTokenType = field(default_factory=DepositAssetType)
 
 
 @dataclass
@@ -41,7 +54,7 @@ class Position:
 class WalletHolding:
     token_mint: str
     symbol: str = ""
-    amount: int = 0
+    amount: str = "0"
     decimals: int = 6
     usd_value: str = "0"
     img_src: str = ""
@@ -89,6 +102,8 @@ from .wire import (  # noqa: E402
 
 
 __all__ = [
+    "DepositAssetType",
+    "ConditionalTokenType",
     "TokenBalanceTokenType",
     "TokenBalance",
     "PositionOutcome",

@@ -17,13 +17,10 @@ class Orderbooks:
 
     async def get(self, orderbook_id: str, depth: Optional[int] = None) -> OrderbookDepthResponse:
         """Get orderbook depth."""
-        params: dict = {}
+        url = f"/api/orderbook/{orderbook_id}"
         if depth is not None:
-            params["depth"] = str(depth)
-        data = await self._http.get(
-            f"/api/orderbook/{orderbook_id}",
-            params=params or None,
-        )
+            url += f"?depth={depth}"
+        data = await self._http.get(url)
         return OrderbookDepthResponse.from_dict(data)
 
     async def decimals(self, orderbook_id: str) -> DecimalsResponse:

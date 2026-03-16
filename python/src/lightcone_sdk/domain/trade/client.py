@@ -23,13 +23,13 @@ class Trades:
         cursor: Optional[int] = None,
     ) -> TradesPage:
         """Get trades for an orderbook."""
-        params: dict = {"orderbook_id": orderbook_id}
+        url = f"/api/trades?orderbook_id={orderbook_id}"
         if limit is not None:
-            params["limit"] = str(limit)
+            url += f"&limit={limit}"
         if cursor is not None:
-            params["cursor"] = str(cursor)
+            url += f"&cursor={cursor}"
 
-        data = await self._http.get("/api/trades", params=params)
+        data = await self._http.get(url)
         resp = TradesResponseWire.from_dict(data)
         trades = [trade_from_wire(t) for t in resp.trades]
         return TradesPage(

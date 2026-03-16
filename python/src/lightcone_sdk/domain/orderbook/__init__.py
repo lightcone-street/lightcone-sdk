@@ -47,14 +47,14 @@ class OrderBookPair:
         dap = Decimal(deposit_asset_price)
         cp = Decimal(conditional_price)
         if dap == 0:
-            return OutcomeImpact(pct=0.0, dollar=0.0)
+            return OutcomeImpact(pct=0.0, dollar="0")
         pct = float((cp - dap) / dap * 100)
         sign = "+" if pct > 0 else "-"
         return OutcomeImpact(
             sign=sign,
             is_positive=pct > 0,
             pct=abs(pct),
-            dollar=float(abs(cp - dap)),
+            dollar=str(abs(cp - dap)),
         )
 
 
@@ -63,7 +63,7 @@ class OutcomeImpact:
     """Price impact calculation result."""
     sign: str = ""
     pct: float = 0.0
-    dollar: float = 0.0
+    dollar: str = "0"
     is_positive: bool = False
 
 

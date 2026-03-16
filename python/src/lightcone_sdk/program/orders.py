@@ -41,11 +41,13 @@ from .utils import (
     decode_u32,
     decode_u64,
     decode_u8,
+    derive_condition_id,
     encode_i64,
     encode_u32,
     encode_u64,
     encode_u8,
     keccak256,
+    orders_cross,
 )
 
 # Backward compatibility alias
@@ -495,7 +497,7 @@ def is_order_expired(order: SignedOrder, current_time: int) -> bool:
     """Check if an order is expired. Expiration of 0 means no expiration."""
     if order.expiration == 0:
         return False
-    return current_time > order.expiration
+    return current_time >= order.expiration
 
 
 def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
@@ -517,3 +519,28 @@ def derive_orderbook_id(order: SignedOrder) -> str:
     base = str(order.base_mint)[:8]
     quote = str(order.quote_mint)[:8]
     return f"{base}_{quote}"
+
+
+def orders_can_cross(buy_order: SignedOrder, sell_order: SignedOrder) -> bool:
+    """Check if two orders can cross (prices are compatible).
+
+    Returns True if the buyer's price >= seller's price.
+    Validates sides and non-zero amounts before comparing.
+    """
+    if buy_order.side != OrderSide.BID or sell_order.side != OrderSide.ASK:
+        return False
+
+    if (
+        buy_order.amount_in == 0
+        or buy_order.amount_out == 0
+        or sell_order.amount_in == 0
+        or sell_order.amount_out == 0
+    ):
+        return False
+
+    return orders_cross(
+        bid_maker_amount=buy_order.amount_in,
+        bid_taker_amount=buy_order.amount_out,
+        ask_maker_amount=sell_order.amount_in,
+        ask_taker_amount=sell_order.amount_out,
+    )

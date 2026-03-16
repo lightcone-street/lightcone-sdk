@@ -43,7 +43,8 @@ class Market:
     market_id: int
     num_outcomes: int
     status: MarketStatus
-    winning_outcome: Optional[int]
+    winning_outcome: int  # u8 raw value (255 = no winner)
+    has_winning_outcome: bool
     bump: int
     oracle: Pubkey
     question_id: bytes
@@ -143,9 +144,9 @@ class MakerFill:
     order: SignedOrder
     maker_fill_amount: int
     taker_fill_amount: int
+    deposit_mint: Pubkey
     is_full_fill: bool = False
     is_deposit: bool = False
-    deposit_mint: Optional[Pubkey] = None
 
 
 # Parameter types for client methods
@@ -175,8 +176,6 @@ class AddDepositMintParams:
     authority: Pubkey
     deposit_mint: Pubkey
     outcome_metadata: list[OutcomeMetadata]
-    payer: Optional[Pubkey] = None
-    market: Optional[Pubkey] = None
 
 
 @dataclass
@@ -343,8 +342,8 @@ class InitPositionTokensParams:
     payer: Pubkey
     user: Pubkey
     market: Pubkey
-    deposit_mints: list[Pubkey] = field(default_factory=list)
-    recent_slot: int = 0
+    deposit_mints: list[Pubkey]
+    recent_slot: int
 
 
 @dataclass
@@ -355,16 +354,12 @@ class DepositAndSwapParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    taker_order: SignedOrder = field(default_factory=lambda: SignedOrder(
-        nonce=0, maker=Pubkey.default(), market=Pubkey.default(),
-        base_mint=Pubkey.default(), quote_mint=Pubkey.default(),
-        side=OrderSide.BID, amount_in=0, amount_out=0, expiration=0,
-    ))
-    taker_is_full_fill: bool = False
-    taker_is_deposit: bool = False
-    taker_deposit_mint: Optional[Pubkey] = None
-    num_outcomes: int = 2
-    makers: list[MakerFill] = field(default_factory=list)
+    taker_order: SignedOrder
+    taker_is_full_fill: bool
+    taker_is_deposit: bool
+    taker_deposit_mint: Pubkey
+    num_outcomes: int
+    makers: list[MakerFill]
 
 
 @dataclass
@@ -375,7 +370,7 @@ class ExtendPositionTokensParams:
     user: Pubkey
     market: Pubkey
     lookup_table: Pubkey
-    deposit_mints: list[Pubkey] = field(default_factory=list)
+    deposit_mints: list[Pubkey]
 
 
 @dataclass

@@ -1,6 +1,7 @@
 """Price history sub-client."""
 
 from typing import Optional, TYPE_CHECKING
+from urllib.parse import urlencode
 
 from . import LineData
 from .wire import (
@@ -31,7 +32,7 @@ class PriceHistoryClient:
         include_ohlcv: bool = False,
     ) -> OrderbookPriceHistoryResponse:
         """Get orderbook price history using Unix millisecond timestamps."""
-        params: dict = {
+        params: dict[str, str] = {
             "orderbook_id": orderbook_id,
             "resolution": _resolution_value(resolution),
         }
@@ -46,7 +47,8 @@ class PriceHistoryClient:
         if include_ohlcv:
             params["include_ohlcv"] = "true"
 
-        data = await self._http.get("/api/price-history", params=params)
+        url = f"/api/price-history?{urlencode(params)}"
+        data = await self._http.get(url)
         return OrderbookPriceHistoryResponse.from_dict(data)
 
     async def get_deposit_asset(
@@ -59,7 +61,7 @@ class PriceHistoryClient:
         limit: Optional[int] = None,
     ) -> DepositPriceHistoryResponse:
         """Get deposit-token price history using Unix millisecond timestamps."""
-        params: dict = {
+        params: dict[str, str] = {
             "deposit_asset": deposit_asset,
             "resolution": _resolution_value(resolution),
         }
@@ -72,7 +74,8 @@ class PriceHistoryClient:
         if limit is not None:
             params["limit"] = str(_ensure_page_limit(limit))
 
-        data = await self._http.get("/api/price-history", params=params)
+        url = f"/api/price-history?{urlencode(params)}"
+        data = await self._http.get(url)
         return DepositPriceHistoryResponse.from_dict(data)
 
     async def get_line_data(

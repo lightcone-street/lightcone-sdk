@@ -1,7 +1,7 @@
 """Price and size scaling utilities for the Lightcone SDK."""
 
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 
 class ScalingError(Exception):
@@ -14,6 +14,7 @@ class ScalingError(Exception):
 class OrderbookDecimals:
     """Decimal metadata for an orderbook pair."""
 
+    orderbook_id: str
     base_decimals: int
     quote_decimals: int
     price_decimals: int
@@ -77,12 +78,19 @@ def scale_price_size(
     base_factor = Decimal(10) ** decimals.base_decimals
     quote_factor = Decimal(10) ** decimals.quote_decimals
 
+    # Truncate size to base_decimals precision (strip f64 noise)
+    size_d = size_d.quantize(Decimal(10) ** -decimals.base_decimals, rounding=ROUND_DOWN)
+
     # base_lamports = size * 10^base_decimals
     base_lamports = size_d * base_factor
-    # quote_lamports = size * price * 10^quote_decimals
-    quote_lamports = size_d * price_d * quote_factor
 
-    # Round to integers
+    # Validate no fractional lamports
+    if base_lamports != base_lamports.to_integral_value():
+        raise ScalingError(f"Fractional lamports not allowed: base_lamports = {base_lamports}")
+
+    # quote_lamports = size * price * 10^quote_decimals (truncate sub-lamport dust)
+    quote_lamports = (size_d * price_d * quote_factor).to_integral_value(rounding=ROUND_DOWN)
+
     base_lamports_int = int(base_lamports)
     quote_lamports_int = int(quote_lamports)
 

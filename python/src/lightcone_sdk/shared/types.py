@@ -68,8 +68,8 @@ class TimeInForce(IntEnum):
 class TriggerType(IntEnum):
     """Trigger order type."""
 
-    STOP_LOSS = 0
-    TAKE_PROFIT = 1
+    TAKE_PROFIT = 0
+    STOP_LOSS = 1
 
     def as_wire(self) -> str:
         return _TRIGGER_TYPE_TO_STR[self.value]
