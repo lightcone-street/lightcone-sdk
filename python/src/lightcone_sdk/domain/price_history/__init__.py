@@ -18,4 +18,25 @@ class PriceHistoryKey:
     resolution: str
 
 
-__all__ = ["LineData", "PriceHistoryKey"]
+@dataclass
+class DepositPriceKey:
+    """Key for deposit-price lookups."""
+
+    deposit_asset: str
+    resolution: str
+
+
+@dataclass
+class LatestDepositPrice:
+    """Latest live deposit-price tick."""
+
+    price: str
+    event_time: int
+
+
+__all__ = [
+    "LineData",
+    "PriceHistoryKey",
+    "DepositPriceKey",
+    "LatestDepositPrice",
+]

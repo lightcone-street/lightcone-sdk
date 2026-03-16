@@ -6,17 +6,15 @@ from enum import Enum, IntEnum
 from typing import Any, Callable, Optional, TYPE_CHECKING, Union
 
 if TYPE_CHECKING:
-    from ..domain.deposit_price.wire import (
+    from ..domain.price_history.wire import (
         DepositPriceCandleUpdate,
         DepositPriceSnapshot,
         DepositPriceTick,
+        PriceHistorySnapshot, PriceHistoryUpdate, PriceHistoryHeartbeat,
     )
     from ..domain.orderbook.wire import WsOrderBook, WsTickerData
     from ..domain.order.wire import UserUpdate, AuthUpdate
     from ..domain.trade.wire import WsTrade
-    from ..domain.price_history.wire import (
-        PriceHistorySnapshot, PriceHistoryUpdate, PriceHistoryHeartbeat,
-    )
     from ..domain.market.wire import MarketEvent
 
 MessageData = Union[
@@ -272,7 +270,7 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
         return MarketEvent.from_dict(data)
 
     if message_type == MessageInType.DEPOSIT_PRICE.value:
-        from ..domain.deposit_price.wire import (
+        from ..domain.price_history.wire import (
             DepositPriceCandleUpdate,
             DepositPriceSnapshot,
             DepositPriceTick,
