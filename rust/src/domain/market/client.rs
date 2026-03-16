@@ -1,11 +1,15 @@
-//! Markets sub-client — fetch, search.
+//! Markets sub-client — fetch, search, and on-chain market operations.
 
 use crate::client::LightconeClient;
 use crate::domain::market::{self, Market, Status};
 use crate::domain::market::wire::{MarketSearchResult, MarketsResponse, SingleMarketResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::instructions;
+use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
+use solana_transaction::Transaction;
 
 /// Result of fetching multiple markets. Contains valid markets and any
 /// validation errors encountered (invalid markets are skipped, not fatal).
@@ -150,5 +154,106 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
+    }
+
+    // ── On-chain transaction builders ────────────────────────────────────
+
+    /// Build MintCompleteSet transaction.
+    pub fn mint_complete_set_ix(
+        &self,
+        params: MintCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_mint_complete_set_ix(&params, num_outcomes, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build MergeCompleteSet transaction.
+    pub fn merge_complete_set_ix(
+        &self,
+        params: MergeCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_merge_complete_set_ix(&params, num_outcomes, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    // ── PDA helpers ──────────────────────────────────────────────────────
+
+    /// Get the Market PDA for a given market ID.
+    pub fn pda(&self, market_id: u64) -> Pubkey {
+        crate::program::pda::get_market_pda(market_id, &self.client.program_id).0
+    }
+
+    // ── Market helpers ───────────────────────────────────────────────────
+
+    /// Derive the condition ID for a market.
+    pub fn derive_condition_id(
+        &self,
+        oracle: &Pubkey,
+        question_id: &[u8; 32],
+        num_outcomes: u8,
+    ) -> [u8; 32] {
+        crate::program::orders::derive_condition_id(oracle, question_id, num_outcomes)
+    }
+
+    /// Get all conditional mint pubkeys for a market.
+    pub fn get_conditional_mints(
+        &self,
+        market: &Pubkey,
+        deposit_mint: &Pubkey,
+        num_outcomes: u8,
+    ) -> Vec<Pubkey> {
+        crate::program::pda::get_all_conditional_mint_pdas(
+            market,
+            deposit_mint,
+            num_outcomes,
+            &self.client.program_id,
+        )
+        .into_iter()
+        .map(|(pubkey, _)| pubkey)
+        .collect()
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// On-chain account fetchers (require RPC)
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "solana-rpc")]
+impl<'a> Markets<'a> {
+    /// Fetch a Market account by on-chain pubkey.
+    pub async fn get_onchain(
+        &self,
+        market: &Pubkey,
+    ) -> Result<crate::program::accounts::Market, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let account = rpc
+            .get_account(market)
+            .await
+            .map_err(|e| {
+                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                    "Market: {}",
+                    e
+                )))
+            })?;
+        Ok(crate::program::accounts::Market::deserialize(&account.data)?)
+    }
+
+    /// Fetch a Market account by ID.
+    pub async fn get_by_id_onchain(
+        &self,
+        market_id: u64,
+    ) -> Result<crate::program::accounts::Market, SdkError> {
+        let pda = self.pda(market_id);
+        self.get_onchain(&pda).await
+    }
+
+    /// Get the next available market ID.
+    pub async fn next_id(&self) -> Result<u64, SdkError> {
+        let exchange = self.client.rpc().get_exchange().await?;
+        Ok(exchange.market_count)
     }
 }

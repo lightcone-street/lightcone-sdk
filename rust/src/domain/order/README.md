@@ -152,6 +152,65 @@ async fn get_user_orders(
 
 Fetch a user's orders (both limit and trigger) with cursor-based pagination.
 
+### On-Chain Transaction Builders
+
+#### `cancel_order_ix`
+
+```rust
+fn cancel_order_ix(
+    &self,
+    maker: &Pubkey,
+    market: &Pubkey,
+    order: &OrderPayload,
+) -> Result<Transaction, SdkError>
+```
+
+Build a CancelOrder transaction for on-chain order cancellation.
+
+#### `increment_nonce_ix`
+
+```rust
+fn increment_nonce_ix(&self, user: &Pubkey) -> Result<Transaction, SdkError>
+```
+
+Build an IncrementNonce transaction — invalidates all orders with a nonce lower than the new value.
+
+### Order Helpers
+
+#### `create_bid_order` / `create_ask_order`
+
+```rust
+fn create_bid_order(&self, params: BidOrderParams) -> OrderPayload
+fn create_ask_order(&self, params: AskOrderParams) -> OrderPayload
+```
+
+Create unsigned bid or ask orders from raw parameters.
+
+#### `create_signed_bid_order` / `create_signed_ask_order`
+
+```rust
+fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> OrderPayload
+fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> OrderPayload
+```
+
+Create and sign orders in one step. Requires the `native-auth` feature.
+
+#### `hash_order`
+
+```rust
+fn hash_order(&self, order: &OrderPayload) -> [u8; 32]
+```
+
+Compute the Keccak256 hash of an order (excludes the signature field).
+
+#### `sign_order`
+
+```rust
+fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair)
+```
+
+Sign an order in place with the given keypair. Requires the `native-auth` feature.
+
 ## Order Envelope Builder
 
 The SDK provides a fluent builder API for constructing and signing orders. The envelope handles field validation, price/size scaling to raw amounts, and signature generation.

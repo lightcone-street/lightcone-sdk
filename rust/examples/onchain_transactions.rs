@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, rpc_client, wallet,
+    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, wallet,
     ExampleResult,
 };
 use lightcone::program::{MergeCompleteSetParams, MintCompleteSetParams};
@@ -21,19 +21,18 @@ fn describe_tx(name: &str, tx: &Transaction) -> ExampleResult {
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let rpc = rpc_client();
     let keypair = wallet()?;
     let market = market(&client).await?;
     let market_pubkey = parse_pubkey(&market.pubkey)?;
     let deposit_mint = deposit_mint(&market)?;
     let num_outcomes = num_outcomes(&market)?;
     let amount = 1_000_000;
-    let blockhash = rpc.get_latest_blockhash().await?;
+    let blockhash = client.rpc().get_latest_blockhash().await?;
 
     let mut transactions = vec![
         (
             "mint_complete_set",
-            rpc.mint_complete_set(
+            client.markets().mint_complete_set_ix(
                 MintCompleteSetParams {
                     user: keypair.pubkey(),
                     market: market_pubkey,
@@ -41,12 +40,11 @@ async fn main() -> ExampleResult {
                     amount,
                 },
                 num_outcomes,
-            )
-            .await?,
+            )?,
         ),
         (
             "merge_complete_set",
-            rpc.merge_complete_set(
+            client.markets().merge_complete_set_ix(
                 MergeCompleteSetParams {
                     user: keypair.pubkey(),
                     market: market_pubkey,
@@ -54,19 +52,20 @@ async fn main() -> ExampleResult {
                     amount,
                 },
                 num_outcomes,
-            )
-            .await?,
+            )?,
         ),
         (
             "increment_nonce",
-            rpc.increment_nonce(&keypair.pubkey()).await?,
+            client.orders().increment_nonce_ix(&keypair.pubkey())?,
         ),
     ];
 
+    let rpc_sub = client.rpc();
+    let rpc = rpc_sub.inner()?;
     for (name, tx) in &mut transactions {
         tx.try_sign(&[&keypair], blockhash)?;
         describe_tx(name, tx)?;
-        let sig = rpc.rpc_client.send_and_confirm_transaction(tx).await?;
+        let sig = rpc.send_and_confirm_transaction(tx).await?;
         println!("{name}: confirmed {sig}");
     }
 

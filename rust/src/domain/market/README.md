@@ -144,6 +144,60 @@ async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError>
 
 Get the current featured markets. Returns only `Active` and `Resolved` markets.
 
+### On-Chain Transaction Builders
+
+#### `mint_complete_set_ix`
+
+```rust
+fn mint_complete_set_ix(
+    &self,
+    params: MintCompleteSetParams,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build a MintCompleteSet transaction — deposit collateral and receive conditional tokens for all outcomes.
+
+#### `merge_complete_set_ix`
+
+```rust
+fn merge_complete_set_ix(
+    &self,
+    params: MergeCompleteSetParams,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build a MergeCompleteSet transaction — burn a complete set of conditional tokens and withdraw collateral.
+
+### Market Helpers
+
+#### `derive_condition_id`
+
+```rust
+fn derive_condition_id(
+    &self,
+    oracle: &Pubkey,
+    question_id: &[u8; 32],
+    num_outcomes: u8,
+) -> [u8; 32]
+```
+
+Derive the condition ID for a market from its oracle, question ID, and outcome count.
+
+#### `get_conditional_mints`
+
+```rust
+fn get_conditional_mints(
+    &self,
+    market: &Pubkey,
+    deposit_mint: &Pubkey,
+    num_outcomes: u8,
+) -> Vec<Pubkey>
+```
+
+Get all conditional mint pubkeys for a market.
+
 ## Examples
 
 ### Paginate through all markets
