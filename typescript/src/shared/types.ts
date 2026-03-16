@@ -81,7 +81,7 @@ export function resolutionSeconds(resolution: Resolution): number {
     case Resolution.Hour1:
       return 3600;
     case Resolution.Hour4:
-      return 21600;
+      return 14400;
     case Resolution.Day1:
       return 86400;
   }
