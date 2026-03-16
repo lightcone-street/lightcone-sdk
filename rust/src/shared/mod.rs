@@ -323,7 +323,7 @@ impl Resolution {
             Self::Minute5 => 300,
             Self::Minute15 => 900,
             Self::Hour1 => 3600,
-            Self::Hour4 => 21600,
+            Self::Hour4 => 14400,
             Self::Day1 => 86400,
         }
     }
