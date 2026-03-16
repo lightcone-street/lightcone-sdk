@@ -70,7 +70,7 @@ pub struct LightconeClient {
     pub(crate) program_id: Pubkey,
     /// Optional Solana RPC client for on-chain reads.
     #[cfg(feature = "solana-rpc")]
-    pub(crate) rpc_client: Option<SolanaRpcClient>,
+    pub(crate) solana_rpc_client: Option<SolanaRpcClient>,
 }
 
 impl LightconeClient {
@@ -175,11 +175,11 @@ impl Clone for LightconeClient {
             decimals_cache: self.decimals_cache.clone(),
             program_id: self.program_id,
             #[cfg(feature = "solana-rpc")]
-            rpc_client: self.rpc_client.as_ref().map(|_| {
+            solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
                 // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
                 // This is a limitation — the cloned client shares no connection state.
                 SolanaRpcClient::new_with_commitment(
-                    self.rpc_client.as_ref().unwrap().url(),
+                    self.solana_rpc_client.as_ref().unwrap().url(),
                     CommitmentConfig::confirmed(),
                 )
             }),
@@ -254,7 +254,7 @@ impl LightconeClientBuilder {
             decimals_cache: Arc::new(RwLock::new(HashMap::new())),
             program_id: self.program_id,
             #[cfg(feature = "solana-rpc")]
-            rpc_client: self.rpc_url.map(|url| {
+            solana_rpc_client: self.rpc_url.map(|url| {
                 SolanaRpcClient::new_with_commitment(url, CommitmentConfig::confirmed())
             }),
         })

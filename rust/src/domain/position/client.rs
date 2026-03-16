@@ -9,6 +9,7 @@ use crate::program::types::{
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawFromPositionParams,
 };
+use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
 pub struct Positions<'a> {
@@ -16,6 +17,15 @@ pub struct Positions<'a> {
 }
 
 impl<'a> Positions<'a> {
+    // ── PDA helpers ──────────────────────────────────────────────────────
+
+    /// Get the Position PDA.
+    pub fn pda(&self, owner: &Pubkey, market: &Pubkey) -> Pubkey {
+        crate::program::pda::get_position_pda(owner, market, &self.client.program_id).0
+    }
+
+    // ── HTTP methods ─────────────────────────────────────────────────────
+
     /// Get all positions for a user across all markets.
     pub async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError> {
         let url = format!(
@@ -114,5 +124,28 @@ impl<'a> Positions<'a> {
         let pid = &self.client.program_id;
         let ix = instructions::build_global_to_market_deposit_ix(&params, num_outcomes, pid);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// On-chain account fetchers (require RPC)
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "solana-rpc")]
+impl<'a> Positions<'a> {
+    /// Fetch a Position account (returns None if not found).
+    pub async fn get_onchain(
+        &self,
+        owner: &Pubkey,
+        market: &Pubkey,
+    ) -> Result<Option<crate::program::accounts::Position>, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let pda = self.pda(owner, market);
+        match rpc.get_account(&pda).await {
+            Ok(account) => Ok(Some(
+                crate::program::accounts::Position::deserialize(&account.data)?,
+            )),
+            Err(_) => Ok(None),
+        }
     }
 }

@@ -143,8 +143,7 @@ impl<'a> Admin<'a> {
         params: CreateMarketParams,
     ) -> Result<Transaction, SdkError> {
         let pid = &self.client.program_id;
-        let rpc_sub = self.client.rpc();
-        let rpc = rpc_sub.inner()?;
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(pid);
         let account = rpc
             .get_account(&exchange_pda)

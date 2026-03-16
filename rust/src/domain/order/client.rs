@@ -329,6 +329,20 @@ pub struct Orders<'a> {
 }
 
 impl<'a> Orders<'a> {
+    // ── PDA helpers ──────────────────────────────────────────────────────
+
+    /// Get the Order Status PDA.
+    pub fn status_pda(&self, order_hash: &[u8; 32]) -> Pubkey {
+        crate::program::pda::get_order_status_pda(order_hash, &self.client.program_id).0
+    }
+
+    /// Get the User Nonce PDA.
+    pub fn nonce_pda(&self, user: &Pubkey) -> Pubkey {
+        crate::program::pda::get_user_nonce_pda(user, &self.client.program_id).0
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     /// Generate a random salt for cancel-all replay protection.
     pub fn generate_cancel_all_salt(&self) -> String {
         crate::program::orders::generate_cancel_all_salt()
@@ -604,5 +618,48 @@ impl<'a> Orders<'a> {
         keypair: &Keypair,
     ) {
         order.sign(keypair);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// On-chain account fetchers (require RPC)
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "solana-rpc")]
+impl<'a> Orders<'a> {
+    /// Fetch an OrderStatus account (returns None if not found).
+    pub async fn get_status(
+        &self,
+        order_hash: &[u8; 32],
+    ) -> Result<Option<crate::program::accounts::OrderStatus>, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let pda = self.status_pda(order_hash);
+        match rpc.get_account(&pda).await {
+            Ok(account) => Ok(Some(
+                crate::program::accounts::OrderStatus::deserialize(&account.data)?,
+            )),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Fetch a user's current nonce (returns 0 if not initialized).
+    pub async fn get_nonce(&self, user: &Pubkey) -> Result<u64, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let pda = self.nonce_pda(user);
+        match rpc.get_account(&pda).await {
+            Ok(account) => {
+                let user_nonce =
+                    crate::program::accounts::UserNonce::deserialize(&account.data)?;
+                Ok(user_nonce.nonce)
+            }
+            Err(_) => Ok(0),
+        }
+    }
+
+    /// Get the current on-chain nonce for a user as u32.
+    pub async fn current_nonce(&self, user: &Pubkey) -> Result<u32, SdkError> {
+        let nonce = self.get_nonce(user).await?;
+        u32::try_from(nonce)
+            .map_err(|_| SdkError::Program(crate::program::error::SdkError::Overflow))
     }
 }

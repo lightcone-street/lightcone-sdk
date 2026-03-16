@@ -180,6 +180,13 @@ impl<'a> Markets<'a> {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
+    // ── PDA helpers ──────────────────────────────────────────────────────
+
+    /// Get the Market PDA for a given market ID.
+    pub fn pda(&self, market_id: u64) -> Pubkey {
+        crate::program::pda::get_market_pda(market_id, &self.client.program_id).0
+    }
+
     // ── Market helpers ───────────────────────────────────────────────────
 
     /// Derive the condition ID for a market.
@@ -208,5 +215,45 @@ impl<'a> Markets<'a> {
         .into_iter()
         .map(|(pubkey, _)| pubkey)
         .collect()
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// On-chain account fetchers (require RPC)
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "solana-rpc")]
+impl<'a> Markets<'a> {
+    /// Fetch a Market account by on-chain pubkey.
+    pub async fn get_onchain(
+        &self,
+        market: &Pubkey,
+    ) -> Result<crate::program::accounts::Market, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let account = rpc
+            .get_account(market)
+            .await
+            .map_err(|e| {
+                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                    "Market: {}",
+                    e
+                )))
+            })?;
+        Ok(crate::program::accounts::Market::deserialize(&account.data)?)
+    }
+
+    /// Fetch a Market account by ID.
+    pub async fn get_by_id_onchain(
+        &self,
+        market_id: u64,
+    ) -> Result<crate::program::accounts::Market, SdkError> {
+        let pda = self.pda(market_id);
+        self.get_onchain(&pda).await
+    }
+
+    /// Get the next available market ID.
+    pub async fn next_id(&self) -> Result<u64, SdkError> {
+        let exchange = self.client.rpc().get_exchange().await?;
+        Ok(exchange.market_count)
     }
 }
