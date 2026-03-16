@@ -53,6 +53,21 @@ export class Privy {
     return this.client.http.post<SignAndCancelOrderResponse, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
   }
 
+  async signAndCancelTriggerOrder(
+    walletId: string,
+    triggerOrderId: string,
+    maker: string
+  ): Promise<SignAndCancelOrderResponse> {
+    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
+    const body: SignAndCancelOrderRequest = {
+      wallet_id: walletId,
+      maker,
+      cancel_type: "trigger",
+      trigger_order_id: triggerOrderId,
+    };
+    return this.client.http.post<SignAndCancelOrderResponse, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
+  }
+
   async signAndCancelAllOrders(
     walletId: string,
     userPubkey: string,

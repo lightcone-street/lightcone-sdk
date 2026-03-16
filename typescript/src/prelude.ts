@@ -31,7 +31,7 @@ export { Orderbooks } from "./domain/orderbook";
 export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
 export { Trades } from "./domain/trade";
-export { DepositPriceClient, PriceHistoryClient } from "./domain/price_history";
+export { PriceHistoryClient } from "./domain/price_history";
 export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
 
@@ -179,6 +179,5 @@ export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;
 export type TradesClient = import("./domain/trade").Trades;
 export type PriceHistorySubClient = import("./domain/price_history").PriceHistoryClient;
-export type DepositPriceSubClient = import("./domain/price_history").DepositPriceClient;
 export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;

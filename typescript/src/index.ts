@@ -40,7 +40,6 @@ export type {
   OrderbooksClient,
   PositionsClient,
   PriceHistorySubClient,
-  DepositPriceSubClient,
   ReferralsClient,
   TradesClient,
 } from "./prelude";

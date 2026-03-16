@@ -10,7 +10,6 @@ class Status(str, Enum):
     ACTIVE = "active"
     RESOLVED = "resolved"
     CANCELLED = "cancelled"
-    SETTLED = "settled"
 
     def as_str(self) -> str:
         return self.value

@@ -4,6 +4,7 @@ import { RetryPolicy, type LightconeHttp } from "../../http";
 import type {
   DepositTokenPriceHistoryResponse,
   OrderbookPriceHistoryResponse,
+  PriceCandle,
 } from "./wire";
 
 interface ClientContext {
@@ -123,6 +124,28 @@ export class PriceHistoryClient {
     const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
     return this.client.http.get<DepositTokenPriceHistoryResponse>(url, RetryPolicy.Idempotent);
   }
+
+  async getLineData(
+    orderbookId: string,
+    resolution: Resolution = Resolution.Minute1,
+    from?: number,
+    to?: number,
+    cursor?: number,
+    limit?: number
+  ): Promise<{ time: number; value: string }[]> {
+    const response = await this.get(orderbookId, {
+      resolution,
+      from,
+      to,
+      cursor,
+      limit,
+      includeOhlcv: false,
+    });
+    return response.prices.map((c: PriceCandle) => ({
+      time: c.t,
+      value: c.m ?? "",
+    }));
+  }
 }
 
 function normalizeOrderbookPriceHistoryQuery(
@@ -146,46 +169,6 @@ function normalizeOrderbookPriceHistoryQuery(
     limit: resolutionOrQuery.limit,
     includeOhlcv: resolutionOrQuery.includeOhlcv,
   };
-}
-
-export class DepositPriceClient {
-  constructor(private readonly client: ClientContext) {}
-
-  async get(
-    depositAsset: string,
-    resolution?: Resolution,
-    from?: number,
-    to?: number,
-    cursor?: number,
-    limit?: number
-  ): Promise<DepositTokenPriceHistoryResponse>;
-
-  async get(
-    depositAsset: string,
-    query?: DepositPriceHistoryQuery
-  ): Promise<DepositTokenPriceHistoryResponse>;
-
-  async get(
-    depositAsset: string,
-    resolutionOrQuery: Resolution | DepositPriceHistoryQuery = Resolution.Minute1,
-    from?: number,
-    to?: number,
-    cursor?: number,
-    limit?: number
-  ): Promise<DepositTokenPriceHistoryResponse> {
-    const priceHistory = new PriceHistoryClient(this.client);
-    if (typeof resolutionOrQuery === "string") {
-      return priceHistory.getDepositAsset(depositAsset, {
-        resolution: resolutionOrQuery,
-        from,
-        to,
-        cursor,
-        limit,
-      });
-    }
-
-    return priceHistory.getDepositAsset(depositAsset, resolutionOrQuery);
-  }
 }
 
 function normalizeDepositPriceHistoryQuery(

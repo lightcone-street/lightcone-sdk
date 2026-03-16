@@ -10,6 +10,10 @@ export enum OrderType {
   Market = "Market",
   Deposit = "Deposit",
   Withdraw = "Withdraw",
+  StopMarket = "StopMarket",
+  StopLimit = "StopLimit",
+  TakeProfitMarket = "TakeProfitMarket",
+  TakeProfitLimit = "TakeProfitLimit",
 }
 
 export enum OrderStatus {

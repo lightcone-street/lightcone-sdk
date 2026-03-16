@@ -6,7 +6,7 @@ import { Orders } from "./domain/order";
 import { Orderbooks } from "./domain/orderbook";
 import type { DecimalsResponse } from "./domain/orderbook";
 import { Positions } from "./domain/position";
-import { DepositPriceClient, PriceHistoryClient } from "./domain/price_history";
+import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
 import { LightconeHttp } from "./http";
@@ -103,10 +103,6 @@ export class LightconeClient {
 
   priceHistory(): PriceHistoryClient {
     return new PriceHistoryClient(this);
-  }
-
-  depositPrice(): DepositPriceClient {
-    return new DepositPriceClient(this);
   }
 
   notifications(): Notifications {
