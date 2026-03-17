@@ -2,8 +2,6 @@
 
 pub mod accounts;
 pub mod envelope;
-#[cfg(feature = "native")]
-pub mod client;
 pub mod constants;
 pub mod error;
 pub mod instructions;
@@ -15,8 +13,6 @@ pub mod utils;
 // Re-export commonly used items
 pub use accounts::{Exchange, GlobalDepositToken, Market, Orderbook, OrderStatus, Position, UserNonce};
 pub use envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
-#[cfg(feature = "native")]
-pub use client::LightconePinocchioClient;
 pub use constants::*;
 pub use error::{SdkError, SdkResult};
 pub use instructions::*;

@@ -24,8 +24,8 @@ async function main() {
     });
 
   const depositHistory = await client
-    .depositPrice()
-    .get(depositAsset.pubkey, {
+    .priceHistory()
+    .getDepositAsset(depositAsset.pubkey, {
       resolution: Resolution.Hour1,
       from: sevenDaysAgo,
       to: now,

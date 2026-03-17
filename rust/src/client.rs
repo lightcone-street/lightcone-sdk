@@ -24,9 +24,17 @@ use crate::domain::trade::client::Trades;
 use crate::error::SdkError;
 use crate::http::LightconeHttp;
 use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
+use crate::program::constants::PROGRAM_ID;
+use crate::rpc::Rpc;
 use crate::ws::WsConfig;
 
+#[cfg(feature = "solana-rpc")]
+use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
+#[cfg(feature = "solana-rpc")]
+use solana_commitment_config::CommitmentConfig;
+
 use async_lock::RwLock;
+use solana_pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -41,6 +49,7 @@ pub use crate::domain::price_history::client::PriceHistoryClient as PriceHistory
 pub use crate::domain::notification::client::Notifications as NotificationsClient;
 pub use crate::domain::referral::client::Referrals as ReferralsClient;
 pub use crate::domain::trade::client::Trades as TradesClient;
+pub use crate::rpc::Rpc as RpcClient;
 
 /// The primary entry point for the Lightcone SDK.
 ///
@@ -57,6 +66,11 @@ pub struct LightconeClient {
     pub(crate) auth_credentials: Arc<RwLock<Option<AuthCredentials>>>,
     /// Decimals cache: orderbook_id → DecimalsResponse (rarely changes)
     pub(crate) decimals_cache: Arc<RwLock<HashMap<String, DecimalsResponse>>>,
+    /// On-chain program ID (defaults to the canonical Lightcone program).
+    pub(crate) program_id: Pubkey,
+    /// Optional Solana RPC client for on-chain reads.
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) solana_rpc_client: Option<SolanaRpcClient>,
 }
 
 impl LightconeClient {
@@ -110,6 +124,11 @@ impl LightconeClient {
         Notifications { client: self }
     }
 
+    /// RPC sub-client — PDA helpers, account fetchers, and blockhash access.
+    pub fn rpc(&self) -> Rpc<'_> {
+        Rpc { client: self }
+    }
+
     /// Get the WS config for creating a WebSocket connection.
     ///
     /// The WS client is intentionally not embedded in `LightconeClient`
@@ -140,6 +159,11 @@ impl LightconeClient {
     pub async fn clear_decimals_cache(&self) {
         self.decimals_cache.write().await.clear();
     }
+
+    /// Get the program ID.
+    pub fn program_id(&self) -> &Pubkey {
+        &self.program_id
+    }
 }
 
 impl Clone for LightconeClient {
@@ -149,6 +173,16 @@ impl Clone for LightconeClient {
             ws_config: self.ws_config.clone(),
             auth_credentials: self.auth_credentials.clone(),
             decimals_cache: self.decimals_cache.clone(),
+            program_id: self.program_id,
+            #[cfg(feature = "solana-rpc")]
+            solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
+                // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
+                // This is a limitation — the cloned client shares no connection state.
+                SolanaRpcClient::new_with_commitment(
+                    self.solana_rpc_client.as_ref().unwrap().url(),
+                    CommitmentConfig::confirmed(),
+                )
+            }),
         }
     }
 }
@@ -161,6 +195,9 @@ pub struct LightconeClientBuilder {
     base_url: String,
     ws_url: String,
     auth_credentials: Option<AuthCredentials>,
+    program_id: Pubkey,
+    #[cfg(feature = "solana-rpc")]
+    rpc_url: Option<String>,
 }
 
 impl Default for LightconeClientBuilder {
@@ -169,6 +206,9 @@ impl Default for LightconeClientBuilder {
             base_url: DEFAULT_API_URL.to_string(),
             ws_url: DEFAULT_WS_URL.to_string(),
             auth_credentials: None,
+            program_id: *PROGRAM_ID,
+            #[cfg(feature = "solana-rpc")]
+            rpc_url: None,
         }
     }
 }
@@ -190,6 +230,19 @@ impl LightconeClientBuilder {
         self
     }
 
+    /// Set a custom on-chain program ID (defaults to the canonical Lightcone program).
+    pub fn program_id(mut self, program_id: Pubkey) -> Self {
+        self.program_id = program_id;
+        self
+    }
+
+    /// Set the Solana RPC URL for on-chain reads and transaction building.
+    #[cfg(feature = "solana-rpc")]
+    pub fn rpc_url(mut self, url: &str) -> Self {
+        self.rpc_url = Some(url.to_string());
+        self
+    }
+
     pub fn build(self) -> Result<LightconeClient, SdkError> {
         Ok(LightconeClient {
             http: LightconeHttp::new(&self.base_url),
@@ -199,6 +252,11 @@ impl LightconeClientBuilder {
             },
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
             decimals_cache: Arc::new(RwLock::new(HashMap::new())),
+            program_id: self.program_id,
+            #[cfg(feature = "solana-rpc")]
+            solana_rpc_client: self.rpc_url.map(|url| {
+                SolanaRpcClient::new_with_commitment(url, CommitmentConfig::confirmed())
+            }),
         })
     }
 }

@@ -46,13 +46,13 @@ lightcone = { version = "0.3.21", features = ["wasm"] }
 ```rust
 use lightcone::prelude::*;
 use lightcone::auth::native::sign_login_message;
-use lightcone::program::LightconePinocchioClient;
 use solana_keypair::Keypair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = LightconeClient::builder().build()?;
-    let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
+    let client = LightconeClient::builder()
+        .rpc_url("https://api.devnet.solana.com")
+        .build()?;
     let keypair = Keypair::new();
 
     // 1. Authenticate
@@ -74,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .decimals(orderbook.orderbook_id.as_str()).await?;
 
     // 4. Build, sign, and submit a limit order
-    let nonce = rpc.get_user_nonce(&keypair.pubkey()).await?;
+    let nonce = client.rpc().get_user_nonce(&keypair.pubkey()).await?;
     let request = LimitOrderEnvelope::new()
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey()?)
@@ -105,12 +105,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ```rust
 use lightcone::prelude::*;
-use lightcone::program::LightconePinocchioClient;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
 
-let client = LightconeClient::builder().build()?;
-let rpc = LightconePinocchioClient::new("https://api.devnet.solana.com");
+let client = LightconeClient::builder()
+    .rpc_url("https://api.devnet.solana.com")
+    .build()?;
 let keypair = read_keypair_file("~/.config/solana/id.json")?;
 ```
 
@@ -132,18 +132,16 @@ let orderbook = market
 let market_pubkey = market.pubkey.to_pubkey()?;
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
 let num_outcomes = u8::try_from(market.outcomes.len())?;
-let mut tx = rpc
-    .mint_complete_set(
-        MintCompleteSetParams {
-            user: keypair.pubkey(),
-            market: market_pubkey,
-            deposit_mint,
-            amount: 1_000_000,
-        },
-        num_outcomes,
-    )
-    .await?;
-tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
+let mut tx = client.markets().mint_complete_set_ix(
+    MintCompleteSetParams {
+        user: keypair.pubkey(),
+        market: market_pubkey,
+        deposit_mint,
+        amount: 1_000_000,
+    },
+    num_outcomes,
+)?;
+tx.try_sign(&[&keypair], client.rpc().get_latest_blockhash().await?)?;
 ```
 
 ### Step 3: Place an Order
@@ -165,7 +163,7 @@ let request = LimitOrderEnvelope::new()
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(rpc.get_user_nonce(&keypair.pubkey()).await?)
+    .nonce(client.rpc().get_user_nonce(&keypair.pubkey()).await?)
     .apply_scaling(&scales)?
     .sign(&keypair, orderbook.orderbook_id.as_str())?;
 let order = client.orders().submit(&request).await?;
@@ -198,18 +196,16 @@ client.orders().cancel(&cancel).await?;
 ### Step 6: Exit a Position
 
 ```rust
-let mut tx = rpc
-    .merge_complete_set(
-        MergeCompleteSetParams {
-            user: keypair.pubkey(),
-            market: market.pubkey.to_pubkey()?,
-            deposit_mint,
-            amount: 1_000_000,
-        },
-        num_outcomes,
-    )
-    .await?;
-tx.try_sign(&[&keypair], rpc.get_latest_blockhash().await?)?;
+let mut tx = client.markets().merge_complete_set_ix(
+    MergeCompleteSetParams {
+        user: keypair.pubkey(),
+        market: market.pubkey.to_pubkey()?,
+        deposit_mint,
+        amount: 1_000_000,
+    },
+    num_outcomes,
+)?;
+tx.try_sign(&[&keypair], client.rpc().get_latest_blockhash().await?)?;
 ```
 
 ## Authentication
@@ -273,6 +269,7 @@ All SDK operations return `Result<T, SdkError>`:
 | `SdkError::Auth(AuthError)` | Authentication failures |
 | `SdkError::Validation(String)` | Domain type conversion failures |
 | `SdkError::Serde(serde_json::Error)` | Serialization errors |
+| `SdkError::Program(program::SdkError)` | On-chain program errors (RPC, account parsing) |
 | `SdkError::Other(String)` | Catch-all |
 
 Notable `HttpError` variants:

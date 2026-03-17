@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import User
-from lightcone_sdk.domain.market import Market, OrderBookPairSummary
+from lightcone_sdk.domain.market import Market, OrderBookPair
 from lightcone_sdk.program.client import LightconePinocchioClient
 from lightcone_sdk.shared.scaling import OrderbookDecimals
 
@@ -68,7 +68,7 @@ async def market(client: LightconeClient) -> Market:
 
 async def market_and_orderbook(
     client: LightconeClient,
-) -> tuple[Market, OrderBookPairSummary]:
+) -> tuple[Market, OrderBookPair]:
     m = await market(client)
     ob = next((p for p in m.orderbook_pairs if p.active), None) or (
         m.orderbook_pairs[0] if m.orderbook_pairs else None
@@ -79,7 +79,7 @@ async def market_and_orderbook(
 
 
 async def scaling_decimals(
-    client: LightconeClient, orderbook: OrderBookPairSummary
+    client: LightconeClient, orderbook: OrderBookPair
 ) -> OrderbookDecimals:
     decimals = await client.orderbooks().decimals(orderbook.orderbook_id)
     return OrderbookDecimals(

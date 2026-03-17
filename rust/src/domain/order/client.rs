@@ -1,14 +1,18 @@
-//! Orders sub-client — submit, cancel, query.
+//! Orders sub-client — submit, cancel, query, and on-chain order operations.
 
 use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
+use crate::program::instructions;
+use crate::program::orders::OrderPayload;
 use crate::shared::{OrderBookId, PubkeyStr};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use solana_pubkey::Pubkey;
 use solana_signature::Signature;
+use solana_transaction::Transaction;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
@@ -325,6 +329,20 @@ pub struct Orders<'a> {
 }
 
 impl<'a> Orders<'a> {
+    // ── PDA helpers ──────────────────────────────────────────────────────
+
+    /// Get the Order Status PDA.
+    pub fn status_pda(&self, order_hash: &[u8; 32]) -> Pubkey {
+        crate::program::pda::get_order_status_pda(order_hash, &self.client.program_id).0
+    }
+
+    /// Get the User Nonce PDA.
+    pub fn nonce_pda(&self, user: &Pubkey) -> Pubkey {
+        crate::program::pda::get_user_nonce_pda(user, &self.client.program_id).0
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────────
+
     /// Generate a random salt for cancel-all replay protection.
     pub fn generate_cancel_all_salt(&self) -> String {
         crate::program::orders::generate_cancel_all_salt()
@@ -526,5 +544,122 @@ impl<'a> Orders<'a> {
             .http
             .get(&url, RetryPolicy::Idempotent)
             .await?)
+    }
+
+    // ── On-chain transaction builders ────────────────────────────────────
+
+    /// Build CancelOrder transaction (on-chain cancellation).
+    pub fn cancel_order_ix(
+        &self,
+        maker: &Pubkey,
+        market: &Pubkey,
+        order: &OrderPayload,
+    ) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_cancel_order_ix(maker, market, order, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(maker)))
+    }
+
+    /// Build IncrementNonce transaction.
+    pub fn increment_nonce_ix(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+        let pid = &self.client.program_id;
+        let ix = instructions::build_increment_nonce_ix(user, pid);
+        Ok(Transaction::new_with_payer(&[ix], Some(user)))
+    }
+
+    // ── Order helpers ────────────────────────────────────────────────────
+
+    /// Create an unsigned bid order.
+    pub fn create_bid_order(
+        &self,
+        params: crate::program::types::BidOrderParams,
+    ) -> OrderPayload {
+        OrderPayload::new_bid(params)
+    }
+
+    /// Create an unsigned ask order.
+    pub fn create_ask_order(
+        &self,
+        params: crate::program::types::AskOrderParams,
+    ) -> OrderPayload {
+        OrderPayload::new_ask(params)
+    }
+
+    /// Create and sign a bid order.
+    #[cfg(feature = "native-auth")]
+    pub fn create_signed_bid_order(
+        &self,
+        params: crate::program::types::BidOrderParams,
+        keypair: &Keypair,
+    ) -> OrderPayload {
+        OrderPayload::new_bid_signed(params, keypair)
+    }
+
+    /// Create and sign an ask order.
+    #[cfg(feature = "native-auth")]
+    pub fn create_signed_ask_order(
+        &self,
+        params: crate::program::types::AskOrderParams,
+        keypair: &Keypair,
+    ) -> OrderPayload {
+        OrderPayload::new_ask_signed(params, keypair)
+    }
+
+    /// Compute the hash of an order.
+    pub fn hash_order(&self, order: &OrderPayload) -> [u8; 32] {
+        order.hash()
+    }
+
+    /// Sign an order with the given keypair.
+    #[cfg(feature = "native-auth")]
+    pub fn sign_order(
+        &self,
+        order: &mut OrderPayload,
+        keypair: &Keypair,
+    ) {
+        order.sign(keypair);
+    }
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// On-chain account fetchers (require RPC)
+// ═════════════════════════════════════════════════════════════════════════════
+
+#[cfg(feature = "solana-rpc")]
+impl<'a> Orders<'a> {
+    /// Fetch an OrderStatus account (returns None if not found).
+    pub async fn get_status(
+        &self,
+        order_hash: &[u8; 32],
+    ) -> Result<Option<crate::program::accounts::OrderStatus>, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let pda = self.status_pda(order_hash);
+        match rpc.get_account(&pda).await {
+            Ok(account) => Ok(Some(
+                crate::program::accounts::OrderStatus::deserialize(&account.data)?,
+            )),
+            Err(_) => Ok(None),
+        }
+    }
+
+    /// Fetch a user's current nonce (returns 0 if not initialized).
+    pub async fn get_nonce(&self, user: &Pubkey) -> Result<u64, SdkError> {
+        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let pda = self.nonce_pda(user);
+        match rpc.get_account(&pda).await {
+            Ok(account) => {
+                let user_nonce =
+                    crate::program::accounts::UserNonce::deserialize(&account.data)?;
+                Ok(user_nonce.nonce)
+            }
+            Err(_) => Ok(0),
+        }
+    }
+
+    /// Get the current on-chain nonce for a user as u32.
+    pub async fn current_nonce(&self, user: &Pubkey) -> Result<u32, SdkError> {
+        let nonce = self.get_nonce(user).await?;
+        u32::try_from(nonce)
+            .map_err(|_| SdkError::Program(crate::program::error::SdkError::Overflow))
     }
 }

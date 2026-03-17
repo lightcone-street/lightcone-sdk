@@ -87,6 +87,79 @@ async fn get_for_market(
 
 Fetch positions for a user in a specific market.
 
+### On-Chain Transaction Builders
+
+#### `redeem_winnings_ix`
+
+```rust
+fn redeem_winnings_ix(
+    &self,
+    params: RedeemWinningsParams,
+    winning_outcome: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build a RedeemWinnings transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
+
+#### `withdraw_from_position_ix`
+
+```rust
+fn withdraw_from_position_ix(
+    &self,
+    params: WithdrawFromPositionParams,
+    is_token_2022: bool,
+) -> Result<Transaction, SdkError>
+```
+
+Build a WithdrawFromPosition transaction — withdraw conditional tokens from a position account to the user's wallet.
+
+#### `init_position_tokens_ix`
+
+```rust
+fn init_position_tokens_ix(
+    &self,
+    params: InitPositionTokensParams,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build an InitPositionTokens transaction — create a position account and associated token accounts for all outcomes.
+
+#### `extend_position_tokens_ix`
+
+```rust
+fn extend_position_tokens_ix(
+    &self,
+    params: ExtendPositionTokensParams,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build an ExtendPositionTokens transaction — extend a position's lookup table with additional token accounts.
+
+#### `deposit_to_global_ix`
+
+```rust
+fn deposit_to_global_ix(
+    &self,
+    params: DepositToGlobalParams,
+) -> Result<Transaction, SdkError>
+```
+
+Build a DepositToGlobal transaction — deposit collateral into the global deposit pool for cross-market use.
+
+#### `global_to_market_deposit_ix`
+
+```rust
+fn global_to_market_deposit_ix(
+    &self,
+    params: GlobalToMarketDepositParams,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build a GlobalToMarketDeposit transaction — move collateral from the global deposit pool into a specific market position.
+
 ## Examples
 
 ### Check portfolio across all markets

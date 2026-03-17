@@ -88,6 +88,133 @@ async fn unrevoke(
 
 Restore a previously revoked user's access.
 
+### `create_notification`
+
+```rust
+async fn create_notification(
+    &self,
+    envelope: &AdminEnvelope<CreateNotificationRequest>,
+) -> Result<CreateNotificationResponse, SdkError>
+```
+
+Create a notification for users.
+
+### `dismiss_notification`
+
+```rust
+async fn dismiss_notification(
+    &self,
+    envelope: &AdminEnvelope<DismissNotificationRequest>,
+) -> Result<DismissNotificationResponse, SdkError>
+```
+
+Dismiss a notification.
+
+### On-Chain Transaction Builders
+
+All return `Result<Transaction, SdkError>`.
+
+#### `initialize_ix`
+
+```rust
+fn initialize_ix(&self, authority: &Pubkey) -> Result<Transaction, SdkError>
+```
+
+Build an Initialize transaction — create the exchange singleton account.
+
+#### `create_market_ix`
+
+```rust
+async fn create_market_ix(&self, params: CreateMarketParams) -> Result<Transaction, SdkError>
+```
+
+Build a CreateMarket transaction. **Async** — fetches the next market ID from on-chain state via RPC. Requires `solana-rpc` feature.
+
+#### `add_deposit_mint_ix`
+
+```rust
+fn add_deposit_mint_ix(
+    &self,
+    params: AddDepositMintParams,
+    market: &Pubkey,
+    num_outcomes: u8,
+) -> Result<Transaction, SdkError>
+```
+
+Build an AddDepositMint transaction — add a deposit token (e.g., USDC) to a market and create conditional token mints.
+
+#### `activate_market_ix`
+
+```rust
+fn activate_market_ix(&self, params: ActivateMarketParams) -> Result<Transaction, SdkError>
+```
+
+Build an ActivateMarket transaction — transition a market from Pending to Active.
+
+#### `settle_market_ix`
+
+```rust
+fn settle_market_ix(&self, params: SettleMarketParams) -> Result<Transaction, SdkError>
+```
+
+Build a SettleMarket transaction — resolve a market with the winning outcome.
+
+#### `set_paused_ix`
+
+```rust
+fn set_paused_ix(&self, authority: &Pubkey, paused: bool) -> Result<Transaction, SdkError>
+```
+
+Build a SetPaused transaction — pause or unpause the exchange.
+
+#### `set_operator_ix`
+
+```rust
+fn set_operator_ix(&self, authority: &Pubkey, new_operator: &Pubkey) -> Result<Transaction, SdkError>
+```
+
+Build a SetOperator transaction — change the exchange operator.
+
+#### `set_authority_ix`
+
+```rust
+fn set_authority_ix(&self, params: SetAuthorityParams) -> Result<Transaction, SdkError>
+```
+
+Build a SetAuthority transaction — transfer exchange authority to a new key.
+
+#### `whitelist_deposit_token_ix`
+
+```rust
+fn whitelist_deposit_token_ix(&self, params: WhitelistDepositTokenParams) -> Result<Transaction, SdkError>
+```
+
+Build a WhitelistDepositToken transaction — whitelist a deposit token for the exchange.
+
+#### `create_orderbook_ix`
+
+```rust
+fn create_orderbook_ix(&self, params: CreateOrderbookParams) -> Result<Transaction, SdkError>
+```
+
+Build a CreateOrderbook transaction — create an orderbook for a token pair.
+
+#### `match_orders_multi_ix`
+
+```rust
+fn match_orders_multi_ix(&self, params: MatchOrdersMultiParams) -> Result<Transaction, SdkError>
+```
+
+Build a MatchOrdersMulti transaction — match a taker order against one or more maker orders.
+
+#### `deposit_and_swap_ix`
+
+```rust
+fn deposit_and_swap_ix(&self, params: DepositAndSwapParams) -> Result<Transaction, SdkError>
+```
+
+Build a DepositAndSwap transaction — deposit collateral and atomically swap into a conditional token position.
+
 ## Wire Types
 
 ### `UnifiedMetadataRequest`

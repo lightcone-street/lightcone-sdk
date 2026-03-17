@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, rpc_client, wallet,
+    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, wallet,
     ExampleResult,
 };
 use solana_signer::Signer;
@@ -9,7 +9,6 @@ use solana_signer::Signer;
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let rpc = rpc_client();
     let keypair = wallet()?;
     let market = market(&client).await?;
     let market_pubkey = parse_pubkey(&market.pubkey)?;
@@ -21,11 +20,11 @@ async fn main() -> ExampleResult {
         .ok_or_else(|| common::other("selected market has no orderbooks"))?;
     let (base_mint, quote_mint) = orderbook_mints(orderbook)?;
 
-    let exchange = rpc.get_exchange().await?;
-    let onchain_market = rpc.get_market_by_pubkey(&market_pubkey).await?;
-    let onchain_orderbook = rpc.get_orderbook(&base_mint, &quote_mint).await?;
-    let nonce = rpc.get_current_nonce(&keypair.pubkey()).await?;
-    let position = rpc.get_position(&keypair.pubkey(), &market_pubkey).await?;
+    let exchange = client.rpc().get_exchange().await?;
+    let onchain_market = client.markets().get_onchain(&market_pubkey).await?;
+    let onchain_orderbook = client.orderbooks().get_onchain(&base_mint, &quote_mint).await?;
+    let nonce = client.orders().current_nonce(&keypair.pubkey()).await?;
+    let position = client.positions().get_onchain(&keypair.pubkey(), &market_pubkey).await?;
     let deposit_mint = deposit_mint(&market)?;
 
     println!(
@@ -44,10 +43,10 @@ async fn main() -> ExampleResult {
     println!("position exists: {}", position.is_some());
     println!(
         "pdas: exchange={} market={} position={} global_deposit={}",
-        rpc.get_exchange_pda(),
-        rpc.get_market_pda(onchain_market.market_id),
-        rpc.get_position_pda(&keypair.pubkey(), &market_pubkey),
-        rpc.get_global_deposit_token_pda(&deposit_mint)
+        client.rpc().get_exchange_pda(),
+        client.markets().pda(onchain_market.market_id),
+        client.positions().pda(&keypair.pubkey(), &market_pubkey),
+        client.rpc().get_global_deposit_token_pda(&deposit_mint)
     );
     Ok(())
 }
