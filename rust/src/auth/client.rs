@@ -63,12 +63,6 @@ impl<'a> Auth<'a> {
             .post(&url, &request, RetryPolicy::None)
             .await?;
 
-        #[cfg(not(target_arch = "wasm32"))]
-        self.client
-            .http
-            .set_auth_token(Some(login_resp.token.clone()))
-            .await;
-
         let expires_at = parse_expires_at(login_resp.expires_at);
         let credentials = AuthCredentials {
             user_id: login_resp.user_id.clone(),
