@@ -1,28 +1,30 @@
 """Notifications sub-client."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from . import Notification, NotificationKind, MarketData, MarketResolvedData, OrderFilledData
 
 if TYPE_CHECKING:
-    from ...http.client import LightconeHttp
+    from ...client import LightconeClient
 
 
 class Notifications:
     """Notification operations sub-client."""
 
-    def __init__(self, http: "LightconeHttp"):
-        self._http = http
+    def __init__(self, client: "LightconeClient"):
+        self._client = client
 
     async def fetch(self) -> list[Notification]:
         """Get notifications for the authenticated user."""
-        data = await self._http.get("/api/notifications")
+        data = await self._client._http.get("/api/notifications")
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
     async def dismiss(self, notification_id: str) -> None:
         """Dismiss a notification."""
-        await self._http.post("/api/notifications/dismiss", {
+        await self._client._http.post("/api/notifications/dismiss", {
             "notification_id": notification_id,
         })
 

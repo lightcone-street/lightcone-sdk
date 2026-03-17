@@ -1,6 +1,7 @@
 """Authentication client for the Lightcone SDK."""
 
-import time
+from __future__ import annotations
+
 from typing import Optional, TYPE_CHECKING
 
 import base58
@@ -17,7 +18,7 @@ from . import (
 from ..http.retry import RetryPolicy
 
 if TYPE_CHECKING:
-    from ..http.client import LightconeHttp
+    from ..client import LightconeClient
 
 
 class Auth:
@@ -31,10 +32,10 @@ class Auth:
 
     def __init__(
         self,
-        http: "LightconeHttp",
+        client: "LightconeClient",
         credentials: Optional[AuthCredentials] = None,
     ):
-        self._http = http
+        self._client = client
         self._credentials: Optional[AuthCredentials] = credentials
 
     def credentials(self) -> Optional[AuthCredentials]:
@@ -53,7 +54,7 @@ class Auth:
         Returns:
             The nonce string
         """
-        data = await self._http.get("/api/auth/nonce", retry_policy=RetryPolicy.NONE)
+        data = await self._client._http.get("/api/auth/nonce", retry_policy=RetryPolicy.NONE)
         return data.get("nonce", "")
 
     async def login_with_message(
@@ -82,7 +83,7 @@ class Auth:
         if use_embedded_wallet is not None:
             body["use_embedded_wallet"] = use_embedded_wallet
 
-        data = await self._http.post(
+        data = await self._client._http.post(
             "/api/auth/login_or_register_with_message",
             body,
             retry_policy=RetryPolicy.NONE,
@@ -90,7 +91,7 @@ class Auth:
 
         # Store token in HTTP client (token is never exposed in AuthCredentials)
         token = data.get("token", "")
-        self._http.set_auth_token(token)
+        self._client._http.set_auth_token(token)
 
         # Store credentials (without token)
         self._credentials = AuthCredentials(
@@ -134,7 +135,7 @@ class Auth:
             SdkError: If session is invalid or expired
         """
         try:
-            data = await self._http.get(
+            data = await self._client._http.get(
                 "/api/auth/me",
                 retry_policy=RetryPolicy.IDEMPOTENT,
             )
@@ -153,19 +154,19 @@ class Auth:
     async def logout(self) -> None:
         """Logout — clears server-side cookie, internal token, and credentials."""
         try:
-            await self._http.post(
+            await self._client._http.post(
                 "/api/auth/logout", {},
                 retry_policy=RetryPolicy.NONE,
             )
         except Exception:
             pass
 
-        self._http.clear_auth_token()
+        self._client._http.clear_auth_token()
         self._credentials = None
 
     async def disconnect_x(self) -> None:
         """Disconnect the user's linked X (Twitter) account."""
-        await self._http.post(
+        await self._client._http.post(
             "/api/auth/disconnect_x", {},
             retry_policy=RetryPolicy.NONE,
         )
@@ -190,7 +191,7 @@ class Auth:
         if x_display_name is not None:
             body["x_display_name"] = x_display_name
 
-        await self._http.post(
+        await self._client._http.post(
             "/api/auth/connect_x", body,
             retry_policy=RetryPolicy.NONE,
         )

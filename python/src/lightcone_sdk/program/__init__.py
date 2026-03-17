@@ -175,9 +175,6 @@ from .accounts import (
     is_user_nonce_account,
 )
 
-# Client
-from .client import LightconePinocchioClient
-
 # Instruction builders
 from .instructions import (
     build_activate_market_instruction,
@@ -377,8 +374,6 @@ __all__ = [
     "get_associated_token_address",
     "get_associated_token_address_2022",
     "orders_cross",
-    # Client
-    "LightconePinocchioClient",
     # Account Deserialization
     "deserialize_exchange",
     "deserialize_global_deposit_token",

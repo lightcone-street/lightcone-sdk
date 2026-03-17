@@ -140,14 +140,13 @@ from .ws.client import WsClient
 # ============================================================================
 
 from .client import LightconeClient, LightconeClientBuilder
+from .rpc import Rpc
 
 # ============================================================================
 # Program layer (on-chain interaction)
 # ============================================================================
 
 from .program import (
-    # Client
-    LightconePinocchioClient,
     # Types - Enums
     MarketStatus,
     OrderSide,
@@ -334,6 +333,7 @@ __all__ = [
     # Client
     "LightconeClient",
     "LightconeClientBuilder",
+    "Rpc",
     # Shared types
     "OrderBookId",
     "PubkeyStr",
@@ -432,8 +432,6 @@ __all__ = [
     "subscribe_deposit_price",
     "unsubscribe_deposit_price",
     "parse_message_in",
-    # Program - Client
-    "LightconePinocchioClient",
     # Program - Types
     "MarketStatus",
     "OrderSide",
