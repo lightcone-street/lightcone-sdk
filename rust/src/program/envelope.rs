@@ -266,6 +266,7 @@ macro_rules! impl_base_methods {
 #[derive(Debug, Clone, Default)]
 pub struct LimitOrderEnvelope {
     fields: OrderFields,
+    time_in_force: Option<TimeInForce>,
 }
 
 impl OrderEnvelope for LimitOrderEnvelope {
@@ -282,7 +283,7 @@ impl OrderEnvelope for LimitOrderEnvelope {
         payload.sign(keypair);
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
-            None, None, None,
+            self.time_in_force, None, None,
             self.fields.deposit_source,
         )
     }
@@ -297,9 +298,17 @@ impl OrderEnvelope for LimitOrderEnvelope {
         payload.apply_signature(sig_bs58.to_string())?;
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
-            None, None, None,
+            self.time_in_force, None, None,
             self.fields.deposit_source,
         )
+    }
+}
+
+impl LimitOrderEnvelope {
+    /// Set time-in-force policy (GTC, IOC, FOK, ALO).
+    pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
+        self.time_in_force = Some(tif);
+        self
     }
 }
 
