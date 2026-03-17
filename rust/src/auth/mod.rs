@@ -156,7 +156,6 @@ pub struct LoginRequest {
 /// and the materialized view for existing users (fast).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginResponse {
-    pub token: String,
     pub user_id: String,
     pub wallet_address: String,
     pub expires_at: i64,

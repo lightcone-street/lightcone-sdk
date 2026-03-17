@@ -45,10 +45,6 @@ impl LightconeHttp {
         &self.base_url
     }
 
-    pub(crate) async fn set_auth_token(&self, token: Option<String>) {
-        *self.auth_token.write().await = token;
-    }
-
     pub(crate) async fn clear_auth_token(&self) {
         *self.auth_token.write().await = None;
     }
@@ -179,6 +175,22 @@ impl LightconeHttp {
         let status = resp.status();
 
         if status.is_success() {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                for value in resp.headers().get_all("set-cookie").iter() {
+                    if let Ok(header_str) = value.to_str() {
+                        if let Some(token) = header_str
+                            .strip_prefix("auth_token=")
+                            .and_then(|rest| rest.split(';').next())
+                        {
+                            if !token.is_empty() {
+                                *self.auth_token.write().await = Some(token.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+
             let parsed = resp.json::<T>().await?;
             return Ok(parsed);
         }
