@@ -51,7 +51,8 @@ async function main() {
   }
 
   // 2. Find a market
-  const market = await client.markets().getBySlug("some-market");
+  const { markets } = await client.markets().get();
+  const market = markets[0];
   const orderbook = market.orderbookPairs[0];
 
   // 3. Get orderbook decimals for price scaling
@@ -115,7 +116,8 @@ const keypair = readKeypairFile("~/.config/solana/id.json");
 ### Step 1: Find a Market
 
 ```typescript
-const market = await client.markets().getBySlug("some-market");
+const { markets } = await client.markets().get();
+const market = markets[0];
 const orderbook =
   market.orderbookPairs.find((pair) => pair.active) ?? market.orderbookPairs[0];
 ```
