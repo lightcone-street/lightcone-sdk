@@ -3,9 +3,8 @@
  */
 
 // ============================================================================
-// CLIENT
+// ENVELOPE / BUILDER
 // ============================================================================
-export { LightconePinocchioClient } from "./client";
 export { LimitOrderEnvelope, TriggerOrderEnvelope, type OrderEnvelope } from "./envelope";
 export { ProgramSdkError, ProgramSdkError as SdkError } from "./error";
 export type { ProgramResult, ProgramResult as SdkResult } from "./error";

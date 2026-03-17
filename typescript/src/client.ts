@@ -1,4 +1,6 @@
+import { Connection, PublicKey } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
+import type { ClientContext, DecimalsCache } from "./context";
 import { Admin } from "./domain/admin";
 import { Markets } from "./domain/market";
 import { Notifications } from "./domain/notification";
@@ -12,9 +14,11 @@ import { Trades } from "./domain/trade";
 import { LightconeHttp } from "./http";
 import { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
 import { Privy } from "./privy";
+import { PROGRAM_ID } from "./program/constants";
+import { Rpc } from "./rpc";
 import { WsClient, type WsConfig } from "./ws";
 
-class DecimalsCache {
+class DecimalsCacheImpl implements DecimalsCache {
   private readonly map = new Map<string, DecimalsResponse>();
 
   get(orderbookId: string): DecimalsResponse | undefined {
@@ -53,22 +57,28 @@ class AuthState {
   }
 }
 
-export class LightconeClient {
+export class LightconeClient implements ClientContext {
   readonly http: LightconeHttp;
+  readonly programId: PublicKey;
+  readonly connection?: Connection;
   private readonly wsConfigValue: WsConfig;
-  private readonly decimalsCacheStore: DecimalsCache;
+  private readonly decimalsCacheStore: DecimalsCacheImpl;
   private readonly authStateStore: AuthState;
 
   constructor(params: {
     http: LightconeHttp;
     wsConfig: WsConfig;
+    programId?: PublicKey;
+    connection?: Connection;
     authCredentials?: AuthCredentials;
-    decimalsCache?: DecimalsCache;
+    decimalsCache?: DecimalsCacheImpl;
     authState?: AuthState;
   }) {
     this.http = params.http;
+    this.programId = params.programId ?? PROGRAM_ID;
+    this.connection = params.connection;
     this.wsConfigValue = params.wsConfig;
-    this.decimalsCacheStore = params.decimalsCache ?? new DecimalsCache();
+    this.decimalsCacheStore = params.decimalsCache ?? new DecimalsCacheImpl();
     this.authStateStore =
       params.authState ??
       new AuthState(async () => this.clearDecimalsCache(), params.authCredentials);
@@ -78,15 +88,19 @@ export class LightconeClient {
     return new LightconeClientBuilder();
   }
 
+  /** Decimals cache accessor for sub-clients. */
+  get decimalsCache(): DecimalsCache {
+    return this.decimalsCacheStore;
+  }
+
+  // ── Sub-client accessors ─────────────────────────────────────────────
+
   markets(): Markets {
     return new Markets(this);
   }
 
   orderbooks(): Orderbooks {
-    return new Orderbooks({
-      http: this.http,
-      decimalsCache: this.decimalsCacheStore,
-    });
+    return new Orderbooks(this, this.decimalsCacheStore);
   }
 
   orders(): Orders {
@@ -128,6 +142,10 @@ export class LightconeClient {
     return new Referrals(this);
   }
 
+  rpc(): Rpc {
+    return new Rpc(this);
+  }
+
   wsConfig(): WsConfig {
     return this.wsConfigValue;
   }
@@ -144,6 +162,10 @@ export class LightconeClient {
     return new LightconeClient({
       http: this.http,
       wsConfig: { ...this.wsConfigValue },
+      programId: this.programId,
+      connection: this.connection
+        ? new Connection(this.connection.rpcEndpoint)
+        : undefined,
       decimalsCache: this.decimalsCacheStore,
       authState: this.authStateStore,
     });
@@ -154,6 +176,8 @@ export class LightconeClientBuilder {
   private baseUrlValue: string = DEFAULT_API_URL;
   private wsUrlValue: string = DEFAULT_WS_URL;
   private authCredentials?: AuthCredentials;
+  private programIdValue: PublicKey = PROGRAM_ID;
+  private rpcUrlValue?: string;
 
   baseUrl(url: string): LightconeClientBuilder {
     return this.withBaseUrl(url);
@@ -182,6 +206,16 @@ export class LightconeClientBuilder {
     return this;
   }
 
+  programId(id: PublicKey): LightconeClientBuilder {
+    this.programIdValue = id;
+    return this;
+  }
+
+  rpcUrl(url: string): LightconeClientBuilder {
+    this.rpcUrlValue = url;
+    return this;
+  }
+
   build(): LightconeClient {
     return new LightconeClient({
       http: new LightconeHttp(this.baseUrlValue),
@@ -193,6 +227,10 @@ export class LightconeClientBuilder {
         pingIntervalMs: 30_000,
         pongTimeoutMs: 1_000,
       },
+      programId: this.programIdValue,
+      connection: this.rpcUrlValue
+        ? new Connection(this.rpcUrlValue)
+        : undefined,
       authCredentials: this.authCredentials,
     });
   }

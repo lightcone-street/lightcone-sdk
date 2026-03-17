@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { program } from "../src";
 import {
-  restClient,
   rpcClient,
   wallet,
   marketAndOrderbook,
@@ -9,8 +8,7 @@ import {
 } from "./common";
 
 async function main() {
-  const client = restClient();
-  const rpc = rpcClient();
+  const client = rpcClient();
   const keypair = wallet();
 
   const [m, orderbook] = await marketAndOrderbook(client);
@@ -18,11 +16,11 @@ async function main() {
   const baseMint = new PublicKey(orderbook.base.pubkey);
   const quoteMint = new PublicKey(orderbook.quote.pubkey);
 
-  const exchange = await rpc.getExchange();
-  const onchainMarket = await rpc.getMarketByPubkey(marketPubkey);
-  const onchainOrderbook = await rpc.getOrderbook(baseMint, quoteMint);
-  const nonce = await rpc.getCurrentNonce(keypair.publicKey);
-  const position = await rpc.getPosition(keypair.publicKey, marketPubkey);
+  const exchange = await client.rpc().getExchange();
+  const onchainMarket = await client.markets().getOnchain(marketPubkey);
+  const onchainOrderbook = await client.orderbooks().getOnchain(baseMint, quoteMint);
+  const nonce = await client.orders().currentNonce(keypair.publicKey);
+  const position = await client.positions().getOnchain(keypair.publicKey, marketPubkey);
   const dMint = depositMint(m);
 
   console.log(
@@ -36,8 +34,10 @@ async function main() {
   );
   console.log(`user nonce: ${nonce}`);
   console.log(`position exists: ${position !== null}`);
+
+  const rpc = client.rpc();
   console.log(
-    `pdas: exchange=${rpc.getExchangePda().toBase58()} market=${rpc.getMarketPda(onchainMarket.marketId).toBase58()} position=${rpc.getPositionPda(keypair.publicKey, marketPubkey).toBase58()} global_deposit=${rpc.getGlobalDepositTokenPda(dMint).toBase58()}`
+    `pdas: exchange=${rpc.getExchangePda().toBase58()} market=${client.markets().pda(onchainMarket.marketId).toBase58()} position=${client.positions().pda(keypair.publicKey, marketPubkey).toBase58()} global_deposit=${rpc.getGlobalDepositTokenPda(dMint).toBase58()}`
   );
 }
 
