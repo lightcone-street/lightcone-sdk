@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 
 from dotenv import load_dotenv
-from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
@@ -18,19 +17,22 @@ from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import User
 from lightcone_sdk.domain.market import Market, OrderBookPair
-from lightcone_sdk.program.client import LightconePinocchioClient
 from lightcone_sdk.shared.scaling import OrderbookDecimals
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 
-def rest_client() -> LightconeClient:
-    return LightconeClientBuilder().build()
+def client() -> LightconeClient:
+    """Build a LightconeClient with optional Solana RPC support."""
+    builder = LightconeClientBuilder()
+    rpc_url = os.environ.get("SOLANA_RPC_URL")
+    if rpc_url:
+        builder = builder.rpc_url(rpc_url)
+    return builder.build()
 
 
-def rpc_client() -> LightconePinocchioClient:
-    url = os.environ.get("SOLANA_RPC_URL", "https://api.devnet.solana.com")
-    return LightconePinocchioClient(AsyncClient(url))
+# Backward-compat alias
+rest_client = client
 
 
 def wallet() -> Keypair:
@@ -99,12 +101,6 @@ def deposit_mint(m: Market) -> Pubkey:
 
 def num_outcomes(m: Market) -> int:
     return len(m.outcomes)
-
-
-async def fresh_order_nonce(
-    rpc: LightconePinocchioClient, user: Pubkey
-) -> int:
-    return await rpc.get_current_nonce(user)
 
 
 def unix_timestamp() -> int:

@@ -5,20 +5,17 @@ import asyncio
 from solders.pubkey import Pubkey
 
 from common import (
-    rest_client,
-    rpc_client,
+    client as make_client,
     wallet,
     login,
     market_and_orderbook,
     scaling_decimals,
-    fresh_order_nonce,
 )
 from lightcone_sdk.program.envelope import LimitOrderEnvelope
 
 
 async def main():
-    client = rest_client()
-    rpc = rpc_client()
+    client = make_client()
     keypair = wallet()
     await login(client, keypair)
 
@@ -29,7 +26,7 @@ async def main():
     quote_mint = Pubkey.from_string(orderbook.quote.mint)
 
     # 2. Get a fresh nonce from on-chain
-    nonce = await fresh_order_nonce(rpc, keypair.pubkey())
+    nonce = await client.orders().current_nonce(keypair.pubkey())
 
     # 3. Build, scale, sign a limit order
     request = (
@@ -55,7 +52,6 @@ async def main():
     )
 
     await client.close()
-    await rpc.connection.close()
 
 
 asyncio.run(main())

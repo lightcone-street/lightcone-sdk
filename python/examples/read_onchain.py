@@ -4,18 +4,11 @@ import asyncio
 
 from solders.pubkey import Pubkey
 
-from common import rest_client, rpc_client, wallet, market_and_orderbook, deposit_mint
-from lightcone_sdk.program.pda import (
-    get_exchange_pda,
-    get_market_pda,
-    get_position_pda,
-    get_global_deposit_pda,
-)
+from common import client as make_client, wallet, market_and_orderbook, deposit_mint
 
 
 async def main():
-    client = rest_client()
-    rpc = rpc_client()
+    client = make_client()
     keypair = wallet()
 
     m, orderbook = await market_and_orderbook(client)
@@ -24,41 +17,40 @@ async def main():
     quote_mint = Pubkey.from_string(orderbook.quote.mint)
 
     # 1. Exchange state
-    exchange = await rpc.get_exchange()
+    exchange = await client.rpc().get_exchange()
     print(f"exchange: authority={exchange.authority} operator={exchange.operator} paused={exchange.paused}")
 
     # 2. Market state
-    onchain_market = await rpc.get_market_by_pubkey(market_pubkey)
+    onchain_market = await client.markets().get_onchain(market_pubkey)
     print(f"market: id={onchain_market.market_id} outcomes={onchain_market.num_outcomes} status={onchain_market.status}")
 
     # 3. Orderbook
-    onchain_orderbook = await rpc.get_orderbook(base_mint, quote_mint)
+    onchain_orderbook = await client.orderbooks().get_onchain(base_mint, quote_mint)
     if onchain_orderbook:
         print(f"orderbook: lookup_table={onchain_orderbook.lookup_table} bump={onchain_orderbook.bump}")
     else:
         print("orderbook: not found on-chain")
 
     # 4. User nonce
-    nonce = await rpc.get_current_nonce(keypair.pubkey())
+    nonce = await client.orders().current_nonce(keypair.pubkey())
     print(f"user nonce: {nonce}")
 
     # 5. Position
-    position = await rpc.get_position(keypair.pubkey(), market_pubkey)
+    position = await client.positions().get_onchain(keypair.pubkey(), market_pubkey)
     print(f"position exists: {position is not None}")
 
-    # 6. PDA derivations
+    # 6. PDA derivations (via sub-client accessors)
     d_mint = deposit_mint(m)
-    exchange_pda, _ = get_exchange_pda()
-    market_pda, _ = get_market_pda(onchain_market.market_id)
-    position_pda, _ = get_position_pda(keypair.pubkey(), market_pubkey)
-    global_deposit_pda, _ = get_global_deposit_pda(d_mint)
+    exchange_pda = client.rpc().get_exchange_pda()
+    market_pda = client.markets().pda(onchain_market.market_id)
+    position_pda = client.positions().pda(keypair.pubkey(), market_pubkey)
+    global_deposit_pda = client.rpc().get_global_deposit_token_pda(d_mint)
     print(
         f"pdas: exchange={exchange_pda} market={market_pda} "
         f"position={position_pda} global_deposit={global_deposit_pda}"
     )
 
     await client.close()
-    await rpc.connection.close()
 
 
 asyncio.run(main())
