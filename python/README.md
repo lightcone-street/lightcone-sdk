@@ -29,13 +29,11 @@ pip install lightcone-sdk
 ```python
 import asyncio
 
-from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from lightcone_sdk import (
     LightconeClientBuilder,
-    LightconePinocchioClient,
     LimitOrderEnvelope,
     OrderbookDecimals,
 )
@@ -44,8 +42,11 @@ from lightcone_sdk.ws.subscriptions import BookUpdateParams
 
 
 async def main():
-    client = LightconeClientBuilder().build()
-    rpc = LightconePinocchioClient(AsyncClient("https://api.devnet.solana.com"))
+    client = (
+        LightconeClientBuilder()
+        .rpc_url("https://api.devnet.solana.com")
+        .build()
+    )
     keypair = Keypair()
 
     # 1. Authenticate
@@ -81,7 +82,7 @@ async def main():
         .bid()
         .price("0.55")
         .size("100")
-        .nonce(await rpc.get_current_nonce(keypair.pubkey()))
+        .nonce(await client.orders().current_nonce(keypair.pubkey()))
         .apply_scaling(decimals=decimals)
         .sign(keypair, orderbook.orderbook_id)
     )
@@ -96,7 +97,6 @@ async def main():
 
     await ws.disconnect()
     await client.close()
-    await rpc.connection.close()
 
 
 asyncio.run(main())
@@ -108,14 +108,16 @@ asyncio.run(main())
 import json
 from pathlib import Path
 
-from solana.rpc.async_api import AsyncClient
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import LightconeClientBuilder, LightconePinocchioClient
+from lightcone_sdk import LightconeClientBuilder
 
-client = LightconeClientBuilder().build()
-rpc = LightconePinocchioClient(AsyncClient("https://api.devnet.solana.com"))
+client = (
+    LightconeClientBuilder()
+    .rpc_url("https://api.devnet.solana.com")
+    .build()
+)
 with Path("~/.config/solana/id.json").expanduser().open() as f:
     secret = json.load(f)
 keypair = Keypair.from_bytes(bytes(secret))
@@ -139,7 +141,7 @@ from lightcone_sdk import MintCompleteSetParams
 market_pubkey = Pubkey.from_string(market.pubkey)
 deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
 num_outcomes = len(market.outcomes)
-tx = await rpc.mint_complete_set(
+ix = client.markets().mint_complete_set_ix(
     MintCompleteSetParams(
         user=keypair.pubkey(),
         market=market_pubkey,
@@ -148,7 +150,8 @@ tx = await rpc.mint_complete_set(
     ),
     num_outcomes,
 )
-tx.sign([keypair], await rpc.get_latest_blockhash())
+tx = await client.rpc().build_transaction([ix])
+tx.sign([keypair], await client.rpc().get_latest_blockhash())
 ```
 
 ### Step 3: Place an Order
@@ -173,7 +176,7 @@ request = (
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(await rpc.get_current_nonce(keypair.pubkey()))
+    .nonce(await client.orders().current_nonce(keypair.pubkey()))
     .apply_scaling(decimals=decimals)
     .sign(keypair, orderbook.orderbook_id)
 )
@@ -213,7 +216,7 @@ await client.orders().cancel(
 ```python
 from lightcone_sdk import MergeCompleteSetParams
 
-tx = await rpc.merge_complete_set(
+ix = client.markets().merge_complete_set_ix(
     MergeCompleteSetParams(
         user=keypair.pubkey(),
         market=Pubkey.from_string(market.pubkey),
@@ -222,7 +225,8 @@ tx = await rpc.merge_complete_set(
     ),
     num_outcomes,
 )
-tx.sign([keypair], await rpc.get_latest_blockhash())
+tx = await client.rpc().build_transaction([ix])
+tx.sign([keypair], await client.rpc().get_latest_blockhash())
 ```
 
 ## Authentication

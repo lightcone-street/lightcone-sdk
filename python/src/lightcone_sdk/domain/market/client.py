@@ -1,21 +1,70 @@
-"""Markets sub-client."""
+"""Markets sub-client — fetch, search, PDA helpers, tx builders, and on-chain market operations."""
+
+from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 from urllib.parse import quote as url_quote
 
+from solders.instruction import Instruction
+from solders.pubkey import Pubkey
+
 from . import Market, MarketsResult, Status
 from .wire import MarketWire, MarketResponse, MarketSearchResult
 from .convert import market_from_wire, validation_errors_from_wire
+from ...program.accounts import deserialize_market
+from ...program.errors import AccountNotFoundError
+from ...program.instructions import (
+    build_merge_complete_set_instruction,
+    build_mint_complete_set_instruction,
+)
+from ...program.pda import (
+    get_all_conditional_mint_pdas,
+    get_market_pda,
+)
+from ...program.types import (
+    Market as OnchainMarket,
+    MergeCompleteSetParams,
+    MintCompleteSetParams,
+)
+from ...program.utils import derive_condition_id
+from ...rpc import require_connection
 
 if TYPE_CHECKING:
-    from ...http.client import LightconeHttp
+    from ...client import LightconeClient
 
 
 class Markets:
     """Markets query operations."""
 
-    def __init__(self, http: "LightconeHttp"):
-        self._http = http
+    def __init__(self, client: "LightconeClient"):
+        self._client = client
+
+    # ── PDA helpers ──────────────────────────────────────────────────────
+
+    def pda(self, market_id: int) -> Pubkey:
+        """Get the Market PDA for a given market ID."""
+        addr, _ = get_market_pda(market_id, self._client.program_id)
+        return addr
+
+    # ── Market helpers ───────────────────────────────────────────────────
+
+    def derive_condition_id(
+        self, oracle: Pubkey, question_id: bytes, num_outcomes: int
+    ) -> bytes:
+        """Derive the condition ID for a market."""
+        return derive_condition_id(oracle, question_id, num_outcomes)
+
+    def get_conditional_mints(
+        self, market: Pubkey, deposit_mint: Pubkey, num_outcomes: int
+    ) -> list[Pubkey]:
+        """Get all conditional mint addresses for a market."""
+        return [
+            addr for addr, _ in get_all_conditional_mint_pdas(
+                market, deposit_mint, num_outcomes, self._client.program_id
+            )
+        ]
+
+    # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def get(
         self,
@@ -32,7 +81,7 @@ class Markets:
         if query_parts:
             url += "?" + "&".join(query_parts)
 
-        data = await self._http.get(url)
+        data = await self._client._http.get(url)
         resp = MarketResponse.from_dict(data)
         markets: list[Market] = []
         validation_errors: list[str] = []
@@ -54,13 +103,13 @@ class Markets:
 
     async def get_by_slug(self, slug: str) -> Market:
         """Get a market by its URL slug."""
-        data = await self._http.get(f"/api/markets/by-slug/{url_quote(slug, safe='')}")
+        data = await self._client._http.get(f"/api/markets/by-slug/{url_quote(slug, safe='')}")
         wire = MarketWire.from_dict(data.get("market", data))
         return market_from_wire(wire)
 
     async def get_by_pubkey(self, pubkey: str) -> Market:
         """Get a market by its pubkey."""
-        data = await self._http.get(f"/api/markets/{url_quote(pubkey, safe='')}")
+        data = await self._client._http.get(f"/api/markets/{url_quote(pubkey, safe='')}")
         wire = MarketWire.from_dict(data.get("market", data))
         return market_from_wire(wire)
 
@@ -70,16 +119,64 @@ class Markets:
         url = f"/api/markets/search/by-query/{encoded}"
         if limit is not None:
             url += f"?limit={limit}"
-        data = await self._http.get(url)
+        data = await self._client._http.get(url)
         markets_data = data if isinstance(data, list) else data.get("markets", [])
         return [MarketSearchResult.from_dict(m) for m in markets_data]
 
     async def featured(self) -> list[MarketSearchResult]:
         """Get featured markets."""
-        data = await self._http.get("/api/markets/search/featured")
+        data = await self._client._http.get("/api/markets/search/featured")
         markets_data = data if isinstance(data, list) else data.get("markets", [])
         results = [MarketSearchResult.from_dict(m) for m in markets_data]
         return [
             result for result in results
             if result.market_status in {"Active", "Resolved"}
         ]
+
+    # ── On-chain transaction builders ────────────────────────────────────
+
+    def mint_complete_set_ix(
+        self, params: MintCompleteSetParams, num_outcomes: int
+    ) -> Instruction:
+        """Build MintCompleteSet instruction."""
+        return build_mint_complete_set_instruction(
+            user=params.user,
+            market=params.market,
+            deposit_mint=params.deposit_mint,
+            amount=params.amount,
+            num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
+        )
+
+    def merge_complete_set_ix(
+        self, params: MergeCompleteSetParams, num_outcomes: int
+    ) -> Instruction:
+        """Build MergeCompleteSet instruction."""
+        return build_merge_complete_set_instruction(
+            user=params.user,
+            market=params.market,
+            deposit_mint=params.deposit_mint,
+            amount=params.amount,
+            num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
+        )
+
+    # ── On-chain account fetchers (require connection) ───────────────────
+
+    async def get_onchain(self, market_address: Pubkey) -> OnchainMarket:
+        """Fetch a Market account by on-chain pubkey."""
+        conn = require_connection(self._client)
+        response = await conn.get_account_info(market_address)
+        if response.value is None:
+            raise AccountNotFoundError(str(market_address))
+        return deserialize_market(response.value.data)
+
+    async def get_by_id_onchain(self, market_id: int) -> OnchainMarket:
+        """Fetch a Market account by ID."""
+        addr = self.pda(market_id)
+        return await self.get_onchain(addr)
+
+    async def next_id(self) -> int:
+        """Get the next available market ID."""
+        exchange = await self._client.rpc().get_exchange()
+        return exchange.market_count

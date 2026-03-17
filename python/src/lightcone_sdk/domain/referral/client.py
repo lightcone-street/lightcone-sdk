@@ -1,22 +1,24 @@
 """Referrals sub-client."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from . import ReferralStatus, ReferralCodeInfo, RedeemResult
 
 if TYPE_CHECKING:
-    from ...http.client import LightconeHttp
+    from ...client import LightconeClient
 
 
 class Referrals:
     """Referral operations sub-client."""
 
-    def __init__(self, http: "LightconeHttp"):
-        self._http = http
+    def __init__(self, client: "LightconeClient"):
+        self._client = client
 
     async def get_status(self) -> ReferralStatus:
         """Get referral status for the authenticated user."""
-        data = await self._http.get("/api/referral/status")
+        data = await self._client._http.get("/api/referral/status")
         codes = [
             ReferralCodeInfo(
                 code=c.get("code", ""),
@@ -33,7 +35,7 @@ class Referrals:
 
     async def redeem(self, code: str) -> RedeemResult:
         """Redeem a referral code."""
-        data = await self._http.post("/api/referral/redeem", {"code": code})
+        data = await self._client._http.post("/api/referral/redeem", {"code": code})
         return RedeemResult(
             success=data.get("success", False),
             is_beta=data.get("is_beta", False),

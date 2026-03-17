@@ -1,5 +1,7 @@
 """Privy sub-client — embedded wallet RPC operations."""
 
+from __future__ import annotations
+
 from typing import TYPE_CHECKING
 
 from ..http.retry import RetryPolicy
@@ -10,7 +12,7 @@ from . import (
 )
 
 if TYPE_CHECKING:
-    from ..http.client import LightconeHttp
+    from ..client import LightconeClient
 
 
 class Privy:
@@ -21,8 +23,8 @@ class Privy:
     require an active authenticated session.
     """
 
-    def __init__(self, http: "LightconeHttp"):
-        self._http = http
+    def __init__(self, client: "LightconeClient"):
+        self._client = client
 
     async def sign_and_send_tx(
         self,
@@ -30,7 +32,7 @@ class Privy:
         base64_tx: str,
     ) -> SignAndSendTxResponse:
         """Sign and send a Solana transaction via the user's Privy embedded wallet."""
-        data = await self._http.post(
+        data = await self._client._http.post(
             "/api/privy/sign_and_send_tx",
             {"wallet_id": wallet_id, "base64_tx": base64_tx},
             retry_policy=RetryPolicy.NONE,
@@ -47,7 +49,7 @@ class Privy:
         The backend computes the order hash, signs via Privy, and submits
         the signed order internally — no round-trip back to the client.
         """
-        return await self._http.post(
+        return await self._client._http.post(
             "/api/privy/sign_and_send_order",
             {"wallet_id": wallet_id, "order": order.to_dict()},
             retry_policy=RetryPolicy.NONE,
@@ -60,7 +62,7 @@ class Privy:
         maker: str,
     ) -> dict:
         """Cancel a limit order via Privy signing."""
-        return await self._http.post(
+        return await self._client._http.post(
             "/api/privy/sign_and_cancel_order",
             {
                 "wallet_id": wallet_id,
@@ -78,7 +80,7 @@ class Privy:
         maker: str,
     ) -> dict:
         """Cancel a trigger order via Privy signing."""
-        return await self._http.post(
+        return await self._client._http.post(
             "/api/privy/sign_and_cancel_order",
             {
                 "wallet_id": wallet_id,
@@ -98,7 +100,7 @@ class Privy:
         salt: str,
     ) -> dict:
         """Cancel all orders for a user via Privy signing."""
-        return await self._http.post(
+        return await self._client._http.post(
             "/api/privy/sign_and_cancel_all_orders",
             {
                 "wallet_id": wallet_id,
@@ -116,7 +118,7 @@ class Privy:
         decode_pubkey_base64: str,
     ) -> ExportWalletResponse:
         """Export an embedded wallet's private key (HPKE encrypted)."""
-        data = await self._http.post(
+        data = await self._client._http.post(
             "/api/privy/wallet/export",
             {
                 "wallet_id": wallet_id,
