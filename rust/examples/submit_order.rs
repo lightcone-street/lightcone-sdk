@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    fresh_order_nonce, market_and_orderbook, orderbook_mints, parse_pubkey, rest_client,
-    scaling_decimals, wallet, ExampleResult,
+    fresh_order_nonce, market_and_orderbook, orderbook_mints, parse_pubkey, rest_client, wallet,
+    ExampleResult,
 };
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -14,7 +14,6 @@ async fn main() -> ExampleResult {
     common::login(&client, &keypair, false).await?;
 
     let (market, orderbook) = market_and_orderbook(&client).await?;
-    let decimals = scaling_decimals(&client, &orderbook).await?;
     let (base_mint, quote_mint) = orderbook_mints(&orderbook)?;
 
     let request = LimitOrderEnvelope::new()
@@ -26,8 +25,7 @@ async fn main() -> ExampleResult {
         .price("0.55")
         .size("1")
         .nonce(fresh_order_nonce(&client, &keypair.pubkey()).await?)
-        .apply_scaling(&decimals)?
-        .sign(&keypair, orderbook.orderbook_id.as_str())?;
+        .sign(&keypair, &orderbook)?;
 
     let response = client.orders().submit(&request).await?;
     println!(

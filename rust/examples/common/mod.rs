@@ -8,7 +8,6 @@ use std::{
 };
 
 use dotenvy::dotenv;
-use lightcone::shared::OrderbookDecimals;
 use lightcone::{auth::native::sign_login_message, prelude::*};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
@@ -109,24 +108,6 @@ pub fn orderbook_mints(orderbook: &OrderBookPair) -> ExampleResult<(Pubkey, Pubk
         parse_pubkey(orderbook.base.pubkey())?,
         parse_pubkey(orderbook.quote.pubkey())?,
     ))
-}
-
-pub async fn scaling_decimals(
-    client: &LightconeClient,
-    orderbook: &OrderBookPair,
-) -> ExampleResult<OrderbookDecimals> {
-    let decimals = client
-        .orderbooks()
-        .decimals(orderbook.orderbook_id.as_str())
-        .await?;
-
-    Ok(OrderbookDecimals {
-        orderbook_id: decimals.orderbook_id,
-        base_decimals: decimals.base_decimals,
-        quote_decimals: decimals.quote_decimals,
-        price_decimals: decimals.price_decimals,
-        tick_size: orderbook.tick_size.max(0) as u64,
-    })
 }
 
 pub fn deposit_mint(market: &Market) -> ExampleResult<Pubkey> {

@@ -11,10 +11,7 @@ async fn main() -> ExampleResult {
         .orderbooks()
         .get(orderbook.orderbook_id.as_str(), Some(10))
         .await?;
-    let decimals = client
-        .orderbooks()
-        .decimals(orderbook.orderbook_id.as_str())
-        .await?;
+    let decimals = orderbook.decimals();
 
     println!("market: {}", market.slug);
     println!("orderbook: {}", orderbook.orderbook_id);
