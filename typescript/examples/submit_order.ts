@@ -1,7 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { LimitOrderEnvelope } from "../src/program";
 import {
-  restClient,
   rpcClient,
   wallet,
   login,
@@ -11,14 +10,13 @@ import {
 } from "./common";
 
 async function main() {
-  const client = restClient();
-  const rpc = rpcClient();
+  const client = rpcClient();
   const keypair = wallet();
   await login(client, keypair);
 
   const [m, orderbook] = await marketAndOrderbook(client);
   const decimals = await scalingDecimals(client, orderbook);
-  const nonce = await freshOrderNonce(rpc, keypair.publicKey);
+  const nonce = await freshOrderNonce(client, keypair.publicKey);
 
   const request = LimitOrderEnvelope.new()
     .maker(keypair.publicKey)

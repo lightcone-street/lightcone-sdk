@@ -31,12 +31,12 @@ import {
   LightconeClient,
   LimitOrderEnvelope,
   auth,
-  program,
 } from "@lightconexyz/lightcone-sdk";
 
 async function main() {
-  const client = LightconeClient.builder().build();
-  const rpc = program.LightconePinocchioClient.new("https://api.devnet.solana.com");
+  const client = LightconeClient.builder()
+    .rpcUrl("https://api.devnet.solana.com")
+    .build();
   const keypair = Keypair.generate();
 
   // 1. Authenticate
@@ -65,7 +65,7 @@ async function main() {
   };
 
   // 4. Build, sign, and submit a limit order
-  const nonce = await rpc.getCurrentNonce(keypair.publicKey);
+  const nonce = await client.orders().currentNonce(keypair.publicKey);
   const request = LimitOrderEnvelope.new()
     .maker(keypair.publicKey)
     .market(new PublicKey(market.pubkey))
@@ -96,7 +96,7 @@ main().catch(console.error);
 import * as fs from "fs";
 import * as path from "path";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { LightconeClient, program } from "@lightconexyz/lightcone-sdk";
+import { LightconeClient } from "@lightconexyz/lightcone-sdk";
 
 function readKeypairFile(filePath: string): Keypair {
   const resolved = filePath.startsWith("~")
@@ -106,8 +106,9 @@ function readKeypairFile(filePath: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
-const client = LightconeClient.builder().build();
-const rpc = program.LightconePinocchioClient.new("https://api.devnet.solana.com");
+const client = LightconeClient.builder()
+  .rpcUrl("https://api.devnet.solana.com")
+  .build();
 const keypair = readKeypairFile("~/.config/solana/id.json");
 ```
 
@@ -122,10 +123,12 @@ const orderbook =
 ### Step 2: Deposit Collateral
 
 ```typescript
+import { Transaction } from "@solana/web3.js";
+
 const marketPubkey = new PublicKey(market.pubkey);
 const depositMint = new PublicKey(market.depositAssets[0].pubkey);
 const numOutcomes = market.outcomes.length;
-const mintResult = await rpc.mintCompleteSet(
+const mintIx = client.markets().mintCompleteSetIx(
   {
     user: keypair.publicKey,
     market: marketPubkey,
@@ -134,7 +137,10 @@ const mintResult = await rpc.mintCompleteSet(
   },
   numOutcomes
 );
-mintResult.transaction.sign(keypair);
+const tx = new Transaction().add(mintIx);
+tx.feePayer = keypair.publicKey;
+tx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
+tx.sign(keypair);
 ```
 
 ### Step 3: Place an Order
@@ -158,7 +164,7 @@ const request = LimitOrderEnvelope.new()
   .bid()
   .price("0.55")
   .size("1")
-  .nonce(await rpc.getCurrentNonce(keypair.publicKey))
+  .nonce(await client.orders().currentNonce(keypair.publicKey))
   .applyScaling(scales)
   .sign(keypair, orderbook.orderbookId);
 const order = await client.orders().submit(request);
@@ -197,7 +203,7 @@ await client.orders().cancel({
 ### Step 6: Exit a Position
 
 ```typescript
-const mergeResult = await rpc.mergeCompleteSet(
+const mergeIx = client.markets().mergeCompleteSetIx(
   {
     user: keypair.publicKey,
     market: new PublicKey(market.pubkey),
@@ -206,7 +212,10 @@ const mergeResult = await rpc.mergeCompleteSet(
   },
   numOutcomes
 );
-mergeResult.transaction.sign(keypair);
+const mergeTx = new Transaction().add(mergeIx);
+mergeTx.feePayer = keypair.publicKey;
+mergeTx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
+mergeTx.sign(keypair);
 ```
 
 ## Authentication

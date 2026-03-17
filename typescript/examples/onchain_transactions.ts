@@ -1,6 +1,5 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
 import {
-  restClient,
   rpcClient,
   wallet,
   marketAndOrderbook,
@@ -15,52 +14,50 @@ function describeTx(name: string, tx: Transaction): void {
 }
 
 async function main() {
-  const client = restClient();
-  const rpc = rpcClient();
+  const client = rpcClient();
   const keypair = wallet();
+  const connection = client.rpc().inner();
 
   const [m] = await marketAndOrderbook(client);
   const marketPubkey = new PublicKey(m.pubkey);
   const dMint = depositMint(m);
   const outcomes = numOutcomes(m);
 
+  const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
+
+  const mintIx = client.markets().mintCompleteSetIx(
+    {
+      user: keypair.publicKey,
+      market: marketPubkey,
+      depositMint: dMint,
+      amount: 1_000_000n,
+    },
+    outcomes
+  );
+
+  const mergeIx = client.markets().mergeCompleteSetIx(
+    {
+      user: keypair.publicKey,
+      market: marketPubkey,
+      depositMint: dMint,
+      amount: 1_000_000n,
+    },
+    outcomes
+  );
+
+  const nonceIx = client.orders().incrementNonceIx(keypair.publicKey);
+
   const transactions: Array<[string, Transaction]> = [
-    [
-      "mint_complete_set",
-      (
-        await rpc.mintCompleteSet(
-          {
-            user: keypair.publicKey,
-            market: marketPubkey,
-            depositMint: dMint,
-            amount: 1_000_000n,
-          },
-          outcomes
-        )
-      ).transaction,
-    ],
-    [
-      "merge_complete_set",
-      (
-        await rpc.mergeCompleteSet(
-          {
-            user: keypair.publicKey,
-            market: marketPubkey,
-            depositMint: dMint,
-            amount: 1_000_000n,
-          },
-          outcomes
-        )
-      ).transaction,
-    ],
-    ["increment_nonce", (await rpc.incrementNonce(keypair.publicKey)).transaction],
+    ["mint_complete_set", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(mintIx)],
+    ["merge_complete_set", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(mergeIx)],
+    ["increment_nonce", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(nonceIx)],
   ];
 
   for (const [name, tx] of transactions) {
     tx.sign(keypair);
     describeTx(name, tx);
-    const signature = await rpc.connection.sendRawTransaction(tx.serialize());
-    await rpc.connection.confirmTransaction(signature);
+    const signature = await connection.sendRawTransaction(tx.serialize());
+    await connection.confirmTransaction(signature);
     console.log(`${name}: confirmed ${signature}`);
   }
 }

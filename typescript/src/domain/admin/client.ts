@@ -1,4 +1,31 @@
-import { RetryPolicy, type LightconeHttp } from "../../http";
+import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import type { ClientContext } from "../../context";
+import { RetryPolicy } from "../../http";
+import {
+  buildInitializeIx,
+  buildCreateMarketIx,
+  buildAddDepositMintIx,
+  buildActivateMarketIx,
+  buildSettleMarketIx,
+  buildSetPausedIx,
+  buildSetOperatorIx,
+  buildSetAuthorityIx,
+  buildWhitelistDepositTokenIx,
+  buildCreateOrderbookIx,
+  buildMatchOrdersMultiIx,
+  buildDepositAndSwapIx,
+} from "../../program/instructions";
+import type {
+  CreateMarketParams,
+  AddDepositMintParams,
+  ActivateMarketParams,
+  SettleMarketParams,
+  SetAuthorityParams,
+  WhitelistDepositTokenParams,
+  CreateOrderbookParams,
+  MatchOrdersMultiParams,
+  DepositAndSwapParams,
+} from "../../program/types";
 import type { AdminEnvelope } from "./index";
 import type {
   AllocateCodesRequest,
@@ -17,12 +44,10 @@ import type {
   WhitelistResponse,
 } from "./wire";
 
-interface ClientContext {
-  http: LightconeHttp;
-}
-
 export class Admin {
   constructor(private readonly client: ClientContext) {}
+
+  // ── HTTP methods ─────────────────────────────────────────────────────
 
   async upsertMetadata(
     envelope: AdminEnvelope<UnifiedMetadataRequest>
@@ -93,5 +118,59 @@ export class Admin {
       envelope,
       RetryPolicy.None
     );
+  }
+
+  // ── On-chain transaction builders ────────────────────────────────────
+
+  initializeIx(authority: PublicKey): TransactionInstruction {
+    return buildInitializeIx({ authority }, this.client.programId);
+  }
+
+  createMarketIx(params: CreateMarketParams, marketId: bigint): TransactionInstruction {
+    return buildCreateMarketIx(params, marketId, this.client.programId);
+  }
+
+  addDepositMintIx(
+    params: AddDepositMintParams,
+    market: PublicKey,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildAddDepositMintIx(params, market, numOutcomes, this.client.programId);
+  }
+
+  activateMarketIx(params: ActivateMarketParams): TransactionInstruction {
+    return buildActivateMarketIx(params, this.client.programId);
+  }
+
+  settleMarketIx(params: SettleMarketParams): TransactionInstruction {
+    return buildSettleMarketIx(params, this.client.programId);
+  }
+
+  setPausedIx(authority: PublicKey, paused: boolean): TransactionInstruction {
+    return buildSetPausedIx(authority, paused, this.client.programId);
+  }
+
+  setOperatorIx(authority: PublicKey, newOperator: PublicKey): TransactionInstruction {
+    return buildSetOperatorIx(authority, newOperator, this.client.programId);
+  }
+
+  setAuthorityIx(params: SetAuthorityParams): TransactionInstruction {
+    return buildSetAuthorityIx(params, this.client.programId);
+  }
+
+  whitelistDepositTokenIx(params: WhitelistDepositTokenParams): TransactionInstruction {
+    return buildWhitelistDepositTokenIx(params, this.client.programId);
+  }
+
+  createOrderbookIx(params: CreateOrderbookParams): TransactionInstruction {
+    return buildCreateOrderbookIx(params, this.client.programId);
+  }
+
+  matchOrdersMultiIx(params: MatchOrdersMultiParams): TransactionInstruction {
+    return buildMatchOrdersMultiIx(params, this.client.programId);
+  }
+
+  depositAndSwapIx(params: DepositAndSwapParams): TransactionInstruction {
+    return buildDepositAndSwapIx(params, this.client.programId);
   }
 }

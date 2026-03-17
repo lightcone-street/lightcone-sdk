@@ -24,6 +24,9 @@ export {
   LightconeClientBuilder,
 } from "./client";
 
+export { Rpc } from "./rpc";
+export type { ClientContext, DecimalsCache } from "./context";
+
 export { Auth } from "./auth";
 export { Admin } from "./domain/admin";
 export { Markets } from "./domain/market";
@@ -181,3 +184,4 @@ export type TradesClient = import("./domain/trade").Trades;
 export type PriceHistorySubClient = import("./domain/price_history").PriceHistoryClient;
 export type NotificationsClient = import("./domain/notification").Notifications;
 export type ReferralsClient = import("./domain/referral").Referrals;
+export type RpcClient = import("./rpc").Rpc;

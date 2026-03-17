@@ -1,10 +1,44 @@
 import bs58 from "bs58";
-import { Keypair } from "@solana/web3.js";
+import { Keypair, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import type { ClientContext } from "../../context";
+import { requireConnection } from "../../context";
 import { SdkError } from "../../error";
-import { RetryPolicy, type LightconeHttp } from "../../http";
-import { signCancelOrder, signCancelTriggerOrder, signCancelAll } from "../../program/orders";
+import { RetryPolicy } from "../../http";
+import {
+  buildCancelOrderIx,
+  buildIncrementNonceIx,
+} from "../../program/instructions";
+import {
+  hashOrder as programHashOrder,
+  signOrder as programSignOrder,
+  signOrderFull,
+  createBidOrder as programCreateBidOrder,
+  createAskOrder as programCreateAskOrder,
+  createSignedBidOrder as programCreateSignedBidOrder,
+  createSignedAskOrder as programCreateSignedAskOrder,
+  signCancelOrder,
+  signCancelTriggerOrder,
+  signCancelAll,
+  generateCancelAllSalt as programGenerateCancelAllSalt,
+} from "../../program/orders";
+import {
+  getOrderStatusPda,
+  getUserNoncePda,
+} from "../../program/pda";
+import {
+  deserializeOrderStatus,
+  deserializeUserNonce,
+} from "../../program/accounts";
+import type {
+  SignedOrder,
+  BidOrderParams,
+  AskOrderParams,
+  OrderStatus as ProgramOrderStatus,
+} from "../../program/types";
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
+
+// ─── Request types ───────────────────────────────────────────────────────────
 
 export interface CancelBody {
   order_hash: string;
@@ -94,6 +128,8 @@ export function cancelTriggerBodySigned(
   const signature = signCancelTriggerOrder(triggerOrderId, keypair);
   return { trigger_order_id: triggerOrderId, maker, signature };
 }
+
+// ─── Response types ──────────────────────────────────────────────────────────
 
 export interface FillInfo {
   counterparty: PubkeyStr;
@@ -191,12 +227,28 @@ export interface UserOrdersResponse {
   has_more: boolean;
 }
 
-interface ClientContext {
-  http: LightconeHttp;
-}
+// ─── Sub-client ──────────────────────────────────────────────────────────────
 
 export class Orders {
   constructor(private readonly client: ClientContext) {}
+
+  // ── PDA helpers ──────────────────────────────────────────────────────
+
+  statusPda(orderHash: Buffer): PublicKey {
+    return getOrderStatusPda(orderHash, this.client.programId)[0];
+  }
+
+  noncePda(user: PublicKey): PublicKey {
+    return getUserNoncePda(user, this.client.programId)[0];
+  }
+
+  // ── Helpers ──────────────────────────────────────────────────────────
+
+  generateCancelAllSalt(): string {
+    return programGenerateCancelAllSalt();
+  }
+
+  // ── HTTP methods ─────────────────────────────────────────────────────
 
   async submit(request: object): Promise<SubmitOrderResponse> {
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
@@ -325,5 +377,83 @@ export class Orders {
       next_cursor: response.next_cursor ?? undefined,
       has_more: response.has_more ?? false,
     };
+  }
+
+  // ── On-chain transaction builders ────────────────────────────────────
+
+  cancelOrderIx(
+    maker: PublicKey,
+    market: PublicKey,
+    order: SignedOrder
+  ): TransactionInstruction {
+    return buildCancelOrderIx(maker, market, order, this.client.programId);
+  }
+
+  incrementNonceIx(user: PublicKey): TransactionInstruction {
+    return buildIncrementNonceIx(user, this.client.programId);
+  }
+
+  // ── Order helpers ────────────────────────────────────────────────────
+
+  createBidOrder(params: BidOrderParams): Omit<SignedOrder, "signature"> {
+    return programCreateBidOrder(params);
+  }
+
+  createAskOrder(params: AskOrderParams): Omit<SignedOrder, "signature"> {
+    return programCreateAskOrder(params);
+  }
+
+  createSignedBidOrder(params: BidOrderParams, signer: Keypair): SignedOrder {
+    return programCreateSignedBidOrder(params, signer);
+  }
+
+  createSignedAskOrder(params: AskOrderParams, signer: Keypair): SignedOrder {
+    return programCreateSignedAskOrder(params, signer);
+  }
+
+  hashOrder(order: SignedOrder): Buffer {
+    return programHashOrder(order);
+  }
+
+  signOrder(order: SignedOrder, signer: Keypair): Buffer {
+    return programSignOrder(order, signer);
+  }
+
+  signFullOrder(
+    order: Omit<SignedOrder, "signature">,
+    signer: Keypair
+  ): SignedOrder {
+    return signOrderFull(order, signer);
+  }
+
+  // ── On-chain account fetchers (require Connection) ──────────────────
+
+  async getStatus(orderHash: Buffer): Promise<ProgramOrderStatus | null> {
+    const connection = requireConnection(this.client);
+    const pda = this.statusPda(orderHash);
+    const accountInfo = await connection.getAccountInfo(pda);
+    if (!accountInfo) {
+      return null;
+    }
+    return deserializeOrderStatus(accountInfo.data as Buffer);
+  }
+
+  async getNonce(user: PublicKey): Promise<bigint> {
+    const connection = requireConnection(this.client);
+    const pda = this.noncePda(user);
+    const accountInfo = await connection.getAccountInfo(pda);
+    if (!accountInfo) {
+      return 0n;
+    }
+    const userNonce = deserializeUserNonce(accountInfo.data as Buffer);
+    return userNonce.nonce;
+  }
+
+  async currentNonce(user: PublicKey): Promise<number> {
+    const nonce = await this.getNonce(user);
+    if (nonce > 0xFFFFFFFFn) {
+      throw new Error(`Nonce exceeds u32 range: ${nonce}`);
+    }
+    return Number(nonce);
   }
 }

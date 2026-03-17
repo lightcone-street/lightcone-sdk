@@ -5,7 +5,6 @@ import { config } from "dotenv";
 
 import { LightconeClient, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type User } from "../src/auth";
-import { LightconePinocchioClient } from "../src/program";
 import type { OrderbookDecimals } from "../src/shared";
 
 config({ path: path.resolve(__dirname, "../.env") });
@@ -14,9 +13,9 @@ export function restClient(): LightconeClient {
   return LightconeClient.builder().build();
 }
 
-export function rpcClient(): LightconePinocchioClient {
+export function rpcClient(): LightconeClient {
   const url = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
-  return LightconePinocchioClient.new(url);
+  return LightconeClient.builder().rpcUrl(url).build();
 }
 
 export function wallet(): Keypair {
@@ -89,10 +88,10 @@ export function numOutcomes(m: Market): number {
 }
 
 export async function freshOrderNonce(
-  rpc: LightconePinocchioClient,
+  client: LightconeClient,
   user: PublicKey
 ): Promise<number> {
-  return rpc.getCurrentNonce(user);
+  return client.orders().currentNonce(user);
 }
 
 export function unixTimestamp(): number {

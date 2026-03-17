@@ -1,6 +1,23 @@
+import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import type { ClientContext } from "../../context";
+import { requireConnection } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
-import type { LightconeHttp } from "../../http";
+import {
+  buildMintCompleteSetIx,
+  buildMergeCompleteSetIx,
+} from "../../program/instructions";
+import {
+  getMarketPda,
+  getAllConditionalMintPdas,
+} from "../../program/pda";
+import { deserializeMarket as deserializeProgramMarket } from "../../program/accounts";
+import { deriveConditionId } from "../../program/utils";
+import type {
+  Market as ProgramMarket,
+  MintCompleteSetParams,
+  MergeCompleteSetParams,
+} from "../../program/types";
 import { marketFromWire } from "./convert";
 import { Status, type Market } from "./index";
 import type { MarketSearchResult, MarketsResponse, SingleMarketResponse } from "./wire";
@@ -10,12 +27,39 @@ export interface MarketsResult {
   validationErrors: string[];
 }
 
-interface ClientContext {
-  http: LightconeHttp;
-}
-
 export class Markets {
   constructor(private readonly client: ClientContext) {}
+
+  // ── PDA helpers ──────────────────────────────────────────────────────
+
+  pda(marketId: bigint): PublicKey {
+    return getMarketPda(marketId, this.client.programId)[0];
+  }
+
+  // ── Market helpers ───────────────────────────────────────────────────
+
+  deriveConditionId(
+    oracle: PublicKey,
+    questionId: Buffer,
+    numOutcomes: number
+  ): Buffer {
+    return deriveConditionId(oracle, questionId, numOutcomes);
+  }
+
+  getConditionalMints(
+    market: PublicKey,
+    depositMint: PublicKey,
+    numOutcomes: number
+  ): PublicKey[] {
+    return getAllConditionalMintPdas(
+      market,
+      depositMint,
+      numOutcomes,
+      this.client.programId
+    ).map(([mint]) => mint);
+  }
+
+  // ── HTTP methods ─────────────────────────────────────────────────────
 
   async get(cursor?: number, limit?: number): Promise<MarketsResult> {
     const search = new URLSearchParams();
@@ -78,5 +122,44 @@ export class Markets {
     return result.filter(
       (item) => item.market_status === Status.Active || item.market_status === Status.Resolved
     );
+  }
+
+  // ── On-chain transaction builders ────────────────────────────────────
+
+  mintCompleteSetIx(
+    params: MintCompleteSetParams,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildMintCompleteSetIx(params, numOutcomes, this.client.programId);
+  }
+
+  mergeCompleteSetIx(
+    params: MergeCompleteSetParams,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildMergeCompleteSetIx(params, numOutcomes, this.client.programId);
+  }
+
+  // ── On-chain account fetchers (require Connection) ──────────────────
+
+  async getOnchain(market: PublicKey): Promise<ProgramMarket> {
+    const connection = requireConnection(this.client);
+    const accountInfo = await connection.getAccountInfo(market);
+    if (!accountInfo) {
+      throw new Error(`Market not found at ${market.toBase58()}`);
+    }
+    return deserializeProgramMarket(accountInfo.data as Buffer);
+  }
+
+  async getByIdOnchain(marketId: bigint): Promise<ProgramMarket> {
+    const marketPda = this.pda(marketId);
+    return this.getOnchain(marketPda);
+  }
+
+  async nextId(): Promise<bigint> {
+    const { Rpc } = await import("../../rpc");
+    const rpc = new Rpc(this.client);
+    const exchange = await rpc.getExchange();
+    return exchange.marketCount;
   }
 }
