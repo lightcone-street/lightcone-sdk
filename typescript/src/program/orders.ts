@@ -1,5 +1,6 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { sign } from "tweetnacl";
+import bs58 from "bs58";
 import type {
   DepositSource,
   SubmitOrderRequest,
@@ -323,6 +324,32 @@ export function signedOrderToOrder(order: SignedOrder): Order {
   };
 }
 
+/**
+ * Expand a compact Order back to a full SignedOrder using provided pubkeys and signature.
+ * Rust equivalent: Order::to_signed()
+ */
+export function orderToSigned(
+  order: Order,
+  maker: PublicKey,
+  market: PublicKey,
+  baseMint: PublicKey,
+  quoteMint: PublicKey,
+  signature: Buffer
+): SignedOrder {
+  return {
+    nonce: order.nonce,
+    maker,
+    market,
+    baseMint,
+    quoteMint,
+    side: order.side,
+    amountIn: order.amountIn,
+    amountOut: order.amountOut,
+    expiration: order.expiration,
+    signature,
+  };
+}
+
 // ============================================================================
 // ORDER CREATION HELPERS
 // ============================================================================
@@ -470,6 +497,21 @@ export function isSigned(order: SignedOrder): boolean {
 }
 
 /**
+ * Apply an external base58-encoded signature to an unsigned order.
+ * Rust equivalent: OrderPayload::apply_signature()
+ */
+export function applySignature(
+  order: Omit<SignedOrder, "signature">,
+  signatureBs58: string
+): SignedOrder {
+  const sigBytes = bs58.decode(signatureBs58);
+  if (sigBytes.length !== 64) {
+    throw new Error(`Invalid signature length: ${sigBytes.length}, expected 64`);
+  }
+  return { ...order, signature: Buffer.from(sigBytes) };
+}
+
+/**
  * Derive orderbook ID from base and quote token addresses.
  * Delegates to the canonical implementation in shared/types.
  */
@@ -600,3 +642,5 @@ export const cancel_trigger_order_message = cancelTriggerOrderMessage;
 export const cancel_all_message = cancelAllMessage;
 export const generate_cancel_all_salt = generateCancelAllSalt;
 export const derive_condition_id = deriveConditionId;
+export const apply_signature = applySignature;
+export const order_to_signed = orderToSigned;

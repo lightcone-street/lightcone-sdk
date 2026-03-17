@@ -207,6 +207,8 @@ export {
   calculateTakerFill,
   signatureHex,
   isSigned,
+  applySignature,
+  orderToSigned,
   deriveOrderbookId,
   toSubmitRequest,
   cancelOrderMessage,
@@ -224,6 +226,8 @@ export {
   cancel_all_message,
   generate_cancel_all_salt,
   derive_condition_id,
+  apply_signature,
+  order_to_signed,
 } from "./orders";
 
 // ============================================================================
