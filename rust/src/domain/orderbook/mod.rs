@@ -8,7 +8,7 @@ pub mod wire;
 
 pub use ticker::TickerData;
 
-use crate::domain::market::tokens;
+use crate::domain::market::tokens::{self, Token};
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
@@ -36,6 +36,21 @@ pub struct OrderBookPair {
 }
 
 impl OrderBookPair {
+    /// Derive scaling decimals from this pair's token metadata.
+    ///
+    /// This is the recommended way to get `OrderbookDecimals` — no REST call needed.
+    pub fn decimals(&self) -> crate::shared::scaling::OrderbookDecimals {
+        let base_decimals = self.base.decimals() as u8;
+        let quote_decimals = self.quote.decimals() as u8;
+        crate::shared::scaling::OrderbookDecimals {
+            orderbook_id: self.orderbook_id.as_str().to_string(),
+            base_decimals,
+            quote_decimals,
+            price_decimals: (6i16 + quote_decimals as i16 - base_decimals as i16).max(0) as u8,
+            tick_size: self.tick_size.max(0) as u64,
+        }
+    }
+
     /// Price impact as percentage relative to a deposit asset price.
     pub fn impact_pct(&self, deposit_price: Decimal) -> (f64, &'static str) {
         if deposit_price == Decimal::ZERO {
@@ -125,4 +140,40 @@ impl fmt::Display for OrderBookValidationError {
 }
 
 impl std::error::Error for OrderBookValidationError {}
+
+impl OrderBookPair {
+    #[cfg(test)]
+    pub fn test_new(
+        orderbook_id: impl Into<String>,
+        base_decimals: u16,
+        quote_decimals: u16,
+        tick_size: i64,
+    ) -> Self {
+        use chrono::Utc;
+        let mut base = tokens::ConditionalToken::test_new("base_mint", 0);
+        let mut quote = tokens::ConditionalToken::test_new("quote_mint", 1);
+        // Override decimals via serde round-trip (fields are private)
+        let mut base_val = serde_json::to_value(&base).unwrap();
+        base_val["decimals"] = serde_json::json!(base_decimals);
+        base = serde_json::from_value(base_val).unwrap();
+        let mut quote_val = serde_json::to_value(&quote).unwrap();
+        quote_val["decimals"] = serde_json::json!(quote_decimals);
+        quote = serde_json::from_value(quote_val).unwrap();
+
+        Self {
+            id: 1,
+            market_pubkey: PubkeyStr::from("market"),
+            orderbook_id: OrderBookId::from(orderbook_id.into()),
+            base,
+            quote,
+            outcome_index: 0,
+            tick_size,
+            total_bids: 0,
+            total_asks: 0,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+        }
+    }
+}
 

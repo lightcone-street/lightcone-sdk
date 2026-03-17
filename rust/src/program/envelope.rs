@@ -6,10 +6,11 @@ use solana_pubkey::Pubkey;
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
 
+use crate::domain::orderbook::OrderBookPair;
 use crate::program::error::SdkError;
 use crate::program::orders::OrderPayload;
 use crate::program::types::OrderSide;
-use crate::shared::scaling::{scale_price_size, OrderbookDecimals, ScalingError};
+use crate::shared::scaling::{align_price_to_tick, scale_price_size, ScalingError};
 use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce, TriggerType};
 
 // ─── Shared base fields ─────────────────────────────────────────────────────
@@ -51,15 +52,21 @@ impl OrderFields {
         }
     }
 
-    fn apply_scaling(&mut self, decimals: &OrderbookDecimals) -> Result<(), ScalingError> {
+    /// Auto-scale price/size to raw amounts if the user provided human-readable
+    /// strings but not pre-computed amounts. Skips if amounts are already set.
+    fn auto_scale(&mut self, orderbook: &OrderBookPair) -> Result<(), ScalingError> {
+        if self.amount_in.is_some() || self.amount_out.is_some() {
+            return Ok(());
+        }
+
         let price_str = self
             .price_raw
             .as_deref()
-            .expect("price() is required for apply_scaling");
+            .expect("either price()+size() or amount_in()+amount_out() is required");
         let size_str = self
             .size_raw
             .as_deref()
-            .expect("size() is required for apply_scaling");
+            .expect("either price()+size() or amount_in()+amount_out() is required");
 
         let price: Decimal =
             price_str
@@ -79,9 +86,11 @@ impl OrderFields {
 
         let side = self
             .side
-            .expect("side is required (call .bid() or .ask()) for apply_scaling");
+            .expect("side is required (call .bid() or .ask())");
 
-        let scaled = scale_price_size(price, size, side, decimals)?;
+        let decimals = orderbook.decimals();
+        let aligned_price = align_price_to_tick(price, &decimals);
+        let scaled = scale_price_size(aligned_price, size, side, &decimals)?;
         self.amount_in = Some(scaled.amount_in);
         self.amount_out = Some(scaled.amount_out);
         Ok(())
@@ -110,25 +119,30 @@ pub trait OrderEnvelope: Sized {
     fn price(self, price: &str) -> Self;
     fn size(self, size: &str) -> Self;
     fn deposit_source(self, ds: DepositSource) -> Self;
-    fn apply_scaling(self, decimals: &OrderbookDecimals) -> Result<Self, ScalingError>;
 
     /// Build an unsigned `OrderPayload` without consuming the envelope.
     fn payload(&self) -> OrderPayload;
 
     /// Sign and produce a `SubmitOrderRequest`. Consumes the envelope.
+    ///
+    /// If `price()` and `size()` were set, scaling is applied automatically
+    /// using the orderbook's decimals. If `amount_in()` and `amount_out()`
+    /// were set directly, those raw values are used as-is.
     #[cfg(feature = "native-auth")]
     fn sign(
         self,
         keypair: &Keypair,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError>;
 
     /// Apply an external wallet-adapter signature and produce a `SubmitOrderRequest`.
     /// Consumes the envelope.
+    ///
+    /// Same auto-scaling behavior as `sign()`.
     fn finalize(
         self,
         sig_bs58: &str,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError>;
 }
 
@@ -210,11 +224,6 @@ macro_rules! impl_base_methods {
             self
         }
 
-        fn apply_scaling(mut self, decimals: &OrderbookDecimals) -> Result<Self, ScalingError> {
-            self.fields.apply_scaling(decimals)?;
-            Ok(self)
-        }
-
         fn payload(&self) -> OrderPayload {
             self.fields.to_payload()
         }
@@ -225,11 +234,24 @@ macro_rules! impl_base_methods {
 
 /// Envelope for building and submitting limit orders.
 ///
-/// # Example
+/// # Example (human-readable price/size — auto-scaled)
 ///
 /// ```rust,ignore
-/// use lightcone_sdk::prelude::*;
+/// let request = LimitOrderEnvelope::new()
+///     .maker(maker_pubkey)
+///     .market(market_pubkey)
+///     .base_mint(yes_token)
+///     .quote_mint(usdc)
+///     .bid()
+///     .nonce(5)
+///     .price("0.55")
+///     .size("100")
+///     .sign(&keypair, &orderbook)?;
+/// ```
 ///
+/// # Example (pre-computed raw amounts — no scaling)
+///
+/// ```rust,ignore
 /// let request = LimitOrderEnvelope::new()
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
@@ -239,7 +261,7 @@ macro_rules! impl_base_methods {
 ///     .nonce(5)
 ///     .amount_in(1_000_000)
 ///     .amount_out(500_000)
-///     .sign(&keypair, "orderbook_id")?;
+///     .sign(&keypair, &orderbook)?;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct LimitOrderEnvelope {
@@ -251,23 +273,33 @@ impl OrderEnvelope for LimitOrderEnvelope {
 
     #[cfg(feature = "native-auth")]
     fn sign(
-        self,
+        mut self,
         keypair: &Keypair,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError> {
+        self.fields.auto_scale(orderbook)?;
         let mut payload = self.fields.to_payload();
         payload.sign(keypair);
-        payload.to_submit_request(orderbook_id, None, None, None, self.fields.deposit_source)
+        payload.to_submit_request(
+            orderbook.orderbook_id.as_str(),
+            None, None, None,
+            self.fields.deposit_source,
+        )
     }
 
     fn finalize(
-        self,
+        mut self,
         sig_bs58: &str,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError> {
+        self.fields.auto_scale(orderbook)?;
         let mut payload = self.fields.to_payload();
         payload.apply_signature(sig_bs58.to_string())?;
-        payload.to_submit_request(orderbook_id, None, None, None, self.fields.deposit_source)
+        payload.to_submit_request(
+            orderbook.orderbook_id.as_str(),
+            None, None, None,
+            self.fields.deposit_source,
+        )
     }
 }
 
@@ -281,8 +313,6 @@ impl OrderEnvelope for LimitOrderEnvelope {
 /// # Example
 ///
 /// ```rust,ignore
-/// use lightcone_sdk::prelude::*;
-///
 /// let request = TriggerOrderEnvelope::new()
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
@@ -290,11 +320,11 @@ impl OrderEnvelope for LimitOrderEnvelope {
 ///     .quote_mint(usdc)
 ///     .ask()
 ///     .nonce(5)
-///     .amount_in(500_000)
-///     .amount_out(1_000_000)
+///     .price("0.55")
+///     .size("100")
 ///     .take_profit(0.75)
 ///     .gtc()
-///     .sign(&keypair, "orderbook_id")?;
+///     .sign(&keypair, &orderbook)?;
 /// ```
 #[derive(Debug, Clone, Default)]
 pub struct TriggerOrderEnvelope {
@@ -309,9 +339,9 @@ impl OrderEnvelope for TriggerOrderEnvelope {
 
     #[cfg(feature = "native-auth")]
     fn sign(
-        self,
+        mut self,
         keypair: &Keypair,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError> {
         let trigger_price = self.trigger_price.ok_or_else(|| {
             SdkError::MissingField("trigger_price is required for trigger orders".into())
@@ -320,10 +350,11 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             SdkError::MissingField("trigger_type is required for trigger orders".into())
         })?;
 
+        self.fields.auto_scale(orderbook)?;
         let mut payload = self.fields.to_payload();
         payload.sign(keypair);
         payload.to_submit_request(
-            orderbook_id,
+            orderbook.orderbook_id.as_str(),
             self.time_in_force,
             Some(trigger_price),
             Some(trigger_type),
@@ -332,9 +363,9 @@ impl OrderEnvelope for TriggerOrderEnvelope {
     }
 
     fn finalize(
-        self,
+        mut self,
         sig_bs58: &str,
-        orderbook_id: impl Into<String>,
+        orderbook: &OrderBookPair,
     ) -> Result<SubmitOrderRequest, SdkError> {
         let trigger_price = self.trigger_price.ok_or_else(|| {
             SdkError::MissingField("trigger_price is required for trigger orders".into())
@@ -343,10 +374,11 @@ impl OrderEnvelope for TriggerOrderEnvelope {
             SdkError::MissingField("trigger_type is required for trigger orders".into())
         })?;
 
+        self.fields.auto_scale(orderbook)?;
         let mut payload = self.fields.to_payload();
         payload.apply_signature(sig_bs58.to_string())?;
         payload.to_submit_request(
-            orderbook_id,
+            orderbook.orderbook_id.as_str(),
             self.time_in_force,
             Some(trigger_price),
             Some(trigger_type),
@@ -431,9 +463,14 @@ impl TriggerOrderEnvelope {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::orderbook::OrderBookPair;
 
     #[cfg(feature = "native-auth")]
     use solana_signer::Signer;
+
+    fn test_orderbook() -> OrderBookPair {
+        OrderBookPair::test_new("test_ob", 6, 6, 0)
+    }
 
     #[test]
     fn test_limit_envelope_payload() {
@@ -461,9 +498,10 @@ mod tests {
 
     #[test]
     #[cfg(feature = "native-auth")]
-    fn test_limit_envelope_sign() {
+    fn test_limit_envelope_sign_raw_amounts() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
+        let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
@@ -474,7 +512,7 @@ mod tests {
             .bid()
             .amount_in(1_000_000)
             .amount_out(500_000)
-            .sign(&keypair, "test_ob")
+            .sign(&keypair, &ob)
             .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
@@ -489,9 +527,36 @@ mod tests {
 
     #[test]
     #[cfg(feature = "native-auth")]
+    fn test_limit_envelope_sign_with_auto_scaling() {
+        let keypair = Keypair::new();
+        let maker = keypair.pubkey();
+        let ob = test_orderbook();
+
+        let request = LimitOrderEnvelope::new()
+            .nonce(1)
+            .maker(maker)
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .price("0.65")
+            .size("100")
+            .sign(&keypair, &ob)
+            .unwrap();
+
+        // BID: amount_in = quote_lamports = 0.65 * 100 * 10^6 = 65_000_000
+        //      amount_out = base_lamports = 100 * 10^6 = 100_000_000
+        assert_eq!(request.amount_in, 65_000_000);
+        assert_eq!(request.amount_out, 100_000_000);
+        assert_eq!(request.signature.len(), 128);
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
     fn test_trigger_envelope_sign() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
+        let ob = test_orderbook();
 
         let request = TriggerOrderEnvelope::new()
             .nonce(1)
@@ -504,7 +569,7 @@ mod tests {
             .amount_out(1_000_000)
             .take_profit(0.75)
             .gtc()
-            .sign(&keypair, "test_ob")
+            .sign(&keypair, &ob)
             .unwrap();
 
         assert_eq!(request.trigger_price, Some(0.75));
@@ -518,6 +583,7 @@ mod tests {
     #[cfg(feature = "native-auth")]
     fn test_trigger_envelope_missing_trigger_fields() {
         let keypair = Keypair::new();
+        let ob = test_orderbook();
 
         let result = TriggerOrderEnvelope::new()
             .nonce(1)
@@ -528,7 +594,7 @@ mod tests {
             .bid()
             .amount_in(1_000_000)
             .amount_out(500_000)
-            .sign(&keypair, "ob");
+            .sign(&keypair, &ob);
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("trigger_price"));
@@ -540,6 +606,7 @@ mod tests {
         use crate::shared::{TimeInForce, TriggerType};
 
         let keypair = Keypair::new();
+        let ob = test_orderbook();
 
         let request = TriggerOrderEnvelope::new()
             .nonce(1)
@@ -552,7 +619,7 @@ mod tests {
             .amount_out(1_000_000)
             .stop_loss(0.30)
             .ioc()
-            .sign(&keypair, "ob")
+            .sign(&keypair, &ob)
             .unwrap();
 
         assert_eq!(request.time_in_force, Some(TimeInForce::Ioc));
@@ -623,6 +690,7 @@ mod tests {
     fn test_limit_envelope_with_deposit_source() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
+        let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
@@ -634,7 +702,7 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(500_000)
             .deposit_source(DepositSource::Global)
-            .sign(&keypair, "test_ob")
+            .sign(&keypair, &ob)
             .unwrap();
 
         assert_eq!(request.deposit_source, Some(DepositSource::Global));
@@ -644,6 +712,7 @@ mod tests {
     #[cfg(feature = "native-auth")]
     fn test_limit_envelope_deposit_source_none_by_default() {
         let keypair = Keypair::new();
+        let ob = test_orderbook();
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
@@ -654,7 +723,7 @@ mod tests {
             .bid()
             .amount_in(1_000_000)
             .amount_out(500_000)
-            .sign(&keypair, "test_ob")
+            .sign(&keypair, &ob)
             .unwrap();
 
         assert_eq!(request.deposit_source, None);

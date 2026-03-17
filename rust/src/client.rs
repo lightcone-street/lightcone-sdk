@@ -5,8 +5,6 @@
 //!
 //! **Caching philosophy**: The SDK is stateless for HTTP data. Caching is the
 //! consumer's responsibility (e.g. Dioxus server functions, CLI memoization).
-//! The only exception is `decimals_cache` — orderbook decimals are effectively
-//! immutable and are a safe SDK-level optimization.
 
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
@@ -16,7 +14,6 @@ use crate::domain::notification::client::Notifications;
 use crate::domain::market::client::Markets;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
-use crate::domain::orderbook::wire::DecimalsResponse;
 use crate::domain::position::client::Positions;
 use crate::domain::price_history::client::PriceHistoryClient;
 use crate::domain::referral::client::Referrals;
@@ -35,7 +32,6 @@ use solana_commitment_config::CommitmentConfig;
 
 use async_lock::RwLock;
 use solana_pubkey::Pubkey;
-use std::collections::HashMap;
 use std::sync::Arc;
 
 // Re-export sub-client types for convenience.
@@ -58,14 +54,10 @@ pub use crate::rpc::Rpc as RpcClient;
 ///
 /// The client is intentionally stateless for HTTP data — no market cache,
 /// no slug index. The consumer manages caching at the application layer.
-/// The only internal cache is `decimals_cache` for orderbook decimals,
-/// which are effectively immutable.
 pub struct LightconeClient {
     pub(crate) http: LightconeHttp,
     pub(crate) ws_config: WsConfig,
     pub(crate) auth_credentials: Arc<RwLock<Option<AuthCredentials>>>,
-    /// Decimals cache: orderbook_id → DecimalsResponse (rarely changes)
-    pub(crate) decimals_cache: Arc<RwLock<HashMap<String, DecimalsResponse>>>,
     /// On-chain program ID (defaults to the canonical Lightcone program).
     pub(crate) program_id: Pubkey,
     /// Optional Solana RPC client for on-chain reads.
@@ -155,11 +147,6 @@ impl LightconeClient {
         &self.ws_config
     }
 
-    /// Clear the decimals cache (the only SDK-internal cache).
-    pub async fn clear_decimals_cache(&self) {
-        self.decimals_cache.write().await.clear();
-    }
-
     /// Get the program ID.
     pub fn program_id(&self) -> &Pubkey {
         &self.program_id
@@ -172,7 +159,6 @@ impl Clone for LightconeClient {
             http: self.http.clone(),
             ws_config: self.ws_config.clone(),
             auth_credentials: self.auth_credentials.clone(),
-            decimals_cache: self.decimals_cache.clone(),
             program_id: self.program_id,
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
@@ -251,7 +237,6 @@ impl LightconeClientBuilder {
                 ..WsConfig::default()
             },
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
-            decimals_cache: Arc::new(RwLock::new(HashMap::new())),
             program_id: self.program_id,
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.rpc_url.map(|url| {

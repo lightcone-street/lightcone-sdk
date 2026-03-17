@@ -1,7 +1,7 @@
-//! Orderbooks sub-client — depth, decimals, and on-chain orderbook operations.
+//! Orderbooks sub-client — depth and on-chain orderbook operations.
 
 use crate::client::LightconeClient;
-use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
+use crate::domain::orderbook::wire::OrderbookDepthResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use solana_pubkey::Pubkey;
@@ -35,38 +35,6 @@ impl<'a> Orderbooks<'a> {
             .http
             .get(&url, RetryPolicy::Idempotent)
             .await?)
-    }
-
-    /// Get orderbook decimals (memoized — rarely changes).
-    pub async fn decimals(&self, orderbook_id: &str) -> Result<DecimalsResponse, SdkError> {
-        {
-            let cache = self.client.decimals_cache.read().await;
-            if let Some(d) = cache.get(orderbook_id) {
-                return Ok(d.clone());
-            }
-        }
-
-        let url = format!(
-            "{}/api/orderbooks/{}/decimals",
-            self.client.http.base_url(),
-            orderbook_id
-        );
-        let resp: DecimalsResponse = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
-
-        self.client
-            .decimals_cache
-            .write()
-            .await
-            .insert(orderbook_id.to_string(), resp.clone());
-        Ok(resp)
-    }
-
-    pub async fn clear_cache(&self) {
-        self.client.decimals_cache.write().await.clear();
     }
 }
 
