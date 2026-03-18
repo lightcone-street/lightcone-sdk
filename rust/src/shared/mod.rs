@@ -430,6 +430,7 @@ mod tests {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
+            salt: 0,
             market_pubkey: "market".into(),
             base_token: "base".into(),
             quote_token: "quote".into(),
@@ -457,6 +458,7 @@ mod tests {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
+            salt: 0,
             market_pubkey: "market".into(),
             base_token: "base".into(),
             quote_token: "quote".into(),
@@ -501,6 +503,7 @@ mod tests {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
+            salt: 0,
             market_pubkey: "market".into(),
             base_token: "base".into(),
             quote_token: "quote".into(),
@@ -527,6 +530,7 @@ mod tests {
         let req = SubmitOrderRequest {
             maker: "maker".into(),
             nonce: 1,
+            salt: 0,
             market_pubkey: "market".into(),
             base_token: "base".into(),
             quote_token: "quote".into(),
@@ -556,6 +560,7 @@ mod tests {
 pub struct SubmitOrderRequest {
     pub maker: String,
     pub nonce: u64,
+    pub salt: u64,
     pub market_pubkey: String,
     pub base_token: String,
     pub quote_token: String,

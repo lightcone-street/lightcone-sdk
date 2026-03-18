@@ -25,6 +25,7 @@ async fn main() -> ExampleResult {
         .price("0.55")
         .size("1")
         .nonce(fresh_order_nonce(&client, &keypair.pubkey()).await?)
+        .salt(lightcone::program::orders::generate_salt())
         .sign(&keypair, &orderbook)?;
 
     let response = client.orders().submit(&request).await?;

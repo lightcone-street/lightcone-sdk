@@ -28,7 +28,8 @@ use crate::program::types::{
     DepositAndSwapParams, DepositToGlobalParams, ExtendPositionTokensParams,
     GlobalToMarketDepositParams, InitPositionTokensParams, MatchOrdersMultiParams,
     MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams, SetAuthorityParams,
-    SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromPositionParams,
+    SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromGlobalParams,
+    WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_outcome_metadata,
@@ -1215,6 +1216,41 @@ pub fn build_extend_position_tokens_ix(
     })
 }
 
+// ============================================================================
+// Withdraw From Global
+// ============================================================================
+
+/// Build a `withdraw_from_global` instruction.
+///
+/// Withdraws tokens from a user's global deposit account back to their wallet.
+pub fn build_withdraw_from_global_ix(
+    params: &WithdrawFromGlobalParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (global_deposit_token, _) = get_global_deposit_token_pda(&params.mint, program_id);
+    let (user_global_deposit, _) =
+        get_user_global_deposit_pda(&params.user, &params.mint, program_id);
+    let user_token_account = get_deposit_token_ata(&params.user, &params.mint);
+
+    let keys = vec![
+        signer_mut(params.user),
+        readonly(global_deposit_token),
+        readonly(params.mint),
+        writable(user_global_deposit),
+        writable(user_token_account),
+        readonly(TOKEN_PROGRAM_ID),
+    ];
+
+    let mut data = vec![instruction::WITHDRAW_FROM_GLOBAL];
+    data.extend_from_slice(&params.amount.to_le_bytes());
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1345,6 +1381,7 @@ mod tests {
 
         let order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker,
             market,
             base_mint: Pubkey::new_unique(),
@@ -1359,7 +1396,7 @@ mod tests {
         let ix = build_cancel_order_ix(&maker, &market, &order, &program_id);
 
         assert_eq!(ix.accounts.len(), 4);
-        assert_eq!(ix.data.len(), 258); // 1 + 32 + 225
+        assert_eq!(ix.data.len(), 266); // 1 + 32 + 233
         assert_eq!(ix.data[0], instruction::CANCEL_ORDER);
     }
 
@@ -1426,6 +1463,7 @@ mod tests {
 
         let taker = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1439,6 +1477,7 @@ mod tests {
 
         let maker = OrderPayload {
             nonce: 2,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1464,8 +1503,8 @@ mod tests {
 
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 29 + 64 + 1 + 1 + 109 = 205
-        assert_eq!(ix.data.len(), 205);
+        // Data: 1 + 37 + 64 + 1 + 1 + 117 = 221
+        assert_eq!(ix.data.len(), 221);
         assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
 
         // With bitmask=0 (no full fills):
@@ -1483,6 +1522,7 @@ mod tests {
 
         let taker = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1496,6 +1536,7 @@ mod tests {
 
         let maker = OrderPayload {
             nonce: 2,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1606,6 +1647,7 @@ mod tests {
 
         let taker = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1619,6 +1661,7 @@ mod tests {
 
         let maker_order = OrderPayload {
             nonce: 2,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market,
             base_mint,
@@ -1652,8 +1695,8 @@ mod tests {
 
         let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
 
-        // Data: 1 + 29 + 64 + 1 + 1 + 1 + 109 = 206
-        assert_eq!(ix.data.len(), 206);
+        // Data: 1 + 37 + 64 + 1 + 1 + 1 + 117 = 222
+        assert_eq!(ix.data.len(), 222);
         assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
 
         // Account layout (taker+maker both depositing, no full fills):

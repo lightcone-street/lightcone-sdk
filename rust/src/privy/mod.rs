@@ -45,6 +45,7 @@ pub struct SignAndSendOrderRequest {
 pub struct PrivyOrderEnvelope {
     pub maker: String,
     pub nonce: u64,
+    pub salt: u64,
     pub market_pubkey: String,
     pub base_token: String,
     pub quote_token: String,
@@ -74,6 +75,7 @@ impl PrivyOrderEnvelope {
                 .expect("maker is required")
                 .to_string(),
             nonce: envelope.fields_nonce().expect("nonce is required") as u64,
+            salt: envelope.fields_salt().expect("salt is required"),
             market_pubkey: envelope
                 .fields_market()
                 .expect("market is required")
@@ -110,6 +112,7 @@ impl PrivyOrderEnvelope {
                 .expect("maker is required")
                 .to_string(),
             nonce: envelope.fields_nonce().expect("nonce is required") as u64,
+            salt: envelope.fields_salt().expect("salt is required"),
             market_pubkey: envelope
                 .fields_market()
                 .expect("market is required")

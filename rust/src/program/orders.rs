@@ -23,21 +23,24 @@ use crate::shared::SubmitOrderRequest;
 
 /// Signed order structure with full context and signature.
 ///
-/// Layout (225 bytes):
+/// Layout (233 bytes):
 /// - [0..8]     nonce (8 bytes, u64)
-/// - [8..40]    maker (32 bytes)
-/// - [40..72]   market (32 bytes)
-/// - [72..104]  base_mint (32 bytes)
-/// - [104..136] quote_mint (32 bytes)
-/// - [136]      side (1 byte)
-/// - [137..145] amount_in (8 bytes)
-/// - [145..153] amount_out (8 bytes)
-/// - [153..161] expiration (8 bytes)
-/// - [161..225] signature (64 bytes)
+/// - [8..16]    salt (8 bytes, u64)
+/// - [16..48]   maker (32 bytes)
+/// - [48..80]   market (32 bytes)
+/// - [80..112]  base_mint (32 bytes)
+/// - [112..144] quote_mint (32 bytes)
+/// - [144]      side (1 byte)
+/// - [145..153] amount_in (8 bytes)
+/// - [153..161] amount_out (8 bytes)
+/// - [161..169] expiration (8 bytes)
+/// - [169..233] signature (64 bytes)
 #[derive(Debug, Clone)]
 pub struct OrderPayload {
     /// Unique order ID and replay protection
     pub nonce: u64,
+    /// Random salt for order uniqueness
+    pub salt: u64,
     /// Order maker's pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -63,12 +66,13 @@ impl OrderPayload {
     pub const LEN: usize = SIGNED_ORDER_SIZE;
 
     /// Size of the signed portion of the order (for hashing)
-    pub const HASH_SIZE: usize = 161;
+    pub const HASH_SIZE: usize = 169;
 
     /// Create a new bid order (maker buys base, gives quote)
     pub fn new_bid(params: BidOrderParams) -> Self {
         Self {
             nonce: params.nonce,
+            salt: params.salt,
             maker: params.maker,
             market: params.market,
             base_mint: params.base_mint,
@@ -85,6 +89,7 @@ impl OrderPayload {
     pub fn new_ask(params: AskOrderParams) -> Self {
         Self {
             nonce: params.nonce,
+            salt: params.salt,
             maker: params.maker,
             market: params.market,
             base_mint: params.base_mint,
@@ -103,14 +108,15 @@ impl OrderPayload {
         let mut data = [0u8; Self::HASH_SIZE];
 
         data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
-        data[8..40].copy_from_slice(self.maker.as_ref());
-        data[40..72].copy_from_slice(self.market.as_ref());
-        data[72..104].copy_from_slice(self.base_mint.as_ref());
-        data[104..136].copy_from_slice(self.quote_mint.as_ref());
-        data[136] = self.side as u8;
-        data[137..145].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[145..153].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
+        data[8..16].copy_from_slice(&self.salt.to_le_bytes());
+        data[16..48].copy_from_slice(self.maker.as_ref());
+        data[48..80].copy_from_slice(self.market.as_ref());
+        data[80..112].copy_from_slice(self.base_mint.as_ref());
+        data[112..144].copy_from_slice(self.quote_mint.as_ref());
+        data[144] = self.side as u8;
+        data[145..153].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[153..161].copy_from_slice(&self.amount_out.to_le_bytes());
+        data[161..169].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
     }
@@ -173,20 +179,21 @@ impl OrderPayload {
         Ok(())
     }
 
-    /// Serialize to bytes (225 bytes).
+    /// Serialize to bytes (233 bytes).
     pub fn serialize(&self) -> [u8; SIGNED_ORDER_SIZE] {
         let mut data = [0u8; SIGNED_ORDER_SIZE];
 
         data[0..8].copy_from_slice(&self.nonce.to_le_bytes());
-        data[8..40].copy_from_slice(self.maker.as_ref());
-        data[40..72].copy_from_slice(self.market.as_ref());
-        data[72..104].copy_from_slice(self.base_mint.as_ref());
-        data[104..136].copy_from_slice(self.quote_mint.as_ref());
-        data[136] = self.side as u8;
-        data[137..145].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[145..153].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[153..161].copy_from_slice(&self.expiration.to_le_bytes());
-        data[161..225].copy_from_slice(&self.signature);
+        data[8..16].copy_from_slice(&self.salt.to_le_bytes());
+        data[16..48].copy_from_slice(self.maker.as_ref());
+        data[48..80].copy_from_slice(self.market.as_ref());
+        data[80..112].copy_from_slice(self.base_mint.as_ref());
+        data[112..144].copy_from_slice(self.quote_mint.as_ref());
+        data[144] = self.side as u8;
+        data[145..153].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[153..161].copy_from_slice(&self.amount_out.to_le_bytes());
+        data[161..169].copy_from_slice(&self.expiration.to_le_bytes());
+        data[169..233].copy_from_slice(&self.signature);
 
         data
     }
@@ -203,37 +210,41 @@ impl OrderPayload {
         let mut nonce_bytes = [0u8; 8];
         nonce_bytes.copy_from_slice(&data[0..8]);
 
+        let mut salt_bytes = [0u8; 8];
+        salt_bytes.copy_from_slice(&data[8..16]);
+
         let mut maker_bytes = [0u8; 32];
-        maker_bytes.copy_from_slice(&data[8..40]);
+        maker_bytes.copy_from_slice(&data[16..48]);
 
         let mut market_bytes = [0u8; 32];
-        market_bytes.copy_from_slice(&data[40..72]);
+        market_bytes.copy_from_slice(&data[48..80]);
 
         let mut base_mint_bytes = [0u8; 32];
-        base_mint_bytes.copy_from_slice(&data[72..104]);
+        base_mint_bytes.copy_from_slice(&data[80..112]);
 
         let mut quote_mint_bytes = [0u8; 32];
-        quote_mint_bytes.copy_from_slice(&data[104..136]);
+        quote_mint_bytes.copy_from_slice(&data[112..144]);
 
         let mut amount_in_bytes = [0u8; 8];
-        amount_in_bytes.copy_from_slice(&data[137..145]);
+        amount_in_bytes.copy_from_slice(&data[145..153]);
 
         let mut amount_out_bytes = [0u8; 8];
-        amount_out_bytes.copy_from_slice(&data[145..153]);
+        amount_out_bytes.copy_from_slice(&data[153..161]);
 
         let mut expiration_bytes = [0u8; 8];
-        expiration_bytes.copy_from_slice(&data[153..161]);
+        expiration_bytes.copy_from_slice(&data[161..169]);
 
         let mut signature = [0u8; 64];
-        signature.copy_from_slice(&data[161..225]);
+        signature.copy_from_slice(&data[169..233]);
 
         Ok(Self {
             nonce: u64::from_le_bytes(nonce_bytes),
+            salt: u64::from_le_bytes(salt_bytes),
             maker: Pubkey::new_from_array(maker_bytes),
             market: Pubkey::new_from_array(market_bytes),
             base_mint: Pubkey::new_from_array(base_mint_bytes),
             quote_mint: Pubkey::new_from_array(quote_mint_bytes),
-            side: OrderSide::try_from(data[136])?,
+            side: OrderSide::try_from(data[144])?,
             amount_in: u64::from_le_bytes(amount_in_bytes),
             amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
@@ -241,10 +252,11 @@ impl OrderPayload {
         })
     }
 
-    /// Convert to compact order format (29 bytes, no maker field).
+    /// Convert to compact order format (37 bytes, no maker field).
     pub fn to_order(&self) -> Order {
         Order {
             nonce: self.nonce as u32,
+            salt: self.salt,
             side: self.side,
             amount_in: self.amount_in,
             amount_out: self.amount_out,
@@ -281,6 +293,7 @@ impl OrderPayload {
         Ok(SubmitOrderRequest {
             maker: self.maker.to_string(),
             nonce: self.nonce,
+            salt: self.salt,
             market_pubkey: self.market.to_string(),
             base_token: self.base_mint.to_string(),
             quote_token: self.quote_mint.to_string(),
@@ -317,16 +330,19 @@ impl OrderPayload {
 ///
 /// No `maker` field (derived from Position PDA on-chain).
 ///
-/// Layout (29 bytes):
+/// Layout (37 bytes):
 /// - [0..4]   nonce (4 bytes, u32)
-/// - [4]      side (1 byte)
-/// - [5..13]  amount_in (8 bytes)
-/// - [13..21] amount_out (8 bytes)
-/// - [21..29] expiration (8 bytes)
+/// - [4..12]  salt (8 bytes, u64)
+/// - [12]     side (1 byte)
+/// - [13..21] amount_in (8 bytes)
+/// - [21..29] amount_out (8 bytes)
+/// - [29..37] expiration (8 bytes)
 #[derive(Debug, Clone)]
 pub struct Order {
     /// Unique order ID and replay protection
     pub nonce: u32,
+    /// Random salt for order uniqueness
+    pub salt: u64,
     /// Order side (0 = Bid, 1 = Ask)
     pub side: OrderSide,
     /// Amount maker gives
@@ -341,15 +357,16 @@ impl Order {
     /// Order size in bytes
     pub const LEN: usize = ORDER_SIZE;
 
-    /// Serialize to bytes (29 bytes).
+    /// Serialize to bytes (37 bytes).
     pub fn serialize(&self) -> [u8; ORDER_SIZE] {
         let mut data = [0u8; ORDER_SIZE];
 
         data[0..4].copy_from_slice(&self.nonce.to_le_bytes());
-        data[4] = self.side as u8;
-        data[5..13].copy_from_slice(&self.amount_in.to_le_bytes());
-        data[13..21].copy_from_slice(&self.amount_out.to_le_bytes());
-        data[21..29].copy_from_slice(&self.expiration.to_le_bytes());
+        data[4..12].copy_from_slice(&self.salt.to_le_bytes());
+        data[12] = self.side as u8;
+        data[13..21].copy_from_slice(&self.amount_in.to_le_bytes());
+        data[21..29].copy_from_slice(&self.amount_out.to_le_bytes());
+        data[29..37].copy_from_slice(&self.expiration.to_le_bytes());
 
         data
     }
@@ -366,18 +383,22 @@ impl Order {
         let mut nonce_bytes = [0u8; 4];
         nonce_bytes.copy_from_slice(&data[0..4]);
 
+        let mut salt_bytes = [0u8; 8];
+        salt_bytes.copy_from_slice(&data[4..12]);
+
         let mut amount_in_bytes = [0u8; 8];
-        amount_in_bytes.copy_from_slice(&data[5..13]);
+        amount_in_bytes.copy_from_slice(&data[13..21]);
 
         let mut amount_out_bytes = [0u8; 8];
-        amount_out_bytes.copy_from_slice(&data[13..21]);
+        amount_out_bytes.copy_from_slice(&data[21..29]);
 
         let mut expiration_bytes = [0u8; 8];
-        expiration_bytes.copy_from_slice(&data[21..29]);
+        expiration_bytes.copy_from_slice(&data[29..37]);
 
         Ok(Self {
             nonce: u32::from_le_bytes(nonce_bytes),
-            side: OrderSide::try_from(data[4])?,
+            salt: u64::from_le_bytes(salt_bytes),
+            side: OrderSide::try_from(data[12])?,
             amount_in: u64::from_le_bytes(amount_in_bytes),
             amount_out: u64::from_le_bytes(amount_out_bytes),
             expiration: i64::from_le_bytes(expiration_bytes),
@@ -395,6 +416,7 @@ impl Order {
     ) -> OrderPayload {
         OrderPayload {
             nonce: self.nonce as u64,
+            salt: self.salt,
             maker,
             market,
             base_mint,
@@ -508,6 +530,11 @@ pub fn cancel_all_message(
     )
 }
 
+/// Generate a random salt for order uniqueness.
+pub fn generate_salt() -> u64 {
+    rand::random::<u64>()
+}
+
 /// Generate a random UUID v4 salt for cancel-all replay protection.
 pub fn generate_cancel_all_salt() -> String {
     let mut bytes = rand::random::<[u8; 16]>();
@@ -532,6 +559,7 @@ mod tests {
     fn test_order_payload_serialization_roundtrip() {
         let order = OrderPayload {
             nonce: 12345,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -547,6 +575,7 @@ mod tests {
         let deserialized = OrderPayload::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
+        assert_eq!(order.salt, deserialized.salt);
         assert_eq!(order.maker, deserialized.maker);
         assert_eq!(order.market, deserialized.market);
         assert_eq!(order.base_mint, deserialized.base_mint);
@@ -561,6 +590,7 @@ mod tests {
     fn test_order_serialization_roundtrip() {
         let order = Order {
             nonce: 12345,
+            salt: 0,
             side: OrderSide::Ask,
             amount_in: 1000000,
             amount_out: 500000,
@@ -571,6 +601,7 @@ mod tests {
         let deserialized = Order::deserialize(&serialized).unwrap();
 
         assert_eq!(order.nonce, deserialized.nonce);
+        assert_eq!(order.salt, deserialized.salt);
         assert_eq!(order.side, deserialized.side);
         assert_eq!(order.amount_in, deserialized.amount_in);
         assert_eq!(order.amount_out, deserialized.amount_out);
@@ -579,21 +610,23 @@ mod tests {
 
     #[test]
     fn test_order_size() {
-        assert_eq!(ORDER_SIZE, 29);
+        assert_eq!(ORDER_SIZE, 37);
         let order = Order {
             nonce: 1,
+            salt: 0,
             side: OrderSide::Bid,
             amount_in: 100,
             amount_out: 50,
             expiration: 0,
         };
-        assert_eq!(order.serialize().len(), 29);
+        assert_eq!(order.serialize().len(), 37);
     }
 
     #[test]
     fn test_order_hash_consistency() {
         let order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
             base_mint: Pubkey::new_from_array([3u8; 32]),
@@ -614,6 +647,7 @@ mod tests {
     fn test_signed_order_to_order_roundtrip() {
         let signed = OrderPayload {
             nonce: 42,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -648,6 +682,7 @@ mod tests {
     fn test_orders_can_cross() {
         let buy_order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -661,6 +696,7 @@ mod tests {
 
         let sell_order = OrderPayload {
             nonce: 2,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
             base_mint: buy_order.base_mint,
@@ -680,6 +716,7 @@ mod tests {
     fn test_orders_cannot_cross() {
         let buy_order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -693,6 +730,7 @@ mod tests {
 
         let sell_order = OrderPayload {
             nonce: 2,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: buy_order.market,
             base_mint: buy_order.base_mint,
@@ -712,6 +750,7 @@ mod tests {
     fn test_calculate_taker_fill() {
         let maker_order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -742,6 +781,7 @@ mod tests {
 
         let mut order = OrderPayload {
             nonce: 42,
+            salt: 0,
             maker,
             market,
             base_mint,
@@ -774,6 +814,7 @@ mod tests {
     fn test_derive_orderbook_id() {
         let order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_from_array([1u8; 32]),
             market: Pubkey::new_from_array([2u8; 32]),
             base_mint: Pubkey::new_from_array([3u8; 32]),
@@ -802,6 +843,7 @@ mod tests {
         let keypair = Keypair::new();
         let mut order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -829,6 +871,7 @@ mod tests {
         let keypair = Keypair::new();
         let mut order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: keypair.pubkey(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),
@@ -859,6 +902,7 @@ mod tests {
     fn test_to_submit_request_errors_unsigned() {
         let order = OrderPayload {
             nonce: 1,
+            salt: 0,
             maker: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
             base_mint: Pubkey::new_unique(),

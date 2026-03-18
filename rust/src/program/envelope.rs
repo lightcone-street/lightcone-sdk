@@ -18,6 +18,7 @@ use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce, TriggerType}
 #[derive(Debug, Clone, Default)]
 struct OrderFields {
     nonce: Option<u64>,
+    salt: Option<u64>,
     maker: Option<Pubkey>,
     market: Option<Pubkey>,
     base_mint: Option<Pubkey>,
@@ -40,6 +41,7 @@ impl OrderFields {
 
         OrderPayload {
             nonce: self.nonce.expect("nonce is required"),
+            salt: self.salt.expect("salt is required"),
             maker: self.maker.expect("maker is required"),
             market: self.market.expect("market is required"),
             base_mint: self.base_mint.expect("base_mint is required"),
@@ -106,6 +108,7 @@ pub trait OrderEnvelope: Sized {
     fn new() -> Self;
 
     fn nonce(self, nonce: u64) -> Self;
+    fn salt(self, salt: u64) -> Self;
     fn maker(self, maker: Pubkey) -> Self;
     fn market(self, market: Pubkey) -> Self;
     fn base_mint(self, base_mint: Pubkey) -> Self;
@@ -156,6 +159,11 @@ macro_rules! impl_base_methods {
 
         fn nonce(mut self, nonce: u64) -> Self {
             self.fields.nonce = Some(nonce);
+            self
+        }
+
+        fn salt(mut self, salt: u64) -> Self {
+            self.fields.salt = Some(salt);
             self
         }
 
@@ -441,6 +449,7 @@ impl TriggerOrderEnvelope {
 // ─── Public accessor for privy helpers ──────────────────────────────────────
 
 impl LimitOrderEnvelope {
+    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
     pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
     pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
     pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
@@ -454,6 +463,7 @@ impl LimitOrderEnvelope {
 }
 
 impl TriggerOrderEnvelope {
+    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
     pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
     pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
     pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
@@ -490,6 +500,7 @@ mod tests {
 
         let env = LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(maker)
             .market(market)
             .base_mint(base_mint)
@@ -514,6 +525,7 @@ mod tests {
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -543,6 +555,7 @@ mod tests {
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -569,6 +582,7 @@ mod tests {
 
         let request = TriggerOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -596,6 +610,7 @@ mod tests {
 
         let result = TriggerOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -619,6 +634,7 @@ mod tests {
 
         let request = TriggerOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -641,6 +657,7 @@ mod tests {
     fn test_limit_envelope_zero_amount_in() {
         LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -656,6 +673,7 @@ mod tests {
     fn test_limit_envelope_zero_amount_out() {
         LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -685,6 +703,7 @@ mod tests {
     fn test_limit_envelope_missing_side() {
         LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(Pubkey::new_unique())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -703,6 +722,7 @@ mod tests {
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(maker)
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
@@ -725,6 +745,7 @@ mod tests {
 
         let request = LimitOrderEnvelope::new()
             .nonce(1)
+            .salt(0)
             .maker(keypair.pubkey())
             .market(Pubkey::new_unique())
             .base_mint(Pubkey::new_unique())
