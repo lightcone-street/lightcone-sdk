@@ -12,6 +12,7 @@ from common import (
     num_outcomes,
     wallet,
 )
+from lightcone_sdk.program.pda import get_position_alt_pda, get_position_pda
 from lightcone_sdk.program.types import (
     DepositToGlobalParams,
     ExtendPositionTokensParams,
@@ -19,15 +20,6 @@ from lightcone_sdk.program.types import (
     InitPositionTokensParams,
 )
 from lightcone_sdk.rpc import require_connection
-
-
-async def send_and_confirm(name, connection, client, ix, keypair):
-    blockhash = await client.rpc().get_latest_blockhash()
-    tx = await client.rpc().build_transaction([ix])
-    tx.sign([keypair], blockhash)
-    result = await connection.send_raw_transaction(bytes(tx))
-    await connection.confirm_transaction(result.value)
-    print(f"{name} confirmed: {result.value}")
 
 
 async def main():
@@ -45,6 +37,11 @@ async def main():
 
     # 1. Init position tokens — one-time setup per market (creates position + ALT)
     recent_slot = (await connection.get_slot()).value
+
+    # 4 uses the ALT address derived from position PDA + the slot used during init
+    position_pda, _ = get_position_pda(keypair.pubkey(), market_pubkey)
+    lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
+
     init_ix = client.positions().init_position_tokens_ix(
         InitPositionTokensParams(
             payer=keypair.pubkey(),
@@ -55,7 +52,6 @@ async def main():
         ),
         outcomes,
     )
-    await send_and_confirm("init_position_tokens", connection, client, init_ix, keypair)
 
     # 2. Deposit to global — fund the global pool with collateral
     deposit_ix = client.positions().deposit_to_global_ix(
@@ -65,7 +61,6 @@ async def main():
             amount=amount,
         )
     )
-    await send_and_confirm("deposit_to_global", connection, client, deposit_ix, keypair)
 
     # 3. Global to market deposit — move capital into a specific market
     move_ix = client.positions().global_to_market_deposit_ix(
@@ -77,25 +72,33 @@ async def main():
         ),
         outcomes,
     )
-    await send_and_confirm("global_to_market_deposit", connection, client, move_ix, keypair)
 
     # 4. Extend position tokens — add a new deposit mint to an existing ALT
-    #    (only needed when a new deposit mint is whitelisted)
-    position = await client.positions().get_onchain(keypair.pubkey(), market_pubkey)
-    if position is None:
-        raise RuntimeError("position not found")
-
     extend_ix = client.positions().extend_position_tokens_ix(
         ExtendPositionTokensParams(
             payer=keypair.pubkey(),
             user=keypair.pubkey(),
             market=market_pubkey,
-            lookup_table=position.lookup_table,
+            lookup_table=lookup_table,
             deposit_mints=[d_mint],
         ),
         outcomes,
     )
-    await send_and_confirm("extend_position_tokens", connection, client, extend_ix, keypair)
+
+    instructions = [
+        ("init_position_tokens", init_ix),
+        ("deposit_to_global", deposit_ix),
+        ("global_to_market_deposit", move_ix),
+        ("extend_position_tokens", extend_ix),
+    ]
+
+    for name, ix in instructions:
+        blockhash = await client.rpc().get_latest_blockhash()
+        tx = await client.rpc().build_transaction([ix])
+        tx.sign([keypair], blockhash)
+        result = await connection.send_raw_transaction(bytes(tx))
+        await connection.confirm_transaction(result.value)
+        print(f"{name}: confirmed {result.value}")
 
     await client.close()
 
