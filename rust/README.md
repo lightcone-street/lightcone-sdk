@@ -132,7 +132,7 @@ let orderbook = market
 let market_pubkey = market.pubkey.to_pubkey()?;
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
 let num_outcomes = u8::try_from(market.outcomes.len())?;
-let mut tx = client.markets().mint_complete_set_ix(
+let mut tx = client.markets().mint_complete_set_tx(
     MintCompleteSetParams {
         user: keypair.pubkey(),
         market: market_pubkey,
@@ -196,7 +196,7 @@ client.orders().cancel(&cancel).await?;
 ### Step 6: Exit a Position
 
 ```rust
-let mut tx = client.markets().merge_complete_set_ix(
+let mut tx = client.markets().merge_complete_set_tx(
     MergeCompleteSetParams {
         user: keypair.pubkey(),
         market: market.pubkey.to_pubkey()?,

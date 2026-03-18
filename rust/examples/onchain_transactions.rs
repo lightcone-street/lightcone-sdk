@@ -32,7 +32,7 @@ async fn main() -> ExampleResult {
     let mut transactions = vec![
         (
             "mint_complete_set",
-            client.markets().mint_complete_set_ix(
+            client.markets().mint_complete_set_tx(
                 MintCompleteSetParams {
                     user: keypair.pubkey(),
                     market: market_pubkey,
@@ -44,7 +44,7 @@ async fn main() -> ExampleResult {
         ),
         (
             "merge_complete_set",
-            client.markets().merge_complete_set_ix(
+            client.markets().merge_complete_set_tx(
                 MergeCompleteSetParams {
                     user: keypair.pubkey(),
                     market: market_pubkey,
@@ -56,7 +56,7 @@ async fn main() -> ExampleResult {
         ),
         (
             "increment_nonce",
-            client.orders().increment_nonce_ix(&keypair.pubkey())?,
+            client.orders().increment_nonce_tx(&keypair.pubkey())?,
         ),
     ];
 

@@ -15,6 +15,7 @@ use crate::program::types::{
     DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SettleMarketParams,
     WhitelistDepositTokenParams,
 };
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
@@ -125,23 +126,28 @@ impl<'a> Admin<'a> {
             .await?)
     }
 
-    // ── On-chain transaction builders ────────────────────────────────────
+    // ── On-chain instruction builders ───────────────────────────────────
+
+    /// Build Initialize instruction.
+    pub fn initialize_ix(&self, authority: &Pubkey) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_initialize_ix(authority, pid)
+    }
 
     /// Build Initialize transaction.
-    pub fn initialize_ix(&self, authority: &Pubkey) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_initialize_ix(authority, pid);
+    pub fn initialize_tx(&self, authority: &Pubkey) -> Result<Transaction, SdkError> {
+        let ix = self.initialize_ix(authority);
         Ok(Transaction::new_with_payer(&[ix], Some(authority)))
     }
 
-    /// Build CreateMarket transaction.
+    /// Build CreateMarket instruction.
     ///
     /// Async because it fetches the next market ID from on-chain state.
     #[cfg(feature = "solana-rpc")]
     pub async fn create_market_ix(
         &self,
         params: CreateMarketParams,
-    ) -> Result<Transaction, SdkError> {
+    ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(pid);
@@ -151,111 +157,191 @@ impl<'a> Admin<'a> {
             .map_err(|e| crate::program::error::SdkError::AccountNotFound(format!("Exchange: {}", e)))?;
         let exchange = crate::program::accounts::Exchange::deserialize(&account.data)?;
         let market_id = exchange.market_count;
-        let ix = instructions::build_create_market_ix(&params, market_id, pid)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        Ok(instructions::build_create_market_ix(&params, market_id, pid)?)
+    }
+
+    /// Build CreateMarket transaction.
+    ///
+    /// Async because it fetches the next market ID from on-chain state.
+    #[cfg(feature = "solana-rpc")]
+    pub async fn create_market_tx(
+        &self,
+        params: CreateMarketParams,
+    ) -> Result<Transaction, SdkError> {
+        let authority = params.authority;
+        let ix = self.create_market_ix(params).await?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&authority)))
+    }
+
+    /// Build AddDepositMint instruction.
+    pub fn add_deposit_mint_ix(
+        &self,
+        params: &AddDepositMintParams,
+        market: &Pubkey,
+        num_outcomes: u8,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_add_deposit_mint_ix(params, market, num_outcomes, pid)?)
     }
 
     /// Build AddDepositMint transaction.
-    pub fn add_deposit_mint_ix(
+    pub fn add_deposit_mint_tx(
         &self,
         params: AddDepositMintParams,
         market: &Pubkey,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_add_deposit_mint_ix(&params, market, num_outcomes, pid)?;
+        let ix = self.add_deposit_mint_ix(&params, market, num_outcomes)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
+    /// Build ActivateMarket instruction.
+    pub fn activate_market_ix(&self, params: &ActivateMarketParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_activate_market_ix(params, pid)
     }
 
     /// Build ActivateMarket transaction.
-    pub fn activate_market_ix(
+    pub fn activate_market_tx(
         &self,
         params: ActivateMarketParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_activate_market_ix(&params, pid);
+        let ix = self.activate_market_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
+    /// Build SettleMarket instruction.
+    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_settle_market_ix(params, pid)
+    }
+
     /// Build SettleMarket transaction.
-    pub fn settle_market_ix(
+    pub fn settle_market_tx(
         &self,
         params: SettleMarketParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_settle_market_ix(&params, pid);
+        let ix = self.settle_market_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.oracle)))
     }
 
+    /// Build SetPaused instruction.
+    pub fn set_paused_ix(&self, authority: &Pubkey, paused: bool) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_set_paused_ix(authority, paused, pid)
+    }
+
     /// Build SetPaused transaction.
-    pub fn set_paused_ix(
+    pub fn set_paused_tx(
         &self,
         authority: &Pubkey,
         paused: bool,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_set_paused_ix(authority, paused, pid);
+        let ix = self.set_paused_ix(authority, paused);
         Ok(Transaction::new_with_payer(&[ix], Some(authority)))
     }
 
-    /// Build SetOperator transaction.
+    /// Build SetOperator instruction.
     pub fn set_operator_ix(
         &self,
         authority: &Pubkey,
         new_operator: &Pubkey,
-    ) -> Result<Transaction, SdkError> {
+    ) -> Instruction {
         let pid = &self.client.program_id;
-        let ix = instructions::build_set_operator_ix(authority, new_operator, pid);
+        instructions::build_set_operator_ix(authority, new_operator, pid)
+    }
+
+    /// Build SetOperator transaction.
+    pub fn set_operator_tx(
+        &self,
+        authority: &Pubkey,
+        new_operator: &Pubkey,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.set_operator_ix(authority, new_operator);
         Ok(Transaction::new_with_payer(&[ix], Some(authority)))
     }
 
+    /// Build SetAuthority instruction.
+    pub fn set_authority_ix(&self, params: &SetAuthorityParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_set_authority_ix(params, pid)
+    }
+
     /// Build SetAuthority transaction.
-    pub fn set_authority_ix(
+    pub fn set_authority_tx(
         &self,
         params: SetAuthorityParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_set_authority_ix(&params, pid);
+        let ix = self.set_authority_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.current_authority)))
     }
 
-    /// Build WhitelistDepositToken transaction.
+    /// Build WhitelistDepositToken instruction.
     pub fn whitelist_deposit_token_ix(
+        &self,
+        params: &WhitelistDepositTokenParams,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_whitelist_deposit_token_ix(params, pid)
+    }
+
+    /// Build WhitelistDepositToken transaction.
+    pub fn whitelist_deposit_token_tx(
         &self,
         params: WhitelistDepositTokenParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_whitelist_deposit_token_ix(&params, pid);
+        let ix = self.whitelist_deposit_token_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
+    /// Build CreateOrderbook instruction.
+    pub fn create_orderbook_ix(&self, params: &CreateOrderbookParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_create_orderbook_ix(params, pid)
     }
 
     /// Build CreateOrderbook transaction.
-    pub fn create_orderbook_ix(
+    pub fn create_orderbook_tx(
         &self,
         params: CreateOrderbookParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_create_orderbook_ix(&params, pid);
+        let ix = self.create_orderbook_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
-    /// Build MatchOrdersMulti transaction.
+    /// Build MatchOrdersMulti instruction.
     pub fn match_orders_multi_ix(
+        &self,
+        params: &MatchOrdersMultiParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_match_orders_multi_ix(params, pid)?)
+    }
+
+    /// Build MatchOrdersMulti transaction.
+    pub fn match_orders_multi_tx(
         &self,
         params: MatchOrdersMultiParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_match_orders_multi_ix(&params, pid)?;
+        let ix = self.match_orders_multi_ix(&params)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
-    /// Build DepositAndSwap transaction.
+    /// Build DepositAndSwap instruction.
     pub fn deposit_and_swap_ix(
+        &self,
+        params: &DepositAndSwapParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_deposit_and_swap_ix(params, pid)?)
+    }
+
+    /// Build DepositAndSwap transaction.
+    pub fn deposit_and_swap_tx(
         &self,
         params: DepositAndSwapParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_deposit_and_swap_ix(&params, pid)?;
+        let ix = self.deposit_and_swap_ix(&params)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 }
