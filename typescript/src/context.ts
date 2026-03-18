@@ -7,12 +7,6 @@ export interface ClientContext {
   readonly connection?: Connection;
 }
 
-export interface DecimalsCache {
-  get(orderbookId: string): unknown;
-  set(orderbookId: string, response: unknown): void;
-  clear(): void;
-}
-
 export function requireConnection(ctx: ClientContext): Connection {
   if (!ctx.connection) {
     throw new Error(

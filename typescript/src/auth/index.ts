@@ -64,7 +64,6 @@ export interface LoginRequest {
 }
 
 export interface LoginResponse {
-  token: string;
   user_id: string;
   wallet_address: string;
   expires_at: number;

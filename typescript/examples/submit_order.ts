@@ -5,7 +5,6 @@ import {
   wallet,
   login,
   marketAndOrderbook,
-  scalingDecimals,
   freshOrderNonce,
 } from "./common";
 
@@ -15,7 +14,6 @@ async function main() {
   await login(client, keypair);
 
   const [m, orderbook] = await marketAndOrderbook(client);
-  const decimals = await scalingDecimals(client, orderbook);
   const nonce = await freshOrderNonce(client, keypair.publicKey);
 
   const request = LimitOrderEnvelope.new()
@@ -27,8 +25,7 @@ async function main() {
     .price("0.55")
     .size("1")
     .nonce(nonce)
-    .applyScaling(decimals)
-    .sign(keypair, orderbook.orderbookId);
+    .sign(keypair, orderbook);
 
   const response = await client.orders().submit(request);
   console.log(

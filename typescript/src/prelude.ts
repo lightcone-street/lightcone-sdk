@@ -25,7 +25,7 @@ export {
 } from "./client";
 
 export { Rpc } from "./rpc";
-export type { ClientContext, DecimalsCache } from "./context";
+export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
 export { Admin } from "./domain/admin";
