@@ -180,6 +180,8 @@ pub struct ActivateMarketParams {
 pub struct BidOrderParams {
     /// Order nonce (unique per user)
     pub nonce: u64,
+    /// Random salt for order uniqueness
+    pub salt: u64,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -201,6 +203,8 @@ pub struct BidOrderParams {
 pub struct AskOrderParams {
     /// Order nonce (unique per user)
     pub nonce: u64,
+    /// Random salt for order uniqueness
+    pub salt: u64,
     /// Maker pubkey
     pub maker: Pubkey,
     /// Market pubkey
@@ -369,4 +373,15 @@ pub struct ExtendPositionTokensParams {
     pub lookup_table: Pubkey,
     /// New deposit mints to add (must be in ascending GDT index order)
     pub deposit_mints: Vec<Pubkey>,
+}
+
+/// Parameters for withdrawing tokens from a global deposit account
+#[derive(Debug, Clone)]
+pub struct WithdrawFromGlobalParams {
+    /// User pubkey (must be the depositor / signer)
+    pub user: Pubkey,
+    /// Deposit token mint pubkey
+    pub mint: Pubkey,
+    /// Amount to withdraw
+    pub amount: u64,
 }

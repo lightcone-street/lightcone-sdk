@@ -61,6 +61,7 @@ pub mod instruction {
     pub const INIT_POSITION_TOKENS: u8 = 19;
     pub const DEPOSIT_AND_SWAP: u8 = 20;
     pub const EXTEND_POSITION_TOKENS: u8 = 21;
+    pub const WITHDRAW_FROM_GLOBAL: u8 = 22;
 }
 
 // ============================================================================
@@ -132,9 +133,9 @@ pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 48;
 // ============================================================================
 
 /// Signed order size in bytes
-pub const SIGNED_ORDER_SIZE: usize = 225;
+pub const SIGNED_ORDER_SIZE: usize = 233;
 /// Order size in bytes (compact on-chain format)
-pub const ORDER_SIZE: usize = 29;
+pub const ORDER_SIZE: usize = 37;
 /// Signature size in bytes
 pub const SIGNATURE_SIZE: usize = 64;
 

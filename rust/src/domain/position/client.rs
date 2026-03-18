@@ -7,7 +7,8 @@ use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromPositionParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
+    WithdrawFromPositionParams,
 };
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -174,6 +175,21 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.global_to_market_deposit_ix(&params, num_outcomes);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build WithdrawFromGlobal instruction.
+    pub fn withdraw_from_global_ix(&self, params: &WithdrawFromGlobalParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_withdraw_from_global_ix(params, pid)
+    }
+
+    /// Build WithdrawFromGlobal transaction.
+    pub fn withdraw_from_global_tx(
+        &self,
+        params: WithdrawFromGlobalParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.withdraw_from_global_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 }
