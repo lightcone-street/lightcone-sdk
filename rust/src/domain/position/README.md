@@ -87,78 +87,63 @@ async fn get_for_market(
 
 Fetch positions for a user in a specific market.
 
-### On-Chain Transaction Builders
+### On-Chain Instruction & Transaction Builders
 
-#### `redeem_winnings_ix`
+Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
 
-```rust
-fn redeem_winnings_ix(
-    &self,
-    params: RedeemWinningsParams,
-    winning_outcome: u8,
-) -> Result<Transaction, SdkError>
-```
-
-Build a RedeemWinnings transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
-
-#### `withdraw_from_position_ix`
+#### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
-fn withdraw_from_position_ix(
-    &self,
-    params: WithdrawFromPositionParams,
-    is_token_2022: bool,
-) -> Result<Transaction, SdkError>
+fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, winning_outcome: u8) -> Instruction
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, winning_outcome: u8) -> Result<Transaction, SdkError>
 ```
 
-Build a WithdrawFromPosition transaction — withdraw conditional tokens from a position account to the user's wallet.
+Build a RedeemWinnings instruction/transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
 
-#### `init_position_tokens_ix`
+#### `withdraw_from_position_ix` / `withdraw_from_position_tx`
 
 ```rust
-fn init_position_tokens_ix(
-    &self,
-    params: InitPositionTokensParams,
-    num_outcomes: u8,
-) -> Result<Transaction, SdkError>
+fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams, is_token_2022: bool) -> Instruction
+fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams, is_token_2022: bool) -> Result<Transaction, SdkError>
 ```
 
-Build an InitPositionTokens transaction — create a position account and associated token accounts for all outcomes.
+Build a WithdrawFromPosition instruction/transaction — withdraw conditional tokens from a position account to the user's wallet.
 
-#### `extend_position_tokens_ix`
+#### `init_position_tokens_ix` / `init_position_tokens_tx`
 
 ```rust
-fn extend_position_tokens_ix(
-    &self,
-    params: ExtendPositionTokensParams,
-    num_outcomes: u8,
-) -> Result<Transaction, SdkError>
+fn init_position_tokens_ix(&self, params: &InitPositionTokensParams, num_outcomes: u8) -> Instruction
+fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
 ```
 
-Build an ExtendPositionTokens transaction — extend a position's lookup table with additional token accounts.
+Build an InitPositionTokens instruction/transaction — create a position account and associated token accounts for all outcomes.
 
-#### `deposit_to_global_ix`
+#### `extend_position_tokens_ix` / `extend_position_tokens_tx`
 
 ```rust
-fn deposit_to_global_ix(
-    &self,
-    params: DepositToGlobalParams,
-) -> Result<Transaction, SdkError>
+fn extend_position_tokens_ix(&self, params: &ExtendPositionTokensParams, num_outcomes: u8) -> Result<Instruction, SdkError>
+fn extend_position_tokens_tx(&self, params: ExtendPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
 ```
 
-Build a DepositToGlobal transaction — deposit collateral into the global deposit pool for cross-market use.
+Build an ExtendPositionTokens instruction/transaction — extend a position's lookup table with additional token accounts.
 
-#### `global_to_market_deposit_ix`
+#### `deposit_to_global_ix` / `deposit_to_global_tx`
 
 ```rust
-fn global_to_market_deposit_ix(
-    &self,
-    params: GlobalToMarketDepositParams,
-    num_outcomes: u8,
-) -> Result<Transaction, SdkError>
+fn deposit_to_global_ix(&self, params: &DepositToGlobalParams) -> Instruction
+fn deposit_to_global_tx(&self, params: DepositToGlobalParams) -> Result<Transaction, SdkError>
 ```
 
-Build a GlobalToMarketDeposit transaction — move collateral from the global deposit pool into a specific market position.
+Build a DepositToGlobal instruction/transaction — deposit collateral into the global deposit pool for cross-market use.
+
+#### `global_to_market_deposit_ix` / `global_to_market_deposit_tx`
+
+```rust
+fn global_to_market_deposit_ix(&self, params: &GlobalToMarketDepositParams, num_outcomes: u8) -> Instruction
+fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+```
+
+Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
 
 ## Examples
 

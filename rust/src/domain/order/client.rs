@@ -10,6 +10,7 @@ use crate::program::orders::OrderPayload;
 use crate::shared::{OrderBookId, PubkeyStr};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_signature::Signature;
 use solana_transaction::Transaction;
@@ -546,24 +547,39 @@ impl<'a> Orders<'a> {
             .await?)
     }
 
-    // ── On-chain transaction builders ────────────────────────────────────
+    // ── On-chain instruction builders ───────────────────────────────────
 
-    /// Build CancelOrder transaction (on-chain cancellation).
+    /// Build CancelOrder instruction (on-chain cancellation).
     pub fn cancel_order_ix(
         &self,
         maker: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
-    ) -> Result<Transaction, SdkError> {
+    ) -> Instruction {
         let pid = &self.client.program_id;
-        let ix = instructions::build_cancel_order_ix(maker, market, order, pid);
+        instructions::build_cancel_order_ix(maker, market, order, pid)
+    }
+
+    /// Build CancelOrder transaction (on-chain cancellation).
+    pub fn cancel_order_tx(
+        &self,
+        maker: &Pubkey,
+        market: &Pubkey,
+        order: &OrderPayload,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.cancel_order_ix(maker, market, order);
         Ok(Transaction::new_with_payer(&[ix], Some(maker)))
     }
 
-    /// Build IncrementNonce transaction.
-    pub fn increment_nonce_ix(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+    /// Build IncrementNonce instruction.
+    pub fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction {
         let pid = &self.client.program_id;
-        let ix = instructions::build_increment_nonce_ix(user, pid);
+        instructions::build_increment_nonce_ix(user, pid)
+    }
+
+    /// Build IncrementNonce transaction.
+    pub fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
+        let ix = self.increment_nonce_ix(user);
         Ok(Transaction::new_with_payer(&[ix], Some(user)))
     }
 

@@ -141,30 +141,35 @@ let blockhash = rpc.get_latest_blockhash().await?;
 let solana_rpc = rpc.inner()?;
 ```
 
-### Transaction Builders
+### Instruction Builders
 
-Transaction builders are organized by domain sub-client. All return `Result<Transaction, SdkError>`.
+Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a `Transaction` and return `Result<Transaction, SdkError>`.
 
 **Admin — Exchange Management (`client.admin()`):**
 ```rust
-let tx = client.admin().initialize_ix(&authority)?;
-let tx = client.admin().set_paused_ix(&authority, true)?;
-let tx = client.admin().set_operator_ix(&authority, &new_operator)?;
-let tx = client.admin().set_authority_ix(SetAuthorityParams { ... })?;
-let tx = client.admin().whitelist_deposit_token_ix(WhitelistDepositTokenParams { ... })?;
+// Instructions (for custom transaction composition)
+let ix = client.admin().initialize_ix(&authority);
+let ix = client.admin().set_paused_ix(&authority, true);
+let ix = client.admin().set_operator_ix(&authority, &new_operator);
+let ix = client.admin().set_authority_ix(&SetAuthorityParams { ... });
+let ix = client.admin().whitelist_deposit_token_ix(&WhitelistDepositTokenParams { ... });
+
+// Transactions (ready to sign)
+let tx = client.admin().initialize_tx(&authority)?;
+let tx = client.admin().set_paused_tx(&authority, true)?;
 ```
 
 **Admin — Market Lifecycle (`client.admin()`):**
 ```rust
 // create_market_ix is async (fetches next market ID via RPC)
-let tx = client.admin().create_market_ix(CreateMarketParams {
+let ix = client.admin().create_market_ix(CreateMarketParams {
     authority,
     oracle,
     question_id,
     num_outcomes,
 }).await?;
 
-let tx = client.admin().add_deposit_mint_ix(AddDepositMintParams {
+let ix = client.admin().add_deposit_mint_ix(&AddDepositMintParams {
     authority,
     deposit_mint: usdc_mint,
     outcome_metadata: vec![
@@ -173,66 +178,71 @@ let tx = client.admin().add_deposit_mint_ix(AddDepositMintParams {
     ],
 }, &market, num_outcomes)?;
 
-let tx = client.admin().activate_market_ix(ActivateMarketParams {
+let ix = client.admin().activate_market_ix(&ActivateMarketParams {
     authority,
     market_id,
-})?;
+});
 
-let tx = client.admin().settle_market_ix(SettleMarketParams {
+let ix = client.admin().settle_market_ix(&SettleMarketParams {
     oracle,
     market_id,
     winning_outcome,
-})?;
+});
 ```
 
 **Admin — Operator (`client.admin()`):**
 ```rust
-let tx = client.admin().match_orders_multi_ix(MatchOrdersMultiParams { ... })?;
-let tx = client.admin().deposit_and_swap_ix(DepositAndSwapParams { ... })?;
+let ix = client.admin().match_orders_multi_ix(&MatchOrdersMultiParams { ... })?;
+let ix = client.admin().deposit_and_swap_ix(&DepositAndSwapParams { ... })?;
 ```
 
 **Markets — Position Operations (`client.markets()`):**
 ```rust
-let tx = client.markets().mint_complete_set_ix(MintCompleteSetParams {
+let ix = client.markets().mint_complete_set_ix(&MintCompleteSetParams {
     user, market, deposit_mint: usdc_mint, amount,
-}, num_outcomes)?;
+}, num_outcomes);
 
-let tx = client.markets().merge_complete_set_ix(MergeCompleteSetParams {
+let ix = client.markets().merge_complete_set_ix(&MergeCompleteSetParams {
+    user, market, deposit_mint: usdc_mint, amount,
+}, num_outcomes);
+
+// Or use _tx for ready-to-sign transactions:
+let tx = client.markets().mint_complete_set_tx(MintCompleteSetParams {
     user, market, deposit_mint: usdc_mint, amount,
 }, num_outcomes)?;
 ```
 
 **Orders — On-Chain Order Operations (`client.orders()`):**
 ```rust
-let tx = client.orders().cancel_order_ix(&maker, &market, &order)?;
-let tx = client.orders().increment_nonce_ix(&user)?;
+let ix = client.orders().cancel_order_ix(&maker, &market, &order);
+let ix = client.orders().increment_nonce_ix(&user);
 ```
 
 **Positions — Position Management (`client.positions()`):**
 ```rust
-let tx = client.positions().redeem_winnings_ix(RedeemWinningsParams {
+let ix = client.positions().redeem_winnings_ix(&RedeemWinningsParams {
     user, market, deposit_mint: usdc_mint, amount,
-}, winning_outcome)?;
+}, winning_outcome);
 
-let tx = client.positions().withdraw_from_position_ix(WithdrawFromPositionParams {
+let ix = client.positions().withdraw_from_position_ix(&WithdrawFromPositionParams {
     user, market, mint: conditional_mint, amount, outcome_index,
-}, is_token_2022)?;
+}, is_token_2022);
 
-let tx = client.positions().init_position_tokens_ix(InitPositionTokensParams {
+let ix = client.positions().init_position_tokens_ix(&InitPositionTokensParams {
     payer, user, market, deposit_mints, recent_slot,
-}, num_outcomes)?;
+}, num_outcomes);
 
-let tx = client.positions().extend_position_tokens_ix(ExtendPositionTokensParams {
+let ix = client.positions().extend_position_tokens_ix(&ExtendPositionTokensParams {
     payer, user, market, lookup_table, deposit_mints,
 }, num_outcomes)?;
 
-let tx = client.positions().deposit_to_global_ix(DepositToGlobalParams {
+let ix = client.positions().deposit_to_global_ix(&DepositToGlobalParams {
     user, mint, amount,
-})?;
+});
 
-let tx = client.positions().global_to_market_deposit_ix(GlobalToMarketDepositParams {
+let ix = client.positions().global_to_market_deposit_ix(&GlobalToMarketDepositParams {
     user, market, deposit_mint, amount,
-}, num_outcomes)?;
+}, num_outcomes);
 ```
 
 ### Order Helpers

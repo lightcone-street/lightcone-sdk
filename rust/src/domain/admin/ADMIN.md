@@ -110,30 +110,39 @@ async fn dismiss_notification(
 
 Dismiss a notification.
 
-### On-Chain Transaction Builders
+### On-Chain Instruction & Transaction Builders
 
-All return `Result<Transaction, SdkError>`.
+Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
 
-#### `initialize_ix`
-
-```rust
-fn initialize_ix(&self, authority: &Pubkey) -> Result<Transaction, SdkError>
-```
-
-Build an Initialize transaction — create the exchange singleton account.
-
-#### `create_market_ix`
+#### `initialize_ix` / `initialize_tx`
 
 ```rust
-async fn create_market_ix(&self, params: CreateMarketParams) -> Result<Transaction, SdkError>
+fn initialize_ix(&self, authority: &Pubkey) -> Instruction
+fn initialize_tx(&self, authority: &Pubkey) -> Result<Transaction, SdkError>
 ```
 
-Build a CreateMarket transaction. **Async** — fetches the next market ID from on-chain state via RPC. Requires `solana-rpc` feature.
+Build an Initialize instruction/transaction — create the exchange singleton account.
 
-#### `add_deposit_mint_ix`
+#### `create_market_ix` / `create_market_tx`
+
+```rust
+async fn create_market_ix(&self, params: CreateMarketParams) -> Result<Instruction, SdkError>
+async fn create_market_tx(&self, params: CreateMarketParams) -> Result<Transaction, SdkError>
+```
+
+Build a CreateMarket instruction/transaction. **Async** — fetches the next market ID from on-chain state via RPC. Requires `solana-rpc` feature.
+
+#### `add_deposit_mint_ix` / `add_deposit_mint_tx`
 
 ```rust
 fn add_deposit_mint_ix(
+    &self,
+    params: &AddDepositMintParams,
+    market: &Pubkey,
+    num_outcomes: u8,
+) -> Result<Instruction, SdkError>
+
+fn add_deposit_mint_tx(
     &self,
     params: AddDepositMintParams,
     market: &Pubkey,
@@ -141,79 +150,88 @@ fn add_deposit_mint_ix(
 ) -> Result<Transaction, SdkError>
 ```
 
-Build an AddDepositMint transaction — add a deposit token (e.g., USDC) to a market and create conditional token mints.
+Build an AddDepositMint instruction/transaction — add a deposit token (e.g., USDC) to a market and create conditional token mints.
 
-#### `activate_market_ix`
-
-```rust
-fn activate_market_ix(&self, params: ActivateMarketParams) -> Result<Transaction, SdkError>
-```
-
-Build an ActivateMarket transaction — transition a market from Pending to Active.
-
-#### `settle_market_ix`
+#### `activate_market_ix` / `activate_market_tx`
 
 ```rust
-fn settle_market_ix(&self, params: SettleMarketParams) -> Result<Transaction, SdkError>
+fn activate_market_ix(&self, params: &ActivateMarketParams) -> Instruction
+fn activate_market_tx(&self, params: ActivateMarketParams) -> Result<Transaction, SdkError>
 ```
 
-Build a SettleMarket transaction — resolve a market with the winning outcome.
+Build an ActivateMarket instruction/transaction — transition a market from Pending to Active.
 
-#### `set_paused_ix`
+#### `settle_market_ix` / `settle_market_tx`
 
 ```rust
-fn set_paused_ix(&self, authority: &Pubkey, paused: bool) -> Result<Transaction, SdkError>
+fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction
+fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError>
 ```
 
-Build a SetPaused transaction — pause or unpause the exchange.
+Build a SettleMarket instruction/transaction — resolve a market with the winning outcome.
 
-#### `set_operator_ix`
+#### `set_paused_ix` / `set_paused_tx`
 
 ```rust
-fn set_operator_ix(&self, authority: &Pubkey, new_operator: &Pubkey) -> Result<Transaction, SdkError>
+fn set_paused_ix(&self, authority: &Pubkey, paused: bool) -> Instruction
+fn set_paused_tx(&self, authority: &Pubkey, paused: bool) -> Result<Transaction, SdkError>
 ```
 
-Build a SetOperator transaction — change the exchange operator.
+Build a SetPaused instruction/transaction — pause or unpause the exchange.
 
-#### `set_authority_ix`
+#### `set_operator_ix` / `set_operator_tx`
 
 ```rust
-fn set_authority_ix(&self, params: SetAuthorityParams) -> Result<Transaction, SdkError>
+fn set_operator_ix(&self, authority: &Pubkey, new_operator: &Pubkey) -> Instruction
+fn set_operator_tx(&self, authority: &Pubkey, new_operator: &Pubkey) -> Result<Transaction, SdkError>
 ```
 
-Build a SetAuthority transaction — transfer exchange authority to a new key.
+Build a SetOperator instruction/transaction — change the exchange operator.
 
-#### `whitelist_deposit_token_ix`
+#### `set_authority_ix` / `set_authority_tx`
 
 ```rust
-fn whitelist_deposit_token_ix(&self, params: WhitelistDepositTokenParams) -> Result<Transaction, SdkError>
+fn set_authority_ix(&self, params: &SetAuthorityParams) -> Instruction
+fn set_authority_tx(&self, params: SetAuthorityParams) -> Result<Transaction, SdkError>
 ```
 
-Build a WhitelistDepositToken transaction — whitelist a deposit token for the exchange.
+Build a SetAuthority instruction/transaction — transfer exchange authority to a new key.
 
-#### `create_orderbook_ix`
+#### `whitelist_deposit_token_ix` / `whitelist_deposit_token_tx`
 
 ```rust
-fn create_orderbook_ix(&self, params: CreateOrderbookParams) -> Result<Transaction, SdkError>
+fn whitelist_deposit_token_ix(&self, params: &WhitelistDepositTokenParams) -> Instruction
+fn whitelist_deposit_token_tx(&self, params: WhitelistDepositTokenParams) -> Result<Transaction, SdkError>
 ```
 
-Build a CreateOrderbook transaction — create an orderbook for a token pair.
+Build a WhitelistDepositToken instruction/transaction — whitelist a deposit token for the exchange.
 
-#### `match_orders_multi_ix`
+#### `create_orderbook_ix` / `create_orderbook_tx`
 
 ```rust
-fn match_orders_multi_ix(&self, params: MatchOrdersMultiParams) -> Result<Transaction, SdkError>
+fn create_orderbook_ix(&self, params: &CreateOrderbookParams) -> Instruction
+fn create_orderbook_tx(&self, params: CreateOrderbookParams) -> Result<Transaction, SdkError>
 ```
 
-Build a MatchOrdersMulti transaction — match a taker order against one or more maker orders.
+Build a CreateOrderbook instruction/transaction — create an orderbook for a token pair.
 
-#### `deposit_and_swap_ix`
+#### `match_orders_multi_ix` / `match_orders_multi_tx`
 
 ```rust
-fn deposit_and_swap_ix(&self, params: DepositAndSwapParams) -> Result<Transaction, SdkError>
+fn match_orders_multi_ix(&self, params: &MatchOrdersMultiParams) -> Result<Instruction, SdkError>
+fn match_orders_multi_tx(&self, params: MatchOrdersMultiParams) -> Result<Transaction, SdkError>
 ```
 
-Build a DepositAndSwap transaction — deposit collateral and atomically swap into a conditional token position.
+Build a MatchOrdersMulti instruction/transaction — match a taker order against one or more maker orders.
+
+#### `deposit_and_swap_ix` / `deposit_and_swap_tx`
+
+```rust
+fn deposit_and_swap_ix(&self, params: &DepositAndSwapParams) -> Result<Instruction, SdkError>
+fn deposit_and_swap_tx(&self, params: DepositAndSwapParams) -> Result<Transaction, SdkError>
+```
+
+Build a DepositAndSwap instruction/transaction — deposit collateral and atomically swap into a conditional token position.
 
 ## Wire Types
 

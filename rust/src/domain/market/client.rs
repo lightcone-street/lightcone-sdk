@@ -8,6 +8,7 @@ use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
@@ -156,27 +157,45 @@ impl<'a> Markets<'a> {
         Ok(kept)
     }
 
-    // ── On-chain transaction builders ────────────────────────────────────
+    // ── On-chain instruction builders ───────────────────────────────────
+
+    /// Build MintCompleteSet instruction.
+    pub fn mint_complete_set_ix(
+        &self,
+        params: &MintCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_mint_complete_set_ix(params, num_outcomes, pid)
+    }
 
     /// Build MintCompleteSet transaction.
-    pub fn mint_complete_set_ix(
+    pub fn mint_complete_set_tx(
         &self,
         params: MintCompleteSetParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_mint_complete_set_ix(&params, num_outcomes, pid);
+        let ix = self.mint_complete_set_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
-    /// Build MergeCompleteSet transaction.
+    /// Build MergeCompleteSet instruction.
     pub fn merge_complete_set_ix(
+        &self,
+        params: &MergeCompleteSetParams,
+        num_outcomes: u8,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_merge_complete_set_ix(params, num_outcomes, pid)
+    }
+
+    /// Build MergeCompleteSet transaction.
+    pub fn merge_complete_set_tx(
         &self,
         params: MergeCompleteSetParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_merge_complete_set_ix(&params, num_outcomes, pid);
+        let ix = self.merge_complete_set_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 

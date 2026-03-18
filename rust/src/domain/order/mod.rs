@@ -30,9 +30,7 @@ pub enum OrderType {
     Market,
     Deposit,
     Withdraw,
-    StopMarket,
     StopLimit,
-    TakeProfitMarket,
     TakeProfitLimit,
 }
 
@@ -43,9 +41,7 @@ impl std::fmt::Display for OrderType {
             OrderType::Market => write!(f, "Market"),
             OrderType::Deposit => write!(f, "Deposit"),
             OrderType::Withdraw => write!(f, "Withdraw"),
-            OrderType::StopMarket => write!(f, "Stop Market"),
             OrderType::StopLimit => write!(f, "Stop Limit"),
-            OrderType::TakeProfitMarket => write!(f, "Take Profit Market"),
             OrderType::TakeProfitLimit => write!(f, "Take Profit Limit"),
         }
     }

@@ -9,6 +9,7 @@ use crate::program::types::{
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawFromPositionParams,
 };
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 
@@ -59,70 +60,120 @@ impl<'a> Positions<'a> {
             .await?)
     }
 
-    // ── On-chain transaction builders ────────────────────────────────────
+    // ── On-chain instruction builders ───────────────────────────────────
+
+    /// Build RedeemWinnings instruction.
+    pub fn redeem_winnings_ix(
+        &self,
+        params: &RedeemWinningsParams,
+        winning_outcome: u8,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_redeem_winnings_ix(params, winning_outcome, pid)
+    }
 
     /// Build RedeemWinnings transaction.
-    pub fn redeem_winnings_ix(
+    pub fn redeem_winnings_tx(
         &self,
         params: RedeemWinningsParams,
         winning_outcome: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_redeem_winnings_ix(&params, winning_outcome, pid);
+        let ix = self.redeem_winnings_ix(&params, winning_outcome);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
-    /// Build WithdrawFromPosition transaction.
+    /// Build WithdrawFromPosition instruction.
     pub fn withdraw_from_position_ix(
+        &self,
+        params: &WithdrawFromPositionParams,
+        is_token_2022: bool,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_withdraw_from_position_ix(params, is_token_2022, pid)
+    }
+
+    /// Build WithdrawFromPosition transaction.
+    pub fn withdraw_from_position_tx(
         &self,
         params: WithdrawFromPositionParams,
         is_token_2022: bool,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_withdraw_from_position_ix(&params, is_token_2022, pid);
+        let ix = self.withdraw_from_position_ix(&params, is_token_2022);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
-    /// Build InitPositionTokens transaction.
+    /// Build InitPositionTokens instruction.
     pub fn init_position_tokens_ix(
+        &self,
+        params: &InitPositionTokensParams,
+        num_outcomes: u8,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_init_position_tokens_ix(params, num_outcomes, pid)
+    }
+
+    /// Build InitPositionTokens transaction.
+    pub fn init_position_tokens_tx(
         &self,
         params: InitPositionTokensParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_init_position_tokens_ix(&params, num_outcomes, pid);
+        let ix = self.init_position_tokens_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
 
-    /// Build ExtendPositionTokens transaction.
+    /// Build ExtendPositionTokens instruction.
     pub fn extend_position_tokens_ix(
+        &self,
+        params: &ExtendPositionTokensParams,
+        num_outcomes: u8,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_extend_position_tokens_ix(params, num_outcomes, pid)?)
+    }
+
+    /// Build ExtendPositionTokens transaction.
+    pub fn extend_position_tokens_tx(
         &self,
         params: ExtendPositionTokensParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_extend_position_tokens_ix(&params, num_outcomes, pid)?;
+        let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
 
+    /// Build DepositToGlobal instruction.
+    pub fn deposit_to_global_ix(&self, params: &DepositToGlobalParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_deposit_to_global_ix(params, pid)
+    }
+
     /// Build DepositToGlobal transaction.
-    pub fn deposit_to_global_ix(
+    pub fn deposit_to_global_tx(
         &self,
         params: DepositToGlobalParams,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_deposit_to_global_ix(&params, pid);
+        let ix = self.deposit_to_global_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
-    /// Build GlobalToMarketDeposit transaction.
+    /// Build GlobalToMarketDeposit instruction.
     pub fn global_to_market_deposit_ix(
+        &self,
+        params: &GlobalToMarketDepositParams,
+        num_outcomes: u8,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_global_to_market_deposit_ix(params, num_outcomes, pid)
+    }
+
+    /// Build GlobalToMarketDeposit transaction.
+    pub fn global_to_market_deposit_tx(
         &self,
         params: GlobalToMarketDepositParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
-        let pid = &self.client.program_id;
-        let ix = instructions::build_global_to_market_deposit_ix(&params, num_outcomes, pid);
+        let ix = self.global_to_market_deposit_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 }

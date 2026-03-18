@@ -152,28 +152,27 @@ async fn get_user_orders(
 
 Fetch a user's orders (both limit and trigger) with cursor-based pagination.
 
-### On-Chain Transaction Builders
+### On-Chain Instruction & Transaction Builders
 
-#### `cancel_order_ix`
+Each operation has an `_ix` method returning an `Instruction` and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
 
-```rust
-fn cancel_order_ix(
-    &self,
-    maker: &Pubkey,
-    market: &Pubkey,
-    order: &OrderPayload,
-) -> Result<Transaction, SdkError>
-```
-
-Build a CancelOrder transaction for on-chain order cancellation.
-
-#### `increment_nonce_ix`
+#### `cancel_order_ix` / `cancel_order_tx`
 
 ```rust
-fn increment_nonce_ix(&self, user: &Pubkey) -> Result<Transaction, SdkError>
+fn cancel_order_ix(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Instruction
+fn cancel_order_tx(&self, maker: &Pubkey, market: &Pubkey, order: &OrderPayload) -> Result<Transaction, SdkError>
 ```
 
-Build an IncrementNonce transaction — invalidates all orders with a nonce lower than the new value.
+Build a CancelOrder instruction/transaction for on-chain order cancellation.
+
+#### `increment_nonce_ix` / `increment_nonce_tx`
+
+```rust
+fn increment_nonce_ix(&self, user: &Pubkey) -> Instruction
+fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError>
+```
+
+Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
 
 ### Order Helpers
 
