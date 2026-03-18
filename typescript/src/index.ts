@@ -22,7 +22,7 @@ export * as ws from "./ws";
 // Layer 5: High-level client
 export { LightconeClient, LightconeClientBuilder } from "./client";
 export { Rpc } from "./rpc";
-export type { ClientContext, DecimalsCache } from "./context";
+export type { ClientContext } from "./context";
 export { requireConnection } from "./context";
 
 // Convenience top-level type exports

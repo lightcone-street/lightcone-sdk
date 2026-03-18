@@ -55,17 +55,8 @@ async function main() {
   const market = markets[0];
   const orderbook = market.orderbookPairs[0];
 
-  // 3. Get orderbook decimals for price scaling
-  const raw = await client.orderbooks().decimals(orderbook.orderbookId);
-  const decimals = {
-    orderbookId: raw.orderbook_id,
-    baseDecimals: raw.base_decimals,
-    quoteDecimals: raw.quote_decimals,
-    priceDecimals: raw.price_decimals,
-    tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
-  };
-
-  // 4. Build, sign, and submit a limit order
+  // 3. Build, sign, and submit a limit order
+  //    Decimals are derived automatically from the orderbook's token metadata.
   const nonce = await client.orders().currentNonce(keypair.publicKey);
   const request = LimitOrderEnvelope.new()
     .maker(keypair.publicKey)
@@ -76,8 +67,7 @@ async function main() {
     .price("0.55")
     .size("100")
     .nonce(nonce)
-    .applyScaling(decimals)
-    .sign(keypair, orderbook.orderbookId);
+    .sign(keypair, orderbook);
 
   const response = await client.orders().submit(request);
   console.log("Order submitted:", response);
@@ -150,14 +140,6 @@ tx.sign(keypair);
 ```typescript
 import { LimitOrderEnvelope } from "@lightconexyz/lightcone-sdk";
 
-const decimals = await client.orderbooks().decimals(orderbook.orderbookId);
-const scales = {
-  orderbookId: decimals.orderbook_id,
-  baseDecimals: decimals.base_decimals,
-  quoteDecimals: decimals.quote_decimals,
-  priceDecimals: decimals.price_decimals,
-  tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
-};
 const request = LimitOrderEnvelope.new()
   .maker(keypair.publicKey)
   .market(new PublicKey(market.pubkey))
@@ -167,8 +149,7 @@ const request = LimitOrderEnvelope.new()
   .price("0.55")
   .size("1")
   .nonce(await client.orders().currentNonce(keypair.publicKey))
-  .applyScaling(scales)
-  .sign(keypair, orderbook.orderbookId);
+  .sign(keypair, orderbook);
 const order = await client.orders().submit(request);
 ```
 

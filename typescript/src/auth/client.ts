@@ -43,10 +43,6 @@ export class Auth {
       RetryPolicy.None
     );
 
-    if (response.token) {
-      await this.client.http.setAuthToken(response.token);
-    }
-
     const credentials: AuthCredentials = {
       user_id: response.user_id,
       wallet_address: asPubkeyStr(response.wallet_address),

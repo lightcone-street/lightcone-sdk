@@ -1,17 +1,14 @@
 import type { PublicKey } from "@solana/web3.js";
-import type { ClientContext, DecimalsCache } from "../../context";
+import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { RetryPolicy } from "../../http";
 import { getOrderbookPda } from "../../program/pda";
 import { deserializeOrderbook as deserializeProgramOrderbook } from "../../program/accounts";
 import type { Orderbook as ProgramOrderbook } from "../../program/types";
-import type { DecimalsResponse, OrderbookDepthResponse } from "./wire";
+import type { OrderbookDepthResponse } from "./wire";
 
 export class Orderbooks {
-  constructor(
-    private readonly client: ClientContext,
-    private readonly cache: DecimalsCache
-  ) {}
+  constructor(private readonly client: ClientContext) {}
 
   // ── PDA helpers ──────────────────────────────────────────────────────
 
@@ -25,22 +22,6 @@ export class Orderbooks {
     const query = depth !== undefined ? `?depth=${depth}` : "";
     const url = `${this.client.http.baseUrl()}/api/orderbook/${encodeURIComponent(orderbookId)}${query}`;
     return this.client.http.get<OrderbookDepthResponse>(url, RetryPolicy.Idempotent);
-  }
-
-  async decimals(orderbookId: string): Promise<DecimalsResponse> {
-    const cached = this.cache.get(orderbookId) as DecimalsResponse | undefined;
-    if (cached) {
-      return cached;
-    }
-
-    const url = `${this.client.http.baseUrl()}/api/orderbooks/${encodeURIComponent(orderbookId)}/decimals`;
-    const response = await this.client.http.get<DecimalsResponse>(url, RetryPolicy.Idempotent);
-    this.cache.set(orderbookId, response);
-    return response;
-  }
-
-  async clearCache(): Promise<void> {
-    this.cache.clear();
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

@@ -26,6 +26,22 @@ class OrderBookPair:
     last_trade_time: Optional[str] = None
     active: bool = True
 
+    def decimals(self) -> "OrderbookDecimals":
+        """Derive scaling decimals from this pair's token metadata.
+
+        This is the recommended way to get OrderbookDecimals — no REST call needed.
+        """
+        from ...shared.scaling import OrderbookDecimals
+        base_decimals = self.base.decimals
+        quote_decimals = self.quote.decimals
+        return OrderbookDecimals(
+            orderbook_id=self.orderbook_id,
+            base_decimals=base_decimals,
+            quote_decimals=quote_decimals,
+            price_decimals=max(6 + quote_decimals - base_decimals, 0),
+            tick_size=max(self.tick_size, 0),
+        )
+
     def impact_pct(self, deposit_price: str) -> tuple[float, str]:
         """Price impact as percentage relative to a deposit asset price."""
         dp = Decimal(deposit_price)

@@ -1,5 +1,6 @@
 import Decimal from "decimal.js";
 import type { OrderBookId, PubkeyStr } from "../../shared";
+import type { OrderbookDecimals } from "../../shared/scaling";
 import type { ConditionalToken } from "../market";
 
 export * from "./client";
@@ -57,6 +58,23 @@ export function impact(
     pct: Math.abs(pct),
     dollar,
     isPositive: pct > 0,
+  };
+}
+
+/**
+ * Derive scaling decimals from an orderbook pair's token metadata.
+ *
+ * No REST call needed — decimals are computed from the base/quote token objects.
+ */
+export function orderbookDecimals(pair: OrderBookPair): OrderbookDecimals {
+  const baseDecimals = pair.base.decimals;
+  const quoteDecimals = pair.quote.decimals;
+  return {
+    orderbookId: pair.orderbookId,
+    baseDecimals,
+    quoteDecimals,
+    priceDecimals: Math.max(0, 6 + quoteDecimals - baseDecimals),
+    tickSize: BigInt(Math.max(pair.tickSize, 0)),
   };
 }
 

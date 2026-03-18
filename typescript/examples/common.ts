@@ -5,7 +5,6 @@ import { config } from "dotenv";
 
 import { LightconeClient, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type User } from "../src/auth";
-import type { OrderbookDecimals } from "../src/shared";
 
 config({ path: path.resolve(__dirname, "../.env") });
 
@@ -61,20 +60,6 @@ export async function marketAndOrderbook(
     m.orderbookPairs.find((p) => p.active) ?? m.orderbookPairs[0];
   if (!ob) throw new Error("Market has no orderbooks");
   return [m, ob];
-}
-
-export async function scalingDecimals(
-  client: LightconeClient,
-  orderbook: OrderBookPair
-): Promise<OrderbookDecimals> {
-  const decimals = await client.orderbooks().decimals(orderbook.orderbookId);
-  return {
-    orderbookId: decimals.orderbook_id,
-    baseDecimals: decimals.base_decimals,
-    quoteDecimals: decimals.quote_decimals,
-    priceDecimals: decimals.price_decimals,
-    tickSize: BigInt(Math.max(orderbook.tickSize, 0)),
-  };
 }
 
 export function depositMint(m: Market): PublicKey {

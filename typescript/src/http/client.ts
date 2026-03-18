@@ -13,10 +13,6 @@ export class LightconeHttp {
     return this.normalizedBaseUrl;
   }
 
-  async setAuthToken(token: string | undefined): Promise<void> {
-    this.authToken = token;
-  }
-
   async clearAuthToken(): Promise<void> {
     this.authToken = undefined;
   }
@@ -117,6 +113,19 @@ export class LightconeHttp {
     }
 
     if (response.ok) {
+      if (!hasBrowserWindow()) {
+        const cookieHeader = response.headers.get("set-cookie") ?? "";
+        for (const part of cookieHeader.split(",")) {
+          const trimmed = part.trim();
+          if (trimmed.startsWith("auth_token=")) {
+            const token = trimmed.slice("auth_token=".length).split(";")[0];
+            if (token) {
+              this.authToken = token;
+            }
+          }
+        }
+      }
+
       const text = await response.text();
       try {
         return JSON.parse(text) as T;

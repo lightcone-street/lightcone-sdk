@@ -1,12 +1,11 @@
 import { Connection, PublicKey } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
-import type { ClientContext, DecimalsCache } from "./context";
+import type { ClientContext } from "./context";
 import { Admin } from "./domain/admin";
 import { Markets } from "./domain/market";
 import { Notifications } from "./domain/notification";
 import { Orders } from "./domain/order";
 import { Orderbooks } from "./domain/orderbook";
-import type { DecimalsResponse } from "./domain/orderbook";
 import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
@@ -18,29 +17,10 @@ import { PROGRAM_ID } from "./program/constants";
 import { Rpc } from "./rpc";
 import { WsClient, type WsConfig } from "./ws";
 
-class DecimalsCacheImpl implements DecimalsCache {
-  private readonly map = new Map<string, DecimalsResponse>();
-
-  get(orderbookId: string): DecimalsResponse | undefined {
-    return this.map.get(orderbookId);
-  }
-
-  set(orderbookId: string, response: DecimalsResponse): void {
-    this.map.set(orderbookId, response);
-  }
-
-  clear(): void {
-    this.map.clear();
-  }
-}
-
 class AuthState {
   private credentialsValue: AuthCredentials | undefined;
 
-  constructor(
-    private readonly clearCachesFn: () => Promise<void>,
-    initial?: AuthCredentials
-  ) {
+  constructor(initial?: AuthCredentials) {
     this.credentialsValue = initial;
   }
 
@@ -53,7 +33,7 @@ class AuthState {
   }
 
   async clearCaches(): Promise<void> {
-    await this.clearCachesFn();
+    // No caches to clear — decimals are derived locally from orderbook metadata.
   }
 }
 
@@ -62,7 +42,6 @@ export class LightconeClient implements ClientContext {
   readonly programId: PublicKey;
   readonly connection?: Connection;
   private readonly wsConfigValue: WsConfig;
-  private readonly decimalsCacheStore: DecimalsCacheImpl;
   private readonly authStateStore: AuthState;
 
   constructor(params: {
@@ -71,26 +50,19 @@ export class LightconeClient implements ClientContext {
     programId?: PublicKey;
     connection?: Connection;
     authCredentials?: AuthCredentials;
-    decimalsCache?: DecimalsCacheImpl;
     authState?: AuthState;
   }) {
     this.http = params.http;
     this.programId = params.programId ?? PROGRAM_ID;
     this.connection = params.connection;
     this.wsConfigValue = params.wsConfig;
-    this.decimalsCacheStore = params.decimalsCache ?? new DecimalsCacheImpl();
     this.authStateStore =
       params.authState ??
-      new AuthState(async () => this.clearDecimalsCache(), params.authCredentials);
+      new AuthState(params.authCredentials);
   }
 
   static builder(): LightconeClientBuilder {
     return new LightconeClientBuilder();
-  }
-
-  /** Decimals cache accessor for sub-clients. */
-  get decimalsCache(): DecimalsCache {
-    return this.decimalsCacheStore;
   }
 
   // ── Sub-client accessors ─────────────────────────────────────────────
@@ -100,7 +72,7 @@ export class LightconeClient implements ClientContext {
   }
 
   orderbooks(): Orderbooks {
-    return new Orderbooks(this, this.decimalsCacheStore);
+    return new Orderbooks(this);
   }
 
   orders(): Orders {
@@ -154,10 +126,6 @@ export class LightconeClient implements ClientContext {
     return new WsClient(this.wsConfigValue, this.http.authTokenRef());
   }
 
-  async clearDecimalsCache(): Promise<void> {
-    this.decimalsCacheStore.clear();
-  }
-
   clone(): LightconeClient {
     return new LightconeClient({
       http: this.http,
@@ -166,7 +134,6 @@ export class LightconeClient implements ClientContext {
       connection: this.connection
         ? new Connection(this.connection.rpcEndpoint)
         : undefined,
-      decimalsCache: this.decimalsCacheStore,
       authState: this.authStateStore,
     });
   }

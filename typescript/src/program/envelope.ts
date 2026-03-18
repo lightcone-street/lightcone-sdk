@@ -1,6 +1,8 @@
+import Decimal from "decimal.js";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
-import { scalePriceSize, type OrderbookDecimals } from "../shared/scaling";
+import { alignPriceToTick, scalePriceSize } from "../shared/scaling";
+import { orderbookDecimals, type OrderBookPair } from "../domain/orderbook";
 import type {
   DepositSource,
   SubmitOrderRequest,
@@ -75,10 +77,9 @@ export interface OrderEnvelope {
   price(value: string): this;
   size(value: string): this;
   depositSource(value: DepositSource): this;
-  applyScaling(decimals: OrderbookDecimals): this;
   payload(): Omit<SignedOrder, "signature">;
-  sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest;
-  finalize(signatureBase58: string, orderbookId: string): SubmitOrderRequest;
+  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest;
+  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest;
 }
 
 class BaseEnvelope {
@@ -158,17 +159,6 @@ class BaseEnvelope {
     return this;
   }
 
-  applyScaling(decimals: OrderbookDecimals): this {
-    if (!this.fields.priceRaw) throw ProgramSdkError.missingField("price");
-    if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("size");
-    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
-
-    const scaled = scalePriceSize(this.fields.priceRaw, this.fields.sizeRaw, this.fields.side, decimals);
-    this.fields.amountIn = scaled.amountIn;
-    this.fields.amountOut = scaled.amountOut;
-    return this;
-  }
-
   payload(): Omit<SignedOrder, "signature"> {
     return toUnsignedOrder(this.fields);
   }
@@ -213,6 +203,27 @@ class BaseEnvelope {
     return this.fields.depositSource;
   }
 
+  /**
+   * Auto-scale price/size to raw amounts if the user provided human-readable
+   * strings but not pre-computed amounts. Skips if amounts are already set.
+   */
+  protected autoScale(orderbook: OrderBookPair): void {
+    if (this.fields.amountIn !== undefined || this.fields.amountOut !== undefined) {
+      return;
+    }
+
+    if (!this.fields.priceRaw) throw ProgramSdkError.missingField("price");
+    if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("size");
+    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+
+    const decimals = orderbookDecimals(orderbook);
+    const price = new Decimal(this.fields.priceRaw);
+    const alignedPrice = alignPriceToTick(price, decimals);
+    const scaled = scalePriceSize(alignedPrice, this.fields.sizeRaw, this.fields.side, decimals);
+    this.fields.amountIn = scaled.amountIn;
+    this.fields.amountOut = scaled.amountOut;
+  }
+
   protected finalizeWithHexSignature(
     signatureHex: string,
     orderbookId: string,
@@ -234,20 +245,36 @@ class BaseEnvelope {
 }
 
 export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
+  private timeInForceValue?: TimeInForce;
+
   static new(): LimitOrderEnvelope {
     return new LimitOrderEnvelope();
   }
 
-  sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest {
+  timeInForce(value: TimeInForce): this {
+    this.timeInForceValue = value;
+    return this;
+  }
+
+  fieldsTimeInForce(): TimeInForce | undefined {
+    return this.timeInForceValue;
+  }
+
+  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
-    return toSubmitRequest(signed, orderbookId, {
+    return toSubmitRequest(signed, orderbook.orderbookId, {
+      timeInForce: this.timeInForceValue,
       depositSource: this.fieldsDepositSource(),
     });
   }
 
-  finalize(signatureBase58: string, orderbookId: string): SubmitOrderRequest {
+  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return this.finalizeWithHexSignature(signatureHex, orderbookId);
+    return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
+      timeInForce: this.timeInForceValue,
+    });
   }
 }
 
@@ -319,10 +346,11 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     return this.triggerTypeValue;
   }
 
-  sign(keypair: Keypair, orderbookId: string): SubmitOrderRequest {
+  sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
-    return toSubmitRequest(signed, orderbookId, {
+    return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
       triggerPrice: this.triggerPriceValue,
       triggerType: this.triggerTypeValue,
@@ -330,10 +358,11 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     });
   }
 
-  finalize(signatureBase58: string, orderbookId: string): SubmitOrderRequest {
+  finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
-    return this.finalizeWithHexSignature(signatureHex, orderbookId, {
+    return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
       triggerPrice: this.triggerPriceValue,
       triggerType: this.triggerTypeValue,

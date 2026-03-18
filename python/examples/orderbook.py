@@ -17,8 +17,8 @@ async def main():
     print(f"best bid: {depth.best_bid}, best ask: {depth.best_ask}")
     print(f"levels: {len(depth.bids)} bids / {len(depth.asks)} asks")
 
-    # 2. Fetch decimal precision metadata
-    decimals = await client.orderbooks().decimals(orderbook_id)
+    # 2. Get decimal precision metadata (derived locally from token metadata)
+    decimals = orderbook.decimals()
     print(
         "decimals: "
         f"price={decimals.price_decimals}, "

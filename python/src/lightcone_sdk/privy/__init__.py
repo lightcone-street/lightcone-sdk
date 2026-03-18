@@ -122,17 +122,17 @@ class ExportWalletResponse:
     encapsulated_key: str = ""
 
 
-def privy_order_from_limit_envelope(envelope, orderbook_id: str) -> PrivyOrderEnvelope:
+def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     """Build a PrivyOrderEnvelope from a LimitOrderEnvelope.
 
     Args:
         envelope: A LimitOrderEnvelope instance (from program.envelope)
-        orderbook_id: The orderbook ID for the order
+        orderbook: The OrderBookPair for the order
 
     Returns:
         PrivyOrderEnvelope ready to send to the backend
     """
-    order = envelope.finalize()
+    order = envelope.payload()
     return PrivyOrderEnvelope(
         maker=str(order.maker),
         nonce=order.nonce,
@@ -143,16 +143,16 @@ def privy_order_from_limit_envelope(envelope, orderbook_id: str) -> PrivyOrderEn
         amount_in=order.amount_in,
         amount_out=order.amount_out,
         expiration=order.expiration,
-        orderbook_id=orderbook_id,
+        orderbook_id=orderbook.orderbook_id,
     )
 
 
-def privy_order_from_trigger_envelope(envelope, orderbook_id: str) -> PrivyOrderEnvelope:
+def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     """Build a PrivyOrderEnvelope from a TriggerOrderEnvelope.
 
     Args:
         envelope: A TriggerOrderEnvelope instance (from program.envelope)
-        orderbook_id: The orderbook ID for the order
+        orderbook: The OrderBookPair for the order
 
     Returns:
         PrivyOrderEnvelope with trigger fields populated
@@ -184,7 +184,7 @@ def privy_order_from_trigger_envelope(envelope, orderbook_id: str) -> PrivyOrder
         amount_in=order.amount_in,
         amount_out=order.amount_out,
         expiration=order.expiration,
-        orderbook_id=orderbook_id,
+        orderbook_id=orderbook.orderbook_id,
         time_in_force=time_in_force,
         trigger_price=trigger_price,
         trigger_type=trigger_type,
