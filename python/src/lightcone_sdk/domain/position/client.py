@@ -111,14 +111,24 @@ class Positions:
 
     def deposit_to_global_ix(self, params: DepositToGlobalParams) -> Instruction:
         """Build DepositToGlobal instruction."""
-        return build_deposit_to_global_instruction(params, self._client.program_id)
+        return build_deposit_to_global_instruction(
+            user=params.user,
+            mint=params.mint,
+            amount=params.amount,
+            program_id=self._client.program_id,
+        )
 
     def global_to_market_deposit_ix(
         self, params: GlobalToMarketDepositParams, num_outcomes: int
     ) -> Instruction:
         """Build GlobalToMarketDeposit instruction."""
         return build_global_to_market_deposit_instruction(
-            params, num_outcomes, self._client.program_id
+            user=params.user,
+            market=params.market,
+            deposit_mint=params.deposit_mint,
+            amount=params.amount,
+            num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
         )
 
     # ── On-chain account fetchers (require connection) ───────────────────

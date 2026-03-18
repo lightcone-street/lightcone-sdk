@@ -172,7 +172,11 @@ class Admin:
 
     def whitelist_deposit_token_ix(self, params: WhitelistDepositTokenParams) -> Instruction:
         """Build WhitelistDepositToken instruction."""
-        return build_whitelist_deposit_token_instruction(params, self._client.program_id)
+        return build_whitelist_deposit_token_instruction(
+            authority=params.authority,
+            mint=params.mint,
+            program_id=self._client.program_id,
+        )
 
     def create_orderbook_ix(self, params: CreateOrderbookParams) -> Instruction:
         """Build CreateOrderbook instruction."""
@@ -202,4 +206,16 @@ class Admin:
 
     def deposit_and_swap_ix(self, params: DepositAndSwapParams) -> Instruction:
         """Build DepositAndSwap instruction."""
-        return build_deposit_and_swap_instruction(params, self._client.program_id)
+        return build_deposit_and_swap_instruction(
+            operator=params.operator,
+            market=params.market,
+            base_mint=params.base_mint,
+            quote_mint=params.quote_mint,
+            taker_order=params.taker_order,
+            taker_is_full_fill=params.taker_is_full_fill,
+            taker_is_deposit=params.taker_is_deposit,
+            taker_deposit_mint=params.taker_deposit_mint,
+            num_outcomes=params.num_outcomes,
+            makers=params.makers,
+            program_id=self._client.program_id,
+        )

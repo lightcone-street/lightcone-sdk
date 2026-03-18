@@ -16,6 +16,7 @@ Python SDK for the Lightcone impact market protocol on Solana.
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
+- [Global Deposits](#global-deposits)
 
 ## Installation
 
@@ -247,6 +248,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 
 | Example | Description |
 |---------|-------------|
+| [`global_deposit`](examples/global_deposit.py) | Build, sign, and submit deposit-to-global and global-to-market transactions |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 
@@ -286,3 +288,9 @@ Notable `HttpErrorKind` variants:
 - **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customize the default idempotent retry config with `LightconeClientBuilder().retry_config(RetryConfig(...))`. If you use `LightconeHttp` directly, you can pass `RetryPolicy.custom(RetryConfig(...))` per request.
+
+## Global Deposits
+
+`examples/global_deposit.py` shows the full user flow for global deposits: verify that the market deposit mint is whitelisted on-chain, submit `deposit_to_global`, then move that balance into a market with `global_to_market_deposit`.
+
+This example requires `SOLANA_RPC_URL`, `LIGHTCONE_WALLET_PATH`, a funded wallet, and a deposit mint that has already been whitelisted for global deposits.
