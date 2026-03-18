@@ -242,6 +242,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Set environment var
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`global_deposit`](examples/global_deposit.ts) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
 
 ### WebSocket Streaming
 

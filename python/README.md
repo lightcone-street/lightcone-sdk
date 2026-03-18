@@ -247,6 +247,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 
 | Example | Description |
 |---------|-------------|
+| [`global_deposit`](examples/global_deposit.py) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 

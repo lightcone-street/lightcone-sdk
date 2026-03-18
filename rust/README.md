@@ -249,6 +249,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`global_deposit`](examples/global_deposit.rs) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
 
 ### WebSocket Streaming
 
