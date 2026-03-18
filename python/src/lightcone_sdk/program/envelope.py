@@ -136,23 +136,6 @@ class LimitOrderEnvelope:
         self._time_in_force = tif
         return self
 
-    def gtc(self) -> LimitOrderEnvelope:
-        self._time_in_force = TimeInForce.GTC
-        return self
-
-    def ioc(self) -> LimitOrderEnvelope:
-        self._time_in_force = TimeInForce.IOC
-        return self
-
-    def fok(self) -> LimitOrderEnvelope:
-        self._time_in_force = TimeInForce.FOK
-        return self
-
-    def alo(self) -> LimitOrderEnvelope:
-        """Set time-in-force to add-liquidity-only."""
-        self._time_in_force = TimeInForce.ALO
-        return self
-
     def _auto_scale(self, orderbook: OrderBookPair) -> None:
         """Auto-scale price/size to raw amounts if not already set.
 
