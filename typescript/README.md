@@ -16,7 +16,6 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
-- [Global Deposits](#global-deposits)
 
 ## Installation
 
@@ -243,7 +242,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Set environment var
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit`](examples/global_deposit.ts) | Deposit collateral to global balance, inspect `global_deposits`, and move funds into a market position |
+| [`global_deposit`](examples/global_deposit.ts) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
 
 ### WebSocket Streaming
 
@@ -280,14 +279,3 @@ Notable `HttpError` variants:
 - **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
-
-## Global Deposits
-
-The SDK supports the global deposit flow end to end:
-
-- Admins whitelist deposit mints with `client.admin().whitelistDepositTokenIx(...)`.
-- Users deposit collateral into their global balance with `client.positions().depositToGlobalIx(...)`.
-- Users can move global collateral into a market position with `client.positions().globalToMarketDepositIx(...)`.
-- Order submissions can opt into global collateral by setting `deposit_source` or calling `.depositSource(DepositSource.Global)`.
-
-For a runnable script, see [`examples/global_deposit.ts`](examples/global_deposit.ts).

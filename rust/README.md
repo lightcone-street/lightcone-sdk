@@ -17,7 +17,6 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
 - [Retry Strategy](#retry-strategy)
-- [Global Deposits](#global-deposits)
 
 ## Installation
 
@@ -250,7 +249,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit`](examples/global_deposit.rs) | Inspect the global deposit token, deposit collateral into the global pool, and move it into a market position |
+| [`global_deposit`](examples/global_deposit.rs) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
 
 ### WebSocket Streaming
 
@@ -288,15 +287,3 @@ Notable `HttpError` variants:
 - **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
-
-## Global Deposits
-
-See [`examples/global_deposit.rs`](examples/global_deposit.rs) for a full runnable flow.
-
-The global-deposit flow is:
-1. Fetch a market and its deposit mint.
-2. Confirm the mint is whitelisted for global deposits.
-3. Build and sign `deposit_to_global_ix`.
-4. Build and sign `global_to_market_deposit_ix`.
-
-The wallet must hold the deposit token already, and the selected market's deposit mint must be whitelisted for global deposits.

@@ -1,97 +1,96 @@
+import { PublicKey, Transaction } from "@solana/web3.js";
 import {
-  PublicKey,
-  Transaction,
-  type Keypair,
-  type TransactionInstruction,
-} from "@solana/web3.js";
-import { type LightconeClient } from "../src";
-import {
-  depositMint,
-  login,
-  market,
-  numOutcomes,
-  rpcClient,
-  wallet,
-} from "./common";
-
-const GLOBAL_DEPOSIT_AMOUNT = 1_000_000n;
-const MARKET_DEPOSIT_AMOUNT = 500_000n;
-
-function globalBalanceFor(
-  globalDeposits: Array<{ deposit_mint: string; balance: string }>,
-  mint: string
-): string {
-  return globalDeposits.find((deposit) => deposit.deposit_mint === mint)?.balance ?? "0";
-}
+  DepositToGlobalParams,
+  ExtendPositionTokensParams,
+  GlobalToMarketDepositParams,
+  InitPositionTokensParams,
+} from "../src/program";
+import { depositMint, login, market, numOutcomes, rpcClient, wallet } from "./common";
 
 async function sendAndConfirm(
-  client: LightconeClient,
-  keypair: Keypair,
   name: string,
-  ix: TransactionInstruction
+  tx: Transaction
 ): Promise<void> {
-  const connection = client.rpc().inner();
-  const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-  const tx = new Transaction({
-    feePayer: keypair.publicKey,
-    blockhash,
-    lastValidBlockHeight,
-  }).add(ix);
-
-  tx.sign(keypair);
   const signature = await connection.sendRawTransaction(tx.serialize());
-  await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight });
-  console.log(`${name}: confirmed ${signature}`);
+  await connection.confirmTransaction(signature);
+  console.log(`${name} confirmed: ${signature}`);
 }
 
+const client = rpcClient();
+const connection = client.rpc().inner();
+const keypair = wallet();
+
 async function main() {
-  const client = rpcClient();
-  const keypair = wallet();
   await login(client, keypair);
 
   const m = await market(client);
   const marketPubkey = new PublicKey(m.pubkey);
   const dMint = depositMint(m);
   const outcomes = numOutcomes(m);
-  const pubkey = keypair.publicKey.toBase58();
+  const amount = 1_000_000n;
 
-  const globalDepositToken = await client.rpc().getGlobalDepositToken(dMint);
-  console.log(`market: ${m.slug}`);
-  console.log(
-    `deposit mint: ${dMint.toBase58()} active=${globalDepositToken.active} index=${globalDepositToken.index}`
+  // 1. Init position tokens — one-time setup per market (creates position + ALT)
+  const recentSlot = BigInt(await connection.getSlot());
+  const initIx = client.positions().initPositionTokensIx(
+    {
+      payer: keypair.publicKey,
+      user: keypair.publicKey,
+      market: marketPubkey,
+      depositMints: [dMint],
+      recentSlot,
+    },
+    outcomes
   );
-  console.log(
-    `pdas: global=${client.rpc().getGlobalDepositTokenPda(dMint).toBase58()} user=${client.rpc().getUserGlobalDepositPda(keypair.publicKey, dMint).toBase58()}`
-  );
+  let { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
+  let tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(initIx);
+  tx.sign(keypair);
+  await sendAndConfirm("init_position_tokens", tx);
 
+  // 2. Deposit to global — fund the global pool with collateral
   const depositIx = client.positions().depositToGlobalIx({
     user: keypair.publicKey,
     mint: dMint,
-    amount: GLOBAL_DEPOSIT_AMOUNT,
+    amount,
   });
-  await sendAndConfirm(client, keypair, "deposit_to_global", depositIx);
+  ({ blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash());
+  tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(depositIx);
+  tx.sign(keypair);
+  await sendAndConfirm("deposit_to_global", tx);
 
-  const afterDeposit = await client.positions().get(pubkey);
-  console.log(
-    `global balance after deposit: ${globalBalanceFor(afterDeposit.global_deposits, dMint.toBase58())}`
-  );
-
-  const marketDepositIx = client.positions().globalToMarketDepositIx(
+  // 3. Global to market deposit — move capital into a specific market
+  const moveIx = client.positions().globalToMarketDepositIx(
     {
       user: keypair.publicKey,
       market: marketPubkey,
       depositMint: dMint,
-      amount: MARKET_DEPOSIT_AMOUNT,
+      amount,
     },
     outcomes
   );
-  await sendAndConfirm(client, keypair, "global_to_market_deposit", marketDepositIx);
+  ({ blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash());
+  tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(moveIx);
+  tx.sign(keypair);
+  await sendAndConfirm("global_to_market_deposit", tx);
 
-  const afterMove = await client.positions().getForMarket(pubkey, m.pubkey);
-  console.log(`positions in ${m.slug}: ${afterMove.positions.length}`);
-  console.log(
-    `remaining global balance: ${globalBalanceFor(afterMove.global_deposits, dMint.toBase58())}`
+  // 4. Extend position tokens — add a new deposit mint to an existing ALT
+  //    (only needed when a new deposit mint is whitelisted)
+  const position = await client.positions().getOnchain(keypair.publicKey, marketPubkey);
+  if (!position) throw new Error("position not found");
+
+  const extendIx = client.positions().extendPositionTokensIx(
+    {
+      payer: keypair.publicKey,
+      user: keypair.publicKey,
+      market: marketPubkey,
+      lookupTable: position.lookupTable,
+      depositMints: [dMint],
+    },
+    outcomes
   );
+  ({ blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash());
+  tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(extendIx);
+  tx.sign(keypair);
+  await sendAndConfirm("extend_position_tokens", tx);
 }
 
 main().catch(console.error);

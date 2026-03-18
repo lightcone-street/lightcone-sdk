@@ -1,4 +1,4 @@
-"""Build, sign, and submit deposit-to-global and global-to-market transactions."""
+"""Global deposit workflow: init position, deposit to global, move to market, extend ALT."""
 
 import asyncio
 
@@ -12,42 +12,28 @@ from common import (
     num_outcomes,
     wallet,
 )
-from lightcone_sdk.program.errors import AccountNotFoundError
 from lightcone_sdk.program.types import (
     DepositToGlobalParams,
+    ExtendPositionTokensParams,
     GlobalToMarketDepositParams,
+    InitPositionTokensParams,
 )
 from lightcone_sdk.rpc import require_connection
 
 
-def print_global_balance(snapshot, mint: Pubkey) -> None:
-    mint_str = str(mint)
-    entry = next(
-        (item for item in snapshot.global_deposits if item.deposit_mint == mint_str),
-        None,
-    )
-    if entry is None:
-        print(f"global balance: {mint_str} not present")
-        return
-    symbol = entry.symbol or mint_str
-    print(f"global balance: {symbol}={entry.balance}")
-
-
-async def submit_transaction(name, connection, tx, keypair, blockhash):
+async def send_and_confirm(name, connection, client, ix, keypair):
+    blockhash = await client.rpc().get_latest_blockhash()
+    tx = await client.rpc().build_transaction([ix])
     tx.sign([keypair], blockhash)
-    print(
-        f"{name}: {len(tx.message.instructions)} instruction(s), "
-        f"{len(bytes(tx))} bytes, signature={tx.signatures[0]}"
-    )
     result = await connection.send_raw_transaction(bytes(tx))
     await connection.confirm_transaction(result.value)
-    print(f"{name}: confirmed {result.value}")
+    print(f"{name} confirmed: {result.value}")
 
 
 async def main():
     client = make_client()
     keypair = wallet()
-    user = await login(client, keypair)
+    await login(client, keypair)
 
     m = await market(client)
     market_pubkey = Pubkey.from_string(m.pubkey)
@@ -55,27 +41,23 @@ async def main():
     outcomes = num_outcomes(m)
     amount = 1_000_000
 
-    print(f"market: {m.slug}")
-    print(f"deposit mint: {d_mint}")
+    connection = require_connection(client)
 
-    try:
-        global_token = await client.rpc().get_global_deposit_token(d_mint)
-    except AccountNotFoundError:
-        print(
-            "global deposit token not found on-chain; "
-            "the deposit mint must be whitelisted first"
-        )
-        await client.close()
-        return
-
-    print(
-        f"global deposit token: active={global_token.active} "
-        f"index={global_token.index}"
+    # 1. Init position tokens — one-time setup per market (creates position + ALT)
+    recent_slot = (await connection.get_slot()).value
+    init_ix = client.positions().init_position_tokens_ix(
+        InitPositionTokensParams(
+            payer=keypair.pubkey(),
+            user=keypair.pubkey(),
+            market=market_pubkey,
+            deposit_mints=[d_mint],
+            recent_slot=recent_slot,
+        ),
+        outcomes,
     )
+    await send_and_confirm("init_position_tokens", connection, client, init_ix, keypair)
 
-    before = await client.positions().get(user.wallet_address)
-    print_global_balance(before, d_mint)
-
+    # 2. Deposit to global — fund the global pool with collateral
     deposit_ix = client.positions().deposit_to_global_ix(
         DepositToGlobalParams(
             user=keypair.pubkey(),
@@ -83,7 +65,10 @@ async def main():
             amount=amount,
         )
     )
-    market_ix = client.positions().global_to_market_deposit_ix(
+    await send_and_confirm("deposit_to_global", connection, client, deposit_ix, keypair)
+
+    # 3. Global to market deposit — move capital into a specific market
+    move_ix = client.positions().global_to_market_deposit_ix(
         GlobalToMarketDepositParams(
             user=keypair.pubkey(),
             market=market_pubkey,
@@ -92,27 +77,25 @@ async def main():
         ),
         outcomes,
     )
+    await send_and_confirm("global_to_market_deposit", connection, client, move_ix, keypair)
 
-    transactions = [
-        ("deposit_to_global", await client.rpc().build_transaction([deposit_ix])),
-        (
-            "global_to_market_deposit",
-            await client.rpc().build_transaction([market_ix]),
+    # 4. Extend position tokens — add a new deposit mint to an existing ALT
+    #    (only needed when a new deposit mint is whitelisted)
+    position = await client.positions().get_onchain(keypair.pubkey(), market_pubkey)
+    if position is None:
+        raise RuntimeError("position not found")
+
+    extend_ix = client.positions().extend_position_tokens_ix(
+        ExtendPositionTokensParams(
+            payer=keypair.pubkey(),
+            user=keypair.pubkey(),
+            market=market_pubkey,
+            lookup_table=position.lookup_table,
+            deposit_mints=[d_mint],
         ),
-    ]
-
-    connection = require_connection(client)
-    for name, tx in transactions:
-        blockhash = await client.rpc().get_latest_blockhash()
-        await submit_transaction(name, connection, tx, keypair, blockhash)
-
-    after = await client.positions().get(user.wallet_address)
-    print_global_balance(after, d_mint)
-
-    per_market = await client.positions().get_for_market(
-        user.wallet_address, m.pubkey
+        outcomes,
     )
-    print(f"positions in {m.slug}: {len(per_market.positions)}")
+    await send_and_confirm("extend_position_tokens", connection, client, extend_ix, keypair)
 
     await client.close()
 
