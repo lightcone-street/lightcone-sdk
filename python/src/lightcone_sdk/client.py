@@ -16,7 +16,6 @@ from .domain.market.client import Markets
 from .domain.notification.client import Notifications
 from .domain.order.client import Orders
 from .domain.orderbook.client import Orderbooks
-from .domain.orderbook.wire import DecimalsResponse
 from .domain.position.client import Positions
 from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
@@ -36,8 +35,7 @@ class LightconeClient:
     Use LightconeClientBuilder to construct instances.
 
     Caching philosophy: The SDK is stateless for HTTP data. Caching is the
-    consumer's responsibility. The only internal cache is decimals_cache for
-    orderbook decimals, which are effectively immutable.
+    consumer's responsibility.
     """
 
     def __init__(
@@ -50,7 +48,6 @@ class LightconeClient:
     ):
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
-        self._decimals_cache: dict[str, DecimalsResponse] = {}
         self._program_id: Pubkey = program_id or PROGRAM_ID
         self._connection = connection  # Optional[AsyncClient]
 
@@ -128,9 +125,6 @@ class LightconeClient:
 
     def ws_config(self) -> WsConfig:
         return self._ws_config
-
-    def clear_decimals_cache(self) -> None:
-        self._decimals_cache.clear()
 
     async def close(self) -> None:
         """Close the HTTP session."""

@@ -105,6 +105,13 @@ class LightconeHttp:
 
         async with session.request(method, url, headers=headers, **kwargs) as response:
             if 200 <= response.status < 300:
+                # Auto-extract auth_token from set-cookie headers
+                for cookie_header in response.headers.getall('set-cookie', []):
+                    if cookie_header.startswith('auth_token='):
+                        token = cookie_header.split('auth_token=', 1)[1].split(';', 1)[0]
+                        if token:
+                            self._auth_token = token
+
                 try:
                     return await response.json()
                 except (ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:

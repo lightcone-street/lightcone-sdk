@@ -644,7 +644,7 @@ wheels = [
 
 [[package]]
 name = "lightcone-sdk"
-version = "0.1.0"
+version = "0.3.21"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },

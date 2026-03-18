@@ -9,7 +9,6 @@ from common import (
     wallet,
     login,
     market_and_orderbook,
-    scaling_decimals,
 )
 from lightcone_sdk.program.envelope import LimitOrderEnvelope
 
@@ -19,16 +18,15 @@ async def main():
     keypair = wallet()
     await login(client, keypair)
 
-    # 1. Fetch market, orderbook, and decimals
+    # 1. Fetch market and orderbook
     m, orderbook = await market_and_orderbook(client)
-    decimals = await scaling_decimals(client, orderbook)
     base_mint = Pubkey.from_string(orderbook.base.mint)
     quote_mint = Pubkey.from_string(orderbook.quote.mint)
 
     # 2. Get a fresh nonce from on-chain
     nonce = await client.orders().current_nonce(keypair.pubkey())
 
-    # 3. Build, scale, sign a limit order
+    # 3. Build, sign a limit order (scaling is applied automatically)
     request = (
         LimitOrderEnvelope()
         .maker(keypair.pubkey())
@@ -39,8 +37,7 @@ async def main():
         .price("0.55")
         .size("1")
         .nonce(nonce)
-        .apply_scaling(decimals=decimals)
-        .sign(keypair, orderbook.orderbook_id)
+        .sign(keypair, orderbook)
     )
 
     # 4. Submit

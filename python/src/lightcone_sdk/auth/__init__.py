@@ -79,7 +79,6 @@ class LoginRequest:
 class LoginResponse:
     """Login response from the backend."""
 
-    token: str = ""
     user_id: str = ""
     wallet_address: str = ""
     expires_at: int = 0

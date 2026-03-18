@@ -89,11 +89,7 @@ class Auth:
             retry_policy=RetryPolicy.NONE,
         )
 
-        # Store token in HTTP client (token is never exposed in AuthCredentials)
-        token = data.get("token", "")
-        self._client._http.set_auth_token(token)
-
-        # Store credentials (without token)
+        # Store credentials (token is extracted from set-cookie by the HTTP layer)
         self._credentials = AuthCredentials(
             user_id=data.get("user_id", ""),
             wallet_address=data.get("wallet_address", ""),

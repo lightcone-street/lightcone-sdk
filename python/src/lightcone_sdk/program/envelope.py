@@ -3,7 +3,10 @@
 Provides fluent builder pattern for constructing limit and trigger orders.
 """
 
-from typing import Optional
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import Optional, TYPE_CHECKING
 
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
@@ -18,11 +21,41 @@ from ..shared.types import (
     TimeInForce,
     TriggerType,
 )
-from ..shared.scaling import OrderbookDecimals, align_price_to_tick, scale_price_size
+from ..shared.scaling import align_price_to_tick, scale_price_size
+
+if TYPE_CHECKING:
+    from ..domain.orderbook import OrderBookPair
 
 
 class LimitOrderEnvelope:
-    """Fluent builder for limit orders."""
+    """Fluent builder for limit orders.
+
+    # Example (human-readable price/size — auto-scaled)
+
+        request = (LimitOrderEnvelope()
+            .maker(maker_pubkey)
+            .market(market_pubkey)
+            .base_mint(yes_token)
+            .quote_mint(usdc)
+            .bid()
+            .nonce(5)
+            .price("0.55")
+            .size("100")
+            .sign(keypair, orderbook))
+
+    # Example (pre-computed raw amounts — no scaling)
+
+        request = (LimitOrderEnvelope()
+            .maker(maker_pubkey)
+            .market(market_pubkey)
+            .base_mint(yes_token)
+            .quote_mint(usdc)
+            .bid()
+            .nonce(5)
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .sign(keypair, orderbook))
+    """
 
     def __init__(self):
         self._nonce: int = 0
@@ -37,83 +70,109 @@ class LimitOrderEnvelope:
         self._price_str: Optional[str] = None
         self._size_str: Optional[str] = None
         self._deposit_source: Optional[DepositSource] = None
+        self._time_in_force: Optional[TimeInForce] = None
 
-    def nonce(self, nonce: int) -> "LimitOrderEnvelope":
+    def nonce(self, nonce: int) -> LimitOrderEnvelope:
         self._nonce = nonce
         return self
 
-    def maker(self, maker: Pubkey) -> "LimitOrderEnvelope":
+    def maker(self, maker: Pubkey) -> LimitOrderEnvelope:
         self._maker = maker
         return self
 
-    def market(self, market: Pubkey) -> "LimitOrderEnvelope":
+    def market(self, market: Pubkey) -> LimitOrderEnvelope:
         self._market = market
         return self
 
-    def base_mint(self, mint: Pubkey) -> "LimitOrderEnvelope":
+    def base_mint(self, mint: Pubkey) -> LimitOrderEnvelope:
         self._base_mint = mint
         return self
 
-    def quote_mint(self, mint: Pubkey) -> "LimitOrderEnvelope":
+    def quote_mint(self, mint: Pubkey) -> LimitOrderEnvelope:
         self._quote_mint = mint
         return self
 
-    def bid(self) -> "LimitOrderEnvelope":
+    def bid(self) -> LimitOrderEnvelope:
         self._side = OrderSide.BID
         return self
 
-    def ask(self) -> "LimitOrderEnvelope":
+    def ask(self) -> LimitOrderEnvelope:
         self._side = OrderSide.ASK
         return self
 
-    def side(self, side: Side) -> "LimitOrderEnvelope":
+    def side(self, side: Side) -> LimitOrderEnvelope:
         self._side = OrderSide(int(side))
         return self
 
-    def amount_in(self, amount: int) -> "LimitOrderEnvelope":
+    def amount_in(self, amount: int) -> LimitOrderEnvelope:
         self._amount_in = amount
         return self
 
-    def amount_out(self, amount: int) -> "LimitOrderEnvelope":
+    def amount_out(self, amount: int) -> LimitOrderEnvelope:
         self._amount_out = amount
         return self
 
-    def expiration(self, expiration: int) -> "LimitOrderEnvelope":
+    def expiration(self, expiration: int) -> LimitOrderEnvelope:
         self._expiration = expiration
         return self
 
-    def price(self, price: str) -> "LimitOrderEnvelope":
-        """Store price for deferred scaling via apply_scaling."""
+    def price(self, price: str) -> LimitOrderEnvelope:
+        """Store human-readable price for auto-scaling in sign()/finalize()."""
         self._price_str = price
         return self
 
-    def size(self, size: str) -> "LimitOrderEnvelope":
-        """Store size for deferred scaling via apply_scaling."""
+    def size(self, size: str) -> LimitOrderEnvelope:
+        """Store human-readable size for auto-scaling in sign()/finalize()."""
         self._size_str = size
         return self
 
-    def deposit_source(self, ds: DepositSource) -> "LimitOrderEnvelope":
+    def deposit_source(self, ds: DepositSource) -> LimitOrderEnvelope:
         """Set the deposit source for order matching."""
         self._deposit_source = ds
         return self
 
-    def apply_scaling(self, price: Optional[str] = None, size: Optional[str] = None, decimals: Optional[OrderbookDecimals] = None) -> "LimitOrderEnvelope":
-        """Apply price/size scaling to set amount_in and amount_out.
+    def time_in_force(self, tif: TimeInForce) -> LimitOrderEnvelope:
+        """Set time-in-force policy (GTC, IOC, FOK, ALO)."""
+        self._time_in_force = tif
+        return self
 
-        Can be called with explicit price/size args or uses deferred values
-        set via .price()/.size(). Price is aligned to the tick size before scaling.
+    def gtc(self) -> LimitOrderEnvelope:
+        self._time_in_force = TimeInForce.GTC
+        return self
+
+    def ioc(self) -> LimitOrderEnvelope:
+        self._time_in_force = TimeInForce.IOC
+        return self
+
+    def fok(self) -> LimitOrderEnvelope:
+        self._time_in_force = TimeInForce.FOK
+        return self
+
+    def alo(self) -> LimitOrderEnvelope:
+        """Set time-in-force to add-liquidity-only."""
+        self._time_in_force = TimeInForce.ALO
+        return self
+
+    def _auto_scale(self, orderbook: OrderBookPair) -> None:
+        """Auto-scale price/size to raw amounts if not already set.
+
+        Skips if amount_in/amount_out are already non-zero (raw amounts
+        were provided directly). Otherwise requires price() and size()
+        to have been called.
         """
-        from decimal import Decimal
-        p = price or self._price_str
-        s = size or self._size_str
-        assert p is not None, "price is required (set via .price() or pass directly)"
-        assert s is not None, "size is required (set via .size() or pass directly)"
-        assert decimals is not None, "decimals is required"
-        aligned = align_price_to_tick(Decimal(p), decimals)
-        scaled = scale_price_size(str(aligned), s, int(self._side), decimals)
+        if self._amount_in or self._amount_out:
+            return
+
+        assert self._price_str is not None, \
+            "either price()+size() or amount_in()+amount_out() is required"
+        assert self._size_str is not None, \
+            "either price()+size() or amount_in()+amount_out() is required"
+
+        decimals = orderbook.decimals()
+        aligned_price = align_price_to_tick(Decimal(self._price_str), decimals)
+        scaled = scale_price_size(str(aligned_price), self._size_str, int(self._side), decimals)
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
-        return self
 
     def payload(self) -> SignedOrder:
         """Build an unsigned SignedOrder without consuming the envelope."""
@@ -134,33 +193,37 @@ class LimitOrderEnvelope:
             expiration=self._expiration,
         )
 
-    def finalize(self, sig_bs58: Optional[str] = None, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
-        """Build the order.
+    def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
+        """Apply an external wallet-adapter signature and produce a SubmitOrderRequest.
 
-        If sig_bs58 and orderbook_id are provided, applies external signature
-        and returns a SubmitOrderRequest. Otherwise returns an unsigned SignedOrder.
+        If price() and size() were set, scaling is applied automatically
+        using the orderbook's decimals. If amount_in() and amount_out()
+        were set directly, those raw values are used as-is.
         """
+        self._auto_scale(orderbook)
         order = self.payload()
-        if sig_bs58 is not None and orderbook_id is not None:
-            apply_signature(order, sig_bs58)
-            return to_submit_request(
-                order, orderbook_id, deposit_source=self._deposit_source
-            )
-        return order
+        apply_signature(order, sig_bs58)
+        return to_submit_request(
+            order, orderbook.orderbook_id,
+            time_in_force=self._time_in_force,
+            deposit_source=self._deposit_source,
+        )
 
-    def sign(self, keypair: Keypair, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
-        """Build and sign the order.
+    def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
+        """Sign and produce a SubmitOrderRequest.
 
-        If orderbook_id is provided, returns a SubmitOrderRequest.
-        Otherwise returns a signed SignedOrder.
+        If price() and size() were set, scaling is applied automatically
+        using the orderbook's decimals. If amount_in() and amount_out()
+        were set directly, those raw values are used as-is.
         """
+        self._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
-        if orderbook_id is not None:
-            return to_submit_request(
-                order, orderbook_id, deposit_source=self._deposit_source
-            )
-        return order
+        return to_submit_request(
+            order, orderbook.orderbook_id,
+            time_in_force=self._time_in_force,
+            deposit_source=self._deposit_source,
+        )
 
     # Field accessors (matching Rust fields_* methods)
 
@@ -204,6 +267,10 @@ class LimitOrderEnvelope:
     def fields_deposit_source(self) -> Optional[DepositSource]:
         return self._deposit_source
 
+    @property
+    def fields_time_in_force(self) -> Optional[TimeInForce]:
+        return self._time_in_force
+
 
 class TriggerOrderEnvelope:
     """Fluent builder for trigger orders."""
@@ -214,103 +281,99 @@ class TriggerOrderEnvelope:
         self._trigger_type: Optional[TriggerType] = None
         self._time_in_force: TimeInForce = TimeInForce.GTC
 
-    def nonce(self, nonce: int) -> "TriggerOrderEnvelope":
+    def nonce(self, nonce: int) -> TriggerOrderEnvelope:
         self._limit.nonce(nonce)
         return self
 
-    def maker(self, maker: Pubkey) -> "TriggerOrderEnvelope":
+    def maker(self, maker: Pubkey) -> TriggerOrderEnvelope:
         self._limit.maker(maker)
         return self
 
-    def market(self, market: Pubkey) -> "TriggerOrderEnvelope":
+    def market(self, market: Pubkey) -> TriggerOrderEnvelope:
         self._limit.market(market)
         return self
 
-    def base_mint(self, mint: Pubkey) -> "TriggerOrderEnvelope":
+    def base_mint(self, mint: Pubkey) -> TriggerOrderEnvelope:
         self._limit.base_mint(mint)
         return self
 
-    def quote_mint(self, mint: Pubkey) -> "TriggerOrderEnvelope":
+    def quote_mint(self, mint: Pubkey) -> TriggerOrderEnvelope:
         self._limit.quote_mint(mint)
         return self
 
-    def bid(self) -> "TriggerOrderEnvelope":
+    def bid(self) -> TriggerOrderEnvelope:
         self._limit.bid()
         return self
 
-    def ask(self) -> "TriggerOrderEnvelope":
+    def ask(self) -> TriggerOrderEnvelope:
         self._limit.ask()
         return self
 
-    def side(self, side: Side) -> "TriggerOrderEnvelope":
+    def side(self, side: Side) -> TriggerOrderEnvelope:
         self._limit.side(side)
         return self
 
-    def amount_in(self, amount: int) -> "TriggerOrderEnvelope":
+    def amount_in(self, amount: int) -> TriggerOrderEnvelope:
         self._limit.amount_in(amount)
         return self
 
-    def amount_out(self, amount: int) -> "TriggerOrderEnvelope":
+    def amount_out(self, amount: int) -> TriggerOrderEnvelope:
         self._limit.amount_out(amount)
         return self
 
-    def expiration(self, expiration: int) -> "TriggerOrderEnvelope":
+    def expiration(self, expiration: int) -> TriggerOrderEnvelope:
         self._limit.expiration(expiration)
         return self
 
-    def price(self, price: str) -> "TriggerOrderEnvelope":
+    def price(self, price: str) -> TriggerOrderEnvelope:
         self._limit.price(price)
         return self
 
-    def size(self, size: str) -> "TriggerOrderEnvelope":
+    def size(self, size: str) -> TriggerOrderEnvelope:
         self._limit.size(size)
         return self
 
-    def deposit_source(self, ds: DepositSource) -> "TriggerOrderEnvelope":
+    def deposit_source(self, ds: DepositSource) -> TriggerOrderEnvelope:
         self._limit.deposit_source(ds)
         return self
 
-    def apply_scaling(self, price: Optional[str] = None, size: Optional[str] = None, decimals: Optional[OrderbookDecimals] = None) -> "TriggerOrderEnvelope":
-        self._limit.apply_scaling(price, size, decimals)
-        return self
-
-    def trigger_price(self, price: float) -> "TriggerOrderEnvelope":
+    def trigger_price(self, price: float) -> TriggerOrderEnvelope:
         self._trigger_price = price
         return self
 
-    def trigger_type(self, tt: TriggerType) -> "TriggerOrderEnvelope":
+    def trigger_type(self, tt: TriggerType) -> TriggerOrderEnvelope:
         self._trigger_type = tt
         return self
 
-    def stop_loss(self, price: float) -> "TriggerOrderEnvelope":
+    def stop_loss(self, price: float) -> TriggerOrderEnvelope:
         """Set trigger type to STOP_LOSS and trigger price."""
         self._trigger_type = TriggerType.STOP_LOSS
         self._trigger_price = price
         return self
 
-    def take_profit(self, price: float) -> "TriggerOrderEnvelope":
+    def take_profit(self, price: float) -> TriggerOrderEnvelope:
         """Set trigger type to TAKE_PROFIT and trigger price."""
         self._trigger_type = TriggerType.TAKE_PROFIT
         self._trigger_price = price
         return self
 
-    def time_in_force(self, tif: TimeInForce) -> "TriggerOrderEnvelope":
+    def time_in_force(self, tif: TimeInForce) -> TriggerOrderEnvelope:
         self._time_in_force = tif
         return self
 
-    def gtc(self) -> "TriggerOrderEnvelope":
+    def gtc(self) -> TriggerOrderEnvelope:
         self._time_in_force = TimeInForce.GTC
         return self
 
-    def ioc(self) -> "TriggerOrderEnvelope":
+    def ioc(self) -> TriggerOrderEnvelope:
         self._time_in_force = TimeInForce.IOC
         return self
 
-    def fok(self) -> "TriggerOrderEnvelope":
+    def fok(self) -> TriggerOrderEnvelope:
         self._time_in_force = TimeInForce.FOK
         return self
 
-    def alo(self) -> "TriggerOrderEnvelope":
+    def alo(self) -> TriggerOrderEnvelope:
         """Set time-in-force to add-liquidity-only."""
         self._time_in_force = TimeInForce.ALO
         return self
@@ -319,39 +382,43 @@ class TriggerOrderEnvelope:
         """Build an unsigned SignedOrder without consuming the envelope."""
         return self._limit.payload()
 
-    def finalize(self, sig_bs58: Optional[str] = None, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
-        """Build the order, optionally applying external signature."""
-        order = self.payload()
-        if sig_bs58 is not None and orderbook_id is not None:
-            assert self._trigger_price is not None, "trigger_price is required"
-            assert self._trigger_type is not None, "trigger_type is required"
-            apply_signature(order, sig_bs58)
-            return to_submit_request(
-                order,
-                orderbook_id,
-                time_in_force=self._time_in_force,
-                trigger_price=self._trigger_price,
-                trigger_type=self._trigger_type,
-                deposit_source=self._limit.fields_deposit_source,
-            )
-        return order
+    def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
+        """Apply external signature and produce a SubmitOrderRequest.
 
-    def sign(self, keypair: Keypair, orderbook_id: Optional[str] = None) -> "SignedOrder | SubmitOrderRequest":
-        """Build and sign the underlying order."""
+        Same auto-scaling behavior as sign().
+        """
+        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
+        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        self._limit._auto_scale(orderbook)
+        order = self.payload()
+        apply_signature(order, sig_bs58)
+        return to_submit_request(
+            order,
+            orderbook.orderbook_id,
+            time_in_force=self._time_in_force,
+            trigger_price=self._trigger_price,
+            trigger_type=self._trigger_type,
+            deposit_source=self._limit.fields_deposit_source,
+        )
+
+    def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
+        """Sign and produce a SubmitOrderRequest.
+
+        Same auto-scaling behavior as LimitOrderEnvelope.sign().
+        """
+        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
+        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        self._limit._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
-        if orderbook_id is not None:
-            assert self._trigger_price is not None, "trigger_price is required"
-            assert self._trigger_type is not None, "trigger_type is required"
-            return to_submit_request(
-                order,
-                orderbook_id,
-                time_in_force=self._time_in_force,
-                trigger_price=self._trigger_price,
-                trigger_type=self._trigger_type,
-                deposit_source=self._limit.fields_deposit_source,
-            )
-        return order
+        return to_submit_request(
+            order,
+            orderbook.orderbook_id,
+            time_in_force=self._time_in_force,
+            trigger_price=self._trigger_price,
+            trigger_type=self._trigger_type,
+            deposit_source=self._limit.fields_deposit_source,
+        )
 
     def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
         """Convert to a SubmitTriggerOrderRequest."""

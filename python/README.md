@@ -35,7 +35,6 @@ from solders.pubkey import Pubkey
 from lightcone_sdk import (
     LightconeClientBuilder,
     LimitOrderEnvelope,
-    OrderbookDecimals,
 )
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.ws.subscriptions import BookUpdateParams
@@ -62,17 +61,7 @@ async def main():
     market = await client.markets().get_by_slug("some-market")
     orderbook = market.orderbook_pairs[0]
 
-    # 3. Get orderbook decimals for price scaling
-    decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
-    decimals = OrderbookDecimals(
-        orderbook_id=orderbook.orderbook_id,
-        base_decimals=decimals_resp.base_decimals,
-        quote_decimals=decimals_resp.quote_decimals,
-        price_decimals=decimals_resp.price_decimals,
-        tick_size=max(orderbook.tick_size, 0),
-    )
-
-    # 4. Build, sign, and submit a limit order
+    # 3. Build, sign, and submit a limit order (scaling is automatic)
     request = (
         LimitOrderEnvelope()
         .maker(keypair.pubkey())
@@ -83,14 +72,13 @@ async def main():
         .price("0.55")
         .size("100")
         .nonce(await client.orders().current_nonce(keypair.pubkey()))
-        .apply_scaling(decimals=decimals)
-        .sign(keypair, orderbook.orderbook_id)
+        .sign(keypair, orderbook)
     )
 
     response = await client.orders().submit(request)
     print("Order submitted:", response)
 
-    # 5. Stream real-time updates
+    # 4. Stream real-time updates
     ws = client.ws()
     await ws.connect()
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
@@ -157,16 +145,8 @@ tx.sign([keypair], await client.rpc().get_latest_blockhash())
 ### Step 3: Place an Order
 
 ```python
-from lightcone_sdk import LimitOrderEnvelope, OrderbookDecimals
+from lightcone_sdk import LimitOrderEnvelope
 
-decimals_resp = await client.orderbooks().decimals(orderbook.orderbook_id)
-decimals = OrderbookDecimals(
-    orderbook_id=orderbook.orderbook_id,
-    base_decimals=decimals_resp.base_decimals,
-    quote_decimals=decimals_resp.quote_decimals,
-    price_decimals=decimals_resp.price_decimals,
-    tick_size=max(orderbook.tick_size, 0),
-)
 request = (
     LimitOrderEnvelope()
     .maker(keypair.pubkey())
@@ -177,8 +157,7 @@ request = (
     .price("0.55")
     .size("1")
     .nonce(await client.orders().current_nonce(keypair.pubkey()))
-    .apply_scaling(decimals=decimals)
-    .sign(keypair, orderbook.orderbook_id)
+    .sign(keypair, orderbook)
 )
 order = await client.orders().submit(request)
 ```
@@ -246,7 +225,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 | Example | Description |
 |---------|-------------|
 | [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search |
-| [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
+| [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and derive decimal precision metadata |
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |

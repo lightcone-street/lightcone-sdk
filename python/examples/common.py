@@ -17,7 +17,6 @@ from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import User
 from lightcone_sdk.domain.market import Market, OrderBookPair
-from lightcone_sdk.shared.scaling import OrderbookDecimals
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
@@ -78,19 +77,6 @@ async def market_and_orderbook(
     if ob is None:
         raise RuntimeError("selected market has no orderbooks")
     return m, ob
-
-
-async def scaling_decimals(
-    client: LightconeClient, orderbook: OrderBookPair
-) -> OrderbookDecimals:
-    decimals = await client.orderbooks().decimals(orderbook.orderbook_id)
-    return OrderbookDecimals(
-        orderbook_id=orderbook.orderbook_id,
-        base_decimals=decimals.base_decimals,
-        quote_decimals=decimals.quote_decimals,
-        price_decimals=decimals.price_decimals,
-        tick_size=max(orderbook.tick_size, 0),
-    )
 
 
 def deposit_mint(m: Market) -> Pubkey:
