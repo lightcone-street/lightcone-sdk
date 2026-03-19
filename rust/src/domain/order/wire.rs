@@ -56,6 +56,14 @@ pub struct GlobalDepositUpdate {
     pub timestamp: DateTime<Utc>,
 }
 
+/// WS nonce update event.
+#[derive(Deserialize, Debug, Clone)]
+pub struct NonceUpdate {
+    pub user_pubkey: PubkeyStr,
+    pub new_nonce: u64,
+    pub timestamp: DateTime<Utc>,
+}
+
 // ─── WS order wire types ────────────────────────────────────────────────────
 
 /// WS order update event (limit orders).
@@ -217,6 +225,8 @@ pub enum UserUpdate {
     BalanceUpdate(UserBalanceUpdate),
     #[serde(rename = "global_deposit_update")]
     GlobalDepositUpdate(GlobalDepositUpdate),
+    #[serde(rename = "nonce")]
+    NonceUpdate(NonceUpdate),
     #[serde(rename = "notification")]
     Notification(NotificationUpdate),
 }

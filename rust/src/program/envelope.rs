@@ -464,6 +464,118 @@ impl TriggerOrderEnvelope {
     }
 }
 
+// ─── Unified submit (dispatches based on client signing strategy) ────────────
+
+#[cfg(feature = "http")]
+impl LimitOrderEnvelope {
+    /// Submit this order using the client's signing strategy.
+    ///
+    /// - **Native**: signs locally with keypair, submits via REST
+    /// - **WalletAdapter**: signs via external signer, submits via REST
+    /// - **Privy**: sends to backend for signing and submission
+    ///
+    /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
+    pub async fn submit(
+        self,
+        client: &crate::client::LightconeClient,
+        orderbook: &OrderBookPair,
+    ) -> Result<crate::domain::order::SubmitOrderResponse, crate::error::SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = client
+            .signing_strategy()
+            .await
+            .ok_or_else(|| crate::error::SdkError::Validation(
+                "signing strategy is not set on the client".into(),
+            ))?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let request = self.sign(&keypair, orderbook)?;
+                client.orders().submit(&request).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let hash = self.payload().hash_hex();
+                let sig_bytes = signer
+                    .sign_message(hash.as_bytes())
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let request = self.finalize(&sig_bs58, orderbook)?;
+                client.orders().submit(&request).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let envelope = crate::privy::PrivyOrderEnvelope::from_limit(&self, orderbook.orderbook_id.as_str());
+                let result = client
+                    .privy()
+                    .sign_and_send_order(&wallet_id, envelope)
+                    .await?;
+                serde_json::from_value(result).map_err(|error| {
+                    crate::error::SdkError::Other(format!(
+                        "failed to parse submit order response: {error}"
+                    ))
+                })
+            }
+        }
+    }
+}
+
+#[cfg(feature = "http")]
+impl TriggerOrderEnvelope {
+    /// Submit this trigger order using the client's signing strategy.
+    ///
+    /// - **Native**: signs locally with keypair, submits via REST
+    /// - **WalletAdapter**: signs via external signer, submits via REST
+    /// - **Privy**: sends to backend for signing and submission
+    ///
+    /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
+    pub async fn submit(
+        self,
+        client: &crate::client::LightconeClient,
+        orderbook: &OrderBookPair,
+    ) -> Result<crate::domain::order::TriggerOrderResponse, crate::error::SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = client
+            .signing_strategy()
+            .await
+            .ok_or_else(|| crate::error::SdkError::Validation(
+                "signing strategy is not set on the client".into(),
+            ))?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let request = self.sign(&keypair, orderbook)?;
+                client.orders().submit_trigger(&request).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let hash = self.payload().hash_hex();
+                let sig_bytes = signer
+                    .sign_message(hash.as_bytes())
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let request = self.finalize(&sig_bs58, orderbook)?;
+                client.orders().submit_trigger(&request).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let envelope = crate::privy::PrivyOrderEnvelope::from_trigger(&self, orderbook.orderbook_id.as_str());
+                let result = client
+                    .privy()
+                    .sign_and_send_order(&wallet_id, envelope)
+                    .await?;
+                serde_json::from_value(result).map_err(|error| {
+                    crate::error::SdkError::Other(format!(
+                        "failed to parse trigger order response: {error}"
+                    ))
+                })
+            }
+        }
+    }
+}
+
 // ─── Public accessor for privy helpers ──────────────────────────────────────
 
 impl LimitOrderEnvelope {

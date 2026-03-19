@@ -4,11 +4,10 @@ use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 
-use super::builder::PrivyOrderKind;
 use super::{
-    CancelTarget, ExportWalletRequest, ExportWalletResponse, PrivyOrderBuilder,
-    PrivyOrderEnvelope, SignAndCancelAllRequest, SignAndCancelOrderRequest,
-    SignAndSendOrderRequest, SignAndSendTxRequest, SignAndSendTxResponse,
+    CancelTarget, ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope,
+    SignAndCancelAllRequest, SignAndCancelOrderRequest, SignAndSendOrderRequest,
+    SignAndSendTxRequest, SignAndSendTxResponse,
 };
 
 /// Sub-client for Privy embedded wallet operations.
@@ -21,29 +20,6 @@ pub struct Privy<'a> {
 }
 
 impl<'a> Privy<'a> {
-    // ── Builder factories ────────────────────────────────────────────────
-
-    /// Create a Privy order builder for limit orders, pre-seeded with the
-    /// client's deposit source.
-    ///
-    /// Chain `.wallet_id()`, `.maker()`, `.market()`, etc., then call `.submit()`.
-    pub async fn limit_order(&self) -> PrivyOrderBuilder<'a> {
-        let deposit_source = self.client.deposit_source().await;
-        PrivyOrderBuilder::new(self.client, deposit_source, PrivyOrderKind::Limit)
-    }
-
-    /// Create a Privy order builder for trigger orders, pre-seeded with the
-    /// client's deposit source.
-    ///
-    /// Chain `.wallet_id()`, `.maker()`, `.market()`, trigger fields, then `.submit()`.
-    /// Requires `.trigger_price()` and `.trigger_type()` (or shorthands like `.take_profit()`).
-    pub async fn trigger_order(&self) -> PrivyOrderBuilder<'a> {
-        let deposit_source = self.client.deposit_source().await;
-        PrivyOrderBuilder::new(self.client, deposit_source, PrivyOrderKind::Trigger)
-    }
-
-    // ── Direct methods ───────────────────────────────────────────────────
-
     /// Sign and send a Solana transaction via the user's Privy embedded wallet.
     pub async fn sign_and_send_tx(
         &self,

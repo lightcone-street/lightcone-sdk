@@ -58,6 +58,33 @@ impl LightconeHttp {
         self.auth_token.clone()
     }
 
+    /// Raw POST to an arbitrary URL (no auth, no retry).
+    /// Used for Solana JSON-RPC calls.
+    pub(crate) async fn raw_post<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+    ) -> Result<T, HttpError> {
+        let resp = self
+            .client
+            .post(url)
+            .header("content-type", "application/json")
+            .json(body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            return Err(HttpError::ServerError {
+                status: status.as_u16(),
+                body: body_text,
+            });
+        }
+
+        resp.json().await.map_err(Into::into)
+    }
+
     pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         url: &str,

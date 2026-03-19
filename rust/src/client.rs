@@ -24,6 +24,7 @@ use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 use crate::program::constants::PROGRAM_ID;
 use crate::rpc::Rpc;
 use crate::shared::DepositSource;
+use crate::shared::signing::{ExternalSigner, SigningStrategy};
 use crate::ws::WsConfig;
 
 #[cfg(feature = "solana-rpc")]
@@ -64,7 +65,13 @@ pub struct LightconeClient {
     /// Default deposit source for orders, deposits, and withdrawals.
     /// Per-call overrides take priority over this setting.
     pub(crate) deposit_source: Arc<RwLock<DepositSource>>,
-    /// Optional Solana RPC client for on-chain reads.
+    /// Signing strategy for orders, cancels, and transactions.
+    /// `None` means signing must be done manually (power-user mode).
+    pub(crate) signing_strategy: Arc<RwLock<Option<SigningStrategy>>>,
+    /// Solana RPC URL for blockhash fetching and transaction submission.
+    /// Used by `sign_and_submit_tx()` and `get_latest_blockhash()`.
+    pub(crate) rpc_url: Option<String>,
+    /// Optional Solana RPC client for on-chain reads (native only).
     #[cfg(feature = "solana-rpc")]
     pub(crate) solana_rpc_client: Option<SolanaRpcClient>,
 }
@@ -178,6 +185,155 @@ impl LightconeClient {
             None => self.deposit_source().await,
         }
     }
+
+    // ── Signing strategy ────────────────────────────────────────────────
+
+    /// Get the current signing strategy, if set.
+    pub async fn signing_strategy(&self) -> Option<SigningStrategy> {
+        self.signing_strategy.read().await.clone()
+    }
+
+    /// Set the signing strategy at runtime.
+    ///
+    /// Common use: set during login when the wallet type is known.
+    pub async fn set_signing_strategy(&self, strategy: SigningStrategy) {
+        *self.signing_strategy.write().await = Some(strategy);
+    }
+
+    /// Clear the signing strategy (e.g. on logout).
+    pub async fn clear_signing_strategy(&self) {
+        *self.signing_strategy.write().await = None;
+    }
+
+    // ── RPC helpers (HTTP-based, works on all platforms) ─────────────────
+
+    /// Get the configured RPC URL, or error if not set.
+    pub(crate) fn require_rpc_url(&self) -> Result<&str, SdkError> {
+        self.rpc_url
+            .as_deref()
+            .ok_or_else(|| SdkError::Validation("rpc_url is not configured on the client".into()))
+    }
+
+    /// Fetch the latest blockhash via JSON-RPC POST.
+    ///
+    /// Works on all platforms (native + WASM). Uses the `rpc_url` configured on the client.
+    pub async fn get_latest_blockhash(&self) -> Result<solana_hash::Hash, SdkError> {
+        let rpc_url = self.require_rpc_url()?;
+        let body = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "getLatestBlockhash",
+            "params": []
+        });
+
+        let response: serde_json::Value = self
+            .http
+            .raw_post(rpc_url, &body)
+            .await
+            .map_err(|error| SdkError::Other(format!("blockhash RPC failed: {error}")))?;
+
+        let blockhash_str = response["result"]["value"]["blockhash"]
+            .as_str()
+            .ok_or_else(|| SdkError::Other("missing blockhash in RPC response".into()))?;
+
+        blockhash_str
+            .parse::<solana_hash::Hash>()
+            .map_err(|error| SdkError::Other(format!("invalid blockhash: {error}")))
+    }
+
+    /// Sign and submit a transaction using the client's signing strategy.
+    ///
+    /// Fetches a recent blockhash automatically. The caller does not need to set it.
+    ///
+    /// - **Native**: signs locally with keypair, submits via RPC `sendTransaction`
+    /// - **WalletAdapter**: signs via external signer, submits via RPC `sendTransaction`
+    /// - **Privy**: serializes unsigned tx to base64, sends to backend for signing + submission
+    pub async fn sign_and_submit_tx(
+        &self,
+        mut tx: solana_transaction::Transaction,
+    ) -> Result<String, SdkError> {
+        let strategy = self
+            .signing_strategy()
+            .await
+            .ok_or_else(|| SdkError::Validation("signing strategy is not set on the client".into()))?;
+
+        let blockhash = self.get_latest_blockhash().await?;
+        tx.message.recent_blockhash = blockhash;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                use solana_signer::Signer;
+                tx.try_sign(&[keypair.as_ref()], blockhash)
+                    .map_err(|error| SdkError::Signing(error.to_string()))?;
+                self.send_transaction_rpc(&tx).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let tx_bytes = bincode::serialize(&tx)
+                    .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
+                let signed_bytes = signer
+                    .sign_transaction(&tx_bytes)
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                // The signer returns fully signed tx bytes — send via base64
+                let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&signed_bytes);
+                self.send_raw_transaction_rpc(&base64_tx).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let tx_bytes = bincode::serialize(&tx)
+                    .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
+                let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&tx_bytes);
+                let result = self
+                    .privy()
+                    .sign_and_send_tx(&wallet_id, &base64_tx)
+                    .await?;
+                Ok(result.hash)
+            }
+        }
+    }
+
+    /// Submit a signed transaction via JSON-RPC `sendTransaction`.
+    async fn send_transaction_rpc(
+        &self,
+        tx: &solana_transaction::Transaction,
+    ) -> Result<String, SdkError> {
+        let tx_bytes = bincode::serialize(tx)
+            .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
+        let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&tx_bytes);
+        self.send_raw_transaction_rpc(&base64_tx).await
+    }
+
+    /// Submit a base64-encoded signed transaction via JSON-RPC `sendTransaction`.
+    async fn send_raw_transaction_rpc(&self, base64_tx: &str) -> Result<String, SdkError> {
+        let rpc_url = self.require_rpc_url()?;
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                base64_tx,
+                {
+                    "encoding": "base64",
+                    "preflightCommitment": "confirmed"
+                }
+            ]
+        });
+
+        let response: serde_json::Value = self
+            .http
+            .raw_post(rpc_url, &body)
+            .await
+            .map_err(|error| SdkError::Other(format!("sendTransaction RPC failed: {error}")))?;
+
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+
+        response["result"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| SdkError::Other("no signature in sendTransaction response".into()))
+    }
 }
 
 impl Clone for LightconeClient {
@@ -188,6 +344,8 @@ impl Clone for LightconeClient {
             auth_credentials: self.auth_credentials.clone(),
             program_id: self.program_id,
             deposit_source: self.deposit_source.clone(),
+            signing_strategy: self.signing_strategy.clone(),
+            rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
                 // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
@@ -211,7 +369,7 @@ pub struct LightconeClientBuilder {
     auth_credentials: Option<AuthCredentials>,
     program_id: Pubkey,
     deposit_source: DepositSource,
-    #[cfg(feature = "solana-rpc")]
+    signing_strategy: Option<SigningStrategy>,
     rpc_url: Option<String>,
 }
 
@@ -223,7 +381,7 @@ impl Default for LightconeClientBuilder {
             auth_credentials: None,
             program_id: *PROGRAM_ID,
             deposit_source: DepositSource::Global,
-            #[cfg(feature = "solana-rpc")]
+            signing_strategy: None,
             rpc_url: None,
         }
     }
@@ -259,8 +417,33 @@ impl LightconeClientBuilder {
         self
     }
 
-    /// Set the Solana RPC URL for on-chain reads and transaction building.
-    #[cfg(feature = "solana-rpc")]
+    /// Set a native keypair for signing orders, cancels, and transactions.
+    /// Intended for CLI tools, bots, and market makers.
+    #[cfg(feature = "native-auth")]
+    pub fn native_signer(mut self, keypair: solana_keypair::Keypair) -> Self {
+        self.signing_strategy = Some(SigningStrategy::Native(Arc::new(keypair)));
+        self
+    }
+
+    /// Set an external signer for signing orders, cancels, and transactions.
+    /// Intended for browser wallet adapters. Implement the `ExternalSigner` trait
+    /// to bridge your wallet adapter to the SDK.
+    pub fn external_signer(mut self, signer: Arc<dyn ExternalSigner>) -> Self {
+        self.signing_strategy = Some(SigningStrategy::WalletAdapter(signer));
+        self
+    }
+
+    /// Set a Privy embedded wallet ID for signing orders, cancels, and transactions.
+    /// The backend signs on behalf of the user using the Privy wallet.
+    pub fn privy_wallet_id(mut self, wallet_id: impl Into<String>) -> Self {
+        self.signing_strategy = Some(SigningStrategy::Privy {
+            wallet_id: wallet_id.into(),
+        });
+        self
+    }
+
+    /// Set the Solana RPC URL for blockhash fetching, transaction submission,
+    /// and on-chain reads (when `solana-rpc` feature is enabled).
     pub fn rpc_url(mut self, url: &str) -> Self {
         self.rpc_url = Some(url.to_string());
         self
@@ -276,6 +459,8 @@ impl LightconeClientBuilder {
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
             program_id: self.program_id,
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
+            signing_strategy: Arc::new(RwLock::new(self.signing_strategy)),
+            rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.rpc_url.map(|url| {
                 SolanaRpcClient::new_with_commitment(url, CommitmentConfig::confirmed())
