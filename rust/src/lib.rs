@@ -115,8 +115,9 @@ pub mod prelude {
         ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
         SignAndSendTxRequest, SignAndSendTxResponse,
     };
-    #[cfg(feature = "http")]
-    pub use crate::privy::PrivyOrderBuilder;
+
+    // Signing strategy
+    pub use crate::shared::signing::{ExternalSigner, SigningStrategy};
 
     // Domain types — referral
     pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};

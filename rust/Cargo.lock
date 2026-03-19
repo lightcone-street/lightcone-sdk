@@ -1714,6 +1714,7 @@ version = "0.3.21"
 dependencies = [
  "async-lock",
  "async-stream",
+ "base64 0.22.1",
  "bincode",
  "bs58",
  "chrono",

@@ -15,12 +15,7 @@
 //! is fully supported.
 
 #[cfg(feature = "http")]
-pub mod builder;
-#[cfg(feature = "http")]
 pub mod client;
-
-#[cfg(feature = "http")]
-pub use builder::PrivyOrderBuilder;
 
 use serde::{Deserialize, Serialize};
 
