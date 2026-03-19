@@ -52,6 +52,7 @@ use solana_keypair::Keypair;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = LightconeClient::builder()
         .rpc_url("https://api.devnet.solana.com")
+        .deposit_source(DepositSource::Market)
         .build()?;
     let keypair = Keypair::new();
 
@@ -75,7 +76,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 4. Build, sign, and submit a limit order
     let nonce = client.rpc().get_user_nonce(&keypair.pubkey()).await?;
-    let request = LimitOrderEnvelope::new()
+    let request = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey()?)
         .base_mint(orderbook.base.pubkey().to_pubkey()?)
@@ -110,6 +111,7 @@ use solana_signer::Signer;
 
 let client = LightconeClient::builder()
     .rpc_url("https://api.devnet.solana.com")
+    .deposit_source(DepositSource::Market)
     .build()?;
 let keypair = read_keypair_file("~/.config/solana/id.json")?;
 ```
@@ -129,19 +131,14 @@ let orderbook = market
 ### Step 2: Deposit Collateral
 
 ```rust
-let market_pubkey = market.pubkey.to_pubkey()?;
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
-let num_outcomes = u8::try_from(market.outcomes.len())?;
-let mut tx = client.markets().mint_complete_set_tx(
-    MintCompleteSetParams {
-        user: keypair.pubkey(),
-        market: market_pubkey,
-        deposit_mint,
-        amount: 1_000_000,
-    },
-    num_outcomes,
-)?;
-tx.try_sign(&[&keypair], client.rpc().get_latest_blockhash().await?)?;
+let deposit_ix = client.positions().deposit().await
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .market(&market)
+    .build_ix()
+    .await?;
 ```
 
 ### Step 3: Place an Order
@@ -155,7 +152,7 @@ let scales = OrderbookDecimals {
     price_decimals: decimals.price_decimals,
     tick_size: orderbook.tick_size.max(0) as u64,
 };
-let request = LimitOrderEnvelope::new()
+let request = client.orders().limit_order().await
     .maker(keypair.pubkey())
     .market(market.pubkey.to_pubkey()?)
     .base_mint(orderbook.base.pubkey().to_pubkey()?)
@@ -234,7 +231,7 @@ All examples are runnable with `cargo run --example <name> --features native`. S
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.rs) | Limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking |
 
 ### Cancelling Orders
 

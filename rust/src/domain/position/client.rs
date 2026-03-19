@@ -5,11 +5,13 @@ use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
+use crate::domain::position::builders::{DepositBuilder, WithdrawBuilder};
 use crate::program::types::{
-    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
+    DepositParams, DepositToGlobalParams, ExtendPositionTokensParams,
+    GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
+    WithdrawFromGlobalParams, WithdrawFromPositionParams, WithdrawParams,
 };
+use crate::shared::DepositSource;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
@@ -191,6 +193,135 @@ impl<'a> Positions<'a> {
     ) -> Result<Transaction, SdkError> {
         let ix = self.withdraw_from_global_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    // ── Unified deposit/withdraw (dispatch by deposit source) ───────────
+
+    /// Build a deposit instruction using the resolved deposit source.
+    ///
+    /// Priority: `params.deposit_source` > client-level setting > `Global`.
+    ///
+    /// When the resolved source is `Market`, `params.market` must be `Some`.
+    ///
+    /// Prefer the builder API via `client.positions().deposit().await` for new code.
+    pub async fn deposit_ix(&self, params: &DepositParams<'_>) -> Result<Instruction, SdkError> {
+        let source = self
+            .client
+            .resolve_deposit_source(params.deposit_source)
+            .await;
+        match source {
+            DepositSource::Global => {
+                Ok(self.deposit_to_global_ix(&DepositToGlobalParams {
+                    user: params.user,
+                    mint: params.mint,
+                    amount: params.amount,
+                }))
+            }
+            DepositSource::Market => {
+                let market = params
+                    .market
+                    .ok_or(SdkError::MissingMarketContext("market is required for Market deposit"))?;
+                let market_pubkey = market
+                    .pubkey
+                    .to_pubkey()
+                    .map_err(|error| SdkError::Validation(error))?;
+                let num_outcomes = market.outcomes.len() as u8;
+                Ok(self.global_to_market_deposit_ix(
+                    &GlobalToMarketDepositParams {
+                        user: params.user,
+                        market: market_pubkey,
+                        deposit_mint: params.mint,
+                        amount: params.amount,
+                    },
+                    num_outcomes,
+                ))
+            }
+        }
+    }
+
+    /// Build a deposit transaction using the resolved deposit source.
+    pub async fn deposit_tx(
+        &self,
+        params: &DepositParams<'_>,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.deposit_ix(params).await?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build a withdraw instruction using the resolved deposit source.
+    ///
+    /// Priority: `params.deposit_source` > client-level setting > `Global`.
+    ///
+    /// When the resolved source is `Market`, `params.market_context` must be `Some`.
+    ///
+    /// Prefer the builder API via `client.positions().withdraw().await` for new code.
+    pub async fn withdraw_ix(
+        &self,
+        params: &WithdrawParams<'_>,
+    ) -> Result<Instruction, SdkError> {
+        let source = self
+            .client
+            .resolve_deposit_source(params.deposit_source)
+            .await;
+        match source {
+            DepositSource::Global => {
+                Ok(self.withdraw_from_global_ix(&WithdrawFromGlobalParams {
+                    user: params.user,
+                    mint: params.mint,
+                    amount: params.amount,
+                }))
+            }
+            DepositSource::Market => {
+                let context = params
+                    .market_context
+                    .as_ref()
+                    .ok_or(SdkError::MissingMarketContext(
+                        "market_context is required for Market withdrawal",
+                    ))?;
+                let market_pubkey = context
+                    .market
+                    .pubkey
+                    .to_pubkey()
+                    .map_err(|error| SdkError::Validation(error))?;
+                Ok(self.withdraw_from_position_ix(
+                    &WithdrawFromPositionParams {
+                        user: params.user,
+                        market: market_pubkey,
+                        mint: params.mint,
+                        amount: params.amount,
+                        outcome_index: context.outcome_index,
+                    },
+                    context.is_token_2022,
+                ))
+            }
+        }
+    }
+
+    /// Build a withdraw transaction using the resolved deposit source.
+    pub async fn withdraw_tx(
+        &self,
+        params: &WithdrawParams<'_>,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.withdraw_ix(params).await?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    // ── Builder factories ──────────────────────────────────────────────
+
+    /// Create a deposit builder pre-seeded with the client's deposit source.
+    ///
+    /// Use `.build_ix()` or `.build_tx()` to produce the final instruction/transaction.
+    pub async fn deposit(&self) -> DepositBuilder<'a> {
+        let deposit_source = self.client.deposit_source().await;
+        DepositBuilder::new(self.client, deposit_source)
+    }
+
+    /// Create a withdraw builder pre-seeded with the client's deposit source.
+    ///
+    /// Use `.build_ix()` or `.build_tx()` to produce the final instruction/transaction.
+    pub async fn withdraw(&self) -> WithdrawBuilder<'a> {
+        let deposit_source = self.client.deposit_source().await;
+        WithdrawBuilder::new(self.client, deposit_source)
     }
 }
 

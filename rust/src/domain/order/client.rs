@@ -4,6 +4,7 @@ use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
@@ -340,6 +341,26 @@ impl<'a> Orders<'a> {
     /// Get the User Nonce PDA.
     pub fn nonce_pda(&self, user: &Pubkey) -> Pubkey {
         crate::program::pda::get_user_nonce_pda(user, &self.client.program_id).0
+    }
+
+    // ── Envelope factories ────────────────────────────────────────────────
+
+    /// Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source.
+    ///
+    /// Users can still override the deposit source on the returned envelope
+    /// by calling `.deposit_source()` before signing.
+    pub async fn limit_order(&self) -> LimitOrderEnvelope {
+        let deposit_source = self.client.deposit_source().await;
+        LimitOrderEnvelope::new().deposit_source(deposit_source)
+    }
+
+    /// Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source.
+    ///
+    /// Users can still override the deposit source on the returned envelope
+    /// by calling `.deposit_source()` before signing.
+    pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
+        let deposit_source = self.client.deposit_source().await;
+        TriggerOrderEnvelope::new().deposit_source(deposit_source)
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────

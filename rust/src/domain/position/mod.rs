@@ -1,7 +1,10 @@
 #![doc = include_str!("README.md")]
 
+pub mod builders;
 pub mod client;
 pub mod wire;
+
+pub use builders::{DepositBuilder, WithdrawBuilder};
 
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};

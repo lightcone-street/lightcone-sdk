@@ -104,9 +104,12 @@ impl OrderFields {
 /// Shared fluent API for building orders.
 ///
 /// Implemented by both `LimitOrderEnvelope` and `TriggerOrderEnvelope`.
+///
+/// Prefer `client.orders().limit_order().await` or `client.orders().trigger_order().await`
+/// which pre-seed the client's deposit source. Direct construction via `::new()` is
+/// also available for standalone use.
 pub trait OrderEnvelope: Sized {
     fn new() -> Self;
-
     fn nonce(self, nonce: u64) -> Self;
     fn salt(self, salt: u64) -> Self;
     fn maker(self, maker: Pubkey) -> Self;
@@ -242,10 +245,13 @@ macro_rules! impl_base_methods {
 
 /// Envelope for building and submitting limit orders.
 ///
-/// # Example (human-readable price/size — auto-scaled)
+/// Prefer `client.orders().limit_order().await` which pre-seeds the client's
+/// deposit source. `LimitOrderEnvelope::new()` is also available for standalone use.
+///
+/// # Example (via client builder — recommended)
 ///
 /// ```rust,ignore
-/// let request = LimitOrderEnvelope::new()
+/// let request = client.orders().limit_order().await
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
 ///     .base_mint(yes_token)
@@ -257,7 +263,7 @@ macro_rules! impl_base_methods {
 ///     .sign(&keypair, &orderbook)?;
 /// ```
 ///
-/// # Example (pre-computed raw amounts — no scaling)
+/// # Example (standalone)
 ///
 /// ```rust,ignore
 /// let request = LimitOrderEnvelope::new()
@@ -324,13 +330,16 @@ impl LimitOrderEnvelope {
 
 /// Envelope for building and submitting trigger (take-profit / stop-loss) orders.
 ///
+/// Prefer `client.orders().trigger_order().await` which pre-seeds the client's
+/// deposit source. `TriggerOrderEnvelope::new()` is also available for standalone use.
+///
 /// Adds trigger-specific fields on top of the shared order fields.
 /// `trigger_price` and `trigger_type` are required before calling `sign()` or `finalize()`.
 ///
-/// # Example
+/// # Example (via client builder — recommended)
 ///
 /// ```rust,ignore
-/// let request = TriggerOrderEnvelope::new()
+/// let request = client.orders().trigger_order().await
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
 ///     .base_mint(yes_token)
@@ -341,6 +350,15 @@ impl LimitOrderEnvelope {
 ///     .size("100")
 ///     .take_profit(0.75)
 ///     .gtc()
+///     .sign(&keypair, &orderbook)?;
+/// ```
+///
+/// # Example (standalone)
+///
+/// ```rust,ignore
+/// let request = TriggerOrderEnvelope::new()
+///     .maker(maker_pubkey)
+///     // ... same chain as above
 ///     .sign(&keypair, &orderbook)?;
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -449,34 +467,34 @@ impl TriggerOrderEnvelope {
 // ─── Public accessor for privy helpers ──────────────────────────────────────
 
 impl LimitOrderEnvelope {
-    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
-    pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
-    pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
-    pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
-    pub fn fields_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
-    pub fn fields_side(&self) -> Option<OrderSide> { self.fields.side }
-    pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
-    pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
-    pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
-    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
+    pub fn get_salt(&self) -> Option<u64> { self.fields.salt }
+    pub fn get_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
+    pub fn get_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
+    pub fn get_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
+    pub fn get_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
+    pub fn get_side(&self) -> Option<OrderSide> { self.fields.side }
+    pub fn get_amount_in(&self) -> Option<u64> { self.fields.amount_in }
+    pub fn get_amount_out(&self) -> Option<u64> { self.fields.amount_out }
+    pub fn get_expiration(&self) -> i64 { self.fields.expiration }
+    pub fn get_nonce(&self) -> Option<u64> { self.fields.nonce }
+    pub fn get_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
 }
 
 impl TriggerOrderEnvelope {
-    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
-    pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
-    pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
-    pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
-    pub fn fields_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
-    pub fn fields_side(&self) -> Option<OrderSide> { self.fields.side }
-    pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
-    pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
-    pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
-    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
-    pub fn fields_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
-    pub fn fields_trigger_price(&self) -> Option<f64> { self.trigger_price }
-    pub fn fields_trigger_type(&self) -> Option<TriggerType> { self.trigger_type }
+    pub fn get_salt(&self) -> Option<u64> { self.fields.salt }
+    pub fn get_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
+    pub fn get_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
+    pub fn get_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
+    pub fn get_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
+    pub fn get_side(&self) -> Option<OrderSide> { self.fields.side }
+    pub fn get_amount_in(&self) -> Option<u64> { self.fields.amount_in }
+    pub fn get_amount_out(&self) -> Option<u64> { self.fields.amount_out }
+    pub fn get_expiration(&self) -> i64 { self.fields.expiration }
+    pub fn get_nonce(&self) -> Option<u64> { self.fields.nonce }
+    pub fn get_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
+    pub fn get_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
+    pub fn get_trigger_price(&self) -> Option<f64> { self.trigger_price }
+    pub fn get_trigger_type(&self) -> Option<TriggerType> { self.trigger_type }
 }
 
 #[cfg(test)]
@@ -763,6 +781,6 @@ mod tests {
     fn test_limit_envelope_deposit_source_accessor() {
         let env = LimitOrderEnvelope::new()
             .deposit_source(DepositSource::Market);
-        assert_eq!(env.fields_deposit_source(), Some(DepositSource::Market));
+        assert_eq!(env.get_deposit_source(), Some(DepositSource::Market));
     }
 }
