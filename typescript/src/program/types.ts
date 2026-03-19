@@ -126,11 +126,12 @@ export interface GlobalDepositToken {
 // ============================================================================
 
 /**
- * Signed order format (225 bytes)
+ * Signed order format (233 bytes)
  * Full order with all fields for submission, cancellation, and hashing
  */
 export interface SignedOrder {
   nonce: number; // u32 - order ID + replay protection (serialized as u64 LE on wire)
+  salt: bigint; // u64 - random salt for order uniqueness
   maker: PublicKey; // 32 bytes - signer
   market: PublicKey; // 32 bytes
   baseMint: PublicKey; // 32 bytes - token being bought/sold
@@ -148,11 +149,12 @@ export interface SignedOrder {
 export type OrderPayload = SignedOrder;
 
 /**
- * Compact order format (29 bytes)
+ * Compact order format (37 bytes)
  * Transaction-optimized version: nonce is u32, no maker field (derived on-chain from Position PDA)
  */
 export interface Order {
   nonce: number; // u32 (4 bytes) - truncated from SignedOrder's u64 nonce
+  salt: bigint; // u64 - random salt for order uniqueness
   side: OrderSide; // u8
   amountIn: bigint; // u64
   amountOut: bigint; // u64
@@ -395,6 +397,15 @@ export interface DepositAndSwapParams {
   makers: MakerFill[];
 }
 
+/**
+ * Parameters for withdrawFromGlobal instruction
+ */
+export interface WithdrawFromGlobalParams {
+  user: PublicKey;
+  mint: PublicKey;
+  amount: bigint;
+}
+
 // ============================================================================
 // BUILDER RESULT TYPES
 // ============================================================================
@@ -512,6 +523,7 @@ export interface MatchOrdersMultiAccounts {
  */
 export interface BidOrderParams {
   nonce: number;
+  salt?: bigint;
   maker: PublicKey;
   market: PublicKey;
   baseMint: PublicKey; // Token to buy
@@ -526,6 +538,7 @@ export interface BidOrderParams {
  */
 export interface AskOrderParams {
   nonce: number;
+  salt?: bigint;
   maker: PublicKey;
   market: PublicKey;
   baseMint: PublicKey; // Token to sell

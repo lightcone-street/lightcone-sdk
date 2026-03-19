@@ -1,6 +1,6 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
 import { SignedOrder, OrderSide } from "./types";
-import { signOrderFull, toSubmitRequest as orderToSubmitRequest } from "./orders";
+import { generateSalt, signOrderFull, toSubmitRequest as orderToSubmitRequest } from "./orders";
 import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
 import type { DepositSource, SubmitOrderRequest } from "../shared";
 
@@ -25,6 +25,7 @@ import type { DepositSource, SubmitOrderRequest } from "../shared";
  */
 export class OrderBuilder {
   private _nonce: number = 0;
+  private _salt: bigint | null = null;
   private _maker: PublicKey | null = null;
   private _market: PublicKey | null = null;
   private _baseMint: PublicKey | null = null;
@@ -38,6 +39,12 @@ export class OrderBuilder {
   /** Set the order nonce (u32) */
   nonce(value: number): this {
     this._nonce = value;
+    return this;
+  }
+
+  /** Set the order salt (u64) for uniqueness. Auto-generated if not set. */
+  salt(value: bigint): this {
+    this._salt = value;
     return this;
   }
 
@@ -160,6 +167,7 @@ export class OrderBuilder {
 
     return {
       nonce: this._nonce,
+      salt: this._salt ?? generateSalt(),
       maker: this._maker,
       market: this._market,
       baseMint: this._baseMint,
@@ -180,6 +188,7 @@ export class OrderBuilder {
     return signOrderFull(
       {
         nonce: unsigned.nonce,
+        salt: unsigned.salt,
         maker: unsigned.maker,
         market: unsigned.market,
         baseMint: unsigned.baseMint,

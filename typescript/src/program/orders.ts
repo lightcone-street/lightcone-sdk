@@ -34,6 +34,15 @@ function bigintToSafeNumber(value: bigint, field: string): number {
   return Number(value);
 }
 
+/**
+ * Generate a random salt (u64) for order uniqueness.
+ */
+export function generateSalt(): bigint {
+  const buf = new Uint8Array(8);
+  globalThis.crypto.getRandomValues(buf);
+  return fromLeBytes(Buffer.from(buf));
+}
+
 
 // ============================================================================
 // ORDER HASHING
@@ -41,8 +50,8 @@ function bigintToSafeNumber(value: bigint, field: string): number {
 
 /**
  * Hash an order using keccak256
- * Layout (161 bytes - order without signature):
- * nonce (8) || maker (32) || market (32) || baseMint (32) || quoteMint (32) ||
+ * Layout (169 bytes - order without signature):
+ * nonce (8) || salt (8) || maker (32) || market (32) || baseMint (32) || quoteMint (32) ||
  * side (1) || amountIn (8) || amountOut (8) || expiration (8)
  *
  * @returns 32-byte keccak256 hash
@@ -50,6 +59,7 @@ function bigintToSafeNumber(value: bigint, field: string): number {
 export function hashOrder(order: SignedOrder): Buffer {
   const data = Buffer.concat([
     toU64Le(BigInt(order.nonce)),
+    toU64Le(order.salt),
     order.maker.toBuffer(),
     order.market.toBuffer(),
     order.baseMint.toBuffer(),
@@ -132,25 +142,29 @@ export function verifyOrderSignature(order: SignedOrder): boolean {
 // ============================================================================
 
 /**
- * Serialize a signed order to bytes (225 bytes)
+ * Serialize a signed order to bytes (233 bytes)
  *
  * Layout:
  * [0..8]     nonce (u64)
- * [8..40]    maker (Pubkey)
- * [40..72]   market (Pubkey)
- * [72..104]  baseMint (Pubkey)
- * [104..136] quoteMint (Pubkey)
- * [136]      side (u8)
- * [137..145] amountIn (u64)
- * [145..153] amountOut (u64)
- * [153..161] expiration (i64)
- * [161..225] signature (64 bytes)
+ * [8..16]    salt (u64)
+ * [16..48]   maker (Pubkey)
+ * [48..80]   market (Pubkey)
+ * [80..112]  baseMint (Pubkey)
+ * [112..144] quoteMint (Pubkey)
+ * [144]      side (u8)
+ * [145..153] amountIn (u64)
+ * [153..161] amountOut (u64)
+ * [161..169] expiration (i64)
+ * [169..233] signature (64 bytes)
  */
 export function serializeSignedOrder(order: SignedOrder): Buffer {
   const buffer = Buffer.alloc(ORDER_SIZE.SIGNED_ORDER);
   let offset = 0;
 
   toU64Le(BigInt(order.nonce)).copy(buffer, offset);
+  offset += 8;
+
+  toU64Le(order.salt).copy(buffer, offset);
   offset += 8;
 
   order.maker.toBuffer().copy(buffer, offset);
@@ -201,6 +215,9 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
   const nonce = Number(nonceU64);
   offset += 8;
 
+  const salt = fromLeBytes(data.subarray(offset, offset + 8));
+  offset += 8;
+
   const maker = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
@@ -229,6 +246,7 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
 
   return {
     nonce,
+    salt,
     maker,
     market,
     baseMint,
@@ -246,14 +264,15 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
 // ============================================================================
 
 /**
- * Serialize a compact order to bytes (29 bytes)
+ * Serialize a compact order to bytes (37 bytes)
  *
  * Layout:
  * [0..4]    nonce (u32)
- * [4]       side (u8)
- * [5..13]   amountIn (u64)
- * [13..21]  amountOut (u64)
- * [21..29]  expiration (i64)
+ * [4..12]   salt (u64)
+ * [12]      side (u8)
+ * [13..21]  amountIn (u64)
+ * [21..29]  amountOut (u64)
+ * [29..37]  expiration (i64)
  */
 export function serializeOrder(order: Order): Buffer {
   const buffer = Buffer.alloc(ORDER_SIZE.ORDER);
@@ -261,6 +280,9 @@ export function serializeOrder(order: Order): Buffer {
 
   toU32Le(order.nonce).copy(buffer, offset);
   offset += 4;
+
+  toU64Le(order.salt).copy(buffer, offset);
+  offset += 8;
 
   buffer[offset] = order.side;
   offset += 1;
@@ -291,6 +313,9 @@ export function deserializeOrder(data: Buffer): Order {
   const nonce = data.readUInt32LE(offset);
   offset += 4;
 
+  const salt = fromLeBytes(data.subarray(offset, offset + 8));
+  offset += 8;
+
   const side = data[offset] as OrderSide;
   offset += 1;
 
@@ -304,6 +329,7 @@ export function deserializeOrder(data: Buffer): Order {
 
   return {
     nonce,
+    salt,
     side,
     amountIn,
     amountOut,
@@ -317,6 +343,7 @@ export function deserializeOrder(data: Buffer): Order {
 export function signedOrderToOrder(order: SignedOrder): Order {
   return {
     nonce: order.nonce,
+    salt: order.salt,
     side: order.side,
     amountIn: order.amountIn,
     amountOut: order.amountOut,
@@ -338,6 +365,7 @@ export function orderToSigned(
 ): SignedOrder {
   return {
     nonce: order.nonce,
+    salt: order.salt,
     maker,
     market,
     baseMint,
@@ -362,6 +390,7 @@ export function createBidOrder(
 ): Omit<SignedOrder, "signature"> {
   return {
     nonce: params.nonce,
+    salt: params.salt ?? generateSalt(),
     maker: params.maker,
     market: params.market,
     baseMint: params.baseMint,
@@ -381,6 +410,7 @@ export function createAskOrder(
 ): Omit<SignedOrder, "signature"> {
   return {
     nonce: params.nonce,
+    salt: params.salt ?? generateSalt(),
     maker: params.maker,
     market: params.market,
     baseMint: params.baseMint,
@@ -617,6 +647,7 @@ export function toSubmitRequest(
   return {
     maker: order.maker.toBase58(),
     nonce: order.nonce,
+    salt: bigintToSafeNumber(order.salt, "salt"),
     market_pubkey: order.market.toBase58(),
     base_token: order.baseMint.toBase58(),
     quote_token: order.quoteMint.toBase58(),

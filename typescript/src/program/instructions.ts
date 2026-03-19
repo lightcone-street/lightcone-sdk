@@ -1,5 +1,6 @@
 import {
   PublicKey,
+  Transaction,
   TransactionInstruction,
   AccountMeta,
 } from "@solana/web3.js";
@@ -32,6 +33,7 @@ import {
   InitPositionTokensParams,
   ExtendPositionTokensParams,
   DepositAndSwapParams,
+  WithdrawFromGlobalParams,
   SignedOrder,
   OutcomeMetadata,
   OrderSide,
@@ -1381,4 +1383,249 @@ export function buildDepositAndSwapIx(
     programId,
     data: Buffer.concat(buffers),
   });
+}
+
+/**
+ * Build WithdrawFromGlobal instruction
+ *
+ * Accounts:
+ * 0. user (signer, mut)
+ * 1. global_deposit_token (readonly) - PDA ["global_deposit", mint]
+ * 2. mint (readonly)
+ * 3. user_global_deposit (mut) - PDA ["global_deposit", user, mint]
+ * 4. user_token_account (mut) - user's ATA for mint
+ * 5. token_program (readonly)
+ *
+ * Data: [discriminator, amount (u64)]
+ */
+export function buildWithdrawFromGlobalIx(
+  params: WithdrawFromGlobalParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.mint, programId);
+  const [userGlobalDeposit] = getUserGlobalDepositPda(params.user, params.mint, programId);
+  const userTokenAccount = getDepositTokenAta(params.mint, params.user);
+
+  const keys: AccountMeta[] = [
+    signerMut(params.user),
+    readonly(globalDepositToken),
+    readonly(params.mint),
+    writable(userGlobalDeposit),
+    writable(userTokenAccount),
+    readonly(TOKEN_PROGRAM_ID),
+  ];
+
+  const data = Buffer.concat([
+    Buffer.from([INSTRUCTION.WITHDRAW_FROM_GLOBAL]),
+    toU64Le(params.amount),
+  ]);
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data,
+  });
+}
+
+// ============================================================================
+// TRANSACTION BUILDERS (_tx convenience wrappers)
+// Each wraps the corresponding _ix builder into a Transaction with feePayer set.
+// ============================================================================
+
+export function buildInitializeTx(
+  params: InitializeParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildInitializeIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildCreateMarketTx(
+  params: CreateMarketParams,
+  marketId: bigint,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildCreateMarketIx(params, marketId, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildAddDepositMintTx(
+  params: AddDepositMintParams,
+  market: PublicKey,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildAddDepositMintIx(params, market, numOutcomes, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildMintCompleteSetTx(
+  params: MintCompleteSetParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildMintCompleteSetIx(params, numOutcomes, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildMergeCompleteSetTx(
+  params: MergeCompleteSetParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildMergeCompleteSetIx(params, numOutcomes, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildCancelOrderTx(
+  maker: PublicKey,
+  market: PublicKey,
+  order: SignedOrder,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildCancelOrderIx(maker, market, order, programId);
+  return new Transaction({ feePayer: maker }).add(ix);
+}
+
+export function buildIncrementNonceTx(
+  user: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildIncrementNonceIx(user, programId);
+  return new Transaction({ feePayer: user }).add(ix);
+}
+
+export function buildSettleMarketTx(
+  params: SettleMarketParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSettleMarketIx(params, programId);
+  return new Transaction({ feePayer: params.oracle }).add(ix);
+}
+
+export function buildRedeemWinningsTx(
+  params: RedeemWinningsParams,
+  winningOutcome: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildRedeemWinningsIx(params, winningOutcome, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildSetPausedTx(
+  authority: PublicKey,
+  paused: boolean,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetPausedIx(authority, paused, programId);
+  return new Transaction({ feePayer: authority }).add(ix);
+}
+
+export function buildSetOperatorTx(
+  authority: PublicKey,
+  newOperator: PublicKey,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetOperatorIx(authority, newOperator, programId);
+  return new Transaction({ feePayer: authority }).add(ix);
+}
+
+export function buildWithdrawFromPositionTx(
+  params: WithdrawFromPositionParams,
+  isToken2022: boolean,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildWithdrawFromPositionIx(params, isToken2022, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildActivateMarketTx(
+  params: ActivateMarketParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildActivateMarketIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildMatchOrdersMultiTx(
+  params: MatchOrdersMultiParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildMatchOrdersMultiIx(params, programId);
+  return new Transaction({ feePayer: params.operator }).add(ix);
+}
+
+export function buildSetAuthorityTx(
+  params: SetAuthorityParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetAuthorityIx(params, programId);
+  return new Transaction({ feePayer: params.currentAuthority }).add(ix);
+}
+
+export function buildCreateOrderbookTx(
+  params: CreateOrderbookParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildCreateOrderbookIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildWhitelistDepositTokenTx(
+  params: WhitelistDepositTokenParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildWhitelistDepositTokenIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildDepositToGlobalTx(
+  params: DepositToGlobalParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildDepositToGlobalIx(params, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildGlobalToMarketDepositTx(
+  params: GlobalToMarketDepositParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildGlobalToMarketDepositIx(params, numOutcomes, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
+export function buildInitPositionTokensTx(
+  params: InitPositionTokensParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildInitPositionTokensIx(params, numOutcomes, programId);
+  return new Transaction({ feePayer: params.payer }).add(ix);
+}
+
+export function buildExtendPositionTokensTx(
+  params: ExtendPositionTokensParams,
+  numOutcomes: number,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildExtendPositionTokensIx(params, numOutcomes, programId);
+  return new Transaction({ feePayer: params.payer }).add(ix);
+}
+
+export function buildDepositAndSwapTx(
+  params: DepositAndSwapParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildDepositAndSwapIx(params, programId);
+  return new Transaction({ feePayer: params.operator }).add(ix);
+}
+
+export function buildWithdrawFromGlobalTx(
+  params: WithdrawFromGlobalParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildWithdrawFromGlobalIx(params, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
 }

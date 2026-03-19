@@ -13,6 +13,7 @@ export interface SignAndSendTxResponse {
 export interface PrivyOrderEnvelope {
   maker: string;
   nonce: number;
+  salt: number;
   market_pubkey: string;
   base_token: string;
   quote_token: string;
@@ -130,6 +131,7 @@ export function privyOrderFromLimitEnvelope(
 ): PrivyOrderEnvelope {
   const maker = requireDefined(envelope.fieldsMaker(), "maker");
   const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
+  const salt = requireDefined(envelope.fieldsSalt(), "salt");
   const market = requireDefined(envelope.fieldsMarket(), "market");
   const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
   const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
@@ -140,6 +142,7 @@ export function privyOrderFromLimitEnvelope(
   return {
     maker: maker.toBase58(),
     nonce,
+    salt: bigintToSafeNumber(salt, "salt"),
     market_pubkey: market.toBase58(),
     base_token: baseMint.toBase58(),
     quote_token: quoteMint.toBase58(),
@@ -158,6 +161,7 @@ export function privyOrderFromTriggerEnvelope(
 ): PrivyOrderEnvelope {
   const maker = requireDefined(envelope.fieldsMaker(), "maker");
   const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
+  const salt = requireDefined(envelope.fieldsSalt(), "salt");
   const market = requireDefined(envelope.fieldsMarket(), "market");
   const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
   const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
@@ -168,6 +172,7 @@ export function privyOrderFromTriggerEnvelope(
   return {
     maker: maker.toBase58(),
     nonce,
+    salt: bigintToSafeNumber(salt, "salt"),
     market_pubkey: market.toBase58(),
     base_token: baseMint.toBase58(),
     quote_token: quoteMint.toBase58(),

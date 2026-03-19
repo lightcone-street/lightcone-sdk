@@ -1,4 +1,4 @@
-import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { RetryPolicy } from "../../http";
 import {
@@ -172,5 +172,71 @@ export class Admin {
 
   depositAndSwapIx(params: DepositAndSwapParams): TransactionInstruction {
     return buildDepositAndSwapIx(params, this.client.programId);
+  }
+
+  // ── Transaction builders (_tx convenience wrappers) ─────────────────
+
+  initializeTx(authority: PublicKey): Transaction {
+    const ix = this.initializeIx(authority);
+    return new Transaction({ feePayer: authority }).add(ix);
+  }
+
+  createMarketTx(params: CreateMarketParams, marketId: bigint): Transaction {
+    const ix = this.createMarketIx(params, marketId);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  addDepositMintTx(
+    params: AddDepositMintParams,
+    market: PublicKey,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.addDepositMintIx(params, market, numOutcomes);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  activateMarketTx(params: ActivateMarketParams): Transaction {
+    const ix = this.activateMarketIx(params);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  settleMarketTx(params: SettleMarketParams): Transaction {
+    const ix = this.settleMarketIx(params);
+    return new Transaction({ feePayer: params.oracle }).add(ix);
+  }
+
+  setPausedTx(authority: PublicKey, paused: boolean): Transaction {
+    const ix = this.setPausedIx(authority, paused);
+    return new Transaction({ feePayer: authority }).add(ix);
+  }
+
+  setOperatorTx(authority: PublicKey, newOperator: PublicKey): Transaction {
+    const ix = this.setOperatorIx(authority, newOperator);
+    return new Transaction({ feePayer: authority }).add(ix);
+  }
+
+  setAuthorityTx(params: SetAuthorityParams): Transaction {
+    const ix = this.setAuthorityIx(params);
+    return new Transaction({ feePayer: params.currentAuthority }).add(ix);
+  }
+
+  whitelistDepositTokenTx(params: WhitelistDepositTokenParams): Transaction {
+    const ix = this.whitelistDepositTokenIx(params);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  createOrderbookTx(params: CreateOrderbookParams): Transaction {
+    const ix = this.createOrderbookIx(params);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  matchOrdersMultiTx(params: MatchOrdersMultiParams): Transaction {
+    const ix = this.matchOrdersMultiIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
+  }
+
+  depositAndSwapTx(params: DepositAndSwapParams): Transaction {
+    const ix = this.depositAndSwapIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 }

@@ -6,7 +6,9 @@ from typing import Optional, TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.keypair import Keypair
+from solders.message import Message
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from . import (
     SubmitOrderResponse,
@@ -175,7 +177,7 @@ class Orders:
             has_more=data.get("has_more", False),
         )
 
-    # ── On-chain transaction builders ────────────────────────────────────
+    # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
         self, maker: Pubkey, market: Pubkey, order: SignedOrder
@@ -188,6 +190,20 @@ class Orders:
     def increment_nonce_ix(self, user: Pubkey) -> Instruction:
         """Build IncrementNonce instruction."""
         return build_increment_nonce_instruction(user, self._client.program_id)
+
+    # ── On-chain transaction builders ────────────────────────────────────
+
+    def cancel_order_tx(
+        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+    ) -> Transaction:
+        """Build CancelOrder transaction."""
+        ix = self.cancel_order_ix(maker, market, order)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], maker))
+
+    def increment_nonce_tx(self, user: Pubkey) -> Transaction:
+        """Build IncrementNonce transaction."""
+        ix = self.increment_nonce_ix(user)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], user))
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

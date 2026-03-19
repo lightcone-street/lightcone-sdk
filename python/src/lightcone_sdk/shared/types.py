@@ -251,6 +251,7 @@ class SubmitOrderRequest:
     expiration: int
     signature: str
     orderbook_id: str
+    salt: int = 0
     time_in_force: Optional[TimeInForce] = None
     trigger_price: Optional[float] = None
     trigger_type: Optional[TriggerType] = None
@@ -260,6 +261,7 @@ class SubmitOrderRequest:
         d = {
             "maker": self.maker,
             "nonce": self.nonce,
+            "salt": self.salt,
             "market_pubkey": self.market_pubkey,
             "base_token": self.base_token,
             "quote_token": self.quote_token,
@@ -303,6 +305,7 @@ class SubmitTriggerOrderRequest:
     trigger_price: str
     trigger_type: TriggerType
     time_in_force: TimeInForce
+    salt: int = 0
     deposit_source: Optional["DepositSource"] = None
 
     def to_submit_order_request(self) -> SubmitOrderRequest:
@@ -318,6 +321,7 @@ class SubmitTriggerOrderRequest:
             expiration=self.expiration,
             signature=self.signature,
             orderbook_id=self.orderbook_id,
+            salt=self.salt,
             time_in_force=self.time_in_force,
             trigger_price=float(self.trigger_price),
             trigger_type=self.trigger_type,

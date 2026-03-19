@@ -14,6 +14,7 @@ class PrivyOrderEnvelope:
 
     maker: str = ""
     nonce: int = 0
+    salt: int = 0
     market_pubkey: str = ""
     base_token: str = ""
     quote_token: str = ""
@@ -30,6 +31,7 @@ class PrivyOrderEnvelope:
         d: dict = {
             "maker": self.maker,
             "nonce": self.nonce,
+            "salt": self.salt,
             "market_pubkey": self.market_pubkey,
             "base_token": self.base_token,
             "quote_token": self.quote_token,
@@ -136,6 +138,7 @@ def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     return PrivyOrderEnvelope(
         maker=str(order.maker),
         nonce=order.nonce,
+        salt=order.salt,
         market_pubkey=str(order.market),
         base_token=str(order.base_mint),
         quote_token=str(order.quote_mint),
@@ -177,6 +180,7 @@ def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope
     return PrivyOrderEnvelope(
         maker=str(order.maker),
         nonce=order.nonce,
+        salt=order.salt,
         market_pubkey=str(order.market),
         base_token=str(order.base_mint),
         quote_token=str(order.quote_mint),

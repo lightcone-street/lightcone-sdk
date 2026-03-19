@@ -1,4 +1,4 @@
-import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { RetryPolicy } from "../../http";
@@ -9,6 +9,7 @@ import {
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
+  buildWithdrawFromGlobalIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
@@ -20,6 +21,7 @@ import type {
   ExtendPositionTokensParams,
   DepositToGlobalParams,
   GlobalToMarketDepositParams,
+  WithdrawFromGlobalParams,
 } from "../../program/types";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 
@@ -83,6 +85,62 @@ export class Positions {
     numOutcomes: number
   ): TransactionInstruction {
     return buildGlobalToMarketDepositIx(params, numOutcomes, this.client.programId);
+  }
+
+  withdrawFromGlobalIx(params: WithdrawFromGlobalParams): TransactionInstruction {
+    return buildWithdrawFromGlobalIx(params, this.client.programId);
+  }
+
+  // ── Transaction builders (_tx convenience wrappers) ─────────────────
+
+  redeemWinningsTx(
+    params: RedeemWinningsParams,
+    winningOutcome: number
+  ): Transaction {
+    const ix = this.redeemWinningsIx(params, winningOutcome);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  withdrawFromPositionTx(
+    params: WithdrawFromPositionParams,
+    isToken2022: boolean
+  ): Transaction {
+    const ix = this.withdrawFromPositionIx(params, isToken2022);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  initPositionTokensTx(
+    params: InitPositionTokensParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.initPositionTokensIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.payer }).add(ix);
+  }
+
+  extendPositionTokensTx(
+    params: ExtendPositionTokensParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.extendPositionTokensIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.payer }).add(ix);
+  }
+
+  depositToGlobalTx(params: DepositToGlobalParams): Transaction {
+    const ix = this.depositToGlobalIx(params);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  globalToMarketDepositTx(
+    params: GlobalToMarketDepositParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.globalToMarketDepositIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
+    const ix = this.withdrawFromGlobalIx(params);
+    return new Transaction({ feePayer: params.user }).add(ix);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

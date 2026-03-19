@@ -11,6 +11,7 @@ import type {
 } from "../shared";
 import { ProgramSdkError } from "./error";
 import {
+  generateSalt,
   signOrder,
   signOrderFull,
   toSubmitRequest,
@@ -20,6 +21,7 @@ import { OrderSide, type SignedOrder } from "./types";
 
 interface OrderFields {
   nonce?: number;
+  salt?: bigint;
   maker?: PublicKey;
   market?: PublicKey;
   baseMint?: PublicKey;
@@ -51,6 +53,7 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
 
   return {
     nonce: fields.nonce,
+    salt: fields.salt ?? generateSalt(),
     maker: fields.maker,
     market: fields.market,
     baseMint: fields.baseMint,
@@ -64,6 +67,7 @@ function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
 
 export interface OrderEnvelope {
   nonce(value: number): this;
+  salt(value: bigint): this;
   maker(value: PublicKey): this;
   market(value: PublicKey): this;
   baseMint(value: PublicKey): this;
@@ -91,6 +95,11 @@ class BaseEnvelope {
 
   nonce(value: number): this {
     this.fields.nonce = value;
+    return this;
+  }
+
+  salt(value: bigint): this {
+    this.fields.salt = value;
     return this;
   }
 
@@ -165,6 +174,10 @@ class BaseEnvelope {
 
   fieldsNonce(): number | undefined {
     return this.fields.nonce;
+  }
+
+  fieldsSalt(): bigint | undefined {
+    return this.fields.salt;
   }
 
   fieldsMaker(): PublicKey | undefined {

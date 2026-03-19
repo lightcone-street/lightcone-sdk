@@ -1,4 +1,4 @@
-import type { PublicKey, TransactionInstruction } from "@solana/web3.js";
+import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { SdkError } from "../../error";
@@ -138,6 +138,24 @@ export class Markets {
     numOutcomes: number
   ): TransactionInstruction {
     return buildMergeCompleteSetIx(params, numOutcomes, this.client.programId);
+  }
+
+  // ── Transaction builders (_tx convenience wrappers) ─────────────────
+
+  mintCompleteSetTx(
+    params: MintCompleteSetParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.mintCompleteSetIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  mergeCompleteSetTx(
+    params: MergeCompleteSetParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.mergeCompleteSetIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.user }).add(ix);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

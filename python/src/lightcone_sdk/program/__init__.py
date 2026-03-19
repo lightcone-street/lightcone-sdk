@@ -42,6 +42,7 @@ from .types import (
     InitPositionTokensParams,
     DepositAndSwapParams,
     ExtendPositionTokensParams,
+    WithdrawFromGlobalParams,
 )
 
 # Constants
@@ -96,6 +97,7 @@ from .constants import (
     INSTRUCTION_INIT_POSITION_TOKENS,
     INSTRUCTION_DEPOSIT_AND_SWAP,
     INSTRUCTION_EXTEND_POSITION_TOKENS,
+    INSTRUCTION_WITHDRAW_FROM_GLOBAL,
 )
 
 # Errors
@@ -198,6 +200,7 @@ from .instructions import (
     build_set_paused_instruction,
     build_settle_market_instruction,
     build_whitelist_deposit_token_instruction,
+    build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
 )
 
@@ -219,6 +222,7 @@ from .orders import (
     hash_order,
     hash_order_hex,
     generate_cancel_all_salt,
+    generate_salt,
     is_order_expired,
     is_signed,
     orders_can_cross,
@@ -301,6 +305,7 @@ __all__ = [
     "InitPositionTokensParams",
     "DepositAndSwapParams",
     "ExtendPositionTokensParams",
+    "WithdrawFromGlobalParams",
     # Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -333,6 +338,7 @@ __all__ = [
     "INSTRUCTION_INIT_POSITION_TOKENS",
     "INSTRUCTION_DEPOSIT_AND_SWAP",
     "INSTRUCTION_EXTEND_POSITION_TOKENS",
+    "INSTRUCTION_WITHDRAW_FROM_GLOBAL",
     # Errors
     "LightconeError",
     "InvalidDiscriminatorError",
@@ -415,6 +421,7 @@ __all__ = [
     "create_signed_bid_order",
     "create_signed_ask_order",
     "generate_cancel_all_salt",
+    "generate_salt",
     "hash_order",
     "hash_order_hex",
     "sign_cancel_all",
@@ -461,6 +468,7 @@ __all__ = [
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
+    "build_withdraw_from_global_instruction",
     # Envelope Builders
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",
