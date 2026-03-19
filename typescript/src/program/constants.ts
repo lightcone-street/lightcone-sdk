@@ -74,6 +74,7 @@ export const INSTRUCTION = {
   INIT_POSITION_TOKENS: 19,
   DEPOSIT_AND_SWAP: 20,
   EXTEND_POSITION_TOKENS: 21,
+  WITHDRAW_FROM_GLOBAL: 22,
 } as const;
 
 /**
@@ -107,8 +108,8 @@ export const ACCOUNT_SIZE = {
  * Order sizes in bytes
  */
 export const ORDER_SIZE = {
-  SIGNED_ORDER: 225,
-  ORDER: 29,
+  SIGNED_ORDER: 233,
+  ORDER: 37,
   SIGNATURE: 64,
 } as const;
 

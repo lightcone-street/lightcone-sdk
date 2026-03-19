@@ -1,11 +1,13 @@
-"""Positions sub-client — portfolio, position queries, PDA helpers, tx builders, and on-chain ops."""
+"""Positions sub-client — portfolio, position queries, PDA helpers, ix/tx builders, and on-chain ops."""
 
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
 from solders.instruction import Instruction
+from solders.message import Message
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from .wire import PositionsResponseWire, MarketPositionsResponseWire
 from ...program.accounts import deserialize_position
@@ -15,6 +17,7 @@ from ...program.instructions import (
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_redeem_winnings_instruction,
+    build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
 )
 from ...program.pda import get_position_pda
@@ -25,6 +28,7 @@ from ...program.types import (
     InitPositionTokensParams,
     Position as OnchainPosition,
     RedeemWinningsParams,
+    WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 )
 from ...rpc import require_connection
@@ -64,7 +68,7 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
-    # ── On-chain transaction builders ────────────────────────────────────
+    # ── On-chain instruction builders ────────────────────────────────────
 
     def redeem_winnings_ix(
         self, params: RedeemWinningsParams, winning_outcome: int
@@ -130,6 +134,62 @@ class Positions:
             num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
+
+    def withdraw_from_global_ix(self, params: WithdrawFromGlobalParams) -> Instruction:
+        """Build WithdrawFromGlobal instruction."""
+        return build_withdraw_from_global_instruction(
+            user=params.user,
+            mint=params.mint,
+            amount=params.amount,
+            program_id=self._client.program_id,
+        )
+
+    # ── On-chain transaction builders ────────────────────────────────────
+
+    def redeem_winnings_tx(
+        self, params: RedeemWinningsParams, winning_outcome: int
+    ) -> Transaction:
+        """Build RedeemWinnings transaction."""
+        ix = self.redeem_winnings_ix(params, winning_outcome)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+
+    def withdraw_from_position_tx(
+        self, params: WithdrawFromPositionParams, is_token_2022: bool = True
+    ) -> Transaction:
+        """Build WithdrawFromPosition transaction."""
+        ix = self.withdraw_from_position_ix(params, is_token_2022)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+
+    def init_position_tokens_tx(
+        self, params: InitPositionTokensParams, num_outcomes: int
+    ) -> Transaction:
+        """Build InitPositionTokens transaction."""
+        ix = self.init_position_tokens_ix(params, num_outcomes)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.payer))
+
+    def extend_position_tokens_tx(
+        self, params: ExtendPositionTokensParams, num_outcomes: int
+    ) -> Transaction:
+        """Build ExtendPositionTokens transaction."""
+        ix = self.extend_position_tokens_ix(params, num_outcomes)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.payer))
+
+    def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
+        """Build DepositToGlobal transaction."""
+        ix = self.deposit_to_global_ix(params)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+
+    def global_to_market_deposit_tx(
+        self, params: GlobalToMarketDepositParams, num_outcomes: int
+    ) -> Transaction:
+        """Build GlobalToMarketDeposit transaction."""
+        ix = self.global_to_market_deposit_ix(params, num_outcomes)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+
+    def withdraw_from_global_tx(self, params: WithdrawFromGlobalParams) -> Transaction:
+        """Build WithdrawFromGlobal transaction."""
+        ix = self.withdraw_from_global_ix(params)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

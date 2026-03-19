@@ -32,6 +32,7 @@ from .constants import (
     INSTRUCTION_SET_PAUSED,
     INSTRUCTION_SETTLE_MARKET,
     INSTRUCTION_WHITELIST_DEPOSIT_TOKEN,
+    INSTRUCTION_WITHDRAW_FROM_GLOBAL,
     INSTRUCTION_WITHDRAW_FROM_POSITION,
     MAX_OUTCOME_NAME_LEN,
     MAX_OUTCOME_SYMBOL_LEN,
@@ -1188,6 +1189,42 @@ def build_extend_position_tokens_instruction(
 
     data = bytearray([INSTRUCTION_EXTEND_POSITION_TOKENS])
     data.append(len(deposit_mints))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_withdraw_from_global_instruction(
+    user: Pubkey,
+    mint: Pubkey,
+    amount: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the withdraw_from_global instruction.
+
+    Withdraws tokens from a user's global deposit account back to their wallet.
+
+    Accounts:
+    0. user (signer, writable)
+    1. global_deposit_token (readonly)
+    2. mint (readonly)
+    3. user_global_deposit (writable)
+    4. user_token_account (writable)
+    5. token_program (readonly)
+    """
+    global_deposit_token, _ = get_global_deposit_pda(mint, program_id)
+    user_global_deposit, _ = get_user_global_deposit_pda(user, mint, program_id)
+    user_token_account = get_associated_token_address(user, mint)
+
+    accounts = [
+        AccountMeta(pubkey=user, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=user_global_deposit, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=user_token_account, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytearray([INSTRUCTION_WITHDRAW_FROM_GLOBAL])
+    data.extend(encode_u64(amount))
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 

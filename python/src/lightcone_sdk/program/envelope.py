@@ -59,6 +59,7 @@ class LimitOrderEnvelope:
 
     def __init__(self):
         self._nonce: int = 0
+        self._salt: int = 0
         self._maker: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._base_mint: Optional[Pubkey] = None
@@ -74,6 +75,10 @@ class LimitOrderEnvelope:
 
     def nonce(self, nonce: int) -> LimitOrderEnvelope:
         self._nonce = nonce
+        return self
+
+    def salt(self, salt: int) -> LimitOrderEnvelope:
+        self._salt = salt
         return self
 
     def maker(self, maker: Pubkey) -> LimitOrderEnvelope:
@@ -166,6 +171,7 @@ class LimitOrderEnvelope:
 
         return SignedOrder(
             nonce=self._nonce,
+            salt=self._salt,
             maker=self._maker,
             market=self._market,
             base_mint=self._base_mint,
@@ -247,6 +253,10 @@ class LimitOrderEnvelope:
         return self._nonce
 
     @property
+    def fields_salt(self) -> int:
+        return self._salt
+
+    @property
     def fields_deposit_source(self) -> Optional[DepositSource]:
         return self._deposit_source
 
@@ -266,6 +276,10 @@ class TriggerOrderEnvelope:
 
     def nonce(self, nonce: int) -> TriggerOrderEnvelope:
         self._limit.nonce(nonce)
+        return self
+
+    def salt(self, salt: int) -> TriggerOrderEnvelope:
+        self._limit.salt(salt)
         return self
 
     def maker(self, maker: Pubkey) -> TriggerOrderEnvelope:
@@ -408,6 +422,7 @@ class TriggerOrderEnvelope:
         return SubmitTriggerOrderRequest(
             maker=str(order.maker),
             nonce=order.nonce,
+            salt=order.salt,
             market_pubkey=str(order.market),
             base_token=str(order.base_mint),
             quote_token=str(order.quote_mint),
@@ -459,6 +474,10 @@ class TriggerOrderEnvelope:
     @property
     def fields_nonce(self) -> Optional[int]:
         return self._limit.fields_nonce
+
+    @property
+    def fields_salt(self) -> int:
+        return self._limit.fields_salt
 
     @property
     def fields_deposit_source(self) -> Optional[DepositSource]:

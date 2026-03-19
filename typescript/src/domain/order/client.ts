@@ -1,5 +1,5 @@
 import bs58 from "bs58";
-import { Keypair, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { Keypair, Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { SdkError } from "../../error";
@@ -391,6 +391,22 @@ export class Orders {
 
   incrementNonceIx(user: PublicKey): TransactionInstruction {
     return buildIncrementNonceIx(user, this.client.programId);
+  }
+
+  // ── Transaction builders (_tx convenience wrappers) ─────────────────
+
+  cancelOrderTx(
+    maker: PublicKey,
+    market: PublicKey,
+    order: SignedOrder
+  ): Transaction {
+    const ix = this.cancelOrderIx(maker, market, order);
+    return new Transaction({ feePayer: maker }).add(ix);
+  }
+
+  incrementNonceTx(user: PublicKey): Transaction {
+    const ix = this.incrementNonceIx(user);
+    return new Transaction({ feePayer: user }).add(ix);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────

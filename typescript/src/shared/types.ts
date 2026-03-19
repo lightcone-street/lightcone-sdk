@@ -100,6 +100,7 @@ export function deriveOrderbookId(baseToken: string, quoteToken: string): OrderB
 export interface SubmitOrderRequest {
   maker: string;
   nonce: number;
+  salt: number;
   market_pubkey: string;
   base_token: string;
   quote_token: string;

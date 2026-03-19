@@ -1,5 +1,6 @@
 """Order creation, hashing, signing, and serialization for the Lightcone SDK."""
 
+import os
 import time
 import uuid
 
@@ -19,6 +20,7 @@ from .constants import (
     ORDER_MARKET_OFFSET,
     ORDER_NONCE_OFFSET,
     ORDER_QUOTE_MINT_OFFSET,
+    ORDER_SALT_OFFSET,
     ORDER_SIDE_OFFSET,
     ORDER_SIGNATURE_OFFSET,
     ORDER_TAKER_AMOUNT_OFFSET,
@@ -59,6 +61,11 @@ MAX_U64 = 2**64 - 1
 MAX_U32 = 2**32 - 1
 
 
+def generate_salt() -> int:
+    """Generate a random u64 salt for order uniqueness."""
+    return int.from_bytes(os.urandom(8), "little")
+
+
 def create_bid_order(params: BidOrderParams) -> SignedOrder:
     """Create a bid order (buyer wants base tokens, gives quote tokens).
 
@@ -66,6 +73,7 @@ def create_bid_order(params: BidOrderParams) -> SignedOrder:
     """
     return SignedOrder(
         nonce=params.nonce,
+        salt=params.salt,
         maker=params.maker,
         market=params.market,
         base_mint=params.base_mint,
@@ -85,6 +93,7 @@ def create_ask_order(params: AskOrderParams) -> SignedOrder:
     """
     return SignedOrder(
         nonce=params.nonce,
+        salt=params.salt,
         maker=params.maker,
         market=params.market,
         base_mint=params.base_mint,
@@ -100,8 +109,8 @@ def create_ask_order(params: AskOrderParams) -> SignedOrder:
 def serialize_order_for_hashing(order: SignedOrder) -> bytes:
     """Serialize an order for hashing (excludes signature).
 
-    Layout (161 bytes):
-    - nonce (8, u32 value widened to u64 LE) | maker (32) | market (32) |
+    Layout (169 bytes):
+    - nonce (8, u32 value widened to u64 LE) | salt (8) | maker (32) | market (32) |
       base_mint (32) | quote_mint (32) | side (1) | amount_in (8) |
       amount_out (8) | expiration (8)
     """
@@ -109,6 +118,7 @@ def serialize_order_for_hashing(order: SignedOrder) -> bytes:
         raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
     return (
         encode_u64(order.nonce)  # Widen u32 to u64 for wire compatibility
+        + encode_u64(order.salt)
         + bytes(order.maker)
         + bytes(order.market)
         + bytes(order.base_mint)
@@ -188,8 +198,8 @@ def verify_order_signature(order: SignedOrder) -> bool:
 def serialize_full_order(order: SignedOrder) -> bytes:
     """Serialize a full order to bytes.
 
-    Layout (225 bytes):
-    - nonce (8) | maker (32) | market (32) | base_mint (32) | quote_mint (32) |
+    Layout (233 bytes):
+    - nonce (8) | salt (8) | maker (32) | market (32) | base_mint (32) | quote_mint (32) |
       side (1) | amount_in (8) | amount_out (8) | expiration (8) | signature (64)
     """
     return serialize_order_for_hashing(order) + order.signature
@@ -208,6 +218,7 @@ def deserialize_full_order(data: bytes) -> SignedOrder:
 
     return SignedOrder(
         nonce=nonce_u64,
+        salt=decode_u64(data, ORDER_SALT_OFFSET),
         maker=decode_pubkey(data, ORDER_MAKER_OFFSET),
         market=decode_pubkey(data, ORDER_MARKET_OFFSET),
         base_mint=decode_pubkey(data, ORDER_BASE_MINT_OFFSET),
@@ -221,9 +232,10 @@ def deserialize_full_order(data: bytes) -> SignedOrder:
 
 
 def to_order(order: SignedOrder) -> Order:
-    """Convert a full order to a compact order (29 bytes, no maker, u32 nonce)."""
+    """Convert a full order to a compact order (37 bytes, no maker, u32 nonce)."""
     return Order(
         nonce=order.nonce,
+        salt=order.salt,
         side=order.side,
         amount_in=order.amount_in,
         amount_out=order.amount_out,
@@ -238,11 +250,12 @@ to_compact_order = to_order
 def serialize_order(order: Order) -> bytes:
     """Serialize a compact order to bytes.
 
-    Layout (29 bytes):
-    - nonce (4, u32) | side (1) | amount_in (8) | amount_out (8) | expiration (8)
+    Layout (37 bytes):
+    - nonce (4, u32) | salt (8, u64) | side (1) | amount_in (8) | amount_out (8) | expiration (8)
     """
     return (
         encode_u32(order.nonce)
+        + encode_u64(order.salt)
         + encode_u8(order.side)
         + encode_u64(order.amount_in)
         + encode_u64(order.amount_out)
@@ -263,10 +276,11 @@ def deserialize_order(data: bytes) -> Order:
 
     return Order(
         nonce=decode_u32(data, 0),
-        side=OrderSide(decode_u8(data, 4)),
-        amount_in=decode_u64(data, 5),
-        amount_out=decode_u64(data, 13),
-        expiration=decode_i64(data, 21),
+        salt=decode_u64(data, 4),
+        side=OrderSide(decode_u8(data, 12)),
+        amount_in=decode_u64(data, 13),
+        amount_out=decode_u64(data, 21),
+        expiration=decode_i64(data, 29),
     )
 
 
@@ -477,6 +491,7 @@ def to_submit_request(
     return SubmitOrderRequest(
         maker=str(order.maker),
         nonce=order.nonce,
+        salt=order.salt,
         market_pubkey=str(order.market),
         base_token=str(order.base_mint),
         quote_token=str(order.quote_mint),

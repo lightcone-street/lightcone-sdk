@@ -16,6 +16,7 @@ class OrderBuilder:
 
     def __init__(self):
         self._nonce: int = 0
+        self._salt: int = 0
         self._maker: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._base_mint: Optional[Pubkey] = None
@@ -27,6 +28,10 @@ class OrderBuilder:
 
     def nonce(self, nonce: int) -> "OrderBuilder":
         self._nonce = nonce
+        return self
+
+    def salt(self, salt: int) -> "OrderBuilder":
+        self._salt = salt
         return self
 
     def maker(self, maker: Pubkey) -> "OrderBuilder":
@@ -85,6 +90,7 @@ class OrderBuilder:
 
         return SignedOrder(
             nonce=self._nonce,
+            salt=self._salt,
             maker=self._maker,
             market=self._market,
             base_mint=self._base_mint,
@@ -107,6 +113,7 @@ class OrderBuilder:
         return SubmitOrderRequest(
             maker=str(order.maker),
             nonce=order.nonce,
+            salt=order.salt,
             market_pubkey=str(order.market),
             base_token=str(order.base_mint),
             quote_token=str(order.quote_mint),

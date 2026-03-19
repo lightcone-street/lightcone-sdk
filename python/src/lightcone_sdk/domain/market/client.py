@@ -6,7 +6,9 @@ from typing import Optional, TYPE_CHECKING
 from urllib.parse import quote as url_quote
 
 from solders.instruction import Instruction
+from solders.message import Message
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from . import Market, MarketsResult, Status
 from .wire import MarketWire, MarketResponse, MarketSearchResult
@@ -133,7 +135,7 @@ class Markets:
             if result.market_status in {"Active", "Resolved"}
         ]
 
-    # ── On-chain transaction builders ────────────────────────────────────
+    # ── On-chain instruction builders ────────────────────────────────────
 
     def mint_complete_set_ix(
         self, params: MintCompleteSetParams, num_outcomes: int
@@ -160,6 +162,22 @@ class Markets:
             num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
+
+    # ── On-chain transaction builders ────────────────────────────────────
+
+    def mint_complete_set_tx(
+        self, params: MintCompleteSetParams, num_outcomes: int
+    ) -> Transaction:
+        """Build MintCompleteSet transaction."""
+        ix = self.mint_complete_set_ix(params, num_outcomes)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+
+    def merge_complete_set_tx(
+        self, params: MergeCompleteSetParams, num_outcomes: int
+    ) -> Transaction:
+        """Build MergeCompleteSet transaction."""
+        ix = self.merge_complete_set_ix(params, num_outcomes)
+        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

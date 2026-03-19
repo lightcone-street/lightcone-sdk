@@ -88,7 +88,7 @@ class Orderbook:
 
 @dataclass
 class SignedOrder:
-    """Signed order structure with all fields including signature (225 bytes).
+    """Signed order structure with all fields including signature (233 bytes).
 
     Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
     """
@@ -102,6 +102,7 @@ class SignedOrder:
     amount_in: int
     amount_out: int
     expiration: int
+    salt: int = 0  # u64
     signature: bytes = field(default_factory=lambda: bytes(64))
 
 
@@ -111,10 +112,10 @@ FullOrder = SignedOrder
 
 @dataclass
 class Order:
-    """Compact order structure for instruction data (29 bytes, no maker field).
+    """Compact order structure for instruction data (37 bytes, no maker field).
 
-    Layout: [0..4] nonce(u32) | [4] side(u8) | [5..13] amount_in(u64) |
-            [13..21] amount_out(u64) | [21..29] expiration(i64)
+    Layout: [0..4] nonce(u32) | [4..12] salt(u64) | [12] side(u8) |
+            [13..21] amount_in(u64) | [21..29] amount_out(u64) | [29..37] expiration(i64)
     """
 
     nonce: int
@@ -122,6 +123,7 @@ class Order:
     amount_in: int
     amount_out: int
     expiration: int
+    salt: int = 0  # u64
 
 
 # Backward compatibility alias
@@ -282,6 +284,7 @@ class BidOrderParams:
     amount_in: int  # Quote tokens given
     amount_out: int  # Base tokens received
     expiration: int
+    salt: int = 0  # u64
 
 
 @dataclass
@@ -296,6 +299,7 @@ class AskOrderParams:
     amount_in: int  # Base tokens given
     amount_out: int  # Quote tokens received
     expiration: int
+    salt: int = 0  # u64
 
 
 @dataclass
@@ -371,6 +375,15 @@ class ExtendPositionTokensParams:
     market: Pubkey
     lookup_table: Pubkey
     deposit_mints: list[Pubkey]
+
+
+@dataclass
+class WithdrawFromGlobalParams:
+    """Parameters for withdrawing tokens from a global deposit account."""
+
+    user: Pubkey
+    mint: Pubkey
+    amount: int
 
 
 @dataclass
