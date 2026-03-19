@@ -23,6 +23,7 @@ use crate::http::LightconeHttp;
 use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 use crate::program::constants::PROGRAM_ID;
 use crate::rpc::Rpc;
+use crate::shared::DepositSource;
 use crate::ws::WsConfig;
 
 #[cfg(feature = "solana-rpc")]
@@ -60,6 +61,9 @@ pub struct LightconeClient {
     pub(crate) auth_credentials: Arc<RwLock<Option<AuthCredentials>>>,
     /// On-chain program ID (defaults to the canonical Lightcone program).
     pub(crate) program_id: Pubkey,
+    /// Default deposit source for orders, deposits, and withdrawals.
+    /// Per-call overrides take priority over this setting.
+    pub(crate) deposit_source: Arc<RwLock<DepositSource>>,
     /// Optional Solana RPC client for on-chain reads.
     #[cfg(feature = "solana-rpc")]
     pub(crate) solana_rpc_client: Option<SolanaRpcClient>,
@@ -151,6 +155,29 @@ impl LightconeClient {
     pub fn program_id(&self) -> &Pubkey {
         &self.program_id
     }
+
+    // ── Deposit source ──────────────────────────────────────────────────
+
+    /// Get the current deposit source setting.
+    pub async fn deposit_source(&self) -> DepositSource {
+        *self.deposit_source.read().await
+    }
+
+    /// Update the deposit source at runtime.
+    pub async fn set_deposit_source(&self, source: DepositSource) {
+        *self.deposit_source.write().await = source;
+    }
+
+    /// Resolve deposit source with priority: per-call override > client setting.
+    pub async fn resolve_deposit_source(
+        &self,
+        override_source: Option<DepositSource>,
+    ) -> DepositSource {
+        match override_source {
+            Some(source) => source,
+            None => self.deposit_source().await,
+        }
+    }
 }
 
 impl Clone for LightconeClient {
@@ -160,6 +187,7 @@ impl Clone for LightconeClient {
             ws_config: self.ws_config.clone(),
             auth_credentials: self.auth_credentials.clone(),
             program_id: self.program_id,
+            deposit_source: self.deposit_source.clone(),
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
                 // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
@@ -182,6 +210,7 @@ pub struct LightconeClientBuilder {
     ws_url: String,
     auth_credentials: Option<AuthCredentials>,
     program_id: Pubkey,
+    deposit_source: DepositSource,
     #[cfg(feature = "solana-rpc")]
     rpc_url: Option<String>,
 }
@@ -193,6 +222,7 @@ impl Default for LightconeClientBuilder {
             ws_url: DEFAULT_WS_URL.to_string(),
             auth_credentials: None,
             program_id: *PROGRAM_ID,
+            deposit_source: DepositSource::Global,
             #[cfg(feature = "solana-rpc")]
             rpc_url: None,
         }
@@ -222,6 +252,13 @@ impl LightconeClientBuilder {
         self
     }
 
+    /// Set the default deposit source for orders, deposits, and withdrawals.
+    /// Defaults to `DepositSource::Global`. Can be overridden per-call.
+    pub fn deposit_source(mut self, source: DepositSource) -> Self {
+        self.deposit_source = source;
+        self
+    }
+
     /// Set the Solana RPC URL for on-chain reads and transaction building.
     #[cfg(feature = "solana-rpc")]
     pub fn rpc_url(mut self, url: &str) -> Self {
@@ -238,6 +275,7 @@ impl LightconeClientBuilder {
             },
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
             program_id: self.program_id,
+            deposit_source: Arc::new(RwLock::new(self.deposit_source)),
             #[cfg(feature = "solana-rpc")]
             solana_rpc_client: self.rpc_url.map(|url| {
                 SolanaRpcClient::new_with_commitment(url, CommitmentConfig::confirmed())

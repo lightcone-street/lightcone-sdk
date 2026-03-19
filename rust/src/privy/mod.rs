@@ -15,7 +15,12 @@
 //! is fully supported.
 
 #[cfg(feature = "http")]
+pub mod builder;
+#[cfg(feature = "http")]
 pub mod client;
+
+#[cfg(feature = "http")]
+pub use builder::PrivyOrderBuilder;
 
 use serde::{Deserialize, Serialize};
 
@@ -39,8 +44,10 @@ pub struct SignAndSendOrderRequest {
 /// Wire type for the backend's Privy sign-and-send-order endpoint.
 ///
 /// Matches the backend's `OrderForSigning` struct exactly.
-/// Prefer using the `from_limit()` / `from_trigger()` constructors
-/// over building this manually.
+///
+/// Prefer using the builder via `client.privy().limit_order().await` or
+/// `client.privy().trigger_order().await` which pre-seeds the client's deposit
+/// source. Direct construction and `from_limit()`/`from_trigger()` are also available.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrivyOrderEnvelope {
     pub maker: String,
@@ -61,6 +68,8 @@ pub struct PrivyOrderEnvelope {
     pub trigger_price: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_type: Option<crate::shared::TriggerType>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deposit_source: Option<crate::shared::DepositSource>,
 }
 
 impl PrivyOrderEnvelope {
@@ -71,33 +80,34 @@ impl PrivyOrderEnvelope {
     ) -> Self {
         Self {
             maker: envelope
-                .fields_maker()
+                .get_maker()
                 .expect("maker is required")
                 .to_string(),
-            nonce: envelope.fields_nonce().expect("nonce is required") as u64,
-            salt: envelope.fields_salt().expect("salt is required"),
+            nonce: envelope.get_nonce().expect("nonce is required") as u64,
+            salt: envelope.get_salt().expect("salt is required"),
             market_pubkey: envelope
-                .fields_market()
+                .get_market()
                 .expect("market is required")
                 .to_string(),
             base_token: envelope
-                .fields_base_mint()
+                .get_base_mint()
                 .expect("base_mint is required")
                 .to_string(),
             quote_token: envelope
-                .fields_quote_mint()
+                .get_quote_mint()
                 .expect("quote_mint is required")
                 .to_string(),
-            side: envelope.fields_side().expect("side is required") as u32,
-            amount_in: envelope.fields_amount_in().expect("amount_in is required"),
+            side: envelope.get_side().expect("side is required") as u32,
+            amount_in: envelope.get_amount_in().expect("amount_in is required"),
             amount_out: envelope
-                .fields_amount_out()
+                .get_amount_out()
                 .expect("amount_out is required"),
-            expiration: envelope.fields_expiration(),
+            expiration: envelope.get_expiration(),
             orderbook_id: orderbook_id.into(),
             time_in_force: None,
             trigger_price: None,
             trigger_type: None,
+            deposit_source: envelope.get_deposit_source(),
         }
     }
 
@@ -108,33 +118,34 @@ impl PrivyOrderEnvelope {
     ) -> Self {
         Self {
             maker: envelope
-                .fields_maker()
+                .get_maker()
                 .expect("maker is required")
                 .to_string(),
-            nonce: envelope.fields_nonce().expect("nonce is required") as u64,
-            salt: envelope.fields_salt().expect("salt is required"),
+            nonce: envelope.get_nonce().expect("nonce is required") as u64,
+            salt: envelope.get_salt().expect("salt is required"),
             market_pubkey: envelope
-                .fields_market()
+                .get_market()
                 .expect("market is required")
                 .to_string(),
             base_token: envelope
-                .fields_base_mint()
+                .get_base_mint()
                 .expect("base_mint is required")
                 .to_string(),
             quote_token: envelope
-                .fields_quote_mint()
+                .get_quote_mint()
                 .expect("quote_mint is required")
                 .to_string(),
-            side: envelope.fields_side().expect("side is required") as u32,
-            amount_in: envelope.fields_amount_in().expect("amount_in is required"),
+            side: envelope.get_side().expect("side is required") as u32,
+            amount_in: envelope.get_amount_in().expect("amount_in is required"),
             amount_out: envelope
-                .fields_amount_out()
+                .get_amount_out()
                 .expect("amount_out is required"),
-            expiration: envelope.fields_expiration(),
+            expiration: envelope.get_expiration(),
             orderbook_id: orderbook_id.into(),
-            time_in_force: envelope.fields_time_in_force(),
-            trigger_price: envelope.fields_trigger_price(),
-            trigger_type: envelope.fields_trigger_type(),
+            time_in_force: envelope.get_time_in_force(),
+            trigger_price: envelope.get_trigger_price(),
+            trigger_type: envelope.get_trigger_type(),
+            deposit_source: envelope.get_deposit_source(),
         }
     }
 }

@@ -23,6 +23,9 @@ pub enum SdkError {
     #[error("Program error: {0}")]
     Program(#[from] crate::program::error::SdkError),
 
+    #[error("Missing required market context for Market deposit source: {0}")]
+    MissingMarketContext(&'static str),
+
     #[error("{0}")]
     Other(String),
 }

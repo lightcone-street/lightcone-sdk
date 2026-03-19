@@ -95,6 +95,22 @@ Execution constraint for trigger orders.
 
 Access via `client.orders()`.
 
+### `limit_order`
+
+```rust
+async fn limit_order(&self) -> LimitOrderEnvelope
+```
+
+Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source. Users can still override the deposit source on the returned envelope by calling `.deposit_source()` before signing.
+
+### `trigger_order`
+
+```rust
+async fn trigger_order(&self) -> TriggerOrderEnvelope
+```
+
+Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source. Users can still override the deposit source on the returned envelope by calling `.deposit_source()` before signing.
+
 ### `submit`
 
 ```rust
@@ -221,7 +237,8 @@ For standard limit orders:
 ```rust
 use lightcone::prelude::*;
 
-let request = LimitOrderEnvelope::new()
+// Recommended: factory method pre-seeds client deposit source
+let request = client.orders().limit_order().await
     .maker(keypair.pubkey())
     .market(market_pubkey)
     .base_mint(base_mint)
@@ -231,9 +248,15 @@ let request = LimitOrderEnvelope::new()
     .size("100")                    // human-readable size
     .nonce(nonce)
     .expiration(0)                  // 0 = no expiration
-    // .deposit_source(DepositSource::Global) // omit for auto
+    // .deposit_source(DepositSource::Global) // override if needed
     .apply_scaling(&decimals)?      // convert to raw amounts
     .sign(&keypair, orderbook_id)?; // sign and produce SubmitOrderRequest
+
+// Alternative: standalone use without a client
+let request = LimitOrderEnvelope::new()
+    .maker(keypair.pubkey())
+    // ... same chain as above
+    .sign(&keypair, orderbook_id)?;
 ```
 
 ### `TriggerOrderEnvelope`
@@ -243,7 +266,8 @@ For take-profit and stop-loss orders:
 ```rust
 use lightcone::prelude::*;
 
-let request = TriggerOrderEnvelope::new()
+// Recommended: factory method pre-seeds client deposit source
+let request = client.orders().trigger_order().await
     .maker(keypair.pubkey())
     .market(market_pubkey)
     .base_mint(base_mint)
@@ -254,7 +278,14 @@ let request = TriggerOrderEnvelope::new()
     .nonce(nonce)
     .take_profit(0.65)              // or .stop_loss(0.45)
     .gtc()                          // or .ioc(), .fok(), .alo()
+    // .deposit_source(DepositSource::Global) // override if needed
     .apply_scaling(&decimals)?
+    .sign(&keypair, orderbook_id)?;
+
+// Alternative: standalone use without a client
+let request = TriggerOrderEnvelope::new()
+    .maker(keypair.pubkey())
+    // ... same chain as above
     .sign(&keypair, orderbook_id)?;
 ```
 
@@ -264,7 +295,7 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 
 | Method | Description |
 |--------|-------------|
-| `.new()` | Create a new envelope |
+| `.new()` | Create a new envelope (prefer factory methods) |
 | `.maker(pubkey)` | Set the maker public key |
 | `.market(pubkey)` | Set the market public key |
 | `.base_mint(pubkey)` | Set the base token mint |
@@ -274,7 +305,7 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.size(str)` | Set the human-readable size |
 | `.nonce(u32)` | Set the order nonce |
 | `.expiration(i64)` | Set expiration (0 = none) |
-| `.deposit_source(ds)` | Set collateral source (`Auto`, `Global`, `Market`) |
+| `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
 | `.apply_scaling(&decimals)` | Convert price/size to raw amounts using orderbook decimals |
 | `.sign(&keypair, orderbook_id)` | Sign with a keypair and produce `SubmitOrderRequest` |
 | `.finalize(sig_bs58, orderbook_id)` | Attach an external signature (for Privy/wallet adapter) |
@@ -345,7 +376,7 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
 
     // 3. Place a bid
     let order_nonce = 1u32;
-    let bid_request = LimitOrderEnvelope::new()
+    let bid_request = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .market(market.pubkey.to_pubkey().unwrap())
         .base_mint(ob.base.mint.to_pubkey().unwrap())
@@ -404,7 +435,7 @@ async fn place_take_profit(
     ob: &OrderBookPair,
     decimals: &impl lightcone::shared::scaling::OrderbookDecimals,
 ) -> Result<(), SdkError> {
-    let request = TriggerOrderEnvelope::new()
+    let request = client.orders().trigger_order().await
         .maker(keypair.pubkey())
         .market(ob.market_pubkey.to_pubkey().unwrap())
         .base_mint(ob.base.mint.to_pubkey().unwrap())

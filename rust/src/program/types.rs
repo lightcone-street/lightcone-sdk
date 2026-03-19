@@ -5,8 +5,10 @@
 
 use solana_pubkey::Pubkey;
 
+use crate::domain::market::Market;
 use crate::program::error::SdkError;
 use crate::program::orders::OrderPayload;
+use crate::shared::DepositSource;
 
 // ============================================================================
 // Enums
@@ -384,4 +386,58 @@ pub struct WithdrawFromGlobalParams {
     pub mint: Pubkey,
     /// Amount to withdraw
     pub amount: u64,
+}
+
+// ============================================================================
+// Unified Deposit/Withdraw Parameters
+// ============================================================================
+
+/// Unified deposit parameters — dispatches to global or market deposit
+/// based on the client's deposit source setting.
+///
+/// Prefer using the builder via `client.positions().deposit().await` which
+/// pre-seeds the client's deposit source. Direct construction is also available.
+#[derive(Debug)]
+pub struct DepositParams<'a> {
+    /// User pubkey (depositor).
+    pub user: Pubkey,
+    /// Deposit token mint pubkey.
+    pub mint: Pubkey,
+    /// Amount to deposit.
+    pub amount: u64,
+    /// Required when deposit source is `Market`. Provides the market pubkey
+    /// and outcome count.
+    pub market: Option<&'a Market>,
+    /// Per-call override. If `None`, uses the client-level deposit source.
+    pub deposit_source: Option<DepositSource>,
+}
+
+/// Market-specific context required for withdrawals when deposit source is `Market`.
+#[derive(Debug)]
+pub struct MarketWithdrawContext<'a> {
+    /// The market to withdraw from.
+    pub market: &'a Market,
+    /// Outcome index to withdraw. Use `255` for collateral.
+    pub outcome_index: u8,
+    /// `true` for conditional tokens (Token-2022), `false` for deposit tokens (SPL Token).
+    pub is_token_2022: bool,
+}
+
+/// Unified withdraw parameters — dispatches to global or market withdrawal
+/// based on the client's deposit source setting.
+///
+/// Prefer using the builder via `client.positions().withdraw().await` which
+/// pre-seeds the client's deposit source. Direct construction is also available.
+#[derive(Debug)]
+pub struct WithdrawParams<'a> {
+    /// User pubkey (must be the depositor / position owner).
+    pub user: Pubkey,
+    /// Token mint pubkey.
+    pub mint: Pubkey,
+    /// Amount to withdraw.
+    pub amount: u64,
+    /// Required when deposit source is `Market`.
+    pub market_context: Option<MarketWithdrawContext<'a>>,
+    /// Per-call override. If `None`, uses the client-level deposit source.
+    pub deposit_source: Option<DepositSource>,
 }

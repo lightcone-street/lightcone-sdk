@@ -98,5 +98,49 @@ async fn main() -> ExampleResult {
         println!("{name}: confirmed {sig}");
     }
 
+    // ── Builder API ──────────────────────────────────────────────────────
+    //
+    // The builder deposit/withdraw methods dispatch based on the client's
+    // deposit source setting (or a per-call override).
+
+    // Deposit — explicitly override to Global
+    let global_deposit_ix = client
+        .positions()
+        .deposit()
+        .await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(amount)
+        .with_global_deposit_source()
+        .build_ix()
+        .await?;
+    println!("builder global deposit ix: {} accounts", global_deposit_ix.accounts.len());
+
+    // Deposit — explicitly override to Market
+    let market_deposit_ix = client
+        .positions()
+        .deposit()
+        .await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(amount)
+        .with_market_deposit_source(&market)
+        .build_ix()
+        .await?;
+    println!("builder market deposit ix: {} accounts", market_deposit_ix.accounts.len());
+
+    // Withdraw — Global mode
+    let global_withdraw_ix = client
+        .positions()
+        .withdraw()
+        .await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(amount)
+        .with_global_deposit_source()
+        .build_ix()
+        .await?;
+    println!("builder global withdraw ix: {} accounts", global_withdraw_ix.accounts.len());
+
     Ok(())
 }
