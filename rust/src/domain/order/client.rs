@@ -184,7 +184,7 @@ pub enum PlaceResponse {
     Rejected {
         error: Option<String>,
         details: Option<String>,
-        reason: Option<String>,
+        rejection_reason: Option<String>,
         order_hash: Option<String>,
         remaining: Option<Decimal>,
         filled: Option<Decimal>,
@@ -407,12 +407,12 @@ impl<'a> Orders<'a> {
             PlaceResponse::Rejected {
                 error,
                 details,
-                reason,
+                rejection_reason,
                 order_hash,
                 remaining,
                 filled,
             } => {
-                let msg = match (error.as_deref(), details.as_deref(), reason.as_deref()) {
+                let msg = match (error.as_deref(), details.as_deref(), rejection_reason.as_deref()) {
                     (Some(e), Some(d), _) => format!("{e}: {d}"),
                     (Some(e), None, _) => e.to_string(),
                     (None, Some(d), _) => d.to_string(),
