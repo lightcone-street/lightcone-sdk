@@ -67,29 +67,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     // 2. Find a market
-    let market = client.markets().get_by_slug("some-market").await?;
+    let markets = client.get_markets().await?;
+    let market = &markets.markets[0]; //can we do this in single line?
     let orderbook = &market.orderbook_pairs[0];
 
-    // 3. Get orderbook decimals for price scaling
-    let decimals = client.orderbooks()
-        .decimals(orderbook.orderbook_id.as_str()).await?;
+    // 3. Add global deposit pool deposit example here 
+    
 
     // 4. Build, sign, and submit a limit order
-    let nonce = client.rpc().get_user_nonce(&keypair.pubkey()).await?;
+    // lets make nonce optional too and remove it from here 
+    //no need to mention these optional properties
     let request = client.orders().limit_order().await
         .maker(keypair.pubkey())
-        .market(market.pubkey.to_pubkey()?)
-        .base_mint(orderbook.base.pubkey().to_pubkey()?)
-        .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
         .bid()
         .price("0.55")
         .size("100")
-        .nonce(nonce)
-        .apply_scaling(&decimals)?
         .sign(&keypair, orderbook.orderbook_id.as_str())?;
 
     let response = client.orders().submit(&request).await?;
     println!("Order submitted: {:?}", response);
+    
+    //Add withdraw from global deposit pool here
 
     // 5. Stream real-time updates
     let mut ws = client.ws_native();
@@ -129,6 +127,7 @@ let orderbook = market
 ```
 
 ### Step 2: Deposit Collateral
+//This should be unified deposit focusing on global pool
 
 ```rust
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
@@ -142,26 +141,13 @@ let deposit_ix = client.positions().deposit().await
 ```
 
 ### Step 3: Place an Order
-
+//no need to show the optional stuff. People can check it for themselves
 ```rust
-let decimals = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
-let scales = OrderbookDecimals {
-    orderbook_id: decimals.orderbook_id,
-    base_decimals: decimals.base_decimals,
-    quote_decimals: decimals.quote_decimals,
-    price_decimals: decimals.price_decimals,
-    tick_size: orderbook.tick_size.max(0) as u64,
-};
 let request = client.orders().limit_order().await
     .maker(keypair.pubkey())
-    .market(market.pubkey.to_pubkey()?)
-    .base_mint(orderbook.base.pubkey().to_pubkey()?)
-    .quote_mint(orderbook.quote.pubkey().to_pubkey()?)
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(client.rpc().get_user_nonce(&keypair.pubkey()).await?)
-    .apply_scaling(&scales)?
     .sign(&keypair, orderbook.orderbook_id.as_str())?;
 let order = client.orders().submit(&request).await?;
 ```
@@ -203,6 +189,8 @@ let tx_hash = client.markets().merge_complete_set()
     .sign_and_submit()
     .await?;
 ```
+
+//add withdraw here
 
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
