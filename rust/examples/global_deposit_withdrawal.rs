@@ -110,7 +110,7 @@ async fn main() -> ExampleResult {
         .await?;
     println!("builder global deposit ix: {} accounts", global_deposit_ix.accounts.len());
 
-    // Deposit — explicitly override to Market
+    // Deposit — explicitly override to Market (mints conditional tokens)
     let market_deposit_ix = client
         .positions()
         .deposit()
@@ -123,7 +123,7 @@ async fn main() -> ExampleResult {
         .await?;
     println!("builder market deposit ix: {} accounts", market_deposit_ix.accounts.len());
 
-    // Withdraw — Global mode
+    // Withdraw — Global mode (global pool → wallet)
     let global_withdraw_ix = client
         .positions()
         .withdraw()
@@ -135,6 +135,19 @@ async fn main() -> ExampleResult {
         .build_ix()
         .await?;
     println!("builder global withdraw ix: {} accounts", global_withdraw_ix.accounts.len());
+
+    // Withdraw — Market mode (burns conditional tokens → wallet collateral)
+    let market_withdraw_ix = client
+        .positions()
+        .withdraw()
+        .await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(amount)
+        .with_market_deposit_source(&market)
+        .build_ix()
+        .await?;
+    println!("builder market withdraw ix: {} accounts", market_withdraw_ix.accounts.len());
 
     Ok(())
 }
