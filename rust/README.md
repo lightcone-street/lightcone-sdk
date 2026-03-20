@@ -24,14 +24,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.4.0", features = ["native"] }
+lightcone = { version = "0.4.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.4.0", features = ["wasm"] }
+lightcone = { version = "0.4.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
