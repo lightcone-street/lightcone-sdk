@@ -108,7 +108,14 @@ pub mod prelude {
     };
 
     // Position builders
-    pub use crate::domain::position::{DepositBuilder, WithdrawBuilder};
+    pub use crate::domain::position::{
+        DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
+        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
+        WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+    };
+
+    // Market builders
+    pub use crate::domain::market::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 
     // Privy RPC types
     pub use crate::privy::{

@@ -193,16 +193,15 @@ client.orders().cancel(&cancel).await?;
 ### Step 6: Exit a Position
 
 ```rust
-let mut tx = client.markets().merge_complete_set_tx(
-    MergeCompleteSetParams {
-        user: keypair.pubkey(),
-        market: market.pubkey.to_pubkey()?,
-        deposit_mint,
-        amount: 1_000_000,
-    },
-    num_outcomes,
-)?;
-tx.try_sign(&[&keypair], client.rpc().get_latest_blockhash().await?)?;
+// sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
+let tx_hash = client.markets().merge_complete_set()
+    .user(keypair.pubkey())
+    .market(market.pubkey.to_pubkey()?)
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .num_outcomes(num_outcomes)
+    .sign_and_submit()
+    .await?;
 ```
 
 ## Authentication

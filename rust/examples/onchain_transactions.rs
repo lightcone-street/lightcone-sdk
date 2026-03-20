@@ -4,7 +4,6 @@ use common::{
     deposit_mint, market, num_outcomes, parse_pubkey, rest_client, wallet,
     ExampleResult,
 };
-use lightcone::program::{MergeCompleteSetParams, MintCompleteSetParams};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
@@ -32,27 +31,23 @@ async fn main() -> ExampleResult {
     let mut transactions = vec![
         (
             "mint_complete_set",
-            client.markets().mint_complete_set_tx(
-                MintCompleteSetParams {
-                    user: keypair.pubkey(),
-                    market: market_pubkey,
-                    deposit_mint,
-                    amount,
-                },
-                num_outcomes,
-            )?,
+            client.markets().mint_complete_set()
+                .user(keypair.pubkey())
+                .market(market_pubkey)
+                .mint(deposit_mint)
+                .amount(amount)
+                .num_outcomes(num_outcomes)
+                .build_tx()?,
         ),
         (
             "merge_complete_set",
-            client.markets().merge_complete_set_tx(
-                MergeCompleteSetParams {
-                    user: keypair.pubkey(),
-                    market: market_pubkey,
-                    deposit_mint,
-                    amount,
-                },
-                num_outcomes,
-            )?,
+            client.markets().merge_complete_set()
+                .user(keypair.pubkey())
+                .market(market_pubkey)
+                .mint(deposit_mint)
+                .amount(amount)
+                .num_outcomes(num_outcomes)
+                .build_tx()?,
         ),
         (
             "increment_nonce",

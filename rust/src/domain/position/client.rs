@@ -5,7 +5,11 @@ use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
-use crate::domain::position::builders::{DepositBuilder, WithdrawBuilder};
+use crate::domain::position::builders::{
+    DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
+    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
+    WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+};
 use crate::program::types::{
     DepositParams, DepositToGlobalParams, ExtendPositionTokensParams,
     GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
@@ -322,6 +326,55 @@ impl<'a> Positions<'a> {
     pub async fn withdraw(&self) -> WithdrawBuilder<'a> {
         let deposit_source = self.client.deposit_source().await;
         WithdrawBuilder::new(self.client, deposit_source)
+    }
+
+    /// Create a redeem winnings builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn redeem_winnings(&self) -> RedeemWinningsBuilder<'a> {
+        RedeemWinningsBuilder::new(self.client)
+    }
+
+    /// Create a withdraw-from-position builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn withdraw_from_position(&self) -> WithdrawFromPositionBuilder<'a> {
+        WithdrawFromPositionBuilder::new(self.client)
+    }
+
+    /// Create an init-position-tokens builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn init_position_tokens(&self) -> InitPositionTokensBuilder<'a> {
+        InitPositionTokensBuilder::new(self.client)
+    }
+
+    /// Create an extend-position-tokens builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn extend_position_tokens(&self) -> ExtendPositionTokensBuilder<'a> {
+        ExtendPositionTokensBuilder::new(self.client)
+    }
+
+    /// Create a deposit-to-global builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn deposit_to_global(&self) -> DepositToGlobalBuilder<'a> {
+        DepositToGlobalBuilder::new(self.client)
+    }
+
+    /// Create a withdraw-from-global builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn withdraw_from_global(&self) -> WithdrawFromGlobalBuilder<'a> {
+        WithdrawFromGlobalBuilder::new(self.client)
+    }
+
+    /// Create a global-to-market deposit builder.
+    ///
+    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
+    pub fn global_to_market_deposit(&self) -> GlobalToMarketDepositBuilder<'a> {
+        GlobalToMarketDepositBuilder::new(self.client)
     }
 }
 

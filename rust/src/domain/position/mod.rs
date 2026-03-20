@@ -4,7 +4,11 @@ pub mod builders;
 pub mod client;
 pub mod wire;
 
-pub use builders::{DepositBuilder, WithdrawBuilder};
+pub use builders::{
+    DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
+    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
+    WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+};
 
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
