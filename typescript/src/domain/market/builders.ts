@@ -7,7 +7,7 @@ import {
   buildMergeCompleteSetIx,
 } from "../../program/instructions";
 
-function require<T>(value: T | undefined, field: string): T {
+function requireField<T>(value: T | undefined, field: string): T {
   if (value === undefined) {
     throw SdkError.validation(`${field} is required`);
   }
@@ -54,11 +54,11 @@ export class MintCompleteSetBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const depositMint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
-    const numOutcomes = require(this.numOutcomesValue, "num_outcomes");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildMintCompleteSetIx(
       { user, market, depositMint, amount },
@@ -68,7 +68,7 @@ export class MintCompleteSetBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -119,11 +119,11 @@ export class MergeCompleteSetBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const depositMint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
-    const numOutcomes = require(this.numOutcomesValue, "num_outcomes");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildMergeCompleteSetIx(
       { user, market, depositMint, amount },
@@ -133,7 +133,7 @@ export class MergeCompleteSetBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }

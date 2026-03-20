@@ -18,7 +18,7 @@ import type { Market } from "../market";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function require<T>(value: T | undefined, field: string): T {
+function requireField<T>(value: T | undefined, field: string): T {
   if (value === undefined) {
     throw SdkError.validation(`${field} is required`);
   }
@@ -77,9 +77,9 @@ export class DepositBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const mint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
+    const user = requireField(this.userValue, "user");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
     const source = resolveDepositSource(this.client, this.depositSourceValue);
 
     switch (source) {
@@ -102,7 +102,7 @@ export class DepositBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -165,9 +165,9 @@ export class WithdrawBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const mint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
+    const user = requireField(this.userValue, "user");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
     const source = resolveDepositSource(this.client, this.depositSourceValue);
 
     switch (source) {
@@ -190,7 +190,7 @@ export class WithdrawBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -241,11 +241,11 @@ export class RedeemWinningsBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const depositMint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
-    const winningOutcome = require(this.winningOutcomeValue, "winning_outcome");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const winningOutcome = requireField(this.winningOutcomeValue, "winning_outcome");
 
     return buildRedeemWinningsIx(
       { user, market, depositMint, amount },
@@ -255,7 +255,7 @@ export class RedeemWinningsBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -312,11 +312,11 @@ export class WithdrawFromPositionBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const mint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
-    const outcomeIndex = require(this.outcomeIndexValue, "outcome_index");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
 
     return buildWithdrawFromPositionIx(
       { user, market, mint, amount, outcomeIndex },
@@ -326,7 +326,7 @@ export class WithdrawFromPositionBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -383,12 +383,12 @@ export class InitPositionTokensBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const payer = require(this.payerValue, "payer");
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const depositMints = require(this.depositMintsValue, "deposit_mints");
-    const recentSlot = require(this.recentSlotValue, "recent_slot");
-    const numOutcomes = require(this.numOutcomesValue, "num_outcomes");
+    const payer = requireField(this.payerValue, "payer");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMints = requireField(this.depositMintsValue, "deposit_mints");
+    const recentSlot = requireField(this.recentSlotValue, "recent_slot");
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildInitPositionTokensIx(
       { payer, user, market, depositMints, recentSlot },
@@ -398,7 +398,7 @@ export class InitPositionTokensBuilder {
   }
 
   buildTx(): Transaction {
-    const payer = require(this.payerValue, "payer");
+    const payer = requireField(this.payerValue, "payer");
     const ix = this.buildIx();
     return new Transaction({ feePayer: payer }).add(ix);
   }
@@ -455,12 +455,12 @@ export class ExtendPositionTokensBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const payer = require(this.payerValue, "payer");
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const lookupTable = require(this.lookupTableValue, "lookup_table");
-    const depositMints = require(this.depositMintsValue, "deposit_mints");
-    const numOutcomes = require(this.numOutcomesValue, "num_outcomes");
+    const payer = requireField(this.payerValue, "payer");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const lookupTable = requireField(this.lookupTableValue, "lookup_table");
+    const depositMints = requireField(this.depositMintsValue, "deposit_mints");
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildExtendPositionTokensIx(
       { payer, user, market, lookupTable, depositMints },
@@ -470,7 +470,7 @@ export class ExtendPositionTokensBuilder {
   }
 
   buildTx(): Transaction {
-    const payer = require(this.payerValue, "payer");
+    const payer = requireField(this.payerValue, "payer");
     const ix = this.buildIx();
     return new Transaction({ feePayer: payer }).add(ix);
   }
@@ -509,15 +509,15 @@ export class DepositToGlobalBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const mint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
+    const user = requireField(this.userValue, "user");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
 
     return buildDepositToGlobalIx({ user, mint, amount }, this.client.programId);
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -556,15 +556,15 @@ export class WithdrawFromGlobalBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const mint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
+    const user = requireField(this.userValue, "user");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
 
     return buildWithdrawFromGlobalIx({ user, mint, amount }, this.client.programId);
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }
@@ -615,11 +615,11 @@ export class GlobalToMarketDepositBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const user = require(this.userValue, "user");
-    const market = require(this.marketValue, "market");
-    const depositMint = require(this.mintValue, "mint");
-    const amount = require(this.amountValue, "amount");
-    const numOutcomes = require(this.numOutcomesValue, "num_outcomes");
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildGlobalToMarketDepositIx(
       { user, market, depositMint, amount },
@@ -629,7 +629,7 @@ export class GlobalToMarketDepositBuilder {
   }
 
   buildTx(): Transaction {
-    const user = require(this.userValue, "user");
+    const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
     return new Transaction({ feePayer: user }).add(ix);
   }

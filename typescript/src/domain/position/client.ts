@@ -11,7 +11,6 @@ import {
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
   buildMintCompleteSetIx,
-  buildMergeCompleteSetIx,
   buildWithdrawFromGlobalIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";

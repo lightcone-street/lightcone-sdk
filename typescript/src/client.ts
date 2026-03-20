@@ -1,9 +1,7 @@
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
-import bs58 from "bs58";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
-import { requireConnection, signAndSubmitTx as signAndSubmitTxFn } from "./context";
-import { SdkError } from "./error";
+import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
 import { Admin } from "./domain/admin";
 import { Markets } from "./domain/market";
 import { Notifications } from "./domain/notification";
@@ -13,13 +11,13 @@ import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
-import { LightconeHttp, RetryPolicy } from "./http";
+import { LightconeHttp } from "./http";
 import { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
 import { Privy } from "./privy";
 import { PROGRAM_ID } from "./program/constants";
 import { Rpc } from "./rpc";
 import { DepositSource } from "./shared";
-import { isUserCancellation, type ExternalSigner, type SigningStrategy } from "./shared/signing";
+import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
 class AuthState {
