@@ -5,7 +5,6 @@ import asyncio
 from solders.pubkey import Pubkey
 
 from common import client as make_client, wallet, market, deposit_mint, num_outcomes
-from lightcone_sdk.program.types import MintCompleteSetParams, MergeCompleteSetParams
 from lightcone_sdk.rpc import require_connection
 
 
@@ -31,33 +30,32 @@ async def main():
     amount = 1_000_000
     blockhash = await client.rpc().get_latest_blockhash()
 
-    # Build instructions via domain sub-clients, wrap in transactions
-    mint_ix = client.markets().mint_complete_set_ix(
-        MintCompleteSetParams(
-            user=keypair.pubkey(),
-            market=market_pubkey,
-            deposit_mint=d_mint,
-            amount=amount,
-        ),
-        outcomes,
-    )
-
-    merge_ix = client.markets().merge_complete_set_ix(
-        MergeCompleteSetParams(
-            user=keypair.pubkey(),
-            market=market_pubkey,
-            deposit_mint=d_mint,
-            amount=amount,
-        ),
-        outcomes,
-    )
-
-    nonce_ix = client.orders().increment_nonce_ix(keypair.pubkey())
-
+    # Build transactions via fluent builders
     transactions = [
-        ("mint_complete_set", await client.rpc().build_transaction([mint_ix])),
-        ("merge_complete_set", await client.rpc().build_transaction([merge_ix])),
-        ("increment_nonce", await client.rpc().build_transaction([nonce_ix])),
+        (
+            "mint_complete_set",
+            client.markets().mint_complete_set()
+                .user(keypair.pubkey())
+                .market(market_pubkey)
+                .mint(d_mint)
+                .amount(amount)
+                .num_outcomes(outcomes)
+                .build_tx(),
+        ),
+        (
+            "merge_complete_set",
+            client.markets().merge_complete_set()
+                .user(keypair.pubkey())
+                .market(market_pubkey)
+                .mint(d_mint)
+                .amount(amount)
+                .num_outcomes(outcomes)
+                .build_tx(),
+        ),
+        (
+            "increment_nonce",
+            client.orders().increment_nonce_tx(keypair.pubkey()),
+        ),
     ]
 
     connection = require_connection(client)

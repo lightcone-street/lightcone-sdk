@@ -34,3 +34,9 @@ export {
 
 // Backward-compatible name from v1.
 export { scalePriceSizeLegacy as scalePriceSizeV1 } from "./scaling";
+
+export {
+  isUserCancellation,
+  type ExternalSigner,
+  type SigningStrategy,
+} from "./signing";

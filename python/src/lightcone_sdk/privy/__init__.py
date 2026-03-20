@@ -3,13 +3,18 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ..shared.types import DepositSource
+
 
 @dataclass
 class PrivyOrderEnvelope:
     """Wire type for the backend's Privy sign-and-send-order endpoint.
 
     Matches the backend's OrderForSigning struct.
-    Prefer using from_limit() / from_trigger() over building manually.
+
+    Prefer using the builder via ``client.privy().limit_order()`` or
+    ``client.privy().trigger_order()`` which pre-seeds the client's deposit
+    source. Direct construction and ``from_limit()``/``from_trigger()`` are also available.
     """
 
     maker: str = ""
@@ -26,6 +31,7 @@ class PrivyOrderEnvelope:
     time_in_force: Optional[str] = None
     trigger_price: Optional[float] = None
     trigger_type: Optional[str] = None
+    deposit_source: Optional[DepositSource] = None
 
     def to_dict(self) -> dict:
         d: dict = {
@@ -47,6 +53,8 @@ class PrivyOrderEnvelope:
             d["trigger_price"] = self.trigger_price
         if self.trigger_type is not None:
             d["trigger_type"] = self.trigger_type
+        if self.deposit_source is not None:
+            d["deposit_source"] = self.deposit_source.as_str()
         return d
 
 
@@ -147,6 +155,7 @@ def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
         amount_out=order.amount_out,
         expiration=order.expiration,
         orderbook_id=orderbook.orderbook_id,
+        deposit_source=envelope.get_deposit_source,
     )
 
 
@@ -163,17 +172,17 @@ def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope
     order = envelope.payload()
 
     trigger_price = None
-    tp = envelope.fields_trigger_price
+    tp = envelope.get_trigger_price
     if tp is not None and tp != 0:
         trigger_price = float(tp)
 
     trigger_type = None
-    tt = envelope.fields_trigger_type
+    tt = envelope.get_trigger_type
     if tt is not None:
         trigger_type = tt.as_wire()
 
     time_in_force = None
-    tif = envelope.fields_time_in_force
+    tif = envelope.get_time_in_force
     if tif is not None:
         time_in_force = tif.as_wire()
 
@@ -192,6 +201,7 @@ def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope
         time_in_force=time_in_force,
         trigger_price=trigger_price,
         trigger_type=trigger_type,
+        deposit_source=envelope.get_deposit_source,
     )
 
 

@@ -23,7 +23,7 @@ export * as ws from "./ws";
 export { LightconeClient, LightconeClientBuilder } from "./client";
 export { Rpc } from "./rpc";
 export type { ClientContext } from "./context";
-export { requireConnection } from "./context";
+export { requireConnection, requireSigningStrategy, resolveDepositSource, signAndSubmitTx } from "./context";
 
 // Convenience top-level type exports
 export type {

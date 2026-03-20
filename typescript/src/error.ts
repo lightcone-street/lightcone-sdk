@@ -128,7 +128,7 @@ export class AuthError extends Error {
   }
 }
 
-export type SdkErrorVariant = "Http" | "Ws" | "Auth" | "Validation" | "Serde" | "Other";
+export type SdkErrorVariant = "Http" | "Ws" | "Auth" | "Validation" | "Serde" | "MissingMarketContext" | "Signing" | "UserCancelled" | "Other";
 
 export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
@@ -168,5 +168,17 @@ export class SdkError extends Error {
 
   static validation(message: string): SdkError {
     return new SdkError("Validation", message);
+  }
+
+  static missingMarketContext(message: string): SdkError {
+    return new SdkError("MissingMarketContext", message);
+  }
+
+  static signing(message: string): SdkError {
+    return new SdkError("Signing", message);
+  }
+
+  static userCancelled(): SdkError {
+    return new SdkError("UserCancelled", "User cancelled signing");
   }
 }

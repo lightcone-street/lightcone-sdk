@@ -68,6 +68,8 @@ export type {
   CancelTriggerSuccess,
   ConditionalBalance,
   FillInfo,
+  GlobalDepositUpdate,
+  NonceUpdate,
   Order,
   OrderEvent,
   OrderStatus,
@@ -92,6 +94,21 @@ export type {
   TokenBalanceTokenType,
   DepositAssetMetadata,
   DepositTokenBalance,
+  DepositParams,
+  WithdrawParams,
+  MarketWithdrawContext,
+} from "./domain/position";
+
+export {
+  DepositBuilder,
+  WithdrawBuilder,
+  RedeemWinningsBuilder,
+  WithdrawFromPositionBuilder,
+  InitPositionTokensBuilder,
+  ExtendPositionTokensBuilder,
+  DepositToGlobalBuilder,
+  WithdrawFromGlobalBuilder,
+  GlobalToMarketDepositBuilder,
 } from "./domain/position";
 
 export type { Trade, WsTrade } from "./domain/trade";
@@ -142,6 +159,17 @@ export type {
   SignAndSendTxRequest,
   SignAndSendTxResponse,
 } from "./privy";
+
+export {
+  isUserCancellation,
+  type ExternalSigner,
+  type SigningStrategy,
+} from "./shared/signing";
+
+export {
+  MintCompleteSetBuilder,
+  MergeCompleteSetBuilder,
+} from "./domain/market";
 
 export type {
   Notification,

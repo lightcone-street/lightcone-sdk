@@ -16,6 +16,29 @@ class DeserializationError(SdkError):
     pass
 
 
+class MissingMarketContext(SdkError):
+    """Raised when Market deposit source requires market context that was not provided."""
+
+    def __init__(self, context: str = ""):
+        super().__init__(f"Missing required market context for Market deposit source: {context}")
+
+
+class SigningError(SdkError):
+    """Raised when signing fails."""
+
+    pass
+
+
+class UserCancelled(SdkError):
+    """Raised when the user cancels/rejects a wallet signing popup.
+
+    Consumers should silently ignore this error (no error toast).
+    """
+
+    def __init__(self):
+        super().__init__("User cancelled signing")
+
+
 def _require(d: dict, key: str, type_name: str = ""):
     """Extract a required field from a dict, raising DeserializationError if missing."""
     if key not in d:
@@ -200,6 +223,9 @@ class AuthError(SdkError):
 __all__ = [
     "SdkError",
     "DeserializationError",
+    "MissingMarketContext",
+    "SigningError",
+    "UserCancelled",
     "_require",
     "HttpError",
     "HttpErrorKind",

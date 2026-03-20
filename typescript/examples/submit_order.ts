@@ -1,5 +1,4 @@
 import { PublicKey } from "@solana/web3.js";
-import { LimitOrderEnvelope } from "../src/program";
 import {
   rpcClient,
   wallet,
@@ -16,7 +15,9 @@ async function main() {
   const [m, orderbook] = await marketAndOrderbook(client);
   const nonce = await freshOrderNonce(client, keypair.publicKey);
 
-  const request = LimitOrderEnvelope.new()
+  const request = client
+    .orders()
+    .limitOrder()
     .maker(keypair.publicKey)
     .market(new PublicKey(m.pubkey))
     .baseMint(new PublicKey(orderbook.base.pubkey))

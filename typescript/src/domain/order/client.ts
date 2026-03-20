@@ -1,9 +1,11 @@
 import bs58 from "bs58";
 import { Keypair, Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
-import { requireConnection } from "../../context";
+import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
+import { Privy } from "../../privy";
+import { isUserCancellation } from "../../shared/signing";
 import {
   buildCancelOrderIx,
   buildIncrementNonceIx,
@@ -19,6 +21,9 @@ import {
   signCancelOrder,
   signCancelTriggerOrder,
   signCancelAll,
+  cancelOrderMessage,
+  cancelTriggerOrderMessage,
+  cancelAllMessage,
   generateCancelAllSalt as programGenerateCancelAllSalt,
 } from "../../program/orders";
 import {
@@ -35,7 +40,8 @@ import type {
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
 } from "../../program/types";
-import type { OrderBookId, PubkeyStr } from "../../shared";
+import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "../../shared";
+import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
 import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
 
 // ─── Request types ───────────────────────────────────────────────────────────
@@ -154,6 +160,7 @@ export type PlaceResponse =
       status: "rejected";
       error?: string;
       details?: string;
+      reason?: string;
       order_hash?: string;
       remaining?: string;
       filled?: string;
@@ -240,6 +247,16 @@ export class Orders {
 
   noncePda(user: PublicKey): PublicKey {
     return getUserNoncePda(user, this.client.programId)[0];
+  }
+
+  // ── Envelope factories ────────────────────────────────────────────────
+
+  limitOrder(): LimitOrderEnvelope {
+    return LimitOrderEnvelope.new().depositSource(this.client.depositSource);
+  }
+
+  triggerOrder(): TriggerOrderEnvelope {
+    return TriggerOrderEnvelope.new().depositSource(this.client.depositSource);
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────
@@ -377,6 +394,150 @@ export class Orders {
       next_cursor: response.next_cursor ?? undefined,
       has_more: response.has_more ?? false,
     };
+  }
+
+  // ── Unified cancel (dispatches based on client signing strategy) ────
+
+  async cancelOrderSigned(
+    orderHash: string,
+    maker: PubkeyStr
+  ): Promise<CancelSuccess> {
+    const strategy = requireSigningStrategy(this.client);
+
+    switch (strategy.type) {
+      case "native": {
+        const body = cancelBodySigned(orderHash, maker, strategy.keypair);
+        return this.cancel(body);
+      }
+      case "walletAdapter": {
+        const message = cancelOrderMessage(orderHash);
+        const sigBytes = await strategy.signer
+          .signMessage(message)
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isUserCancellation(msg)) throw SdkError.userCancelled();
+            throw SdkError.signing(msg);
+          });
+        const sigBs58 = bs58.encode(sigBytes);
+        const body = cancelBodyFromBase58(orderHash, maker, sigBs58);
+        return this.cancel(body);
+      }
+      case "privy": {
+        const privy = new Privy(this.client);
+        const result = await privy.signAndCancelOrder(
+          strategy.walletId,
+          orderHash,
+          maker as string
+        );
+        if ("order_hash" in result) {
+          return { order_hash: result.order_hash, remaining: Number(result.remaining ?? 0) };
+        }
+        throw SdkError.from(new Error("Unexpected cancel response"));
+      }
+    }
+  }
+
+  async cancelAllSigned(
+    userPubkey: PubkeyStr,
+    timestamp: number,
+    salt: string,
+    orderbookId?: OrderBookId
+  ): Promise<CancelAllSuccess> {
+    const strategy = requireSigningStrategy(this.client);
+    const resolvedOrderbookId = orderbookId ?? ("" as OrderBookId);
+
+    switch (strategy.type) {
+      case "native": {
+        const body = cancelAllBodySigned(
+          userPubkey,
+          resolvedOrderbookId,
+          timestamp,
+          salt,
+          strategy.keypair
+        );
+        return this.cancelAll(body);
+      }
+      case "walletAdapter": {
+        const message = cancelAllMessage(
+          userPubkey as string,
+          resolvedOrderbookId as string,
+          timestamp,
+          salt
+        );
+        const sigBytes = await strategy.signer
+          .signMessage(new TextEncoder().encode(message))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isUserCancellation(msg)) throw SdkError.userCancelled();
+            throw SdkError.signing(msg);
+          });
+        const sigBs58 = bs58.encode(sigBytes);
+        const body = cancelAllBodyFromBase58(
+          userPubkey,
+          resolvedOrderbookId,
+          timestamp,
+          salt,
+          sigBs58
+        );
+        return this.cancelAll(body);
+      }
+      case "privy": {
+        const privy = new Privy(this.client);
+        const result = await privy.signAndCancelAllOrders(
+          strategy.walletId,
+          userPubkey as string,
+          resolvedOrderbookId as string,
+          timestamp,
+          salt
+        );
+        return {
+          cancelled_order_hashes: result.cancelled_order_hashes,
+          count: result.count,
+          user_pubkey: asPubkeyStr(result.user_pubkey),
+          orderbook_id: asOrderBookId(result.orderbook_id),
+          message: result.message,
+        };
+      }
+    }
+  }
+
+  async cancelTriggerSigned(
+    triggerOrderId: string,
+    maker: PubkeyStr
+  ): Promise<CancelTriggerSuccess> {
+    const strategy = requireSigningStrategy(this.client);
+
+    switch (strategy.type) {
+      case "native": {
+        const body = cancelTriggerBodySigned(triggerOrderId, maker, strategy.keypair);
+        return this.cancelTrigger(body);
+      }
+      case "walletAdapter": {
+        const message = cancelTriggerOrderMessage(triggerOrderId);
+        const sigBytes = await strategy.signer
+          .signMessage(message)
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isUserCancellation(msg)) throw SdkError.userCancelled();
+            throw SdkError.signing(msg);
+          });
+        const sigBs58 = bs58.encode(sigBytes);
+        const body = cancelTriggerBodyFromBase58(triggerOrderId, maker, sigBs58);
+        return this.cancelTrigger(body);
+      }
+      case "privy": {
+        const privy = new Privy(this.client);
+        const result = await privy.signAndCancelTriggerOrder(
+          strategy.walletId,
+          triggerOrderId,
+          maker as string
+        );
+        if ("trigger_order_id" in result) {
+          return { trigger_order_id: result.trigger_order_id };
+        }
+        throw SdkError.from(new Error("Unexpected cancel-trigger response"));
+      }
+    }
   }
 
   // ── On-chain transaction builders ────────────────────────────────────

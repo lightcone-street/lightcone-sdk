@@ -2,6 +2,7 @@ import Decimal from "decimal.js";
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import { display } from "../../shared/fmt/decimal";
 
+export * from "./builders";
 export * from "./client";
 export * from "./wire";
 

@@ -1,4 +1,4 @@
-"""LimitOrderEnvelope with human-readable price/size, auto-scaling, and fill tracking."""
+"""Limit order via client.orders().limit_order() with human-readable price/size, auto-scaling, and fill tracking."""
 
 import asyncio
 
@@ -10,7 +10,7 @@ from common import (
     login,
     market_and_orderbook,
 )
-from lightcone_sdk.program.envelope import LimitOrderEnvelope
+from lightcone_sdk.program.orders import generate_salt
 
 
 async def main():
@@ -28,7 +28,7 @@ async def main():
 
     # 3. Build, sign a limit order (scaling is applied automatically)
     request = (
-        LimitOrderEnvelope()
+        client.orders().limit_order()
         .maker(keypair.pubkey())
         .market(Pubkey.from_string(m.pubkey))
         .base_mint(base_mint)
@@ -37,6 +37,7 @@ async def main():
         .price("0.55")
         .size("1")
         .nonce(nonce)
+        .salt(generate_salt())
         .sign(keypair, orderbook)
     )
 

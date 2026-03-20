@@ -25,6 +25,9 @@ from .network import DEFAULT_API_URL, DEFAULT_WS_URL
 from .privy.client import Privy
 from .program.constants import PROGRAM_ID
 from .rpc import Rpc
+from .error import SdkError
+from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
+from .shared.types import DepositSource
 from .ws import WsConfig, WS_DEFAULT_CONFIG
 from .ws.client import WsClient
 
@@ -45,11 +48,17 @@ class LightconeClient:
         auth_credentials: Optional[AuthCredentials] = None,
         program_id: Optional[Pubkey] = None,
         connection: Optional[object] = None,
+        deposit_source: DepositSource = DepositSource.GLOBAL,
+        signing_strategy: Optional[SigningStrategy] = None,
+        rpc_url: Optional[str] = None,
     ):
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
         self._program_id: Pubkey = program_id or PROGRAM_ID
         self._connection = connection  # Optional[AsyncClient]
+        self._deposit_source: DepositSource = deposit_source
+        self._signing_strategy: Optional[SigningStrategy] = signing_strategy
+        self._rpc_url: Optional[str] = rpc_url
 
         # Sub-clients (all take self reference)
         self._markets = Markets(self)
@@ -76,6 +85,106 @@ class LightconeClient:
     def connection(self) -> Optional[object]:
         """Optional Solana RPC connection (AsyncClient)."""
         return self._connection
+
+    # ── Deposit source ───────────────────────────────────────────────────
+
+    @property
+    def deposit_source(self) -> DepositSource:
+        """Get the current deposit source setting."""
+        return self._deposit_source
+
+    @deposit_source.setter
+    def deposit_source(self, source: DepositSource) -> None:
+        """Update the deposit source at runtime."""
+        self._deposit_source = source
+
+    def resolve_deposit_source(
+        self, override_source: Optional[DepositSource] = None
+    ) -> DepositSource:
+        """Resolve deposit source: per-call override > client setting."""
+        return override_source if override_source is not None else self._deposit_source
+
+    # ── Signing strategy ───────────────────────────────────────────────
+
+    @property
+    def signing_strategy(self) -> Optional[SigningStrategy]:
+        """Get the current signing strategy, if set."""
+        return self._signing_strategy
+
+    @signing_strategy.setter
+    def signing_strategy(self, strategy: Optional[SigningStrategy]) -> None:
+        """Set the signing strategy at runtime."""
+        self._signing_strategy = strategy
+
+    def set_signing_strategy(self, strategy: SigningStrategy) -> None:
+        """Set the signing strategy at runtime."""
+        self._signing_strategy = strategy
+
+    def clear_signing_strategy(self) -> None:
+        """Clear the signing strategy (e.g. on logout)."""
+        self._signing_strategy = None
+
+    def _require_signing_strategy(self) -> SigningStrategy:
+        """Get the signing strategy or raise if not set."""
+        if self._signing_strategy is None:
+            raise SdkError("signing strategy is not set on the client")
+        return self._signing_strategy
+
+    async def sign_and_submit_tx(self, tx: object) -> str:
+        """Sign and submit a transaction using the client's signing strategy.
+
+        - **Native**: signs locally with keypair, submits via RPC
+        - **WalletAdapter**: signs via external signer, submits via RPC
+        - **Privy**: serializes unsigned tx to base64, sends to backend
+
+        Args:
+            tx: A ``solders.transaction.Transaction`` instance.
+
+        Returns:
+            Transaction signature string.
+        """
+        strategy = self._require_signing_strategy()
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            from solders.keypair import Keypair as _Keypair
+            keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
+            blockhash = await self.rpc().get_latest_blockhash()
+            tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
+            response = await self._connection.send_raw_transaction(bytes(tx))  # type: ignore[union-attr]
+            return str(response.value)
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
+            import base64 as _b64
+            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            signed_bytes = await signer.sign_transaction(tx_bytes)
+            base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
+            # Submit via RPC
+            if self._rpc_url is not None:
+                import aiohttp
+                body = {
+                    "jsonrpc": "2.0", "id": 1,
+                    "method": "sendTransaction",
+                    "params": [base64_tx, {"encoding": "base64", "preflightCommitment": "confirmed"}],
+                }
+                async with aiohttp.ClientSession() as session:
+                    async with session.post(self._rpc_url, json=body) as resp:
+                        data = await resp.json()
+                if "error" in data:
+                    raise SdkError(f"RPC error: {data['error']}")
+                return data["result"]
+            raise SdkError("rpc_url is required for WalletAdapter signing")
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            import base64 as _b64
+            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
+            result = await self.privy().sign_and_send_tx(
+                strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
+            )
+            return result.hash
+
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     # ── Sub-client accessors ─────────────────────────────────────────────
 
@@ -147,6 +256,8 @@ class LightconeClientBuilder:
         self._ws_config: Optional[WsConfig] = None
         self._timeout: int = 30
         self._program_id: Optional[Pubkey] = None
+        self._deposit_source: DepositSource = DepositSource.GLOBAL
+        self._signing_strategy: Optional[SigningStrategy] = None
         self._rpc_url: Optional[str] = None
         self._connection: Optional[object] = None
 
@@ -175,8 +286,31 @@ class LightconeClientBuilder:
         self._program_id = pid
         return self
 
+    def deposit_source(self, source: DepositSource) -> "LightconeClientBuilder":
+        """Set the default deposit source for orders, deposits, and withdrawals.
+
+        Defaults to ``DepositSource.GLOBAL``. Can be overridden per-call.
+        """
+        self._deposit_source = source
+        return self
+
+    def native_signer(self, keypair: object) -> "LightconeClientBuilder":
+        """Set a native keypair for signing orders, cancels, and transactions."""
+        self._signing_strategy = SigningStrategy.native(keypair)
+        return self
+
+    def external_signer(self, signer: ExternalSigner) -> "LightconeClientBuilder":
+        """Set an external signer for browser wallet adapters."""
+        self._signing_strategy = SigningStrategy.wallet_adapter(signer)
+        return self
+
+    def privy_wallet_id(self, wallet_id: str) -> "LightconeClientBuilder":
+        """Set a Privy embedded wallet ID for signing."""
+        self._signing_strategy = SigningStrategy.privy(wallet_id)
+        return self
+
     def rpc_url(self, url: str) -> "LightconeClientBuilder":
-        """Set the Solana RPC URL for on-chain reads and transaction building."""
+        """Set the Solana RPC URL for blockhash fetching, transaction submission, and on-chain reads."""
         self._rpc_url = url
         return self
 
@@ -213,6 +347,9 @@ class LightconeClientBuilder:
             auth_credentials=self._auth_credentials,
             program_id=self._program_id,
             connection=connection,
+            deposit_source=self._deposit_source,
+            signing_strategy=self._signing_strategy,
+            rpc_url=self._rpc_url,
         )
 
 

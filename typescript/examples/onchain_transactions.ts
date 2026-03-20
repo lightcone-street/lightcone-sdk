@@ -25,35 +25,33 @@ async function main() {
 
   const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
 
-  const mintIx = client.markets().mintCompleteSetIx(
-    {
-      user: keypair.publicKey,
-      market: marketPubkey,
-      depositMint: dMint,
-      amount: 1_000_000n,
-    },
-    outcomes
-  );
-
-  const mergeIx = client.markets().mergeCompleteSetIx(
-    {
-      user: keypair.publicKey,
-      market: marketPubkey,
-      depositMint: dMint,
-      amount: 1_000_000n,
-    },
-    outcomes
-  );
-
-  const nonceIx = client.orders().incrementNonceIx(keypair.publicKey);
-
   const transactions: Array<[string, Transaction]> = [
-    ["mint_complete_set", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(mintIx)],
-    ["merge_complete_set", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(mergeIx)],
-    ["increment_nonce", new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(nonceIx)],
+    [
+      "mint_complete_set",
+      client.markets().mintCompleteSet()
+        .user(keypair.publicKey)
+        .market(marketPubkey)
+        .mint(dMint)
+        .amount(1_000_000n)
+        .numOutcomes(outcomes)
+        .buildTx(),
+    ],
+    [
+      "merge_complete_set",
+      client.markets().mergeCompleteSet()
+        .user(keypair.publicKey)
+        .market(marketPubkey)
+        .mint(dMint)
+        .amount(1_000_000n)
+        .numOutcomes(outcomes)
+        .buildTx(),
+    ],
+    ["increment_nonce", client.orders().incrementNonceTx(keypair.publicKey)],
   ];
 
   for (const [name, tx] of transactions) {
+    tx.recentBlockhash = blockhash;
+    tx.lastValidBlockHeight = lastValidBlockHeight;
     tx.sign(keypair);
     describeTx(name, tx);
     const signature = await connection.sendRawTransaction(tx.serialize());

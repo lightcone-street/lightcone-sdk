@@ -7,6 +7,8 @@ from typing import Optional
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from ..shared.types import DepositSource
+
 
 class MarketStatus(IntEnum):
     """Status of a market."""
@@ -392,3 +394,49 @@ class BuildResult:
 
     transaction: Transaction
     signers: list[Pubkey]
+
+
+# ============================================================================
+# Unified Deposit/Withdraw Parameters
+# ============================================================================
+
+
+@dataclass
+class DepositParams:
+    """Unified deposit parameters — dispatches to global or market deposit
+    based on the client's deposit source setting.
+
+    Prefer using the builder via ``client.positions().deposit()`` which
+    pre-seeds the client's deposit source. Direct construction is also available.
+    """
+
+    user: Pubkey
+    mint: Pubkey
+    amount: int
+    market: object = None  # Optional domain Market (has .pubkey str, .outcomes list)
+    deposit_source: Optional[DepositSource] = None
+
+
+@dataclass
+class MarketWithdrawContext:
+    """Market-specific context required for withdrawals when deposit source is Market."""
+
+    market: object  # domain Market (has .pubkey str, .outcomes list)
+    outcome_index: int
+    is_token_2022: bool = False
+
+
+@dataclass
+class WithdrawParams:
+    """Unified withdraw parameters — dispatches to global or market withdrawal
+    based on the client's deposit source setting.
+
+    Prefer using the builder via ``client.positions().withdraw()`` which
+    pre-seeds the client's deposit source. Direct construction is also available.
+    """
+
+    user: Pubkey
+    mint: Pubkey
+    amount: int
+    market_context: Optional[MarketWithdrawContext] = None
+    deposit_source: Optional[DepositSource] = None

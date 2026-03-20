@@ -1,6 +1,7 @@
 import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
+import { MintCompleteSetBuilder, MergeCompleteSetBuilder } from "./builders";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
 import {
@@ -156,6 +157,16 @@ export class Markets {
   ): Transaction {
     const ix = this.mergeCompleteSetIx(params, numOutcomes);
     return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  // ── Builder factories ──────────────────────────────────────────────
+
+  mintCompleteSet(): MintCompleteSetBuilder {
+    return new MintCompleteSetBuilder(this.client);
+  }
+
+  mergeCompleteSet(): MergeCompleteSetBuilder {
+    return new MergeCompleteSetBuilder(this.client);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

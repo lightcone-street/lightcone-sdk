@@ -45,12 +45,21 @@ from .shared import (
 from .error import (
     SdkError,
     DeserializationError,
+    MissingMarketContext,
+    SigningError,
+    UserCancelled,
     HttpError,
     HttpErrorKind,
     WsError,
     WsErrorKind,
     AuthError,
     AuthErrorKind,
+)
+
+from .shared.signing import (
+    ExternalSigner,
+    SigningStrategy,
+    SigningStrategyKind,
 )
 
 from .network import DEFAULT_API_URL, DEFAULT_WS_URL
@@ -186,7 +195,9 @@ from .program import (
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
     DepositAndSwapParams,
+    DepositParams,
     ExtendPositionTokensParams,
+    MarketWithdrawContext,
     # Constants
     PROGRAM_ID,
     ALT_PROGRAM_ID,
@@ -306,6 +317,7 @@ from .program import (
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
     build_extend_position_tokens_instruction,
+    WithdrawParams,
     # Envelope & Builder
     LimitOrderEnvelope,
     TriggerOrderEnvelope,
@@ -367,6 +379,9 @@ __all__ = [
     "to_decimal_value",
     # Errors
     "SdkError",
+    "MissingMarketContext",
+    "SigningError",
+    "UserCancelled",
     "HttpError",
     "HttpErrorKind",
     "WsError",
@@ -388,6 +403,10 @@ __all__ = [
     "generate_signin_message",
     "Auth",
     "sign_login_message",
+    # Signing
+    "ExternalSigner",
+    "SigningStrategy",
+    "SigningStrategyKind",
     # Privy
     "PrivyOrderEnvelope",
     "SignAndSendTxRequest",
@@ -469,7 +488,9 @@ __all__ = [
     "GlobalToMarketDepositParams",
     "InitPositionTokensParams",
     "DepositAndSwapParams",
+    "DepositParams",
     "ExtendPositionTokensParams",
+    "MarketWithdrawContext",
     # Program - Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -589,6 +610,7 @@ __all__ = [
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
+    "WithdrawParams",
     # Program - Envelope & Builder
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",

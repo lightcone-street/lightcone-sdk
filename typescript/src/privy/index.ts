@@ -129,15 +129,15 @@ export function privyOrderFromLimitEnvelope(
   envelope: LimitOrderEnvelope,
   orderbookId: string
 ): PrivyOrderEnvelope {
-  const maker = requireDefined(envelope.fieldsMaker(), "maker");
-  const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
-  const salt = requireDefined(envelope.fieldsSalt(), "salt");
-  const market = requireDefined(envelope.fieldsMarket(), "market");
-  const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
-  const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
-  const side = requireDefined(envelope.fieldsSide(), "side");
-  const amountIn = requireDefined(envelope.fieldsAmountIn(), "amount_in");
-  const amountOut = requireDefined(envelope.fieldsAmountOut(), "amount_out");
+  const maker = requireDefined(envelope.getMaker(), "maker");
+  const nonce = requireDefined(envelope.getNonce(), "nonce");
+  const salt = requireDefined(envelope.getSalt(), "salt");
+  const market = requireDefined(envelope.getMarket(), "market");
+  const baseMint = requireDefined(envelope.getBaseMint(), "base_mint");
+  const quoteMint = requireDefined(envelope.getQuoteMint(), "quote_mint");
+  const side = requireDefined(envelope.getSide(), "side");
+  const amountIn = requireDefined(envelope.getAmountIn(), "amount_in");
+  const amountOut = requireDefined(envelope.getAmountOut(), "amount_out");
 
   return {
     maker: maker.toBase58(),
@@ -149,9 +149,9 @@ export function privyOrderFromLimitEnvelope(
     side,
     amount_in: bigintToSafeNumber(amountIn, "amount_in"),
     amount_out: bigintToSafeNumber(amountOut, "amount_out"),
-    expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
+    expiration: bigintToSafeNumber(envelope.getExpiration(), "expiration"),
     orderbook_id: orderbookId,
-    deposit_source: envelope.fieldsDepositSource(),
+    deposit_source: envelope.getDepositSource(),
   };
 }
 
@@ -159,15 +159,15 @@ export function privyOrderFromTriggerEnvelope(
   envelope: TriggerOrderEnvelope,
   orderbookId: string
 ): PrivyOrderEnvelope {
-  const maker = requireDefined(envelope.fieldsMaker(), "maker");
-  const nonce = requireDefined(envelope.fieldsNonce(), "nonce");
-  const salt = requireDefined(envelope.fieldsSalt(), "salt");
-  const market = requireDefined(envelope.fieldsMarket(), "market");
-  const baseMint = requireDefined(envelope.fieldsBaseMint(), "base_mint");
-  const quoteMint = requireDefined(envelope.fieldsQuoteMint(), "quote_mint");
-  const side = requireDefined(envelope.fieldsSide(), "side");
-  const amountIn = requireDefined(envelope.fieldsAmountIn(), "amount_in");
-  const amountOut = requireDefined(envelope.fieldsAmountOut(), "amount_out");
+  const maker = requireDefined(envelope.getMaker(), "maker");
+  const nonce = requireDefined(envelope.getNonce(), "nonce");
+  const salt = requireDefined(envelope.getSalt(), "salt");
+  const market = requireDefined(envelope.getMarket(), "market");
+  const baseMint = requireDefined(envelope.getBaseMint(), "base_mint");
+  const quoteMint = requireDefined(envelope.getQuoteMint(), "quote_mint");
+  const side = requireDefined(envelope.getSide(), "side");
+  const amountIn = requireDefined(envelope.getAmountIn(), "amount_in");
+  const amountOut = requireDefined(envelope.getAmountOut(), "amount_out");
 
   return {
     maker: maker.toBase58(),
@@ -179,11 +179,11 @@ export function privyOrderFromTriggerEnvelope(
     side,
     amount_in: bigintToSafeNumber(amountIn, "amount_in"),
     amount_out: bigintToSafeNumber(amountOut, "amount_out"),
-    expiration: bigintToSafeNumber(envelope.fieldsExpiration(), "expiration"),
+    expiration: bigintToSafeNumber(envelope.getExpiration(), "expiration"),
     orderbook_id: orderbookId,
-    tif: envelope.fieldsTimeInForce(),
-    trigger_price: envelope.fieldsTriggerPrice(),
-    trigger_type: envelope.fieldsTriggerType(),
-    deposit_source: envelope.fieldsDepositSource(),
+    tif: envelope.getTimeInForce(),
+    trigger_price: envelope.getTriggerPrice(),
+    trigger_type: envelope.getTriggerType(),
+    deposit_source: envelope.getDepositSource(),
   };
 }
