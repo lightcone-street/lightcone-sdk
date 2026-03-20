@@ -1,7 +1,16 @@
 import Decimal from "decimal.js";
 import { Keypair, PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
+import type { ClientContext } from "../context";
+import { requireSigningStrategy } from "../context";
+import { SdkError } from "../error";
+import { RetryPolicy } from "../http";
+import {
+  privyOrderFromLimitEnvelope,
+  privyOrderFromTriggerEnvelope,
+} from "../privy";
 import { alignPriceToTick, scalePriceSize } from "../shared/scaling";
+import { isUserCancellation } from "../shared/signing";
 import { orderbookDecimals, type OrderBookPair } from "../domain/orderbook";
 import type {
   DepositSource,
@@ -9,9 +18,12 @@ import type {
   TimeInForce,
   TriggerType,
 } from "../shared";
+import type { SubmitOrderResponse } from "../domain/order/client";
+import type { TriggerOrderResponse } from "../domain/order/client";
 import { ProgramSdkError } from "./error";
 import {
   generateSalt,
+  hashOrderHex,
   signOrder,
   signOrderFull,
   toSubmitRequest,
@@ -172,47 +184,47 @@ class BaseEnvelope {
     return toUnsignedOrder(this.fields);
   }
 
-  fieldsNonce(): number | undefined {
+  getNonce(): number | undefined {
     return this.fields.nonce;
   }
 
-  fieldsSalt(): bigint | undefined {
+  getSalt(): bigint | undefined {
     return this.fields.salt;
   }
 
-  fieldsMaker(): PublicKey | undefined {
+  getMaker(): PublicKey | undefined {
     return this.fields.maker;
   }
 
-  fieldsMarket(): PublicKey | undefined {
+  getMarket(): PublicKey | undefined {
     return this.fields.market;
   }
 
-  fieldsBaseMint(): PublicKey | undefined {
+  getBaseMint(): PublicKey | undefined {
     return this.fields.baseMint;
   }
 
-  fieldsQuoteMint(): PublicKey | undefined {
+  getQuoteMint(): PublicKey | undefined {
     return this.fields.quoteMint;
   }
 
-  fieldsSide(): OrderSide | undefined {
+  getSide(): OrderSide | undefined {
     return this.fields.side;
   }
 
-  fieldsAmountIn(): bigint | undefined {
+  getAmountIn(): bigint | undefined {
     return this.fields.amountIn;
   }
 
-  fieldsAmountOut(): bigint | undefined {
+  getAmountOut(): bigint | undefined {
     return this.fields.amountOut;
   }
 
-  fieldsExpiration(): bigint {
+  getExpiration(): bigint {
     return this.fields.expiration;
   }
 
-  fieldsDepositSource(): DepositSource | undefined {
+  getDepositSource(): DepositSource | undefined {
     return this.fields.depositSource;
   }
 
@@ -269,7 +281,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     return this;
   }
 
-  fieldsTimeInForce(): TimeInForce | undefined {
+  getTimeInForce(): TimeInForce | undefined {
     return this.timeInForceValue;
   }
 
@@ -278,7 +290,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     const signed = signOrderFull(this.payload(), keypair);
     return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
-      depositSource: this.fieldsDepositSource(),
+      depositSource: this.getDepositSource(),
     });
   }
 
@@ -288,6 +300,49 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
     });
+  }
+
+  async submit(
+    client: ClientContext,
+    orderbook: OrderBookPair
+  ): Promise<SubmitOrderResponse> {
+    const strategy = requireSigningStrategy(client);
+    this.autoScale(orderbook);
+
+    switch (strategy.type) {
+      case "native": {
+        const request = this.sign(strategy.keypair, orderbook);
+        const url = `${client.http.baseUrl()}/api/orders/submit`;
+        return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
+          url,
+          request,
+          RetryPolicy.None
+        );
+      }
+      case "walletAdapter": {
+        const unsigned = this.payload();
+        const hash = hashOrderHex({ ...unsigned, signature: Buffer.alloc(64) });
+        const sigBytes = await strategy.signer
+          .signMessage(new TextEncoder().encode(hash))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isUserCancellation(msg)) throw SdkError.userCancelled();
+            throw SdkError.signing(msg);
+          });
+        const request = this.finalize(bs58.encode(sigBytes), orderbook);
+        const url = `${client.http.baseUrl()}/api/orders/submit`;
+        return client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
+          url,
+          request,
+          RetryPolicy.None
+        );
+      }
+      case "privy": {
+        const envelope = privyOrderFromLimitEnvelope(this, orderbook.orderbookId);
+        const url = `${client.http.baseUrl()}/api/privy/sign_and_send_order`;
+        return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
+      }
+    }
   }
 }
 
@@ -347,15 +402,15 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     return this;
   }
 
-  fieldsTimeInForce(): TimeInForce | undefined {
+  getTimeInForce(): TimeInForce | undefined {
     return this.timeInForceValue;
   }
 
-  fieldsTriggerPrice(): number | undefined {
+  getTriggerPrice(): number | undefined {
     return this.triggerPriceValue;
   }
 
-  fieldsTriggerType(): TriggerType | undefined {
+  getTriggerType(): TriggerType | undefined {
     return this.triggerTypeValue;
   }
 
@@ -367,7 +422,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
       timeInForce: this.timeInForceValue,
       triggerPrice: this.triggerPriceValue,
       triggerType: this.triggerTypeValue,
-      depositSource: this.fieldsDepositSource(),
+      depositSource: this.getDepositSource(),
     });
   }
 
@@ -380,6 +435,50 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
       triggerPrice: this.triggerPriceValue,
       triggerType: this.triggerTypeValue,
     });
+  }
+
+  async submit(
+    client: ClientContext,
+    orderbook: OrderBookPair
+  ): Promise<TriggerOrderResponse> {
+    const strategy = requireSigningStrategy(client);
+    this.requireTriggerFields();
+    this.autoScale(orderbook);
+
+    switch (strategy.type) {
+      case "native": {
+        const request = this.sign(strategy.keypair, orderbook);
+        const url = `${client.http.baseUrl()}/api/orders/submit`;
+        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
+          url,
+          request,
+          RetryPolicy.None
+        );
+      }
+      case "walletAdapter": {
+        const unsigned = this.payload();
+        const hash = hashOrderHex({ ...unsigned, signature: Buffer.alloc(64) });
+        const sigBytes = await strategy.signer
+          .signMessage(new TextEncoder().encode(hash))
+          .catch((err: unknown) => {
+            const msg = err instanceof Error ? err.message : String(err);
+            if (isUserCancellation(msg)) throw SdkError.userCancelled();
+            throw SdkError.signing(msg);
+          });
+        const request = this.finalize(bs58.encode(sigBytes), orderbook);
+        const url = `${client.http.baseUrl()}/api/orders/submit`;
+        return client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
+          url,
+          request,
+          RetryPolicy.None
+        );
+      }
+      case "privy": {
+        const envelope = privyOrderFromTriggerEnvelope(this, orderbook.orderbookId);
+        const url = `${client.http.baseUrl()}/api/privy/sign_and_send_order`;
+        return client.http.post(url, { wallet_id: strategy.walletId, order: envelope }, RetryPolicy.None);
+      }
+    }
   }
 
   private requireTriggerFields(): void {

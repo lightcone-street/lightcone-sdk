@@ -94,6 +94,17 @@ class TokenBalanceComputedBase:
     price: str = "0"
 
 
+from .builders import (  # noqa: E402
+    DepositBuilder,
+    DepositToGlobalBuilder,
+    ExtendPositionTokensBuilder,
+    GlobalToMarketDepositBuilder,
+    InitPositionTokensBuilder,
+    RedeemWinningsBuilder,
+    WithdrawBuilder,
+    WithdrawFromGlobalBuilder,
+    WithdrawFromPositionBuilder,
+)
 from .wire import (  # noqa: E402
     GlobalDeposit,
     MarketPositionsResponseWire as MarketPositionsResponse,
@@ -102,6 +113,15 @@ from .wire import (  # noqa: E402
 
 
 __all__ = [
+    "DepositBuilder",
+    "DepositToGlobalBuilder",
+    "ExtendPositionTokensBuilder",
+    "GlobalToMarketDepositBuilder",
+    "InitPositionTokensBuilder",
+    "RedeemWinningsBuilder",
+    "WithdrawBuilder",
+    "WithdrawFromGlobalBuilder",
+    "WithdrawFromPositionBuilder",
     "DepositAssetType",
     "ConditionalTokenType",
     "TokenBalanceTokenType",

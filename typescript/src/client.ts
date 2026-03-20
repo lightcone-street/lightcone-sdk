@@ -1,6 +1,9 @@
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import bs58 from "bs58";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
+import { requireConnection, signAndSubmitTx as signAndSubmitTxFn } from "./context";
+import { SdkError } from "./error";
 import { Admin } from "./domain/admin";
 import { Markets } from "./domain/market";
 import { Notifications } from "./domain/notification";
@@ -10,11 +13,13 @@ import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
-import { LightconeHttp } from "./http";
+import { LightconeHttp, RetryPolicy } from "./http";
 import { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
 import { Privy } from "./privy";
 import { PROGRAM_ID } from "./program/constants";
 import { Rpc } from "./rpc";
+import { DepositSource } from "./shared";
+import { isUserCancellation, type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
 class AuthState {
@@ -41,6 +46,8 @@ export class LightconeClient implements ClientContext {
   readonly http: LightconeHttp;
   readonly programId: PublicKey;
   readonly connection?: Connection;
+  private depositSourceValue: DepositSource;
+  private signingStrategyValue?: SigningStrategy;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
 
@@ -49,16 +56,50 @@ export class LightconeClient implements ClientContext {
     wsConfig: WsConfig;
     programId?: PublicKey;
     connection?: Connection;
+    depositSource?: DepositSource;
+    signingStrategy?: SigningStrategy;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
   }) {
     this.http = params.http;
     this.programId = params.programId ?? PROGRAM_ID;
     this.connection = params.connection;
+    this.depositSourceValue = params.depositSource ?? DepositSource.Global;
+    this.signingStrategyValue = params.signingStrategy;
     this.wsConfigValue = params.wsConfig;
     this.authStateStore =
       params.authState ??
       new AuthState(params.authCredentials);
+  }
+
+  // ── Deposit source ──────────────────────────────────────────────────
+
+  get depositSource(): DepositSource {
+    return this.depositSourceValue;
+  }
+
+  setDepositSource(source: DepositSource): void {
+    this.depositSourceValue = source;
+  }
+
+  // ── Signing strategy ────────────────────────────────────────────────
+
+  get signingStrategy(): SigningStrategy | undefined {
+    return this.signingStrategyValue;
+  }
+
+  setSigningStrategy(strategy: SigningStrategy): void {
+    this.signingStrategyValue = strategy;
+  }
+
+  clearSigningStrategy(): void {
+    this.signingStrategyValue = undefined;
+  }
+
+  // ── Transaction signing + submission ────────────────────────────────
+
+  async signAndSubmitTx(tx: Transaction): Promise<string> {
+    return signAndSubmitTxFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {
@@ -134,6 +175,8 @@ export class LightconeClient implements ClientContext {
       connection: this.connection
         ? new Connection(this.connection.rpcEndpoint)
         : undefined,
+      depositSource: this.depositSourceValue,
+      signingStrategy: this.signingStrategyValue,
       authState: this.authStateStore,
     });
   }
@@ -144,6 +187,8 @@ export class LightconeClientBuilder {
   private wsUrlValue: string = DEFAULT_WS_URL;
   private authCredentials?: AuthCredentials;
   private programIdValue: PublicKey = PROGRAM_ID;
+  private depositSourceValue: DepositSource = DepositSource.Global;
+  private signingStrategyValue?: SigningStrategy;
   private rpcUrlValue?: string;
 
   baseUrl(url: string): LightconeClientBuilder {
@@ -178,6 +223,26 @@ export class LightconeClientBuilder {
     return this;
   }
 
+  depositSource(source: DepositSource): LightconeClientBuilder {
+    this.depositSourceValue = source;
+    return this;
+  }
+
+  nativeSigner(keypair: Keypair): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "native", keypair };
+    return this;
+  }
+
+  externalSigner(signer: ExternalSigner): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "walletAdapter", signer };
+    return this;
+  }
+
+  privyWalletId(walletId: string): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "privy", walletId };
+    return this;
+  }
+
   rpcUrl(url: string): LightconeClientBuilder {
     this.rpcUrlValue = url;
     return this;
@@ -195,6 +260,8 @@ export class LightconeClientBuilder {
         pongTimeoutMs: 1_000,
       },
       programId: this.programIdValue,
+      depositSource: this.depositSourceValue,
+      signingStrategy: this.signingStrategyValue,
       connection: this.rpcUrlValue
         ? new Connection(this.rpcUrlValue)
         : undefined,

@@ -135,6 +135,18 @@ class Markets:
             if result.market_status in {"Active", "Resolved"}
         ]
 
+    # ── Fluent builders ────────────────────────────────────────────────────
+
+    def mint_complete_set(self):
+        """Create a fluent builder for minting a complete set of outcome tokens."""
+        from .builders import MintCompleteSetBuilder
+        return MintCompleteSetBuilder(self._client)
+
+    def merge_complete_set(self):
+        """Create a fluent builder for merging a complete set of outcome tokens."""
+        from .builders import MergeCompleteSetBuilder
+        return MergeCompleteSetBuilder(self._client)
+
     # ── On-chain instruction builders ────────────────────────────────────
 
     def mint_complete_set_ix(

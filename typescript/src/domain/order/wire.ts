@@ -30,6 +30,18 @@ export interface GlobalDepositBalance {
   balance: string;
 }
 
+export interface GlobalDepositUpdate {
+  mint: PubkeyStr;
+  balance: string;
+  timestamp: string;
+}
+
+export interface NonceUpdate {
+  user_pubkey: PubkeyStr;
+  new_nonce: number;
+  timestamp: string;
+}
+
 export interface UserOrderUpdateBalance {
   outcomes: ConditionalBalance[];
 }
@@ -92,6 +104,7 @@ export interface UserSnapshot {
   balances: Record<string, UserSnapshotBalance>;
   global_deposits: GlobalDepositBalance[];
   notifications: Notification[];
+  nonce?: number;
 }
 
 export interface TriggerOrderUpdate {
@@ -130,6 +143,8 @@ export type UserUpdate =
   | ({ event_type: "snapshot" } & UserSnapshot)
   | ({ event_type: "order" } & OrderEvent)
   | ({ event_type: "balance_update" } & UserBalanceUpdate)
+  | ({ event_type: "global_deposit_update" } & GlobalDepositUpdate)
+  | ({ event_type: "nonce_update" } & NonceUpdate)
   | ({ event_type: "notification" } & NotificationUpdate);
 
 export type AuthUpdate =

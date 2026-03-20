@@ -29,13 +29,14 @@ npm install @lightconexyz/lightcone-sdk
 import { Keypair, PublicKey } from "@solana/web3.js";
 import {
   LightconeClient,
-  LimitOrderEnvelope,
+  DepositSource,
   auth,
 } from "@lightconexyz/lightcone-sdk";
 
 async function main() {
   const client = LightconeClient.builder()
     .rpcUrl("https://api.devnet.solana.com")
+    .depositSource(DepositSource.Market)
     .build();
   const keypair = Keypair.generate();
 
@@ -58,7 +59,7 @@ async function main() {
   // 3. Build, sign, and submit a limit order
   //    Decimals are derived automatically from the orderbook's token metadata.
   const nonce = await client.orders().currentNonce(keypair.publicKey);
-  const request = LimitOrderEnvelope.new()
+  const request = client.orders().limitOrder()
     .maker(keypair.publicKey)
     .market(new PublicKey(market.pubkey))
     .baseMint(new PublicKey(orderbook.base.pubkey))
@@ -87,7 +88,7 @@ main().catch(console.error);
 import * as fs from "fs";
 import * as path from "path";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { LightconeClient } from "@lightconexyz/lightcone-sdk";
+import { LightconeClient, DepositSource } from "@lightconexyz/lightcone-sdk";
 
 function readKeypairFile(filePath: string): Keypair {
   const resolved = filePath.startsWith("~")
@@ -99,6 +100,7 @@ function readKeypairFile(filePath: string): Keypair {
 
 const client = LightconeClient.builder()
   .rpcUrl("https://api.devnet.solana.com")
+  .depositSource(DepositSource.Market)
   .build();
 const keypair = readKeypairFile("~/.config/solana/id.json");
 ```
@@ -115,32 +117,20 @@ const orderbook =
 ### Step 2: Deposit Collateral
 
 ```typescript
-import { Transaction } from "@solana/web3.js";
-
-const marketPubkey = new PublicKey(market.pubkey);
 const depositMint = new PublicKey(market.depositAssets[0].pubkey);
 const numOutcomes = market.outcomes.length;
-const mintIx = client.markets().mintCompleteSetIx(
-  {
-    user: keypair.publicKey,
-    market: marketPubkey,
-    depositMint,
-    amount: 1_000_000n,
-  },
-  numOutcomes
-);
-const tx = new Transaction().add(mintIx);
-tx.feePayer = keypair.publicKey;
-tx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
-tx.sign(keypair);
+const depositIx = client.positions().deposit()
+  .user(keypair.publicKey)
+  .mint(depositMint)
+  .amount(1_000_000n)
+  .market(market)
+  .buildIx();
 ```
 
 ### Step 3: Place an Order
 
 ```typescript
-import { LimitOrderEnvelope } from "@lightconexyz/lightcone-sdk";
-
-const request = LimitOrderEnvelope.new()
+const request = client.orders().limitOrder()
   .maker(keypair.publicKey)
   .market(new PublicKey(market.pubkey))
   .baseMint(new PublicKey(orderbook.base.pubkey))
@@ -186,19 +176,14 @@ await client.orders().cancel({
 ### Step 6: Exit a Position
 
 ```typescript
-const mergeIx = client.markets().mergeCompleteSetIx(
-  {
-    user: keypair.publicKey,
-    market: new PublicKey(market.pubkey),
-    depositMint,
-    amount: 1_000_000n,
-  },
-  numOutcomes
-);
-const mergeTx = new Transaction().add(mergeIx);
-mergeTx.feePayer = keypair.publicKey;
-mergeTx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
-mergeTx.sign(keypair);
+// signAndSubmit builds the tx, signs it using the client's signing strategy, and submits
+const txHash = await client.markets().mergeCompleteSet()
+  .user(keypair.publicKey)
+  .market(new PublicKey(market.pubkey))
+  .mint(depositMint)
+  .amount(1_000_000n)
+  .numOutcomes(numOutcomes)
+  .signAndSubmit();
 ```
 
 ## Authentication
@@ -227,7 +212,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Set environment var
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.ts) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.ts) | Limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking |
 
 ### Cancelling Orders
 
@@ -242,7 +227,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Set environment var
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit`](examples/global_deposit.ts) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
 
 ### WebSocket Streaming
 

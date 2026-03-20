@@ -32,10 +32,7 @@ import asyncio
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from lightcone_sdk import (
-    LightconeClientBuilder,
-    LimitOrderEnvelope,
-)
+from lightcone_sdk import LightconeClientBuilder
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.ws.subscriptions import BookUpdateParams
 
@@ -63,7 +60,7 @@ async def main():
 
     # 3. Build, sign, and submit a limit order (scaling is automatic)
     request = (
-        LimitOrderEnvelope()
+        client.orders().limit_order()
         .maker(keypair.pubkey())
         .market(Pubkey.from_string(market.pubkey))
         .base_mint(Pubkey.from_string(orderbook.base.mint))
@@ -124,31 +121,20 @@ orderbook = next(
 ### Step 2: Deposit Collateral
 
 ```python
-from lightcone_sdk import MintCompleteSetParams
-
-market_pubkey = Pubkey.from_string(market.pubkey)
 deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
-num_outcomes = len(market.outcomes)
-ix = client.markets().mint_complete_set_ix(
-    MintCompleteSetParams(
-        user=keypair.pubkey(),
-        market=market_pubkey,
-        deposit_mint=deposit_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes,
-)
-tx = await client.rpc().build_transaction([ix])
-tx.sign([keypair], await client.rpc().get_latest_blockhash())
+deposit_ix = (client.positions().deposit()
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .market(market)
+    .build_ix())
 ```
 
 ### Step 3: Place an Order
 
 ```python
-from lightcone_sdk import LimitOrderEnvelope
-
 request = (
-    LimitOrderEnvelope()
+    client.orders().limit_order()
     .maker(keypair.pubkey())
     .market(Pubkey.from_string(market.pubkey))
     .base_mint(Pubkey.from_string(orderbook.base.mint))
@@ -193,19 +179,14 @@ await client.orders().cancel(
 ### Step 6: Exit a Position
 
 ```python
-from lightcone_sdk import MergeCompleteSetParams
-
-ix = client.markets().merge_complete_set_ix(
-    MergeCompleteSetParams(
-        user=keypair.pubkey(),
-        market=Pubkey.from_string(market.pubkey),
-        deposit_mint=deposit_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes,
-)
-tx = await client.rpc().build_transaction([ix])
-tx.sign([keypair], await client.rpc().get_latest_blockhash())
+# sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
+tx_hash = await (client.markets().merge_complete_set()
+    .user(keypair.pubkey())
+    .market(Pubkey.from_string(market.pubkey))
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .num_outcomes(num_outcomes)
+    .sign_and_submit())
 ```
 
 ## Authentication
@@ -234,7 +215,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.py) | `LimitOrderEnvelope` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.py) | Limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking |
 
 ### Cancelling Orders
 
@@ -247,7 +228,7 @@ All examples are runnable with `python examples/<name>.py`. Set environment vari
 
 | Example | Description |
 |---------|-------------|
-| [`global_deposit`](examples/global_deposit.py) | Init position tokens, deposit to global pool, move capital into a market, and extend an existing ALT |
+| [`global_deposit`](examples/global_deposit.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 

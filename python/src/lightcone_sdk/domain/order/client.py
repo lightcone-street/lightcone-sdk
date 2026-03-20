@@ -26,6 +26,7 @@ from . import (
 from .convert import submit_response_from_dict
 from ...error import SdkError
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
+from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
 from ...program.instructions import (
     build_cancel_order_instruction,
     build_increment_nonce_instruction,
@@ -104,6 +105,24 @@ class Orders:
         """Generate a random salt for cancel-all replay protection."""
         return _generate_cancel_all_salt()
 
+    # ── Envelope factories ────────────────────────────────────────────────
+
+    def limit_order(self) -> LimitOrderEnvelope:
+        """Create a LimitOrderEnvelope pre-seeded with the client's deposit source.
+
+        Users can still override the deposit source on the returned envelope
+        by calling ``.deposit_source()`` before signing.
+        """
+        return LimitOrderEnvelope().deposit_source(self._client.deposit_source)
+
+    def trigger_order(self) -> TriggerOrderEnvelope:
+        """Create a TriggerOrderEnvelope pre-seeded with the client's deposit source.
+
+        Users can still override the deposit source on the returned envelope
+        by calling ``.deposit_source()`` before signing.
+        """
+        return TriggerOrderEnvelope().deposit_source(self._client.deposit_source)
+
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
@@ -176,6 +195,144 @@ class Orders:
             next_cursor=data.get("next_cursor"),
             has_more=data.get("has_more", False),
         )
+
+    # ── Unified cancel (dispatches based on client signing strategy) ────
+
+    async def cancel_order_signed(
+        self, order_hash: str, maker: str,
+    ) -> CancelSuccess:
+        """Cancel an order using the client's signing strategy."""
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
+        from ...program.orders import cancel_order_message, sign_cancel_order
+
+        strategy = self._client._require_signing_strategy()
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            body = CancelBody(
+                order_hash=order_hash,
+                maker=maker,
+                signature=sign_cancel_order(order_hash, strategy.keypair),
+            )
+            return await self.cancel(body)
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            message = cancel_order_message(order_hash)
+            try:
+                sig_bytes = await strategy.signer.sign_message(message)
+            except Exception as exc:
+                raise classify_signer_error(str(exc)) from exc
+            import bs58 as _bs58
+            sig_hex = sig_bytes.hex()
+            body = CancelBody(order_hash=order_hash, maker=maker, signature=sig_hex)
+            return await self.cancel(body)
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            result = await self._client.privy().sign_and_cancel_order(
+                strategy.wallet_id, order_hash, maker,
+            )
+            return CancelSuccess(
+                order_hash=result.get("order_hash", order_hash),
+                remaining=result.get("remaining", 0),
+            )
+
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+
+    async def cancel_all_signed(
+        self,
+        user_pubkey: str,
+        timestamp: int,
+        salt: str,
+        orderbook_id: Optional[str] = None,
+    ) -> CancelAllSuccess:
+        """Cancel all orders using the client's signing strategy."""
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
+        from ...program.orders import cancel_all_message, sign_cancel_all
+
+        strategy = self._client._require_signing_strategy()
+        resolved_ob_id = orderbook_id or ""
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            body = CancelAllBody(
+                user_pubkey=user_pubkey,
+                orderbook_id=resolved_ob_id,
+                signature=sign_cancel_all(user_pubkey, resolved_ob_id, timestamp, salt, strategy.keypair),
+                timestamp=timestamp,
+                salt=salt,
+            )
+            return await self.cancel_all(body)
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            message = cancel_all_message(user_pubkey, resolved_ob_id, timestamp, salt)
+            try:
+                sig_bytes = await strategy.signer.sign_message(message.encode())
+            except Exception as exc:
+                raise classify_signer_error(str(exc)) from exc
+            sig_hex = sig_bytes.hex()
+            body = CancelAllBody(
+                user_pubkey=user_pubkey,
+                orderbook_id=resolved_ob_id,
+                signature=sig_hex,
+                timestamp=timestamp,
+                salt=salt,
+            )
+            return await self.cancel_all(body)
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            result = await self._client.privy().sign_and_cancel_all_orders(
+                strategy.wallet_id, user_pubkey, resolved_ob_id, timestamp, salt,
+            )
+            return CancelAllSuccess(
+                cancelled_order_hashes=result.get("cancelled_order_hashes", []),
+                count=result.get("count", 0),
+                user_pubkey=result.get("user_pubkey", user_pubkey),
+                orderbook_id=result.get("orderbook_id", resolved_ob_id),
+                message=result.get("message", ""),
+            )
+
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+
+    async def cancel_trigger_signed(
+        self, trigger_order_id: str, maker: str,
+    ) -> CancelTriggerSuccess:
+        """Cancel a trigger order using the client's signing strategy."""
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
+        from ...program.orders import cancel_trigger_order_message
+
+        strategy = self._client._require_signing_strategy()
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            message = cancel_trigger_order_message(trigger_order_id)
+            from solders.keypair import Keypair as _Keypair
+            keypair: _Keypair = strategy.keypair
+            sig = keypair.sign_message(message)
+            body = CancelTriggerBody(
+                trigger_order_id=trigger_order_id,
+                maker=maker,
+                signature=bytes(sig).hex(),
+            )
+            return await self.cancel_trigger(body)
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            message = cancel_trigger_order_message(trigger_order_id)
+            try:
+                sig_bytes = await strategy.signer.sign_message(message)
+            except Exception as exc:
+                raise classify_signer_error(str(exc)) from exc
+            sig_hex = sig_bytes.hex()
+            body = CancelTriggerBody(
+                trigger_order_id=trigger_order_id, maker=maker, signature=sig_hex,
+            )
+            return await self.cancel_trigger(body)
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            result = await self._client.privy().sign_and_cancel_trigger_order(
+                strategy.wallet_id, trigger_order_id, maker,
+            )
+            return CancelTriggerSuccess(
+                trigger_order_id=result.get("trigger_order_id", trigger_order_id),
+            )
+
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
 
     # ── On-chain instruction builders ────────────────────────────────────
 

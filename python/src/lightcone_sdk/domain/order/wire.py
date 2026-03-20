@@ -166,12 +166,45 @@ class NotificationUpdate:
 
 
 @dataclass
+class GlobalDepositUpdate:
+    """WS global deposit update event."""
+    mint: str = ""
+    balance: str = "0"
+    timestamp: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "GlobalDepositUpdate":
+        return GlobalDepositUpdate(
+            mint=d.get("mint", ""),
+            balance=d.get("balance", "0"),
+            timestamp=d.get("timestamp"),
+        )
+
+
+@dataclass
+class NonceUpdate:
+    """WS nonce update event."""
+    user_pubkey: str = ""
+    new_nonce: int = 0
+    timestamp: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "NonceUpdate":
+        return NonceUpdate(
+            user_pubkey=d.get("user_pubkey", ""),
+            new_nonce=d.get("new_nonce", 0),
+            timestamp=d.get("timestamp"),
+        )
+
+
+@dataclass
 class UserSnapshot:
     """WebSocket user snapshot."""
     orders: list[UserSnapshotOrder] = field(default_factory=list)
     balances: list[UserSnapshotBalance] = field(default_factory=list)
     global_deposits: list[GlobalDepositBalance] = field(default_factory=list)
     notifications: list[Notification] = field(default_factory=list)
+    nonce: int = 0
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshot":
@@ -183,12 +216,14 @@ class UserSnapshot:
             balances=[UserSnapshotBalance.from_dict(b) for b in balances_raw],
             global_deposits=[GlobalDepositBalance.from_dict(g) for g in d.get("global_deposits", [])],
             notifications=[Notification.from_dict(n) for n in d.get("notifications", [])],
+            nonce=d.get("nonce", 0),
         )
 
 
 UserUpdateData = Union[
     "UserSnapshot", "OrderUpdate", "TriggerOrderUpdate",
-    "UserBalanceUpdate", "NotificationUpdate", dict,
+    "UserBalanceUpdate", "GlobalDepositUpdate", "NonceUpdate",
+    "NotificationUpdate", dict,
 ]
 
 
@@ -206,6 +241,10 @@ class UserUpdate:
             payload = _parse_order_event(d)
         elif event_type == "balance_update":
             payload = UserBalanceUpdate.from_dict(d)
+        elif event_type == "global_deposit_update":
+            payload = GlobalDepositUpdate.from_dict(d)
+        elif event_type == "nonce":
+            payload = NonceUpdate.from_dict(d)
         elif event_type == "notification":
             payload = NotificationUpdate.from_dict(d)
         else:

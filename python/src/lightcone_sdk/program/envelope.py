@@ -214,55 +214,115 @@ class LimitOrderEnvelope:
             deposit_source=self._deposit_source,
         )
 
-    # Field accessors (matching Rust fields_* methods)
+    # Field accessors (matching Rust get_* methods)
 
     @property
-    def fields_maker(self) -> Optional[Pubkey]:
+    def get_maker(self) -> Optional[Pubkey]:
         return self._maker
 
     @property
-    def fields_market(self) -> Optional[Pubkey]:
+    def get_market(self) -> Optional[Pubkey]:
         return self._market
 
     @property
-    def fields_base_mint(self) -> Optional[Pubkey]:
+    def get_base_mint(self) -> Optional[Pubkey]:
         return self._base_mint
 
     @property
-    def fields_quote_mint(self) -> Optional[Pubkey]:
+    def get_quote_mint(self) -> Optional[Pubkey]:
         return self._quote_mint
 
     @property
-    def fields_side(self) -> Optional[OrderSide]:
+    def get_side(self) -> Optional[OrderSide]:
         return self._side
 
     @property
-    def fields_amount_in(self) -> Optional[int]:
+    def get_amount_in(self) -> Optional[int]:
         return self._amount_in
 
     @property
-    def fields_amount_out(self) -> Optional[int]:
+    def get_amount_out(self) -> Optional[int]:
         return self._amount_out
 
     @property
-    def fields_expiration(self) -> int:
+    def get_expiration(self) -> int:
         return self._expiration
 
     @property
-    def fields_nonce(self) -> Optional[int]:
+    def get_nonce(self) -> Optional[int]:
         return self._nonce
 
     @property
-    def fields_salt(self) -> int:
+    def get_salt(self) -> int:
         return self._salt
 
     @property
-    def fields_deposit_source(self) -> Optional[DepositSource]:
+    def get_deposit_source(self) -> Optional[DepositSource]:
         return self._deposit_source
 
     @property
-    def fields_time_in_force(self) -> Optional[TimeInForce]:
+    def get_time_in_force(self) -> Optional[TimeInForce]:
         return self._time_in_force
+
+    # Backward-compat aliases (deprecated — use get_* instead)
+    fields_maker = get_maker
+    fields_market = get_market
+    fields_base_mint = get_base_mint
+    fields_quote_mint = get_quote_mint
+    fields_side = get_side
+    fields_amount_in = get_amount_in
+    fields_amount_out = get_amount_out
+    fields_expiration = get_expiration
+    fields_nonce = get_nonce
+    fields_salt = get_salt
+    fields_deposit_source = get_deposit_source
+    fields_time_in_force = get_time_in_force
+
+    # ── Unified submit (dispatches based on client signing strategy) ──
+
+    async def submit(self, client: object, orderbook: "OrderBookPair"):
+        """Submit this order using the client's signing strategy.
+
+        - **Native**: signs locally with keypair, submits via REST
+        - **WalletAdapter**: signs via external signer, submits via REST
+        - **Privy**: sends to backend for signing and submission
+
+        Args:
+            client: A ``LightconeClient`` instance with a signing strategy set.
+            orderbook: The ``OrderBookPair`` for this order.
+
+        Returns:
+            ``SubmitOrderResponse`` on success.
+        """
+        from ..shared.signing import SigningStrategyKind, classify_signer_error
+
+        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            request = self.sign(strategy.keypair, orderbook)
+            return await client.orders().submit(request)  # type: ignore[attr-defined]
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            hash_hex = self.payload().hash_hex()
+            try:
+                sig_bytes = await strategy.signer.sign_message(hash_hex.encode())
+            except Exception as exc:
+                raise classify_signer_error(str(exc)) from exc
+            import bs58 as _bs58
+            sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
+            request = self.finalize(sig_bs58, orderbook)
+            return await client.orders().submit(request)  # type: ignore[attr-defined]
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            from ..privy import privy_order_from_limit_envelope
+            envelope = privy_order_from_limit_envelope(self, orderbook)
+            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
+                strategy.wallet_id, envelope,
+            )
+            from ..domain.order.convert import submit_response_from_dict
+            return submit_response_from_dict(result)
+
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
 
 
 class TriggerOrderEnvelope:
@@ -395,7 +455,7 @@ class TriggerOrderEnvelope:
             time_in_force=self._time_in_force,
             trigger_price=self._trigger_price,
             trigger_type=self._trigger_type,
-            deposit_source=self._limit.fields_deposit_source,
+            deposit_source=self._limit.get_deposit_source,
         )
 
     def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
@@ -414,7 +474,7 @@ class TriggerOrderEnvelope:
             time_in_force=self._time_in_force,
             trigger_price=self._trigger_price,
             trigger_type=self._trigger_type,
-            deposit_source=self._limit.fields_deposit_source,
+            deposit_source=self._limit.get_deposit_source,
         )
 
     def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
@@ -437,60 +497,125 @@ class TriggerOrderEnvelope:
             time_in_force=self._time_in_force,
         )
 
-    # Field accessors
+    # Field accessors (matching Rust get_* methods)
 
     @property
-    def fields_maker(self) -> Optional[Pubkey]:
-        return self._limit.fields_maker
+    def get_maker(self) -> Optional[Pubkey]:
+        return self._limit.get_maker
 
     @property
-    def fields_market(self) -> Optional[Pubkey]:
-        return self._limit.fields_market
+    def get_market(self) -> Optional[Pubkey]:
+        return self._limit.get_market
 
     @property
-    def fields_base_mint(self) -> Optional[Pubkey]:
-        return self._limit.fields_base_mint
+    def get_base_mint(self) -> Optional[Pubkey]:
+        return self._limit.get_base_mint
 
     @property
-    def fields_quote_mint(self) -> Optional[Pubkey]:
-        return self._limit.fields_quote_mint
+    def get_quote_mint(self) -> Optional[Pubkey]:
+        return self._limit.get_quote_mint
 
     @property
-    def fields_side(self) -> Optional[OrderSide]:
-        return self._limit.fields_side
+    def get_side(self) -> Optional[OrderSide]:
+        return self._limit.get_side
 
     @property
-    def fields_amount_in(self) -> Optional[int]:
-        return self._limit.fields_amount_in
+    def get_amount_in(self) -> Optional[int]:
+        return self._limit.get_amount_in
 
     @property
-    def fields_amount_out(self) -> Optional[int]:
-        return self._limit.fields_amount_out
+    def get_amount_out(self) -> Optional[int]:
+        return self._limit.get_amount_out
 
     @property
-    def fields_expiration(self) -> int:
-        return self._limit.fields_expiration
+    def get_expiration(self) -> int:
+        return self._limit.get_expiration
 
     @property
-    def fields_nonce(self) -> Optional[int]:
-        return self._limit.fields_nonce
+    def get_nonce(self) -> Optional[int]:
+        return self._limit.get_nonce
 
     @property
-    def fields_salt(self) -> int:
-        return self._limit.fields_salt
+    def get_salt(self) -> int:
+        return self._limit.get_salt
 
     @property
-    def fields_deposit_source(self) -> Optional[DepositSource]:
-        return self._limit.fields_deposit_source
+    def get_deposit_source(self) -> Optional[DepositSource]:
+        return self._limit.get_deposit_source
 
     @property
-    def fields_time_in_force(self) -> Optional[TimeInForce]:
+    def get_time_in_force(self) -> Optional[TimeInForce]:
         return self._time_in_force
 
     @property
-    def fields_trigger_price(self) -> Optional[float]:
+    def get_trigger_price(self) -> Optional[float]:
         return self._trigger_price
 
     @property
-    def fields_trigger_type(self) -> Optional[TriggerType]:
+    def get_trigger_type(self) -> Optional[TriggerType]:
         return self._trigger_type
+
+    # Backward-compat aliases (deprecated — use get_* instead)
+    fields_maker = get_maker
+    fields_market = get_market
+    fields_base_mint = get_base_mint
+    fields_quote_mint = get_quote_mint
+    fields_side = get_side
+    fields_amount_in = get_amount_in
+    fields_amount_out = get_amount_out
+    fields_expiration = get_expiration
+    fields_nonce = get_nonce
+    fields_salt = get_salt
+    fields_deposit_source = get_deposit_source
+    fields_time_in_force = get_time_in_force
+    fields_trigger_price = get_trigger_price
+    fields_trigger_type = get_trigger_type
+
+    # ── Unified submit (dispatches based on client signing strategy) ──
+
+    async def submit(self, client: object, orderbook: "OrderBookPair"):
+        """Submit this trigger order using the client's signing strategy.
+
+        - **Native**: signs locally with keypair, submits via REST
+        - **WalletAdapter**: signs via external signer, submits via REST
+        - **Privy**: sends to backend for signing and submission
+
+        Args:
+            client: A ``LightconeClient`` instance with a signing strategy set.
+            orderbook: The ``OrderBookPair`` for this order.
+
+        Returns:
+            ``TriggerOrderResponse`` on success.
+        """
+        from ..shared.signing import SigningStrategyKind, classify_signer_error
+
+        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            request = self.sign(strategy.keypair, orderbook)
+            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
+
+        elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            hash_hex = self.payload().hash_hex()
+            try:
+                sig_bytes = await strategy.signer.sign_message(hash_hex.encode())
+            except Exception as exc:
+                raise classify_signer_error(str(exc)) from exc
+            import bs58 as _bs58
+            sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
+            request = self.finalize(sig_bs58, orderbook)
+            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
+
+        elif strategy.kind == SigningStrategyKind.PRIVY:
+            from ..privy import privy_order_from_trigger_envelope
+            envelope = privy_order_from_trigger_envelope(self, orderbook)
+            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
+                strategy.wallet_id, envelope,
+            )
+            from ..domain.order import TriggerOrderResponse
+            return TriggerOrderResponse(
+                trigger_order_id=result.get("trigger_order_id", ""),
+                order_hash=result.get("order_hash", ""),
+            )
+
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
