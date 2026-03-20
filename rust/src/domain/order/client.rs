@@ -4,6 +4,7 @@ use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
@@ -145,8 +146,7 @@ impl CancelTriggerBody {
     /// Signs `cancel_trigger_order_message(trigger_order_id)` and hex-encodes the result.
     #[cfg(feature = "native-auth")]
     pub fn signed(trigger_order_id: String, maker: PubkeyStr, keypair: &Keypair) -> Self {
-        let message =
-            crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
+        let message = crate::program::orders::cancel_trigger_order_message(&trigger_order_id);
         let sig = keypair.sign_message(&message);
         Self {
             trigger_order_id,
@@ -184,6 +184,7 @@ pub enum PlaceResponse {
     Rejected {
         error: Option<String>,
         details: Option<String>,
+        rejection_reason: Option<String>,
         order_hash: Option<String>,
         remaining: Option<Decimal>,
         filled: Option<Decimal>,
@@ -220,10 +221,18 @@ pub struct CancelSuccess {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CancelResponse {
     Cancelled(CancelSuccess),
-    Error { error: String },
-    BadRequest { error: String },
-    NotFound { error: String },
-    Forbidden { error: String },
+    Error {
+        error: String,
+    },
+    BadRequest {
+        error: String,
+    },
+    NotFound {
+        error: String,
+    },
+    Forbidden {
+        error: String,
+    },
     InternalError {
         error: String,
         #[serde(default)]
@@ -244,10 +253,18 @@ pub struct CancelAllSuccess {
 #[serde(tag = "status", rename_all = "snake_case")]
 pub enum CancelAllResponse {
     Success(CancelAllSuccess),
-    Error { message: String },
-    BadRequest { error: String },
-    NotFound { error: String },
-    Forbidden { error: String },
+    Error {
+        message: String,
+    },
+    BadRequest {
+        error: String,
+    },
+    NotFound {
+        error: String,
+    },
+    Forbidden {
+        error: String,
+    },
     InternalError {
         error: String,
         #[serde(default)]
@@ -342,6 +359,26 @@ impl<'a> Orders<'a> {
         crate::program::pda::get_user_nonce_pda(user, &self.client.program_id).0
     }
 
+    // ── Envelope factories ────────────────────────────────────────────────
+
+    /// Create a `LimitOrderEnvelope` pre-seeded with the client's deposit source.
+    ///
+    /// Users can still override the deposit source on the returned envelope
+    /// by calling `.deposit_source()` before signing.
+    pub async fn limit_order(&self) -> LimitOrderEnvelope {
+        let deposit_source = self.client.deposit_source().await;
+        LimitOrderEnvelope::new().deposit_source(deposit_source)
+    }
+
+    /// Create a `TriggerOrderEnvelope` pre-seeded with the client's deposit source.
+    ///
+    /// Users can still override the deposit source on the returned envelope
+    /// by calling `.deposit_source()` before signing.
+    pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
+        let deposit_source = self.client.deposit_source().await;
+        TriggerOrderEnvelope::new().deposit_source(deposit_source)
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────
 
     /// Generate a random salt for cancel-all replay protection.
@@ -370,15 +407,17 @@ impl<'a> Orders<'a> {
             PlaceResponse::Rejected {
                 error,
                 details,
+                rejection_reason,
                 order_hash,
                 remaining,
                 filled,
             } => {
-                let msg = match (error.as_deref(), details.as_deref()) {
-                    (Some(e), Some(d)) => format!("{e}: {d}"),
-                    (Some(e), None) => e.to_string(),
-                    (None, Some(d)) => d.to_string(),
-                    (None, None) => {
+                let msg = match (error.as_deref(), details.as_deref(), rejection_reason.as_deref()) {
+                    (Some(e), Some(d), _) => format!("{e}: {d}"),
+                    (Some(e), None, _) => e.to_string(),
+                    (None, Some(d), _) => d.to_string(),
+                    (None, None, Some(r)) if !r.is_empty() => r.to_string(),
+                    _ => {
                         let mut parts = vec!["Rejected".to_string()];
                         if let Some(h) = &order_hash {
                             parts.push(format!("hash={h}"));
@@ -408,18 +447,16 @@ impl<'a> Orders<'a> {
             | PlaceResponse::NotFound { error }
             | PlaceResponse::Forbidden { error }
             | PlaceResponse::ConfigurationError { error } => {
-                Err(SdkError::Other(error.unwrap_or_else(|| format!("Unknown error — raw response: {raw}"))))
+                Err(SdkError::Other(error.unwrap_or_else(|| {
+                    format!("Unknown error — raw response: {raw}")
+                })))
             }
         }
     }
 
     pub async fn cancel(&self, body: &CancelBody) -> Result<CancelSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        let raw: serde_json::Value = self
-            .client
-            .http
-            .post(&url, body, RetryPolicy::None)
-            .await?;
+        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
 
         let resp: CancelResponse = serde_json::from_value(raw)?;
 
@@ -441,11 +478,7 @@ impl<'a> Orders<'a> {
 
     pub async fn cancel_all(&self, body: &CancelAllBody) -> Result<CancelAllSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel-all", self.client.http.base_url());
-        let raw: serde_json::Value = self
-            .client
-            .http
-            .post(&url, body, RetryPolicy::None)
-            .await?;
+        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
 
         let resp: CancelAllResponse = serde_json::from_value(raw)?;
 
@@ -499,11 +532,7 @@ impl<'a> Orders<'a> {
         body: &CancelTriggerBody,
     ) -> Result<CancelTriggerSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        let raw: serde_json::Value = self
-            .client
-            .http
-            .post(&url, body, RetryPolicy::None)
-            .await?;
+        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
 
         let resp: CancelTriggerResponse = serde_json::from_value(raw)?;
 
@@ -540,11 +569,227 @@ impl<'a> Orders<'a> {
         if let Some(cursor) = cursor {
             url.push_str(&format!("&cursor={}", cursor));
         }
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+    }
+
+    // ── Unified cancel (dispatches based on client signing strategy) ────
+
+    /// Cancel an order using the client's signing strategy.
+    ///
+    /// Signs the cancel message and submits the cancellation request.
+    pub async fn cancel_order_signed(
+        &self,
+        order_hash: &str,
+        maker: &PubkeyStr,
+    ) -> Result<CancelSuccess, SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let body = CancelBody::signed(order_hash.to_string(), maker.clone(), &keypair);
+                self.cancel(&body).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let message = crate::program::orders::cancel_order_message(order_hash);
+                let sig_bytes = signer
+                    .sign_message(&message)
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let body =
+                    CancelBody::from_base58(order_hash.to_string(), maker.clone(), &sig_bs58)
+                        .map_err(|error| SdkError::Program(error))?;
+                self.cancel(&body).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let result = self
+                    .client
+                    .privy()
+                    .sign_and_cancel_order(&wallet_id, order_hash, maker.as_str())
+                    .await?;
+                serde_json::from_value::<CancelResponse>(result)
+                    .map_err(|error| {
+                        SdkError::Other(format!("failed to parse cancel response: {error}"))
+                    })
+                    .and_then(|resp| match resp {
+                        CancelResponse::Cancelled(data) => Ok(data),
+                        CancelResponse::InternalError { error, details } => {
+                            let message = match details {
+                                Some(detail) => format!("{error}: {detail}"),
+                                None => error,
+                            };
+                            Err(SdkError::Other(message))
+                        }
+                        CancelResponse::Error { error }
+                        | CancelResponse::BadRequest { error }
+                        | CancelResponse::NotFound { error }
+                        | CancelResponse::Forbidden { error } => Err(SdkError::Other(error)),
+                    })
+            }
+        }
+    }
+
+    /// Cancel all orders using the client's signing strategy.
+    ///
+    /// Signs the cancel-all message and submits the cancellation request.
+    pub async fn cancel_all_signed(
+        &self,
+        user_pubkey: &PubkeyStr,
+        timestamp: i64,
+        salt: &str,
+        // Optional: limit to specific orderbook
+        orderbook_id: Option<&OrderBookId>,
+    ) -> Result<CancelAllSuccess, SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+
+        let resolved_orderbook_id = orderbook_id
+            .cloned()
+            .unwrap_or_else(|| OrderBookId::from(""));
+        let orderbook_id_str = resolved_orderbook_id.as_str();
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let body = CancelAllBody::signed(
+                    user_pubkey.clone(),
+                    resolved_orderbook_id.clone(),
+                    timestamp,
+                    salt.to_string(),
+                    &keypair,
+                );
+                self.cancel_all(&body).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let message = crate::program::orders::cancel_all_message(
+                    user_pubkey.as_str(),
+                    orderbook_id_str,
+                    timestamp,
+                    salt,
+                );
+                let sig_bytes = signer
+                    .sign_message(message.as_bytes())
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let body = CancelAllBody::from_base58(
+                    user_pubkey.clone(),
+                    resolved_orderbook_id.clone(),
+                    timestamp,
+                    salt.to_string(),
+                    &sig_bs58,
+                )
+                .map_err(|error| SdkError::Program(error))?;
+                self.cancel_all(&body).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let result = self
+                    .client
+                    .privy()
+                    .sign_and_cancel_all_orders(
+                        &wallet_id,
+                        user_pubkey.as_str(),
+                        orderbook_id_str,
+                        timestamp,
+                        salt,
+                    )
+                    .await?;
+                serde_json::from_value::<CancelAllResponse>(result)
+                    .map_err(|error| {
+                        SdkError::Other(format!("failed to parse cancel-all response: {error}"))
+                    })
+                    .and_then(|resp| match resp {
+                        CancelAllResponse::Success(data) => Ok(data),
+                        CancelAllResponse::Error { message } => Err(SdkError::Other(message)),
+                        CancelAllResponse::InternalError { error, details } => {
+                            let message = match details {
+                                Some(detail) => format!("{error}: {detail}"),
+                                None => error,
+                            };
+                            Err(SdkError::Other(message))
+                        }
+                        CancelAllResponse::BadRequest { error }
+                        | CancelAllResponse::NotFound { error }
+                        | CancelAllResponse::Forbidden { error } => Err(SdkError::Other(error)),
+                    })
+            }
+        }
+    }
+
+    /// Cancel a trigger order using the client's signing strategy.
+    ///
+    /// Signs the cancel message and submits the cancellation request.
+    pub async fn cancel_trigger_signed(
+        &self,
+        trigger_order_id: &str,
+        maker: &PubkeyStr,
+    ) -> Result<CancelTriggerSuccess, SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let body = CancelTriggerBody::signed(
+                    trigger_order_id.to_string(),
+                    maker.clone(),
+                    &keypair,
+                );
+                self.cancel_trigger(&body).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let message =
+                    crate::program::orders::cancel_trigger_order_message(trigger_order_id);
+                let sig_bytes = signer
+                    .sign_message(&message)
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let body = CancelTriggerBody::from_base58(
+                    trigger_order_id.to_string(),
+                    maker.clone(),
+                    &sig_bs58,
+                )
+                .map_err(|error| SdkError::Program(error))?;
+                self.cancel_trigger(&body).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let result = self
+                    .client
+                    .privy()
+                    .sign_and_cancel_trigger_order(&wallet_id, trigger_order_id, maker.as_str())
+                    .await?;
+                serde_json::from_value::<CancelTriggerResponse>(result)
+                    .map_err(|error| {
+                        SdkError::Other(format!("failed to parse cancel-trigger response: {error}"))
+                    })
+                    .and_then(|resp| match resp {
+                        CancelTriggerResponse::Cancelled(data) => Ok(data),
+                        CancelTriggerResponse::InternalError { error, details } => {
+                            let message = match details {
+                                Some(detail) => format!("{error}: {detail}"),
+                                None => error,
+                            };
+                            Err(SdkError::Other(message))
+                        }
+                        CancelTriggerResponse::Error { error }
+                        | CancelTriggerResponse::BadRequest { error }
+                        | CancelTriggerResponse::NotFound { error }
+                        | CancelTriggerResponse::Forbidden { error } => Err(SdkError::Other(error)),
+                    })
+            }
+        }
     }
 
     // ── On-chain instruction builders ───────────────────────────────────
@@ -586,18 +831,12 @@ impl<'a> Orders<'a> {
     // ── Order helpers ────────────────────────────────────────────────────
 
     /// Create an unsigned bid order.
-    pub fn create_bid_order(
-        &self,
-        params: crate::program::types::BidOrderParams,
-    ) -> OrderPayload {
+    pub fn create_bid_order(&self, params: crate::program::types::BidOrderParams) -> OrderPayload {
         OrderPayload::new_bid(params)
     }
 
     /// Create an unsigned ask order.
-    pub fn create_ask_order(
-        &self,
-        params: crate::program::types::AskOrderParams,
-    ) -> OrderPayload {
+    pub fn create_ask_order(&self, params: crate::program::types::AskOrderParams) -> OrderPayload {
         OrderPayload::new_ask(params)
     }
 
@@ -628,11 +867,7 @@ impl<'a> Orders<'a> {
 
     /// Sign an order with the given keypair.
     #[cfg(feature = "native-auth")]
-    pub fn sign_order(
-        &self,
-        order: &mut OrderPayload,
-        keypair: &Keypair,
-    ) {
+    pub fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair) {
         order.sign(keypair);
     }
 }
@@ -651,9 +886,9 @@ impl<'a> Orders<'a> {
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let pda = self.status_pda(order_hash);
         match rpc.get_account(&pda).await {
-            Ok(account) => Ok(Some(
-                crate::program::accounts::OrderStatus::deserialize(&account.data)?,
-            )),
+            Ok(account) => Ok(Some(crate::program::accounts::OrderStatus::deserialize(
+                &account.data,
+            )?)),
             Err(_) => Ok(None),
         }
     }
@@ -664,8 +899,7 @@ impl<'a> Orders<'a> {
         let pda = self.nonce_pda(user);
         match rpc.get_account(&pda).await {
             Ok(account) => {
-                let user_nonce =
-                    crate::program::accounts::UserNonce::deserialize(&account.data)?;
+                let user_nonce = crate::program::accounts::UserNonce::deserialize(&account.data)?;
                 Ok(user_nonce.nonce)
             }
             Err(_) => Ok(0),

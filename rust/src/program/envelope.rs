@@ -104,9 +104,12 @@ impl OrderFields {
 /// Shared fluent API for building orders.
 ///
 /// Implemented by both `LimitOrderEnvelope` and `TriggerOrderEnvelope`.
+///
+/// Prefer `client.orders().limit_order().await` or `client.orders().trigger_order().await`
+/// which pre-seed the client's deposit source. Direct construction via `::new()` is
+/// also available for standalone use.
 pub trait OrderEnvelope: Sized {
     fn new() -> Self;
-
     fn nonce(self, nonce: u64) -> Self;
     fn salt(self, salt: u64) -> Self;
     fn maker(self, maker: Pubkey) -> Self;
@@ -242,10 +245,13 @@ macro_rules! impl_base_methods {
 
 /// Envelope for building and submitting limit orders.
 ///
-/// # Example (human-readable price/size — auto-scaled)
+/// Prefer `client.orders().limit_order().await` which pre-seeds the client's
+/// deposit source. `LimitOrderEnvelope::new()` is also available for standalone use.
+///
+/// # Example (via client builder — recommended)
 ///
 /// ```rust,ignore
-/// let request = LimitOrderEnvelope::new()
+/// let request = client.orders().limit_order().await
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
 ///     .base_mint(yes_token)
@@ -257,7 +263,7 @@ macro_rules! impl_base_methods {
 ///     .sign(&keypair, &orderbook)?;
 /// ```
 ///
-/// # Example (pre-computed raw amounts — no scaling)
+/// # Example (standalone)
 ///
 /// ```rust,ignore
 /// let request = LimitOrderEnvelope::new()
@@ -324,13 +330,16 @@ impl LimitOrderEnvelope {
 
 /// Envelope for building and submitting trigger (take-profit / stop-loss) orders.
 ///
+/// Prefer `client.orders().trigger_order().await` which pre-seeds the client's
+/// deposit source. `TriggerOrderEnvelope::new()` is also available for standalone use.
+///
 /// Adds trigger-specific fields on top of the shared order fields.
 /// `trigger_price` and `trigger_type` are required before calling `sign()` or `finalize()`.
 ///
-/// # Example
+/// # Example (via client builder — recommended)
 ///
 /// ```rust,ignore
-/// let request = TriggerOrderEnvelope::new()
+/// let request = client.orders().trigger_order().await
 ///     .maker(maker_pubkey)
 ///     .market(market_pubkey)
 ///     .base_mint(yes_token)
@@ -341,6 +350,15 @@ impl LimitOrderEnvelope {
 ///     .size("100")
 ///     .take_profit(0.75)
 ///     .gtc()
+///     .sign(&keypair, &orderbook)?;
+/// ```
+///
+/// # Example (standalone)
+///
+/// ```rust,ignore
+/// let request = TriggerOrderEnvelope::new()
+///     .maker(maker_pubkey)
+///     // ... same chain as above
 ///     .sign(&keypair, &orderbook)?;
 /// ```
 #[derive(Debug, Clone, Default)]
@@ -446,37 +464,149 @@ impl TriggerOrderEnvelope {
     }
 }
 
+// ─── Unified submit (dispatches based on client signing strategy) ────────────
+
+#[cfg(feature = "http")]
+impl LimitOrderEnvelope {
+    /// Submit this order using the client's signing strategy.
+    ///
+    /// - **Native**: signs locally with keypair, submits via REST
+    /// - **WalletAdapter**: signs via external signer, submits via REST
+    /// - **Privy**: sends to backend for signing and submission
+    ///
+    /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
+    pub async fn submit(
+        self,
+        client: &crate::client::LightconeClient,
+        orderbook: &OrderBookPair,
+    ) -> Result<crate::domain::order::SubmitOrderResponse, crate::error::SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = client
+            .signing_strategy()
+            .await
+            .ok_or_else(|| crate::error::SdkError::Validation(
+                "signing strategy is not set on the client".into(),
+            ))?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let request = self.sign(&keypair, orderbook)?;
+                client.orders().submit(&request).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let hash = self.payload().hash_hex();
+                let sig_bytes = signer
+                    .sign_message(hash.as_bytes())
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let request = self.finalize(&sig_bs58, orderbook)?;
+                client.orders().submit(&request).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let envelope = crate::privy::PrivyOrderEnvelope::from_limit(&self, orderbook.orderbook_id.as_str());
+                let result = client
+                    .privy()
+                    .sign_and_send_order(&wallet_id, envelope)
+                    .await?;
+                serde_json::from_value(result).map_err(|error| {
+                    crate::error::SdkError::Other(format!(
+                        "failed to parse submit order response: {error}"
+                    ))
+                })
+            }
+        }
+    }
+}
+
+#[cfg(feature = "http")]
+impl TriggerOrderEnvelope {
+    /// Submit this trigger order using the client's signing strategy.
+    ///
+    /// - **Native**: signs locally with keypair, submits via REST
+    /// - **WalletAdapter**: signs via external signer, submits via REST
+    /// - **Privy**: sends to backend for signing and submission
+    ///
+    /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
+    pub async fn submit(
+        self,
+        client: &crate::client::LightconeClient,
+        orderbook: &OrderBookPair,
+    ) -> Result<crate::domain::order::TriggerOrderResponse, crate::error::SdkError> {
+        use crate::shared::signing::SigningStrategy;
+
+        let strategy = client
+            .signing_strategy()
+            .await
+            .ok_or_else(|| crate::error::SdkError::Validation(
+                "signing strategy is not set on the client".into(),
+            ))?;
+
+        match strategy {
+            #[cfg(feature = "native-auth")]
+            SigningStrategy::Native(keypair) => {
+                let request = self.sign(&keypair, orderbook)?;
+                client.orders().submit_trigger(&request).await
+            }
+            SigningStrategy::WalletAdapter(signer) => {
+                let hash = self.payload().hash_hex();
+                let sig_bytes = signer
+                    .sign_message(hash.as_bytes())
+                    .await
+                    .map_err(crate::shared::signing::classify_signer_error)?;
+                let sig_bs58 = bs58::encode(&sig_bytes).into_string();
+                let request = self.finalize(&sig_bs58, orderbook)?;
+                client.orders().submit_trigger(&request).await
+            }
+            SigningStrategy::Privy { wallet_id } => {
+                let envelope = crate::privy::PrivyOrderEnvelope::from_trigger(&self, orderbook.orderbook_id.as_str());
+                let result = client
+                    .privy()
+                    .sign_and_send_order(&wallet_id, envelope)
+                    .await?;
+                serde_json::from_value(result).map_err(|error| {
+                    crate::error::SdkError::Other(format!(
+                        "failed to parse trigger order response: {error}"
+                    ))
+                })
+            }
+        }
+    }
+}
+
 // ─── Public accessor for privy helpers ──────────────────────────────────────
 
 impl LimitOrderEnvelope {
-    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
-    pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
-    pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
-    pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
-    pub fn fields_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
-    pub fn fields_side(&self) -> Option<OrderSide> { self.fields.side }
-    pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
-    pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
-    pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
-    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
+    pub fn get_salt(&self) -> Option<u64> { self.fields.salt }
+    pub fn get_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
+    pub fn get_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
+    pub fn get_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
+    pub fn get_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
+    pub fn get_side(&self) -> Option<OrderSide> { self.fields.side }
+    pub fn get_amount_in(&self) -> Option<u64> { self.fields.amount_in }
+    pub fn get_amount_out(&self) -> Option<u64> { self.fields.amount_out }
+    pub fn get_expiration(&self) -> i64 { self.fields.expiration }
+    pub fn get_nonce(&self) -> Option<u64> { self.fields.nonce }
+    pub fn get_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
 }
 
 impl TriggerOrderEnvelope {
-    pub fn fields_salt(&self) -> Option<u64> { self.fields.salt }
-    pub fn fields_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
-    pub fn fields_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
-    pub fn fields_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
-    pub fn fields_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
-    pub fn fields_side(&self) -> Option<OrderSide> { self.fields.side }
-    pub fn fields_amount_in(&self) -> Option<u64> { self.fields.amount_in }
-    pub fn fields_amount_out(&self) -> Option<u64> { self.fields.amount_out }
-    pub fn fields_expiration(&self) -> i64 { self.fields.expiration }
-    pub fn fields_nonce(&self) -> Option<u64> { self.fields.nonce }
-    pub fn fields_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
-    pub fn fields_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
-    pub fn fields_trigger_price(&self) -> Option<f64> { self.trigger_price }
-    pub fn fields_trigger_type(&self) -> Option<TriggerType> { self.trigger_type }
+    pub fn get_salt(&self) -> Option<u64> { self.fields.salt }
+    pub fn get_maker(&self) -> Option<&Pubkey> { self.fields.maker.as_ref() }
+    pub fn get_market(&self) -> Option<&Pubkey> { self.fields.market.as_ref() }
+    pub fn get_base_mint(&self) -> Option<&Pubkey> { self.fields.base_mint.as_ref() }
+    pub fn get_quote_mint(&self) -> Option<&Pubkey> { self.fields.quote_mint.as_ref() }
+    pub fn get_side(&self) -> Option<OrderSide> { self.fields.side }
+    pub fn get_amount_in(&self) -> Option<u64> { self.fields.amount_in }
+    pub fn get_amount_out(&self) -> Option<u64> { self.fields.amount_out }
+    pub fn get_expiration(&self) -> i64 { self.fields.expiration }
+    pub fn get_nonce(&self) -> Option<u64> { self.fields.nonce }
+    pub fn get_deposit_source(&self) -> Option<DepositSource> { self.fields.deposit_source }
+    pub fn get_time_in_force(&self) -> Option<TimeInForce> { self.time_in_force }
+    pub fn get_trigger_price(&self) -> Option<f64> { self.trigger_price }
+    pub fn get_trigger_type(&self) -> Option<TriggerType> { self.trigger_type }
 }
 
 #[cfg(test)]
@@ -763,6 +893,6 @@ mod tests {
     fn test_limit_envelope_deposit_source_accessor() {
         let env = LimitOrderEnvelope::new()
             .deposit_source(DepositSource::Market);
-        assert_eq!(env.fields_deposit_source(), Some(DepositSource::Market));
+        assert_eq!(env.get_deposit_source(), Some(DepositSource::Market));
     }
 }

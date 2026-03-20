@@ -16,7 +16,10 @@ async fn main() -> ExampleResult {
     let (market, orderbook) = market_and_orderbook(&client).await?;
     let (base_mint, quote_mint) = orderbook_mints(&orderbook)?;
 
-    let request = LimitOrderEnvelope::new()
+    let request = client
+        .orders()
+        .limit_order()
+        .await
         .maker(keypair.pubkey())
         .market(parse_pubkey(&market.pubkey)?)
         .base_mint(base_mint)

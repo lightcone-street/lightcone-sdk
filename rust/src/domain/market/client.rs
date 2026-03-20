@@ -8,6 +8,7 @@ use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
+use super::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
@@ -155,6 +156,44 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
+    }
+
+    // ── Fluent builders ───────────────────────────────────────────────────
+
+    /// Create a fluent builder for minting a complete set of outcome tokens.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let signature = client.markets().mint_complete_set()
+    ///     .user(keypair.pubkey())
+    ///     .market(market_pubkey)
+    ///     .mint(deposit_mint)
+    ///     .amount(1_000_000)
+    ///     .num_outcomes(2)
+    ///     .sign_and_submit()
+    ///     .await?;
+    /// ```
+    pub fn mint_complete_set(&self) -> MintCompleteSetBuilder<'a> {
+        MintCompleteSetBuilder::new(self.client)
+    }
+
+    /// Create a fluent builder for merging a complete set of outcome tokens.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let signature = client.markets().merge_complete_set()
+    ///     .user(keypair.pubkey())
+    ///     .market(market_pubkey)
+    ///     .mint(deposit_mint)
+    ///     .amount(1_000_000)
+    ///     .num_outcomes(2)
+    ///     .sign_and_submit()
+    ///     .await?;
+    /// ```
+    pub fn merge_complete_set(&self) -> MergeCompleteSetBuilder<'a> {
+        MergeCompleteSetBuilder::new(self.client)
     }
 
     // ── On-chain instruction builders ───────────────────────────────────

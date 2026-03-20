@@ -67,7 +67,8 @@ pub mod prelude {
     // Domain types — order
     pub use crate::domain::order::{
         CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
-        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance, Order,
+        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance,
+        GlobalDepositUpdate, Order,
         OrderEvent, OrderStatus, OrderType, SubmitOrderResponse, TriggerOrder,
         TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
         UserSnapshotBalance, UserSnapshotOrder, UserTriggerOrders,
@@ -100,17 +101,30 @@ pub mod prelude {
         AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
     };
 
-    // Program — order envelopes and payload
+    // Program — order envelopes, trait, payload, and unified params
     pub use crate::program::{
-        generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
-        TriggerOrderEnvelope,
+        generate_cancel_all_salt, DepositParams, LimitOrderEnvelope, MarketWithdrawContext,
+        OrderEnvelope, OrderPayload, TriggerOrderEnvelope, WithdrawParams,
     };
+
+    // Position builders
+    pub use crate::domain::position::{
+        DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
+        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
+        WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+    };
+
+    // Market builders
+    pub use crate::domain::market::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 
     // Privy RPC types
     pub use crate::privy::{
         ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
         SignAndSendTxRequest, SignAndSendTxResponse,
     };
+
+    // Signing strategy
+    pub use crate::shared::signing::{ExternalSigner, SigningStrategy};
 
     // Domain types — referral
     pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};

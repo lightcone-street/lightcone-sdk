@@ -41,11 +41,27 @@ pub struct UserSnapshotBalance {
     pub outcomes: Vec<ConditionalBalance>,
 }
 
-/// Global deposit balance for a single mint.
+/// Global deposit balance for a single mint (used in snapshots).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct GlobalDepositBalance {
     pub mint: PubkeyStr,
     pub balance: Decimal,
+}
+
+/// WS global deposit update event.
+#[derive(Deserialize, Debug, Clone)]
+pub struct GlobalDepositUpdate {
+    pub mint: PubkeyStr,
+    pub balance: Decimal,
+    pub timestamp: DateTime<Utc>,
+}
+
+/// WS nonce update event.
+#[derive(Deserialize, Debug, Clone)]
+pub struct NonceUpdate {
+    pub user_pubkey: PubkeyStr,
+    pub new_nonce: u64,
+    pub timestamp: DateTime<Utc>,
 }
 
 // ─── WS order wire types ────────────────────────────────────────────────────
@@ -153,6 +169,8 @@ pub struct UserSnapshot {
     pub global_deposits: Vec<GlobalDepositBalance>,
     #[serde(default)]
     pub notifications: Vec<crate::domain::notification::Notification>,
+    #[serde(default)]
+    pub nonce: u64,
 }
 
 // ─── Trigger order wire types ───────────────────────────────────────────────
@@ -205,6 +223,10 @@ pub enum UserUpdate {
     Order(OrderEvent),
     #[serde(rename = "balance_update")]
     BalanceUpdate(UserBalanceUpdate),
+    #[serde(rename = "global_deposit_update")]
+    GlobalDepositUpdate(GlobalDepositUpdate),
+    #[serde(rename = "nonce")]
+    NonceUpdate(NonceUpdate),
     #[serde(rename = "notification")]
     Notification(NotificationUpdate),
 }
