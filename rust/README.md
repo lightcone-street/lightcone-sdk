@@ -13,6 +13,7 @@ Rust SDK for the Lightcone impact market protocol on Solana.
      - [Step 4: Monitor](#step-4-monitor)
      - [Step 5: Cancel an Order](#step-5-cancel-an-order)
      - [Step 6: Exit a Position](#step-6-exit-a-position)
+     - [Step 7: Withdraw](#step-7-withdraw)
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
@@ -67,29 +68,38 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     // 2. Find a market
-    let markets = client.get_markets().await?;
-    let market = &markets.markets[0]; //can we do this in single line?
+    let market = client.markets().get_by_slug("some-market").await?;
     let orderbook = &market.orderbook_pairs[0];
 
-    // 3. Add global deposit pool deposit example here 
-    
+    // 3. Deposit collateral to the global pool
+    let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
+    let deposit_ix = client.positions().deposit().await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(1_000_000)
+        .build_ix()
+        .await?;
 
     // 4. Build, sign, and submit a limit order
-    // lets make nonce optional too and remove it from here 
-    //no need to mention these optional properties
     let request = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .bid()
         .price("0.55")
         .size("100")
-        .sign(&keypair, orderbook.orderbook_id.as_str())?;
+        .sign(&keypair, &orderbook)?;
 
     let response = client.orders().submit(&request).await?;
     println!("Order submitted: {:?}", response);
-    
-    //Add withdraw from global deposit pool here
 
-    // 5. Stream real-time updates
+    // 5. Withdraw from the global pool
+    let withdraw_ix = client.positions().withdraw().await
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(1_000_000)
+        .build_ix()
+        .await?;
+
+    // 6. Stream real-time updates
     let mut ws = client.ws_native();
     ws.connect().await?;
     ws.subscribe(SubscribeParams::Books {
@@ -127,7 +137,6 @@ let orderbook = market
 ```
 
 ### Step 2: Deposit Collateral
-//This should be unified deposit focusing on global pool
 
 ```rust
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
@@ -135,20 +144,19 @@ let deposit_ix = client.positions().deposit().await
     .user(keypair.pubkey())
     .mint(deposit_mint)
     .amount(1_000_000)
-    .market(&market)
     .build_ix()
     .await?;
 ```
 
 ### Step 3: Place an Order
-//no need to show the optional stuff. People can check it for themselves
+
 ```rust
 let request = client.orders().limit_order().await
     .maker(keypair.pubkey())
     .bid()
     .price("0.55")
     .size("1")
-    .sign(&keypair, orderbook.orderbook_id.as_str())?;
+    .sign(&keypair, &orderbook)?;
 let order = client.orders().submit(&request).await?;
 ```
 
@@ -190,7 +198,16 @@ let tx_hash = client.markets().merge_complete_set()
     .await?;
 ```
 
-//add withdraw here
+### Step 7: Withdraw
+
+```rust
+let withdraw_ix = client.positions().withdraw().await
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_ix()
+    .await?;
+```
 
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
