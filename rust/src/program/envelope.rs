@@ -64,6 +64,9 @@ impl OrderFields {
                 SdkError::MissingField(format!("invalid market pubkey: {error}"))
             })?);
         }
+        if self.salt.is_none() {
+            self.salt = Some(generate_salt())
+        }
         if self.base_mint.is_none() {
             self.base_mint = Some(orderbook.base.pubkey().to_pubkey().map_err(|error| {
                 SdkError::MissingField(format!("invalid base mint pubkey: {error}"))
@@ -84,14 +87,16 @@ impl OrderFields {
             return Ok(());
         }
 
-        let price_str = self
-            .price_raw
-            .as_deref()
-            .expect("either price()+size() or amount_in()+amount_out() is required");
-        let size_str = self
-            .size_raw
-            .as_deref()
-            .expect("either price()+size() or amount_in()+amount_out() is required");
+        // If neither raw amounts nor price/size strings are set, skip scaling.
+        // The missing amounts will be caught later by to_payload() validation.
+        let price_str = match self.price_raw.as_deref() {
+            Some(value) => value,
+            None => return Ok(()),
+        };
+        let size_str = match self.size_raw.as_deref() {
+            Some(value) => value,
+            None => return Ok(()),
+        };
 
         let price: Decimal =
             price_str
@@ -512,13 +517,26 @@ impl LimitOrderEnvelope {
     /// - **WalletAdapter**: signs via external signer, submits via REST
     /// - **Privy**: sends to backend for signing and submission
     ///
+    /// Automatically fills orderbook-derived fields (market, mints, salt) and
+    /// scales price/size to raw amounts before signing.
+    ///
     /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
     pub async fn submit(
-        self,
+        mut self,
         client: &crate::client::LightconeClient,
         orderbook: &OrderBookPair,
     ) -> Result<crate::domain::order::SubmitOrderResponse, crate::error::SdkError> {
         use crate::shared::signing::SigningStrategy;
+
+        // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+        // price/size before the signing strategy runs. This is necessary because
+        // the WalletAdapter path calls `payload()` to hash for external signing,
+        // and the Privy path reads fields like `get_market()`, both of which
+        // happen before `sign()`/`finalize()` where these would otherwise run.
+        self.fields.auto_fill_from_orderbook(orderbook)?;
+        self.fields
+            .auto_scale(orderbook)
+            .map_err(crate::program::error::SdkError::from)?;
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
@@ -567,13 +585,26 @@ impl TriggerOrderEnvelope {
     /// - **WalletAdapter**: signs via external signer, submits via REST
     /// - **Privy**: sends to backend for signing and submission
     ///
+    /// Automatically fills orderbook-derived fields (market, mints, salt) and
+    /// scales price/size to raw amounts before signing.
+    ///
     /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
     pub async fn submit(
-        self,
+        mut self,
         client: &crate::client::LightconeClient,
         orderbook: &OrderBookPair,
     ) -> Result<crate::domain::order::TriggerOrderResponse, crate::error::SdkError> {
         use crate::shared::signing::SigningStrategy;
+
+        // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+        // price/size before the signing strategy runs. This is necessary because
+        // the WalletAdapter path calls `payload()` to hash for external signing,
+        // and the Privy path reads fields like `get_market()`, both of which
+        // happen before `sign()`/`finalize()` where these would otherwise run.
+        self.fields.auto_fill_from_orderbook(orderbook)?;
+        self.fields
+            .auto_scale(orderbook)
+            .map_err(crate::program::error::SdkError::from)?;
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
