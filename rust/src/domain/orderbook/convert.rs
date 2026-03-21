@@ -39,8 +39,22 @@ impl TryFrom<(wire::OrderbookResponse, &Vec<tokens::ConditionalToken>)> for Orde
             ));
         }
 
-        let base = base.unwrap().clone();
-        let quote = quote.unwrap().clone();
+        let base = base
+            .ok_or_else(|| {
+                OrderBookValidationError::BaseTokenNotFound(format!(
+                    "orderbook: {}",
+                    source.orderbook_id
+                ))
+            })?
+            .clone();
+        let quote = quote
+            .ok_or_else(|| {
+                OrderBookValidationError::QuoteTokenNotFound(format!(
+                    "orderbook: {}",
+                    source.orderbook_id
+                ))
+            })?
+            .clone();
 
         Ok(OrderBookPair {
             id: source.id,

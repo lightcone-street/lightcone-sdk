@@ -17,6 +17,7 @@
 #[cfg(feature = "http")]
 pub mod client;
 
+use crate::program::error::SdkError;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -72,76 +73,92 @@ impl PrivyOrderEnvelope {
     pub fn from_limit(
         envelope: &crate::program::envelope::LimitOrderEnvelope,
         orderbook_id: impl Into<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SdkError> {
+        Ok(Self {
             maker: envelope
                 .get_maker()
-                .expect("maker is required")
+                .ok_or_else(|| SdkError::MissingField("maker".into()))?
                 .to_string(),
-            nonce: envelope.get_nonce().expect("nonce is required") as u64,
-            salt: envelope.get_salt().expect("salt is required"),
+            nonce: envelope
+                .get_nonce()
+                .ok_or_else(|| SdkError::MissingField("nonce".into()))? as u64,
+            salt: envelope
+                .get_salt()
+                .ok_or_else(|| SdkError::MissingField("salt".into()))?,
             market_pubkey: envelope
                 .get_market()
-                .expect("market is required")
+                .ok_or_else(|| SdkError::MissingField("market".into()))?
                 .to_string(),
             base_token: envelope
                 .get_base_mint()
-                .expect("base_mint is required")
+                .ok_or_else(|| SdkError::MissingField("base_mint".into()))?
                 .to_string(),
             quote_token: envelope
                 .get_quote_mint()
-                .expect("quote_mint is required")
+                .ok_or_else(|| SdkError::MissingField("quote_mint".into()))?
                 .to_string(),
-            side: envelope.get_side().expect("side is required") as u32,
-            amount_in: envelope.get_amount_in().expect("amount_in is required"),
+            side: envelope
+                .get_side()
+                .ok_or_else(|| SdkError::MissingField("side".into()))? as u32,
+            amount_in: envelope
+                .get_amount_in()
+                .ok_or_else(|| SdkError::MissingField("amount_in".into()))?,
             amount_out: envelope
                 .get_amount_out()
-                .expect("amount_out is required"),
+                .ok_or_else(|| SdkError::MissingField("amount_out".into()))?,
             expiration: envelope.get_expiration(),
             orderbook_id: orderbook_id.into(),
             time_in_force: None,
             trigger_price: None,
             trigger_type: None,
             deposit_source: envelope.get_deposit_source(),
-        }
+        })
     }
 
     /// Build from a `TriggerOrderEnvelope`.
     pub fn from_trigger(
         envelope: &crate::program::envelope::TriggerOrderEnvelope,
         orderbook_id: impl Into<String>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, SdkError> {
+        Ok(Self {
             maker: envelope
                 .get_maker()
-                .expect("maker is required")
+                .ok_or_else(|| SdkError::MissingField("maker".into()))?
                 .to_string(),
-            nonce: envelope.get_nonce().expect("nonce is required") as u64,
-            salt: envelope.get_salt().expect("salt is required"),
+            nonce: envelope
+                .get_nonce()
+                .ok_or_else(|| SdkError::MissingField("nonce".into()))? as u64,
+            salt: envelope
+                .get_salt()
+                .ok_or_else(|| SdkError::MissingField("salt".into()))?,
             market_pubkey: envelope
                 .get_market()
-                .expect("market is required")
+                .ok_or_else(|| SdkError::MissingField("market".into()))?
                 .to_string(),
             base_token: envelope
                 .get_base_mint()
-                .expect("base_mint is required")
+                .ok_or_else(|| SdkError::MissingField("base_mint".into()))?
                 .to_string(),
             quote_token: envelope
                 .get_quote_mint()
-                .expect("quote_mint is required")
+                .ok_or_else(|| SdkError::MissingField("quote_mint".into()))?
                 .to_string(),
-            side: envelope.get_side().expect("side is required") as u32,
-            amount_in: envelope.get_amount_in().expect("amount_in is required"),
+            side: envelope
+                .get_side()
+                .ok_or_else(|| SdkError::MissingField("side".into()))? as u32,
+            amount_in: envelope
+                .get_amount_in()
+                .ok_or_else(|| SdkError::MissingField("amount_in".into()))?,
             amount_out: envelope
                 .get_amount_out()
-                .expect("amount_out is required"),
+                .ok_or_else(|| SdkError::MissingField("amount_out".into()))?,
             expiration: envelope.get_expiration(),
             orderbook_id: orderbook_id.into(),
             time_in_force: envelope.get_time_in_force(),
             trigger_price: envelope.get_trigger_price(),
             trigger_type: envelope.get_trigger_type(),
             deposit_source: envelope.get_deposit_source(),
-        }
+        })
     }
 }
 
