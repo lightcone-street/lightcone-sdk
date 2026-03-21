@@ -1,9 +1,6 @@
 mod common;
 
-use common::{
-    fresh_order_nonce, market_and_orderbook, orderbook_mints, parse_pubkey, rest_client, wallet,
-    ExampleResult,
-};
+use common::{fresh_order_nonce, market_and_orderbook, rest_client, wallet, ExampleResult};
 use lightcone::prelude::*;
 use solana_signer::Signer;
 
@@ -13,17 +10,13 @@ async fn main() -> ExampleResult {
     let keypair = wallet()?;
     common::login(&client, &keypair, false).await?;
 
-    let (market, orderbook) = market_and_orderbook(&client).await?;
-    let (base_mint, quote_mint) = orderbook_mints(&orderbook)?;
+    let (_market, orderbook) = market_and_orderbook(&client).await?;
 
     let request = client
         .orders()
         .limit_order()
         .await
         .maker(keypair.pubkey())
-        .market(parse_pubkey(&market.pubkey)?)
-        .base_mint(base_mint)
-        .quote_mint(quote_mint)
         .bid()
         .price("0.55")
         .size("1")
