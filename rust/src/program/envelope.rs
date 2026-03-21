@@ -33,25 +33,47 @@ struct OrderFields {
 }
 
 impl OrderFields {
-    fn to_payload(&self) -> OrderPayload {
-        let amount_in = self.amount_in.expect("amount_in is required");
-        let amount_out = self.amount_out.expect("amount_out is required");
-        assert!(amount_in > 0, "amount_in must be greater than 0");
-        assert!(amount_out > 0, "amount_out must be greater than 0");
+    fn to_payload(&self) -> Result<OrderPayload, SdkError> {
+        let amount_in = self
+            .amount_in
+            .ok_or_else(|| SdkError::MissingField("amount_in".into()))?;
+        let amount_out = self
+            .amount_out
+            .ok_or_else(|| SdkError::MissingField("amount_out".into()))?;
+        if amount_in == 0 {
+            return Err(SdkError::MissingField(
+                "amount_in must be greater than 0".into(),
+            ));
+        }
+        if amount_out == 0 {
+            return Err(SdkError::MissingField(
+                "amount_out must be greater than 0".into(),
+            ));
+        }
 
-        OrderPayload {
+        Ok(OrderPayload {
             nonce: self.nonce.unwrap_or(0),
             salt: self.salt.unwrap_or_else(generate_salt),
-            maker: self.maker.expect("maker is required"),
-            market: self.market.expect("market is required"),
-            base_mint: self.base_mint.expect("base_mint is required"),
-            quote_mint: self.quote_mint.expect("quote_mint is required"),
-            side: self.side.expect("side is required (call .bid() or .ask())"),
+            maker: self
+                .maker
+                .ok_or_else(|| SdkError::MissingField("maker".into()))?,
+            market: self
+                .market
+                .ok_or_else(|| SdkError::MissingField("market".into()))?,
+            base_mint: self
+                .base_mint
+                .ok_or_else(|| SdkError::MissingField("base_mint".into()))?,
+            quote_mint: self
+                .quote_mint
+                .ok_or_else(|| SdkError::MissingField("quote_mint".into()))?,
+            side: self
+                .side
+                .ok_or_else(|| SdkError::MissingField("side (call .bid() or .ask())".into()))?,
             amount_in,
             amount_out,
             expiration: self.expiration,
             signature: [0u8; 64],
-        }
+        })
     }
 
     /// Auto-fill market, base_mint, and quote_mint from the orderbook if not
@@ -63,6 +85,9 @@ impl OrderFields {
             self.market = Some(orderbook.market_pubkey.to_pubkey().map_err(|error| {
                 SdkError::MissingField(format!("invalid market pubkey: {error}"))
             })?);
+        }
+        if self.salt.is_none() {
+            self.salt = Some(generate_salt())
         }
         if self.base_mint.is_none() {
             self.base_mint = Some(orderbook.base.pubkey().to_pubkey().map_err(|error| {
@@ -79,19 +104,21 @@ impl OrderFields {
 
     /// Auto-scale price/size to raw amounts if the user provided human-readable
     /// strings but not pre-computed amounts. Skips if amounts are already set.
-    fn auto_scale(&mut self, orderbook: &OrderBookPair) -> Result<(), ScalingError> {
+    fn auto_scale(&mut self, orderbook: &OrderBookPair) -> Result<(), SdkError> {
         if self.amount_in.is_some() || self.amount_out.is_some() {
             return Ok(());
         }
 
-        let price_str = self
-            .price_raw
-            .as_deref()
-            .expect("either price()+size() or amount_in()+amount_out() is required");
-        let size_str = self
-            .size_raw
-            .as_deref()
-            .expect("either price()+size() or amount_in()+amount_out() is required");
+        let price_str = self.price_raw.as_deref().ok_or_else(|| {
+            SdkError::MissingField(
+                "either price()+size() or amount_in()+amount_out() is required".into(),
+            )
+        })?;
+        let size_str = self.size_raw.as_deref().ok_or_else(|| {
+            SdkError::MissingField(
+                "either price()+size() or amount_in()+amount_out() is required".into(),
+            )
+        })?;
 
         let price: Decimal =
             price_str
@@ -109,7 +136,9 @@ impl OrderFields {
                     reason: e.to_string(),
                 })?;
 
-        let side = self.side.expect("side is required (call .bid() or .ask())");
+        let side = self
+            .side
+            .ok_or_else(|| SdkError::MissingField("side (call .bid() or .ask())".into()))?;
 
         let decimals = orderbook.decimals();
         let aligned_price = align_price_to_tick(price, &decimals);
@@ -148,7 +177,7 @@ pub trait OrderEnvelope: Sized {
     fn deposit_source(self, ds: DepositSource) -> Self;
 
     /// Build an unsigned `OrderPayload` without consuming the envelope.
-    fn payload(&self) -> OrderPayload;
+    fn payload(&self) -> Result<OrderPayload, SdkError>;
 
     /// Sign and produce a `SubmitOrderRequest`. Consumes the envelope.
     ///
@@ -256,7 +285,7 @@ macro_rules! impl_base_methods {
             self
         }
 
-        fn payload(&self) -> OrderPayload {
+        fn payload(&self) -> Result<OrderPayload, SdkError> {
             self.fields.to_payload()
         }
     };
@@ -311,7 +340,7 @@ impl OrderEnvelope for LimitOrderEnvelope {
     ) -> Result<SubmitOrderRequest, SdkError> {
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
-        let mut payload = self.fields.to_payload();
+        let mut payload = self.fields.to_payload()?;
         payload.sign(keypair);
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
@@ -329,7 +358,7 @@ impl OrderEnvelope for LimitOrderEnvelope {
     ) -> Result<SubmitOrderRequest, SdkError> {
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
-        let mut payload = self.fields.to_payload();
+        let mut payload = self.fields.to_payload()?;
         payload.apply_signature(sig_bs58.to_string())?;
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
@@ -413,7 +442,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
-        let mut payload = self.fields.to_payload();
+        let mut payload = self.fields.to_payload()?;
         payload.sign(keypair);
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
@@ -438,7 +467,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
-        let mut payload = self.fields.to_payload();
+        let mut payload = self.fields.to_payload()?;
         payload.apply_signature(sig_bs58.to_string())?;
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
@@ -512,13 +541,24 @@ impl LimitOrderEnvelope {
     /// - **WalletAdapter**: signs via external signer, submits via REST
     /// - **Privy**: sends to backend for signing and submission
     ///
+    /// Automatically fills orderbook-derived fields (market, mints, salt) and
+    /// scales price/size to raw amounts before signing.
+    ///
     /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
     pub async fn submit(
-        self,
+        mut self,
         client: &crate::client::LightconeClient,
         orderbook: &OrderBookPair,
     ) -> Result<crate::domain::order::SubmitOrderResponse, crate::error::SdkError> {
         use crate::shared::signing::SigningStrategy;
+
+        // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+        // price/size before the signing strategy runs. This is necessary because
+        // the WalletAdapter path calls `payload()` to hash for external signing,
+        // and the Privy path reads fields like `get_market()`, both of which
+        // happen before `sign()`/`finalize()` where these would otherwise run.
+        self.fields.auto_fill_from_orderbook(orderbook)?;
+        self.fields.auto_scale(orderbook)?;
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
@@ -531,7 +571,7 @@ impl LimitOrderEnvelope {
                 client.orders().submit(&request).await
             }
             SigningStrategy::WalletAdapter(signer) => {
-                let hash = self.payload().hash_hex();
+                let hash = self.payload()?.hash_hex();
                 let sig_bytes = signer
                     .sign_message(hash.as_bytes())
                     .await
@@ -544,7 +584,7 @@ impl LimitOrderEnvelope {
                 let envelope = crate::privy::PrivyOrderEnvelope::from_limit(
                     &self,
                     orderbook.orderbook_id.as_str(),
-                );
+                )?;
                 let result = client
                     .privy()
                     .sign_and_send_order(&wallet_id, envelope)
@@ -567,13 +607,24 @@ impl TriggerOrderEnvelope {
     /// - **WalletAdapter**: signs via external signer, submits via REST
     /// - **Privy**: sends to backend for signing and submission
     ///
+    /// Automatically fills orderbook-derived fields (market, mints, salt) and
+    /// scales price/size to raw amounts before signing.
+    ///
     /// Returns `Err(SdkError::Validation)` if no signing strategy is set.
     pub async fn submit(
-        self,
+        mut self,
         client: &crate::client::LightconeClient,
         orderbook: &OrderBookPair,
     ) -> Result<crate::domain::order::TriggerOrderResponse, crate::error::SdkError> {
         use crate::shared::signing::SigningStrategy;
+
+        // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+        // price/size before the signing strategy runs. This is necessary because
+        // the WalletAdapter path calls `payload()` to hash for external signing,
+        // and the Privy path reads fields like `get_market()`, both of which
+        // happen before `sign()`/`finalize()` where these would otherwise run.
+        self.fields.auto_fill_from_orderbook(orderbook)?;
+        self.fields.auto_scale(orderbook)?;
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
@@ -586,7 +637,7 @@ impl TriggerOrderEnvelope {
                 client.orders().submit_trigger(&request).await
             }
             SigningStrategy::WalletAdapter(signer) => {
-                let hash = self.payload().hash_hex();
+                let hash = self.payload()?.hash_hex();
                 let sig_bytes = signer
                     .sign_message(hash.as_bytes())
                     .await
@@ -599,7 +650,7 @@ impl TriggerOrderEnvelope {
                 let envelope = crate::privy::PrivyOrderEnvelope::from_trigger(
                     &self,
                     orderbook.orderbook_id.as_str(),
-                );
+                )?;
                 let result = client
                     .privy()
                     .sign_and_send_order(&wallet_id, envelope)
@@ -727,7 +778,7 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(500_000);
 
-        let payload = env.payload();
+        let payload = env.payload().unwrap();
         assert_eq!(payload.nonce, 1);
         assert_eq!(payload.maker, maker);
         assert_eq!(payload.side, OrderSide::Bid);
@@ -871,9 +922,8 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "amount_in must be greater than 0")]
     fn test_limit_envelope_zero_amount_in() {
-        LimitOrderEnvelope::new()
+        let result = LimitOrderEnvelope::new()
             .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
@@ -884,12 +934,16 @@ mod tests {
             .amount_in(0)
             .amount_out(500_000)
             .payload();
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("amount_in"),
+            "expected error about amount_in"
+        );
     }
 
     #[test]
-    #[should_panic(expected = "amount_out must be greater than 0")]
     fn test_limit_envelope_zero_amount_out() {
-        LimitOrderEnvelope::new()
+        let result = LimitOrderEnvelope::new()
             .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
@@ -900,6 +954,11 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(0)
             .payload();
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("amount_out"),
+            "expected error about amount_out"
+        );
     }
 
     #[test]
@@ -912,14 +971,14 @@ mod tests {
             .bid()
             .amount_in(1_000_000)
             .amount_out(500_000)
-            .payload();
+            .payload()
+            .unwrap();
         assert_eq!(payload.nonce, 0);
     }
 
     #[test]
-    #[should_panic(expected = "side is required")]
     fn test_limit_envelope_missing_side() {
-        LimitOrderEnvelope::new()
+        let result = LimitOrderEnvelope::new()
             .nonce(1)
             .salt(0)
             .maker(Pubkey::new_unique())
@@ -929,6 +988,11 @@ mod tests {
             .amount_in(1_000_000)
             .amount_out(500_000)
             .payload();
+        assert!(result.is_err());
+        assert!(
+            result.unwrap_err().to_string().contains("side"),
+            "expected error about side"
+        );
     }
 
     #[test]

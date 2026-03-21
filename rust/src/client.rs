@@ -347,11 +347,11 @@ impl Clone for LightconeClient {
             signing_strategy: self.signing_strategy.clone(),
             rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]
-            solana_rpc_client: self.solana_rpc_client.as_ref().map(|_| {
+            solana_rpc_client: self.solana_rpc_client.as_ref().map(|rpc_client| {
                 // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
                 // This is a limitation — the cloned client shares no connection state.
                 SolanaRpcClient::new_with_commitment(
-                    self.solana_rpc_client.as_ref().unwrap().url(),
+                    rpc_client.url(),
                     CommitmentConfig::confirmed(),
                 )
             }),
