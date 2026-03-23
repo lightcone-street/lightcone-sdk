@@ -271,16 +271,23 @@ All SDK operations return `Result<T, SdkError>`:
 | `SdkError::Auth(AuthError)` | Authentication failures |
 | `SdkError::Validation(String)` | Domain type conversion failures |
 | `SdkError::Serde(serde_json::Error)` | Serialization errors |
+| `SdkError::MissingMarketContext(string)` | Market context not provided for operation requiring `DepositSource::Market` |
+| `SdkError::Signing(String)` | Signing operation failures |
+| `SdkError::UserCancelled` | User cancelled wallet signing prompt |
 | `SdkError::Program(program::SdkError)` | On-chain program errors (RPC, account parsing) |
 | `SdkError::Other(String)` | Catch-all |
 
-Notable `HttpError` variants:
+`HttpError` variants:
 
 | Variant | Meaning |
 |---------|---------|
+| `Reqwest(reqwest::Error)` | Network/transport failure |
 | `ServerError { status, body }` | Non-2xx response from the backend |
 | `RateLimited { retry_after_ms }` | 429 - back off and retry |
 | `Unauthorized` | 401 - session expired or missing |
+| `NotFound(String)` | 404 - resource not found |
+| `BadRequest(String)` | 400 - invalid request |
+| `Timeout` | Request timed out |
 | `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
 
 ## Retry Strategy
