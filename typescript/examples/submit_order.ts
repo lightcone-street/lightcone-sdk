@@ -1,4 +1,3 @@
-import { PublicKey } from "@solana/web3.js";
 import {
   rpcClient,
   wallet,
@@ -6,26 +5,24 @@ import {
   marketAndOrderbook,
   freshOrderNonce,
 } from "./common";
+import { generateSalt } from "../src/program/orders";
 
 async function main() {
   const client = rpcClient();
   const keypair = wallet();
   await login(client, keypair);
 
-  const [m, orderbook] = await marketAndOrderbook(client);
-  const nonce = await freshOrderNonce(client, keypair.publicKey);
+  const [_market, orderbook] = await marketAndOrderbook(client);
 
   const request = client
     .orders()
     .limitOrder()
     .maker(keypair.publicKey)
-    .market(new PublicKey(m.pubkey))
-    .baseMint(new PublicKey(orderbook.base.pubkey))
-    .quoteMint(new PublicKey(orderbook.quote.pubkey))
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(nonce)
+    .nonce(await freshOrderNonce(client, keypair.publicKey))
+    .salt(generateSalt())
     .sign(keypair, orderbook);
 
   const response = await client.orders().submit(request);

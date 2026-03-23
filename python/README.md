@@ -12,6 +12,7 @@ Python SDK for the Lightcone impact market protocol on Solana.
      - [Step 4: Monitor](#step-4-monitor)
      - [Step 5: Cancel an Order](#step-5-cancel-an-order)
      - [Step 6: Exit a Position](#step-6-exit-a-position)
+     - [Step 7: Withdraw](#step-7-withdraw)
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
@@ -58,24 +59,35 @@ async def main():
     market = await client.markets().get_by_slug("some-market")
     orderbook = market.orderbook_pairs[0]
 
-    # 3. Build, sign, and submit a limit order (scaling is automatic)
+    # 3. Deposit collateral to the global pool
+    deposit_mint = Pubkey.from_string(market.deposit_assets[0].deposit_asset)
+    deposit_ix = (client.positions().deposit()
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(1_000_000)
+        .build_ix())
+
+    # 4. Build, sign, and submit a limit order (scaling is automatic)
     request = (
         client.orders().limit_order()
         .maker(keypair.pubkey())
-        .market(Pubkey.from_string(market.pubkey))
-        .base_mint(Pubkey.from_string(orderbook.base.mint))
-        .quote_mint(Pubkey.from_string(orderbook.quote.mint))
         .bid()
         .price("0.55")
         .size("100")
-        .nonce(await client.orders().current_nonce(keypair.pubkey()))
         .sign(keypair, orderbook)
     )
 
     response = await client.orders().submit(request)
     print("Order submitted:", response)
 
-    # 4. Stream real-time updates
+    # 5. Withdraw from the global pool
+    withdraw_ix = (client.positions().withdraw()
+        .user(keypair.pubkey())
+        .mint(deposit_mint)
+        .amount(1_000_000)
+        .build_ix())
+
+    # 6. Stream real-time updates
     ws = client.ws()
     await ws.connect()
     await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
@@ -126,7 +138,6 @@ deposit_ix = (client.positions().deposit()
     .user(keypair.pubkey())
     .mint(deposit_mint)
     .amount(1_000_000)
-    .market(market)
     .build_ix())
 ```
 
@@ -136,13 +147,9 @@ deposit_ix = (client.positions().deposit()
 request = (
     client.orders().limit_order()
     .maker(keypair.pubkey())
-    .market(Pubkey.from_string(market.pubkey))
-    .base_mint(Pubkey.from_string(orderbook.base.mint))
-    .quote_mint(Pubkey.from_string(orderbook.quote.mint))
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(await client.orders().current_nonce(keypair.pubkey()))
     .sign(keypair, orderbook)
 )
 order = await client.orders().submit(request)
@@ -187,6 +194,16 @@ tx_hash = await (client.markets().merge_complete_set()
     .amount(1_000_000)
     .num_outcomes(num_outcomes)
     .sign_and_submit())
+```
+
+### Step 7: Withdraw
+
+```python
+withdraw_ix = (client.positions().withdraw()
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_ix())
 ```
 
 ## Authentication

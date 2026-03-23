@@ -84,11 +84,28 @@ class OutcomeImpact:
 
 
 class OrderBookValidationError(Exception):
+    """Base validation error for orderbook conversions."""
     pass
+
+
+class BaseTokenNotFound(OrderBookValidationError):
+    """Raised when the base token mint is not found in the conditional tokens list."""
+
+    def __init__(self, message: str):
+        super().__init__(f"Base token not found: {message}")
+
+
+class QuoteTokenNotFound(OrderBookValidationError):
+    """Raised when the quote token mint is not found in the conditional tokens list."""
+
+    def __init__(self, message: str):
+        super().__init__(f"Quote token not found: {message}")
 
 
 __all__ = [
     "OrderBookPair",
     "OutcomeImpact",
     "OrderBookValidationError",
+    "BaseTokenNotFound",
+    "QuoteTokenNotFound",
 ]

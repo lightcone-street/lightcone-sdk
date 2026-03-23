@@ -1,5 +1,6 @@
 export * from "./client";
 import type { LimitOrderEnvelope, TriggerOrderEnvelope } from "../program/envelope";
+import { ProgramSdkError } from "../program/error";
 
 export interface SignAndSendTxRequest {
   wallet_id: string;
@@ -112,7 +113,7 @@ function requireDefined<T>(
   field: string
 ): T {
   if (value === undefined) {
-    throw new Error(`Missing required field: ${field}`);
+    throw ProgramSdkError.missingField(field);
   }
   return value;
 }
