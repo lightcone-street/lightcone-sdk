@@ -248,7 +248,7 @@ impl Default for WsConfig {
             max_reconnect_attempts: 10,
             base_reconnect_delay_ms: 1_000,
             ping_interval_ms: 30_000,
-            pong_timeout_ms: 1_000,
+            pong_timeout_ms: 10_000,
         }
     }
 }
@@ -377,7 +377,7 @@ mod tests {
         let config = WsConfig::default();
         assert_eq!(config.max_reconnect_attempts, 10);
         assert_eq!(config.ping_interval_ms, 30_000);
-        assert_eq!(config.pong_timeout_ms, 1_000);
+        assert_eq!(config.pong_timeout_ms, 10_000);
         assert!(config.reconnect);
     }
 }

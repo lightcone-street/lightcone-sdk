@@ -352,7 +352,7 @@ impl WsClient {
             if let Ok(mut timeout_ref) = timeout.try_borrow_mut() {
                 timeout_ref.take();
 
-                let pong_timeout_ms = Self::get_config_val(|c| c.pong_timeout_ms, 1_000);
+                let pong_timeout_ms = Self::get_config_val(|c| c.pong_timeout_ms, 10_000);
                 *timeout_ref = Some(Timeout::new(pong_timeout_ms, || {
                     tracing::warn!("Pong timeout - no response to ping");
                     WsClient::reconnect();

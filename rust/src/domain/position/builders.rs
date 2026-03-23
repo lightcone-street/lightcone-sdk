@@ -1,14 +1,15 @@
-//! Fluent builders for deposit and withdraw operations.
+//! Fluent builders for deposit, withdraw, and merge operations.
 //!
-//! Created via `client.positions().deposit().await` and `client.positions().withdraw().await`.
+//! Created via `client.positions().deposit().await`, `client.positions().withdraw().await`,
+//! and `client.positions().merge()`.
 
 use crate::client::LightconeClient;
 use crate::domain::market::Market;
 use crate::error::SdkError;
 use crate::program::instructions;
 use crate::program::types::{
-    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams,
+    BuildDepositParams, BuildMergeParams, DepositToGlobalParams, ExtendPositionTokensParams,
+    GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::shared::DepositSource;
@@ -25,7 +26,7 @@ use solana_transaction::Transaction;
 ///
 /// Dispatches based on deposit source:
 /// - **Global**: `deposit_to_global` — wallet → global pool
-/// - **Market**: `mint_complete_set` — wallet → market, mints conditional tokens
+/// - **Market**: `deposit` (mint complete set) — wallet → market, mints conditional tokens
 ///
 /// # Example (global deposit)
 ///
@@ -149,8 +150,8 @@ impl<'a> DepositBuilder<'a> {
                     .to_pubkey()
                     .map_err(|error| SdkError::Validation(error))?;
                 let num_outcomes = market.outcomes.len() as u8;
-                Ok(instructions::build_mint_complete_set_ix(
-                    &MintCompleteSetParams {
+                Ok(instructions::build_deposit_ix(
+                    &BuildDepositParams {
                         user,
                         market: market_pubkey,
                         deposit_mint: mint,
@@ -180,7 +181,119 @@ impl<'a> DepositBuilder<'a> {
     }
 }
 
-// ─── WithdrawBuilder ────────────────────────────────────────────────────────
+// ─── MergeBuilder ────────────────────────────────────────────────────────
+
+/// Fluent builder for merge operations.
+///
+/// Created via `client.positions().merge()` — direct construction is not exposed.
+///
+/// Burns a complete set of conditional tokens (one of each outcome) from a market
+/// position and releases the underlying collateral back to the user's wallet.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let ix = client.positions().merge()
+///     .user(keypair.pubkey())
+///     .market(&market)
+///     .mint(deposit_mint)
+///     .amount(1_000_000)
+///     .build_ix()?;
+/// ```
+pub struct MergeBuilder<'a> {
+    client: &'a LightconeClient,
+    user: Option<Pubkey>,
+    mint: Option<Pubkey>,
+    amount: Option<u64>,
+    market: Option<&'a Market>,
+}
+
+impl<'a> MergeBuilder<'a> {
+    pub(crate) fn new(client: &'a LightconeClient) -> Self {
+        Self {
+            client,
+            user: None,
+            mint: None,
+            amount: None,
+            market: None,
+        }
+    }
+
+    /// Set the user's public key.
+    pub fn user(mut self, user: Pubkey) -> Self {
+        self.user = Some(user);
+        self
+    }
+
+    /// Set the token mint.
+    pub fn mint(mut self, mint: Pubkey) -> Self {
+        self.mint = Some(mint);
+        self
+    }
+
+    /// Set the merge amount.
+    pub fn amount(mut self, amount: u64) -> Self {
+        self.amount = Some(amount);
+        self
+    }
+
+    /// Set the market reference (required).
+    pub fn market(mut self, market: &'a Market) -> Self {
+        self.market = Some(market);
+        self
+    }
+
+    /// Build a merge instruction.
+    pub fn build_ix(self) -> Result<Instruction, SdkError> {
+        let user = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let mint = self
+            .mint
+            .ok_or_else(|| SdkError::Validation("mint is required".into()))?;
+        let amount = self
+            .amount
+            .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
+        let market = self.market.ok_or(SdkError::MissingMarketContext(
+            "market is required for merge",
+        ))?;
+        let market_pubkey = market
+            .pubkey
+            .to_pubkey()
+            .map_err(|error| SdkError::Validation(error))?;
+        let num_outcomes = market.outcomes.len() as u8;
+        let program_id = &self.client.program_id;
+
+        Ok(instructions::build_merge_ix(
+            &BuildMergeParams {
+                user,
+                market: market_pubkey,
+                deposit_mint: mint,
+                amount,
+            },
+            num_outcomes,
+            program_id,
+        ))
+    }
+
+    /// Build a merge transaction.
+    pub fn build_tx(self) -> Result<Transaction, SdkError> {
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+    }
+
+    /// Build, sign, and submit the merge transaction.
+    pub async fn sign_and_submit(self) -> Result<String, SdkError> {
+        let client = self.client;
+        let transaction = self.build_tx()?;
+        client.sign_and_submit_tx(transaction).await
+    }
+}
+
+// ─── WithdrawBuilder ─────────────────────────────────────────────────────────
 
 /// Fluent builder for withdraw operations.
 ///
@@ -189,7 +302,7 @@ impl<'a> DepositBuilder<'a> {
 ///
 /// Dispatches based on deposit source:
 /// - **Global**: `withdraw_from_global` — global pool → wallet
-/// - **Market**: `merge_complete_set` — burns conditional tokens → wallet collateral
+/// - **Market**: `withdraw_from_position` — position ATA → user's wallet
 ///
 /// # Example (global withdraw)
 ///
@@ -210,6 +323,8 @@ impl<'a> DepositBuilder<'a> {
 ///     .mint(deposit_mint)
 ///     .amount(1_000_000)
 ///     .with_market_deposit_source(&market)
+///     .outcome_index(0)
+///     .token_2022(true)
 ///     .build_ix()
 ///     .await?;
 /// ```
@@ -218,8 +333,10 @@ pub struct WithdrawBuilder<'a> {
     user: Option<Pubkey>,
     mint: Option<Pubkey>,
     amount: Option<u64>,
-    market: Option<&'a Market>,
     deposit_source: Option<DepositSource>,
+    market: Option<&'a Market>,
+    outcome_index: Option<u8>,
+    is_token_2022: bool,
 }
 
 impl<'a> WithdrawBuilder<'a> {
@@ -229,18 +346,20 @@ impl<'a> WithdrawBuilder<'a> {
             user: None,
             mint: None,
             amount: None,
-            market: None,
             deposit_source: Some(deposit_source),
+            market: None,
+            outcome_index: None,
+            is_token_2022: false,
         }
     }
 
-    /// Set the withdrawer's public key.
+    /// Set the user's public key.
     pub fn user(mut self, user: Pubkey) -> Self {
         self.user = Some(user);
         self
     }
 
-    /// Set the token mint to withdraw.
+    /// Set the token mint.
     pub fn mint(mut self, mint: Pubkey) -> Self {
         self.mint = Some(mint);
         self
@@ -252,18 +371,15 @@ impl<'a> WithdrawBuilder<'a> {
         self
     }
 
-    /// Set the market reference (required when deposit source is `Market`).
-    ///
-    /// Use this when the client is already configured with `DepositSource::Market`.
-    /// Otherwise, prefer `with_market_deposit_source()` to set both at once.
-    pub fn market(mut self, market: &'a Market) -> Self {
-        self.market = Some(market);
-        self
-    }
-
     /// Override the deposit source for this call.
     pub fn deposit_source(mut self, source: DepositSource) -> Self {
         self.deposit_source = Some(source);
+        self
+    }
+
+    /// Set deposit source to `Global`.
+    pub fn with_global_deposit_source(mut self) -> Self {
+        self.deposit_source = Some(DepositSource::Global);
         self
     }
 
@@ -274,9 +390,21 @@ impl<'a> WithdrawBuilder<'a> {
         self
     }
 
-    /// Set deposit source to `Global`.
-    pub fn with_global_deposit_source(mut self) -> Self {
-        self.deposit_source = Some(DepositSource::Global);
+    /// Set the market reference (required when deposit source is `Market`).
+    pub fn market(mut self, market: &'a Market) -> Self {
+        self.market = Some(market);
+        self
+    }
+
+    /// Set the outcome index (required when deposit source is `Market`).
+    pub fn outcome_index(mut self, outcome_index: u8) -> Self {
+        self.outcome_index = Some(outcome_index);
+        self
+    }
+
+    /// Set whether the token uses Token-2022 (only relevant for `Market` withdrawals).
+    pub fn token_2022(mut self, is_token_2022: bool) -> Self {
+        self.is_token_2022 = is_token_2022;
         self
     }
 
@@ -312,15 +440,18 @@ impl<'a> WithdrawBuilder<'a> {
                     .pubkey
                     .to_pubkey()
                     .map_err(|error| SdkError::Validation(error))?;
-                let num_outcomes = market.outcomes.len() as u8;
-                Ok(instructions::build_merge_complete_set_ix(
-                    &MergeCompleteSetParams {
+                let outcome_index = self.outcome_index.ok_or_else(|| {
+                    SdkError::Validation("outcome_index is required for Market withdrawal".into())
+                })?;
+                Ok(instructions::build_withdraw_from_position_ix(
+                    &WithdrawFromPositionParams {
                         user,
                         market: market_pubkey,
-                        deposit_mint: mint,
+                        mint,
                         amount,
+                        outcome_index,
                     },
-                    num_outcomes,
+                    self.is_token_2022,
                     program_id,
                 ))
             }

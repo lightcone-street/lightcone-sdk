@@ -188,12 +188,11 @@ client.orders().cancel(&cancel).await?;
 
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
-let tx_hash = client.markets().merge_complete_set()
+let tx_hash = client.positions().merge()
     .user(keypair.pubkey())
-    .market(market.pubkey.to_pubkey()?)
+    .market(&market)
     .mint(deposit_mint)
     .amount(1_000_000)
-    .num_outcomes(num_outcomes)
     .sign_and_submit()
     .await?;
 ```

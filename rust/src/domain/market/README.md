@@ -144,28 +144,6 @@ async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError>
 
 Get the current featured markets. Returns only `Active` and `Resolved` markets.
 
-### On-Chain Instruction & Transaction Builders
-
-Each operation has an `_ix` method returning an `Instruction` and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
-
-#### `mint_complete_set_ix` / `mint_complete_set_tx`
-
-```rust
-fn mint_complete_set_ix(&self, params: &MintCompleteSetParams, num_outcomes: u8) -> Instruction
-fn mint_complete_set_tx(&self, params: MintCompleteSetParams, num_outcomes: u8) -> Result<Transaction, SdkError>
-```
-
-Build a MintCompleteSet instruction/transaction — deposit collateral and receive conditional tokens for all outcomes.
-
-#### `merge_complete_set_ix` / `merge_complete_set_tx`
-
-```rust
-fn merge_complete_set_ix(&self, params: &MergeCompleteSetParams, num_outcomes: u8) -> Instruction
-fn merge_complete_set_tx(&self, params: MergeCompleteSetParams, num_outcomes: u8) -> Result<Transaction, SdkError>
-```
-
-Build a MergeCompleteSet instruction/transaction — burn a complete set of conditional tokens and withdraw collateral.
-
 ### Market Helpers
 
 #### `derive_condition_id`

@@ -100,21 +100,19 @@ pub mod prelude {
         AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
     };
 
-    // Program — order envelopes, trait, payload, and unified params
+    // Program — order envelopes, trait, payload
     pub use crate::program::{
-        generate_cancel_all_salt, DepositParams, LimitOrderEnvelope, MarketWithdrawContext,
-        OrderEnvelope, OrderPayload, TriggerOrderEnvelope, WithdrawParams,
+        generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
+        TriggerOrderEnvelope,
     };
 
     // Position builders
     pub use crate::domain::position::{
         DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
-        WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
+        RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
+        WithdrawFromPositionBuilder,
     };
-
-    // Market builders
-    pub use crate::domain::market::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 
     // Privy RPC types
     pub use crate::privy::{

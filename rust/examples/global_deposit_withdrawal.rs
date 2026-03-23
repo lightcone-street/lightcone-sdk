@@ -103,10 +103,10 @@ async fn main() -> ExampleResult {
         println!("{name}: confirmed {sig}");
     }
 
-    // ── Unified deposit/withdraw builders ──────────────────────────────
+    // ── Unified deposit/withdraw/merge builders ─────────────────────────
     //
-    // These builders dispatch based on the client's deposit source setting
-    // (or a per-call override).
+    // Deposit and withdraw builders dispatch based on the client's deposit
+    // source setting (or a per-call override). Merge is market-only.
 
     // Deposit — explicitly override to Global
     let global_deposit_ix = client
@@ -156,7 +156,7 @@ async fn main() -> ExampleResult {
         global_withdraw_ix.accounts.len()
     );
 
-    // Withdraw — Market mode (burns conditional tokens → wallet collateral)
+    // Withdraw — Market mode (position ATA → user's wallet)
     let market_withdraw_ix = client
         .positions()
         .withdraw()
@@ -165,12 +165,25 @@ async fn main() -> ExampleResult {
         .mint(deposit_mint)
         .amount(amount)
         .with_market_deposit_source(&market)
+        .outcome_index(0)
+        .token_2022(true)
         .build_ix()
         .await?;
     println!(
         "builder market withdraw ix: {} accounts",
         market_withdraw_ix.accounts.len()
     );
+
+    // Merge — burns complete set of conditional tokens, releases collateral
+    let merge_ix = client
+        .positions()
+        .merge()
+        .user(keypair.pubkey())
+        .market(&market)
+        .mint(deposit_mint)
+        .amount(amount)
+        .build_ix()?;
+    println!("builder merge ix: {} accounts", merge_ix.accounts.len());
 
     Ok(())
 }

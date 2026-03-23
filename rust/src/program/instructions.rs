@@ -24,12 +24,11 @@ use crate::program::pda::{
     get_vault_pda,
 };
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
-    DepositAndSwapParams, DepositToGlobalParams, ExtendPositionTokensParams,
-    GlobalToMarketDepositParams, InitPositionTokensParams, MatchOrdersMultiParams,
-    MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams, SetAuthorityParams,
-    SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
+    ActivateMarketParams, AddDepositMintParams, BuildDepositParams, BuildMergeParams,
+    CreateMarketParams, CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalParams,
+    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
+    MatchOrdersMultiParams, RedeemWinningsParams, SetAuthorityParams, SettleMarketParams,
+    WhitelistDepositTokenParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_outcome_metadata,
@@ -196,7 +195,7 @@ pub fn build_add_deposit_mint_ix(
     })
 }
 
-/// Build MintCompleteSet instruction.
+/// Build Deposit (MintCompleteSet) instruction.
 ///
 /// Deposits collateral and mints all outcome tokens into Position PDA.
 ///
@@ -215,8 +214,8 @@ pub fn build_add_deposit_mint_ix(
 /// 11. associated_token_program
 /// 12. system_program
 /// + remaining accounts (conditional_mint, position_conditional_ata) pairs
-pub fn build_mint_complete_set_ix(
-    params: &MintCompleteSetParams,
+pub fn build_deposit_ix(
+    params: &BuildDepositParams,
     num_outcomes: u8,
     program_id: &Pubkey,
 ) -> Instruction {
@@ -264,11 +263,11 @@ pub fn build_mint_complete_set_ix(
     }
 }
 
-/// Build MergeCompleteSet instruction.
+/// Build Merge (MergeCompleteSet) instruction.
 ///
 /// Burns all outcome tokens from Position and releases collateral.
-pub fn build_merge_complete_set_ix(
-    params: &MergeCompleteSetParams,
+pub fn build_merge_ix(
+    params: &BuildMergeParams,
     num_outcomes: u8,
     program_id: &Pubkey,
 ) -> Instruction {
