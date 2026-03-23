@@ -147,7 +147,7 @@ export type UserUpdate =
   | ({ event_type: "order" } & OrderEvent)
   | ({ event_type: "balance_update" } & UserBalanceUpdate)
   | ({ event_type: "global_deposit_update" } & GlobalDepositUpdate)
-  | ({ event_type: "nonce_update" } & NonceUpdate)
+  | ({ event_type: "nonce" } & NonceUpdate)
   | ({ event_type: "notification" } & NotificationUpdate);
 
 export type AuthUpdate =

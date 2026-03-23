@@ -161,7 +161,7 @@ export type PlaceResponse =
       status: "rejected";
       error?: string;
       details?: string;
-      reason?: string;
+      rejection_reason?: string;
       order_hash?: string;
       remaining?: string;
       filled?: string;
@@ -278,7 +278,15 @@ export class Orders {
       case "filled":
         return raw;
       case "rejected": {
-        const message = [raw.error, raw.details].filter(Boolean).join(": ") || "Rejected";
+        const message =
+          [raw.error, raw.details].filter(Boolean).join(": ") ||
+          raw.rejection_reason ||
+          [
+            "Rejected",
+            raw.order_hash ? `hash=${raw.order_hash}` : "",
+            raw.filled ? `filled=${raw.filled}` : "",
+            raw.remaining ? `remaining=${raw.remaining}` : "",
+          ].filter(Boolean).join(", ");
         throw SdkError.from(new Error(message));
       }
       case "bad_request":
@@ -425,15 +433,19 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const result = await privy.signAndCancelOrder(
+        const raw = await privy.signAndCancelOrder(
           strategy.walletId,
           orderHash,
           maker as string
         );
-        if ("order_hash" in result) {
-          return { order_hash: result.order_hash, remaining: Number(result.remaining ?? 0) };
+        const resp = raw as unknown as CancelResponse;
+        if (resp.status === "cancelled") {
+          return { order_hash: resp.order_hash, remaining: resp.remaining };
         }
-        throw SdkError.from(new Error("Unexpected cancel response"));
+        if (resp.status === "internal_error") {
+          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
+        }
+        throw SdkError.from(new Error(resp.error));
       }
     }
   }
@@ -484,20 +496,30 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const result = await privy.signAndCancelAllOrders(
+        const raw = await privy.signAndCancelAllOrders(
           strategy.walletId,
           userPubkey as string,
           resolvedOrderbookId as string,
           timestamp,
           salt
         );
-        return {
-          cancelled_order_hashes: result.cancelled_order_hashes,
-          count: result.count,
-          user_pubkey: asPubkeyStr(result.user_pubkey),
-          orderbook_id: asOrderBookId(result.orderbook_id),
-          message: result.message,
-        };
+        const resp = raw as unknown as CancelAllResponse;
+        if (resp.status === "success") {
+          return {
+            cancelled_order_hashes: resp.cancelled_order_hashes,
+            count: resp.count,
+            user_pubkey: asPubkeyStr(resp.user_pubkey),
+            orderbook_id: asOrderBookId(resp.orderbook_id),
+            message: resp.message,
+          };
+        }
+        if (resp.status === "error") {
+          throw SdkError.from(new Error(resp.message));
+        }
+        if (resp.status === "internal_error") {
+          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
+        }
+        throw SdkError.from(new Error(resp.error));
       }
     }
   }
@@ -528,15 +550,19 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const result = await privy.signAndCancelTriggerOrder(
+        const raw = await privy.signAndCancelTriggerOrder(
           strategy.walletId,
           triggerOrderId,
           maker as string
         );
-        if ("trigger_order_id" in result) {
-          return { trigger_order_id: result.trigger_order_id };
+        const resp = raw as unknown as CancelTriggerResponse;
+        if (resp.status === "cancelled") {
+          return { trigger_order_id: resp.trigger_order_id };
         }
-        throw SdkError.from(new Error("Unexpected cancel-trigger response"));
+        if (resp.status === "internal_error") {
+          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
+        }
+        throw SdkError.from(new Error(resp.error));
       }
     }
   }
