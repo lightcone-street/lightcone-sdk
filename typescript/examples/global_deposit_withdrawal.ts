@@ -13,16 +13,22 @@ async function main() {
   const dMint = depositMint(m);
   const outcomes = numOutcomes(m);
   const amount = 1_000_000n;
-
-  // 1. Init position tokens — one-time setup per market (creates position + ALT)
-  const recentSlot = BigInt(await connection.getSlot());
+  const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 
   const [positionPda] = getPositionPda(keypair.publicKey, marketPubkey);
-  const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
 
-  const instructions: Array<[string, import("@solana/web3.js").TransactionInstruction]> = [
-    // 1. Init position tokens
-    [
+  // Check if position already exists (init_position_tokens is one-time)
+  const positionAccount = await connection.getAccountInfo(positionPda);
+  const needsInit = positionAccount === null;
+
+  const instructions: Array<[string, import("@solana/web3.js").TransactionInstruction]> = [];
+
+  if (needsInit) {
+    const recentSlot = BigInt(await connection.getSlot());
+    const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
+
+    // 1. Init position tokens — one-time setup per market (creates position + ALT)
+    instructions.push([
       "init_position_tokens",
       client.positions().initPositionTokens()
         .payer(keypair.publicKey)
@@ -32,29 +38,10 @@ async function main() {
         .recentSlot(recentSlot)
         .numOutcomes(outcomes)
         .buildIx(),
-    ],
-    // 2. Deposit to global — fund the global pool with collateral
-    [
-      "deposit_to_global",
-      client.positions().depositToGlobal()
-        .user(keypair.publicKey)
-        .mint(dMint)
-        .amount(amount)
-        .buildIx(),
-    ],
-    // 3. Global to market deposit — move capital into a specific market
-    [
-      "global_to_market_deposit",
-      client.positions().globalToMarketDeposit()
-        .user(keypair.publicKey)
-        .market(marketPubkey)
-        .mint(dMint)
-        .amount(amount)
-        .numOutcomes(outcomes)
-        .buildIx(),
-    ],
-    // 4. Extend position tokens — add a new deposit mint to an existing ALT
-    [
+    ]);
+
+    // 2. Extend position tokens — add deposit mint to ALT
+    instructions.push([
       "extend_position_tokens",
       client.positions().extendPositionTokens()
         .payer(keypair.publicKey)
@@ -64,17 +51,42 @@ async function main() {
         .depositMints([dMint])
         .numOutcomes(outcomes)
         .buildIx(),
-    ],
-    // 5. Withdraw from global — pull tokens back out of the global pool
-    [
-      "withdraw_from_global",
-      client.positions().withdrawFromGlobal()
-        .user(keypair.publicKey)
-        .mint(dMint)
-        .amount(amount)
-        .buildIx(),
-    ],
-  ];
+    ]);
+  } else {
+    console.log("position already initialized, skipping init_position_tokens + extend");
+  }
+
+  // 3. Deposit to global — fund the global pool with collateral
+  instructions.push([
+    "deposit_to_global",
+    client.positions().depositToGlobal()
+      .user(keypair.publicKey)
+      .mint(dMint)
+      .amount(depositAmount)
+      .buildIx(),
+  ]);
+
+  // 4. Global to market deposit — move capital into a specific market
+  instructions.push([
+    "global_to_market_deposit",
+    client.positions().globalToMarketDeposit()
+      .user(keypair.publicKey)
+      .market(marketPubkey)
+      .mint(dMint)
+      .amount(amount)
+      .numOutcomes(outcomes)
+      .buildIx(),
+  ]);
+
+  // 5. Withdraw from global — pull remaining tokens back out
+  instructions.push([
+    "withdraw_from_global",
+    client.positions().withdrawFromGlobal()
+      .user(keypair.publicKey)
+      .mint(dMint)
+      .amount(amount)
+      .buildIx(),
+  ]);
 
   for (const [name, ix] of instructions) {
     const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();

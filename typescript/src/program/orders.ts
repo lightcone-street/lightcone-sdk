@@ -35,12 +35,15 @@ function bigintToSafeNumber(value: bigint, field: string): number {
 }
 
 /**
- * Generate a random salt (u64) for order uniqueness.
+ * Generate a random salt for order uniqueness.
+ * Capped to Number.MAX_SAFE_INTEGER (2^53 - 1) so the value round-trips
+ * through JSON without precision loss.
  */
 export function generateSalt(): bigint {
   const buf = new Uint8Array(8);
   globalThis.crypto.getRandomValues(buf);
-  return fromLeBytes(Buffer.from(buf));
+  const raw = fromLeBytes(Buffer.from(buf));
+  return raw % (BigInt(Number.MAX_SAFE_INTEGER) + 1n);
 }
 
 
