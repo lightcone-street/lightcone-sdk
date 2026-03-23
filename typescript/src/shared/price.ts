@@ -1,10 +1,12 @@
+import { SdkError } from "../error";
+
 /**
  * Parse a decimal string to a number.
  */
 export function parseDecimal(value: string): number {
   const parsed = Number.parseFloat(value);
   if (Number.isNaN(parsed)) {
-    throw new Error(`Invalid decimal string: ${value}`);
+    throw new SdkError("Validation", `Invalid decimal string: ${value}`);
   }
   return parsed;
 }

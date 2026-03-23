@@ -59,25 +59,29 @@ export function unsubscribeMatches(
 
   switch (subscribe.type) {
     case "book_update":
-      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
     case "trades":
-      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
     case "ticker":
-      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
+      return "orderbook_ids" in unsubscribe
+        ? idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids)
+        : false;
     case "user":
-      return subscribe.wallet_address === (unsubscribe as { wallet_address: PubkeyStr }).wallet_address;
+      return "wallet_address" in unsubscribe
+        ? subscribe.wallet_address === (unsubscribe as { wallet_address: PubkeyStr }).wallet_address
+        : false;
     case "price_history":
-      return (
-        subscribe.orderbook_id === (unsubscribe as { orderbook_id: OrderBookId }).orderbook_id &&
-        subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
-      );
+      return "orderbook_id" in unsubscribe && "resolution" in unsubscribe
+        ? subscribe.orderbook_id === (unsubscribe as { orderbook_id: OrderBookId }).orderbook_id &&
+          subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
+        : false;
     case "market":
-      return subscribe.market_pubkey === (unsubscribe as { market_pubkey: PubkeyStr }).market_pubkey;
+      return "market_pubkey" in unsubscribe
+        ? subscribe.market_pubkey === (unsubscribe as { market_pubkey: PubkeyStr }).market_pubkey
+        : false;
     case "deposit_price":
-      return (
-        subscribe.deposit_asset === (unsubscribe as { deposit_asset: string }).deposit_asset &&
-        subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
-      );
+      return "deposit_asset" in unsubscribe && "resolution" in unsubscribe
+        ? subscribe.deposit_asset === (unsubscribe as { deposit_asset: string }).deposit_asset &&
+          subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
+        : false;
   }
 }
 

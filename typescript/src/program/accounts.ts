@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { DISCRIMINATOR, ACCOUNT_SIZE } from "./constants";
+import { ProgramSdkError } from "./error";
 import {
   Exchange,
   GlobalDepositToken,
@@ -26,9 +27,7 @@ function validateDiscriminator(
 ): void {
   const actual = data.subarray(0, 8);
   if (!actual.equals(expected)) {
-    throw new Error(
-      `Invalid ${accountType} discriminator. Expected ${expected.toString("hex")}, got ${actual.toString("hex")}`
-    );
+    throw ProgramSdkError.invalidDiscriminator(accountType, actual.toString("hex"));
   }
 }
 
@@ -107,9 +106,7 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
  */
 export function deserializeExchange(data: Buffer): Exchange {
   if (data.length < ACCOUNT_SIZE.EXCHANGE) {
-    throw new Error(
-      `Invalid Exchange data length: ${data.length}, expected ${ACCOUNT_SIZE.EXCHANGE}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.EXCHANGE, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.EXCHANGE, "Exchange");
@@ -168,9 +165,7 @@ export function deserializeExchange(data: Buffer): Exchange {
  */
 export function deserializeMarket(data: Buffer): Market {
   if (data.length < ACCOUNT_SIZE.MARKET) {
-    throw new Error(
-      `Invalid Market data length: ${data.length}, expected ${ACCOUNT_SIZE.MARKET}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.MARKET, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.MARKET, "Market");
@@ -226,7 +221,7 @@ export function deserializeMarket(data: Buffer): Market {
       status = MarketStatus.Cancelled;
       break;
     default:
-      throw new Error(`Unknown market status: ${statusByte}`);
+      throw ProgramSdkError.invalidMarketStatus(statusByte);
   }
 
   return {
@@ -254,9 +249,7 @@ export function deserializeMarket(data: Buffer): Market {
  */
 export function deserializeOrderStatus(data: Buffer): OrderStatus {
   if (data.length < ACCOUNT_SIZE.ORDER_STATUS) {
-    throw new Error(
-      `Invalid OrderStatus data length: ${data.length}, expected ${ACCOUNT_SIZE.ORDER_STATUS}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.ORDER_STATUS, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.ORDER_STATUS, "OrderStatus");
@@ -290,9 +283,7 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
  */
 export function deserializeUserNonce(data: Buffer): UserNonce {
   if (data.length < ACCOUNT_SIZE.USER_NONCE) {
-    throw new Error(
-      `Invalid UserNonce data length: ${data.length}, expected ${ACCOUNT_SIZE.USER_NONCE}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.USER_NONCE, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.USER_NONCE, "UserNonce");
@@ -323,9 +314,7 @@ export function deserializeUserNonce(data: Buffer): UserNonce {
  */
 export function deserializePosition(data: Buffer): Position {
   if (data.length < ACCOUNT_SIZE.POSITION) {
-    throw new Error(
-      `Invalid Position data length: ${data.length}, expected ${ACCOUNT_SIZE.POSITION}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.POSITION, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.POSITION, "Position");
@@ -368,9 +357,7 @@ export function deserializePosition(data: Buffer): Position {
  */
 export function deserializeOrderbook(data: Buffer): Orderbook {
   if (data.length < ACCOUNT_SIZE.ORDERBOOK) {
-    throw new Error(
-      `Invalid Orderbook data length: ${data.length}, expected ${ACCOUNT_SIZE.ORDERBOOK}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.ORDERBOOK, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.ORDERBOOK, "Orderbook");
@@ -419,9 +406,7 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
  */
 export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken {
   if (data.length < ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN) {
-    throw new Error(
-      `Invalid GlobalDepositToken data length: ${data.length}, expected ${ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN}`
-    );
+    throw ProgramSdkError.invalidDataLength(ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN, data.length);
   }
 
   validateDiscriminator(data, DISCRIMINATOR.GLOBAL_DEPOSIT_TOKEN, "GlobalDepositToken");

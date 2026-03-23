@@ -137,9 +137,9 @@ from .errors import (
     DivisionByZeroError,
     DepositTokenNotActiveError,
     InvalidPubkeyError,
-    ScalingError,
     UnsignedOrderError,
 )
+from ..shared.scaling import ScalingError
 
 # Utils
 from .utils import (

@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { ProgramSdkError } from "./error";
 import { PROGRAM_ID, ALT_PROGRAM_ID, SEEDS } from "./constants";
 import { toU64Le, toU8 } from "./utils";
 
@@ -108,7 +109,7 @@ export function getOrderStatusPda(
   programId: PublicKey = PROGRAM_ID
 ): [PublicKey, number] {
   if (orderHash.length !== 32) {
-    throw new Error("Order hash must be 32 bytes");
+    throw ProgramSdkError.invalidDataLength(32, orderHash.length);
   }
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.ORDER_STATUS), orderHash],

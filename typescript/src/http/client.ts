@@ -56,7 +56,11 @@ export class LightconeHttp {
         }
 
         lastError = error;
-        const delay = delayForAttempt(config, attempt);
+
+        // Use server-specified delay for rate limits, otherwise exponential backoff
+        const delay = (error.variant === "RateLimited" && error.retryAfterMs)
+          ? error.retryAfterMs
+          : delayForAttempt(config, attempt);
 
         await sleep(delay);
       }
@@ -139,7 +143,17 @@ export class LightconeHttp {
     const statusCode = response.status;
     if (statusCode === 401) throw HttpError.unauthorized();
     if (statusCode === 404) throw HttpError.notFound(bodyText);
-    if (statusCode === 429) throw HttpError.rateLimited();
+    if (statusCode === 429) {
+      const retryAfterHeader = response.headers.get("retry-after");
+      let retryAfterMs: number | undefined;
+      if (retryAfterHeader) {
+        const seconds = Number.parseFloat(retryAfterHeader);
+        if (!Number.isNaN(seconds)) {
+          retryAfterMs = Math.ceil(seconds * 1000);
+        }
+      }
+      throw HttpError.rateLimited(retryAfterMs);
+    }
     if (statusCode >= 400 && statusCode < 500) throw HttpError.badRequest(bodyText);
     throw HttpError.serverError(statusCode, bodyText);
   }

@@ -235,7 +235,7 @@ class Orders:
                 remaining=result.get("remaining", 0),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def cancel_all_signed(
         self,
@@ -289,7 +289,7 @@ class Orders:
                 message=result.get("message", ""),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def cancel_trigger_signed(
         self, trigger_order_id: str, maker: str,
@@ -332,7 +332,7 @@ class Orders:
                 trigger_order_id=result.get("trigger_order_id", trigger_order_id),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     # ── On-chain instruction builders ────────────────────────────────────
 

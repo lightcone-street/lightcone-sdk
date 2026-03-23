@@ -14,6 +14,7 @@ from solders.pubkey import Pubkey
 from .types import SignedOrder, OrderSide
 from .orders import generate_salt, sign_order, to_submit_request, apply_signature, signature_hex
 from .errors import MissingFieldError
+from ..error import SdkError
 from ..shared.types import (
     DepositSource,
     Side,
@@ -25,6 +26,7 @@ from ..shared.types import (
 from ..shared.scaling import align_price_to_tick, scale_price_size
 
 if TYPE_CHECKING:
+    from ..client import LightconeClient
     from ..domain.orderbook import OrderBookPair
 
 
@@ -316,7 +318,7 @@ class LimitOrderEnvelope:
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 
-    async def submit(self, client: object, orderbook: "OrderBookPair"):
+    async def submit(self, client: "LightconeClient", orderbook: "OrderBookPair"):
         """Submit this order using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via REST
@@ -343,11 +345,11 @@ class LimitOrderEnvelope:
         self._auto_fill_from_orderbook(orderbook)
         self._auto_scale(orderbook)
 
-        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
+        strategy = client._require_signing_strategy()
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             request = self.sign(strategy.keypair, orderbook)
-            return await client.orders().submit(request)  # type: ignore[attr-defined]
+            return await client.orders().submit(request)
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             hash_hex = self.payload().hash_hex()
@@ -358,18 +360,18 @@ class LimitOrderEnvelope:
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
             request = self.finalize(sig_bs58, orderbook)
-            return await client.orders().submit(request)  # type: ignore[attr-defined]
+            return await client.orders().submit(request)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             from ..privy import privy_order_from_limit_envelope
             envelope = privy_order_from_limit_envelope(self, orderbook)
-            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
+            result = await client.privy().sign_and_send_order(
                 strategy.wallet_id, envelope,
             )
             from ..domain.order.convert import submit_response_from_dict
             return submit_response_from_dict(result)
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
 
 class TriggerOrderEnvelope:
@@ -636,7 +638,7 @@ class TriggerOrderEnvelope:
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 
-    async def submit(self, client: object, orderbook: "OrderBookPair"):
+    async def submit(self, client: "LightconeClient", orderbook: "OrderBookPair"):
         """Submit this trigger order using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via REST
@@ -663,11 +665,11 @@ class TriggerOrderEnvelope:
         self._limit._auto_fill_from_orderbook(orderbook)
         self._limit._auto_scale(orderbook)
 
-        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
+        strategy = client._require_signing_strategy()
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             request = self.sign(strategy.keypair, orderbook)
-            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
+            return await client.orders().submit_trigger(request)
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             hash_hex = self.payload().hash_hex()
@@ -678,12 +680,12 @@ class TriggerOrderEnvelope:
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
             request = self.finalize(sig_bs58, orderbook)
-            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
+            return await client.orders().submit_trigger(request)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             from ..privy import privy_order_from_trigger_envelope
             envelope = privy_order_from_trigger_envelope(self, orderbook)
-            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
+            result = await client.privy().sign_and_send_order(
                 strategy.wallet_id, envelope,
             )
             from ..domain.order import TriggerOrderResponse
@@ -692,4 +694,4 @@ class TriggerOrderEnvelope:
                 order_hash=result.get("order_hash", ""),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")

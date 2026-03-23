@@ -41,6 +41,7 @@ SEED_ORDER_STATUS = b"order_status"
 SEED_USER_NONCE = b"user_nonce"
 SEED_POSITION = b"position"
 ORDERBOOK_SEED = b"orderbook"
+SEED_ORDERBOOK = ORDERBOOK_SEED  # alias for SEED_* naming consistency
 SEED_GLOBAL_DEPOSIT = b"global_deposit"
 
 

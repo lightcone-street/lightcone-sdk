@@ -121,7 +121,7 @@ function requireDefined<T>(
 function bigintToSafeNumber(value: bigint, field: string): number {
   const max = BigInt(Number.MAX_SAFE_INTEGER);
   if (value > max || value < -max) {
-    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+    throw ProgramSdkError.overflow(`${field} exceeds Number.MAX_SAFE_INTEGER`);
   }
   return Number(value);
 }

@@ -261,13 +261,6 @@ class InvalidPubkeyError(LightconeError):
         super().__init__(f"Invalid pubkey: {pubkey}")
 
 
-class ScalingError(LightconeError):
-    """Raised when price/size scaling fails."""
-
-    def __init__(self, message: str):
-        super().__init__(f"Scaling error: {message}")
-
-
 class UnsignedOrderError(LightconeError):
     """Raised when an operation requires a signed order but receives unsigned."""
 

@@ -2,12 +2,15 @@
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ..shared.types import DepositSource
+
+if TYPE_CHECKING:
+    from ..domain.market import Market
 
 
 class MarketStatus(IntEnum):
@@ -413,7 +416,7 @@ class DepositParams:
     user: Pubkey
     mint: Pubkey
     amount: int
-    market: object = None  # Optional domain Market (has .pubkey str, .outcomes list)
+    market: Optional["Market"] = None
     deposit_source: Optional[DepositSource] = None
 
 
@@ -421,7 +424,7 @@ class DepositParams:
 class MarketWithdrawContext:
     """Market-specific context required for withdrawals when deposit source is Market."""
 
-    market: object  # domain Market (has .pubkey str, .outcomes list)
+    market: "Market"
     outcome_index: int
     is_token_2022: bool = False
 
