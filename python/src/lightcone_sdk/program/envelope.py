@@ -11,7 +11,7 @@ from typing import Optional, TYPE_CHECKING
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from .types import SignedOrder, OrderSide
+from .types import OrderPayload, OrderSide
 from .orders import generate_salt, sign_order, to_submit_request, apply_signature, signature_hex
 from .errors import MissingFieldError
 from ..error import SdkError
@@ -19,7 +19,6 @@ from ..shared.types import (
     DepositSource,
     Side,
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
     TimeInForce,
     TriggerType,
 )
@@ -182,8 +181,8 @@ class LimitOrderEnvelope:
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
 
-    def payload(self) -> SignedOrder:
-        """Build an unsigned SignedOrder without consuming the envelope."""
+    def payload(self) -> OrderPayload:
+        """Build an unsigned OrderPayload without consuming the envelope."""
         if self._maker is None:
             raise MissingFieldError("maker")
         if self._market is None:
@@ -207,7 +206,7 @@ class LimitOrderEnvelope:
         if amount_out == 0:
             raise MissingFieldError("amount_out must be greater than 0")
 
-        return SignedOrder(
+        return OrderPayload(
             nonce=self._nonce if self._nonce is not None else 0,
             salt=self._salt if self._salt is not None else generate_salt(),
             maker=self._maker,
@@ -493,8 +492,8 @@ class TriggerOrderEnvelope:
         self._time_in_force = TimeInForce.ALO
         return self
 
-    def payload(self) -> SignedOrder:
-        """Build an unsigned SignedOrder without consuming the envelope."""
+    def payload(self) -> OrderPayload:
+        """Build an unsigned OrderPayload without consuming the envelope."""
         return self._limit.payload()
 
     def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
@@ -540,26 +539,6 @@ class TriggerOrderEnvelope:
             trigger_price=self._trigger_price,
             trigger_type=self._trigger_type,
             deposit_source=self._limit.get_deposit_source,
-        )
-
-    def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
-        """Convert to a SubmitTriggerOrderRequest."""
-        return SubmitTriggerOrderRequest(
-            maker=str(order.maker),
-            nonce=order.nonce,
-            salt=order.salt,
-            market_pubkey=str(order.market),
-            base_token=str(order.base_mint),
-            quote_token=str(order.quote_mint),
-            side=int(order.side),
-            amount_in=order.amount_in,
-            amount_out=order.amount_out,
-            expiration=order.expiration,
-            signature=signature_hex(order),
-            orderbook_id=orderbook_id,
-            trigger_price=str(self._trigger_price) if self._trigger_price is not None else "0",
-            trigger_type=self._trigger_type or TriggerType.STOP_LOSS,
-            time_in_force=self._time_in_force,
         )
 
     # Field accessors (matching Rust get_* methods)

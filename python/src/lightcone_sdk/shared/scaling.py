@@ -24,11 +24,16 @@ class NonPositiveSize(ScalingError):
         super().__init__(f"Size must be positive, got {size}")
 
 
-class ScalingOverflow(ScalingError):
+class Overflow(ScalingError):
     """Arithmetic overflow during scaling."""
 
     def __init__(self, context: str):
+        self.context = context
         super().__init__(f"Overflow: {context}")
+
+
+# Backward compatibility alias
+ScalingOverflow = Overflow
 
 
 class ZeroAmount(ScalingError):
@@ -45,11 +50,17 @@ class FractionalAmount(ScalingError):
         super().__init__(f"Fractional lamports not allowed: {value}")
 
 
-class InvalidDecimalInput(ScalingError):
+class InvalidDecimal(ScalingError):
     """Input string could not be parsed as a decimal."""
 
-    def __init__(self, input_str: str, reason: str):
-        super().__init__(f"Invalid decimal '{input_str}': {reason}")
+    def __init__(self, input: str, reason: str):
+        self.input = input
+        self.reason = reason
+        super().__init__(f"Invalid decimal '{input}': {reason}")
+
+
+# Backward compatibility alias
+InvalidDecimalInput = InvalidDecimal
 
 
 @dataclass
@@ -116,7 +127,7 @@ def scale_price_size(
         price_d = Decimal(price)
         size_d = Decimal(size)
     except (InvalidOperation, ValueError) as e:
-        raise InvalidDecimalInput(f"{price}, {size}", str(e))
+        raise InvalidDecimal(f"{price}, {size}", str(e))
 
     if price_d <= 0:
         raise NonPositivePrice(price)
@@ -149,9 +160,9 @@ def scale_price_size(
 
     max_u64 = 2**64 - 1
     if base_lamports_int > max_u64:
-        raise ScalingOverflow(f"base_lamports: {base_lamports_int}")
+        raise Overflow(f"base_lamports: {base_lamports_int}")
     if quote_lamports_int > max_u64:
-        raise ScalingOverflow(f"quote_lamports: {quote_lamports_int}")
+        raise Overflow(f"quote_lamports: {quote_lamports_int}")
 
     # BID: maker gives quote, wants base
     # ASK: maker gives base, wants quote

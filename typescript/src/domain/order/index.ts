@@ -11,9 +11,7 @@ export enum OrderType {
   Market = "Market",
   Deposit = "Deposit",
   Withdraw = "Withdraw",
-  StopMarket = "StopMarket",
   StopLimit = "StopLimit",
-  TakeProfitMarket = "TakeProfitMarket",
   TakeProfitLimit = "TakeProfitLimit",
 }
 
@@ -56,15 +54,17 @@ export interface TriggerOrder {
   createdAt: Date;
 }
 
-export function triggerOrderLimitPrice(order: TriggerOrder): Decimal | undefined {
+export function triggerOrderLimitPrice(order: TriggerOrder, baseDecimals: number, quoteDecimals: number): Decimal | undefined {
   const amountIn = new Decimal(order.amountIn);
   const amountOut = new Decimal(order.amountOut);
+  const baseMult = new Decimal(10).pow(baseDecimals);
+  const quoteMult = new Decimal(10).pow(quoteDecimals);
 
   if (order.side === Side.Ask && amountIn.greaterThan(0)) {
-    return amountOut.div(amountIn);
+    return amountOut.mul(baseMult).div(amountIn.mul(quoteMult));
   }
   if (order.side === Side.Bid && amountOut.greaterThan(0)) {
-    return amountIn.div(amountOut);
+    return amountIn.mul(baseMult).div(amountOut.mul(quoteMult));
   }
   return undefined;
 }

@@ -41,7 +41,6 @@ export enum TriggerType {
 }
 
 export enum TriggerStatus {
-  Created = "created",
   Triggered = "triggered",
   Failed = "failed",
   Expired = "expired",
@@ -54,7 +53,6 @@ export enum OrderUpdateType {
 }
 
 export enum TriggerUpdateType {
-  Created = "CREATED",
   Triggered = "TRIGGERED",
   Failed = "FAILED",
   Expired = "EXPIRED",

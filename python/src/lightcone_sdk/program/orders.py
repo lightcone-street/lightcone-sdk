@@ -25,16 +25,13 @@ from .constants import (
     ORDER_SIGNATURE_OFFSET,
     ORDER_TAKER_AMOUNT_OFFSET,
     SIGNATURE_SIZE,
-    # Backward compat
-    FULL_ORDER_SIZE,
-    COMPACT_ORDER_SIZE,
 )
 from .errors import InvalidOrderError, InvalidSignatureError
 from .types import (
     AskOrderParams,
     BidOrderParams,
     Order,
-    SignedOrder,
+    OrderPayload,
     OrderSide,
 )
 from .utils import (
@@ -52,9 +49,6 @@ from .utils import (
     orders_cross,
 )
 
-# Backward compatibility alias
-FullOrder = SignedOrder
-
 # Maximum value for a u64 integer
 MAX_U64 = 2**64 - 1
 # Maximum value for a u32 integer
@@ -66,12 +60,12 @@ def generate_salt() -> int:
     return int.from_bytes(os.urandom(8), "little")
 
 
-def create_bid_order(params: BidOrderParams) -> SignedOrder:
+def create_bid_order(params: BidOrderParams) -> OrderPayload:
     """Create a bid order (buyer wants base tokens, gives quote tokens).
 
     The signature field is left empty (64 zero bytes).
     """
-    return SignedOrder(
+    return OrderPayload(
         nonce=params.nonce,
         salt=params.salt,
         maker=params.maker,
@@ -86,12 +80,12 @@ def create_bid_order(params: BidOrderParams) -> SignedOrder:
     )
 
 
-def create_ask_order(params: AskOrderParams) -> SignedOrder:
+def create_ask_order(params: AskOrderParams) -> OrderPayload:
     """Create an ask order (seller offers base tokens, receives quote tokens).
 
     The signature field is left empty (64 zero bytes).
     """
-    return SignedOrder(
+    return OrderPayload(
         nonce=params.nonce,
         salt=params.salt,
         maker=params.maker,
@@ -106,7 +100,7 @@ def create_ask_order(params: AskOrderParams) -> SignedOrder:
     )
 
 
-def serialize_order_for_hashing(order: SignedOrder) -> bytes:
+def serialize_order_for_hashing(order: OrderPayload) -> bytes:
     """Serialize an order for hashing (excludes signature).
 
     Layout (169 bytes):
@@ -130,7 +124,7 @@ def serialize_order_for_hashing(order: SignedOrder) -> bytes:
     )
 
 
-def hash_order(order: SignedOrder) -> bytes:
+def hash_order(order: OrderPayload) -> bytes:
     """Compute the keccak256 hash of an order.
 
     Returns a 32-byte hash.
@@ -139,12 +133,12 @@ def hash_order(order: SignedOrder) -> bytes:
     return keccak256(data)
 
 
-def hash_order_hex(order: SignedOrder) -> str:
+def hash_order_hex(order: OrderPayload) -> str:
     """Compute the keccak256 hash of an order and return as a 64-char hex string."""
     return hash_order(order).hex()
 
 
-def sign_order(order: SignedOrder, keypair: Keypair) -> bytes:
+def sign_order(order: OrderPayload, keypair: Keypair) -> bytes:
     """Sign an order with a keypair.
 
     Signs the hex-encoded keccak256 hash of the order (64-char ASCII string)
@@ -169,7 +163,7 @@ def sign_order(order: SignedOrder, keypair: Keypair) -> bytes:
     return signature
 
 
-def verify_order_signature(order: SignedOrder) -> bool:
+def verify_order_signature(order: OrderPayload) -> bool:
     """Verify the Ed25519 signature on an order.
 
     Returns True if the signature is valid, False otherwise.
@@ -195,7 +189,7 @@ def verify_order_signature(order: SignedOrder) -> bool:
         raise InvalidOrderError(f"Invalid maker public key: {e}")
 
 
-def serialize_full_order(order: SignedOrder) -> bytes:
+def serialize_full_order(order: OrderPayload) -> bytes:
     """Serialize a full order to bytes.
 
     Layout (233 bytes):
@@ -205,7 +199,7 @@ def serialize_full_order(order: SignedOrder) -> bytes:
     return serialize_order_for_hashing(order) + order.signature
 
 
-def deserialize_full_order(data: bytes) -> SignedOrder:
+def deserialize_full_order(data: bytes) -> OrderPayload:
     """Deserialize a full order from bytes."""
     if len(data) < SIGNED_ORDER_SIZE:
         raise InvalidOrderError(
@@ -216,7 +210,7 @@ def deserialize_full_order(data: bytes) -> SignedOrder:
     if nonce_u64 > MAX_U32:
         raise InvalidOrderError(f"nonce exceeds u32 max: {nonce_u64}")
 
-    return SignedOrder(
+    return OrderPayload(
         nonce=nonce_u64,
         salt=decode_u64(data, ORDER_SALT_OFFSET),
         maker=decode_pubkey(data, ORDER_MAKER_OFFSET),
@@ -231,7 +225,7 @@ def deserialize_full_order(data: bytes) -> SignedOrder:
     )
 
 
-def to_order(order: SignedOrder) -> Order:
+def to_order(order: OrderPayload) -> Order:
     """Convert a full order to a compact order (37 bytes, no maker, u32 nonce)."""
     return Order(
         nonce=order.nonce,
@@ -241,10 +235,6 @@ def to_order(order: SignedOrder) -> Order:
         amount_out=order.amount_out,
         expiration=order.expiration,
     )
-
-
-# Backward compatibility alias
-to_compact_order = to_order
 
 
 def serialize_order(order: Order) -> bytes:
@@ -261,10 +251,6 @@ def serialize_order(order: Order) -> bytes:
         + encode_u64(order.amount_out)
         + encode_i64(order.expiration)
     )
-
-
-# Backward compatibility alias
-serialize_compact_order = serialize_order
 
 
 def deserialize_order(data: bytes) -> Order:
@@ -284,25 +270,21 @@ def deserialize_order(data: bytes) -> Order:
     )
 
 
-# Backward compatibility alias
-deserialize_compact_order = deserialize_order
-
-
-def create_signed_bid_order(params: BidOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_bid_order(params: BidOrderParams, keypair: Keypair) -> OrderPayload:
     """Create and sign a bid order in one call."""
     order = create_bid_order(params)
     sign_order(order, keypair)
     return order
 
 
-def create_signed_ask_order(params: AskOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_ask_order(params: AskOrderParams, keypair: Keypair) -> OrderPayload:
     """Create and sign an ask order in one call."""
     order = create_ask_order(params)
     sign_order(order, keypair)
     return order
 
 
-def validate_order(order: SignedOrder, check_expiration: bool = False) -> None:
+def validate_order(order: OrderPayload, check_expiration: bool = False) -> None:
     """Validate an order's fields.
 
     Args:
@@ -340,7 +322,7 @@ def validate_order(order: SignedOrder, check_expiration: bool = False) -> None:
         raise InvalidOrderError("maker cannot be zero pubkey")
 
 
-def validate_signed_order(order: SignedOrder) -> None:
+def validate_signed_order(order: OrderPayload) -> None:
     """Validate an order including its signature.
 
     Raises InvalidOrderError or InvalidSignatureError if invalid.
@@ -430,17 +412,17 @@ def sign_cancel_all(
 # =========================================================================
 
 
-def signature_hex(order: SignedOrder) -> str:
+def signature_hex(order: OrderPayload) -> str:
     """Return the order signature as a 128-char hex string."""
     return order.signature.hex()
 
 
-def is_signed(order: SignedOrder) -> bool:
+def is_signed(order: OrderPayload) -> bool:
     """Check if an order has a non-zero signature."""
     return order.signature != bytes(SIGNATURE_SIZE)
 
 
-def calculate_taker_fill(maker_order: SignedOrder, maker_fill_amount: int) -> int:
+def calculate_taker_fill(maker_order: OrderPayload, maker_fill_amount: int) -> int:
     """Calculate the taker fill amount given a maker fill amount.
 
     Returns the taker fill amount based on maker's price ratio.
@@ -459,17 +441,17 @@ def calculate_taker_fill(maker_order: SignedOrder, maker_fill_amount: int) -> in
 
 
 def to_submit_request(
-    order: SignedOrder,
+    order: OrderPayload,
     orderbook_id: str,
     time_in_force=None,
     trigger_price=None,
     trigger_type=None,
     deposit_source=None,
 ):
-    """Convert a signed SignedOrder to a SubmitOrderRequest.
+    """Convert a signed OrderPayload to a SubmitOrderRequest.
 
     Args:
-        order: A signed SignedOrder
+        order: A signed OrderPayload
         orderbook_id: The orderbook identifier
         time_in_force: Optional TimeInForce value
         trigger_price: Optional trigger price (float)
@@ -508,14 +490,14 @@ def to_submit_request(
     )
 
 
-def is_order_expired(order: SignedOrder, current_time: int) -> bool:
+def is_order_expired(order: OrderPayload, current_time: int) -> bool:
     """Check if an order is expired. Expiration of 0 means no expiration."""
     if order.expiration == 0:
         return False
     return current_time >= order.expiration
 
 
-def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
+def apply_signature(order: OrderPayload, sig_bs58: str) -> None:
     """Apply a base58-encoded signature to an order in place."""
     import base58
     sig_bytes = base58.b58decode(sig_bs58)
@@ -526,7 +508,7 @@ def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
     order.signature = sig_bytes
 
 
-def derive_orderbook_id(order: SignedOrder) -> str:
+def derive_orderbook_id(order: OrderPayload) -> str:
     """Derive orderbook ID from order's base/quote mints.
 
     Format: "{base_mint[:8]}_{quote_mint[:8]}"
@@ -536,7 +518,7 @@ def derive_orderbook_id(order: SignedOrder) -> str:
     return f"{base}_{quote}"
 
 
-def orders_can_cross(buy_order: SignedOrder, sell_order: SignedOrder) -> bool:
+def orders_can_cross(buy_order: OrderPayload, sell_order: OrderPayload) -> bool:
     """Check if two orders can cross (prices are compatible).
 
     Returns True if the buyer's price >= seller's price.

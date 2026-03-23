@@ -25,15 +25,10 @@ export { formatDecimal, isZero, parseDecimal } from "./price";
 export {
   alignPriceToTick,
   scalePriceSize,
-  scalePriceSizeLegacy,
   ScalingError,
-  type LegacyScaledAmounts,
   type OrderbookDecimals,
   type ScaledAmounts,
 } from "./scaling";
-
-// Backward-compatible name from v1.
-export { scalePriceSizeLegacy as scalePriceSizeV1 } from "./scaling";
 
 export {
   isUserCancellation,
