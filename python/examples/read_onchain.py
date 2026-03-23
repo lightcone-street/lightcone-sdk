@@ -5,6 +5,7 @@ import asyncio
 from solders.pubkey import Pubkey
 
 from common import client as make_client, wallet, market_and_orderbook, deposit_mint
+from lightcone_sdk.program.errors import AccountNotFoundError
 
 
 async def main():
@@ -25,10 +26,10 @@ async def main():
     print(f"market: id={onchain_market.market_id} outcomes={onchain_market.num_outcomes} status={onchain_market.status}")
 
     # 3. Orderbook
-    onchain_orderbook = await client.orderbooks().get_onchain(base_mint, quote_mint)
-    if onchain_orderbook:
+    try:
+        onchain_orderbook = await client.orderbooks().get_onchain(base_mint, quote_mint)
         print(f"orderbook: lookup_table={onchain_orderbook.lookup_table} bump={onchain_orderbook.bump}")
-    else:
+    except AccountNotFoundError:
         print("orderbook: not found on-chain")
 
     # 4. User nonce

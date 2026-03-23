@@ -98,14 +98,16 @@ from solders.pubkey import Pubkey
 
 from lightcone_sdk import LightconeClientBuilder
 
-client = (
-    LightconeClientBuilder()
-    .rpc_url("https://api.devnet.solana.com")
-    .build()
-)
 with Path("~/.config/solana/id.json").expanduser().open() as f:
     secret = json.load(f)
 keypair = Keypair.from_bytes(bytes(secret))
+
+client = (
+    LightconeClientBuilder()
+    .rpc_url("https://api.devnet.solana.com")
+    .native_signer(keypair)
+    .build()
+)
 ```
 
 ### Step 1: Find a Market
@@ -246,15 +248,20 @@ All SDK operations raise `SdkError` or one of its subclasses:
 
 | Variant | When |
 |---------|------|
-| `HttpError` | REST request failures, including auth endpoints |
+| `HttpError` | REST request failures |
 | `WsError` | WebSocket connection/protocol errors |
+| `AuthError` | Authentication failures |
 | `DeserializationError` | Required fields are missing while decoding REST or WS payloads |
+| `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
+| `SigningError` | Signing operation failures |
+| `UserCancelled` | User cancelled wallet signing prompt |
 | `SdkError` | Catch-all, including rejected order responses |
 
-Notable `HttpErrorKind` variants:
+`HttpErrorKind` variants:
 
 | Variant | Meaning |
 |---------|---------|
+| `REQUEST` | Network/transport failure |
 | `SERVER_ERROR` | Non-2xx 5xx response from the backend |
 | `RATE_LIMITED` | 429 - back off and retry |
 | `UNAUTHORIZED` | 401 - session expired or missing |
@@ -267,4 +274,4 @@ Notable `HttpErrorKind` variants:
 
 - **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
-- Customize the default idempotent retry config with `LightconeClientBuilder().retry_config(RetryConfig(...))`. If you use `LightconeHttp` directly, you can pass `RetryPolicy.custom(RetryConfig(...))` per request.
+- Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.

@@ -98,11 +98,12 @@ function readKeypairFile(filePath: string): Keypair {
   return Keypair.fromSecretKey(Uint8Array.from(secret));
 }
 
+const keypair = readKeypairFile("~/.config/solana/id.json");
+
 const client = LightconeClient.builder()
   .rpcUrl("https://api.devnet.solana.com")
-  .depositSource(DepositSource.Market)
+  .nativeSigner(keypair)
   .build();
-const keypair = readKeypairFile("~/.config/solana/id.json");
 ```
 
 ### Step 1: Find a Market
@@ -248,15 +249,22 @@ All SDK operations return promises that reject with `SdkError`:
 | `SdkError.Auth(AuthError)` | Authentication failures |
 | `SdkError.Validation(string)` | Domain type conversion failures |
 | `SdkError.Serde(Error)` | Serialization errors |
+| `SdkError.MissingMarketContext(string)` | Market context not provided for operation requiring `DepositSource.Market` |
+| `SdkError.Signing(string)` | Signing operation failures |
+| `SdkError.UserCancelled` | User cancelled wallet signing prompt |
 | `SdkError.Other(string)` | Catch-all |
 
-Notable `HttpError` variants:
+`HttpError` variants:
 
 | Variant | Meaning |
 |---------|---------|
+| `Request { message }` | Network/transport failure |
 | `ServerError { status, body }` | Non-2xx response from the backend |
 | `RateLimited { retryAfterMs }` | 429 - back off and retry |
 | `Unauthorized` | 401 - session expired or missing |
+| `NotFound { body }` | 404 - resource not found |
+| `BadRequest { body }` | 400 - invalid request |
+| `Timeout` | Request timed out |
 | `MaxRetriesExceeded { attempts, lastError }` | All retry attempts exhausted |
 
 ## Retry Strategy
