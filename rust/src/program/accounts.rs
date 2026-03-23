@@ -518,7 +518,7 @@ mod tests {
         data[16] = 3;
         // status at offset 17
         data[17] = 1; // Active
-        // winning_outcome at offset 18
+                      // winning_outcome at offset 18
         data[18] = 255;
         // has_winning_outcome at offset 19
         data[19] = 0;
@@ -638,6 +638,8 @@ mod tests {
         assert!(GlobalDepositToken::is_global_deposit_token_account(&data));
 
         let bad_data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
-        assert!(!GlobalDepositToken::is_global_deposit_token_account(&bad_data));
+        assert!(!GlobalDepositToken::is_global_deposit_token_account(
+            &bad_data
+        ));
     }
 }

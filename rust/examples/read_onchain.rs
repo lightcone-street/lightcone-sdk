@@ -1,8 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, wallet,
-    ExampleResult,
+    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, wallet, ExampleResult,
 };
 use solana_signer::Signer;
 
@@ -22,9 +21,15 @@ async fn main() -> ExampleResult {
 
     let exchange = client.rpc().get_exchange().await?;
     let onchain_market = client.markets().get_onchain(&market_pubkey).await?;
-    let onchain_orderbook = client.orderbooks().get_onchain(&base_mint, &quote_mint).await?;
+    let onchain_orderbook = client
+        .orderbooks()
+        .get_onchain(&base_mint, &quote_mint)
+        .await?;
     let nonce = client.orders().current_nonce(&keypair.pubkey()).await?;
-    let position = client.positions().get_onchain(&keypair.pubkey(), &market_pubkey).await?;
+    let position = client
+        .positions()
+        .get_onchain(&keypair.pubkey(), &market_pubkey)
+        .await?;
     let deposit_mint = deposit_mint(&market)?;
 
     println!(

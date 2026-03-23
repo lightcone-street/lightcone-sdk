@@ -26,15 +26,16 @@ impl<'a> Privy<'a> {
         wallet_id: &str,
         base64_tx: &str,
     ) -> Result<SignAndSendTxResponse, SdkError> {
-        let url = format!(
-            "{}/api/privy/sign_and_send_tx",
-            self.client.http.base_url()
-        );
+        let url = format!("{}/api/privy/sign_and_send_tx", self.client.http.base_url());
         let req = SignAndSendTxRequest {
             wallet_id: wallet_id.to_string(),
             base64_tx: base64_tx.to_string(),
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Sign an order hash via Privy and submit it to the exchange engine.
@@ -54,7 +55,11 @@ impl<'a> Privy<'a> {
             wallet_id: wallet_id.to_string(),
             order,
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Cancel a limit order via Privy signing.
@@ -78,7 +83,11 @@ impl<'a> Privy<'a> {
                 order_hash: order_hash.to_string(),
             },
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Cancel a trigger order via Privy signing.
@@ -102,7 +111,11 @@ impl<'a> Privy<'a> {
                 trigger_order_id: trigger_order_id.to_string(),
             },
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Cancel all orders for a user via Privy signing.
@@ -128,7 +141,11 @@ impl<'a> Privy<'a> {
             timestamp,
             salt: salt.to_string(),
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 
     /// Export an embedded wallet's private key (HPKE encrypted).
@@ -140,14 +157,15 @@ impl<'a> Privy<'a> {
         wallet_id: &str,
         decode_pubkey_base64: &str,
     ) -> Result<ExportWalletResponse, SdkError> {
-        let url = format!(
-            "{}/api/privy/wallet/export",
-            self.client.http.base_url()
-        );
+        let url = format!("{}/api/privy/wallet/export", self.client.http.base_url());
         let req = ExportWalletRequest {
             wallet_id: wallet_id.to_string(),
             decode_pubkey_base64: decode_pubkey_base64.to_string(),
         };
-        self.client.http.post(&url, &req, RetryPolicy::None).await.map_err(Into::into)
+        self.client
+            .http
+            .post(&url, &req, RetryPolicy::None)
+            .await
+            .map_err(Into::into)
     }
 }

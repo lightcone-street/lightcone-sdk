@@ -18,15 +18,17 @@ use futures_util::{SinkExt, StreamExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::CloseFrame;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 
 use crate::error::WsError;
 use crate::ws::subscriptions::Subscription;
-use crate::ws::{Kind, MessageIn, MessageOut, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
+use crate::ws::{
+    Kind, MessageIn, MessageOut, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent,
+};
 
 type WsStream = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type SharedAuthToken = Arc<async_lock::RwLock<Option<String>>>;
@@ -68,8 +70,7 @@ impl TaskState {
     }
 
     fn should_reconnect(&self) -> bool {
-        self.config.reconnect
-            && self.reconnect_attempts < self.config.max_reconnect_attempts
+        self.config.reconnect && self.reconnect_attempts < self.config.max_reconnect_attempts
     }
 }
 
@@ -115,7 +116,8 @@ impl WsClient {
 
         let (cmd_tx, cmd_rx) = mpsc::channel(64);
         self.cmd_tx = Some(cmd_tx);
-        self.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
+        self.ready_state
+            .store(ReadyState::Connecting as u16, Ordering::SeqCst);
 
         let state = TaskState {
             config: self.config.clone(),
@@ -146,7 +148,8 @@ impl WsClient {
             let _ = tokio::time::timeout(Duration::from_secs(5), handle).await;
         }
 
-        self.ready_state.store(ReadyState::Closed as u16, Ordering::SeqCst);
+        self.ready_state
+            .store(ReadyState::Closed as u16, Ordering::SeqCst);
         Ok(())
     }
 
@@ -256,7 +259,9 @@ async fn run_task(mut state: TaskState) {
 
         // ── 2. Connected ─────────────────────────────────────────────────
         state.reconnect_attempts = 0;
-        state.ready_state.store(ReadyState::Open as u16, Ordering::SeqCst);
+        state
+            .ready_state
+            .store(ReadyState::Open as u16, Ordering::SeqCst);
         state.emit(WsEvent::Connected);
 
         // ── 3. Flush pending messages and resubscribe ────────────────────
@@ -268,13 +273,17 @@ async fn run_task(mut state: TaskState) {
         let reason = run_connected(&mut state, sink, stream).await;
 
         // ── 5. Post-disconnect decision ──────────────────────────────────
-        state.ready_state.store(ReadyState::Closed as u16, Ordering::SeqCst);
+        state
+            .ready_state
+            .store(ReadyState::Closed as u16, Ordering::SeqCst);
 
         match reason {
             DisconnectReason::UserRequested | DisconnectReason::NormalClose => return,
             DisconnectReason::RateLimited => {
                 if state.should_reconnect() {
-                    state.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
+                    state
+                        .ready_state
+                        .store(ReadyState::Connecting as u16, Ordering::SeqCst);
                     backoff_sleep(&mut state, true).await;
                     drain_commands_to_pending(&mut state);
                     continue;
@@ -284,7 +293,9 @@ async fn run_task(mut state: TaskState) {
             }
             DisconnectReason::PongTimeout | DisconnectReason::Error(_) => {
                 if state.should_reconnect() {
-                    state.ready_state.store(ReadyState::Connecting as u16, Ordering::SeqCst);
+                    state
+                        .ready_state
+                        .store(ReadyState::Connecting as u16, Ordering::SeqCst);
                     backoff_sleep(&mut state, false).await;
                     drain_commands_to_pending(&mut state);
                     continue;
@@ -480,10 +491,7 @@ async fn attempt_connect(
 }
 
 /// Serialize and send a MessageOut over the sink.
-async fn send_msg(
-    sink: &mut SplitSink<WsStream, Message>,
-    msg: &MessageOut,
-) -> Result<(), String> {
+async fn send_msg(sink: &mut SplitSink<WsStream, Message>, msg: &MessageOut) -> Result<(), String> {
     let json = serde_json::to_string(msg).map_err(|e| e.to_string())?;
     sink.send(Message::Text(json.into()))
         .await
@@ -520,10 +528,7 @@ fn track_subscription(subs: &mut Vec<SubscribeParams>, msg: &MessageOut) {
     }
 }
 
-async fn resubscribe_all(
-    sink: &mut SplitSink<WsStream, Message>,
-    subs: &[SubscribeParams],
-) {
+async fn resubscribe_all(sink: &mut SplitSink<WsStream, Message>, subs: &[SubscribeParams]) {
     if subs.is_empty() {
         return;
     }
@@ -538,10 +543,7 @@ async fn resubscribe_all(
 
 // ─── Message queue ───────────────────────────────────────────────────────────
 
-async fn flush_pending(
-    sink: &mut SplitSink<WsStream, Message>,
-    pending: &mut Vec<MessageOut>,
-) {
+async fn flush_pending(sink: &mut SplitSink<WsStream, Message>, pending: &mut Vec<MessageOut>) {
     if pending.is_empty() {
         return;
     }
@@ -563,9 +565,9 @@ fn drain_commands_to_pending(state: &mut TaskState) {
                 state.pending_messages.push(msg);
             }
             Command::ClearAuthedSubs => {
-                state.active_subscriptions.retain(|s| {
-                    !matches!(s, SubscribeParams::User { .. })
-                });
+                state
+                    .active_subscriptions
+                    .retain(|s| !matches!(s, SubscribeParams::User { .. }));
             }
             Command::Disconnect => {
                 return;
@@ -580,7 +582,10 @@ async fn backoff_sleep(state: &mut TaskState, rate_limited: bool) {
     state.reconnect_attempts += 1;
 
     let exp = (state.reconnect_attempts - 1).min(10);
-    let base = state.config.base_reconnect_delay_ms.saturating_mul(1u32 << exp);
+    let base = state
+        .config
+        .base_reconnect_delay_ms
+        .saturating_mul(1u32 << exp);
 
     let (jitter_max, cap) = if rate_limited {
         (1000u32, 300_000u32) // up to 5 minutes for rate limits

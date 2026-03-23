@@ -19,3 +19,13 @@ All three SDKs expose the same interface and capabilities.
 - **Order signing** - `LimitOrderEnvelope` with human-readable price/size and auto-scaling
 - **On-chain operations** - Mint/merge complete sets, increment nonce, PDA derivations
 - **Authentication** - Session-based ED25519 signed message flow
+
+## Development Setup
+
+After cloning, enable the shared git hooks:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+This enables a pre-commit hook that checks Rust formatting via `cargo fmt --check`. If the check fails, run `cargo fmt --manifest-path rust/Cargo.toml` and re-stage.

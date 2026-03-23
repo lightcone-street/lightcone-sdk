@@ -1,8 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, wallet,
-    ExampleResult,
+    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, wallet, ExampleResult,
 };
 use solana_signer::Signer;
 use solana_transaction::Transaction;
@@ -31,7 +30,9 @@ async fn main() -> ExampleResult {
     let mut transactions = vec![
         (
             "mint_complete_set",
-            client.markets().mint_complete_set()
+            client
+                .markets()
+                .mint_complete_set()
                 .user(keypair.pubkey())
                 .market(market_pubkey)
                 .mint(deposit_mint)
@@ -41,7 +42,9 @@ async fn main() -> ExampleResult {
         ),
         (
             "merge_complete_set",
-            client.markets().merge_complete_set()
+            client
+                .markets()
+                .merge_complete_set()
                 .user(keypair.pubkey())
                 .market(market_pubkey)
                 .mint(deposit_mint)

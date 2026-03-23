@@ -164,9 +164,7 @@ impl TargetSpec {
     }
 
     pub fn user_id(id: impl Into<String>) -> Self {
-        Self::ById {
-            user_id: id.into(),
-        }
+        Self::ById { user_id: id.into() }
     }
 
     pub fn wallet_address(addr: impl Into<String>) -> Self {

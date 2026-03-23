@@ -26,15 +26,15 @@ impl<'a> Orderbooks<'a> {
         orderbook_id: &str,
         depth: Option<u32>,
     ) -> Result<OrderbookDepthResponse, SdkError> {
-        let mut url = format!("{}/api/orderbook/{}", self.client.http.base_url(), orderbook_id);
+        let mut url = format!(
+            "{}/api/orderbook/{}",
+            self.client.http.base_url(),
+            orderbook_id
+        );
         if let Some(d) = depth {
             url = format!("{}?depth={}", url, d);
         }
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 }
 
@@ -52,15 +52,14 @@ impl<'a> Orderbooks<'a> {
     ) -> Result<crate::program::accounts::Orderbook, SdkError> {
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let pda = self.pda(mint_a, mint_b);
-        let account = rpc
-            .get_account(&pda)
-            .await
-            .map_err(|e| {
-                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
-                    "Orderbook: {}",
-                    e
-                )))
-            })?;
-        Ok(crate::program::accounts::Orderbook::deserialize(&account.data)?)
+        let account = rpc.get_account(&pda).await.map_err(|e| {
+            SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                "Orderbook: {}",
+                e
+            )))
+        })?;
+        Ok(crate::program::accounts::Orderbook::deserialize(
+            &account.data,
+        )?)
     }
 }

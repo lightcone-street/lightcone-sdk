@@ -22,11 +22,7 @@ pub fn get_associated_token_address(
     let ata_program_id = spl_associated_token_account::id();
 
     Pubkey::find_program_address(
-        &[
-            wallet.as_ref(),
-            token_program_id.as_ref(),
-            mint.as_ref(),
-        ],
+        &[wallet.as_ref(), token_program_id.as_ref(), mint.as_ref()],
         &ata_program_id,
     )
     .0
@@ -49,7 +45,9 @@ pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 /// Validate that the number of outcomes is within the allowed range.
 pub fn validate_outcome_count(num_outcomes: u8) -> SdkResult<()> {
     if !(MIN_OUTCOMES..=MAX_OUTCOMES).contains(&num_outcomes) {
-        return Err(SdkError::InvalidOutcomeCount { count: num_outcomes });
+        return Err(SdkError::InvalidOutcomeCount {
+            count: num_outcomes,
+        });
     }
     Ok(())
 }

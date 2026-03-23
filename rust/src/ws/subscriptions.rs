@@ -12,17 +12,11 @@ use std::collections::HashSet;
 #[serde(tag = "type")]
 pub enum SubscribeParams {
     #[serde(rename = "book_update")]
-    Books {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Books { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "trades")]
-    Trades {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
-    User {
-        wallet_address: PubkeyStr,
-    },
+    User { wallet_address: PubkeyStr },
     #[serde(rename = "price_history")]
     PriceHistory {
         orderbook_id: OrderBookId,
@@ -31,13 +25,9 @@ pub enum SubscribeParams {
         include_ohlcv: bool,
     },
     #[serde(rename = "ticker")]
-    Ticker {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Ticker { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "market")]
-    Market {
-        market_pubkey: PubkeyStr,
-    },
+    Market { market_pubkey: PubkeyStr },
     #[serde(rename = "deposit_price")]
     DepositPrice {
         deposit_asset: PubkeyStr,
@@ -53,30 +43,20 @@ pub enum SubscribeParams {
 #[serde(tag = "type")]
 pub enum UnsubscribeParams {
     #[serde(rename = "book_update")]
-    Books {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Books { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "trades")]
-    Trades {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
-    User {
-        wallet_address: PubkeyStr,
-    },
+    User { wallet_address: PubkeyStr },
     #[serde(rename = "price_history")]
     PriceHistory {
         orderbook_id: OrderBookId,
         resolution: Resolution,
     },
     #[serde(rename = "ticker")]
-    Ticker {
-        orderbook_ids: Vec<OrderBookId>,
-    },
+    Ticker { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "market")]
-    Market {
-        market_pubkey: PubkeyStr,
-    },
+    Market { market_pubkey: PubkeyStr },
     #[serde(rename = "deposit_price")]
     DepositPrice {
         deposit_asset: PubkeyStr,

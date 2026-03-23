@@ -108,7 +108,10 @@ impl TryFrom<wire::MarketResponse> for Market {
             icon_url,
             banner_image_url,
             category: source.category,
-            orderbook_ids: orderbook_pairs.iter().map(|p| p.orderbook_id.clone()).collect(),
+            orderbook_ids: orderbook_pairs
+                .iter()
+                .map(|p| p.orderbook_id.clone())
+                .collect(),
             orderbook_pairs,
             deposit_assets,
             conditional_tokens,

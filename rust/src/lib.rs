@@ -68,9 +68,8 @@ pub mod prelude {
     pub use crate::domain::order::{
         CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
         CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance,
-        GlobalDepositUpdate, Order,
-        OrderEvent, OrderStatus, OrderType, SubmitOrderResponse, TriggerOrder,
-        TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
+        GlobalDepositUpdate, Order, OrderEvent, OrderStatus, OrderType, SubmitOrderResponse,
+        TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
         UserSnapshotBalance, UserSnapshotOrder, UserTriggerOrders,
     };
 
@@ -84,9 +83,9 @@ pub mod prelude {
     pub use crate::domain::price_history::{
         DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryQuery,
         DepositPriceHistoryResponse, DepositPriceKey, DepositPriceSnapshot, DepositPriceState,
-        DepositPriceTick, DepositTokenCandle, LatestDepositPrice, LineData,
-        OrderbookPriceCandle, OrderbookPriceHistoryQuery, OrderbookPriceHistoryResponse,
-        PriceHistoryDecimals, PriceHistoryState,
+        DepositPriceTick, DepositTokenCandle, LatestDepositPrice, LineData, OrderbookPriceCandle,
+        OrderbookPriceHistoryQuery, OrderbookPriceHistoryResponse, PriceHistoryDecimals,
+        PriceHistoryState,
     };
     pub use crate::domain::trade::Trade;
 

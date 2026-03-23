@@ -56,9 +56,7 @@ pub mod tif_numeric {
             1 => Ok(TimeInForce::Ioc),
             2 => Ok(TimeInForce::Fok),
             3 => Ok(TimeInForce::Alo),
-            _ => Err(serde::de::Error::custom(format!(
-                "unknown tif value: {n}"
-            ))),
+            _ => Err(serde::de::Error::custom(format!("unknown tif value: {n}"))),
         }
     }
 }

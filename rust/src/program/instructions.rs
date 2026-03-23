@@ -944,8 +944,7 @@ pub fn build_init_position_tokens_ix(
         keys.push(readonly(gdt));
 
         for i in 0..num_outcomes {
-            let (mint, _) =
-                get_conditional_mint_pda(&params.market, deposit_mint, i, program_id);
+            let (mint, _) = get_conditional_mint_pda(&params.market, deposit_mint, i, program_id);
             keys.push(readonly(mint));
             let position_ata = get_conditional_token_ata(&position, &mint);
             keys.push(writable(position_ata));
@@ -1064,8 +1063,7 @@ pub fn build_deposit_and_swap_ix(
         keys.push(writable(taker_global_deposit));
 
         for i in 0..params.num_outcomes {
-            let (cond_mint, _) =
-                get_conditional_mint_pda(&params.market, dm, i, program_id);
+            let (cond_mint, _) = get_conditional_mint_pda(&params.market, dm, i, program_id);
             let ata = get_conditional_token_ata(&taker_position, &cond_mint);
             keys.push(writable(cond_mint));
             keys.push(writable(ata));
@@ -1075,8 +1073,7 @@ pub fn build_deposit_and_swap_ix(
     // Per-maker blocks
     for maker in &params.makers {
         let (maker_nonce, _) = get_user_nonce_pda(&maker.order.maker, program_id);
-        let (maker_position, _) =
-            get_position_pda(&maker.order.maker, &params.market, program_id);
+        let (maker_position, _) = get_position_pda(&maker.order.maker, &params.market, program_id);
 
         if !maker.is_full_fill {
             let maker_order_hash = maker.order.hash();
@@ -1100,8 +1097,7 @@ pub fn build_deposit_and_swap_ix(
             keys.push(writable(maker_global_deposit));
 
             for j in 0..params.num_outcomes {
-                let (cond_mint, _) =
-                    get_conditional_mint_pda(&params.market, dm, j, program_id);
+                let (cond_mint, _) = get_conditional_mint_pda(&params.market, dm, j, program_id);
                 let maker_ata = get_conditional_token_ata(&maker_position, &cond_mint);
                 keys.push(writable(cond_mint));
                 keys.push(writable(maker_ata));

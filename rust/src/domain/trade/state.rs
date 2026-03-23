@@ -104,10 +104,7 @@ mod tests {
     fn test_replace_clears_and_fills() {
         let mut th = TradeHistory::new(OrderBookId::from("ob1"), 10);
         th.push(make_trade("t1", 50.0, 1.0));
-        th.replace(vec![
-            make_trade("a", 49.0, 1.0),
-            make_trade("b", 50.0, 2.0),
-        ]);
+        th.replace(vec![make_trade("a", 49.0, 1.0), make_trade("b", 50.0, 2.0)]);
         assert_eq!(th.len(), 2);
         // replace uses push_back, so first vec element is at front (latest)
         assert_eq!(th.latest().unwrap().trade_id, "a");

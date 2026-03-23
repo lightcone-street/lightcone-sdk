@@ -5,9 +5,9 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, EXCHANGE_SEED, GLOBAL_DEPOSIT_TOKEN_SEED,
-    MARKET_SEED, MINT_AUTHORITY_SEED, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
-    USER_NONCE_SEED, VAULT_SEED,
+    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, EXCHANGE_SEED, GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED,
+    MINT_AUTHORITY_SEED, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED, USER_NONCE_SEED,
+    VAULT_SEED,
 };
 
 /// Get the Exchange PDA.
@@ -91,17 +91,16 @@ pub fn get_user_nonce_pda(user: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
 ///
 /// Seeds: ["position", owner, market]
 pub fn get_position_pda(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(&[POSITION_SEED, owner.as_ref(), market.as_ref()], program_id)
+    Pubkey::find_program_address(
+        &[POSITION_SEED, owner.as_ref(), market.as_ref()],
+        program_id,
+    )
 }
 
 /// Get an Orderbook PDA.
 ///
 /// Seeds: ["orderbook", mint_a, mint_b]
-pub fn get_orderbook_pda(
-    mint_a: &Pubkey,
-    mint_b: &Pubkey,
-    program_id: &Pubkey,
-) -> (Pubkey, u8) {
+pub fn get_orderbook_pda(mint_a: &Pubkey, mint_b: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(
         &[ORDERBOOK_SEED, mint_a.as_ref(), mint_b.as_ref()],
         program_id,
@@ -122,10 +121,7 @@ pub fn get_alt_pda(orderbook: &Pubkey, recent_slot: u64) -> (Pubkey, u8) {
 ///
 /// Seeds: ["global_deposit", mint]
 pub fn get_global_deposit_token_pda(mint: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
-    Pubkey::find_program_address(
-        &[GLOBAL_DEPOSIT_TOKEN_SEED, mint.as_ref()],
-        program_id,
-    )
+    Pubkey::find_program_address(&[GLOBAL_DEPOSIT_TOKEN_SEED, mint.as_ref()], program_id)
 }
 
 /// Get a User Global Deposit PDA (token account owned by PDA).

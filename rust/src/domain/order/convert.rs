@@ -81,7 +81,10 @@ pub fn split_snapshot_orders(
 
     for snap in orders {
         match snap {
-            wire::UserSnapshotOrder::Limit { common, tx_signature } => {
+            wire::UserSnapshotOrder::Limit {
+                common,
+                tx_signature,
+            } => {
                 if !common.remaining.is_zero() {
                     let market = common.market_pubkey.clone();
                     open_orders
@@ -113,8 +116,12 @@ pub fn split_snapshot_orders(
     }
 
     (
-        UserOpenOrders { orders: open_orders },
-        UserTriggerOrders { orders: trigger_orders },
+        UserOpenOrders {
+            orders: open_orders,
+        },
+        UserTriggerOrders {
+            orders: trigger_orders,
+        },
     )
 }
 
@@ -146,7 +153,11 @@ mod tests {
         }
     }
 
-    fn make_limit_snapshot(market: &str, hash: &str, remaining: Decimal) -> wire::UserSnapshotOrder {
+    fn make_limit_snapshot(
+        market: &str,
+        hash: &str,
+        remaining: Decimal,
+    ) -> wire::UserSnapshotOrder {
         wire::UserSnapshotOrder::Limit {
             common: make_common(market, hash, remaining),
             tx_signature: None,
@@ -200,9 +211,7 @@ mod tests {
                 quote_mint: PubkeyStr::from("quote_mint"),
                 outcome_index: 0,
                 status: OrderStatus::Open,
-                balance: Some(wire::UserOrderUpdateBalance {
-                    outcomes: vec![],
-                }),
+                balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
             },
         };
         let order: Order = update.into();
@@ -216,7 +225,11 @@ mod tests {
     #[test]
     fn test_limit_snapshot_conversion() {
         let snap = make_limit_snapshot("mkt222", "snap_hash", Decimal::new(5, 0));
-        if let wire::UserSnapshotOrder::Limit { common, tx_signature } = snap {
+        if let wire::UserSnapshotOrder::Limit {
+            common,
+            tx_signature,
+        } = snap
+        {
             let order = limit_snapshot_to_order(common, tx_signature);
             assert_eq!(order.order_hash, "snap_hash");
             assert_eq!(order.market_pubkey.as_str(), "mkt222");
@@ -237,7 +250,11 @@ mod tests {
         } = snap
         {
             let order = trigger_snapshot_to_order(
-                common, trigger_order_id, trigger_price, trigger_type, time_in_force,
+                common,
+                trigger_order_id,
+                trigger_price,
+                trigger_type,
+                time_in_force,
             );
             assert_eq!(order.trigger_order_id, "trig-123");
             assert_eq!(order.trigger_type, TriggerType::TakeProfit);
@@ -262,6 +279,9 @@ mod tests {
         assert_eq!(open.orders.len(), 1);
         assert_eq!(open.orders.values().next().unwrap().len(), 1);
         assert_eq!(triggers.len(), 2);
-        assert_eq!(triggers.get(&OrderBookId::from("ob_test")).unwrap().len(), 2);
+        assert_eq!(
+            triggers.get(&OrderBookId::from("ob_test")).unwrap().len(),
+            2
+        );
     }
 }

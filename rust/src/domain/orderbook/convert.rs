@@ -133,7 +133,9 @@ mod tests {
             updated_at: Utc::now(),
         };
         let err = OrderBookPair::try_from((wire, &tokens)).unwrap_err();
-        assert!(format!("{err}").contains("BaseTokenNotFound") || format!("{err}").contains("base"));
+        assert!(
+            format!("{err}").contains("BaseTokenNotFound") || format!("{err}").contains("base")
+        );
     }
 
     #[test]
@@ -156,6 +158,8 @@ mod tests {
             updated_at: Utc::now(),
         };
         let err = OrderBookPair::try_from((wire, &tokens)).unwrap_err();
-        assert!(format!("{err}").contains("QuoteTokenNotFound") || format!("{err}").contains("quote"));
+        assert!(
+            format!("{err}").contains("QuoteTokenNotFound") || format!("{err}").contains("quote")
+        );
     }
 }

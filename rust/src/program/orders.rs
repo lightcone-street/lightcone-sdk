@@ -689,7 +689,7 @@ mod tests {
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
             amount_in: 100, // 100 quote
-            amount_out: 50,  // for 50 base (price = 2 quote/base)
+            amount_out: 50, // for 50 base (price = 2 quote/base)
             expiration: 0,
             signature: [0u8; 64],
         };
@@ -702,7 +702,7 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            amount_in: 50, // 50 base
+            amount_in: 50,  // 50 base
             amount_out: 90, // for 90 quote (price = 1.8 quote/base)
             expiration: 0,
             signature: [0u8; 64],
@@ -722,7 +722,7 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Bid,
-            amount_in: 50, // 50 quote
+            amount_in: 50,  // 50 quote
             amount_out: 50, // for 50 base (price = 1 quote/base)
             expiration: 0,
             signature: [0u8; 64],
@@ -736,7 +736,7 @@ mod tests {
             base_mint: buy_order.base_mint,
             quote_mint: buy_order.quote_mint,
             side: OrderSide::Ask,
-            amount_in: 50,  // 50 base
+            amount_in: 50,   // 50 base
             amount_out: 100, // for 100 quote (price = 2 quote/base)
             expiration: 0,
             signature: [0u8; 64],
@@ -756,7 +756,7 @@ mod tests {
             base_mint: Pubkey::new_unique(),
             quote_mint: Pubkey::new_unique(),
             side: OrderSide::Ask,
-            amount_in: 100, // gives 100 base
+            amount_in: 100,  // gives 100 base
             amount_out: 200, // wants 200 quote
             expiration: 0,
             signature: [0u8; 64],
@@ -795,7 +795,9 @@ mod tests {
 
         order.sign(&keypair);
 
-        let request = order.to_submit_request("test_orderbook", None, None, None, None).unwrap();
+        let request = order
+            .to_submit_request("test_orderbook", None, None, None, None)
+            .unwrap();
 
         assert_eq!(request.maker, maker.to_string());
         assert_eq!(request.nonce, 42);
@@ -916,9 +918,7 @@ mod tests {
 
         let result = order.to_submit_request("test_orderbook", None, None, None, None);
         assert!(result.is_err());
-        assert!(
-            result.unwrap_err().to_string().contains("must be signed"),
-        );
+        assert!(result.unwrap_err().to_string().contains("must be signed"),);
     }
 
     #[test]
@@ -999,7 +999,8 @@ mod tests {
         assert_eq!(body.signature.len(), 128);
         assert_eq!(body.salt, salt);
 
-        let message = cancel_all_message(pubkey_str.as_str(), orderbook_id.as_str(), timestamp, &salt);
+        let message =
+            cancel_all_message(pubkey_str.as_str(), orderbook_id.as_str(), timestamp, &salt);
         let sig_bytes = hex::decode(&body.signature).unwrap();
         let sig = Signature::try_from(sig_bytes.as_slice()).unwrap();
         assert!(sig.verify(keypair.pubkey().as_ref(), message.as_bytes()));

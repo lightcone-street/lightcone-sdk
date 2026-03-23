@@ -8,8 +8,8 @@ use crate::error::SdkError;
 use crate::program::instructions;
 use crate::program::types::{
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, MergeCompleteSetParams, MintCompleteSetParams,
-    RedeemWinningsParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    InitPositionTokensParams, MergeCompleteSetParams, MintCompleteSetParams, RedeemWinningsParams,
+    WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::shared::DepositSource;
 use solana_instruction::Instruction;

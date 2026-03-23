@@ -35,10 +35,7 @@ impl PriceHistoryState {
         resolution: Resolution,
         point: LineData,
     ) {
-        let entry = self
-            .data
-            .entry((orderbook_id, resolution))
-            .or_default();
+        let entry = self.data.entry((orderbook_id, resolution)).or_default();
 
         if let Some(last) = entry.last_mut() {
             if last.time == point.time {
@@ -49,7 +46,11 @@ impl PriceHistoryState {
         entry.push(point);
     }
 
-    pub fn get(&self, orderbook_id: &OrderBookId, resolution: &Resolution) -> Option<&Vec<LineData>> {
+    pub fn get(
+        &self,
+        orderbook_id: &OrderBookId,
+        resolution: &Resolution,
+    ) -> Option<&Vec<LineData>> {
         self.data.get(&(orderbook_id.clone(), *resolution))
     }
 
@@ -108,12 +109,7 @@ impl DepositPriceState {
     }
 
     /// Apply an ongoing websocket price tick for one deposit asset.
-    pub fn apply_price_tick(
-        &mut self,
-        deposit_asset: PubkeyStr,
-        price: String,
-        event_time: i64,
-    ) {
+    pub fn apply_price_tick(&mut self, deposit_asset: PubkeyStr, price: String, event_time: i64) {
         self.latest_price
             .insert(deposit_asset, LatestDepositPrice { price, event_time });
     }
@@ -160,7 +156,11 @@ mod tests {
         let mut state = PriceHistoryState::new();
         let ob = OrderBookId::from("ob1");
         let res = Resolution::Minute1;
-        state.apply_snapshot(ob.clone(), res, vec![line_data(100, "50.0"), line_data(200, "51.0")]);
+        state.apply_snapshot(
+            ob.clone(),
+            res,
+            vec![line_data(100, "50.0"), line_data(200, "51.0")],
+        );
         let data = state.get(&ob, &res).unwrap();
         assert_eq!(data.len(), 2);
         assert_eq!(data[0].value, "50.0");
@@ -222,11 +222,7 @@ mod tests {
             resolution,
             vec![deposit_candle(100, 160, "1.00")],
         );
-        state.apply_candle_update(
-            asset.clone(),
-            resolution,
-            deposit_candle(100, 170, "1.05"),
-        );
+        state.apply_candle_update(asset.clone(), resolution, deposit_candle(100, 170, "1.05"));
 
         let candles = state.get_candles(&asset, &resolution).unwrap();
         assert_eq!(candles.len(), 1);

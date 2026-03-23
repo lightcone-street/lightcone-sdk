@@ -294,9 +294,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
             let mut ct_errors: Vec<TokenValidationError> = Vec::new();
 
             let ct_decimals = ct.decimals.map(|d| d as u16).unwrap_or_else(|| {
-                ct_errors.push(TokenValidationError::MissingDecimals(
-                    ct_pubkey.to_string(),
-                ));
+                ct_errors.push(TokenValidationError::MissingDecimals(ct_pubkey.to_string()));
                 0
             });
             let ct_symbol = ct.short_name.unwrap_or_else(|| {
@@ -312,9 +310,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 String::new()
             });
             let ct_outcome = ct.outcome.unwrap_or_else(|| {
-                ct_errors.push(TokenValidationError::MissingOutcome(
-                    ct_pubkey.to_string(),
-                ));
+                ct_errors.push(TokenValidationError::MissingOutcome(ct_pubkey.to_string()));
                 String::new()
             });
 
@@ -353,10 +349,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
         }
 
         if !errors.is_empty() {
-            return Err(TokenValidationError::Multiple(
-                source.deposit_asset,
-                errors,
-            ));
+            return Err(TokenValidationError::Multiple(source.deposit_asset, errors));
         }
 
         Ok(Self {
@@ -397,25 +390,23 @@ mod tests {
             icon_url: Some("https://example.com/usdc.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
-            conditional_mints: vec![
-                ConditionalTokenResponse {
-                    id: 10,
-                    outcome_index: 0,
-                    token_address: "cond_yes".to_string(),
-                    name: None,
-                    symbol: None,
-                    uri: None,
-                    display_name: Some("Yes".to_string()),
-                    outcome: Some("Yes".to_string()),
-                    deposit_symbol: None,
-                    short_name: Some("YES".to_string()),
-                    description: None,
-                    icon_url: None,
-                    metadata_uri: None,
-                    decimals: Some(6),
-                    created_at: Utc::now(),
-                },
-            ],
+            conditional_mints: vec![ConditionalTokenResponse {
+                id: 10,
+                outcome_index: 0,
+                token_address: "cond_yes".to_string(),
+                name: None,
+                symbol: None,
+                uri: None,
+                display_name: Some("Yes".to_string()),
+                outcome: Some("Yes".to_string()),
+                deposit_symbol: None,
+                short_name: Some("YES".to_string()),
+                description: None,
+                icon_url: None,
+                metadata_uri: None,
+                decimals: Some(6),
+                created_at: Utc::now(),
+            }],
             created_at: Utc::now(),
         }
     }

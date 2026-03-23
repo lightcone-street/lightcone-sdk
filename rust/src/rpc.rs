@@ -65,16 +65,15 @@ impl<'a> Rpc<'a> {
     pub async fn get_exchange(&self) -> Result<crate::program::accounts::Exchange, SdkError> {
         let rpc = require_solana_rpc(self.client)?;
         let (pda, _) = crate::program::pda::get_exchange_pda(&self.client.program_id);
-        let account = rpc
-            .get_account(&pda)
-            .await
-            .map_err(|e| {
-                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
-                    "Exchange: {}",
-                    e
-                )))
-            })?;
-        Ok(crate::program::accounts::Exchange::deserialize(&account.data)?)
+        let account = rpc.get_account(&pda).await.map_err(|e| {
+            SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                "Exchange: {}",
+                e
+            )))
+        })?;
+        Ok(crate::program::accounts::Exchange::deserialize(
+            &account.data,
+        )?)
     }
 
     /// Fetch a GlobalDepositToken account by mint.
@@ -85,15 +84,12 @@ impl<'a> Rpc<'a> {
         let rpc = require_solana_rpc(self.client)?;
         let (pda, _) =
             crate::program::pda::get_global_deposit_token_pda(mint, &self.client.program_id);
-        let account = rpc
-            .get_account(&pda)
-            .await
-            .map_err(|e| {
-                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
-                    "GlobalDepositToken: {}",
-                    e
-                )))
-            })?;
+        let account = rpc.get_account(&pda).await.map_err(|e| {
+            SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                "GlobalDepositToken: {}",
+                e
+            )))
+        })?;
         Ok(crate::program::accounts::GlobalDepositToken::deserialize(
             &account.data,
         )?)

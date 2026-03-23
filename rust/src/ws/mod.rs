@@ -121,10 +121,7 @@ impl MessageOut {
         UnsubscribeParams::Market { market_pubkey }.into()
     }
 
-    pub fn subscribe_deposit_price(
-        deposit_asset: PubkeyStr,
-        resolution: Resolution,
-    ) -> MessageOut {
+    pub fn subscribe_deposit_price(deposit_asset: PubkeyStr, resolution: Resolution) -> MessageOut {
         SubscribeParams::DepositPrice {
             deposit_asset,
             resolution,

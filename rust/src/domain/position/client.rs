@@ -1,19 +1,19 @@
 //! Positions sub-client — portfolio & position queries, and on-chain position operations.
 
 use crate::client::LightconeClient;
-use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
-use crate::error::SdkError;
-use crate::http::RetryPolicy;
-use crate::program::instructions;
 use crate::domain::position::builders::{
     DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
+use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
+use crate::error::SdkError;
+use crate::http::RetryPolicy;
+use crate::program::instructions;
 use crate::program::types::{
-    DepositParams, DepositToGlobalParams, ExtendPositionTokensParams,
-    GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
-    WithdrawFromGlobalParams, WithdrawFromPositionParams, WithdrawParams,
+    DepositParams, DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
+    WithdrawFromPositionParams, WithdrawParams,
 };
 use crate::shared::DepositSource;
 use solana_instruction::Instruction;
@@ -41,11 +41,7 @@ impl<'a> Positions<'a> {
             self.client.http.base_url(),
             user_pubkey
         );
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 
     /// Get positions for a user in a specific market.
@@ -60,11 +56,7 @@ impl<'a> Positions<'a> {
             user_pubkey,
             market_pubkey
         );
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 
     // ── On-chain instruction builders ───────────────────────────────────
@@ -136,7 +128,11 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        Ok(instructions::build_extend_position_tokens_ix(params, num_outcomes, pid)?)
+        Ok(instructions::build_extend_position_tokens_ix(
+            params,
+            num_outcomes,
+            pid,
+        )?)
     }
 
     /// Build ExtendPositionTokens transaction.
@@ -214,17 +210,15 @@ impl<'a> Positions<'a> {
             .resolve_deposit_source(params.deposit_source)
             .await;
         match source {
-            DepositSource::Global => {
-                Ok(self.deposit_to_global_ix(&DepositToGlobalParams {
-                    user: params.user,
-                    mint: params.mint,
-                    amount: params.amount,
-                }))
-            }
+            DepositSource::Global => Ok(self.deposit_to_global_ix(&DepositToGlobalParams {
+                user: params.user,
+                mint: params.mint,
+                amount: params.amount,
+            })),
             DepositSource::Market => {
-                let market = params
-                    .market
-                    .ok_or(SdkError::MissingMarketContext("market is required for Market deposit"))?;
+                let market = params.market.ok_or(SdkError::MissingMarketContext(
+                    "market is required for Market deposit",
+                ))?;
                 let market_pubkey = market
                     .pubkey
                     .to_pubkey()
@@ -244,10 +238,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Build a deposit transaction using the resolved deposit source.
-    pub async fn deposit_tx(
-        &self,
-        params: &DepositParams<'_>,
-    ) -> Result<Transaction, SdkError> {
+    pub async fn deposit_tx(&self, params: &DepositParams<'_>) -> Result<Transaction, SdkError> {
         let ix = self.deposit_ix(params).await?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
@@ -259,29 +250,25 @@ impl<'a> Positions<'a> {
     /// When the resolved source is `Market`, `params.market_context` must be `Some`.
     ///
     /// Prefer the builder API via `client.positions().withdraw().await` for new code.
-    pub async fn withdraw_ix(
-        &self,
-        params: &WithdrawParams<'_>,
-    ) -> Result<Instruction, SdkError> {
+    pub async fn withdraw_ix(&self, params: &WithdrawParams<'_>) -> Result<Instruction, SdkError> {
         let source = self
             .client
             .resolve_deposit_source(params.deposit_source)
             .await;
         match source {
-            DepositSource::Global => {
-                Ok(self.withdraw_from_global_ix(&WithdrawFromGlobalParams {
-                    user: params.user,
-                    mint: params.mint,
-                    amount: params.amount,
-                }))
-            }
+            DepositSource::Global => Ok(self.withdraw_from_global_ix(&WithdrawFromGlobalParams {
+                user: params.user,
+                mint: params.mint,
+                amount: params.amount,
+            })),
             DepositSource::Market => {
-                let context = params
-                    .market_context
-                    .as_ref()
-                    .ok_or(SdkError::MissingMarketContext(
-                        "market_context is required for Market withdrawal",
-                    ))?;
+                let context =
+                    params
+                        .market_context
+                        .as_ref()
+                        .ok_or(SdkError::MissingMarketContext(
+                            "market_context is required for Market withdrawal",
+                        ))?;
                 let market_pubkey = context
                     .market
                     .pubkey
@@ -302,10 +289,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Build a withdraw transaction using the resolved deposit source.
-    pub async fn withdraw_tx(
-        &self,
-        params: &WithdrawParams<'_>,
-    ) -> Result<Transaction, SdkError> {
+    pub async fn withdraw_tx(&self, params: &WithdrawParams<'_>) -> Result<Transaction, SdkError> {
         let ix = self.withdraw_ix(params).await?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
@@ -393,9 +377,9 @@ impl<'a> Positions<'a> {
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let pda = self.pda(owner, market);
         match rpc.get_account(&pda).await {
-            Ok(account) => Ok(Some(
-                crate::program::accounts::Position::deserialize(&account.data)?,
-            )),
+            Ok(account) => Ok(Some(crate::program::accounts::Position::deserialize(
+                &account.data,
+            )?)),
             Err(_) => Ok(None),
         }
     }

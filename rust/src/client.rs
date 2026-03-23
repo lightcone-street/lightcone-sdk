@@ -9,9 +9,8 @@
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
 use crate::domain::admin::client::Admin;
-use crate::privy::client::Privy;
-use crate::domain::notification::client::Notifications;
 use crate::domain::market::client::Markets;
+use crate::domain::notification::client::Notifications;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
 use crate::domain::position::client::Positions;
@@ -21,10 +20,11 @@ use crate::domain::trade::client::Trades;
 use crate::error::SdkError;
 use crate::http::LightconeHttp;
 use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
+use crate::privy::client::Privy;
 use crate::program::constants::PROGRAM_ID;
 use crate::rpc::Rpc;
-use crate::shared::DepositSource;
 use crate::shared::signing::{ExternalSigner, SigningStrategy};
+use crate::shared::DepositSource;
 use crate::ws::WsConfig;
 
 #[cfg(feature = "solana-rpc")]
@@ -40,11 +40,11 @@ use std::sync::Arc;
 pub use crate::auth::client::Auth as AuthClient;
 pub use crate::domain::admin::client::Admin as AdminClient;
 pub use crate::domain::market::client::{Markets as MarketsClient, MarketsResult};
+pub use crate::domain::notification::client::Notifications as NotificationsClient;
 pub use crate::domain::order::client::Orders as OrdersClient;
 pub use crate::domain::orderbook::client::Orderbooks as OrderbooksClient;
 pub use crate::domain::position::client::Positions as PositionsClient;
 pub use crate::domain::price_history::client::PriceHistoryClient as PriceHistorySubClient;
-pub use crate::domain::notification::client::Notifications as NotificationsClient;
 pub use crate::domain::referral::client::Referrals as ReferralsClient;
 pub use crate::domain::trade::client::Trades as TradesClient;
 pub use crate::rpc::Rpc as RpcClient;
@@ -144,10 +144,7 @@ impl LightconeClient {
     /// Create a new native WS client from the current config.
     #[cfg(feature = "ws-native")]
     pub fn ws_native(&self) -> crate::ws::native::WsClient {
-        crate::ws::native::WsClient::new(
-            self.ws_config.clone(),
-            Some(self.http.auth_token_ref()),
-        )
+        crate::ws::native::WsClient::new(self.ws_config.clone(), Some(self.http.auth_token_ref()))
     }
 
     /// Get the WS config for connecting with the WASM WsClient.
@@ -252,10 +249,9 @@ impl LightconeClient {
         &self,
         mut tx: solana_transaction::Transaction,
     ) -> Result<String, SdkError> {
-        let strategy = self
-            .signing_strategy()
-            .await
-            .ok_or_else(|| SdkError::Validation("signing strategy is not set on the client".into()))?;
+        let strategy = self.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
 
         let blockhash = self.get_latest_blockhash().await?;
         tx.message.recent_blockhash = blockhash;
@@ -269,20 +265,26 @@ impl LightconeClient {
                 self.send_transaction_rpc(&tx).await
             }
             SigningStrategy::WalletAdapter(signer) => {
-                let tx_bytes = bincode::serialize(&tx)
-                    .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
+                let tx_bytes = bincode::serialize(&tx).map_err(|error| {
+                    SdkError::Other(format!("tx serialization failed: {error}"))
+                })?;
                 let signed_bytes = signer
                     .sign_transaction(&tx_bytes)
                     .await
                     .map_err(crate::shared::signing::classify_signer_error)?;
                 // The signer returns fully signed tx bytes — send via base64
-                let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&signed_bytes);
+                let base64_tx = base64::Engine::encode(
+                    &base64::engine::general_purpose::STANDARD,
+                    &signed_bytes,
+                );
                 self.send_raw_transaction_rpc(&base64_tx).await
             }
             SigningStrategy::Privy { wallet_id } => {
-                let tx_bytes = bincode::serialize(&tx)
-                    .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
-                let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&tx_bytes);
+                let tx_bytes = bincode::serialize(&tx).map_err(|error| {
+                    SdkError::Other(format!("tx serialization failed: {error}"))
+                })?;
+                let base64_tx =
+                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
                 let result = self
                     .privy()
                     .sign_and_send_tx(&wallet_id, &base64_tx)
@@ -299,7 +301,8 @@ impl LightconeClient {
     ) -> Result<String, SdkError> {
         let tx_bytes = bincode::serialize(tx)
             .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
-        let base64_tx = base64::Engine::encode(&base64::engine::general_purpose::STANDARD,&tx_bytes);
+        let base64_tx =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
         self.send_raw_transaction_rpc(&base64_tx).await
     }
 

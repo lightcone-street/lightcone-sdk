@@ -19,7 +19,9 @@ use wasm_bindgen::prelude::*;
 use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
 
 use crate::ws::subscriptions::Subscription;
-use crate::ws::{MessageIn, MessageOut, Kind, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent};
+use crate::ws::{
+    Kind, MessageIn, MessageOut, ReadyState, SubscribeParams, UnsubscribeParams, WsConfig, WsEvent,
+};
 
 thread_local! {
     static WS: RefCell<Option<WebSocket>> = RefCell::new(None);
@@ -257,10 +259,7 @@ impl WsClient {
                     }
                     Err(err) => {
                         tracing::error!("Failed to parse WS message: {:?} — raw: {}", err, txt);
-                        Self::emit(WsEvent::Error(format!(
-                            "Deserialization error: {}",
-                            err
-                        )));
+                        Self::emit(WsEvent::Error(format!("Deserialization error: {}", err)));
                     }
                 }
             }
@@ -404,14 +403,10 @@ impl WsClient {
             if let Ok(mut attempts_ref) = attempts.try_borrow_mut() {
                 *attempts_ref += 1;
 
-                let max_attempts =
-                    Self::get_config_val(|c| c.max_reconnect_attempts, 10);
+                let max_attempts = Self::get_config_val(|c| c.max_reconnect_attempts, 10);
 
                 if *attempts_ref > max_attempts {
-                    tracing::warn!(
-                        "Max reconnection attempts ({}) exceeded",
-                        max_attempts
-                    );
+                    tracing::warn!("Max reconnection attempts ({}) exceeded", max_attempts);
 
                     RECONNECT_SCHEDULED.with(|s| {
                         let _ = s.try_borrow_mut().map(|mut f| *f = false);

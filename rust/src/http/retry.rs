@@ -65,8 +65,7 @@ impl RetryConfig {
 
     /// Calculate delay for a given attempt (0-indexed).
     pub fn delay_for_attempt(&self, attempt: u32) -> Duration {
-        let base = self.initial_delay.as_millis() as f64
-            * self.backoff_factor.powi(attempt as i32);
+        let base = self.initial_delay.as_millis() as f64 * self.backoff_factor.powi(attempt as i32);
         let capped = base.min(self.max_delay.as_millis() as f64);
 
         let final_ms = if self.jitter {

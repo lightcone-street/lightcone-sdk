@@ -412,7 +412,11 @@ impl<'a> Orders<'a> {
                 remaining,
                 filled,
             } => {
-                let msg = match (error.as_deref(), details.as_deref(), rejection_reason.as_deref()) {
+                let msg = match (
+                    error.as_deref(),
+                    details.as_deref(),
+                    rejection_reason.as_deref(),
+                ) {
                     (Some(e), Some(d), _) => format!("{e}: {d}"),
                     (Some(e), None, _) => e.to_string(),
                     (None, Some(d), _) => d.to_string(),

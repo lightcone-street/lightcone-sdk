@@ -113,7 +113,12 @@ mod tests {
     use crate::shared::Side;
     use rust_decimal::Decimal;
 
-    fn order_book(snapshot: bool, seq: u32, bids: Vec<(f64, f64)>, asks: Vec<(f64, f64)>) -> OrderBook {
+    fn order_book(
+        snapshot: bool,
+        seq: u32,
+        bids: Vec<(f64, f64)>,
+        asks: Vec<(f64, f64)>,
+    ) -> OrderBook {
         OrderBook {
             id: OrderBookId::from("ob_test"),
             is_snapshot: snapshot,

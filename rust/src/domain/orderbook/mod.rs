@@ -76,8 +76,8 @@ impl OrderBookPair {
             return OutcomeImpact::default();
         }
 
-        let pct_decimal = ((conditional_price - deposit_asset_price) / deposit_asset_price)
-            * Decimal::from(100);
+        let pct_decimal =
+            ((conditional_price - deposit_asset_price) / deposit_asset_price) * Decimal::from(100);
         let pct = pct_decimal.to_f64().unwrap_or(0.0);
         let sign = String::from(if pct > 0.0 { "+" } else { "-" });
 
@@ -176,4 +176,3 @@ impl OrderBookPair {
         }
     }
 }
-

@@ -1,11 +1,11 @@
 //! Price history sub-client — OHLCV queries.
 
 use crate::client::LightconeClient;
-use crate::domain::price_history::{
-    DepositPriceHistoryQuery, LineData, OrderbookPriceHistoryQuery,
-};
 use crate::domain::price_history::wire::{
     DepositPriceHistoryResponse, OrderbookPriceHistoryResponse,
+};
+use crate::domain::price_history::{
+    DepositPriceHistoryQuery, LineData, OrderbookPriceHistoryQuery,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -68,11 +68,7 @@ impl<'a> PriceHistoryClient<'a> {
             url = format!("{}&include_ohlcv=true", url);
         }
 
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 
     /// Get deposit-token price history from the same REST endpoint.
@@ -104,11 +100,7 @@ impl<'a> PriceHistoryClient<'a> {
             url = format!("{}&limit={}", url, ensure_page_limit(limit)?);
         }
 
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 
     /// Get simplified midpoint line data for charting.

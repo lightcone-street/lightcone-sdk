@@ -18,8 +18,8 @@ pub use client::{
 pub use convert::split_snapshot_orders;
 pub use state::{UserOpenOrders, UserTriggerOrders};
 pub use wire::{
-    ConditionalBalance, GlobalDepositBalance, GlobalDepositUpdate, NonceUpdate,
-    NotificationUpdate, OrderEvent, TriggerOrderUpdate, UserSnapshotBalance, UserSnapshotOrder,
+    ConditionalBalance, GlobalDepositBalance, GlobalDepositUpdate, NonceUpdate, NotificationUpdate,
+    OrderEvent, TriggerOrderUpdate, UserSnapshotBalance, UserSnapshotOrder,
     UserSnapshotOrderCommon,
 };
 
@@ -111,12 +111,8 @@ impl TriggerOrder {
     /// For Bid: maker gives quote, receives base → price = quote / base
     pub fn limit_price(&self) -> Option<Decimal> {
         match self.side {
-            Side::Ask if self.amount_in > Decimal::ZERO => {
-                Some(self.amount_out / self.amount_in)
-            }
-            Side::Bid if self.amount_out > Decimal::ZERO => {
-                Some(self.amount_in / self.amount_out)
-            }
+            Side::Ask if self.amount_in > Decimal::ZERO => Some(self.amount_out / self.amount_in),
+            Side::Bid if self.amount_out > Decimal::ZERO => Some(self.amount_in / self.amount_out),
             _ => None,
         }
     }

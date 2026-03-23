@@ -1,7 +1,10 @@
 //! Wire types for order and user WS messages.
 
 use super::OrderStatus;
-use crate::shared::{serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, TimeInForce, TriggerStatus, TriggerResultStatus, TriggerType, TriggerUpdateType};
+use crate::shared::{
+    serde_util, OrderBookId, OrderUpdateType, PubkeyStr, Side, TimeInForce, TriggerResultStatus,
+    TriggerStatus, TriggerType, TriggerUpdateType,
+};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -149,7 +152,11 @@ pub enum UserSnapshotOrder {
         trigger_order_id: String,
         trigger_price: Decimal,
         trigger_type: TriggerType,
-        #[serde(default, with = "serde_util::tif_numeric_opt", skip_serializing_if = "Option::is_none")]
+        #[serde(
+            default,
+            with = "serde_util::tif_numeric_opt",
+            skip_serializing_if = "Option::is_none"
+        )]
         time_in_force: Option<TimeInForce>,
     },
 }

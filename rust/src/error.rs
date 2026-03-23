@@ -84,10 +84,7 @@ pub enum WsError {
     ProtocolError(String),
 
     #[error("Connection closed: code={code:?} reason={reason}")]
-    Closed {
-        code: Option<u16>,
-        reason: String,
-    },
+    Closed { code: Option<u16>, reason: String },
 }
 
 /// Authentication errors.

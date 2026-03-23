@@ -1,14 +1,14 @@
 //! Markets sub-client — fetch, search, and on-chain market operations.
 
+use super::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 use crate::client::LightconeClient;
-use crate::domain::market::{self, Market, Status};
 use crate::domain::market::wire::{MarketSearchResult, MarketsResponse, SingleMarketResponse};
+use crate::domain::market::{self, Market, Status};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
-use super::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
@@ -48,11 +48,7 @@ impl<'a> Markets<'a> {
             url = format!("{}?{}", url, params.join("&"));
         }
 
-        let resp: MarketsResponse = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
+        let resp: MarketsResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;
 
         let mut markets = Vec::new();
         let mut validation_errors = Vec::new();
@@ -86,12 +82,13 @@ impl<'a> Markets<'a> {
 
     /// Fetch a market by slug.
     pub async fn get_by_slug(&self, slug: &str) -> Result<Market, SdkError> {
-        let url = format!("{}/api/markets/by-slug/{}", self.client.http.base_url(), slug);
-        let resp: SingleMarketResponse = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
+        let url = format!(
+            "{}/api/markets/by-slug/{}",
+            self.client.http.base_url(),
+            slug
+        );
+        let resp: SingleMarketResponse =
+            self.client.http.get(&url, RetryPolicy::Idempotent).await?;
 
         resp.market
             .try_into()
@@ -101,11 +98,8 @@ impl<'a> Markets<'a> {
     /// Fetch a market by on-chain pubkey.
     pub async fn get_by_pubkey(&self, pubkey: &str) -> Result<Market, SdkError> {
         let url = format!("{}/api/markets/{}", self.client.http.base_url(), pubkey);
-        let resp: SingleMarketResponse = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
+        let resp: SingleMarketResponse =
+            self.client.http.get(&url, RetryPolicy::Idempotent).await?;
 
         resp.market
             .try_into()
@@ -127,21 +121,17 @@ impl<'a> Markets<'a> {
         if let Some(l) = limit {
             url = format!("{}?limit={}", url, l);
         }
-        Ok(self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?)
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
     }
 
     /// Get featured markets. Only returns Active and Resolved markets.
     pub async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError> {
-        let url = format!("{}/api/markets/search/featured", self.client.http.base_url());
-        let results: Vec<MarketSearchResult> = self
-            .client
-            .http
-            .get(&url, RetryPolicy::Idempotent)
-            .await?;
+        let url = format!(
+            "{}/api/markets/search/featured",
+            self.client.http.base_url()
+        );
+        let results: Vec<MarketSearchResult> =
+            self.client.http.get(&url, RetryPolicy::Idempotent).await?;
 
         let (kept, skipped): (Vec<_>, Vec<_>) = results
             .into_iter()
@@ -288,16 +278,15 @@ impl<'a> Markets<'a> {
         market: &Pubkey,
     ) -> Result<crate::program::accounts::Market, SdkError> {
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
-        let account = rpc
-            .get_account(market)
-            .await
-            .map_err(|e| {
-                SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
-                    "Market: {}",
-                    e
-                )))
-            })?;
-        Ok(crate::program::accounts::Market::deserialize(&account.data)?)
+        let account = rpc.get_account(market).await.map_err(|e| {
+            SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
+                "Market: {}",
+                e
+            )))
+        })?;
+        Ok(crate::program::accounts::Market::deserialize(
+            &account.data,
+        )?)
     }
 
     /// Fetch a Market account by ID.

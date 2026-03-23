@@ -25,14 +25,17 @@ async fn main() -> ExampleResult {
     // 1. Init position tokens — one-time setup per market (creates position + ALT)
     let recent_slot = rpc.get_slot().await?;
 
-    let (position_pda, _) = get_position_pda(&keypair.pubkey(), &market_pubkey, client.program_id());
+    let (position_pda, _) =
+        get_position_pda(&keypair.pubkey(), &market_pubkey, client.program_id());
     let (lookup_table, _) = get_position_alt_pda(&position_pda, recent_slot);
 
     let instructions: Vec<(&str, solana_instruction::Instruction)> = vec![
         // 1. Init position tokens
         (
             "init_position_tokens",
-            client.positions().init_position_tokens()
+            client
+                .positions()
+                .init_position_tokens()
                 .payer(keypair.pubkey())
                 .user(keypair.pubkey())
                 .market(market_pubkey)
@@ -44,7 +47,9 @@ async fn main() -> ExampleResult {
         // 2. Deposit to global — fund the global pool with collateral
         (
             "deposit_to_global",
-            client.positions().deposit_to_global()
+            client
+                .positions()
+                .deposit_to_global()
                 .user(keypair.pubkey())
                 .mint(deposit_mint)
                 .amount(amount)
@@ -53,7 +58,9 @@ async fn main() -> ExampleResult {
         // 3. Global to market deposit — move capital into a specific market
         (
             "global_to_market_deposit",
-            client.positions().global_to_market_deposit()
+            client
+                .positions()
+                .global_to_market_deposit()
                 .user(keypair.pubkey())
                 .market(market_pubkey)
                 .mint(deposit_mint)
@@ -64,7 +71,9 @@ async fn main() -> ExampleResult {
         // 4. Extend position tokens — add a new deposit mint to an existing ALT
         (
             "extend_position_tokens",
-            client.positions().extend_position_tokens()
+            client
+                .positions()
+                .extend_position_tokens()
                 .payer(keypair.pubkey())
                 .user(keypair.pubkey())
                 .market(market_pubkey)
@@ -76,7 +85,9 @@ async fn main() -> ExampleResult {
         // 5. Withdraw from global — pull tokens back out of the global pool
         (
             "withdraw_from_global",
-            client.positions().withdraw_from_global()
+            client
+                .positions()
+                .withdraw_from_global()
                 .user(keypair.pubkey())
                 .mint(deposit_mint)
                 .amount(amount)
@@ -108,7 +119,10 @@ async fn main() -> ExampleResult {
         .with_global_deposit_source()
         .build_ix()
         .await?;
-    println!("builder global deposit ix: {} accounts", global_deposit_ix.accounts.len());
+    println!(
+        "builder global deposit ix: {} accounts",
+        global_deposit_ix.accounts.len()
+    );
 
     // Deposit — explicitly override to Market (mints conditional tokens)
     let market_deposit_ix = client
@@ -121,7 +135,10 @@ async fn main() -> ExampleResult {
         .with_market_deposit_source(&market)
         .build_ix()
         .await?;
-    println!("builder market deposit ix: {} accounts", market_deposit_ix.accounts.len());
+    println!(
+        "builder market deposit ix: {} accounts",
+        market_deposit_ix.accounts.len()
+    );
 
     // Withdraw — Global mode (global pool → wallet)
     let global_withdraw_ix = client
@@ -134,7 +151,10 @@ async fn main() -> ExampleResult {
         .with_global_deposit_source()
         .build_ix()
         .await?;
-    println!("builder global withdraw ix: {} accounts", global_withdraw_ix.accounts.len());
+    println!(
+        "builder global withdraw ix: {} accounts",
+        global_withdraw_ix.accounts.len()
+    );
 
     // Withdraw — Market mode (burns conditional tokens → wallet collateral)
     let market_withdraw_ix = client
@@ -147,7 +167,10 @@ async fn main() -> ExampleResult {
         .with_market_deposit_source(&market)
         .build_ix()
         .await?;
-    println!("builder market withdraw ix: {} accounts", market_withdraw_ix.accounts.len());
+    println!(
+        "builder market withdraw ix: {} accounts",
+        market_withdraw_ix.accounts.len()
+    );
 
     Ok(())
 }

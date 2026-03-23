@@ -70,10 +70,7 @@ impl<'a> Admin<'a> {
         &self,
         envelope: &AdminEnvelope<RevokeRequest>,
     ) -> Result<RevokeResponse, SdkError> {
-        let url = format!(
-            "{}/api/admin/referral/revoke",
-            self.client.http.base_url()
-        );
+        let url = format!("{}/api/admin/referral/revoke", self.client.http.base_url());
         Ok(self
             .client
             .http
@@ -100,10 +97,7 @@ impl<'a> Admin<'a> {
         &self,
         envelope: &AdminEnvelope<CreateNotificationRequest>,
     ) -> Result<CreateNotificationResponse, SdkError> {
-        let url = format!(
-            "{}/api/admin/notifications",
-            self.client.http.base_url()
-        );
+        let url = format!("{}/api/admin/notifications", self.client.http.base_url());
         Ok(self
             .client
             .http
@@ -151,13 +145,14 @@ impl<'a> Admin<'a> {
         let pid = &self.client.program_id;
         let rpc = crate::rpc::require_solana_rpc(self.client)?;
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(pid);
-        let account = rpc
-            .get_account(&exchange_pda)
-            .await
-            .map_err(|e| crate::program::error::SdkError::AccountNotFound(format!("Exchange: {}", e)))?;
+        let account = rpc.get_account(&exchange_pda).await.map_err(|e| {
+            crate::program::error::SdkError::AccountNotFound(format!("Exchange: {}", e))
+        })?;
         let exchange = crate::program::accounts::Exchange::deserialize(&account.data)?;
         let market_id = exchange.market_count;
-        Ok(instructions::build_create_market_ix(&params, market_id, pid)?)
+        Ok(instructions::build_create_market_ix(
+            &params, market_id, pid,
+        )?)
     }
 
     /// Build CreateMarket transaction.
@@ -181,7 +176,12 @@ impl<'a> Admin<'a> {
         num_outcomes: u8,
     ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        Ok(instructions::build_add_deposit_mint_ix(params, market, num_outcomes, pid)?)
+        Ok(instructions::build_add_deposit_mint_ix(
+            params,
+            market,
+            num_outcomes,
+            pid,
+        )?)
     }
 
     /// Build AddDepositMint transaction.
@@ -217,10 +217,7 @@ impl<'a> Admin<'a> {
     }
 
     /// Build SettleMarket transaction.
-    pub fn settle_market_tx(
-        &self,
-        params: SettleMarketParams,
-    ) -> Result<Transaction, SdkError> {
+    pub fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError> {
         let ix = self.settle_market_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.oracle)))
     }
@@ -232,21 +229,13 @@ impl<'a> Admin<'a> {
     }
 
     /// Build SetPaused transaction.
-    pub fn set_paused_tx(
-        &self,
-        authority: &Pubkey,
-        paused: bool,
-    ) -> Result<Transaction, SdkError> {
+    pub fn set_paused_tx(&self, authority: &Pubkey, paused: bool) -> Result<Transaction, SdkError> {
         let ix = self.set_paused_ix(authority, paused);
         Ok(Transaction::new_with_payer(&[ix], Some(authority)))
     }
 
     /// Build SetOperator instruction.
-    pub fn set_operator_ix(
-        &self,
-        authority: &Pubkey,
-        new_operator: &Pubkey,
-    ) -> Instruction {
+    pub fn set_operator_ix(&self, authority: &Pubkey, new_operator: &Pubkey) -> Instruction {
         let pid = &self.client.program_id;
         instructions::build_set_operator_ix(authority, new_operator, pid)
     }
@@ -268,19 +257,16 @@ impl<'a> Admin<'a> {
     }
 
     /// Build SetAuthority transaction.
-    pub fn set_authority_tx(
-        &self,
-        params: SetAuthorityParams,
-    ) -> Result<Transaction, SdkError> {
+    pub fn set_authority_tx(&self, params: SetAuthorityParams) -> Result<Transaction, SdkError> {
         let ix = self.set_authority_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.current_authority)))
+        Ok(Transaction::new_with_payer(
+            &[ix],
+            Some(&params.current_authority),
+        ))
     }
 
     /// Build WhitelistDepositToken instruction.
-    pub fn whitelist_deposit_token_ix(
-        &self,
-        params: &WhitelistDepositTokenParams,
-    ) -> Instruction {
+    pub fn whitelist_deposit_token_ix(&self, params: &WhitelistDepositTokenParams) -> Instruction {
         let pid = &self.client.program_id;
         instructions::build_whitelist_deposit_token_ix(params, pid)
     }

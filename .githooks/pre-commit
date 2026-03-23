@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+# Check if any staged files are Rust files
+if git diff --cached --name-only | grep -q '\.rs$'; then
+    echo "Checking Rust formatting..."
+    if ! cargo fmt --manifest-path rust/Cargo.toml -- --check 2>/dev/null; then
+        echo ""
+        echo "Rust formatting check failed. Run 'cargo fmt --manifest-path rust/Cargo.toml' and re-stage."
+        exit 1
+    fi
+fi
