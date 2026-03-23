@@ -186,7 +186,7 @@ pub struct TriggerOrderUpdate {
     pub trigger_price: Decimal,
     pub trigger_above: bool,
     pub status: TriggerStatus,
-    /// Uppercase version of status: "TRIGGERED", "FAILED", or "EXPIRED".
+    /// Uppercase version of status: "CREATED", "TRIGGERED", "FAILED", or "EXPIRED".
     #[serde(rename = "type", default)]
     pub update_type: TriggerUpdateType,
     pub order_hash: String,
@@ -198,6 +198,37 @@ pub struct TriggerOrderUpdate {
     #[serde(default)]
     pub result_remaining: Decimal,
     pub timestamp: DateTime<Utc>,
+    #[serde(default)]
+    pub maker_amount: Decimal,
+    #[serde(default)]
+    pub taker_amount: Decimal,
+    #[serde(default, with = "serde_util::tif_numeric")]
+    pub tif: TimeInForce,
+}
+
+impl TriggerOrderUpdate {
+    /// Convert this update into a domain TriggerOrder.
+    pub fn into_trigger_order(self) -> super::TriggerOrder {
+        let trigger_type = if self.trigger_above {
+            TriggerType::TakeProfit
+        } else {
+            TriggerType::StopLoss
+        };
+
+        super::TriggerOrder {
+            trigger_order_id: self.trigger_order_id,
+            order_hash: self.order_hash,
+            market_pubkey: self.market_pubkey,
+            orderbook_id: self.orderbook_id,
+            trigger_price: self.trigger_price,
+            trigger_type,
+            side: self.side,
+            amount_in: self.maker_amount,
+            amount_out: self.taker_amount,
+            time_in_force: self.tif,
+            created_at: self.timestamp,
+        }
+    }
 }
 
 /// WS order event — two-level dispatch on `order_type`.

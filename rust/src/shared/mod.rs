@@ -224,6 +224,8 @@ impl std::fmt::Display for TriggerType {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum TriggerStatus {
+    /// Trigger order was just created and is now pending.
+    Created,
     /// Trigger condition met, order was submitted.
     Triggered,
     /// Trigger condition met, but order submission failed.
@@ -250,6 +252,8 @@ pub enum OrderUpdateType {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum TriggerUpdateType {
+    /// Trigger order was just created.
+    Created,
     #[default]
     Triggered,
     Failed,
