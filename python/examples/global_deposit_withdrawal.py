@@ -1,4 +1,4 @@
-"""Global deposit workflow: init position, deposit to global, move to market, extend ALT, withdraw."""
+"""Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global."""
 
 import asyncio
 
@@ -26,19 +26,24 @@ async def main():
     d_mint = deposit_mint(m)
     outcomes = num_outcomes(m)
     amount = 1_000_000
+    deposit_amount = amount * 2  # deposit extra so global has funds after market transfer
 
     connection = require_connection(client)
 
-    # 1. Init position tokens — one-time setup per market (creates position + ALT)
-    recent_slot = (await connection.get_slot()).value
-
-    # 4 uses the ALT address derived from position PDA + the slot used during init
     position_pda, _ = get_position_pda(keypair.pubkey(), market_pubkey)
-    lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
 
-    instructions = [
-        # 1. Init position tokens
-        (
+    # Check if position already exists (init_position_tokens is one-time)
+    position_account = await connection.get_account_info(position_pda)
+    needs_init = position_account.value is None
+
+    instructions: list[tuple[str, object]] = []
+
+    if needs_init:
+        recent_slot = (await connection.get_slot()).value
+        lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
+
+        # 1. Init position tokens — one-time setup per market (creates position + ALT)
+        instructions.append((
             "init_position_tokens",
             client.positions().init_position_tokens()
                 .payer(keypair.pubkey())
@@ -48,29 +53,10 @@ async def main():
                 .recent_slot(recent_slot)
                 .num_outcomes(outcomes)
                 .build_ix(),
-        ),
-        # 2. Deposit to global — fund the global pool with collateral
-        (
-            "deposit_to_global",
-            client.positions().deposit_to_global()
-                .user(keypair.pubkey())
-                .mint(d_mint)
-                .amount(amount)
-                .build_ix(),
-        ),
-        # 3. Global to market deposit — move capital into a specific market
-        (
-            "global_to_market_deposit",
-            client.positions().global_to_market_deposit()
-                .user(keypair.pubkey())
-                .market(market_pubkey)
-                .mint(d_mint)
-                .amount(amount)
-                .num_outcomes(outcomes)
-                .build_ix(),
-        ),
-        # 4. Extend position tokens — add a new deposit mint to an existing ALT
-        (
+        ))
+
+        # 2. Extend position tokens — add deposit mint to ALT
+        instructions.append((
             "extend_position_tokens",
             client.positions().extend_position_tokens()
                 .payer(keypair.pubkey())
@@ -80,17 +66,41 @@ async def main():
                 .deposit_mints([d_mint])
                 .num_outcomes(outcomes)
                 .build_ix(),
-        ),
-        # 5. Withdraw from global — pull tokens back out of the global pool
-        (
-            "withdraw_from_global",
-            client.positions().withdraw_from_global()
-                .user(keypair.pubkey())
-                .mint(d_mint)
-                .amount(amount)
-                .build_ix(),
-        ),
-    ]
+        ))
+    else:
+        print("position already initialized, skipping init_position_tokens + extend")
+
+    # 3. Deposit to global — fund the global pool with collateral
+    instructions.append((
+        "deposit_to_global",
+        client.positions().deposit_to_global()
+            .user(keypair.pubkey())
+            .mint(d_mint)
+            .amount(deposit_amount)
+            .build_ix(),
+    ))
+
+    # 4. Global to market deposit — move capital into a specific market
+    instructions.append((
+        "global_to_market_deposit",
+        client.positions().global_to_market_deposit()
+            .user(keypair.pubkey())
+            .market(market_pubkey)
+            .mint(d_mint)
+            .amount(amount)
+            .num_outcomes(outcomes)
+            .build_ix(),
+    ))
+
+    # 5. Withdraw from global — pull remaining tokens back out
+    instructions.append((
+        "withdraw_from_global",
+        client.positions().withdraw_from_global()
+            .user(keypair.pubkey())
+            .mint(d_mint)
+            .amount(amount)
+            .build_ix(),
+    ))
 
     for name, ix in instructions:
         blockhash = await client.rpc().get_latest_blockhash()

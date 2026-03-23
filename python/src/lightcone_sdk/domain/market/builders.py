@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -94,7 +93,7 @@ class MintCompleteSetBuilder:
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_unsigned(Message.new_with_payer([ix], user))
+        return Transaction.new_with_payer([ix], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the mint-complete-set transaction."""
@@ -173,7 +172,7 @@ class MergeCompleteSetBuilder:
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_unsigned(Message.new_with_payer([ix], user))
+        return Transaction.new_with_payer([ix], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the merge-complete-set transaction."""

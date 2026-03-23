@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -227,7 +226,7 @@ class Admin:
     def initialize_tx(self, authority: Pubkey) -> Transaction:
         """Build Initialize transaction."""
         ix = self.initialize_ix(authority)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], authority))
+        return Transaction.new_with_payer([ix], authority)
 
     async def create_market_tx(
         self,
@@ -241,7 +240,7 @@ class Admin:
         Async because it fetches the next market ID from on-chain state.
         """
         ix = await self.create_market_ix(authority, num_outcomes, oracle, question_id)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], authority))
+        return Transaction.new_with_payer([ix], authority)
 
     def add_deposit_mint_tx(
         self,
@@ -251,49 +250,49 @@ class Admin:
     ) -> Transaction:
         """Build AddDepositMint transaction."""
         ix = self.add_deposit_mint_ix(params, market, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.authority))
+        return Transaction.new_with_payer([ix], params.authority)
 
     def activate_market_tx(self, params: ActivateMarketParams) -> Transaction:
         """Build ActivateMarket transaction."""
         ix = self.activate_market_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.authority))
+        return Transaction.new_with_payer([ix], params.authority)
 
     def settle_market_tx(self, params: SettleMarketParams) -> Transaction:
         """Build SettleMarket transaction."""
         ix = self.settle_market_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.oracle))
+        return Transaction.new_with_payer([ix], params.oracle)
 
     def set_paused_tx(self, authority: Pubkey, paused: bool) -> Transaction:
         """Build SetPaused transaction."""
         ix = self.set_paused_ix(authority, paused)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], authority))
+        return Transaction.new_with_payer([ix], authority)
 
     def set_operator_tx(self, authority: Pubkey, new_operator: Pubkey) -> Transaction:
         """Build SetOperator transaction."""
         ix = self.set_operator_ix(authority, new_operator)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], authority))
+        return Transaction.new_with_payer([ix], authority)
 
     def set_authority_tx(self, params: SetAuthorityParams) -> Transaction:
         """Build SetAuthority transaction."""
         ix = self.set_authority_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.current_authority))
+        return Transaction.new_with_payer([ix], params.current_authority)
 
     def whitelist_deposit_token_tx(self, params: WhitelistDepositTokenParams) -> Transaction:
         """Build WhitelistDepositToken transaction."""
         ix = self.whitelist_deposit_token_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.authority))
+        return Transaction.new_with_payer([ix], params.authority)
 
     def create_orderbook_tx(self, params: CreateOrderbookParams) -> Transaction:
         """Build CreateOrderbook transaction."""
         ix = self.create_orderbook_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.authority))
+        return Transaction.new_with_payer([ix], params.authority)
 
     def match_orders_multi_tx(self, params: MatchOrdersMultiParams) -> Transaction:
         """Build MatchOrdersMulti transaction."""
         ix = self.match_orders_multi_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.operator))
+        return Transaction.new_with_payer([ix], params.operator)
 
     def deposit_and_swap_tx(self, params: DepositAndSwapParams) -> Transaction:
         """Build DepositAndSwap transaction."""
         ix = self.deposit_and_swap_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.operator))
+        return Transaction.new_with_payer([ix], params.operator)

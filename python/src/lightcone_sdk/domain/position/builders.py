@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import Optional, List, TYPE_CHECKING
 
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -127,7 +126,7 @@ class DepositBuilder:
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_unsigned(Message.new_with_payer([ix], user))
+        return Transaction.new_with_payer([ix], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit transaction."""
@@ -221,7 +220,7 @@ class WithdrawBuilder:
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_unsigned(Message.new_with_payer([ix], user))
+        return Transaction.new_with_payer([ix], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw transaction."""
@@ -289,7 +288,7 @@ class RedeemWinningsBuilder:
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
+        return Transaction.new_with_payer([self.build_ix()], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the redeem winnings transaction."""
@@ -362,7 +361,7 @@ class WithdrawFromPositionBuilder:
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
+        return Transaction.new_with_payer([self.build_ix()], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-position transaction."""
@@ -440,7 +439,7 @@ class InitPositionTokensBuilder:
         payer = self._payer
         if payer is None:
             raise SdkError("payer is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], payer))
+        return Transaction.new_with_payer([self.build_ix()], payer)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the init-position-tokens transaction."""
@@ -518,7 +517,7 @@ class ExtendPositionTokensBuilder:
         payer = self._payer
         if payer is None:
             raise SdkError("payer is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], payer))
+        return Transaction.new_with_payer([self.build_ix()], payer)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the extend-position-tokens transaction."""
@@ -568,7 +567,7 @@ class DepositToGlobalBuilder:
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
+        return Transaction.new_with_payer([self.build_ix()], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit-to-global transaction."""
@@ -618,7 +617,7 @@ class WithdrawFromGlobalBuilder:
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
+        return Transaction.new_with_payer([self.build_ix()], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-global transaction."""
@@ -686,7 +685,7 @@ class GlobalToMarketDepositBuilder:
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
+        return Transaction.new_with_payer([self.build_ix()], user)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the global-to-market deposit transaction."""

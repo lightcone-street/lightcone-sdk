@@ -6,7 +6,6 @@ from typing import Optional, TYPE_CHECKING
 from urllib.parse import quote as url_quote
 
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -189,14 +188,14 @@ class Markets:
     ) -> Transaction:
         """Build MintCompleteSet transaction."""
         ix = self.mint_complete_set_ix(params, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def merge_complete_set_tx(
         self, params: MergeCompleteSetParams, num_outcomes: int
     ) -> Transaction:
         """Build MergeCompleteSet transaction."""
         ix = self.merge_complete_set_ix(params, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

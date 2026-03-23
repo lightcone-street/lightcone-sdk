@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -167,45 +166,45 @@ class Positions:
     ) -> Transaction:
         """Build RedeemWinnings transaction."""
         ix = self.redeem_winnings_ix(params, winning_outcome)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def withdraw_from_position_tx(
         self, params: WithdrawFromPositionParams, is_token_2022: bool = True
     ) -> Transaction:
         """Build WithdrawFromPosition transaction."""
         ix = self.withdraw_from_position_ix(params, is_token_2022)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def init_position_tokens_tx(
         self, params: InitPositionTokensParams, num_outcomes: int
     ) -> Transaction:
         """Build InitPositionTokens transaction."""
         ix = self.init_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.payer))
+        return Transaction.new_with_payer([ix], params.payer)
 
     def extend_position_tokens_tx(
         self, params: ExtendPositionTokensParams, num_outcomes: int
     ) -> Transaction:
         """Build ExtendPositionTokens transaction."""
         ix = self.extend_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.payer))
+        return Transaction.new_with_payer([ix], params.payer)
 
     def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
         """Build DepositToGlobal transaction."""
         ix = self.deposit_to_global_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def global_to_market_deposit_tx(
         self, params: GlobalToMarketDepositParams, num_outcomes: int
     ) -> Transaction:
         """Build GlobalToMarketDeposit transaction."""
         ix = self.global_to_market_deposit_ix(params, num_outcomes)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def withdraw_from_global_tx(self, params: WithdrawFromGlobalParams) -> Transaction:
         """Build WithdrawFromGlobal transaction."""
         ix = self.withdraw_from_global_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     # ── Unified deposit/withdraw (dispatch by deposit source) ────────────
 
@@ -243,7 +242,7 @@ class Positions:
     def unified_deposit_tx(self, params: DepositParams) -> Transaction:
         """Build a deposit transaction using the resolved deposit source."""
         ix = self.unified_deposit_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     def unified_withdraw_ix(self, params: WithdrawParams) -> Instruction:
         """Build a withdraw instruction using the resolved deposit source.
@@ -283,7 +282,7 @@ class Positions:
     def unified_withdraw_tx(self, params: WithdrawParams) -> Transaction:
         """Build a withdraw transaction using the resolved deposit source."""
         ix = self.unified_withdraw_ix(params)
-        return Transaction.new_unsigned(Message.new_with_payer([ix], params.user))
+        return Transaction.new_with_payer([ix], params.user)
 
     # ── Builder factories ────────────────────────────────────────────────
 
