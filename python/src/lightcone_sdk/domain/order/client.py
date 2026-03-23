@@ -26,6 +26,7 @@ from . import (
 from .convert import submit_response_from_dict
 from ...error import SdkError
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
+from ...program.errors import ArithmeticOverflowError
 from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
 from ...program.instructions import (
     build_cancel_order_instruction,
@@ -387,7 +388,7 @@ class Orders:
         """Get the current on-chain nonce for a user as u32."""
         nonce = await self.get_nonce(user)
         if nonce > 0xFFFFFFFF:
-            raise OverflowError(f"Nonce exceeds u32 range: {nonce}")
+            raise ArithmeticOverflowError()
         return nonce
 
 
