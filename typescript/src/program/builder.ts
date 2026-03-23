@@ -1,4 +1,5 @@
 import { PublicKey, Keypair } from "@solana/web3.js";
+import { ProgramSdkError } from "./error";
 import { SignedOrder, OrderSide } from "./types";
 import { generateSalt, signOrderFull, toSubmitRequest as orderToSubmitRequest } from "./orders";
 import { scalePriceSize, OrderbookDecimals } from "../shared/scaling";
@@ -102,16 +103,6 @@ export class OrderBuilder {
     return this;
   }
 
-  /** @deprecated Use amountIn() */
-  makerAmount(value: bigint): this {
-    return this.amountIn(value);
-  }
-
-  /** @deprecated Use amountOut() */
-  takerAmount(value: bigint): this {
-    return this.amountOut(value);
-  }
-
   /** Set expiration timestamp (0 = no expiration) */
   expiration(value: bigint): this {
     this._expiration = value;
@@ -160,10 +151,10 @@ export class OrderBuilder {
    * All required fields must be set.
    */
   build(): SignedOrder {
-    if (!this._maker) throw new Error("OrderBuilder: maker is required");
-    if (!this._market) throw new Error("OrderBuilder: market is required");
-    if (!this._baseMint) throw new Error("OrderBuilder: baseMint is required");
-    if (!this._quoteMint) throw new Error("OrderBuilder: quoteMint is required");
+    if (!this._maker) throw ProgramSdkError.missingField("maker");
+    if (!this._market) throw ProgramSdkError.missingField("market");
+    if (!this._baseMint) throw ProgramSdkError.missingField("baseMint");
+    if (!this._quoteMint) throw ProgramSdkError.missingField("quoteMint");
 
     return {
       nonce: this._nonce,

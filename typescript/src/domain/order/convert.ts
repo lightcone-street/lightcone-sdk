@@ -1,7 +1,7 @@
 import Decimal from "decimal.js";
-import { TimeInForce } from "../../shared";
+import { TimeInForce, TriggerType } from "../../shared";
 import type { Order, TriggerOrder } from "./index";
-import type { OrderUpdate, UserSnapshotOrder, UserSnapshotOrderCommon } from "./wire";
+import type { OrderUpdate, TriggerOrderUpdate, UserSnapshotOrder, UserSnapshotOrderCommon } from "./wire";
 import { UserOpenOrders, UserTriggerOrders } from "./state";
 
 export function orderFromUpdate(update: OrderUpdate): Order {
@@ -64,6 +64,23 @@ export function triggerSnapshotToOrder(
     amountOut: common.amount_out,
     timeInForce: timeInForce ?? TimeInForce.Gtc,
     createdAt: new Date(common.created_at),
+  };
+}
+
+export function triggerOrderFromUpdate(update: TriggerOrderUpdate): TriggerOrder {
+  const triggerType = update.trigger_above ? TriggerType.TakeProfit : TriggerType.StopLoss;
+  return {
+    triggerOrderId: update.trigger_order_id,
+    orderHash: update.order_hash,
+    marketPubkey: update.market_pubkey,
+    orderbookId: update.orderbook_id,
+    triggerPrice: update.trigger_price,
+    triggerType,
+    side: update.side,
+    amountIn: update.maker_amount ?? "0",
+    amountOut: update.taker_amount ?? "0",
+    timeInForce: update.tif ?? TimeInForce.Gtc,
+    createdAt: new Date(update.timestamp),
   };
 }
 

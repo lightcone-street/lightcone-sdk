@@ -1,5 +1,6 @@
 export * from "./client";
 import type { LimitOrderEnvelope, TriggerOrderEnvelope } from "../program/envelope";
+import { ProgramSdkError } from "../program/error";
 
 export interface SignAndSendTxRequest {
   wallet_id: string;
@@ -112,7 +113,7 @@ function requireDefined<T>(
   field: string
 ): T {
   if (value === undefined) {
-    throw new Error(`Missing required field: ${field}`);
+    throw ProgramSdkError.missingField(field);
   }
   return value;
 }
@@ -120,7 +121,7 @@ function requireDefined<T>(
 function bigintToSafeNumber(value: bigint, field: string): number {
   const max = BigInt(Number.MAX_SAFE_INTEGER);
   if (value > max || value < -max) {
-    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+    throw ProgramSdkError.overflow(`${field} exceeds Number.MAX_SAFE_INTEGER`);
   }
   return Number(value);
 }

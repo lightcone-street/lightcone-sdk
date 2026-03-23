@@ -229,8 +229,8 @@ class Positions:
             market = params.market
             if market is None:
                 raise MissingMarketContext("market is required for Market deposit")
-            market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+            market_pubkey = Pubkey.from_string(market.pubkey)
+            num_outcomes = len(market.outcomes)
             return build_mint_complete_set_instruction(
                 user=params.user,
                 market=market_pubkey,
@@ -267,8 +267,8 @@ class Positions:
                 raise MissingMarketContext(
                     "market_context is required for Market withdrawal"
                 )
-            market_pubkey = Pubkey.from_string(ctx.market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(ctx.market.outcomes)  # type: ignore[attr-defined]
+            market_pubkey = Pubkey.from_string(ctx.market.pubkey)
+            num_outcomes = len(ctx.market.outcomes)
             from ...program.instructions import build_merge_complete_set_instruction
             from ...program.types import MergeCompleteSetParams
             return build_merge_complete_set_instruction(

@@ -12,6 +12,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
      - [Step 4: Monitor](#step-4-monitor)
      - [Step 5: Cancel an Order](#step-5-cancel-an-order)
      - [Step 6: Exit a Position](#step-6-exit-a-position)
+     - [Step 7: Withdraw](#step-7-withdraw)
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
@@ -52,28 +53,36 @@ async function main() {
   }
 
   // 2. Find a market
-  const { markets } = await client.markets().get();
-  const market = markets[0];
+  const market = await client.markets().getBySlug("some-market");
   const orderbook = market.orderbookPairs[0];
 
-  // 3. Build, sign, and submit a limit order
-  //    Decimals are derived automatically from the orderbook's token metadata.
-  const nonce = await client.orders().currentNonce(keypair.publicKey);
+  // 3. Deposit collateral to the global pool
+  const depositMint = new PublicKey(market.depositAssets[0].pubkey);
+  const depositIx = client.positions().depositToGlobal()
+    .user(keypair.publicKey)
+    .mint(depositMint)
+    .amount(1_000_000n)
+    .buildIx();
+
+  // 4. Build, sign, and submit a limit order
   const request = client.orders().limitOrder()
     .maker(keypair.publicKey)
-    .market(new PublicKey(market.pubkey))
-    .baseMint(new PublicKey(orderbook.base.pubkey))
-    .quoteMint(new PublicKey(orderbook.quote.pubkey))
     .bid()
     .price("0.55")
     .size("100")
-    .nonce(nonce)
     .sign(keypair, orderbook);
 
   const response = await client.orders().submit(request);
   console.log("Order submitted:", response);
 
-  // 5. Stream real-time updates
+  // 5. Withdraw from the global pool
+  const withdrawIx = client.positions().withdrawFromGlobal()
+    .user(keypair.publicKey)
+    .mint(depositMint)
+    .amount(1_000_000n)
+    .buildIx();
+
+  // 6. Stream real-time updates
   const ws = client.ws();
   await ws.connect();
   ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId] });
@@ -108,8 +117,7 @@ const keypair = readKeypairFile("~/.config/solana/id.json");
 ### Step 1: Find a Market
 
 ```typescript
-const { markets } = await client.markets().get();
-const market = markets[0];
+const market = await client.markets().getBySlug("some-market");
 const orderbook =
   market.orderbookPairs.find((pair) => pair.active) ?? market.orderbookPairs[0];
 ```
@@ -118,12 +126,10 @@ const orderbook =
 
 ```typescript
 const depositMint = new PublicKey(market.depositAssets[0].pubkey);
-const numOutcomes = market.outcomes.length;
-const depositIx = client.positions().deposit()
+const depositIx = client.positions().depositToGlobal()
   .user(keypair.publicKey)
   .mint(depositMint)
   .amount(1_000_000n)
-  .market(market)
   .buildIx();
 ```
 
@@ -132,13 +138,9 @@ const depositIx = client.positions().deposit()
 ```typescript
 const request = client.orders().limitOrder()
   .maker(keypair.publicKey)
-  .market(new PublicKey(market.pubkey))
-  .baseMint(new PublicKey(orderbook.base.pubkey))
-  .quoteMint(new PublicKey(orderbook.quote.pubkey))
   .bid()
   .price("0.55")
   .size("1")
-  .nonce(await client.orders().currentNonce(keypair.publicKey))
   .sign(keypair, orderbook);
 const order = await client.orders().submit(request);
 ```
@@ -184,6 +186,16 @@ const txHash = await client.markets().mergeCompleteSet()
   .amount(1_000_000n)
   .numOutcomes(numOutcomes)
   .signAndSubmit();
+```
+
+### Step 7: Withdraw
+
+```typescript
+const withdrawIx = client.positions().withdrawFromGlobal()
+  .user(keypair.publicKey)
+  .mint(depositMint)
+  .amount(1_000_000n)
+  .buildIx();
 ```
 
 ## Authentication

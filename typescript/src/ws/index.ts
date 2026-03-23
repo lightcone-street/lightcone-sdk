@@ -1,3 +1,4 @@
+import { WsError as WsTransportError } from "../error";
 import type { MarketEvent } from "../domain/market";
 import type { AuthUpdate, UserUpdate } from "../domain/order";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
@@ -250,17 +251,70 @@ const VALID_MESSAGE_TYPES = new Set([
 export function parseMessageIn(input: string): MessageIn {
   const parsed: unknown = JSON.parse(input);
   if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
-    throw new Error(`Invalid WS message: missing "type" field`);
+    throw new WsTransportError("DeserializationError", `Invalid WS message: missing "type" field`);
   }
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.type !== "string" || !VALID_MESSAGE_TYPES.has(obj.type)) {
-    throw new Error(`Invalid WS message type: "${String(obj.type)}"`);
+    throw new WsTransportError("ProtocolError", `Invalid WS message type: "${String(obj.type)}"`);
   }
   if (!("version" in obj) || typeof obj.version !== "number") {
-    throw new Error(`Invalid WS message: missing or invalid "version" field`);
+    throw new WsTransportError("DeserializationError", `Invalid WS message: missing or invalid "version" field`);
   }
   if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
-    throw new Error(`Invalid WS message: missing or invalid "data" field`);
+    throw new WsTransportError("DeserializationError", `Invalid WS message: missing or invalid "data" field`);
   }
+  validateMessageData(obj.type, obj.data as Record<string, unknown>);
   return parsed as MessageIn;
+}
+
+function validateMessageData(type: string, data: Record<string, unknown>): void {
+  switch (type) {
+    case "book_update":
+      if (!Array.isArray(data.bids) || !Array.isArray(data.asks)) {
+        throw new WsTransportError("DeserializationError", "book_update missing bids/asks arrays");
+      }
+      break;
+    case "user":
+      if (!("event_type" in data)) {
+        throw new WsTransportError("DeserializationError", "user message missing event_type");
+      }
+      break;
+    case "auth":
+      if (!("status" in data)) {
+        throw new WsTransportError("DeserializationError", "auth message missing status");
+      }
+      break;
+    case "error":
+      if (!("error" in data)) {
+        throw new WsTransportError("DeserializationError", "error message missing error field");
+      }
+      break;
+    case "trades":
+      if (!("side" in data)) {
+        throw new WsTransportError("DeserializationError", "trade message missing side");
+      }
+      break;
+    case "ticker":
+      if (!("orderbook_id" in data)) {
+        throw new WsTransportError("DeserializationError", "ticker message missing orderbook_id");
+      }
+      break;
+    case "market":
+      if (!("market_pubkey" in data)) {
+        throw new WsTransportError("DeserializationError", "market message missing market_pubkey");
+      }
+      break;
+    case "price_history":
+      if (!("orderbook_id" in data)) {
+        throw new WsTransportError("DeserializationError", "price_history message missing orderbook_id");
+      }
+      break;
+    case "deposit_price":
+      if (!("deposit_asset" in data)) {
+        throw new WsTransportError("DeserializationError", "deposit_price message missing deposit_asset");
+      }
+      break;
+    case "pong":
+      break;
+  }
 }

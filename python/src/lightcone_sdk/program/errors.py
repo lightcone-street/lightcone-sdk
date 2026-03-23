@@ -47,55 +47,6 @@ class InvalidSignatureError(LightconeError):
         super().__init__(message)
 
 
-class OrderExpiredError(LightconeError):
-    """Raised when an order has expired."""
-
-    def __init__(self, expiration: int, current_time: int):
-        self.expiration = expiration
-        self.current_time = current_time
-        super().__init__(
-            f"Order expired: expiration={expiration}, current_time={current_time}"
-        )
-
-
-class InsufficientBalanceError(LightconeError):
-    """Raised when there is insufficient balance for an operation."""
-
-    def __init__(self, required: int, available: int):
-        self.required = required
-        self.available = available
-        super().__init__(
-            f"Insufficient balance: required={required}, available={available}"
-        )
-
-
-class MarketNotActiveError(LightconeError):
-    """Raised when trying to operate on a market that is not active."""
-
-    def __init__(self, market_id: int, status: str):
-        self.market_id = market_id
-        self.status = status
-        super().__init__(f"Market {market_id} is not active (status: {status})")
-
-
-class ExchangePausedError(LightconeError):
-    """Raised when the exchange is paused."""
-
-    def __init__(self):
-        super().__init__("Exchange is currently paused")
-
-
-class InvalidOutcomeError(LightconeError):
-    """Raised when an invalid outcome is specified."""
-
-    def __init__(self, outcome: int, num_outcomes: int):
-        self.outcome = outcome
-        self.num_outcomes = num_outcomes
-        super().__init__(
-            f"Invalid outcome: {outcome} (valid range: 0-{num_outcomes - 1})"
-        )
-
-
 class TooManyMakersError(LightconeError):
     """Raised when too many makers are specified for a match."""
 
@@ -105,13 +56,6 @@ class TooManyMakersError(LightconeError):
         super().__init__(
             f"Too many makers: {count} (maximum: {max_count})"
         )
-
-
-class OrdersDoNotCrossError(LightconeError):
-    """Raised when orders do not cross (prices don't match)."""
-
-    def __init__(self):
-        super().__init__("Orders do not cross: buyer price < seller price")
 
 
 # =========================================================================
@@ -259,13 +203,6 @@ class InvalidPubkeyError(LightconeError):
     def __init__(self, pubkey: str):
         self.pubkey = pubkey
         super().__init__(f"Invalid pubkey: {pubkey}")
-
-
-class ScalingError(LightconeError):
-    """Raised when price/size scaling fails."""
-
-    def __init__(self, message: str):
-        super().__init__(f"Scaling error: {message}")
 
 
 class UnsignedOrderError(LightconeError):

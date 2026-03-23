@@ -5,9 +5,14 @@ Mirrors rust/src/client.rs — unified entry point with sub-client accessors.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from solders.pubkey import Pubkey
+
+if TYPE_CHECKING:
+    from solana.rpc.async_api import AsyncClient
+    from solders.keypair import Keypair as _Keypair
+    from solders.transaction import Transaction as _Transaction
 
 from .auth import AuthCredentials
 from .auth.client import Auth
@@ -47,7 +52,7 @@ class LightconeClient:
         ws_config: Optional[WsConfig] = None,
         auth_credentials: Optional[AuthCredentials] = None,
         program_id: Optional[Pubkey] = None,
-        connection: Optional[object] = None,
+        connection: Optional[AsyncClient] = None,
         deposit_source: DepositSource = DepositSource.GLOBAL,
         signing_strategy: Optional[SigningStrategy] = None,
         rpc_url: Optional[str] = None,
@@ -55,7 +60,7 @@ class LightconeClient:
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
         self._program_id: Pubkey = program_id or PROGRAM_ID
-        self._connection = connection  # Optional[AsyncClient]
+        self._connection: Optional[AsyncClient] = connection
         self._deposit_source: DepositSource = deposit_source
         self._signing_strategy: Optional[SigningStrategy] = signing_strategy
         self._rpc_url: Optional[str] = rpc_url
@@ -82,7 +87,7 @@ class LightconeClient:
         return self._program_id
 
     @property
-    def connection(self) -> Optional[object]:
+    def connection(self) -> Optional[AsyncClient]:
         """Optional Solana RPC connection (AsyncClient)."""
         return self._connection
 
@@ -130,7 +135,7 @@ class LightconeClient:
             raise SdkError("signing strategy is not set on the client")
         return self._signing_strategy
 
-    async def sign_and_submit_tx(self, tx: object) -> str:
+    async def sign_and_submit_tx(self, tx: _Transaction) -> str:
         """Sign and submit a transaction using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via RPC
@@ -146,17 +151,16 @@ class LightconeClient:
         strategy = self._require_signing_strategy()
 
         if strategy.kind == SigningStrategyKind.NATIVE:
-            from solders.keypair import Keypair as _Keypair
-            keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
+            keypair = strategy.keypair
             blockhash = await self.rpc().get_latest_blockhash()
-            tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
+            tx.sign([keypair], blockhash)
             response = await self._connection.send_raw_transaction(bytes(tx))  # type: ignore[union-attr]
             return str(response.value)
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
-            signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
+            signer = strategy.signer
             import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            tx_bytes = bytes(tx)
             signed_bytes = await signer.sign_transaction(tx_bytes)
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
             # Submit via RPC
@@ -177,10 +181,10 @@ class LightconeClient:
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            tx_bytes = bytes(tx)
             base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
             result = await self.privy().sign_and_send_tx(
-                strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
+                strategy.wallet_id, base64_tx,
             )
             return result.hash
 
@@ -259,7 +263,7 @@ class LightconeClientBuilder:
         self._deposit_source: DepositSource = DepositSource.GLOBAL
         self._signing_strategy: Optional[SigningStrategy] = None
         self._rpc_url: Optional[str] = None
-        self._connection: Optional[object] = None
+        self._connection: Optional[AsyncClient] = None
 
     def base_url(self, url: str) -> "LightconeClientBuilder":
         self._base_url = url
@@ -294,7 +298,7 @@ class LightconeClientBuilder:
         self._deposit_source = source
         return self
 
-    def native_signer(self, keypair: object) -> "LightconeClientBuilder":
+    def native_signer(self, keypair: _Keypair) -> "LightconeClientBuilder":
         """Set a native keypair for signing orders, cancels, and transactions."""
         self._signing_strategy = SigningStrategy.native(keypair)
         return self
@@ -314,7 +318,7 @@ class LightconeClientBuilder:
         self._rpc_url = url
         return self
 
-    def rpc_connection(self, connection: object) -> "LightconeClientBuilder":
+    def rpc_connection(self, connection: AsyncClient) -> "LightconeClientBuilder":
         """Set a pre-built Solana AsyncClient for on-chain reads."""
         self._connection = connection
         return self

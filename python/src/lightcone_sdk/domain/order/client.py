@@ -26,6 +26,7 @@ from . import (
 from .convert import submit_response_from_dict
 from ...error import SdkError
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
+from ...program.errors import ArithmeticOverflowError
 from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
 from ...program.instructions import (
     build_cancel_order_instruction,
@@ -45,12 +46,11 @@ from ...program.types import (
     AskOrderParams,
     BidOrderParams,
     OrderStatus as OnchainOrderStatus,
-    SignedOrder,
+    OrderPayload,
 )
 from ...rpc import require_connection
 from ...shared.types import (
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
 )
 
 if TYPE_CHECKING:
@@ -77,27 +77,27 @@ class Orders:
 
     # ── Order helpers ────────────────────────────────────────────────────
 
-    def create_bid_order(self, params: BidOrderParams) -> SignedOrder:
+    def create_bid_order(self, params: BidOrderParams) -> OrderPayload:
         """Create an unsigned bid order."""
         return _create_bid_order(params)
 
-    def create_ask_order(self, params: AskOrderParams) -> SignedOrder:
+    def create_ask_order(self, params: AskOrderParams) -> OrderPayload:
         """Create an unsigned ask order."""
         return _create_ask_order(params)
 
-    def create_signed_bid_order(self, params: BidOrderParams, keypair: Keypair) -> SignedOrder:
+    def create_signed_bid_order(self, params: BidOrderParams, keypair: Keypair) -> OrderPayload:
         """Create and sign a bid order."""
         return _create_signed_bid_order(params, keypair)
 
-    def create_signed_ask_order(self, params: AskOrderParams, keypair: Keypair) -> SignedOrder:
+    def create_signed_ask_order(self, params: AskOrderParams, keypair: Keypair) -> OrderPayload:
         """Create and sign an ask order."""
         return _create_signed_ask_order(params, keypair)
 
-    def hash_order(self, order: SignedOrder) -> bytes:
+    def hash_order(self, order: OrderPayload) -> bytes:
         """Compute the keccak256 hash of an order."""
         return _hash_order(order)
 
-    def sign_order(self, order: SignedOrder, keypair: Keypair) -> bytes:
+    def sign_order(self, order: OrderPayload, keypair: Keypair) -> bytes:
         """Sign an order with a keypair."""
         return _sign_order(order, keypair)
 
@@ -156,7 +156,7 @@ class Orders:
             message=data.get("message", ""),
         )
 
-    async def submit_trigger(self, request: SubmitTriggerOrderRequest) -> TriggerOrderResponse:
+    async def submit_trigger(self, request: SubmitOrderRequest) -> TriggerOrderResponse:
         """Submit a trigger order."""
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
         data = _unwrap_status(data, success_statuses={"accepted"})
@@ -235,7 +235,7 @@ class Orders:
                 remaining=result.get("remaining", 0),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def cancel_all_signed(
         self,
@@ -289,7 +289,7 @@ class Orders:
                 message=result.get("message", ""),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def cancel_trigger_signed(
         self, trigger_order_id: str, maker: str,
@@ -332,12 +332,12 @@ class Orders:
                 trigger_order_id=result.get("trigger_order_id", trigger_order_id),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, maker: Pubkey, market: Pubkey, order: OrderPayload
     ) -> Instruction:
         """Build CancelOrder instruction (on-chain cancellation)."""
         return build_cancel_order_instruction(
@@ -351,7 +351,7 @@ class Orders:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, maker: Pubkey, market: Pubkey, order: OrderPayload
     ) -> Transaction:
         """Build CancelOrder transaction."""
         ix = self.cancel_order_ix(maker, market, order)
@@ -387,7 +387,7 @@ class Orders:
         """Get the current on-chain nonce for a user as u32."""
         nonce = await self.get_nonce(user)
         if nonce > 0xFFFFFFFF:
-            raise OverflowError(f"Nonce exceeds u32 range: {nonce}")
+            raise ArithmeticOverflowError()
         return nonce
 
 

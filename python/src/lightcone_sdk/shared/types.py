@@ -283,55 +283,6 @@ class SubmitOrderRequest:
         return d
 
 
-@dataclass
-class SubmitTriggerOrderRequest:
-    """Compatibility shim for trigger order submission.
-
-    Rust models trigger and limit submissions with the same request shape. This
-    helper still exists for callers that build trigger orders directly.
-    """
-
-    maker: str
-    nonce: int
-    market_pubkey: str
-    base_token: str
-    quote_token: str
-    side: int
-    amount_in: int
-    amount_out: int
-    expiration: int
-    signature: str
-    orderbook_id: str
-    trigger_price: str
-    trigger_type: TriggerType
-    time_in_force: TimeInForce
-    salt: int = 0
-    deposit_source: Optional["DepositSource"] = None
-
-    def to_submit_order_request(self) -> SubmitOrderRequest:
-        return SubmitOrderRequest(
-            maker=self.maker,
-            nonce=self.nonce,
-            market_pubkey=self.market_pubkey,
-            base_token=self.base_token,
-            quote_token=self.quote_token,
-            side=self.side,
-            amount_in=self.amount_in,
-            amount_out=self.amount_out,
-            expiration=self.expiration,
-            signature=self.signature,
-            orderbook_id=self.orderbook_id,
-            salt=self.salt,
-            time_in_force=self.time_in_force,
-            trigger_price=float(self.trigger_price),
-            trigger_type=self.trigger_type,
-            deposit_source=self.deposit_source,
-        )
-
-    def to_dict(self) -> dict:
-        return self.to_submit_order_request().to_dict()
-
-
 __all__ = [
     "OrderBookId",
     "PubkeyStr",
@@ -345,5 +296,4 @@ __all__ = [
     "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
-    "SubmitTriggerOrderRequest",
 ]

@@ -13,7 +13,6 @@ from .types import (
     DepositSource,
     Resolution,
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
 )
 from .fmt import (
     abbr_number,
@@ -26,7 +25,12 @@ from .fmt import (
     to_decimal_value,
 )
 from .price import parse_decimal, format_decimal, is_zero
-from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, align_price_to_tick, scale_price_size
+from .scaling import (
+    OrderbookDecimals, ScaledAmounts, ScalingError,
+    NonPositivePrice, NonPositiveSize, Overflow, ScalingOverflow,
+    ZeroAmount, FractionalAmount, InvalidDecimal, InvalidDecimalInput,
+    align_price_to_tick, scale_price_size,
+)
 from .signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
 
 
@@ -52,7 +56,6 @@ __all__ = [
     "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
-    "SubmitTriggerOrderRequest",
     # Formatting
     "abbr_number",
     "display",

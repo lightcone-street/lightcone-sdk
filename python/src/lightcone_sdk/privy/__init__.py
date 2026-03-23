@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from typing import Optional
 
+from ..program.errors import MissingFieldError
 from ..shared.types import DepositSource
 
 
@@ -132,8 +133,17 @@ class ExportWalletResponse:
     encapsulated_key: str = ""
 
 
+def _require_field(value, name: str):
+    """Validate a field is not None, raising MissingFieldError if it is."""
+    if value is None:
+        raise MissingFieldError(name)
+    return value
+
+
 def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     """Build a PrivyOrderEnvelope from a LimitOrderEnvelope.
+
+    Validates each field individually (matching Rust ``PrivyOrderEnvelope::from_limit``).
 
     Args:
         envelope: A LimitOrderEnvelope instance (from program.envelope)
@@ -142,18 +152,17 @@ def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     Returns:
         PrivyOrderEnvelope ready to send to the backend
     """
-    order = envelope.payload()
     return PrivyOrderEnvelope(
-        maker=str(order.maker),
-        nonce=order.nonce,
-        salt=order.salt,
-        market_pubkey=str(order.market),
-        base_token=str(order.base_mint),
-        quote_token=str(order.quote_mint),
-        side=int(order.side),
-        amount_in=order.amount_in,
-        amount_out=order.amount_out,
-        expiration=order.expiration,
+        maker=str(_require_field(envelope.get_maker, "maker")),
+        nonce=envelope.get_nonce if envelope.get_nonce is not None else 0,
+        salt=_require_field(envelope.get_salt, "salt"),
+        market_pubkey=str(_require_field(envelope.get_market, "market")),
+        base_token=str(_require_field(envelope.get_base_mint, "base_mint")),
+        quote_token=str(_require_field(envelope.get_quote_mint, "quote_mint")),
+        side=int(_require_field(envelope.get_side, "side")),
+        amount_in=_require_field(envelope.get_amount_in, "amount_in"),
+        amount_out=_require_field(envelope.get_amount_out, "amount_out"),
+        expiration=envelope.get_expiration,
         orderbook_id=orderbook.orderbook_id,
         deposit_source=envelope.get_deposit_source,
     )
@@ -162,6 +171,8 @@ def privy_order_from_limit_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
 def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope:
     """Build a PrivyOrderEnvelope from a TriggerOrderEnvelope.
 
+    Validates each field individually (matching Rust ``PrivyOrderEnvelope::from_trigger``).
+
     Args:
         envelope: A TriggerOrderEnvelope instance (from program.envelope)
         orderbook: The OrderBookPair for the order
@@ -169,8 +180,6 @@ def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope
     Returns:
         PrivyOrderEnvelope with trigger fields populated
     """
-    order = envelope.payload()
-
     trigger_price = None
     tp = envelope.get_trigger_price
     if tp is not None and tp != 0:
@@ -187,16 +196,16 @@ def privy_order_from_trigger_envelope(envelope, orderbook) -> PrivyOrderEnvelope
         time_in_force = tif.as_wire()
 
     return PrivyOrderEnvelope(
-        maker=str(order.maker),
-        nonce=order.nonce,
-        salt=order.salt,
-        market_pubkey=str(order.market),
-        base_token=str(order.base_mint),
-        quote_token=str(order.quote_mint),
-        side=int(order.side),
-        amount_in=order.amount_in,
-        amount_out=order.amount_out,
-        expiration=order.expiration,
+        maker=str(_require_field(envelope.get_maker, "maker")),
+        nonce=envelope.get_nonce if envelope.get_nonce is not None else 0,
+        salt=_require_field(envelope.get_salt, "salt"),
+        market_pubkey=str(_require_field(envelope.get_market, "market")),
+        base_token=str(_require_field(envelope.get_base_mint, "base_mint")),
+        quote_token=str(_require_field(envelope.get_quote_mint, "quote_mint")),
+        side=int(_require_field(envelope.get_side, "side")),
+        amount_in=_require_field(envelope.get_amount_in, "amount_in"),
+        amount_out=_require_field(envelope.get_amount_out, "amount_out"),
+        expiration=envelope.get_expiration,
         orderbook_id=orderbook.orderbook_id,
         time_in_force=time_in_force,
         trigger_price=trigger_price,

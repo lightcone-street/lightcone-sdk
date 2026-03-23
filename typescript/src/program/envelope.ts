@@ -54,17 +54,18 @@ function defaultFields(): OrderFields {
 }
 
 function toUnsignedOrder(fields: OrderFields): Omit<SignedOrder, "signature"> {
-  if (fields.nonce === undefined) throw ProgramSdkError.missingField("nonce");
   if (!fields.maker) throw ProgramSdkError.missingField("maker");
   if (!fields.market) throw ProgramSdkError.missingField("market");
   if (!fields.baseMint) throw ProgramSdkError.missingField("base_mint");
   if (!fields.quoteMint) throw ProgramSdkError.missingField("quote_mint");
-  if (fields.side === undefined) throw ProgramSdkError.missingField("side");
+  if (fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
   if (fields.amountIn === undefined) throw ProgramSdkError.missingField("amount_in");
   if (fields.amountOut === undefined) throw ProgramSdkError.missingField("amount_out");
+  if (fields.amountIn === 0n) throw ProgramSdkError.missingField("amount_in must be greater than 0");
+  if (fields.amountOut === 0n) throw ProgramSdkError.missingField("amount_out must be greater than 0");
 
   return {
-    nonce: fields.nonce,
+    nonce: fields.nonce ?? 0,
     salt: fields.salt ?? generateSalt(),
     maker: fields.maker,
     market: fields.market,
@@ -229,6 +230,25 @@ class BaseEnvelope {
   }
 
   /**
+   * Auto-fill market, base_mint, quote_mint, and salt from the orderbook
+   * if not explicitly set by the caller.
+   */
+  protected autoFillFromOrderbook(orderbook: OrderBookPair): void {
+    if (!this.fields.market) {
+      this.fields.market = new PublicKey(orderbook.marketPubkey);
+    }
+    if (this.fields.salt === undefined) {
+      this.fields.salt = generateSalt();
+    }
+    if (!this.fields.baseMint) {
+      this.fields.baseMint = new PublicKey(orderbook.base.pubkey);
+    }
+    if (!this.fields.quoteMint) {
+      this.fields.quoteMint = new PublicKey(orderbook.quote.pubkey);
+    }
+  }
+
+  /**
    * Auto-scale price/size to raw amounts if the user provided human-readable
    * strings but not pre-computed amounts. Skips if amounts are already set.
    */
@@ -237,9 +257,9 @@ class BaseEnvelope {
       return;
     }
 
-    if (!this.fields.priceRaw) throw ProgramSdkError.missingField("price");
-    if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("size");
-    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
+    if (!this.fields.priceRaw) throw ProgramSdkError.missingField("either price()+size() or amount_in()+amount_out() is required");
+    if (!this.fields.sizeRaw) throw ProgramSdkError.missingField("either price()+size() or amount_in()+amount_out() is required");
+    if (this.fields.side === undefined) throw ProgramSdkError.missingField("side (call .bid() or .ask())");
 
     const decimals = orderbookDecimals(orderbook);
     const price = new Decimal(this.fields.priceRaw);
@@ -286,6 +306,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
   }
 
   sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
     return toSubmitRequest(signed, orderbook.orderbookId, {
@@ -295,6 +316,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
   }
 
   finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
@@ -307,6 +329,12 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     orderbook: OrderBookPair
   ): Promise<SubmitOrderResponse> {
     const strategy = requireSigningStrategy(client);
+    // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+    // price/size before the signing strategy runs. This is necessary because
+    // the WalletAdapter path calls payload() to hash for external signing,
+    // and the Privy path reads fields like getMarket(), both of which
+    // happen before sign()/finalize() where these would otherwise run.
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
 
     switch (strategy.type) {
@@ -416,6 +444,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
 
   sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
     return toSubmitRequest(signed, orderbook.orderbookId, {
@@ -428,6 +457,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
 
   finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
@@ -443,6 +473,12 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
   ): Promise<TriggerOrderResponse> {
     const strategy = requireSigningStrategy(client);
     this.requireTriggerFields();
+    // Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
+    // price/size before the signing strategy runs. This is necessary because
+    // the WalletAdapter path calls payload() to hash for external signing,
+    // and the Privy path reads fields like getMarket(), both of which
+    // happen before sign()/finalize() where these would otherwise run.
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
 
     switch (strategy.type) {
