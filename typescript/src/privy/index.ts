@@ -1,4 +1,5 @@
 export * from "./client";
+import { SdkError } from "../error";
 import type { LimitOrderEnvelope, TriggerOrderEnvelope } from "../program/envelope";
 
 export interface SignAndSendTxRequest {
@@ -112,7 +113,7 @@ function requireDefined<T>(
   field: string
 ): T {
   if (value === undefined) {
-    throw new Error(`Missing required field: ${field}`);
+    throw SdkError.validation(`Missing required field: ${field}`);
   }
   return value;
 }
@@ -120,7 +121,7 @@ function requireDefined<T>(
 function bigintToSafeNumber(value: bigint, field: string): number {
   const max = BigInt(Number.MAX_SAFE_INTEGER);
   if (value > max || value < -max) {
-    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+    throw SdkError.validation(`${field} exceeds Number.MAX_SAFE_INTEGER`);
   }
   return Number(value);
 }

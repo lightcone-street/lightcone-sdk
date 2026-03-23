@@ -3,6 +3,7 @@ import { Keypair, Transaction, type PublicKey, type TransactionInstruction } fro
 import type { ClientContext } from "../../context";
 import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
+import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
@@ -629,7 +630,7 @@ export class Orders {
   async currentNonce(user: PublicKey): Promise<number> {
     const nonce = await this.getNonce(user);
     if (nonce > 0xFFFFFFFFn) {
-      throw new Error(`Nonce exceeds u32 range: ${nonce}`);
+      throw ProgramSdkError.serialization(`Nonce exceeds u32 range: ${nonce}`);
     }
     return Number(nonce);
   }

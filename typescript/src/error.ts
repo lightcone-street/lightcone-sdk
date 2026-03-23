@@ -128,7 +128,7 @@ export class AuthError extends Error {
   }
 }
 
-export type SdkErrorVariant = "Http" | "Ws" | "Auth" | "Validation" | "Serde" | "MissingMarketContext" | "Signing" | "UserCancelled" | "Other";
+export type SdkErrorVariant = "Http" | "Ws" | "Auth" | "Validation" | "Serde" | "MissingMarketContext" | "Signing" | "UserCancelled" | "Program" | "Other";
 
 export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
@@ -157,6 +157,11 @@ export class SdkError extends Error {
     if (error instanceof SyntaxError) {
       return new SdkError("Serde", error.message, error);
     }
+    // ProgramSdkError is imported lazily to avoid circular deps;
+    // duck-type check on .name instead.
+    if (error instanceof Error && error.name === "ProgramSdkError") {
+      return new SdkError("Program", error.message, error);
+    }
     if (error instanceof Error) {
       return new SdkError("Other", error.message, error);
     }
@@ -168,6 +173,10 @@ export class SdkError extends Error {
 
   static validation(message: string): SdkError {
     return new SdkError("Validation", message);
+  }
+
+  static serde(message: string): SdkError {
+    return new SdkError("Serde", message);
   }
 
   static missingMarketContext(message: string): SdkError {

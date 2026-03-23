@@ -3,6 +3,7 @@ import type { AuthUpdate, UserUpdate } from "../domain/order";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
 import type { DepositPrice, PriceHistory } from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
+import { WsError as WsErrorClass } from "../error";
 import { DEFAULT_WS_URL } from "../network";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
 
@@ -250,17 +251,17 @@ const VALID_MESSAGE_TYPES = new Set([
 export function parseMessageIn(input: string): MessageIn {
   const parsed: unknown = JSON.parse(input);
   if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
-    throw new Error(`Invalid WS message: missing "type" field`);
+    throw new WsErrorClass("ProtocolError", `Invalid WS message: missing "type" field`);
   }
   const obj = parsed as Record<string, unknown>;
   if (typeof obj.type !== "string" || !VALID_MESSAGE_TYPES.has(obj.type)) {
-    throw new Error(`Invalid WS message type: "${String(obj.type)}"`);
+    throw new WsErrorClass("ProtocolError", `Invalid WS message type: "${String(obj.type)}"`);
   }
   if (!("version" in obj) || typeof obj.version !== "number") {
-    throw new Error(`Invalid WS message: missing or invalid "version" field`);
+    throw new WsErrorClass("ProtocolError", `Invalid WS message: missing or invalid "version" field`);
   }
   if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
-    throw new Error(`Invalid WS message: missing or invalid "data" field`);
+    throw new WsErrorClass("ProtocolError", `Invalid WS message: missing or invalid "data" field`);
   }
   return parsed as MessageIn;
 }

@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
 import { keccak_256 } from "js-sha3";
+import { ProgramSdkError } from "./error";
 import {
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
@@ -224,9 +225,7 @@ export function deserializeString(
  */
 export function validateOutcomes(numOutcomes: number): void {
   if (numOutcomes < 2 || numOutcomes > 6) {
-    throw new Error(
-      `Invalid number of outcomes: ${numOutcomes}. Must be between 2 and 6.`
-    );
+    throw ProgramSdkError.invalidOutcomeCount(numOutcomes);
   }
 }
 
@@ -238,9 +237,7 @@ export function validateOutcomeIndex(
   numOutcomes: number
 ): void {
   if (outcomeIndex < 0 || outcomeIndex >= numOutcomes) {
-    throw new Error(
-      `Invalid outcome index: ${outcomeIndex}. Must be between 0 and ${numOutcomes - 1}.`
-    );
+    throw ProgramSdkError.invalidOutcomeIndex(outcomeIndex, numOutcomes - 1);
   }
 }
 
@@ -249,6 +246,6 @@ export function validateOutcomeIndex(
  */
 export function validate32Bytes(buffer: Buffer, name: string): void {
   if (buffer.length !== 32) {
-    throw new Error(`${name} must be exactly 32 bytes, got ${buffer.length}`);
+    throw ProgramSdkError.invalidDataLength(name, 32, buffer.length);
   }
 }

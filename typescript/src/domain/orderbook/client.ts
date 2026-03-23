@@ -1,6 +1,7 @@
 import type { PublicKey } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
+import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import { getOrderbookPda } from "../../program/pda";
 import { deserializeOrderbook as deserializeProgramOrderbook } from "../../program/accounts";
@@ -31,8 +32,8 @@ export class Orderbooks {
     const orderbookPda = this.pda(mintA, mintB);
     const accountInfo = await connection.getAccountInfo(orderbookPda);
     if (!accountInfo) {
-      throw new Error(
-        `Orderbook not found for ${mintA.toBase58()} / ${mintB.toBase58()}`
+      throw ProgramSdkError.accountNotFound(
+        `Orderbook for ${mintA.toBase58()} / ${mintB.toBase58()}`
       );
     }
     return deserializeProgramOrderbook(accountInfo.data as Buffer);

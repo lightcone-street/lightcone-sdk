@@ -25,11 +25,12 @@ import {
   fromI64Le,
   deriveConditionId,
 } from "./utils";
+import { ProgramSdkError } from "./error";
 
 function bigintToSafeNumber(value: bigint, field: string): number {
   const max = BigInt(Number.MAX_SAFE_INTEGER);
   if (value > max || value < -max) {
-    throw new Error(`${field} exceeds Number.MAX_SAFE_INTEGER`);
+    throw ProgramSdkError.overflow(`${field} exceeds Number.MAX_SAFE_INTEGER`);
   }
   return Number(value);
 }
@@ -204,16 +205,14 @@ export function serializeSignedOrder(order: SignedOrder): Buffer {
  */
 export function deserializeSignedOrder(data: Buffer): SignedOrder {
   if (data.length < ORDER_SIZE.SIGNED_ORDER) {
-    throw new Error(
-      `Invalid signed order length: ${data.length}, expected ${ORDER_SIZE.SIGNED_ORDER}`
-    );
+    throw ProgramSdkError.invalidDataLength("SignedOrder", ORDER_SIZE.SIGNED_ORDER, data.length);
   }
 
   let offset = 0;
 
   const nonceU64 = fromLeBytes(data.subarray(offset, offset + 8));
   if (nonceU64 > 0xFFFFFFFFn) {
-    throw new Error(`Nonce exceeds u32 range: ${nonceU64}`);
+    throw ProgramSdkError.serialization(`Nonce exceeds u32 range: ${nonceU64}`);
   }
   const nonce = Number(nonceU64);
   offset += 8;
@@ -306,9 +305,7 @@ export function serializeOrder(order: Order): Buffer {
  */
 export function deserializeOrder(data: Buffer): Order {
   if (data.length < ORDER_SIZE.ORDER) {
-    throw new Error(
-      `Invalid order length: ${data.length}, expected ${ORDER_SIZE.ORDER}`
-    );
+    throw ProgramSdkError.invalidDataLength("Order", ORDER_SIZE.ORDER, data.length);
   }
 
   let offset = 0;
@@ -499,13 +496,13 @@ export function calculateTakerFill(
   makerFillAmount: bigint
 ): bigint {
   if (makerOrder.amountIn === 0n) {
-    throw new Error("Overflow: makerOrder.amountIn is zero");
+    throw ProgramSdkError.divisionByZero();
   }
 
   const result = (makerFillAmount * makerOrder.amountOut) / makerOrder.amountIn;
 
   if (result > BigInt("18446744073709551615")) {
-    throw new Error("Overflow: taker fill exceeds u64 max");
+    throw ProgramSdkError.overflow("Taker fill exceeds u64 max");
   }
 
   return result;
@@ -539,7 +536,7 @@ export function applySignature(
 ): SignedOrder {
   const sigBytes = bs58.decode(signatureBs58);
   if (sigBytes.length !== 64) {
-    throw new Error(`Invalid signature length: ${sigBytes.length}, expected 64`);
+    throw ProgramSdkError.invalidSignature();
   }
   return { ...order, signature: Buffer.from(sigBytes) };
 }
