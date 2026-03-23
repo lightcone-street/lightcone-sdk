@@ -22,6 +22,7 @@ from ..shared.types import (
     TriggerType,
 )
 from ..shared.scaling import align_price_to_tick, scale_price_size
+from ..error import SigningError
 
 if TYPE_CHECKING:
     from ..domain.orderbook import OrderBookPair
@@ -322,7 +323,7 @@ class LimitOrderEnvelope:
             from ..domain.order.convert import submit_response_from_dict
             return submit_response_from_dict(result)
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
 
 class TriggerOrderEnvelope:
@@ -618,4 +619,4 @@ class TriggerOrderEnvelope:
                 order_hash=result.get("order_hash", ""),
             )
 
-        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
+        raise SigningError(f"Unsupported signing strategy: {strategy.kind}")

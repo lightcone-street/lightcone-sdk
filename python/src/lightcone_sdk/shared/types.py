@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum, IntEnum
 from typing import NewType, Optional
 
+from ..error import SdkError
+
 
 # ---------------------------------------------------------------------------
 # Branded types (NewType for type safety)
@@ -184,7 +186,7 @@ class Resolution(IntEnum):
     def from_str(cls, s: str) -> "Resolution":
         """Parse a resolution string."""
         if s not in _STR_TO_RESOLUTION:
-            raise ValueError(f"Invalid resolution: {s}")
+            raise SdkError(f"Invalid resolution: {s}")
         return cls(_STR_TO_RESOLUTION[s])
 
     def seconds(self) -> int:

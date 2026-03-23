@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Generic, Optional, TypeVar
 
+from ...error import SdkError
+
 T = TypeVar("T")
 
 
@@ -49,7 +51,7 @@ class TargetSpec:
         if self.kind == "all":
             return "all"
         if self.value is None:
-            raise ValueError(f"TargetSpec '{self.kind}' requires a value")
+            raise SdkError(f"TargetSpec '{self.kind}' requires a value")
         return {self.kind: self.value}
 
 

@@ -13,6 +13,11 @@ from .constants import (
     MAX_OUTCOMES,
     MIN_OUTCOMES
 )
+from .errors import (
+    InvalidDataLengthError,
+    InvalidOutcomeCountError,
+    SerializationError,
+)
 
 
 def keccak256(data: bytes) -> bytes:
@@ -29,7 +34,7 @@ def encode_u8(value: int) -> bytes:
         ValueError: If value is out of range [0, 255]
     """
     if not 0 <= value <= 255:
-        raise ValueError(f"u8 value out of range: {value} (must be 0-255)")
+        raise SerializationError(f"u8 value out of range: {value} (must be 0-255)")
     return struct.pack("<B", value)
 
 
@@ -40,7 +45,7 @@ def encode_u16(value: int) -> bytes:
         ValueError: If value is out of range [0, 65535]
     """
     if not 0 <= value <= 65535:
-        raise ValueError(f"u16 value out of range: {value} (must be 0-65535)")
+        raise SerializationError(f"u16 value out of range: {value} (must be 0-65535)")
     return struct.pack("<H", value)
 
 
@@ -51,7 +56,7 @@ def encode_u32(value: int) -> bytes:
         ValueError: If value is out of range [0, 4294967295]
     """
     if not 0 <= value <= 4294967295:
-        raise ValueError(f"u32 value out of range: {value} (must be 0-4294967295)")
+        raise SerializationError(f"u32 value out of range: {value} (must be 0-4294967295)")
     return struct.pack("<I", value)
 
 
@@ -62,7 +67,7 @@ def encode_u64(value: int) -> bytes:
         ValueError: If value is out of range [0, 2^64-1]
     """
     if not 0 <= value <= 18446744073709551615:
-        raise ValueError(f"u64 value out of range: {value} (must be 0-18446744073709551615)")
+        raise SerializationError(f"u64 value out of range: {value} (must be 0-18446744073709551615)")
     return struct.pack("<Q", value)
 
 
@@ -73,7 +78,7 @@ def encode_i64(value: int) -> bytes:
         ValueError: If value is out of range [-2^63, 2^63-1]
     """
     if not -9223372036854775808 <= value <= 9223372036854775807:
-        raise ValueError(f"i64 value out of range: {value}")
+        raise SerializationError(f"i64 value out of range: {value}")
     return struct.pack("<q", value)
 
 
@@ -109,7 +114,7 @@ def decode_pubkey(data: bytes, offset: int = 0) -> Pubkey:
         ValueError: If not enough bytes available for Pubkey
     """
     if offset + 32 > len(data):
-        raise ValueError(
+        raise InvalidDataLengthError(
             f"Not enough bytes for Pubkey at offset {offset}: "
             f"need 32 bytes, have {len(data) - offset}"
         )
@@ -123,7 +128,7 @@ def decode_bool(data: bytes, offset: int = 0) -> bool:
         ValueError: If not enough bytes available
     """
     if offset >= len(data):
-        raise ValueError(f"Not enough bytes for bool at offset {offset}")
+        raise InvalidDataLengthError(f"Not enough bytes for bool at offset {offset}")
     return data[offset] != 0
 
 
@@ -174,7 +179,7 @@ def encode_string(s: str, max_len: int) -> bytes:
     """
     encoded = s.encode("utf-8")
     if len(encoded) > max_len:
-        raise ValueError(f"String too long: {len(encoded)} > {max_len}")
+        raise SerializationError(f"String too long: {len(encoded)} > {max_len}")
     # Length prefix (2 bytes u16 LE) + string content
     return struct.pack("<H", len(encoded)) + encoded
 
@@ -183,7 +188,7 @@ def encode_string_fixed(s: str, max_len: int) -> bytes:
     """Encode a string as fixed-length with null padding."""
     encoded = s.encode("utf-8")
     if len(encoded) > max_len:
-        raise ValueError(f"String too long: {len(encoded)} > {max_len}")
+        raise SerializationError(f"String too long: {len(encoded)} > {max_len}")
     return encoded + b"\x00" * (max_len - len(encoded))
 
 
@@ -191,7 +196,7 @@ def validate_outcome_count(num_outcomes: int) -> None:
     """Validate that the outcome count is within bounds."""
 
     if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
-        raise ValueError(
+        raise InvalidOutcomeCountError(
             f"Invalid outcome count: {num_outcomes} "
             f"(must be between {MIN_OUTCOMES} and {MAX_OUTCOMES})"
         )
@@ -200,7 +205,7 @@ def validate_outcome_count(num_outcomes: int) -> None:
 def validate_order_hash(order_hash: bytes) -> None:
     """Validate that an order hash is 32 bytes."""
     if len(order_hash) != 32:
-        raise ValueError(f"Invalid order hash length: {len(order_hash)} (expected 32)")
+        raise InvalidDataLengthError(f"Invalid order hash length: {len(order_hash)} (expected 32)")
 
 
 def orders_cross(
