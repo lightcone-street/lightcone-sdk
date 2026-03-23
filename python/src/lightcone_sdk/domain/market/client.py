@@ -13,7 +13,6 @@ from solders.transaction import Transaction
 from . import Market, MarketsResult, Status
 from .wire import MarketWire, MarketResponse, MarketSearchResult
 from .convert import market_from_wire, validation_errors_from_wire
-from ...error import SdkError
 from ...program.accounts import deserialize_market
 from ...program.errors import AccountNotFoundError
 from ...program.instructions import (
@@ -108,18 +107,12 @@ class Markets:
         """Get a market by its URL slug."""
         data = await self._client._http.get(f"/api/markets/by-slug/{url_quote(slug, safe='')}")
         wire = MarketWire.from_dict(data.get("market", data))
-        errors = validation_errors_from_wire(wire)
-        if errors:
-            raise SdkError("; ".join(errors))
         return market_from_wire(wire)
 
     async def get_by_pubkey(self, pubkey: str) -> Market:
         """Get a market by its pubkey."""
         data = await self._client._http.get(f"/api/markets/{url_quote(pubkey, safe='')}")
         wire = MarketWire.from_dict(data.get("market", data))
-        errors = validation_errors_from_wire(wire)
-        if errors:
-            raise SdkError("; ".join(errors))
         return market_from_wire(wire)
 
     async def search(self, query: str, limit: Optional[int] = None) -> list[MarketSearchResult]:

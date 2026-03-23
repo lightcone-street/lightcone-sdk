@@ -5,62 +5,9 @@ from decimal import Decimal, InvalidOperation, ROUND_DOWN
 
 
 class ScalingError(Exception):
-    """Base error for price/size scaling failures."""
+    """Error during price/size scaling."""
 
     pass
-
-
-class NonPositivePrice(ScalingError):
-    """Price must be greater than zero."""
-
-    def __init__(self, price: str):
-        super().__init__(f"Price must be positive, got {price}")
-
-
-class NonPositiveSize(ScalingError):
-    """Size must be greater than zero."""
-
-    def __init__(self, size: str):
-        super().__init__(f"Size must be positive, got {size}")
-
-
-class Overflow(ScalingError):
-    """Arithmetic overflow during scaling."""
-
-    def __init__(self, context: str):
-        self.context = context
-        super().__init__(f"Overflow: {context}")
-
-
-# Backward compatibility alias
-ScalingOverflow = Overflow
-
-
-class ZeroAmount(ScalingError):
-    """Computed lamport amount is zero (price or size too small)."""
-
-    def __init__(self, which: str):
-        super().__init__(f"Computed {which} is zero")
-
-
-class FractionalAmount(ScalingError):
-    """Base lamports has a fractional part (not representable on-chain)."""
-
-    def __init__(self, value: str):
-        super().__init__(f"Fractional lamports not allowed: {value}")
-
-
-class InvalidDecimal(ScalingError):
-    """Input string could not be parsed as a decimal."""
-
-    def __init__(self, input: str, reason: str):
-        self.input = input
-        self.reason = reason
-        super().__init__(f"Invalid decimal '{input}': {reason}")
-
-
-# Backward compatibility alias
-InvalidDecimalInput = InvalidDecimal
 
 
 @dataclass
@@ -115,24 +62,18 @@ def scale_price_size(
         ScaledAmounts with amount_in and amount_out in raw lamports
 
     Raises:
-        NonPositivePrice: If price <= 0
-        NonPositiveSize: If size <= 0
-        FractionalAmount: If base lamports has a fractional part
-        ZeroAmount: If computed lamports are zero
-        ScalingOverflow: If result exceeds u64
-        InvalidDecimalInput: If price or size can't be parsed
-        ScalingError: If side is invalid
+        ScalingError: If inputs are invalid or result in overflow
     """
     try:
         price_d = Decimal(price)
         size_d = Decimal(size)
     except (InvalidOperation, ValueError) as e:
-        raise InvalidDecimal(f"{price}, {size}", str(e))
+        raise ScalingError(f"Invalid decimal input: {e}")
 
     if price_d <= 0:
-        raise NonPositivePrice(price)
+        raise ScalingError(f"Price must be positive, got {price}")
     if size_d <= 0:
-        raise NonPositiveSize(size)
+        raise ScalingError(f"Size must be positive, got {size}")
 
     base_factor = Decimal(10) ** decimals.base_decimals
     quote_factor = Decimal(10) ** decimals.quote_decimals
@@ -145,7 +86,7 @@ def scale_price_size(
 
     # Validate no fractional lamports
     if base_lamports != base_lamports.to_integral_value():
-        raise FractionalAmount(str(base_lamports))
+        raise ScalingError(f"Fractional lamports not allowed: base_lamports = {base_lamports}")
 
     # quote_lamports = size * price * 10^quote_decimals (truncate sub-lamport dust)
     quote_lamports = (size_d * price_d * quote_factor).to_integral_value(rounding=ROUND_DOWN)
@@ -154,15 +95,15 @@ def scale_price_size(
     quote_lamports_int = int(quote_lamports)
 
     if base_lamports_int == 0:
-        raise ZeroAmount("base_lamports (size too small)")
+        raise ScalingError("Computed base_lamports is zero (size too small)")
     if quote_lamports_int == 0:
-        raise ZeroAmount("quote_lamports (price * size too small)")
+        raise ScalingError("Computed quote_lamports is zero (price * size too small)")
 
     max_u64 = 2**64 - 1
     if base_lamports_int > max_u64:
-        raise Overflow(f"base_lamports: {base_lamports_int}")
+        raise ScalingError(f"base_lamports overflow: {base_lamports_int}")
     if quote_lamports_int > max_u64:
-        raise Overflow(f"quote_lamports: {quote_lamports_int}")
+        raise ScalingError(f"quote_lamports overflow: {quote_lamports_int}")
 
     # BID: maker gives quote, wants base
     # ASK: maker gives base, wants quote

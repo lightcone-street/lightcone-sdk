@@ -4,12 +4,7 @@ from typing import TYPE_CHECKING
 
 from .wire import DecimalsResponse, OrderbookResponse
 from ...shared.scaling import OrderbookDecimals
-from . import (
-    OrderBookPair,
-    OrderBookValidationError,
-    BaseTokenNotFound,
-    QuoteTokenNotFound,
-)
+from . import OrderBookPair, OrderBookValidationError
 
 if TYPE_CHECKING:
     from ..market import ConditionalToken
@@ -35,39 +30,25 @@ def orderbook_pair_from_wire(
     base = next((t for t in conditional_tokens if t.mint == wire.base_token), None)
     quote = next((t for t in conditional_tokens if t.mint == wire.quote_token), None)
 
-    errors: list[OrderBookValidationError] = []
+    errors: list[str] = []
     if base is None:
         errors.append(
-            BaseTokenNotFound(
-                f"orderbook: {wire.orderbook_id}, base: {wire.base_token}"
-            )
+            f"Base token not found: orderbook={wire.orderbook_id}, base={wire.base_token}"
         )
     if quote is None:
         errors.append(
-            QuoteTokenNotFound(
-                f"orderbook: {wire.orderbook_id}, quote: {wire.quote_token}"
-            )
+            f"Quote token not found: orderbook={wire.orderbook_id}, quote={wire.quote_token}"
         )
     if errors:
-        raise OrderBookValidationError(
-            f"OrderBook validation errors ({wire.orderbook_id}): "
-            + "; ".join(str(e) for e in errors)
-        )
-
-    # After the errors check above, base and quote are guaranteed non-None.
-    # Use ok_or-style assertions matching Rust's defensive pattern.
-    if base is None:
-        raise BaseTokenNotFound(f"orderbook: {wire.orderbook_id}")
-    if quote is None:
-        raise QuoteTokenNotFound(f"orderbook: {wire.orderbook_id}")
+        raise OrderBookValidationError("; ".join(errors))
 
     return OrderBookPair(
         id=wire.id,
         market_pubkey=wire.market_pubkey,
         orderbook_id=wire.orderbook_id,
-        base=base,
-        quote=quote,
-        outcome_index=wire.outcome_index if wire.outcome_index else base.outcome_index,
+        base=base,  # type: ignore[arg-type]
+        quote=quote,  # type: ignore[arg-type]
+        outcome_index=wire.outcome_index if wire.outcome_index else base.outcome_index,  # type: ignore[union-attr]
         tick_size=int(wire.tick_size) if wire.tick_size is not None else 0,
         total_bids=wire.total_bids,
         total_asks=wire.total_asks,

@@ -1,5 +1,3 @@
-import { SdkError } from "../error";
-
 export type Branded<T, Brand extends string> = T & { readonly __brand: Brand };
 
 export type OrderBookId = Branded<string, "OrderBookId">;
@@ -21,7 +19,7 @@ export enum Side {
 export function parseSide(value: string): Side {
   if (value === "bid" || value === "buy") return Side.Bid;
   if (value === "ask" || value === "sell") return Side.Ask;
-  throw new SdkError("Validation", `Invalid side: ${value}`);
+  throw new Error(`Invalid side: ${value}`);
 }
 
 export function sideLabel(side: Side): "Buy" | "Sell" {

@@ -130,7 +130,7 @@ export interface GlobalDepositToken {
  * Full order with all fields for submission, cancellation, and hashing
  */
 export interface SignedOrder {
-  nonce: number; // u32 range (Rust OrderPayload uses u64, but values always fit u32; serialized as u64 LE on wire)
+  nonce: number; // u32 - order ID + replay protection (serialized as u64 LE on wire)
   salt: bigint; // u64 - random salt for order uniqueness
   maker: PublicKey; // 32 bytes - signer
   market: PublicKey; // 32 bytes

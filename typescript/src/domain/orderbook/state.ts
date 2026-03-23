@@ -1,63 +1,87 @@
-import BTree from "sorted-btree";
 import Decimal from "decimal.js";
 import type { OrderBookId } from "../../shared";
 import type { OrderBook } from "./wire";
 
-const decimalCompare = (a: string, b: string): number =>
-  new Decimal(a).cmp(new Decimal(b));
-
 export class OrderbookSnapshot {
   readonly orderbookId: OrderBookId;
   seq: number;
-  private bidsTree: BTree<string, string>;
-  private asksTree: BTree<string, string>;
+  private readonly bidsMap: Map<string, string>;
+  private readonly asksMap: Map<string, string>;
+  private cachedBestBid: string | undefined | null;
+  private cachedBestAsk: string | undefined | null;
 
   constructor(orderbookId: OrderBookId) {
     this.orderbookId = orderbookId;
     this.seq = 0;
-    this.bidsTree = new BTree<string, string>(undefined, decimalCompare);
-    this.asksTree = new BTree<string, string>(undefined, decimalCompare);
+    this.bidsMap = new Map();
+    this.asksMap = new Map();
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 
   apply(book: OrderBook): void {
     if (book.is_snapshot) {
-      this.bidsTree.clear();
-      this.asksTree.clear();
+      this.bidsMap.clear();
+      this.asksMap.clear();
     }
 
     this.seq = book.seq ?? this.seq;
 
     for (const level of book.bids) {
       if (new Decimal(level.size).isZero()) {
-        this.bidsTree.delete(level.price);
+        this.bidsMap.delete(level.price);
       } else {
-        this.bidsTree.set(level.price, level.size);
+        this.bidsMap.set(level.price, level.size);
       }
     }
 
     for (const level of book.asks) {
       if (new Decimal(level.size).isZero()) {
-        this.asksTree.delete(level.price);
+        this.asksMap.delete(level.price);
       } else {
-        this.asksTree.set(level.price, level.size);
+        this.asksMap.set(level.price, level.size);
       }
     }
+
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 
-  bids(): BTree<string, string> {
-    return this.bidsTree;
+  bids(): ReadonlyMap<string, string> {
+    return this.bidsMap;
   }
 
-  asks(): BTree<string, string> {
-    return this.asksTree;
+  asks(): ReadonlyMap<string, string> {
+    return this.asksMap;
   }
 
   bestBid(): string | undefined {
-    return this.bidsTree.maxKey();
+    if (this.cachedBestBid !== null) {
+      return this.cachedBestBid;
+    }
+    if (this.bidsMap.size === 0) {
+      this.cachedBestBid = undefined;
+      return undefined;
+    }
+    const result = Array.from(this.bidsMap.keys())
+      .sort((a, b) => new Decimal(a).cmp(new Decimal(b)))
+      .at(-1);
+    this.cachedBestBid = result;
+    return result;
   }
 
   bestAsk(): string | undefined {
-    return this.asksTree.minKey();
+    if (this.cachedBestAsk !== null) {
+      return this.cachedBestAsk;
+    }
+    if (this.asksMap.size === 0) {
+      this.cachedBestAsk = undefined;
+      return undefined;
+    }
+    const result = Array.from(this.asksMap.keys())
+      .sort((a, b) => new Decimal(a).cmp(new Decimal(b)))[0];
+    this.cachedBestAsk = result;
+    return result;
   }
 
   midPrice(): string | undefined {
@@ -81,12 +105,14 @@ export class OrderbookSnapshot {
   }
 
   isEmpty(): boolean {
-    return this.bidsTree.size === 0 && this.asksTree.size === 0;
+    return this.bidsMap.size === 0 && this.asksMap.size === 0;
   }
 
   clear(): void {
-    this.bidsTree.clear();
-    this.asksTree.clear();
+    this.bidsMap.clear();
+    this.asksMap.clear();
     this.seq = 0;
+    this.cachedBestBid = null;
+    this.cachedBestAsk = null;
   }
 }

@@ -5,14 +5,14 @@ from typing import Optional
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from .types import OrderPayload, OrderSide
+from .types import SignedOrder, OrderSide
 from .orders import sign_order, signature_hex, is_signed
 from ..shared.types import Side, SubmitOrderRequest
 from ..shared.scaling import OrderbookDecimals, scale_price_size
 
 
 class OrderBuilder:
-    """Fluent builder for constructing OrderPayload instances."""
+    """Fluent builder for constructing SignedOrder instances."""
 
     def __init__(self):
         self._nonce: int = 0
@@ -81,14 +81,14 @@ class OrderBuilder:
         self._amount_out = scaled.amount_out
         return self
 
-    def build(self) -> OrderPayload:
-        """Build an unsigned OrderPayload."""
+    def build(self) -> SignedOrder:
+        """Build an unsigned SignedOrder."""
         assert self._maker is not None, "maker is required"
         assert self._market is not None, "market is required"
         assert self._base_mint is not None, "base_mint is required"
         assert self._quote_mint is not None, "quote_mint is required"
 
-        return OrderPayload(
+        return SignedOrder(
             nonce=self._nonce,
             salt=self._salt,
             maker=self._maker,
@@ -101,7 +101,7 @@ class OrderBuilder:
             expiration=self._expiration,
         )
 
-    def build_and_sign(self, keypair: Keypair) -> OrderPayload:
+    def build_and_sign(self, keypair: Keypair) -> SignedOrder:
         """Build and sign an order."""
         order = self.build()
         sign_order(order, keypair)

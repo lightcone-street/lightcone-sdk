@@ -62,7 +62,6 @@ import {
   validateOutcomes,
 } from "./utils";
 import { hashOrder, serializeSignedOrder, serializeOrder, signedOrderToOrder } from "./orders";
-import { ProgramSdkError } from "./error";
 
 // ============================================================================
 // HELPER FUNCTIONS
@@ -196,7 +195,9 @@ export function buildAddDepositMintIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   if (params.outcomeMetadata.length !== numOutcomes) {
-    throw ProgramSdkError.invalidOutcomeCount(params.outcomeMetadata.length);
+    throw new Error(
+      `Outcome metadata count (${params.outcomeMetadata.length}) must match numOutcomes (${numOutcomes})`
+    );
   }
 
   const [vault] = getVaultPda(params.depositMint, market, programId);
@@ -727,16 +728,16 @@ export function buildMatchOrdersMultiIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   if (params.makerOrders.length === 0) {
-    throw ProgramSdkError.missingField("makerOrders");
+    throw new Error("At least one maker order is required");
   }
   if (params.makerOrders.length > MAX_MAKERS) {
-    throw ProgramSdkError.serialization(`Maximum ${MAX_MAKERS} maker orders allowed, got ${params.makerOrders.length}`);
+    throw new Error(`Maximum ${MAX_MAKERS} maker orders allowed`);
   }
   if (params.makerOrders.length !== params.makerFillAmounts.length) {
-    throw ProgramSdkError.serialization("Maker fill amounts must match maker orders count");
+    throw new Error("Maker fill amounts must match maker orders count");
   }
   if (params.makerOrders.length !== params.takerFillAmounts.length) {
-    throw ProgramSdkError.serialization("Taker fill amounts must match maker orders count");
+    throw new Error("Taker fill amounts must match maker orders count");
   }
 
   const [exchange] = getExchangePda(programId);
@@ -1165,7 +1166,7 @@ export function buildExtendPositionTokensIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   if (params.depositMints.length === 0) {
-    throw ProgramSdkError.missingField("depositMints");
+    throw new Error("deposit_mints is required");
   }
 
   const [exchange] = getExchangePda(programId);
@@ -1226,10 +1227,10 @@ export function buildDepositAndSwapIx(
   validateOutcomes(params.numOutcomes);
 
   if (params.makers.length === 0) {
-    throw ProgramSdkError.missingField("makers");
+    throw new Error("makers is required");
   }
   if (params.makers.length > MAX_MAKERS) {
-    throw ProgramSdkError.serialization(`Maximum ${MAX_MAKERS} makers allowed, got ${params.makers.length}`);
+    throw new Error(`Too many makers: ${params.makers.length}`);
   }
 
   const [exchange] = getExchangePda(programId);

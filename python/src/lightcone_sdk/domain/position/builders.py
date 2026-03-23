@@ -13,7 +13,6 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ...error import SdkError, MissingMarketContext
-from ...program.errors import MissingFieldError
 from ...shared.types import DepositSource
 from ...program.types import (
     DepositToGlobalParams,
@@ -40,7 +39,6 @@ from ...program.instructions import (
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
-    from ...domain.market import Market
 
 
 # ─── DepositBuilder ─────────────────────────────────────────────────────────
@@ -61,7 +59,7 @@ class DepositBuilder:
         self._user: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
-        self._market: Optional["Market"] = None
+        self._market: object = None
         self._deposit_source: Optional[DepositSource] = deposit_source
 
     def user(self, user: Pubkey) -> "DepositBuilder":
@@ -76,7 +74,7 @@ class DepositBuilder:
         self._amount = amount
         return self
 
-    def market(self, market: "Market") -> "DepositBuilder":
+    def market(self, market: object) -> "DepositBuilder":
         """Set the market reference (required when deposit source is ``Market``)."""
         self._market = market
         return self
@@ -85,7 +83,7 @@ class DepositBuilder:
         self._deposit_source = source
         return self
 
-    def with_market_deposit_source(self, market: "Market") -> "DepositBuilder":
+    def with_market_deposit_source(self, market: object) -> "DepositBuilder":
         """Set deposit source to ``Market`` and provide the required market reference."""
         self._deposit_source = DepositSource.MARKET
         self._market = market
@@ -98,13 +96,13 @@ class DepositBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
 
         source = self._client.resolve_deposit_source(self._deposit_source)
         program_id = self._client.program_id
@@ -113,12 +111,12 @@ class DepositBuilder:
             return build_deposit_to_global_instruction(
                 user=user, mint=mint, amount=amount, program_id=program_id,
             )
-        else:  # Market -> mint_complete_set
+        else:  # Market -> mint_complete_set (PR #39 fix)
             market = self._market
             if market is None:
                 raise MissingMarketContext("market is required for Market deposit source")
-            market_pubkey = Pubkey.from_string(market.pubkey)
-            num_outcomes = len(market.outcomes)
+            market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
+            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
             return build_mint_complete_set_instruction(
                 user=user, market=market_pubkey, deposit_mint=mint,
                 amount=amount, num_outcomes=num_outcomes, program_id=program_id,
@@ -127,7 +125,7 @@ class DepositBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         ix = self.build_ix()
         return Transaction.new_unsigned(Message.new_with_payer([ix], user))
 
@@ -155,7 +153,7 @@ class WithdrawBuilder:
         self._user: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
-        self._market: Optional["Market"] = None
+        self._market: object = None
         self._deposit_source: Optional[DepositSource] = deposit_source
 
     def user(self, user: Pubkey) -> "WithdrawBuilder":
@@ -170,7 +168,7 @@ class WithdrawBuilder:
         self._amount = amount
         return self
 
-    def market(self, market: "Market") -> "WithdrawBuilder":
+    def market(self, market: object) -> "WithdrawBuilder":
         """Set the market reference (required when deposit source is ``Market``)."""
         self._market = market
         return self
@@ -179,7 +177,7 @@ class WithdrawBuilder:
         self._deposit_source = source
         return self
 
-    def with_market_deposit_source(self, market: "Market") -> "WithdrawBuilder":
+    def with_market_deposit_source(self, market: object) -> "WithdrawBuilder":
         """Set deposit source to ``Market`` and provide the required market reference."""
         self._deposit_source = DepositSource.MARKET
         self._market = market
@@ -192,13 +190,13 @@ class WithdrawBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
 
         source = self._client.resolve_deposit_source(self._deposit_source)
         program_id = self._client.program_id
@@ -207,12 +205,12 @@ class WithdrawBuilder:
             return build_withdraw_from_global_instruction(
                 user=user, mint=mint, amount=amount, program_id=program_id,
             )
-        else:  # Market -> merge_complete_set
+        else:  # Market -> merge_complete_set (PR #39 fix)
             market = self._market
             if market is None:
                 raise MissingMarketContext("market is required for Market withdrawal")
-            market_pubkey = Pubkey.from_string(market.pubkey)
-            num_outcomes = len(market.outcomes)
+            market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
+            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
             return build_merge_complete_set_instruction(
                 user=user, market=market_pubkey, deposit_mint=mint,
                 amount=amount, num_outcomes=num_outcomes, program_id=program_id,
@@ -221,7 +219,7 @@ class WithdrawBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         ix = self.build_ix()
         return Transaction.new_unsigned(Message.new_with_payer([ix], user))
 
@@ -268,19 +266,19 @@ class RedeemWinningsBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         winning_outcome = self._winning_outcome
         if winning_outcome is None:
-            raise MissingFieldError("winning_outcome")
+            raise SdkError("winning_outcome is required")
         return build_redeem_winnings_instruction(
             user=user, market=market, deposit_mint=mint,
             winning_outcome=winning_outcome, amount=amount,
@@ -290,7 +288,7 @@ class RedeemWinningsBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
 
     async def sign_and_submit(self) -> str:
@@ -341,19 +339,19 @@ class WithdrawFromPositionBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         outcome_index = self._outcome_index
         if outcome_index is None:
-            raise MissingFieldError("outcome_index")
+            raise SdkError("outcome_index is required")
         return build_withdraw_from_position_instruction(
             user=user, market=market, mint=mint, amount=amount,
             outcome_index=outcome_index, is_token_2022=self._is_token_2022,
@@ -363,7 +361,7 @@ class WithdrawFromPositionBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
 
     async def sign_and_submit(self) -> str:
@@ -414,22 +412,22 @@ class InitPositionTokensBuilder:
     def build_ix(self) -> Instruction:
         payer = self._payer
         if payer is None:
-            raise MissingFieldError("payer")
+            raise SdkError("payer is required")
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         deposit_mints = self._deposit_mints
         if deposit_mints is None:
-            raise MissingFieldError("deposit_mints")
+            raise SdkError("deposit_mints is required")
         recent_slot = self._recent_slot
         if recent_slot is None:
-            raise MissingFieldError("recent_slot")
+            raise SdkError("recent_slot is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
-            raise MissingFieldError("num_outcomes")
+            raise SdkError("num_outcomes is required")
         return build_init_position_tokens_instruction(
             InitPositionTokensParams(
                 payer=payer, user=user, market=market,
@@ -441,7 +439,7 @@ class InitPositionTokensBuilder:
     def build_tx(self) -> Transaction:
         payer = self._payer
         if payer is None:
-            raise MissingFieldError("payer")
+            raise SdkError("payer is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], payer))
 
     async def sign_and_submit(self) -> str:
@@ -492,22 +490,22 @@ class ExtendPositionTokensBuilder:
     def build_ix(self) -> Instruction:
         payer = self._payer
         if payer is None:
-            raise MissingFieldError("payer")
+            raise SdkError("payer is required")
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         lookup_table = self._lookup_table
         if lookup_table is None:
-            raise MissingFieldError("lookup_table")
+            raise SdkError("lookup_table is required")
         deposit_mints = self._deposit_mints
         if deposit_mints is None:
-            raise MissingFieldError("deposit_mints")
+            raise SdkError("deposit_mints is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
-            raise MissingFieldError("num_outcomes")
+            raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
             ExtendPositionTokensParams(
                 payer=payer, user=user, market=market,
@@ -519,7 +517,7 @@ class ExtendPositionTokensBuilder:
     def build_tx(self) -> Transaction:
         payer = self._payer
         if payer is None:
-            raise MissingFieldError("payer")
+            raise SdkError("payer is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], payer))
 
     async def sign_and_submit(self) -> str:
@@ -555,13 +553,13 @@ class DepositToGlobalBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         return build_deposit_to_global_instruction(
             user=user, mint=mint, amount=amount, program_id=self._client.program_id,
         )
@@ -569,7 +567,7 @@ class DepositToGlobalBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
 
     async def sign_and_submit(self) -> str:
@@ -605,13 +603,13 @@ class WithdrawFromGlobalBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         return build_withdraw_from_global_instruction(
             user=user, mint=mint, amount=amount, program_id=self._client.program_id,
         )
@@ -619,7 +617,7 @@ class WithdrawFromGlobalBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
 
     async def sign_and_submit(self) -> str:
@@ -665,19 +663,19 @@ class GlobalToMarketDepositBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
-            raise MissingFieldError("num_outcomes")
+            raise SdkError("num_outcomes is required")
         return build_global_to_market_deposit_instruction(
             user=user, market=market, deposit_mint=mint,
             amount=amount, num_outcomes=num_outcomes,
@@ -687,7 +685,7 @@ class GlobalToMarketDepositBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         return Transaction.new_unsigned(Message.new_with_payer([self.build_ix()], user))
 
     async def sign_and_submit(self) -> str:

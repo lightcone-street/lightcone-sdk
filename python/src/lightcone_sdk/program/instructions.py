@@ -58,7 +58,10 @@ from .pda import (
     get_user_nonce_pda,
     get_vault_pda,
 )
-from .types import MakerFill, OrderPayload, OutcomeMetadata
+from .types import MakerFill, SignedOrder, OutcomeMetadata
+
+# Backward compatibility alias
+FullOrder = SignedOrder
 from .utils import (
     encode_string,
     encode_u64,
@@ -319,7 +322,7 @@ def build_merge_complete_set_instruction(
 def build_cancel_order_instruction(
     maker: Pubkey,
     market: Pubkey,
-    order: OrderPayload,
+    order: SignedOrder,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the cancel_order instruction.
@@ -588,8 +591,8 @@ def build_match_orders_multi_instruction(
     market: Pubkey,
     base_mint: Pubkey,
     quote_mint: Pubkey,
-    taker_order: OrderPayload,
-    maker_orders: List[OrderPayload],
+    taker_order: SignedOrder,
+    maker_orders: List[SignedOrder],
     maker_fill_amounts: List[int],
     taker_fill_amounts: List[int],
     full_fill_bitmask: int = 0,
@@ -977,7 +980,7 @@ def build_deposit_and_swap_instruction(
     market: Pubkey,
     base_mint: Pubkey,
     quote_mint: Pubkey,
-    taker_order: OrderPayload,
+    taker_order: SignedOrder,
     taker_is_full_fill: bool = False,
     taker_is_deposit: bool = False,
     taker_deposit_mint: Pubkey = None,

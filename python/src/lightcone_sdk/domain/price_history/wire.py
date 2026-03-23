@@ -77,47 +77,17 @@ class PriceHistorySnapshot:
 
 @dataclass
 class PriceHistoryUpdate:
-    """WS price history update — flat OHLCV fields matching Rust wire format."""
     orderbook_id: str
     resolution: str
-    t: int = 0
-    m: Optional[str] = None
-    o: Optional[str] = None
-    h: Optional[str] = None
-    l: Optional[str] = None
-    c: Optional[str] = None
-    v: Optional[str] = None
-    bb: Optional[str] = None
-    ba: Optional[str] = None
+    candle: Optional[PriceCandle] = None
 
     @staticmethod
     def from_dict(d: dict) -> "PriceHistoryUpdate":
-        # Support both Rust-style flat fields and legacy nested "candle"
         candle_data = d.get("candle")
-        if candle_data:
-            return PriceHistoryUpdate(
-                orderbook_id=d.get("orderbook_id", ""),
-                resolution=d.get("resolution", "1m"),
-                t=candle_data.get("t", 0),
-                m=candle_data.get("m"),
-                o=candle_data.get("o"),
-                h=candle_data.get("h"),
-                l=candle_data.get("l"),
-                c=candle_data.get("c"),
-                v=candle_data.get("v"),
-            )
         return PriceHistoryUpdate(
             orderbook_id=d.get("orderbook_id", ""),
             resolution=d.get("resolution", "1m"),
-            t=d.get("t", 0),
-            m=d.get("m"),
-            o=d.get("o"),
-            h=d.get("h"),
-            l=d.get("l"),
-            c=d.get("c"),
-            v=d.get("v"),
-            bb=d.get("bb"),
-            ba=d.get("ba"),
+            candle=PriceCandle.from_dict(candle_data) if candle_data else None,
         )
 
 

@@ -20,7 +20,6 @@ import {
   type UnsubscribeParams,
 } from "./subscriptions";
 import type { IWsClient } from "./types";
-import { WsError as WsTransportError } from "../error";
 
 export class WsClient implements IWsClient {
   private readonly config: WsConfig;
@@ -175,8 +174,7 @@ export class WsClient implements IWsClient {
       const onError = (event: Event): void => {
         cleanup();
         clearTimeout(timeoutId);
-        const errorMessage = event instanceof ErrorEvent ? event.message : "unknown";
-        reject(new WsTransportError("ConnectionFailed", `WebSocket connection error: ${errorMessage}`));
+        reject(new Error(`WebSocket connection error: ${(event as ErrorEvent).message ?? "unknown"}`));
       };
 
       const cleanup = (): void => {

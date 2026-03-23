@@ -13,7 +13,6 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ...error import SdkError
-from ...program.errors import MissingFieldError
 from ...program.types import MintCompleteSetParams, MergeCompleteSetParams
 from ...program.instructions import (
     build_mint_complete_set_instruction,
@@ -71,19 +70,19 @@ class MintCompleteSetBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
-            raise MissingFieldError("num_outcomes")
+            raise SdkError("num_outcomes is required")
         return build_mint_complete_set_instruction(
             user=user, market=market, deposit_mint=mint,
             amount=amount, num_outcomes=num_outcomes,
@@ -93,7 +92,7 @@ class MintCompleteSetBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         ix = self.build_ix()
         return Transaction.new_unsigned(Message.new_with_payer([ix], user))
 
@@ -150,19 +149,19 @@ class MergeCompleteSetBuilder:
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         market = self._market
         if market is None:
-            raise MissingFieldError("market")
+            raise SdkError("market is required")
         mint = self._mint
         if mint is None:
-            raise MissingFieldError("mint")
+            raise SdkError("mint is required")
         amount = self._amount
         if amount is None:
-            raise MissingFieldError("amount")
+            raise SdkError("amount is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
-            raise MissingFieldError("num_outcomes")
+            raise SdkError("num_outcomes is required")
         return build_merge_complete_set_instruction(
             user=user, market=market, deposit_mint=mint,
             amount=amount, num_outcomes=num_outcomes,
@@ -172,7 +171,7 @@ class MergeCompleteSetBuilder:
     def build_tx(self) -> Transaction:
         user = self._user
         if user is None:
-            raise MissingFieldError("user")
+            raise SdkError("user is required")
         ix = self.build_ix()
         return Transaction.new_unsigned(Message.new_with_payer([ix], user))
 

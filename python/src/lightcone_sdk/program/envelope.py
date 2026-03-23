@@ -11,61 +11,62 @@ from typing import Optional, TYPE_CHECKING
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from .types import OrderPayload, OrderSide
-from .orders import generate_salt, sign_order, to_submit_request, apply_signature, signature_hex
-from .errors import MissingFieldError
-from ..error import SdkError
+from .types import SignedOrder, OrderSide
+from .orders import sign_order, to_submit_request, apply_signature, signature_hex
 from ..shared.types import (
     DepositSource,
     Side,
     SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
     TimeInForce,
     TriggerType,
 )
 from ..shared.scaling import align_price_to_tick, scale_price_size
 
 if TYPE_CHECKING:
-    from ..client import LightconeClient
     from ..domain.orderbook import OrderBookPair
 
 
 class LimitOrderEnvelope:
     """Fluent builder for limit orders.
 
-    Fields like ``market``, ``base_mint``, ``quote_mint`` are auto-populated
-    from the ``OrderBookPair`` passed to ``sign()``/``finalize()`` when not set
-    explicitly. ``nonce`` defaults to 0 and ``salt`` is auto-generated when
-    omitted.
-
-    # Example (human-readable price/size -- auto-scaled)
+    # Example (human-readable price/size — auto-scaled)
 
         request = (LimitOrderEnvelope()
             .maker(maker_pubkey)
+            .market(market_pubkey)
+            .base_mint(yes_token)
+            .quote_mint(usdc)
             .bid()
+            .nonce(5)
             .price("0.55")
             .size("100")
             .sign(keypair, orderbook))
 
-    # Example (pre-computed raw amounts -- no scaling)
+    # Example (pre-computed raw amounts — no scaling)
 
         request = (LimitOrderEnvelope()
             .maker(maker_pubkey)
+            .market(market_pubkey)
+            .base_mint(yes_token)
+            .quote_mint(usdc)
             .bid()
+            .nonce(5)
             .amount_in(1_000_000)
             .amount_out(500_000)
             .sign(keypair, orderbook))
     """
 
     def __init__(self):
-        self._nonce: Optional[int] = None
-        self._salt: Optional[int] = None
+        self._nonce: int = 0
+        self._salt: int = 0
         self._maker: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._base_mint: Optional[Pubkey] = None
         self._quote_mint: Optional[Pubkey] = None
-        self._side: Optional[OrderSide] = None
-        self._amount_in: Optional[int] = None
-        self._amount_out: Optional[int] = None
+        self._side: OrderSide = OrderSide.BID
+        self._amount_in: int = 0
+        self._amount_out: int = 0
         self._expiration: int = 0
         self._price_str: Optional[str] = None
         self._size_str: Optional[str] = None
@@ -140,40 +141,20 @@ class LimitOrderEnvelope:
         self._time_in_force = tif
         return self
 
-    def _auto_fill_from_orderbook(self, orderbook: OrderBookPair) -> None:
-        """Auto-fill market, base_mint, quote_mint, and salt from the orderbook.
-
-        Only fills fields that have not been explicitly set by the caller.
-        """
-        if self._market is None:
-            self._market = Pubkey.from_string(orderbook.market_pubkey)
-        if self._salt is None:
-            self._salt = generate_salt()
-        if self._base_mint is None:
-            self._base_mint = Pubkey.from_string(orderbook.base.mint)
-        if self._quote_mint is None:
-            self._quote_mint = Pubkey.from_string(orderbook.quote.mint)
-
     def _auto_scale(self, orderbook: OrderBookPair) -> None:
         """Auto-scale price/size to raw amounts if not already set.
 
-        Skips if amount_in/amount_out have been explicitly set (even to zero).
-        Otherwise requires price() and size() to have been called.
+        Skips if amount_in/amount_out are already non-zero (raw amounts
+        were provided directly). Otherwise requires price() and size()
+        to have been called.
         """
-        if self._amount_in is not None or self._amount_out is not None:
+        if self._amount_in or self._amount_out:
             return
 
-        if self._price_str is None:
-            raise MissingFieldError(
-                "either price()+size() or amount_in()+amount_out() is required"
-            )
-        if self._size_str is None:
-            raise MissingFieldError(
-                "either price()+size() or amount_in()+amount_out() is required"
-            )
-
-        if self._side is None:
-            raise MissingFieldError("side (call .bid() or .ask())")
+        assert self._price_str is not None, \
+            "either price()+size() or amount_in()+amount_out() is required"
+        assert self._size_str is not None, \
+            "either price()+size() or amount_in()+amount_out() is required"
 
         decimals = orderbook.decimals()
         aligned_price = align_price_to_tick(Decimal(self._price_str), decimals)
@@ -181,51 +162,33 @@ class LimitOrderEnvelope:
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
 
-    def payload(self) -> OrderPayload:
-        """Build an unsigned OrderPayload without consuming the envelope."""
-        if self._maker is None:
-            raise MissingFieldError("maker")
-        if self._market is None:
-            raise MissingFieldError("market")
-        if self._base_mint is None:
-            raise MissingFieldError("base_mint")
-        if self._quote_mint is None:
-            raise MissingFieldError("quote_mint")
-        if self._side is None:
-            raise MissingFieldError("side (call .bid() or .ask())")
+    def payload(self) -> SignedOrder:
+        """Build an unsigned SignedOrder without consuming the envelope."""
+        assert self._maker is not None, "maker is required"
+        assert self._market is not None, "market is required"
+        assert self._base_mint is not None, "base_mint is required"
+        assert self._quote_mint is not None, "quote_mint is required"
 
-        amount_in = self._amount_in
-        if amount_in is None:
-            raise MissingFieldError("amount_in")
-        if amount_in == 0:
-            raise MissingFieldError("amount_in must be greater than 0")
-
-        amount_out = self._amount_out
-        if amount_out is None:
-            raise MissingFieldError("amount_out")
-        if amount_out == 0:
-            raise MissingFieldError("amount_out must be greater than 0")
-
-        return OrderPayload(
-            nonce=self._nonce if self._nonce is not None else 0,
-            salt=self._salt if self._salt is not None else generate_salt(),
+        return SignedOrder(
+            nonce=self._nonce,
+            salt=self._salt,
             maker=self._maker,
             market=self._market,
             base_mint=self._base_mint,
             quote_mint=self._quote_mint,
             side=self._side,
-            amount_in=amount_in,
-            amount_out=amount_out,
+            amount_in=self._amount_in,
+            amount_out=self._amount_out,
             expiration=self._expiration,
         )
 
     def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
         """Apply an external wallet-adapter signature and produce a SubmitOrderRequest.
 
-        Auto-fills orderbook-derived fields (market, mints, salt) and scales
-        price/size to raw amounts before building the payload.
+        If price() and size() were set, scaling is applied automatically
+        using the orderbook's decimals. If amount_in() and amount_out()
+        were set directly, those raw values are used as-is.
         """
-        self._auto_fill_from_orderbook(orderbook)
         self._auto_scale(orderbook)
         order = self.payload()
         apply_signature(order, sig_bs58)
@@ -238,10 +201,10 @@ class LimitOrderEnvelope:
     def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
         """Sign and produce a SubmitOrderRequest.
 
-        Auto-fills orderbook-derived fields (market, mints, salt) and scales
-        price/size to raw amounts before signing.
+        If price() and size() were set, scaling is applied automatically
+        using the orderbook's decimals. If amount_in() and amount_out()
+        were set directly, those raw values are used as-is.
         """
-        self._auto_fill_from_orderbook(orderbook)
         self._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
@@ -290,7 +253,7 @@ class LimitOrderEnvelope:
         return self._nonce
 
     @property
-    def get_salt(self) -> Optional[int]:
+    def get_salt(self) -> int:
         return self._salt
 
     @property
@@ -317,15 +280,12 @@ class LimitOrderEnvelope:
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 
-    async def submit(self, client: "LightconeClient", orderbook: "OrderBookPair"):
+    async def submit(self, client: object, orderbook: "OrderBookPair"):
         """Submit this order using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via REST
         - **WalletAdapter**: signs via external signer, submits via REST
         - **Privy**: sends to backend for signing and submission
-
-        Automatically fills orderbook-derived fields (market, mints, salt) and
-        scales price/size to raw amounts before signing.
 
         Args:
             client: A ``LightconeClient`` instance with a signing strategy set.
@@ -336,19 +296,11 @@ class LimitOrderEnvelope:
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
-        # Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
-        # price/size before the signing strategy runs. This is necessary because
-        # the WalletAdapter path calls payload() to hash for external signing,
-        # and the Privy path reads fields like get_market, both of which
-        # happen before sign()/finalize() where these would otherwise run.
-        self._auto_fill_from_orderbook(orderbook)
-        self._auto_scale(orderbook)
-
-        strategy = client._require_signing_strategy()
+        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             request = self.sign(strategy.keypair, orderbook)
-            return await client.orders().submit(request)
+            return await client.orders().submit(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             hash_hex = self.payload().hash_hex()
@@ -359,37 +311,28 @@ class LimitOrderEnvelope:
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
             request = self.finalize(sig_bs58, orderbook)
-            return await client.orders().submit(request)
+            return await client.orders().submit(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             from ..privy import privy_order_from_limit_envelope
             envelope = privy_order_from_limit_envelope(self, orderbook)
-            result = await client.privy().sign_and_send_order(
+            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
                 strategy.wallet_id, envelope,
             )
             from ..domain.order.convert import submit_response_from_dict
             return submit_response_from_dict(result)
 
-        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")
 
 
 class TriggerOrderEnvelope:
-    """Fluent builder for trigger orders.
-
-    Fields like ``market``, ``base_mint``, ``quote_mint`` are auto-populated
-    from the ``OrderBookPair`` passed to ``sign()``/``finalize()`` when not set
-    explicitly. ``nonce`` defaults to 0 and ``salt`` is auto-generated when
-    omitted.
-
-    ``trigger_price`` and ``trigger_type`` are required before calling
-    ``sign()`` or ``finalize()``.
-    """
+    """Fluent builder for trigger orders."""
 
     def __init__(self):
         self._limit = LimitOrderEnvelope()
         self._trigger_price: Optional[float] = None
         self._trigger_type: Optional[TriggerType] = None
-        self._time_in_force: Optional[TimeInForce] = None
+        self._time_in_force: TimeInForce = TimeInForce.GTC
 
     def nonce(self, nonce: int) -> TriggerOrderEnvelope:
         self._limit.nonce(nonce)
@@ -492,21 +435,17 @@ class TriggerOrderEnvelope:
         self._time_in_force = TimeInForce.ALO
         return self
 
-    def payload(self) -> OrderPayload:
-        """Build an unsigned OrderPayload without consuming the envelope."""
+    def payload(self) -> SignedOrder:
+        """Build an unsigned SignedOrder without consuming the envelope."""
         return self._limit.payload()
 
     def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
         """Apply external signature and produce a SubmitOrderRequest.
 
-        Auto-fills orderbook-derived fields and scales price/size before
-        building the payload.
+        Same auto-scaling behavior as sign().
         """
-        if self._trigger_price is None:
-            raise MissingFieldError("trigger_price is required for trigger orders")
-        if self._trigger_type is None:
-            raise MissingFieldError("trigger_type is required for trigger orders")
-        self._limit._auto_fill_from_orderbook(orderbook)
+        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
+        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
         self._limit._auto_scale(orderbook)
         order = self.payload()
         apply_signature(order, sig_bs58)
@@ -522,13 +461,10 @@ class TriggerOrderEnvelope:
     def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
         """Sign and produce a SubmitOrderRequest.
 
-        Auto-fills orderbook-derived fields and scales price/size before signing.
+        Same auto-scaling behavior as LimitOrderEnvelope.sign().
         """
-        if self._trigger_price is None:
-            raise MissingFieldError("trigger_price is required for trigger orders")
-        if self._trigger_type is None:
-            raise MissingFieldError("trigger_type is required for trigger orders")
-        self._limit._auto_fill_from_orderbook(orderbook)
+        assert self._trigger_price is not None, "trigger_price is required for trigger orders"
+        assert self._trigger_type is not None, "trigger_type is required for trigger orders"
         self._limit._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
@@ -539,6 +475,26 @@ class TriggerOrderEnvelope:
             trigger_price=self._trigger_price,
             trigger_type=self._trigger_type,
             deposit_source=self._limit.get_deposit_source,
+        )
+
+    def to_submit_trigger_request(self, order: SignedOrder, orderbook_id: str) -> SubmitTriggerOrderRequest:
+        """Convert to a SubmitTriggerOrderRequest."""
+        return SubmitTriggerOrderRequest(
+            maker=str(order.maker),
+            nonce=order.nonce,
+            salt=order.salt,
+            market_pubkey=str(order.market),
+            base_token=str(order.base_mint),
+            quote_token=str(order.quote_mint),
+            side=int(order.side),
+            amount_in=order.amount_in,
+            amount_out=order.amount_out,
+            expiration=order.expiration,
+            signature=signature_hex(order),
+            orderbook_id=orderbook_id,
+            trigger_price=str(self._trigger_price) if self._trigger_price is not None else "0",
+            trigger_type=self._trigger_type or TriggerType.STOP_LOSS,
+            time_in_force=self._time_in_force,
         )
 
     # Field accessors (matching Rust get_* methods)
@@ -580,7 +536,7 @@ class TriggerOrderEnvelope:
         return self._limit.get_nonce
 
     @property
-    def get_salt(self) -> Optional[int]:
+    def get_salt(self) -> int:
         return self._limit.get_salt
 
     @property
@@ -617,15 +573,12 @@ class TriggerOrderEnvelope:
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 
-    async def submit(self, client: "LightconeClient", orderbook: "OrderBookPair"):
+    async def submit(self, client: object, orderbook: "OrderBookPair"):
         """Submit this trigger order using the client's signing strategy.
 
         - **Native**: signs locally with keypair, submits via REST
         - **WalletAdapter**: signs via external signer, submits via REST
         - **Privy**: sends to backend for signing and submission
-
-        Automatically fills orderbook-derived fields (market, mints, salt) and
-        scales price/size to raw amounts before signing.
 
         Args:
             client: A ``LightconeClient`` instance with a signing strategy set.
@@ -636,19 +589,11 @@ class TriggerOrderEnvelope:
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
-        # Pre-fill orderbook-derived fields (market, mints, salt) and auto-scale
-        # price/size before the signing strategy runs. This is necessary because
-        # the WalletAdapter path calls payload() to hash for external signing,
-        # and the Privy path reads fields like get_market, both of which
-        # happen before sign()/finalize() where these would otherwise run.
-        self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._auto_scale(orderbook)
-
-        strategy = client._require_signing_strategy()
+        strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             request = self.sign(strategy.keypair, orderbook)
-            return await client.orders().submit_trigger(request)
+            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             hash_hex = self.payload().hash_hex()
@@ -659,12 +604,12 @@ class TriggerOrderEnvelope:
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
             request = self.finalize(sig_bs58, orderbook)
-            return await client.orders().submit_trigger(request)
+            return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             from ..privy import privy_order_from_trigger_envelope
             envelope = privy_order_from_trigger_envelope(self, orderbook)
-            result = await client.privy().sign_and_send_order(
+            result = await client.privy().sign_and_send_order(  # type: ignore[attr-defined]
                 strategy.wallet_id, envelope,
             )
             from ..domain.order import TriggerOrderResponse
@@ -673,4 +618,4 @@ class TriggerOrderEnvelope:
                 order_hash=result.get("order_hash", ""),
             )
 
-        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+        raise Exception(f"Unsupported signing strategy: {strategy.kind}")

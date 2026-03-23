@@ -2,14 +2,12 @@
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from ..shared.types import DepositSource
-
-if TYPE_CHECKING:
-    from ..domain.market import Market
 
 
 class MarketStatus(IntEnum):
@@ -91,7 +89,7 @@ class Orderbook:
 
 
 @dataclass
-class OrderPayload:
+class SignedOrder:
     """Signed order structure with all fields including signature (233 bytes).
 
     Note: nonce is u32 range (0 to 2^32-1) but serialized as u64 LE on wire for compatibility.
@@ -111,7 +109,7 @@ class OrderPayload:
 
 
 # Backward compatibility alias
-SignedOrder = OrderPayload
+FullOrder = SignedOrder
 
 
 @dataclass
@@ -130,6 +128,10 @@ class Order:
     salt: int = 0  # u64
 
 
+# Backward compatibility alias
+CompactOrder = Order
+
+
 @dataclass
 class OutcomeMetadata:
     """Metadata for a market outcome."""
@@ -143,7 +145,7 @@ class OutcomeMetadata:
 class MakerFill:
     """Per-maker fill info for deposit_and_swap."""
 
-    order: OrderPayload
+    order: SignedOrder
     maker_fill_amount: int
     taker_fill_amount: int
     deposit_mint: Pubkey
@@ -246,8 +248,8 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    taker_order: OrderPayload
-    maker_orders: list[OrderPayload]
+    taker_order: SignedOrder
+    maker_orders: list[SignedOrder]
     maker_fill_amounts: list[int]
     taker_fill_amounts: list[int]
     full_fill_bitmask: int
@@ -358,7 +360,7 @@ class DepositAndSwapParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
-    taker_order: OrderPayload
+    taker_order: SignedOrder
     taker_is_full_fill: bool
     taker_is_deposit: bool
     taker_deposit_mint: Pubkey
@@ -386,6 +388,14 @@ class WithdrawFromGlobalParams:
     amount: int
 
 
+@dataclass
+class BuildResult:
+    """Result of building a transaction."""
+
+    transaction: Transaction
+    signers: list[Pubkey]
+
+
 # ============================================================================
 # Unified Deposit/Withdraw Parameters
 # ============================================================================
@@ -403,7 +413,7 @@ class DepositParams:
     user: Pubkey
     mint: Pubkey
     amount: int
-    market: Optional["Market"] = None
+    market: object = None  # Optional domain Market (has .pubkey str, .outcomes list)
     deposit_source: Optional[DepositSource] = None
 
 
@@ -411,7 +421,7 @@ class DepositParams:
 class MarketWithdrawContext:
     """Market-specific context required for withdrawals when deposit source is Market."""
 
-    market: "Market"
+    market: object  # domain Market (has .pubkey str, .outcomes list)
     outcome_index: int
     is_token_2022: bool = False
 

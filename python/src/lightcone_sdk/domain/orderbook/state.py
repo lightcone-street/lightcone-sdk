@@ -7,14 +7,10 @@ from typing import Optional, Union
 
 @dataclass
 class OrderbookSnapshot:
-    """Local orderbook state maintained from WebSocket updates.
-
-    Stores bids and asks as ``Decimal`` → ``Decimal`` mappings (price → size)
-    for exact arithmetic. Matches Rust's ``BTreeMap<Decimal, Decimal>`` pattern.
-    """
+    """Local orderbook state maintained from WebSocket updates."""
     orderbook_id: str
-    bids: dict[Decimal, Decimal] = field(default_factory=dict)
-    asks: dict[Decimal, Decimal] = field(default_factory=dict)
+    bids: dict[str, str] = field(default_factory=dict)
+    asks: dict[str, str] = field(default_factory=dict)
     sequence: int = 0
 
     def apply(self, update) -> None:
@@ -34,20 +30,16 @@ class OrderbookSnapshot:
             self.asks.clear()
 
         for bid in update.bids:
-            price = Decimal(bid.price)
-            size = Decimal(bid.size)
-            if size == 0:
-                self.bids.pop(price, None)
+            if bid.size == "0":
+                self.bids.pop(bid.price, None)
             else:
-                self.bids[price] = size
+                self.bids[bid.price] = bid.size
 
         for ask in update.asks:
-            price = Decimal(ask.price)
-            size = Decimal(ask.size)
-            if size == 0:
-                self.asks.pop(price, None)
+            if ask.size == "0":
+                self.asks.pop(ask.price, None)
             else:
-                self.asks[price] = size
+                self.asks[ask.price] = ask.size
 
         self.sequence = update.seq
 
@@ -58,17 +50,17 @@ class OrderbookSnapshot:
             self.asks.clear()
 
         for bid in update.get("bids", []):
-            price = Decimal(str(bid.get("price", bid[0] if isinstance(bid, list) else "0")))
-            size = Decimal(str(bid.get("size", bid[1] if isinstance(bid, list) and len(bid) > 1 else "0")))
-            if size == 0:
+            price = str(bid.get("price", bid[0] if isinstance(bid, list) else "0"))
+            size = str(bid.get("size", bid[1] if isinstance(bid, list) and len(bid) > 1 else "0"))
+            if size == "0":
                 self.bids.pop(price, None)
             else:
                 self.bids[price] = size
 
         for ask in update.get("asks", []):
-            price = Decimal(str(ask.get("price", ask[0] if isinstance(ask, list) else "0")))
-            size = Decimal(str(ask.get("size", ask[1] if isinstance(ask, list) and len(ask) > 1 else "0")))
-            if size == 0:
+            price = str(ask.get("price", ask[0] if isinstance(ask, list) else "0"))
+            size = str(ask.get("size", ask[1] if isinstance(ask, list) and len(ask) > 1 else "0"))
+            if size == "0":
                 self.asks.pop(price, None)
             else:
                 self.asks[price] = size
@@ -78,19 +70,16 @@ class OrderbookSnapshot:
             self.sequence = seq
 
     def best_bid(self) -> Optional[str]:
-        """Highest bid price, or None if no bids."""
         if not self.bids:
             return None
-        return str(max(self.bids.keys()))
+        return max(self.bids.keys(), key=lambda p: float(p))
 
     def best_ask(self) -> Optional[str]:
-        """Lowest ask price, or None if no asks."""
         if not self.asks:
             return None
-        return str(min(self.asks.keys()))
+        return min(self.asks.keys(), key=lambda p: float(p))
 
     def mid_price(self) -> Optional[str]:
-        """Average of best bid and best ask, or None."""
         bb = self.best_bid()
         ba = self.best_ask()
         if bb is None or ba is None:
@@ -98,7 +87,6 @@ class OrderbookSnapshot:
         return str((Decimal(bb) + Decimal(ba)) / 2)
 
     def spread(self) -> Optional[str]:
-        """Difference between best ask and best bid, or None."""
         bb = self.best_bid()
         ba = self.best_ask()
         if bb is None or ba is None:

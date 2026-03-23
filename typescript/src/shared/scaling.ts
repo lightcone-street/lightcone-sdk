@@ -12,6 +12,9 @@ export interface OrderbookDecimals {
 export interface ScaledAmounts {
   amountIn: bigint;
   amountOut: bigint;
+  // Backward-compatible aliases used by v1 builder code.
+  makerAmount: bigint;
+  takerAmount: bigint;
 }
 
 const U64_MAX = (1n << 64n) - 1n;
@@ -101,12 +104,16 @@ export function scalePriceSize(
     return {
       amountIn: quote,
       amountOut: base,
+      makerAmount: quote,
+      takerAmount: base,
     };
   }
 
   return {
     amountIn: base,
     amountOut: quote,
+    makerAmount: base,
+    takerAmount: quote,
   };
 }
 
@@ -135,4 +142,23 @@ function toU64(value: Decimal, label: string): bigint {
     throw ScalingError.overflow(`${label} ${value.toString()} does not fit in u64`);
   }
   return bigint;
+}
+
+// Legacy aliases kept for existing integrations.
+export interface LegacyScaledAmounts {
+  makerAmount: bigint;
+  takerAmount: bigint;
+}
+
+export function scalePriceSizeLegacy(
+  price: string,
+  size: string,
+  side: OrderSide,
+  decimals: OrderbookDecimals
+): LegacyScaledAmounts {
+  const scaled = scalePriceSize(price, size, side, decimals);
+  return {
+    makerAmount: scaled.amountIn,
+    takerAmount: scaled.amountOut,
+  };
 }

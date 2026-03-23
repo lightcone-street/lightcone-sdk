@@ -4,14 +4,16 @@ import { Side, type OrderBookId, type PubkeyStr, type TimeInForce, type TriggerT
 export * from "./client";
 export * from "./wire";
 export * from "./state";
-export { limitSnapshotToOrder, splitSnapshotOrders, triggerSnapshotToOrder, orderFromUpdate, triggerOrderFromUpdate } from "./convert";
+export { limitSnapshotToOrder, splitSnapshotOrders, triggerSnapshotToOrder, orderFromUpdate } from "./convert";
 
 export enum OrderType {
   Limit = "Limit",
   Market = "Market",
   Deposit = "Deposit",
   Withdraw = "Withdraw",
+  StopMarket = "StopMarket",
   StopLimit = "StopLimit",
+  TakeProfitMarket = "TakeProfitMarket",
   TakeProfitLimit = "TakeProfitLimit",
 }
 
@@ -54,11 +56,15 @@ export interface TriggerOrder {
   createdAt: Date;
 }
 
-export function triggerOrderLimitPrice(order: TriggerOrder, baseDecimals: number, quoteDecimals: number): Decimal | undefined {
-  const amountIn = new Decimal(order.amountIn);
-  const amountOut = new Decimal(order.amountOut);
+export function triggerOrderLimitPrice(
+  order: TriggerOrder,
+  baseDecimals: number,
+  quoteDecimals: number
+): Decimal | undefined {
   const baseMult = new Decimal(10).pow(baseDecimals);
   const quoteMult = new Decimal(10).pow(quoteDecimals);
+  const amountIn = new Decimal(order.amountIn);
+  const amountOut = new Decimal(order.amountOut);
 
   if (order.side === Side.Ask && amountIn.greaterThan(0)) {
     return amountOut.mul(baseMult).div(amountIn.mul(quoteMult));

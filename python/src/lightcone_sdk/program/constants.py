@@ -41,7 +41,6 @@ SEED_ORDER_STATUS = b"order_status"
 SEED_USER_NONCE = b"user_nonce"
 SEED_POSITION = b"position"
 ORDERBOOK_SEED = b"orderbook"
-SEED_ORDERBOOK = ORDERBOOK_SEED  # alias for SEED_* naming consistency
 SEED_GLOBAL_DEPOSIT = b"global_deposit"
 
 
@@ -61,7 +60,12 @@ ORDER_SIZE = 37
 SIGNATURE_SIZE = 64
 ORDER_HASH_SIZE = 32
 
-# Order Layout Offsets (for OrderPayload)
+# Backward compatibility aliases
+FULL_ORDER_SIZE = SIGNED_ORDER_SIZE
+COMPACT_ORDER_SIZE = ORDER_SIZE
+
+
+# Order Layout Offsets (for FullOrder / SignedOrder)
 ORDER_NONCE_OFFSET = 0
 ORDER_SALT_OFFSET = 8
 ORDER_MAKER_OFFSET = 16

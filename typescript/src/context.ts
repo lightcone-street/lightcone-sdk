@@ -1,5 +1,4 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
-import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
 import type { DepositSource } from "./shared";
 import type { SigningStrategy } from "./shared/signing";
@@ -14,7 +13,9 @@ export interface ClientContext {
 
 export function requireConnection(ctx: ClientContext): Connection {
   if (!ctx.connection) {
-    throw SdkError.validation("RPC client not configured — use .rpcUrl() on the builder");
+    throw new Error(
+      "RPC client not configured — use .rpcUrl() on the builder"
+    );
   }
   return ctx.connection;
 }
@@ -28,7 +29,9 @@ export function resolveDepositSource(
 
 export function requireSigningStrategy(ctx: ClientContext): SigningStrategy {
   if (!ctx.signingStrategy) {
-    throw SdkError.validation("Signing strategy not configured — use .nativeSigner(), .externalSigner(), or .privyWalletId() on the builder");
+    throw new Error(
+      "Signing strategy not configured — use .nativeSigner(), .externalSigner(), or .privyWalletId() on the builder"
+    );
   }
   return ctx.signingStrategy;
 }

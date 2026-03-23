@@ -6,7 +6,6 @@ from typing import Optional, TYPE_CHECKING
 from urllib.parse import urlencode
 
 from . import LineData
-from ...error import SdkError
 from .wire import (
     OrderbookPriceHistoryResponse,
     DepositPriceHistoryResponse,
@@ -105,15 +104,15 @@ class PriceHistoryClient:
 
 def _ensure_unix_milliseconds(name: str, value: int) -> int:
     if value < 0:
-        raise SdkError(f"{name} must be a non-negative Unix timestamp in milliseconds")
+        raise ValueError(f"{name} must be a non-negative Unix timestamp in milliseconds")
     if value < 10_000_000_000:
-        raise SdkError(f"{name} must be a Unix timestamp in milliseconds, not seconds")
+        raise ValueError(f"{name} must be a Unix timestamp in milliseconds, not seconds")
     return value
 
 
 def _ensure_page_limit(value: int) -> int:
     if value < 1 or value > 1000:
-        raise SdkError("limit must be an integer between 1 and 1000")
+        raise ValueError("limit must be an integer between 1 and 1000")
     return value
 
 

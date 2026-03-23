@@ -8,12 +8,9 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Optional, TYPE_CHECKING
+from typing import Optional
 
 from ..error import SigningError, UserCancelled
-
-if TYPE_CHECKING:
-    from solders.keypair import Keypair
 
 
 class ExternalSigner(ABC):
@@ -53,17 +50,17 @@ class SigningStrategy:
     def __init__(
         self,
         kind: SigningStrategyKind,
-        keypair: Optional[Keypair] = None,
+        keypair: object = None,
         signer: Optional[ExternalSigner] = None,
         wallet_id: Optional[str] = None,
     ):
         self.kind = kind
-        self.keypair: Optional[Keypair] = keypair
+        self.keypair = keypair  # solders.keypair.Keypair (optional import)
         self.signer = signer
         self.wallet_id = wallet_id
 
     @staticmethod
-    def native(keypair: Keypair) -> "SigningStrategy":
+    def native(keypair: object) -> "SigningStrategy":
         """Native keypair signing (CLI, bots).
 
         Signs locally using the provided keypair (``solders.keypair.Keypair``).

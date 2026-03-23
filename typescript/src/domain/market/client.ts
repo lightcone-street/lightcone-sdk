@@ -3,7 +3,6 @@ import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { MintCompleteSetBuilder, MergeCompleteSetBuilder } from "./builders";
 import { SdkError } from "../../error";
-import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import {
   buildMintCompleteSetIx,
@@ -176,7 +175,7 @@ export class Markets {
     const connection = requireConnection(this.client);
     const accountInfo = await connection.getAccountInfo(market);
     if (!accountInfo) {
-      throw ProgramSdkError.accountNotFound(`Market at ${market.toBase58()}`);
+      throw new Error(`Market not found at ${market.toBase58()}`);
     }
     return deserializeProgramMarket(accountInfo.data as Buffer);
   }

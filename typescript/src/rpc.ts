@@ -1,7 +1,6 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import type { ClientContext } from "./context";
 import { requireConnection } from "./context";
-import { ProgramSdkError } from "./program/error";
 import {
   getExchangePda,
   getGlobalDepositTokenPda,
@@ -50,7 +49,7 @@ export class Rpc {
     const pda = this.getExchangePda();
     const accountInfo = await connection.getAccountInfo(pda);
     if (!accountInfo) {
-      throw ProgramSdkError.accountNotFound("Exchange");
+      throw new Error("Exchange account not found");
     }
     return deserializeExchange(accountInfo.data as Buffer);
   }
@@ -60,7 +59,9 @@ export class Rpc {
     const pda = this.getGlobalDepositTokenPda(mint);
     const accountInfo = await connection.getAccountInfo(pda);
     if (!accountInfo) {
-      throw ProgramSdkError.accountNotFound(`GlobalDepositToken for mint ${mint.toBase58()}`);
+      throw new Error(
+        `GlobalDepositToken not found for mint ${mint.toBase58()}`
+      );
     }
     return deserializeGlobalDepositToken(accountInfo.data as Buffer);
   }

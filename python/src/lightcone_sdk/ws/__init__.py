@@ -243,7 +243,7 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
         )
 
         event_type = data.get("event_type", "")
-        if event_type == "update" or (not event_type and ("candle" in data or "t" in data)):
+        if event_type == "update" or (not event_type and "candle" in data):
             return PriceHistoryUpdate.from_dict(data)
         if event_type == "heartbeat" or (not event_type and "server_time" in data and "orderbook_id" not in data):
             return PriceHistoryHeartbeat.from_dict(data)

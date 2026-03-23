@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from typing import Optional
-from . import Order, OrderStatus, TriggerOrder
+from . import Order, TriggerOrder
 
 
 @dataclass
@@ -27,7 +27,7 @@ class UserOpenOrders:
         return None
 
     def update(self, order: Order) -> None:
-        if order.status in (OrderStatus.CANCELLED, OrderStatus.FILLED):
+        if order.status in ("cancelled", "filled"):
             self.remove(order.order_hash)
         else:
             self.upsert(order)

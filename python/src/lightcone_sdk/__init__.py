@@ -1,6 +1,6 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.5.0"
+__version__ = "0.3.21"
 
 # ============================================================================
 # Layer 1: Core
@@ -20,6 +20,7 @@ from .shared import (
     DepositSource,
     Resolution,
     SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
     abbr_number,
     display,
     display_decimal,
@@ -167,9 +168,10 @@ from .program import (
     Orderbook,
     GlobalDepositToken,
     # Types - Orders
-    OrderPayload,
     SignedOrder,
+    FullOrder,
     Order,
+    CompactOrder,
     OutcomeMetadata,
     MakerFill,
     # Types - Params
@@ -187,6 +189,7 @@ from .program import (
     SetAuthorityParams,
     BidOrderParams,
     AskOrderParams,
+    BuildResult,
     WhitelistDepositTokenParams,
     DepositToGlobalParams,
     GlobalToMarketDepositParams,
@@ -220,7 +223,13 @@ from .program import (
     InvalidAccountDataError,
     InvalidOrderError,
     InvalidSignatureError,
+    OrderExpiredError,
+    InsufficientBalanceError,
+    MarketNotActiveError,
+    ExchangePausedError,
+    InvalidOutcomeError,
     TooManyMakersError,
+    OrdersDoNotCrossError,
     # Utils
     keccak256,
     derive_condition_id,
@@ -264,8 +273,11 @@ from .program import (
     serialize_full_order,
     deserialize_full_order,
     serialize_order,
+    serialize_compact_order,
     deserialize_order,
+    deserialize_compact_order,
     to_order,
+    to_compact_order,
     to_submit_request,
     is_signed,
     signature_hex,
@@ -347,6 +359,7 @@ __all__ = [
     "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
+    "SubmitTriggerOrderRequest",
     # Shared utils
     "abbr_number",
     "display",
@@ -448,9 +461,10 @@ __all__ = [
     "UserNonce",
     "Orderbook",
     "GlobalDepositToken",
-    "OrderPayload",
     "SignedOrder",
+    "FullOrder",
     "Order",
+    "CompactOrder",
     "OutcomeMetadata",
     "MakerFill",
     # Program - Params
@@ -468,6 +482,7 @@ __all__ = [
     "SetAuthorityParams",
     "BidOrderParams",
     "AskOrderParams",
+    "BuildResult",
     "WhitelistDepositTokenParams",
     "DepositToGlobalParams",
     "GlobalToMarketDepositParams",
@@ -501,7 +516,13 @@ __all__ = [
     "InvalidAccountDataError",
     "InvalidOrderError",
     "InvalidSignatureError",
+    "OrderExpiredError",
+    "InsufficientBalanceError",
+    "MarketNotActiveError",
+    "ExchangePausedError",
+    "InvalidOutcomeError",
     "TooManyMakersError",
+    "OrdersDoNotCrossError",
     # Program - Utils
     "keccak256",
     "derive_condition_id",
@@ -545,8 +566,11 @@ __all__ = [
     "serialize_full_order",
     "deserialize_full_order",
     "serialize_order",
+    "serialize_compact_order",
     "deserialize_order",
+    "deserialize_compact_order",
     "to_order",
+    "to_compact_order",
     "to_submit_request",
     "is_signed",
     "signature_hex",

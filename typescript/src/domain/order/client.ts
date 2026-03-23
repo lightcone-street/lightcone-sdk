@@ -3,7 +3,6 @@ import { Keypair, Transaction, type PublicKey, type TransactionInstruction } fro
 import type { ClientContext } from "../../context";
 import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
-import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
@@ -161,7 +160,7 @@ export type PlaceResponse =
       status: "rejected";
       error?: string;
       details?: string;
-      rejection_reason?: string;
+      reason?: string;
       order_hash?: string;
       remaining?: string;
       filled?: string;
@@ -278,15 +277,7 @@ export class Orders {
       case "filled":
         return raw;
       case "rejected": {
-        const message =
-          [raw.error, raw.details].filter(Boolean).join(": ") ||
-          raw.rejection_reason ||
-          [
-            "Rejected",
-            raw.order_hash ? `hash=${raw.order_hash}` : "",
-            raw.filled ? `filled=${raw.filled}` : "",
-            raw.remaining ? `remaining=${raw.remaining}` : "",
-          ].filter(Boolean).join(", ");
+        const message = [raw.error, raw.details].filter(Boolean).join(": ") || "Rejected";
         throw SdkError.from(new Error(message));
       }
       case "bad_request":
@@ -433,19 +424,15 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const raw = await privy.signAndCancelOrder(
+        const result = await privy.signAndCancelOrder(
           strategy.walletId,
           orderHash,
           maker as string
         );
-        const resp = raw as unknown as CancelResponse;
-        if (resp.status === "cancelled") {
-          return { order_hash: resp.order_hash, remaining: resp.remaining };
+        if ("order_hash" in result) {
+          return { order_hash: result.order_hash, remaining: Number(result.remaining ?? 0) };
         }
-        if (resp.status === "internal_error") {
-          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
-        }
-        throw SdkError.from(new Error(resp.error));
+        throw SdkError.from(new Error("Unexpected cancel response"));
       }
     }
   }
@@ -496,30 +483,20 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const raw = await privy.signAndCancelAllOrders(
+        const result = await privy.signAndCancelAllOrders(
           strategy.walletId,
           userPubkey as string,
           resolvedOrderbookId as string,
           timestamp,
           salt
         );
-        const resp = raw as unknown as CancelAllResponse;
-        if (resp.status === "success") {
-          return {
-            cancelled_order_hashes: resp.cancelled_order_hashes,
-            count: resp.count,
-            user_pubkey: asPubkeyStr(resp.user_pubkey),
-            orderbook_id: asOrderBookId(resp.orderbook_id),
-            message: resp.message,
-          };
-        }
-        if (resp.status === "error") {
-          throw SdkError.from(new Error(resp.message));
-        }
-        if (resp.status === "internal_error") {
-          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
-        }
-        throw SdkError.from(new Error(resp.error));
+        return {
+          cancelled_order_hashes: result.cancelled_order_hashes,
+          count: result.count,
+          user_pubkey: asPubkeyStr(result.user_pubkey),
+          orderbook_id: asOrderBookId(result.orderbook_id),
+          message: result.message,
+        };
       }
     }
   }
@@ -550,19 +527,15 @@ export class Orders {
       }
       case "privy": {
         const privy = new Privy(this.client);
-        const raw = await privy.signAndCancelTriggerOrder(
+        const result = await privy.signAndCancelTriggerOrder(
           strategy.walletId,
           triggerOrderId,
           maker as string
         );
-        const resp = raw as unknown as CancelTriggerResponse;
-        if (resp.status === "cancelled") {
-          return { trigger_order_id: resp.trigger_order_id };
+        if ("trigger_order_id" in result) {
+          return { trigger_order_id: result.trigger_order_id };
         }
-        if (resp.status === "internal_error") {
-          throw SdkError.from(new Error([resp.error, resp.details].filter(Boolean).join(": ")));
-        }
-        throw SdkError.from(new Error(resp.error));
+        throw SdkError.from(new Error("Unexpected cancel-trigger response"));
       }
     }
   }
@@ -656,7 +629,7 @@ export class Orders {
   async currentNonce(user: PublicKey): Promise<number> {
     const nonce = await this.getNonce(user);
     if (nonce > 0xFFFFFFFFn) {
-      throw ProgramSdkError.overflow(`Nonce exceeds u32 range: ${nonce}`);
+      throw new Error(`Nonce exceeds u32 range: ${nonce}`);
     }
     return Number(nonce);
   }
