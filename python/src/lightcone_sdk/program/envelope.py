@@ -142,6 +142,18 @@ class LimitOrderEnvelope:
         self._time_in_force = tif
         return self
 
+    def _auto_fill_from_orderbook(self, orderbook: OrderBookPair) -> None:
+        """Fill market, mints, and salt from orderbook if not explicitly set."""
+        if self._market is None:
+            self._market = Pubkey.from_string(orderbook.market_pubkey)
+        if self._salt is None:
+            from .orders import generate_salt as _gen_salt
+            self._salt = _gen_salt()
+        if self._base_mint is None:
+            self._base_mint = Pubkey.from_string(orderbook.base.mint)
+        if self._quote_mint is None:
+            self._quote_mint = Pubkey.from_string(orderbook.quote.mint)
+
     def _auto_scale(self, orderbook: OrderBookPair) -> None:
         """Auto-scale price/size to raw amounts if not already set.
 
@@ -296,6 +308,10 @@ class LimitOrderEnvelope:
             ``SubmitOrderResponse`` on success.
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
+
+        # Pre-fill orderbook-derived fields and auto-scale before signing
+        self._auto_fill_from_orderbook(orderbook)
+        self._auto_scale(orderbook)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._nonce is not None:
@@ -595,6 +611,10 @@ class TriggerOrderEnvelope:
             ``TriggerOrderResponse`` on success.
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
+
+        # Pre-fill orderbook-derived fields and auto-scale before signing
+        self._limit._auto_fill_from_orderbook(orderbook)
+        self._limit._auto_scale(orderbook)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._limit._nonce is not None:

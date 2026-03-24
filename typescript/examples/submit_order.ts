@@ -9,8 +9,9 @@ import {
 } from "./common";
 
 async function main() {
-  const client = rpcClient();
   const keypair = wallet();
+  const client = rpcClient();
+  client.setSigningStrategy({ type: "native", keypair });
   await login(client, keypair);
 
   const [_market, orderbook] = await marketAndOrderbook(client);
