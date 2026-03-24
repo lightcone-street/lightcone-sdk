@@ -150,9 +150,9 @@ class LimitOrderEnvelope:
             from .orders import generate_salt as _gen_salt
             self._salt = _gen_salt()
         if self._base_mint is None:
-            self._base_mint = Pubkey.from_string(orderbook.base.mint)
+            self._base_mint = Pubkey.from_string(orderbook.base.pubkey)
         if self._quote_mint is None:
-            self._quote_mint = Pubkey.from_string(orderbook.quote.mint)
+            self._quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
     def _auto_scale(self, orderbook: OrderBookPair) -> None:
         """Auto-scale price/size to raw amounts if not already set.
