@@ -26,6 +26,21 @@ class OrderBookPair:
     last_trade_time: Optional[str] = None
     active: bool = True
 
+    def market(self) -> "Pubkey":
+        """Return the market as a ``Pubkey``."""
+        from solders.pubkey import Pubkey
+        return Pubkey.from_string(self.market_pubkey)
+
+    def base_mint(self) -> "Pubkey":
+        """Return the base conditional-token mint as a ``Pubkey``."""
+        from solders.pubkey import Pubkey
+        return Pubkey.from_string(self.base.pubkey)
+
+    def quote_mint(self) -> "Pubkey":
+        """Return the quote conditional-token mint as a ``Pubkey``."""
+        from solders.pubkey import Pubkey
+        return Pubkey.from_string(self.quote.pubkey)
+
     def decimals(self) -> "OrderbookDecimals":
         """Derive scaling decimals from this pair's token metadata.
 

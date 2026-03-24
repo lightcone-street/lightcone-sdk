@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { PublicKey } from "@solana/web3.js";
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import type { OrderbookDecimals } from "../../shared/scaling";
 import type { ConditionalToken } from "../market";
@@ -76,6 +77,21 @@ export function orderbookDecimals(pair: OrderBookPair): OrderbookDecimals {
     priceDecimals: Math.max(0, 6 + quoteDecimals - baseDecimals),
     tickSize: BigInt(Math.max(pair.tickSize, 0)),
   };
+}
+
+/** Return the market as a `PublicKey`. */
+export function orderBookMarket(pair: OrderBookPair): PublicKey {
+  return new PublicKey(pair.marketPubkey);
+}
+
+/** Return the base conditional-token mint as a `PublicKey`. */
+export function orderBookBaseMint(pair: OrderBookPair): PublicKey {
+  return new PublicKey(pair.base.pubkey);
+}
+
+/** Return the quote conditional-token mint as a `PublicKey`. */
+export function orderBookQuoteMint(pair: OrderBookPair): PublicKey {
+  return new PublicKey(pair.quote.pubkey);
 }
 
 export class OrderBookValidationError extends Error {

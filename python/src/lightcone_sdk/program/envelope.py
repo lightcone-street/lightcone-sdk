@@ -203,6 +203,7 @@ class LimitOrderEnvelope:
         using the orderbook's decimals. If amount_in() and amount_out()
         were set directly, those raw values are used as-is.
         """
+        self._auto_fill_from_orderbook(orderbook)
         self._auto_scale(orderbook)
         order = self.payload()
         apply_signature(order, sig_bs58)
@@ -219,6 +220,7 @@ class LimitOrderEnvelope:
         using the orderbook's decimals. If amount_in() and amount_out()
         were set directly, those raw values are used as-is.
         """
+        self._auto_fill_from_orderbook(orderbook)
         self._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
@@ -470,6 +472,7 @@ class TriggerOrderEnvelope:
         """
         assert self._trigger_price is not None, "trigger_price is required for trigger orders"
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        self._limit._auto_fill_from_orderbook(orderbook)
         self._limit._auto_scale(orderbook)
         order = self.payload()
         apply_signature(order, sig_bs58)
@@ -489,6 +492,7 @@ class TriggerOrderEnvelope:
         """
         assert self._trigger_price is not None, "trigger_price is required for trigger orders"
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        self._limit._auto_fill_from_orderbook(orderbook)
         self._limit._auto_scale(orderbook)
         order = self.payload()
         sign_order(order, keypair)
