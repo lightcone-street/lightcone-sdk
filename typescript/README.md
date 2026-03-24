@@ -119,12 +119,11 @@ const orderbook =
 
 ```typescript
 const depositMint = new PublicKey(market.depositAssets[0].pubkey);
-const numOutcomes = market.outcomes.length;
 const depositIx = client.positions().deposit()
   .user(keypair.publicKey)
   .mint(depositMint)
   .amount(1_000_000n)
-  .market(market)
+  .withMarketDepositSource(market)
   .buildIx();
 ```
 
@@ -178,12 +177,11 @@ await client.orders().cancel({
 
 ```typescript
 // signAndSubmit builds the tx, signs it using the client's signing strategy, and submits
-const txHash = await client.markets().mergeCompleteSet()
+const txHash = await client.positions().merge()
   .user(keypair.publicKey)
-  .market(new PublicKey(market.pubkey))
+  .market(market)
   .mint(depositMint)
   .amount(1_000_000n)
-  .numOutcomes(numOutcomes)
   .signAndSubmit();
 ```
 
@@ -227,7 +225,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Set environment var
 | Example | Description |
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
-| [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
+| [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit deposit/merge and increment nonce on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
 
 ### WebSocket Streaming

@@ -43,11 +43,8 @@ from .types import (
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
     DepositAndSwapParams,
-    DepositParams,
     ExtendPositionTokensParams,
-    MarketWithdrawContext,
     WithdrawFromGlobalParams,
-    WithdrawParams,
 )
 
 # Constants
@@ -313,11 +310,8 @@ __all__ = [
     "GlobalToMarketDepositParams",
     "InitPositionTokensParams",
     "DepositAndSwapParams",
-    "DepositParams",
     "ExtendPositionTokensParams",
-    "MarketWithdrawContext",
     "WithdrawFromGlobalParams",
-    "WithdrawParams",
     # Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",

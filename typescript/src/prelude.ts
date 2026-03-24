@@ -94,9 +94,6 @@ export type {
   TokenBalanceTokenType,
   DepositAssetMetadata,
   DepositTokenBalance,
-  DepositParams,
-  WithdrawParams,
-  MarketWithdrawContext,
 } from "./domain/position";
 
 export {

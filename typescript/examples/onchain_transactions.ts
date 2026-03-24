@@ -1,10 +1,9 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { Transaction } from "@solana/web3.js";
 import {
   rpcClient,
   wallet,
   marketAndOrderbook,
   depositMint,
-  numOutcomes,
 } from "./common";
 
 function describeTx(name: string, tx: Transaction): void {
@@ -19,31 +18,27 @@ async function main() {
   const connection = client.rpc().inner();
 
   const [m] = await marketAndOrderbook(client);
-  const marketPubkey = new PublicKey(m.pubkey);
   const dMint = depositMint(m);
-  const outcomes = numOutcomes(m);
 
   const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
 
   const transactions: Array<[string, Transaction]> = [
     [
-      "mint_complete_set",
-      client.markets().mintCompleteSet()
+      "deposit",
+      client.positions().deposit()
         .user(keypair.publicKey)
-        .market(marketPubkey)
         .mint(dMint)
         .amount(1_000_000n)
-        .numOutcomes(outcomes)
+        .withMarketDepositSource(m)
         .buildTx(),
     ],
     [
-      "merge_complete_set",
-      client.markets().mergeCompleteSet()
+      "merge",
+      client.positions().merge()
         .user(keypair.publicKey)
-        .market(marketPubkey)
+        .market(m)
         .mint(dMint)
         .amount(1_000_000n)
-        .numOutcomes(outcomes)
         .buildTx(),
     ],
     ["increment_nonce", client.orders().incrementNonceTx(keypair.publicKey)],

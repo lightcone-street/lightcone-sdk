@@ -14,23 +14,23 @@ from solders.transaction import Transaction
 from ...error import SdkError, MissingMarketContext
 from ...shared.types import DepositSource
 from ...program.types import (
+    BuildDepositParams,
+    BuildMergeParams,
     DepositToGlobalParams,
     ExtendPositionTokensParams,
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
-    MergeCompleteSetParams,
-    MintCompleteSetParams,
     RedeemWinningsParams,
     WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 )
 from ...program.instructions import (
+    build_deposit_instruction,
     build_deposit_to_global_instruction,
     build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
-    build_merge_complete_set_instruction,
-    build_mint_complete_set_instruction,
+    build_merge_instruction,
     build_redeem_winnings_instruction,
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
@@ -110,13 +110,13 @@ class DepositBuilder:
             return build_deposit_to_global_instruction(
                 user=user, mint=mint, amount=amount, program_id=program_id,
             )
-        else:  # Market -> mint_complete_set (PR #39 fix)
+        else:  # Market -> deposit (mint complete set)
             market = self._market
             if market is None:
                 raise MissingMarketContext("market is required for Market deposit source")
             market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
             num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
-            return build_mint_complete_set_instruction(
+            return build_deposit_instruction(
                 user=user, market=market_pubkey, deposit_mint=mint,
                 amount=amount, num_outcomes=num_outcomes, program_id=program_id,
             )
@@ -194,7 +194,7 @@ class MergeBuilder:
             raise MissingMarketContext("market is required for merge")
         market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
         num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
-        return build_merge_complete_set_instruction(
+        return build_merge_instruction(
             user=user, market=market_pubkey, deposit_mint=mint,
             amount=amount, num_outcomes=num_outcomes,
             program_id=self._client.program_id,

@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { generateSalt } from "../src/program";
 import {
   rpcClient,
   wallet,
@@ -12,23 +13,24 @@ async function main() {
   const keypair = wallet();
   await login(client, keypair);
 
-  const [m, orderbook] = await marketAndOrderbook(client);
-  const nonce = await freshOrderNonce(client, keypair.publicKey);
+  const [_market, orderbook] = await marketAndOrderbook(client);
 
-  const request = client
+  // Fetch and cache the on-chain nonce once. Subsequent orders that omit
+  // `.nonce()` will automatically use this cached value.
+  const nonce = await freshOrderNonce(client, keypair.publicKey);
+  client.setOrderNonce(nonce);
+
+  // submit() auto-populates nonce from cache when `.nonce()` is not called.
+  const response = await client
     .orders()
     .limitOrder()
     .maker(keypair.publicKey)
-    .market(new PublicKey(m.pubkey))
-    .baseMint(new PublicKey(orderbook.base.pubkey))
-    .quoteMint(new PublicKey(orderbook.quote.pubkey))
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(nonce)
-    .sign(keypair, orderbook);
+    .salt(generateSalt())
+    .submit(client, orderbook);
 
-  const response = await client.orders().submit(request);
   console.log(
     `submitted: ${response.order_hash} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
   );

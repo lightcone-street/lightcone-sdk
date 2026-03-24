@@ -715,26 +715,3 @@ export class GlobalToMarketDepositBuilder {
   }
 }
 
-// ─── Unified param types ────────────────────────────────────────────────────
-
-export interface DepositParams {
-  user: PublicKey;
-  mint: PublicKey;
-  amount: bigint;
-  market?: Market;
-  depositSource?: DepositSource;
-}
-
-export interface MarketWithdrawContext {
-  market: Market;
-  outcomeIndex: number;
-  isToken2022: boolean;
-}
-
-export interface WithdrawParams {
-  user: PublicKey;
-  mint: PublicKey;
-  amount: bigint;
-  marketContext?: MarketWithdrawContext;
-  depositSource?: DepositSource;
-}

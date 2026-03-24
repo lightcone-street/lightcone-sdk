@@ -1,10 +1,8 @@
-"""Build, sign, and submit mint/merge complete set and increment nonce on-chain."""
+"""Build, sign, and submit deposit, merge, and increment nonce on-chain."""
 
 import asyncio
 
-from solders.pubkey import Pubkey
-
-from common import client as make_client, wallet, market, deposit_mint, num_outcomes
+from common import client as make_client, wallet, market, deposit_mint
 from lightcone_sdk.rpc import require_connection
 
 
@@ -24,32 +22,28 @@ async def main():
     keypair = wallet()
 
     m = await market(client)
-    market_pubkey = Pubkey.from_string(m.pubkey)
     d_mint = deposit_mint(m)
-    outcomes = num_outcomes(m)
     amount = 1_000_000
     blockhash = await client.rpc().get_latest_blockhash()
 
     # Build transactions via fluent builders
     transactions = [
         (
-            "mint_complete_set",
-            client.markets().mint_complete_set()
+            "deposit",
+            client.positions().deposit()
                 .user(keypair.pubkey())
-                .market(market_pubkey)
                 .mint(d_mint)
                 .amount(amount)
-                .num_outcomes(outcomes)
+                .with_market_deposit_source(m)
                 .build_tx(),
         ),
         (
-            "merge_complete_set",
-            client.markets().merge_complete_set()
+            "merge",
+            client.positions().merge()
                 .user(keypair.pubkey())
-                .market(market_pubkey)
+                .market(m)
                 .mint(d_mint)
                 .amount(amount)
-                .num_outcomes(outcomes)
                 .build_tx(),
         ),
         (

@@ -23,11 +23,15 @@ async def main():
     base_mint = Pubkey.from_string(orderbook.base.pubkey)
     quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
-    # 2. Get a fresh nonce from on-chain
+    # 2. Get a fresh nonce and cache it on the client.
+    #    Subsequent orders that omit .nonce() will auto-populate from this cache.
     nonce = await client.orders().current_nonce(keypair.pubkey())
+    client.set_order_nonce(nonce)
 
-    # 3. Build, sign a limit order (scaling is applied automatically)
-    request = (
+    # 3. Build and submit a limit order via the unified submit() flow.
+    #    submit() dispatches based on the client's signing strategy (native/wallet/privy).
+    #    Nonce is auto-populated from the client cache since we don't call .nonce() here.
+    response = await (
         client.orders().limit_order()
         .maker(keypair.pubkey())
         .market(Pubkey.from_string(m.pubkey))
@@ -36,13 +40,9 @@ async def main():
         .bid()
         .price("0.55")
         .size("1")
-        .nonce(nonce)
         .salt(generate_salt())
-        .sign(keypair, orderbook)
+        .submit(client, orderbook)
     )
-
-    # 4. Submit
-    response = await client.orders().submit(request)
     print(
         f"submitted: {response.order_hash} "
         f"filled={response.filled} remaining={response.remaining} "

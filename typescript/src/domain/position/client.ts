@@ -1,10 +1,8 @@
 import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
-import { requireConnection, resolveDepositSource } from "../../context";
-import { SdkError } from "../../error";
+import { requireConnection } from "../../context";
 import { RetryPolicy } from "../../http";
 import {
-  buildDepositIx,
   buildRedeemWinningsIx,
   buildWithdrawFromPositionIx,
   buildInitPositionTokensIx,
@@ -25,7 +23,6 @@ import type {
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
 } from "../../program/types";
-import { DepositSource } from "../../shared";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -38,8 +35,6 @@ import {
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
-  type DepositParams,
-  type WithdrawParams,
 } from "./builders";
 
 export class Positions {
@@ -157,77 +152,6 @@ export class Positions {
 
   withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
     const ix = this.withdrawFromGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  // ── Unified deposit/withdraw (dispatch by deposit source) ───────────
-
-  depositIx(params: DepositParams): TransactionInstruction {
-    const source = resolveDepositSource(this.client, params.depositSource);
-    switch (source) {
-      case DepositSource.Global:
-        return this.depositToGlobalIx({
-          user: params.user,
-          mint: params.mint,
-          amount: params.amount,
-        });
-      case DepositSource.Market: {
-        const market = params.market;
-        if (!market) {
-          throw SdkError.missingMarketContext("market is required for Market deposit");
-        }
-        const marketPubkey = new PublicKey(market.pubkey);
-        const numOutcomes = market.outcomes.length;
-        return buildDepositIx(
-          {
-            user: params.user,
-            market: marketPubkey,
-            depositMint: params.mint,
-            amount: params.amount,
-          },
-          numOutcomes,
-          this.client.programId,
-        );
-      }
-    }
-  }
-
-  depositTx(params: DepositParams): Transaction {
-    const ix = this.depositIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  withdrawIx(params: WithdrawParams): TransactionInstruction {
-    const source = resolveDepositSource(this.client, params.depositSource);
-    switch (source) {
-      case DepositSource.Global:
-        return this.withdrawFromGlobalIx({
-          user: params.user,
-          mint: params.mint,
-          amount: params.amount,
-        });
-      case DepositSource.Market: {
-        const ctx = params.marketContext;
-        if (!ctx) {
-          throw SdkError.missingMarketContext("market_context is required for Market withdrawal");
-        }
-        const marketPubkey = new PublicKey(ctx.market.pubkey);
-        return this.withdrawFromPositionIx(
-          {
-            user: params.user,
-            market: marketPubkey,
-            mint: params.mint,
-            amount: params.amount,
-            outcomeIndex: ctx.outcomeIndex,
-          },
-          ctx.isToken2022,
-        );
-      }
-    }
-  }
-
-  withdrawTx(params: WithdrawParams): Transaction {
-    const ix = this.withdrawIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
