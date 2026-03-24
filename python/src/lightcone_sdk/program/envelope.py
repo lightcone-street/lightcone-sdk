@@ -59,8 +59,8 @@ class LimitOrderEnvelope:
     """
 
     def __init__(self):
-        self._nonce: int = 0
-        self._salt: int = 0
+        self._nonce: Optional[int] = None
+        self._salt: Optional[int] = None
         self._maker: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._base_mint: Optional[Pubkey] = None
@@ -181,6 +181,7 @@ class LimitOrderEnvelope:
         assert self._market is not None, "market is required"
         assert self._base_mint is not None, "base_mint is required"
         assert self._quote_mint is not None, "quote_mint is required"
+        assert self._nonce is not None, "nonce is required"
 
         return SignedOrder(
             nonce=self._nonce,
