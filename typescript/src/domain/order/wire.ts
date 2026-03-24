@@ -1,16 +1,15 @@
+import { TimeInForce, TriggerType } from "../../shared";
 import type {
   OrderBookId,
   OrderUpdateType,
   PubkeyStr,
   Side,
-  TimeInForce,
   TriggerResultStatus,
   TriggerStatus,
-  TriggerType,
   TriggerUpdateType,
 } from "../../shared";
 import type { Notification } from "../notification";
-import type { OrderStatus } from "./index";
+import type { OrderStatus, TriggerOrder } from "./index";
 
 export interface ConditionalBalance {
   outcome_index: number;
@@ -122,6 +121,26 @@ export interface TriggerOrderUpdate {
   result_filled?: string;
   result_remaining?: string;
   timestamp: string;
+  maker_amount?: string;
+  taker_amount?: string;
+  tif?: TimeInForce;
+}
+
+export function triggerUpdateToTriggerOrder(update: TriggerOrderUpdate): TriggerOrder {
+  const triggerType = update.trigger_above ? TriggerType.TakeProfit : TriggerType.StopLoss;
+  return {
+    triggerOrderId: update.trigger_order_id,
+    orderHash: update.order_hash,
+    marketPubkey: update.market_pubkey,
+    orderbookId: update.orderbook_id,
+    triggerPrice: update.trigger_price,
+    triggerType,
+    side: update.side,
+    amountIn: update.maker_amount ?? "0",
+    amountOut: update.taker_amount ?? "0",
+    timeInForce: update.tif ?? TimeInForce.Gtc,
+    createdAt: new Date(update.timestamp),
+  };
 }
 
 export type OrderEvent =
