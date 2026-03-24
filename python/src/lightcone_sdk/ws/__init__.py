@@ -300,7 +300,7 @@ class WsConfig:
     max_reconnect_attempts: int = 10
     base_reconnect_delay_ms: int = 1000
     ping_interval_ms: int = 30_000
-    pong_timeout_ms: int = 1_000
+    pong_timeout_ms: int = 10_000
 
 
 WS_DEFAULT_CONFIG = WsConfig()

@@ -440,3 +440,8 @@ class WithdrawParams:
     amount: int
     market_context: Optional[MarketWithdrawContext] = None
     deposit_source: Optional[DepositSource] = None
+
+
+# Aliases matching Rust SDK naming (PR #46)
+BuildDepositParams = MintCompleteSetParams
+BuildMergeParams = MergeCompleteSetParams

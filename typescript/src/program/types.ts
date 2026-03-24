@@ -201,9 +201,9 @@ export interface AddDepositMintParams {
 }
 
 /**
- * Parameters for mintCompleteSet instruction
+ * Parameters for deposit (mint complete set) instruction.
  */
-export interface MintCompleteSetParams {
+export interface BuildDepositParams {
   user: PublicKey;
   market: PublicKey;
   depositMint: PublicKey;
@@ -211,9 +211,9 @@ export interface MintCompleteSetParams {
 }
 
 /**
- * Parameters for mergeCompleteSet instruction
+ * Parameters for merge (merge complete set) instruction.
  */
-export interface MergeCompleteSetParams {
+export interface BuildMergeParams {
   user: PublicKey;
   market: PublicKey;
   depositMint: PublicKey;

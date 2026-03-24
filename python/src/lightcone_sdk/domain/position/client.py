@@ -14,6 +14,7 @@ from .builders import (
     ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder,
     InitPositionTokensBuilder,
+    MergeBuilder,
     RedeemWinningsBuilder,
     WithdrawBuilder,
     WithdrawFromGlobalBuilder,
@@ -299,6 +300,10 @@ class Positions:
         Use ``.build_ix()`` or ``.build_tx()`` to produce the final instruction/transaction.
         """
         return WithdrawBuilder(self._client, self._client.deposit_source)
+
+    def merge(self) -> MergeBuilder:
+        """Create a merge builder for burning conditional tokens and releasing collateral."""
+        return MergeBuilder(self._client)
 
     def redeem_winnings(self) -> RedeemWinningsBuilder:
         """Create a redeem winnings builder."""

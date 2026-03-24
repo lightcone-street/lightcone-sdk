@@ -297,6 +297,12 @@ class LimitOrderEnvelope:
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
+        # Cache nonce if explicitly provided, or auto-populate from cache
+        if self._nonce is not None:
+            client.set_order_nonce(self._nonce)  # type: ignore[attr-defined]
+        else:
+            self._nonce = client.order_nonce or 0  # type: ignore[attr-defined]
+
         strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
@@ -589,6 +595,12 @@ class TriggerOrderEnvelope:
             ``TriggerOrderResponse`` on success.
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
+
+        # Cache nonce if explicitly provided, or auto-populate from cache
+        if self._limit._nonce is not None:
+            client.set_order_nonce(self._limit._nonce)  # type: ignore[attr-defined]
+        else:
+            self._limit._nonce = client.order_nonce or 0  # type: ignore[attr-defined]
 
         strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 

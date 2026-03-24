@@ -1,25 +1,16 @@
-import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { type PublicKey } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
-import { MintCompleteSetBuilder, MergeCompleteSetBuilder } from "./builders";
 import { SdkError } from "../../error";
 import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
-import {
-  buildMintCompleteSetIx,
-  buildMergeCompleteSetIx,
-} from "../../program/instructions";
 import {
   getMarketPda,
   getAllConditionalMintPdas,
 } from "../../program/pda";
 import { deserializeMarket as deserializeProgramMarket } from "../../program/accounts";
 import { deriveConditionId } from "../../program/utils";
-import type {
-  Market as ProgramMarket,
-  MintCompleteSetParams,
-  MergeCompleteSetParams,
-} from "../../program/types";
+import type { Market as ProgramMarket } from "../../program/types";
 import { marketFromWire } from "./convert";
 import { Status, type Market } from "./index";
 import type { MarketSearchResult, MarketsResponse, SingleMarketResponse } from "./wire";
@@ -124,50 +115,6 @@ export class Markets {
     return result.filter(
       (item) => item.market_status === Status.Active || item.market_status === Status.Resolved
     );
-  }
-
-  // ── On-chain transaction builders ────────────────────────────────────
-
-  mintCompleteSetIx(
-    params: MintCompleteSetParams,
-    numOutcomes: number
-  ): TransactionInstruction {
-    return buildMintCompleteSetIx(params, numOutcomes, this.client.programId);
-  }
-
-  mergeCompleteSetIx(
-    params: MergeCompleteSetParams,
-    numOutcomes: number
-  ): TransactionInstruction {
-    return buildMergeCompleteSetIx(params, numOutcomes, this.client.programId);
-  }
-
-  // ── Transaction builders (_tx convenience wrappers) ─────────────────
-
-  mintCompleteSetTx(
-    params: MintCompleteSetParams,
-    numOutcomes: number
-  ): Transaction {
-    const ix = this.mintCompleteSetIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  mergeCompleteSetTx(
-    params: MergeCompleteSetParams,
-    numOutcomes: number
-  ): Transaction {
-    const ix = this.mergeCompleteSetIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  // ── Builder factories ──────────────────────────────────────────────
-
-  mintCompleteSet(): MintCompleteSetBuilder {
-    return new MintCompleteSetBuilder(this.client);
-  }
-
-  mergeCompleteSet(): MergeCompleteSetBuilder {
-    return new MergeCompleteSetBuilder(this.client);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

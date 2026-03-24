@@ -4,13 +4,13 @@ import { requireConnection, resolveDepositSource } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
 import {
+  buildDepositIx,
   buildRedeemWinningsIx,
   buildWithdrawFromPositionIx,
   buildInitPositionTokensIx,
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
   buildGlobalToMarketDepositIx,
-  buildMintCompleteSetIx,
   buildWithdrawFromGlobalIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";
@@ -29,6 +29,7 @@ import { DepositSource } from "../../shared";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
+  MergeBuilder,
   WithdrawBuilder,
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
@@ -177,7 +178,7 @@ export class Positions {
         }
         const marketPubkey = new PublicKey(market.pubkey);
         const numOutcomes = market.outcomes.length;
-        return buildMintCompleteSetIx(
+        return buildDepositIx(
           {
             user: params.user,
             market: marketPubkey,
@@ -234,6 +235,10 @@ export class Positions {
 
   deposit(): DepositBuilder {
     return new DepositBuilder(this.client, this.client.depositSource);
+  }
+
+  merge(): MergeBuilder {
+    return new MergeBuilder(this.client);
   }
 
   withdraw(): WithdrawBuilder {

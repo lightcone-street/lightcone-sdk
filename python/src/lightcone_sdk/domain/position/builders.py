@@ -1,4 +1,4 @@
-"""Fluent builders for deposit, withdraw, and position operations.
+"""Fluent builders for deposit, withdraw, merge, and position operations.
 
 Created via factory methods on ``client.positions()``.
 """
@@ -137,12 +137,88 @@ class DepositBuilder:
 # ─── WithdrawBuilder ────────────────────────────────────────────────────────
 
 
+class MergeBuilder:
+    """Fluent builder for merge operations.
+
+    Burns a complete set of conditional tokens (one of each outcome) from a market
+    position and releases the underlying collateral back to the user's wallet.
+
+    Created via ``client.positions().merge()``.
+
+    Example::
+
+        ix = (client.positions().merge()
+            .user(keypair.pubkey())
+            .market(market)
+            .mint(deposit_mint)
+            .amount(1_000_000)
+            .build_ix())
+    """
+
+    def __init__(self, client: "LightconeClient"):
+        self._client = client
+        self._user: Optional[Pubkey] = None
+        self._mint: Optional[Pubkey] = None
+        self._amount: Optional[int] = None
+        self._market: object = None
+
+    def user(self, user: Pubkey) -> "MergeBuilder":
+        self._user = user
+        return self
+
+    def mint(self, mint: Pubkey) -> "MergeBuilder":
+        self._mint = mint
+        return self
+
+    def amount(self, amount: int) -> "MergeBuilder":
+        self._amount = amount
+        return self
+
+    def market(self, market: object) -> "MergeBuilder":
+        """Set the market reference (required)."""
+        self._market = market
+        return self
+
+    def build_ix(self) -> Instruction:
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        mint = self._mint
+        if mint is None:
+            raise SdkError("mint is required")
+        amount = self._amount
+        if amount is None:
+            raise SdkError("amount is required")
+        market = self._market
+        if market is None:
+            raise MissingMarketContext("market is required for merge")
+        market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
+        num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+        return build_merge_complete_set_instruction(
+            user=user, market=market_pubkey, deposit_mint=mint,
+            amount=amount, num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
+        )
+
+    def build_tx(self) -> Transaction:
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        ix = self.build_ix()
+        return Transaction.new_with_payer([ix], user)
+
+    async def sign_and_submit(self) -> str:
+        """Build, sign, and submit the merge transaction."""
+        tx = self.build_tx()
+        return await self._client.sign_and_submit_tx(tx)
+
+
 class WithdrawBuilder:
     """Fluent builder for unified withdraw operations.
 
     Dispatches based on deposit source:
     - **Global**: ``withdraw_from_global`` — global pool -> wallet
-    - **Market**: ``merge_complete_set`` — burns conditional tokens -> wallet collateral
+    - **Market**: ``withdraw_from_position`` — position ATA -> user's wallet
 
     Created via ``client.positions().withdraw()``.
     """
@@ -154,6 +230,8 @@ class WithdrawBuilder:
         self._amount: Optional[int] = None
         self._market: object = None
         self._deposit_source: Optional[DepositSource] = deposit_source
+        self._outcome_index: Optional[int] = None
+        self._is_token_2022: bool = False
 
     def user(self, user: Pubkey) -> "WithdrawBuilder":
         self._user = user
@@ -174,6 +252,16 @@ class WithdrawBuilder:
 
     def deposit_source(self, source: DepositSource) -> "WithdrawBuilder":
         self._deposit_source = source
+        return self
+
+    def outcome_index(self, outcome_index: int) -> "WithdrawBuilder":
+        """Set the outcome index (required when deposit source is ``Market``)."""
+        self._outcome_index = outcome_index
+        return self
+
+    def token_2022(self, is_token_2022: bool) -> "WithdrawBuilder":
+        """Set whether the token uses Token-2022 (only relevant for ``Market`` withdrawals)."""
+        self._is_token_2022 = is_token_2022
         return self
 
     def with_market_deposit_source(self, market: object) -> "WithdrawBuilder":
@@ -204,15 +292,18 @@ class WithdrawBuilder:
             return build_withdraw_from_global_instruction(
                 user=user, mint=mint, amount=amount, program_id=program_id,
             )
-        else:  # Market -> merge_complete_set (PR #39 fix)
+        else:  # Market -> withdraw_from_position
             market = self._market
             if market is None:
                 raise MissingMarketContext("market is required for Market withdrawal")
             market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
-            return build_merge_complete_set_instruction(
-                user=user, market=market_pubkey, deposit_mint=mint,
-                amount=amount, num_outcomes=num_outcomes, program_id=program_id,
+            outcome_index = self._outcome_index
+            if outcome_index is None:
+                raise SdkError("outcome_index is required for Market withdrawal")
+            return build_withdraw_from_position_instruction(
+                user=user, market=market_pubkey, mint=mint, amount=amount,
+                outcome_index=outcome_index, is_token_2022=self._is_token_2022,
+                program_id=program_id,
             )
 
     def build_tx(self) -> Transaction:
@@ -695,6 +786,7 @@ class GlobalToMarketDepositBuilder:
 
 __all__ = [
     "DepositBuilder",
+    "MergeBuilder",
     "WithdrawBuilder",
     "RedeemWinningsBuilder",
     "WithdrawFromPositionBuilder",

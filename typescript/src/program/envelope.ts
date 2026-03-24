@@ -309,6 +309,13 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     const strategy = requireSigningStrategy(client);
     this.autoScale(orderbook);
 
+    // Nonce cache: cache if explicitly set, auto-populate from cache if not
+    if (this.fields.nonce !== undefined) {
+      client.setOrderNonce?.(this.fields.nonce);
+    } else {
+      this.fields.nonce = client.orderNonce?.() ?? 0;
+    }
+
     switch (strategy.type) {
       case "native": {
         const request = this.sign(strategy.keypair, orderbook);
@@ -444,6 +451,13 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     const strategy = requireSigningStrategy(client);
     this.requireTriggerFields();
     this.autoScale(orderbook);
+
+    // Nonce cache: cache if explicitly set, auto-populate from cache if not
+    if (this.fields.nonce !== undefined) {
+      client.setOrderNonce?.(this.fields.nonce);
+    } else {
+      this.fields.nonce = client.orderNonce?.() ?? 0;
+    }
 
     switch (strategy.type) {
       case "native": {

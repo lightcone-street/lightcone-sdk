@@ -1,13 +1,11 @@
-"""Markets sub-client — fetch, search, PDA helpers, tx builders, and on-chain market operations."""
+"""Markets sub-client — fetch, search, PDA helpers, and on-chain market operations."""
 
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 from urllib.parse import quote as url_quote
 
-from solders.instruction import Instruction
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from . import Market, MarketsResult, Status
 from .wire import MarketWire, MarketResponse, MarketSearchResult
@@ -15,19 +13,11 @@ from .convert import market_from_wire, validation_errors_from_wire
 from ...error import SdkError
 from ...program.accounts import deserialize_market
 from ...program.errors import AccountNotFoundError
-from ...program.instructions import (
-    build_merge_complete_set_instruction,
-    build_mint_complete_set_instruction,
-)
 from ...program.pda import (
     get_all_conditional_mint_pdas,
     get_market_pda,
 )
-from ...program.types import (
-    Market as OnchainMarket,
-    MergeCompleteSetParams,
-    MintCompleteSetParams,
-)
+from ...program.types import Market as OnchainMarket
 from ...program.utils import derive_condition_id
 from ...rpc import require_connection
 
@@ -140,62 +130,6 @@ class Markets:
             result for result in results
             if result.market_status in {"Active", "Resolved"}
         ]
-
-    # ── Fluent builders ────────────────────────────────────────────────────
-
-    def mint_complete_set(self):
-        """Create a fluent builder for minting a complete set of outcome tokens."""
-        from .builders import MintCompleteSetBuilder
-        return MintCompleteSetBuilder(self._client)
-
-    def merge_complete_set(self):
-        """Create a fluent builder for merging a complete set of outcome tokens."""
-        from .builders import MergeCompleteSetBuilder
-        return MergeCompleteSetBuilder(self._client)
-
-    # ── On-chain instruction builders ────────────────────────────────────
-
-    def mint_complete_set_ix(
-        self, params: MintCompleteSetParams, num_outcomes: int
-    ) -> Instruction:
-        """Build MintCompleteSet instruction."""
-        return build_mint_complete_set_instruction(
-            user=params.user,
-            market=params.market,
-            deposit_mint=params.deposit_mint,
-            amount=params.amount,
-            num_outcomes=num_outcomes,
-            program_id=self._client.program_id,
-        )
-
-    def merge_complete_set_ix(
-        self, params: MergeCompleteSetParams, num_outcomes: int
-    ) -> Instruction:
-        """Build MergeCompleteSet instruction."""
-        return build_merge_complete_set_instruction(
-            user=params.user,
-            market=params.market,
-            deposit_mint=params.deposit_mint,
-            amount=params.amount,
-            num_outcomes=num_outcomes,
-            program_id=self._client.program_id,
-        )
-
-    # ── On-chain transaction builders ────────────────────────────────────
-
-    def mint_complete_set_tx(
-        self, params: MintCompleteSetParams, num_outcomes: int
-    ) -> Transaction:
-        """Build MintCompleteSet transaction."""
-        ix = self.mint_complete_set_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.user)
-
-    def merge_complete_set_tx(
-        self, params: MergeCompleteSetParams, num_outcomes: int
-    ) -> Transaction:
-        """Build MergeCompleteSet transaction."""
-        ix = self.merge_complete_set_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.user)
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

@@ -59,6 +59,7 @@ class LightconeClient:
         self._deposit_source: DepositSource = deposit_source
         self._signing_strategy: Optional[SigningStrategy] = signing_strategy
         self._rpc_url: Optional[str] = rpc_url
+        self._order_nonce: Optional[int] = None
 
         # Sub-clients (all take self reference)
         self._markets = Markets(self)
@@ -123,6 +124,22 @@ class LightconeClient:
     def clear_signing_strategy(self) -> None:
         """Clear the signing strategy (e.g. on logout)."""
         self._signing_strategy = None
+
+    # ── Nonce cache ───────────────────────────────────────────────────
+
+    @property
+    def order_nonce(self) -> Optional[int]:
+        """Get the cached order nonce, if one has been set."""
+        return self._order_nonce
+
+    def set_order_nonce(self, nonce: int) -> None:
+        """Cache an order nonce. This value will be used as the default nonce
+        for subsequent orders that don't explicitly call ``.nonce()``."""
+        self._order_nonce = nonce
+
+    def clear_order_nonce(self) -> None:
+        """Clear the cached nonce (e.g. on logout)."""
+        self._order_nonce = None
 
     def _require_signing_strategy(self) -> SigningStrategy:
         """Get the signing strategy or raise if not set."""
@@ -332,7 +349,7 @@ class LightconeClientBuilder:
             max_reconnect_attempts=10,
             base_reconnect_delay_ms=1000,
             ping_interval_ms=30_000,
-            pong_timeout_ms=1_000,
+            pong_timeout_ms=10_000,
         )
 
         # Resolve connection: explicit connection takes priority over rpc_url

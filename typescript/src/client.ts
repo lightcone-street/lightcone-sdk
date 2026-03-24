@@ -46,6 +46,7 @@ export class LightconeClient implements ClientContext {
   readonly connection?: Connection;
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
+  private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
 
@@ -92,6 +93,20 @@ export class LightconeClient implements ClientContext {
 
   clearSigningStrategy(): void {
     this.signingStrategyValue = undefined;
+  }
+
+  // ── Nonce cache ──────────────────────────────────────────────────────
+
+  orderNonce(): number | undefined {
+    return this.orderNonceValue;
+  }
+
+  setOrderNonce(nonce: number): void {
+    this.orderNonceValue = nonce;
+  }
+
+  clearOrderNonce(): void {
+    this.orderNonceValue = undefined;
   }
 
   // ── Transaction signing + submission ────────────────────────────────
@@ -255,7 +270,7 @@ export class LightconeClientBuilder {
         maxReconnectAttempts: 10,
         baseReconnectDelayMs: 1_000,
         pingIntervalMs: 30_000,
-        pongTimeoutMs: 1_000,
+        pongTimeoutMs: 10_000,
       },
       programId: this.programIdValue,
       depositSource: this.depositSourceValue,

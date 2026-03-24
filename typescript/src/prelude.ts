@@ -167,9 +167,8 @@ export {
 } from "./shared/signing";
 
 export {
-  MintCompleteSetBuilder,
-  MergeCompleteSetBuilder,
-} from "./domain/market";
+  MergeBuilder,
+} from "./domain/position";
 
 export type {
   Notification,

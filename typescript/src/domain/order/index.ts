@@ -10,6 +10,7 @@ export enum OrderType {
   Limit = "Limit",
   Market = "Market",
   Deposit = "Deposit",
+  Merge = "Merge",
   Withdraw = "Withdraw",
   StopMarket = "StopMarket",
   StopLimit = "StopLimit",
