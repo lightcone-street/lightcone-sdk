@@ -1,17 +1,12 @@
 //! Markets sub-client — fetch, search, and on-chain market operations.
 
-use super::builders::{MergeCompleteSetBuilder, MintCompleteSetBuilder};
 use crate::client::LightconeClient;
 use crate::domain::market::wire::{MarketSearchResult, MarketsResponse, SingleMarketResponse};
 use crate::domain::market::{self, Market, Status};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
-use crate::program::instructions;
-use crate::program::types::{MergeCompleteSetParams, MintCompleteSetParams};
 use serde::{Deserialize, Serialize};
-use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use solana_transaction::Transaction;
 
 /// Result of fetching multiple markets. Contains valid markets and any
 /// validation errors encountered (invalid markets are skipped, not fatal).
@@ -146,86 +141,6 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
-    }
-
-    // ── Fluent builders ───────────────────────────────────────────────────
-
-    /// Create a fluent builder for minting a complete set of outcome tokens.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let signature = client.markets().mint_complete_set()
-    ///     .user(keypair.pubkey())
-    ///     .market(market_pubkey)
-    ///     .mint(deposit_mint)
-    ///     .amount(1_000_000)
-    ///     .num_outcomes(2)
-    ///     .sign_and_submit()
-    ///     .await?;
-    /// ```
-    pub fn mint_complete_set(&self) -> MintCompleteSetBuilder<'a> {
-        MintCompleteSetBuilder::new(self.client)
-    }
-
-    /// Create a fluent builder for merging a complete set of outcome tokens.
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let signature = client.markets().merge_complete_set()
-    ///     .user(keypair.pubkey())
-    ///     .market(market_pubkey)
-    ///     .mint(deposit_mint)
-    ///     .amount(1_000_000)
-    ///     .num_outcomes(2)
-    ///     .sign_and_submit()
-    ///     .await?;
-    /// ```
-    pub fn merge_complete_set(&self) -> MergeCompleteSetBuilder<'a> {
-        MergeCompleteSetBuilder::new(self.client)
-    }
-
-    // ── On-chain instruction builders ───────────────────────────────────
-
-    /// Build MintCompleteSet instruction.
-    pub fn mint_complete_set_ix(
-        &self,
-        params: &MintCompleteSetParams,
-        num_outcomes: u8,
-    ) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_mint_complete_set_ix(params, num_outcomes, pid)
-    }
-
-    /// Build MintCompleteSet transaction.
-    pub fn mint_complete_set_tx(
-        &self,
-        params: MintCompleteSetParams,
-        num_outcomes: u8,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.mint_complete_set_ix(&params, num_outcomes);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
-    }
-
-    /// Build MergeCompleteSet instruction.
-    pub fn merge_complete_set_ix(
-        &self,
-        params: &MergeCompleteSetParams,
-        num_outcomes: u8,
-    ) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_merge_complete_set_ix(params, num_outcomes, pid)
-    }
-
-    /// Build MergeCompleteSet transaction.
-    pub fn merge_complete_set_tx(
-        &self,
-        params: MergeCompleteSetParams,
-        num_outcomes: u8,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.merge_complete_set_ix(&params, num_outcomes);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
     // ── PDA helpers ──────────────────────────────────────────────────────

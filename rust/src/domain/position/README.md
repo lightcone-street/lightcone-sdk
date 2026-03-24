@@ -145,9 +145,9 @@ fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_o
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
 
-### Deposit / Withdraw Builders
+### Deposit / Withdraw / Merge Builders
 
-The preferred way to build deposit and withdraw instructions. Created via factory methods that pre-seed the client's deposit source.
+The preferred way to build deposit, withdraw, and merge instructions.
 
 #### `deposit`
 
@@ -167,7 +167,15 @@ async fn withdraw(&self) -> WithdrawBuilder<'a>
 
 Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
 
-For market withdrawals, use `.with_market_deposit_source(&market, outcome_index, is_token_2022)` to set all params at once, or set them individually with `.market()`, `.outcome_index()`, `.token_2022()`.
+For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` and `.token_2022()` as needed.
+
+#### `merge`
+
+```rust
+fn merge(&self) -> MergeBuilder<'a>
+```
+
+Create a `MergeBuilder` for burning a complete set of conditional tokens and releasing collateral. Chain `.user()`, `.market(&market)`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
 
 ## Examples
 

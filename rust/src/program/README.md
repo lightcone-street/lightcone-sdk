@@ -196,20 +196,32 @@ let ix = client.admin().match_orders_multi_ix(&MatchOrdersMultiParams { ... })?;
 let ix = client.admin().deposit_and_swap_ix(&DepositAndSwapParams { ... })?;
 ```
 
-**Markets — Position Operations (`client.markets()`):**
+**Positions — Deposit/Merge/Withdraw (`client.positions()`):**
 ```rust
-let ix = client.markets().mint_complete_set_ix(&MintCompleteSetParams {
-    user, market, deposit_mint: usdc_mint, amount,
-}, num_outcomes);
+// Deposit (dispatches on deposit source: Global or Market)
+let ix = client.positions().deposit().await
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .with_market_deposit_source(&market)
+    .build_ix()
+    .await?;
 
-let ix = client.markets().merge_complete_set_ix(&MergeCompleteSetParams {
-    user, market, deposit_mint: usdc_mint, amount,
-}, num_outcomes);
+// Merge (market-only — burns conditional tokens, returns collateral)
+let ix = client.positions().merge()
+    .user(keypair.pubkey())
+    .market(&market)
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_ix()?;
 
-// Or use _tx for ready-to-sign transactions:
-let tx = client.markets().mint_complete_set_tx(MintCompleteSetParams {
-    user, market, deposit_mint: usdc_mint, amount,
-}, num_outcomes)?;
+// Withdraw (dispatches on deposit source: Global or Market)
+let ix = client.positions().withdraw().await
+    .user(keypair.pubkey())
+    .mint(deposit_mint)
+    .amount(1_000_000)
+    .build_ix()
+    .await?;
 ```
 
 **Orders — On-Chain Order Operations (`client.orders()`):**
@@ -553,14 +565,14 @@ pub struct SettleMarketParams {
     pub winning_outcome: u8,
 }
 
-pub struct MintCompleteSetParams {
+pub struct BuildDepositParams {
     pub user: Pubkey,
     pub market: Pubkey,
     pub deposit_mint: Pubkey,
     pub amount: u64,
 }
 
-pub struct MergeCompleteSetParams {
+pub struct BuildMergeParams {
     pub user: Pubkey,
     pub market: Pubkey,
     pub deposit_mint: Pubkey,

@@ -300,7 +300,9 @@ macro_rules! impl_base_methods {
 ///
 /// Fields like `market`, `base_mint`, `quote_mint` are auto-populated from the
 /// `OrderBookPair` passed to `sign()`/`finalize()` when not set explicitly.
-/// `nonce` defaults to 0 and `salt` is auto-generated when omitted.
+/// When using `submit()`, `nonce` is auto-populated from the client's cached
+/// nonce if not explicitly set (falling back to 0). When using `sign()`/`finalize()`
+/// directly, `nonce` defaults to 0. `salt` is auto-generated when omitted.
 ///
 /// # Example (via client builder — recommended)
 ///
@@ -390,7 +392,9 @@ impl LimitOrderEnvelope {
 ///
 /// Fields like `market`, `base_mint`, `quote_mint` are auto-populated from the
 /// `OrderBookPair` passed to `sign()`/`finalize()` when not set explicitly.
-/// `nonce` defaults to 0 and `salt` is auto-generated when omitted.
+/// When using `submit()`, `nonce` is auto-populated from the client's cached
+/// nonce if not explicitly set (falling back to 0). When using `sign()`/`finalize()`
+/// directly, `nonce` defaults to 0. `salt` is auto-generated when omitted.
 ///
 /// # Example (via client builder — recommended)
 ///
@@ -560,6 +564,16 @@ impl LimitOrderEnvelope {
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
 
+        // Cache nonce if explicitly provided, or auto-populate from cache
+        match self.fields.nonce {
+            Some(nonce) => {
+                client.set_order_nonce(nonce).await;
+            }
+            None => {
+                self.fields.nonce = Some(client.order_nonce().await.unwrap_or(0));
+            }
+        }
+
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())
         })?;
@@ -625,6 +639,16 @@ impl TriggerOrderEnvelope {
         // happen before `sign()`/`finalize()` where these would otherwise run.
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields.auto_scale(orderbook)?;
+
+        // Cache nonce if explicitly provided, or auto-populate from cache
+        match self.fields.nonce {
+            Some(nonce) => {
+                client.set_order_nonce(nonce).await;
+            }
+            None => {
+                self.fields.nonce = Some(client.order_nonce().await.unwrap_or(0));
+            }
+        }
 
         let strategy = client.signing_strategy().await.ok_or_else(|| {
             crate::error::SdkError::Validation("signing strategy is not set on the client".into())

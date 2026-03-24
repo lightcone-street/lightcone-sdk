@@ -303,7 +303,7 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.bid()` / `.ask()` | Set the order side |
 | `.price(str)` | Set the human-readable price |
 | `.size(str)` | Set the human-readable size |
-| `.nonce(u32)` | Set the order nonce |
+| `.nonce(u32)` | Set the order nonce. When using `submit()`, auto-populated from `client.order_nonce()` if omitted (falls back to 0). |
 | `.expiration(i64)` | Set expiration (0 = none) |
 | `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
 | `.apply_scaling(&decimals)` | Convert price/size to raw amounts using orderbook decimals |
@@ -370,7 +370,7 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
     ).await?;
 
     // 2. Find a market and its orderbook
-    let market = client.markets().get_by_slug("btc-above-100k").await?;
+    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
     let ob = &market.orderbook_pairs[0];
     let decimals = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
 

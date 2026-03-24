@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ).await?;
 
     // 2. Find a market
-    let market = client.markets().get_by_slug("some-market").await?;
+    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
     let orderbook = &market.orderbook_pairs[0];
 
     // 3. Deposit collateral to the global pool
@@ -127,7 +127,7 @@ let keypair = read_keypair_file("~/.config/solana/id.json")?;
 ### Step 1: Find a Market
 
 ```rust
-let market = client.markets().get_by_slug("some-market").await?;
+let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
 let orderbook = market
     .orderbook_pairs
     .iter()
@@ -188,12 +188,11 @@ client.orders().cancel(&cancel).await?;
 
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
-let tx_hash = client.markets().merge_complete_set()
+let tx_hash = client.positions().merge()
     .user(keypair.pubkey())
-    .market(market.pubkey.to_pubkey()?)
+    .market(&market)
     .mint(deposit_mint)
     .amount(1_000_000)
-    .num_outcomes(num_outcomes)
     .sign_and_submit()
     .await?;
 ```

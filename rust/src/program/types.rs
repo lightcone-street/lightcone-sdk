@@ -105,7 +105,7 @@ pub struct AddDepositMintParams {
 
 /// Parameters for minting a complete set
 #[derive(Debug, Clone)]
-pub struct MintCompleteSetParams {
+pub struct BuildDepositParams {
     /// User pubkey (payer and recipient)
     pub user: Pubkey,
     /// Market pubkey
@@ -118,7 +118,7 @@ pub struct MintCompleteSetParams {
 
 /// Parameters for merging a complete set
 #[derive(Debug, Clone)]
-pub struct MergeCompleteSetParams {
+pub struct BuildMergeParams {
     /// User pubkey
     pub user: Pubkey,
     /// Market pubkey

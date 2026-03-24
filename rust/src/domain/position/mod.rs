@@ -6,7 +6,7 @@ pub mod wire;
 
 pub use builders::{
     DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, RedeemWinningsBuilder,
+    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
 

@@ -1,8 +1,6 @@
 mod common;
 
-use common::{
-    deposit_mint, market, num_outcomes, parse_pubkey, rest_client, wallet, ExampleResult,
-};
+use common::{deposit_mint, market, rest_client, wallet, ExampleResult};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
@@ -21,35 +19,33 @@ async fn main() -> ExampleResult {
     let client = rest_client()?;
     let keypair = wallet()?;
     let market = market(&client).await?;
-    let market_pubkey = parse_pubkey(&market.pubkey)?;
     let deposit_mint = deposit_mint(&market)?;
-    let num_outcomes = num_outcomes(&market)?;
     let amount = 1_000_000;
     let blockhash = client.rpc().get_latest_blockhash().await?;
 
     let mut transactions = vec![
         (
-            "mint_complete_set",
+            "deposit",
             client
-                .markets()
-                .mint_complete_set()
+                .positions()
+                .deposit()
+                .await
                 .user(keypair.pubkey())
-                .market(market_pubkey)
                 .mint(deposit_mint)
                 .amount(amount)
-                .num_outcomes(num_outcomes)
-                .build_tx()?,
+                .with_market_deposit_source(&market)
+                .build_tx()
+                .await?,
         ),
         (
-            "merge_complete_set",
+            "merge",
             client
-                .markets()
-                .merge_complete_set()
+                .positions()
+                .merge()
                 .user(keypair.pubkey())
-                .market(market_pubkey)
+                .market(&market)
                 .mint(deposit_mint)
                 .amount(amount)
-                .num_outcomes(num_outcomes)
                 .build_tx()?,
         ),
         (
