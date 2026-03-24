@@ -197,9 +197,7 @@ from .program import (
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
     DepositAndSwapParams,
-    DepositParams,
     ExtendPositionTokensParams,
-    MarketWithdrawContext,
     # Constants
     PROGRAM_ID,
     ALT_PROGRAM_ID,
@@ -321,7 +319,6 @@ from .program import (
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
     build_extend_position_tokens_instruction,
-    WithdrawParams,
     # Envelope & Builder
     LimitOrderEnvelope,
     TriggerOrderEnvelope,
@@ -494,9 +491,7 @@ __all__ = [
     "GlobalToMarketDepositParams",
     "InitPositionTokensParams",
     "DepositAndSwapParams",
-    "DepositParams",
     "ExtendPositionTokensParams",
-    "MarketWithdrawContext",
     # Program - Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -618,7 +613,6 @@ __all__ = [
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
-    "WithdrawParams",
     # Program - Envelope & Builder
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",
