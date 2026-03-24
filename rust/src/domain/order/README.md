@@ -370,7 +370,7 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
     ).await?;
 
     // 2. Find a market and its orderbook
-    let market = client.markets().get_by_slug("btc-above-100k").await?;
+    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
     let ob = &market.orderbook_pairs[0];
     let decimals = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
 

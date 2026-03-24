@@ -203,7 +203,7 @@ async fn list_all_markets(client: &LightconeClient) -> Result<Vec<Market>, SdkEr
 use lightcone::prelude::*;
 
 async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
-    let market = client.markets().get_by_slug("btc-above-100k").await?;
+    let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
 
     println!("Market: {} ({})", market.name, market.status.as_str());
     println!("Volume: {}", market.volume);
