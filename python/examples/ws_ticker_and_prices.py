@@ -72,9 +72,9 @@ async def main():
                     event_count += 1
 
                 elif isinstance(data, PriceHistoryUpdate):
-                    if data.candle:
+                    if data.t:
                         point = LineData(
-                            time=data.candle.t, value=data.candle.m or "0"
+                            time=data.t, value=data.m or "0"
                         )
                         history.apply_update(
                             data.orderbook_id, data.resolution, point

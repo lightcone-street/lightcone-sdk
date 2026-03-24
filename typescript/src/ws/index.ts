@@ -62,7 +62,7 @@ export const WS_DEFAULT_CONFIG: WsConfig = {
   maxReconnectAttempts: 10,
   baseReconnectDelayMs: 1_000,
   pingIntervalMs: 30_000,
-  pongTimeoutMs: 1_000,
+  pongTimeoutMs: 10_000,
 };
 
 export enum ReadyState {

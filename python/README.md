@@ -182,12 +182,11 @@ await client.orders().cancel(
 
 ```python
 # sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
-tx_hash = await (client.markets().merge_complete_set()
+tx_hash = await (client.positions().merge()
     .user(keypair.pubkey())
-    .market(Pubkey.from_string(market.pubkey))
+    .market(market)
     .mint(deposit_mint)
     .amount(1_000_000)
-    .num_outcomes(num_outcomes)
     .sign_and_submit())
 ```
 

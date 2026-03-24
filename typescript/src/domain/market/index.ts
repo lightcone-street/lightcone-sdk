@@ -3,7 +3,6 @@ import type { OrderBookPair } from "../orderbook";
 import type { Outcome } from "./outcome";
 import type { ConditionalToken, DepositAsset, TokenMetadata } from "./tokens";
 
-export * from "./builders";
 export * from "./client";
 export * from "./wire";
 export * from "./outcome";

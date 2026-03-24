@@ -14,27 +14,25 @@ from .builders import (
     ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder,
     InitPositionTokensBuilder,
+    MergeBuilder,
     RedeemWinningsBuilder,
     WithdrawBuilder,
     WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 )
 from .wire import PositionsResponseWire, MarketPositionsResponseWire
-from ...error import MissingMarketContext
 from ...program.accounts import deserialize_position
 from ...program.instructions import (
     build_deposit_to_global_instruction,
     build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
-    build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
 )
 from ...program.pda import get_position_pda
 from ...program.types import (
-    DepositParams,
     DepositToGlobalParams,
     ExtendPositionTokensParams,
     GlobalToMarketDepositParams,
@@ -43,10 +41,8 @@ from ...program.types import (
     RedeemWinningsParams,
     WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
-    WithdrawParams,
 )
 from ...rpc import require_connection
-from ...shared.types import DepositSource
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -206,84 +202,6 @@ class Positions:
         ix = self.withdraw_from_global_ix(params)
         return Transaction.new_with_payer([ix], params.user)
 
-    # ── Unified deposit/withdraw (dispatch by deposit source) ────────────
-
-    def unified_deposit_ix(self, params: DepositParams) -> Instruction:
-        """Build a deposit instruction using the resolved deposit source.
-
-        Priority: ``params.deposit_source`` > client-level setting > ``Global``.
-
-        When the resolved source is ``Market``, ``params.market`` must be set.
-
-        Prefer the builder API via ``client.positions().deposit()`` for new code.
-        """
-        source = self._client.resolve_deposit_source(params.deposit_source)
-        if source == DepositSource.GLOBAL:
-            return self.deposit_to_global_ix(
-                DepositToGlobalParams(
-                    user=params.user, mint=params.mint, amount=params.amount,
-                )
-            )
-        else:  # Market -> mint_complete_set (PR #39 fix)
-            market = params.market
-            if market is None:
-                raise MissingMarketContext("market is required for Market deposit")
-            market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
-            return build_mint_complete_set_instruction(
-                user=params.user,
-                market=market_pubkey,
-                deposit_mint=params.mint,
-                amount=params.amount,
-                num_outcomes=num_outcomes,
-                program_id=self._client.program_id,
-            )
-
-    def unified_deposit_tx(self, params: DepositParams) -> Transaction:
-        """Build a deposit transaction using the resolved deposit source."""
-        ix = self.unified_deposit_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
-
-    def unified_withdraw_ix(self, params: WithdrawParams) -> Instruction:
-        """Build a withdraw instruction using the resolved deposit source.
-
-        Priority: ``params.deposit_source`` > client-level setting > ``Global``.
-
-        When the resolved source is ``Market``, ``params.market_context`` must be set.
-
-        Prefer the builder API via ``client.positions().withdraw()`` for new code.
-        """
-        source = self._client.resolve_deposit_source(params.deposit_source)
-        if source == DepositSource.GLOBAL:
-            return self.withdraw_from_global_ix(
-                WithdrawFromGlobalParams(
-                    user=params.user, mint=params.mint, amount=params.amount,
-                )
-            )
-        else:  # Market -> merge_complete_set (PR #39 fix)
-            ctx = params.market_context
-            if ctx is None:
-                raise MissingMarketContext(
-                    "market_context is required for Market withdrawal"
-                )
-            market_pubkey = Pubkey.from_string(ctx.market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(ctx.market.outcomes)  # type: ignore[attr-defined]
-            from ...program.instructions import build_merge_complete_set_instruction
-            from ...program.types import MergeCompleteSetParams
-            return build_merge_complete_set_instruction(
-                user=params.user,
-                market=market_pubkey,
-                deposit_mint=params.mint,
-                amount=params.amount,
-                num_outcomes=num_outcomes,
-                program_id=self._client.program_id,
-            )
-
-    def unified_withdraw_tx(self, params: WithdrawParams) -> Transaction:
-        """Build a withdraw transaction using the resolved deposit source."""
-        ix = self.unified_withdraw_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
-
     # ── Builder factories ────────────────────────────────────────────────
 
     def deposit(self) -> DepositBuilder:
@@ -299,6 +217,10 @@ class Positions:
         Use ``.build_ix()`` or ``.build_tx()`` to produce the final instruction/transaction.
         """
         return WithdrawBuilder(self._client, self._client.deposit_source)
+
+    def merge(self) -> MergeBuilder:
+        """Create a merge builder for burning conditional tokens and releasing collateral."""
+        return MergeBuilder(self._client)
 
     def redeem_winnings(self) -> RedeemWinningsBuilder:
         """Create a redeem winnings builder."""

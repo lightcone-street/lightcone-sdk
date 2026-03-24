@@ -18,8 +18,8 @@ import {
   InitializeParams,
   CreateMarketParams,
   AddDepositMintParams,
-  MintCompleteSetParams,
-  MergeCompleteSetParams,
+  BuildDepositParams,
+  BuildMergeParams,
   SettleMarketParams,
   RedeemWinningsParams,
   WithdrawFromPositionParams,
@@ -259,8 +259,8 @@ export function buildAddDepositMintIx(
  *
  * Data: [discriminator, amount (u64)]
  */
-export function buildMintCompleteSetIx(
-  params: MintCompleteSetParams,
+export function buildDepositIx(
+  params: BuildDepositParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
@@ -329,8 +329,8 @@ export function buildMintCompleteSetIx(
  *
  * Data: [discriminator, amount (u64)]
  */
-export function buildMergeCompleteSetIx(
-  params: MergeCompleteSetParams,
+export function buildMergeIx(
+  params: BuildMergeParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
@@ -1458,21 +1458,21 @@ export function buildAddDepositMintTx(
   return new Transaction({ feePayer: params.authority }).add(ix);
 }
 
-export function buildMintCompleteSetTx(
-  params: MintCompleteSetParams,
+export function buildDepositTx(
+  params: BuildDepositParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
-  const ix = buildMintCompleteSetIx(params, numOutcomes, programId);
+  const ix = buildDepositIx(params, numOutcomes, programId);
   return new Transaction({ feePayer: params.user }).add(ix);
 }
 
-export function buildMergeCompleteSetTx(
-  params: MergeCompleteSetParams,
+export function buildMergeTx(
+  params: BuildMergeParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
-  const ix = buildMergeCompleteSetIx(params, numOutcomes, programId);
+  const ix = buildMergeIx(params, numOutcomes, programId);
   return new Transaction({ feePayer: params.user }).add(ix);
 }
 

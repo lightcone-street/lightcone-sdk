@@ -3,11 +3,11 @@ import type { ClientContext } from "../../context";
 import { resolveDepositSource, signAndSubmitTx } from "../../context";
 import { SdkError } from "../../error";
 import {
+  buildDepositIx,
   buildDepositToGlobalIx,
   buildExtendPositionTokensIx,
   buildGlobalToMarketDepositIx,
-  buildMergeCompleteSetIx,
-  buildMintCompleteSetIx,
+  buildMergeIx,
   buildRedeemWinningsIx,
   buildWithdrawFromGlobalIx,
   buildWithdrawFromPositionIx,
@@ -92,7 +92,7 @@ export class DepositBuilder {
         }
         const marketPubkey = new PublicKey(market.pubkey);
         const numOutcomes = market.outcomes.length;
-        return buildMintCompleteSetIx(
+        return buildDepositIx(
           { user, market: marketPubkey, depositMint: mint, amount },
           numOutcomes,
           this.client.programId,
@@ -122,6 +122,8 @@ export class WithdrawBuilder {
   private amountValue?: bigint;
   private marketValue?: Market;
   private depositSourceValue?: DepositSource;
+  private outcomeIndexValue?: number;
+  private isToken2022Value = false;
 
   constructor(client: ClientContext, depositSource: DepositSource) {
     this.client = client;
@@ -153,6 +155,16 @@ export class WithdrawBuilder {
     return this;
   }
 
+  outcomeIndex(index: number): this {
+    this.outcomeIndexValue = index;
+    return this;
+  }
+
+  token2022(isToken2022: boolean): this {
+    this.isToken2022Value = isToken2022;
+    return this;
+  }
+
   withMarketDepositSource(market: Market): this {
     this.depositSourceValue = DepositSource.Market;
     this.marketValue = market;
@@ -179,14 +191,77 @@ export class WithdrawBuilder {
           throw SdkError.missingMarketContext("market is required for Market withdrawal");
         }
         const marketPubkey = new PublicKey(market.pubkey);
-        const numOutcomes = market.outcomes.length;
-        return buildMergeCompleteSetIx(
-          { user, market: marketPubkey, depositMint: mint, amount },
-          numOutcomes,
+        const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
+        return buildWithdrawFromPositionIx(
+          { user, market: marketPubkey, mint, amount, outcomeIndex },
+          this.isToken2022Value,
           this.client.programId,
         );
       }
     }
+  }
+
+  buildTx(): Transaction {
+    const user = requireField(this.userValue, "user");
+    const ix = this.buildIx();
+    return new Transaction({ feePayer: user }).add(ix);
+  }
+
+  async signAndSubmit(): Promise<string> {
+    const tx = this.buildTx();
+    return signAndSubmitTx(this.client, tx);
+  }
+}
+
+// ─── MergeBuilder ──────────────────────────────────────────────────────────
+
+export class MergeBuilder {
+  private readonly client: ClientContext;
+  private userValue?: PublicKey;
+  private mintValue?: PublicKey;
+  private amountValue?: bigint;
+  private marketValue?: Market;
+
+  constructor(client: ClientContext) {
+    this.client = client;
+  }
+
+  user(user: PublicKey): this {
+    this.userValue = user;
+    return this;
+  }
+
+  mint(mint: PublicKey): this {
+    this.mintValue = mint;
+    return this;
+  }
+
+  amount(amount: bigint): this {
+    this.amountValue = amount;
+    return this;
+  }
+
+  market(market: Market): this {
+    this.marketValue = market;
+    return this;
+  }
+
+  buildIx(): TransactionInstruction {
+    const user = requireField(this.userValue, "user");
+    const mint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const market = this.marketValue;
+    if (!market) {
+      throw SdkError.missingMarketContext("market is required for merge");
+    }
+    const marketPubkey = new PublicKey(market.pubkey);
+    const numOutcomes = market.outcomes.length;
+
+    return buildMergeIx(
+      { user, market: marketPubkey, depositMint: mint, amount },
+      numOutcomes,
+      this.client.programId,
+    );
   }
 
   buildTx(): Transaction {
@@ -640,26 +715,3 @@ export class GlobalToMarketDepositBuilder {
   }
 }
 
-// ─── Unified param types ────────────────────────────────────────────────────
-
-export interface DepositParams {
-  user: PublicKey;
-  mint: PublicKey;
-  amount: bigint;
-  market?: Market;
-  depositSource?: DepositSource;
-}
-
-export interface MarketWithdrawContext {
-  market: Market;
-  outcomeIndex: number;
-  isToken2022: boolean;
-}
-
-export interface WithdrawParams {
-  user: PublicKey;
-  mint: PublicKey;
-  amount: bigint;
-  marketContext?: MarketWithdrawContext;
-  depositSource?: DepositSource;
-}

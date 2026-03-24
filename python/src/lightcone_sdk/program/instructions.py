@@ -1228,3 +1228,8 @@ def build_withdraw_from_global_instruction(
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
+# Aliases matching Rust SDK naming (PR #46)
+build_deposit_instruction = build_mint_complete_set_instruction
+build_merge_instruction = build_merge_complete_set_instruction
+
+

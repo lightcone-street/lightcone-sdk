@@ -229,6 +229,25 @@ class BaseEnvelope {
   }
 
   /**
+   * Auto-fill market, base_mint, quote_mint, and salt from the orderbook
+   * if not explicitly set by the caller.
+   */
+  protected autoFillFromOrderbook(orderbook: OrderBookPair): void {
+    if (!this.fields.market) {
+      this.fields.market = new PublicKey(orderbook.marketPubkey);
+    }
+    if (this.fields.salt === undefined) {
+      this.fields.salt = generateSalt();
+    }
+    if (!this.fields.baseMint) {
+      this.fields.baseMint = new PublicKey(orderbook.base.pubkey);
+    }
+    if (!this.fields.quoteMint) {
+      this.fields.quoteMint = new PublicKey(orderbook.quote.pubkey);
+    }
+  }
+
+  /**
    * Auto-scale price/size to raw amounts if the user provided human-readable
    * strings but not pre-computed amounts. Skips if amounts are already set.
    */
@@ -286,6 +305,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
   }
 
   sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
     return toSubmitRequest(signed, orderbook.orderbookId, {
@@ -295,6 +315,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
   }
 
   finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
@@ -307,7 +328,15 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     orderbook: OrderBookPair
   ): Promise<SubmitOrderResponse> {
     const strategy = requireSigningStrategy(client);
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
+
+    // Nonce cache: cache if explicitly set, auto-populate from cache if not
+    if (this.fields.nonce !== undefined) {
+      client.setOrderNonce?.(this.fields.nonce);
+    } else {
+      this.fields.nonce = client.orderNonce?.() ?? 0;
+    }
 
     switch (strategy.type) {
       case "native": {
@@ -416,6 +445,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
 
   sign(keypair: Keypair, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signed = signOrderFull(this.payload(), keypair);
     return toSubmitRequest(signed, orderbook.orderbookId, {
@@ -428,6 +458,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
 
   finalize(signatureBase58: string, orderbook: OrderBookPair): SubmitOrderRequest {
     this.requireTriggerFields();
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
@@ -443,7 +474,15 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
   ): Promise<TriggerOrderResponse> {
     const strategy = requireSigningStrategy(client);
     this.requireTriggerFields();
+    this.autoFillFromOrderbook(orderbook);
     this.autoScale(orderbook);
+
+    // Nonce cache: cache if explicitly set, auto-populate from cache if not
+    if (this.fields.nonce !== undefined) {
+      client.setOrderNonce?.(this.fields.nonce);
+    } else {
+      this.fields.nonce = client.orderNonce?.() ?? 0;
+    }
 
     switch (strategy.type) {
       case "native": {

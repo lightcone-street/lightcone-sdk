@@ -10,6 +10,8 @@ export interface ClientContext {
   readonly connection?: Connection;
   readonly depositSource: DepositSource;
   readonly signingStrategy?: SigningStrategy;
+  orderNonce?(): number | undefined;
+  setOrderNonce?(nonce: number): void;
 }
 
 export function requireConnection(ctx: ClientContext): Connection {

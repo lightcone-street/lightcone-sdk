@@ -1,6 +1,6 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getPositionAltPda, getPositionPda } from "../src/program";
-import { depositMint, login, market, numOutcomes, rpcClient, wallet } from "./common";
+import { depositMint, login, market, rpcClient, wallet } from "./common";
 
 async function main() {
   const client = rpcClient();
@@ -11,7 +11,6 @@ async function main() {
   const m = await market(client);
   const marketPubkey = new PublicKey(m.pubkey);
   const dMint = depositMint(m);
-  const outcomes = numOutcomes(m);
   const amount = 1_000_000n;
   const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 
@@ -36,7 +35,7 @@ async function main() {
         .market(marketPubkey)
         .depositMints([dMint])
         .recentSlot(recentSlot)
-        .numOutcomes(outcomes)
+        .numOutcomes(m.outcomes.length)
         .buildIx(),
     ]);
 
@@ -49,7 +48,7 @@ async function main() {
         .market(marketPubkey)
         .lookupTable(lookupTable)
         .depositMints([dMint])
-        .numOutcomes(outcomes)
+        .numOutcomes(m.outcomes.length)
         .buildIx(),
     ]);
   } else {
@@ -74,7 +73,7 @@ async function main() {
       .market(marketPubkey)
       .mint(dMint)
       .amount(amount)
-      .numOutcomes(outcomes)
+      .numOutcomes(m.outcomes.length)
       .buildIx(),
   ]);
 
@@ -97,10 +96,10 @@ async function main() {
     console.log(`${name}: confirmed ${signature}`);
   }
 
-  // ── Unified deposit/withdraw builders ──────────────────────────────
+  // ── Unified deposit/withdraw/merge builders ─────────────────────────
   //
-  // These builders dispatch based on the client's deposit source setting
-  // (or a per-call override).
+  // Deposit and withdraw builders dispatch based on the client's deposit
+  // source setting (or a per-call override). Merge is market-only.
 
   // Deposit — explicitly override to Global
   const globalDepositIx = client
@@ -135,7 +134,7 @@ async function main() {
     .buildIx();
   console.log(`builder global withdraw ix: ${globalWithdrawIx.keys.length} accounts`);
 
-  // Withdraw — Market mode (burns conditional tokens -> wallet collateral)
+  // Withdraw — Market mode (position ATA -> user's wallet)
   const marketWithdrawIx = client
     .positions()
     .withdraw()
@@ -143,8 +142,21 @@ async function main() {
     .mint(dMint)
     .amount(amount)
     .withMarketDepositSource(m)
+    .outcomeIndex(0)
+    .token2022(false)
     .buildIx();
   console.log(`builder market withdraw ix: ${marketWithdrawIx.keys.length} accounts`);
+
+  // Merge — burns complete set of conditional tokens, releases collateral
+  const mergeIx = client
+    .positions()
+    .merge()
+    .user(keypair.publicKey)
+    .market(m)
+    .mint(dMint)
+    .amount(amount)
+    .buildIx();
+  console.log(`builder merge ix: ${mergeIx.keys.length} accounts`);
 }
 
 main().catch(console.error);

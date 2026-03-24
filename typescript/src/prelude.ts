@@ -94,9 +94,6 @@ export type {
   TokenBalanceTokenType,
   DepositAssetMetadata,
   DepositTokenBalance,
-  DepositParams,
-  WithdrawParams,
-  MarketWithdrawContext,
 } from "./domain/position";
 
 export {
@@ -167,9 +164,8 @@ export {
 } from "./shared/signing";
 
 export {
-  MintCompleteSetBuilder,
-  MergeCompleteSetBuilder,
-} from "./domain/market";
+  MergeBuilder,
+} from "./domain/position";
 
 export type {
   Notification,

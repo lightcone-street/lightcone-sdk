@@ -110,10 +110,10 @@ async def main():
         await connection.confirm_transaction(result.value)
         print(f"{name}: confirmed {result.value}")
 
-    # ── Unified deposit/withdraw builders ──────────────────────────────
+    # ── Unified deposit/withdraw/merge builders ─────────────────────────
     #
-    # These builders dispatch based on the client's deposit source setting
-    # (or a per-call override).
+    # Deposit and withdraw builders dispatch based on the client's deposit
+    # source setting (or a per-call override). Merge is market-only.
 
     # Deposit — explicitly override to Global
     global_deposit_ix = (client.positions().deposit()
@@ -142,14 +142,25 @@ async def main():
         .build_ix())
     print(f"builder global withdraw ix: {len(global_withdraw_ix.accounts)} accounts")
 
-    # Withdraw — Market mode (burns conditional tokens -> wallet collateral)
+    # Withdraw — Market mode (position ATA -> user's wallet)
     market_withdraw_ix = (client.positions().withdraw()
         .user(keypair.pubkey())
         .mint(d_mint)
         .amount(amount)
         .with_market_deposit_source(m)
+        .outcome_index(0)
+        .token_2022(True)
         .build_ix())
     print(f"builder market withdraw ix: {len(market_withdraw_ix.accounts)} accounts")
+
+    # Merge — burns complete set of conditional tokens, releases collateral
+    merge_ix = (client.positions().merge()
+        .user(keypair.pubkey())
+        .market(m)
+        .mint(d_mint)
+        .amount(amount)
+        .build_ix())
+    print(f"builder merge ix: {len(merge_ix.accounts)} accounts")
 
     await client.close()
 

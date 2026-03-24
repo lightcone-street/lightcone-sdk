@@ -46,6 +46,7 @@ export class LightconeClient implements ClientContext {
   readonly connection?: Connection;
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
+  private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
 
@@ -56,6 +57,7 @@ export class LightconeClient implements ClientContext {
     connection?: Connection;
     depositSource?: DepositSource;
     signingStrategy?: SigningStrategy;
+    orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
   }) {
@@ -64,6 +66,7 @@ export class LightconeClient implements ClientContext {
     this.connection = params.connection;
     this.depositSourceValue = params.depositSource ?? DepositSource.Global;
     this.signingStrategyValue = params.signingStrategy;
+    this.orderNonceValue = params.orderNonce;
     this.wsConfigValue = params.wsConfig;
     this.authStateStore =
       params.authState ??
@@ -92,6 +95,20 @@ export class LightconeClient implements ClientContext {
 
   clearSigningStrategy(): void {
     this.signingStrategyValue = undefined;
+  }
+
+  // ── Nonce cache ──────────────────────────────────────────────────────
+
+  orderNonce(): number | undefined {
+    return this.orderNonceValue;
+  }
+
+  setOrderNonce(nonce: number): void {
+    this.orderNonceValue = nonce;
+  }
+
+  clearOrderNonce(): void {
+    this.orderNonceValue = undefined;
   }
 
   // ── Transaction signing + submission ────────────────────────────────
@@ -175,6 +192,7 @@ export class LightconeClient implements ClientContext {
         : undefined,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
+      orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
     });
   }
@@ -255,7 +273,7 @@ export class LightconeClientBuilder {
         maxReconnectAttempts: 10,
         baseReconnectDelayMs: 1_000,
         pingIntervalMs: 30_000,
-        pongTimeoutMs: 1_000,
+        pongTimeoutMs: 10_000,
       },
       programId: this.programIdValue,
       depositSource: this.depositSourceValue,

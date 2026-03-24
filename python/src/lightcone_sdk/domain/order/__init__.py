@@ -12,6 +12,7 @@ class OrderType(str, Enum):
     LIMIT = "limit"
     MARKET = "market"
     DEPOSIT = "deposit"
+    MERGE = "merge"
     WITHDRAW = "withdraw"
     STOP_LIMIT = "StopLimit"
     TAKE_PROFIT_LIMIT = "TakeProfitLimit"
