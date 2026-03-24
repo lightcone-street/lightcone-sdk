@@ -1,5 +1,7 @@
 """Price utilities used across the Lightcone SDK."""
 
+from __future__ import annotations
+
 from decimal import Decimal
 
 

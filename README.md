@@ -8,7 +8,7 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 |----------|---------|---------|
 | **Rust** | [`lightcone`](rust/) | `cargo add lightcone` |
 | **TypeScript** | [`@lightconexyz/lightcone-sdk`](typescript/) | `npm install @lightconexyz/lightcone-sdk` |
-| **Python** | [`lightcone-sdk`](python/) | `pip install lightcone-sdk` |
+| **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git#subdirectory=python` |
 
 All three SDKs expose the same interface and capabilities.
 

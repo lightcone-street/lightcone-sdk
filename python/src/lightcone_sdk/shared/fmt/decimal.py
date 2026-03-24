@@ -1,5 +1,7 @@
 """Decimal formatting helpers mirroring Rust's shared/fmt/decimal.rs."""
 
+from __future__ import annotations
+
 from decimal import Decimal, ROUND_HALF_UP
 
 from .num import display_formatted_string
