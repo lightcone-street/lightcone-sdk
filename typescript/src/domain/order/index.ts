@@ -56,21 +56,25 @@ export interface TriggerOrder {
   createdAt: Date;
 }
 
-export function triggerOrderLimitPrice(
-  order: TriggerOrder,
-  baseDecimals: number,
-  quoteDecimals: number
-): Decimal | undefined {
-  const baseMult = new Decimal(10).pow(baseDecimals);
-  const quoteMult = new Decimal(10).pow(quoteDecimals);
+/**
+ * Derive the limit price from pre-scaled amounts.
+ *
+ * `amountIn` and `amountOut` are already human-readable decimals
+ * (scaled by the snapshot/websocket layer), so no further decimal
+ * conversion is needed.
+ *
+ * For Ask: maker gives base, receives quote -> price = quote / base
+ * For Bid: maker gives quote, receives base -> price = quote / base
+ */
+export function triggerOrderLimitPrice(order: TriggerOrder): Decimal | undefined {
   const amountIn = new Decimal(order.amountIn);
   const amountOut = new Decimal(order.amountOut);
 
   if (order.side === Side.Ask && amountIn.greaterThan(0)) {
-    return amountOut.mul(baseMult).div(amountIn.mul(quoteMult));
+    return amountOut.div(amountIn);
   }
   if (order.side === Side.Bid && amountOut.greaterThan(0)) {
-    return amountIn.mul(baseMult).div(amountOut.mul(quoteMult));
+    return amountIn.div(amountOut);
   }
   return undefined;
 }

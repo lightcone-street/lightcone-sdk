@@ -76,17 +76,23 @@ class TriggerOrder:
     time_in_force: TimeInForce
     created_at: Optional[str] = None
 
-    def limit_price(self, base_decimals: int, quote_decimals: int) -> Optional[Decimal]:
-        """Derive the human-readable limit price from raw lamport amounts."""
-        base_mult = Decimal(10) ** base_decimals
-        quote_mult = Decimal(10) ** quote_decimals
+    def limit_price(self) -> Optional[Decimal]:
+        """Derive the limit price from pre-scaled amounts.
+
+        ``amount_in`` and ``amount_out`` are already human-readable decimals
+        (scaled by the snapshot/websocket layer), so no further decimal
+        conversion is needed.
+
+        For Ask: maker gives base, receives quote -> price = quote / base
+        For Bid: maker gives quote, receives base -> price = quote / base
+        """
         amount_in = Decimal(self.amount_in)
         amount_out = Decimal(self.amount_out)
 
         if self.side == 1 and amount_in > 0:  # Ask
-            return amount_out * base_mult / (amount_in * quote_mult)
+            return amount_out / amount_in
         elif self.side == 0 and amount_out > 0:  # Bid
-            return amount_in * base_mult / (amount_out * quote_mult)
+            return amount_in / amount_out
         return None
 
 

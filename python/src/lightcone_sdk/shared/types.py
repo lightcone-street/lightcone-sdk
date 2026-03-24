@@ -103,6 +103,7 @@ class DepositSource(IntEnum):
 class TriggerStatus(str, Enum):
     """Lifecycle status of a trigger order from WS updates."""
 
+    CREATED = "created"
     TRIGGERED = "triggered"
     FAILED = "failed"
     EXPIRED = "expired"
@@ -154,6 +155,7 @@ class OrderUpdateType(str, Enum):
 class TriggerUpdateType(str, Enum):
     """Rust-aligned trigger-order WS update type."""
 
+    CREATED = "CREATED"
     TRIGGERED = "TRIGGERED"
     FAILED = "FAILED"
     EXPIRED = "EXPIRED"

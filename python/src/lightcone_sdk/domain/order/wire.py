@@ -5,8 +5,8 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional, Union
 
 from ...error import _require
-from ...shared.types import Side
-from . import UserSnapshotOrder, UserSnapshotBalance, GlobalDepositBalance, ConditionalBalance
+from ...shared.types import Side, TimeInForce, TriggerType
+from . import UserSnapshotOrder, UserSnapshotBalance, GlobalDepositBalance, ConditionalBalance, TriggerOrder
 from ..notification import Notification
 
 
@@ -110,9 +110,14 @@ class TriggerOrderUpdate:
     result_remaining: Optional[str] = None
     timestamp: Optional[str] = None
     side: int = 0
+    maker_amount: str = "0"
+    taker_amount: str = "0"
+    tif: TimeInForce = TimeInForce.GTC
 
     @staticmethod
     def from_dict(d: dict) -> "TriggerOrderUpdate":
+        tif_raw = d.get("tif")
+        tif = TimeInForce.from_wire(tif_raw) if tif_raw is not None else TimeInForce.GTC
         return TriggerOrderUpdate(
             trigger_order_id=_require(d, "trigger_order_id", "TriggerOrderUpdate"),
             status=_require(d, "status", "TriggerOrderUpdate"),
@@ -128,6 +133,26 @@ class TriggerOrderUpdate:
             result_remaining=str(d.get("result_remaining", "0")) if d.get("result_remaining") is not None else None,
             timestamp=d.get("timestamp"),
             side=int(Side.from_wire(d.get("side", 0))),
+            maker_amount=str(d.get("maker_amount", "0")),
+            taker_amount=str(d.get("taker_amount", "0")),
+            tif=tif,
+        )
+
+    def into_trigger_order(self) -> TriggerOrder:
+        """Convert this WS update into a domain TriggerOrder."""
+        trigger_type = TriggerType.TAKE_PROFIT if self.trigger_above else TriggerType.STOP_LOSS
+        return TriggerOrder(
+            trigger_order_id=self.trigger_order_id,
+            order_hash=self.order_hash,
+            market_pubkey=self.market_pubkey,
+            orderbook_id=self.orderbook_id,
+            trigger_price=self.trigger_price or "0",
+            trigger_type=trigger_type,
+            side=self.side,
+            amount_in=self.maker_amount,
+            amount_out=self.taker_amount,
+            time_in_force=self.tif,
+            created_at=self.timestamp,
         )
 
 
