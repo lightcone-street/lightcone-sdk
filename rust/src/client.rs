@@ -68,6 +68,10 @@ pub struct LightconeClient {
     /// Signing strategy for orders, cancels, and transactions.
     /// `None` means signing must be done manually (power-user mode).
     pub(crate) signing_strategy: Arc<RwLock<Option<SigningStrategy>>>,
+    /// Cached order nonce. When the user provides a nonce via `.nonce()` on an
+    /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
+    /// use this cached value, falling back to 0 if nothing has been cached.
+    pub(crate) order_nonce: Arc<RwLock<Option<u64>>>,
     /// Solana RPC URL for blockhash fetching and transaction submission.
     /// Used by `sign_and_submit_tx()` and `get_latest_blockhash()`.
     pub(crate) rpc_url: Option<String>,
@@ -181,6 +185,24 @@ impl LightconeClient {
             Some(source) => source,
             None => self.deposit_source().await,
         }
+    }
+
+    // ── Nonce cache ────────────────────────────────────────────────────
+
+    /// Get the cached order nonce, if one has been set.
+    pub async fn order_nonce(&self) -> Option<u64> {
+        *self.order_nonce.read().await
+    }
+
+    /// Cache an order nonce. This value will be used as the default nonce
+    /// for subsequent orders that don't explicitly call `.nonce()`.
+    pub async fn set_order_nonce(&self, nonce: u64) {
+        *self.order_nonce.write().await = Some(nonce);
+    }
+
+    /// Clear the cached nonce (e.g. on logout).
+    pub async fn clear_order_nonce(&self) {
+        *self.order_nonce.write().await = None;
     }
 
     // ── Signing strategy ────────────────────────────────────────────────
@@ -347,6 +369,7 @@ impl Clone for LightconeClient {
             auth_credentials: self.auth_credentials.clone(),
             program_id: self.program_id,
             deposit_source: self.deposit_source.clone(),
+            order_nonce: self.order_nonce.clone(),
             signing_strategy: self.signing_strategy.clone(),
             rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]
@@ -462,6 +485,7 @@ impl LightconeClientBuilder {
             auth_credentials: Arc::new(RwLock::new(self.auth_credentials)),
             program_id: self.program_id,
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
+            order_nonce: Arc::new(RwLock::new(None)),
             signing_strategy: Arc::new(RwLock::new(self.signing_strategy)),
             rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]

@@ -303,7 +303,7 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.bid()` / `.ask()` | Set the order side |
 | `.price(str)` | Set the human-readable price |
 | `.size(str)` | Set the human-readable size |
-| `.nonce(u32)` | Set the order nonce |
+| `.nonce(u32)` | Set the order nonce. When using `submit()`, auto-populated from `client.order_nonce()` if omitted (falls back to 0). |
 | `.expiration(i64)` | Set expiration (0 = none) |
 | `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
 | `.apply_scaling(&decimals)` | Convert price/size to raw amounts using orderbook decimals |
