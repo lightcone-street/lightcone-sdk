@@ -57,20 +57,13 @@ async function main() {
   const orderbook = market.orderbookPairs[0];
 
   // 3. Build, sign, and submit a limit order
-  //    Decimals are derived automatically from the orderbook's token metadata.
-  const nonce = await client.orders().currentNonce(keypair.publicKey);
-  const request = client.orders().limitOrder()
+  //    market, baseMint, quoteMint, and nonce are auto-filled from the orderbook.
+  const response = await client.orders().limitOrder()
     .maker(keypair.publicKey)
-    .market(new PublicKey(market.pubkey))
-    .baseMint(new PublicKey(orderbook.base.pubkey))
-    .quoteMint(new PublicKey(orderbook.quote.pubkey))
     .bid()
     .price("0.55")
     .size("100")
-    .nonce(nonce)
-    .sign(keypair, orderbook);
-
-  const response = await client.orders().submit(request);
+    .submit(client, orderbook);
   console.log("Order submitted:", response);
 
   // 5. Stream real-time updates
@@ -130,17 +123,12 @@ const depositIx = client.positions().deposit()
 ### Step 3: Place an Order
 
 ```typescript
-const request = client.orders().limitOrder()
+const order = await client.orders().limitOrder()
   .maker(keypair.publicKey)
-  .market(new PublicKey(market.pubkey))
-  .baseMint(new PublicKey(orderbook.base.pubkey))
-  .quoteMint(new PublicKey(orderbook.quote.pubkey))
   .bid()
   .price("0.55")
   .size("1")
-  .nonce(await client.orders().currentNonce(keypair.publicKey))
-  .sign(keypair, orderbook);
-const order = await client.orders().submit(request);
+  .submit(client, orderbook);
 ```
 
 ### Step 4: Monitor

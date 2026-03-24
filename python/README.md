@@ -59,20 +59,15 @@ async def main():
     orderbook = market.orderbook_pairs[0]
 
     # 3. Build, sign, and submit a limit order (scaling is automatic)
-    request = (
+    #    market, base_mint, quote_mint, and nonce are auto-filled from the orderbook.
+    response = await (
         client.orders().limit_order()
         .maker(keypair.pubkey())
-        .market(Pubkey.from_string(market.pubkey))
-        .base_mint(Pubkey.from_string(orderbook.base.pubkey))
-        .quote_mint(Pubkey.from_string(orderbook.quote.pubkey))
         .bid()
         .price("0.55")
         .size("100")
-        .nonce(await client.orders().current_nonce(keypair.pubkey()))
-        .sign(keypair, orderbook)
+        .submit(client, orderbook)
     )
-
-    response = await client.orders().submit(request)
     print("Order submitted:", response)
 
     # 4. Stream real-time updates
@@ -135,19 +130,14 @@ deposit_ix = (client.positions().deposit()
 ### Step 3: Place an Order
 
 ```python
-request = (
+order = await (
     client.orders().limit_order()
     .maker(keypair.pubkey())
-    .market(Pubkey.from_string(market.pubkey))
-    .base_mint(Pubkey.from_string(orderbook.base.pubkey))
-    .quote_mint(Pubkey.from_string(orderbook.quote.pubkey))
     .bid()
     .price("0.55")
     .size("1")
-    .nonce(await client.orders().current_nonce(keypair.pubkey()))
-    .sign(keypair, orderbook)
+    .submit(client, orderbook)
 )
-order = await client.orders().submit(request)
 ```
 
 ### Step 4: Monitor
