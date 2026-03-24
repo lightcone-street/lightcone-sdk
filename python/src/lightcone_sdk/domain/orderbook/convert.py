@@ -27,8 +27,8 @@ def orderbook_pair_from_wire(
 
     Matches Rust TryFrom<(OrderbookResponse, &Vec<ConditionalToken>)> for OrderBookPair.
     """
-    base = next((t for t in conditional_tokens if t.mint == wire.base_token), None)
-    quote = next((t for t in conditional_tokens if t.mint == wire.quote_token), None)
+    base = next((t for t in conditional_tokens if t.pubkey == wire.base_token), None)
+    quote = next((t for t in conditional_tokens if t.pubkey == wire.quote_token), None)
 
     errors: list[str] = []
     if base is None:

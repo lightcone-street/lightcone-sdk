@@ -20,8 +20,8 @@ async def main():
 
     # 1. Fetch market and orderbook
     m, orderbook = await market_and_orderbook(client)
-    base_mint = Pubkey.from_string(orderbook.base.mint)
-    quote_mint = Pubkey.from_string(orderbook.quote.mint)
+    base_mint = Pubkey.from_string(orderbook.base.pubkey)
+    quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
     # 2. Get a fresh nonce from on-chain
     nonce = await client.orders().current_nonce(keypair.pubkey())

@@ -35,7 +35,7 @@ class Outcome:
 
 @dataclass
 class ConditionalToken:
-    mint: str
+    pubkey: str
     outcome_index: int
     id: int = 0
     outcome: str = ""

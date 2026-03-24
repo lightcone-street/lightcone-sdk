@@ -14,8 +14,8 @@ async def main():
 
     m, orderbook = await market_and_orderbook(client)
     market_pubkey = Pubkey.from_string(m.pubkey)
-    base_mint = Pubkey.from_string(orderbook.base.mint)
-    quote_mint = Pubkey.from_string(orderbook.quote.mint)
+    base_mint = Pubkey.from_string(orderbook.base.pubkey)
+    quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
     # 1. Exchange state
     exchange = await client.rpc().get_exchange()

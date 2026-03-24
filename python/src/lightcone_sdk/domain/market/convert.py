@@ -74,7 +74,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             ct_name = ct.display_name or ct.name
             ct_symbol = ct.short_name or ct.symbol
             conditional_tokens.append(ConditionalToken(
-                mint=ct.token_address,
+                pubkey=ct.token_address,
                 outcome_index=ct.outcome_index,
                 id=ct.id,
                 outcome=ct.outcome,
@@ -95,13 +95,13 @@ def market_from_wire(wire: MarketWire) -> Market:
                     name=ct_name,
                 )
 
-    # Build a lookup from mint address to ConditionalToken for orderbook pairs.
-    ct_by_mint: dict[str, ConditionalToken] = {ct.mint: ct for ct in conditional_tokens}
+    # Build a lookup from pubkey to ConditionalToken for orderbook pairs.
+    ct_by_pubkey: dict[str, ConditionalToken] = {ct.pubkey: ct for ct in conditional_tokens}
 
     orderbook_pairs = []
     for ob in wire.orderbooks:
-        base_ct = ct_by_mint.get(ob.base_token, ConditionalToken(mint=ob.base_token, outcome_index=0))
-        quote_ct = ct_by_mint.get(ob.quote_token, ConditionalToken(mint=ob.quote_token, outcome_index=0))
+        base_ct = ct_by_pubkey.get(ob.base_token, ConditionalToken(pubkey=ob.base_token, outcome_index=0))
+        quote_ct = ct_by_pubkey.get(ob.quote_token, ConditionalToken(pubkey=ob.quote_token, outcome_index=0))
         orderbook_pairs.append(OrderBookPair(
             id=ob.id,
             market_pubkey=ob.market_pubkey or wire.market_pubkey,
