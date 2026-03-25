@@ -185,6 +185,7 @@ pub enum PlaceResponse {
     Rejected {
         error: Option<String>,
         details: Option<String>,
+        #[serde(alias = "reason")]
         rejection_reason: Option<String>,
         order_hash: Option<String>,
         remaining: Option<Decimal>,

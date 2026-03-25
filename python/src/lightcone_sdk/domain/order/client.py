@@ -405,12 +405,15 @@ def _unwrap_status(
     if status in rejected_statuses:
         error = data.get("error")
         details = data.get("details")
+        rejection_reason = data.get("rejection_reason") or data.get("reason")
         if error and details:
             raise SdkError(f"{error}: {details}")
         if error:
             raise SdkError(error)
         if details:
             raise SdkError(details)
+        if rejection_reason:
+            raise SdkError(rejection_reason)
 
         parts = ["Rejected"]
         if data.get("order_hash"):

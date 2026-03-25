@@ -161,6 +161,7 @@ export type PlaceResponse =
       status: "rejected";
       error?: string;
       details?: string;
+      rejection_reason?: string;
       reason?: string;
       order_hash?: string;
       remaining?: string;
@@ -278,7 +279,7 @@ export class Orders {
       case "filled":
         return raw;
       case "rejected": {
-        const message = [raw.error, raw.details].filter(Boolean).join(": ") || "Rejected";
+        const message = [raw.error, raw.details].filter(Boolean).join(": ") || raw.rejection_reason || raw.reason || "Rejected";
         throw SdkError.from(new Error(message));
       }
       case "bad_request":
