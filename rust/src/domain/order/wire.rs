@@ -282,20 +282,15 @@ pub struct Authenticated {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct AuthFailed {
-    pub code: String,
-    pub message: Option<String>,
-}
-
-#[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "status")]
 pub enum AuthUpdate {
     #[serde(rename = "authenticated")]
     Authenticated(Authenticated),
     #[serde(rename = "anonymous")]
-    Anonymous,
-    #[serde(rename = "failed")]
-    Failed(AuthFailed),
+    Anonymous {
+        #[serde(default)]
+        reason: Option<String>,
+    },
 }
 
 // ─── User order fills (REST) ───────────────────────────────────────────────
