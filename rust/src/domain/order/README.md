@@ -91,6 +91,43 @@ Execution constraint for trigger orders.
 | `TakeProfit` | `"TP"` | Fires when price rises above trigger |
 | `StopLoss` | `"SL"` | Fires when price falls below trigger |
 
+### `UserOrderFill`
+
+An order the user participated in (as maker or taker), with nested fill events.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `order_hash` | `String` | Unique order identifier |
+| `market_pubkey` | `PubkeyStr` | Parent market |
+| `orderbook_id` | `OrderBookId` | Which orderbook |
+| `side` | `Side` | User's side: `Bid` or `Ask` |
+| `role` | `Role` | `Maker` or `Taker` |
+| `price` | `Decimal` | Order price |
+| `size` | `Decimal` | Total order size |
+| `filled_size` | `Decimal` | Amount filled |
+| `remaining_size` | `Decimal` | Amount remaining |
+| `base_mint` | `PubkeyStr` | Base token mint |
+| `quote_mint` | `PubkeyStr` | Quote token mint |
+| `outcome_index` | `i16` | Which outcome |
+| `status` | `OrderStatus` | `Filled`, `Cancelled`, or partially filled |
+| `created_at` | `DateTime<Utc>` | Order creation timestamp |
+| `fills` | `Vec<OrderFillEvent>` | Individual fill events |
+
+### `OrderFillEvent`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `fill_amount` | `Decimal` | Amount filled in this event |
+| `tx_signature` | `String` | On-chain transaction signature |
+| `filled_at` | `DateTime<Utc>` | When the fill occurred |
+
+### `Role`
+
+| Variant | Description |
+|---------|-------------|
+| `Maker` | User placed the order |
+| `Taker` | User filled against the order |
+
 ## Client Methods
 
 Access via `client.orders()`.
@@ -167,6 +204,20 @@ async fn get_user_orders(
 ```
 
 Fetch a user's orders (both limit and trigger) with cursor-based pagination.
+
+### `get_user_order_fills`
+
+```rust
+async fn get_user_order_fills(
+    &self,
+    wallet_address: &str,
+    market_pubkey: Option<&str>,
+    limit: Option<u32>,
+    cursor: Option<&str>,
+) -> Result<UserOrderFillsResponse, SdkError>
+```
+
+Fetch a user's filled orders with nested fill events. Includes orders where the user was either maker or taker. Optionally filter by market. Returns orders sorted by most recent fill first.
 
 ### On-Chain Instruction & Transaction Builders
 
@@ -455,9 +506,49 @@ async fn place_take_profit(
 }
 ```
 
+### Fetch filled orders with pagination
+
+```rust
+use lightcone::prelude::*;
+
+async fn show_fill_history(
+    client: &LightconeClient,
+    keypair: &solana_keypair::Keypair,
+    market_pubkey: &str,
+) -> Result<(), SdkError> {
+    let response = client.orders().get_user_order_fills(
+        &keypair.pubkey().to_string(),
+        Some(market_pubkey),
+        Some(20),
+        None,
+    ).await?;
+
+    for order in &response.orders {
+        println!("{} {} ({:?}) @ {} — {}/{} filled",
+            order.side, order.role, order.status,
+            order.price, order.filled_size, order.size);
+        for fill in &order.fills {
+            println!("  fill: {} at {}", fill.fill_amount, fill.filled_at);
+        }
+    }
+
+    // Paginate
+    if response.has_more {
+        let next_page = client.orders().get_user_order_fills(
+            &keypair.pubkey().to_string(),
+            Some(market_pubkey),
+            Some(20),
+            response.next_cursor.as_deref(),
+        ).await?;
+    }
+
+    Ok(())
+}
+```
+
 ## Wire Types
 
-Raw types in `lightcone::domain::order::wire` include `OrderUpdate`, `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `TriggerOrderUpdate`, `OrderEvent`, `ConditionalBalance`, `GlobalDepositBalance`, and `AuthUpdate`. These are the WebSocket and REST wire formats before domain conversion.
+Raw types in `lightcone::domain::order::wire` include `OrderUpdate`, `UserUpdate`, `UserSnapshot`, `UserSnapshotOrder`, `TriggerOrderUpdate`, `OrderEvent`, `ConditionalBalance`, `GlobalDepositBalance`, `AuthUpdate`, `UserOrderFillsResponse`, `UserOrderFill`, `OrderFillEvent`, and `Role`. These are the WebSocket and REST wire formats before domain conversion.
 
 ---
 

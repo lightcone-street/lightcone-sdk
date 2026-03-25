@@ -297,3 +297,62 @@ pub enum AuthUpdate {
     #[serde(rename = "failed")]
     Failed(AuthFailed),
 }
+
+// ─── User order fills (REST) ───────────────────────────────────────────────
+
+/// Response from `GET /api/users/order-fills`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrderFillsResponse {
+    pub orders: Vec<UserOrderFill>,
+    pub next_cursor: Option<String>,
+    pub has_more: bool,
+}
+
+/// An order the user participated in, with nested fill events.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserOrderFill {
+    pub order_hash: String,
+    pub market_pubkey: PubkeyStr,
+    pub orderbook_id: OrderBookId,
+    pub side: Side,
+    pub role: Role,
+    pub price: Decimal,
+    pub size: Decimal,
+    pub filled_size: Decimal,
+    pub remaining_size: Decimal,
+    pub base_mint: PubkeyStr,
+    pub quote_mint: PubkeyStr,
+    pub outcome_index: i16,
+    pub status: FillStatus,
+    #[serde(with = "serde_util::timestamp_ms")]
+    pub created_at: DateTime<Utc>,
+    pub fills: Vec<OrderFillEvent>,
+}
+
+/// A single fill event within an order.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderFillEvent {
+    pub fill_amount: Decimal,
+    pub tx_signature: String,
+    #[serde(with = "serde_util::timestamp_ms")]
+    pub filled_at: DateTime<Utc>,
+}
+
+/// Whether the user was the maker or taker on an order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Maker,
+    Taker,
+}
+
+/// Status of a filled order, derived from DB state after the fact.
+///
+/// Distinct from `OrderStatus` which is the engine's real-time state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FillStatus {
+    Filled,
+    Cancelled,
+    PartiallyFilled,
+}

@@ -2,6 +2,7 @@
 
 use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
+use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
@@ -567,6 +568,34 @@ impl<'a> Orders<'a> {
             self.client.http.base_url(),
             wallet_address
         );
+        if let Some(limit) = limit {
+            url.push_str(&format!("&limit={}", limit));
+        }
+        if let Some(cursor) = cursor {
+            url.push_str(&format!("&cursor={}", cursor));
+        }
+        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+    }
+
+    /// Fetch a user's filled orders with nested fill events.
+    ///
+    /// Includes orders where the user was either maker or taker.
+    /// Optionally filter by market. Returns orders sorted by most recent fill first.
+    pub async fn get_user_order_fills(
+        &self,
+        wallet_address: &str,
+        market_pubkey: Option<&str>,
+        limit: Option<u32>,
+        cursor: Option<&str>,
+    ) -> Result<UserOrderFillsResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/users/order-fills?wallet_address={}",
+            self.client.http.base_url(),
+            wallet_address
+        );
+        if let Some(market_pubkey) = market_pubkey {
+            url.push_str(&format!("&market_pubkey={}", market_pubkey));
+        }
         if let Some(limit) = limit {
             url.push_str(&format!("&limit={}", limit));
         }
