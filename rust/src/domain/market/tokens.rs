@@ -213,7 +213,7 @@ pub struct ValidatedTokens {
 pub enum TokenValidationError {
     Multiple(String, Vec<TokenValidationError>),
     MissingDisplayName(String),
-    MissingShortName(String),
+    MissingShortSymbol(String),
     MissingDecimals(String),
     MissingSymbol(String),
     MissingOutcome(String),
@@ -231,7 +231,7 @@ impl fmt::Display for TokenValidationError {
                 Ok(())
             }
             TokenValidationError::MissingDisplayName(m) => write!(f, "Missing display name: {m}"),
-            TokenValidationError::MissingShortName(m) => write!(f, "Missing short name: {m}"),
+            TokenValidationError::MissingShortSymbol(m) => write!(f, "Missing short symbol: {m}"),
             TokenValidationError::MissingDecimals(m) => write!(f, "Missing decimals: {m}"),
             TokenValidationError::MissingSymbol(m) => write!(f, "Missing symbol: {m}"),
             TokenValidationError::MissingOutcome(m) => write!(f, "Missing outcome: {m}"),
@@ -297,14 +297,8 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 ct_errors.push(TokenValidationError::MissingDecimals(ct_pubkey.to_string()));
                 0
             });
-            let ct_symbol = ct.short_name.unwrap_or_else(|| {
-                ct_errors.push(TokenValidationError::MissingShortName(
-                    ct_pubkey.to_string(),
-                ));
-                String::new()
-            });
-            let ct_name = ct.display_name.unwrap_or_else(|| {
-                ct_errors.push(TokenValidationError::MissingDisplayName(
+            let ct_symbol = ct.short_symbol.unwrap_or_else(|| {
+                ct_errors.push(TokenValidationError::MissingShortSymbol(
                     ct_pubkey.to_string(),
                 ));
                 String::new()
@@ -329,7 +323,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                     symbol: ct_symbol.clone(),
                     decimals: ct_decimals,
                     icon_url: icon_url.clone(),
-                    name: ct_name.clone(),
+                    name: ct_outcome.clone(),
                 },
             );
 
@@ -340,9 +334,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 outcome_index: ct.outcome_index,
                 icon_url: icon_url.clone(),
                 description: ct.description,
-                outcome: ct_outcome,
+                outcome: ct_outcome.clone(),
                 mint: ct_pubkey,
-                name: ct_name,
+                name: ct_outcome,
                 symbol: ct_symbol,
                 decimals: ct_decimals,
             });
@@ -394,13 +388,11 @@ mod tests {
                 id: 10,
                 outcome_index: 0,
                 token_address: "cond_yes".to_string(),
-                name: None,
                 symbol: None,
                 uri: None,
-                display_name: Some("Yes".to_string()),
                 outcome: Some("Yes".to_string()),
                 deposit_symbol: None,
-                short_name: Some("YES".to_string()),
+                short_symbol: Some("YES".to_string()),
                 description: None,
                 icon_url: None,
                 metadata_uri: None,
