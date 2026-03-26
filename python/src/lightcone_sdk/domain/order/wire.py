@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
+from enum import Enum
 from typing import Optional, Union
 
 from ...error import _require
@@ -283,8 +284,7 @@ class AuthUpdate:
     status: str = "anonymous"
     authenticated: bool = False
     wallet_address: Optional[str] = None
-    code: Optional[str] = None
-    message: Optional[str] = None
+    reason: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "AuthUpdate":
@@ -299,8 +299,7 @@ class AuthUpdate:
             status=status,
             authenticated=authenticated,
             wallet_address=d.get("wallet", d.get("wallet_address")),
-            code=d.get("code"),
-            message=d.get("message"),
+            reason=d.get("reason"),
         )
 
 
@@ -308,6 +307,93 @@ def _parse_order_event(d: dict) -> Union[OrderUpdate, TriggerOrderUpdate]:
     if d.get("order_type") == "trigger":
         return TriggerOrderUpdate.from_dict(d)
     return OrderUpdate.from_dict(d)
+
+
+class Role(str, Enum):
+    """Whether the user was the maker or taker on an order."""
+    MAKER = "maker"
+    TAKER = "taker"
+
+
+class FillStatus(str, Enum):
+    """Status of a filled order, derived from DB state after the fact."""
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+    PARTIALLY_FILLED = "partially_filled"
+
+
+@dataclass
+class OrderFillEvent:
+    """A single fill event within an order."""
+    fill_amount: str = "0"
+    tx_signature: str = ""
+    filled_at: str = ""
+
+    @staticmethod
+    def from_dict(d: dict) -> "OrderFillEvent":
+        return OrderFillEvent(
+            fill_amount=str(d.get("fill_amount", "0")),
+            tx_signature=d.get("tx_signature", ""),
+            filled_at=str(d.get("filled_at", "")),
+        )
+
+
+@dataclass
+class UserOrderFill:
+    """An order the user participated in, with nested fill events."""
+    order_hash: str = ""
+    market_pubkey: str = ""
+    orderbook_id: str = ""
+    side: int = 0
+    role: str = ""
+    price: str = "0"
+    size: str = "0"
+    filled_size: str = "0"
+    remaining_size: str = "0"
+    base_mint: str = ""
+    quote_mint: str = ""
+    outcome_index: int = 0
+    status: str = ""
+    created_at: str = ""
+    fills: list[OrderFillEvent] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserOrderFill":
+        from ...shared.types import Side as _Side
+
+        return UserOrderFill(
+            order_hash=d.get("order_hash", ""),
+            market_pubkey=d.get("market_pubkey", ""),
+            orderbook_id=d.get("orderbook_id", ""),
+            side=int(_Side.from_wire(d.get("side", 0))),
+            role=d.get("role", ""),
+            price=str(d.get("price", "0")),
+            size=str(d.get("size", "0")),
+            filled_size=str(d.get("filled_size", "0")),
+            remaining_size=str(d.get("remaining_size", "0")),
+            base_mint=d.get("base_mint", ""),
+            quote_mint=d.get("quote_mint", ""),
+            outcome_index=d.get("outcome_index", 0),
+            status=d.get("status", ""),
+            created_at=str(d.get("created_at", "")),
+            fills=[OrderFillEvent.from_dict(f) for f in d.get("fills", [])],
+        )
+
+
+@dataclass
+class UserOrderFillsResponse:
+    """Response from GET /api/users/order-fills."""
+    orders: list[UserOrderFill] = field(default_factory=list)
+    next_cursor: Optional[str] = None
+    has_more: bool = False
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserOrderFillsResponse":
+        return UserOrderFillsResponse(
+            orders=[UserOrderFill.from_dict(o) for o in d.get("orders", [])],
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+        )
 
 
 def _sum_decimal_strings(left: str, right: str) -> str:

@@ -293,6 +293,14 @@ class UserOrdersResponse:
     has_more: bool = False
 
 
+from .wire import (  # noqa: E402 — re-export wire types matching Rust mod.rs
+    Role,
+    FillStatus,
+    OrderFillEvent,
+    UserOrderFill,
+    UserOrderFillsResponse,
+)
+
 __all__ = [
     "OrderType",
     "OrderStatus",
@@ -313,4 +321,9 @@ __all__ = [
     "UserSnapshotBalance",
     "UserSnapshotOrder",
     "UserOrdersResponse",
+    "Role",
+    "FillStatus",
+    "OrderFillEvent",
+    "UserOrderFill",
+    "UserOrderFillsResponse",
 ]

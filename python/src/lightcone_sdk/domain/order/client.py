@@ -19,6 +19,7 @@ from . import (
     CancelTriggerSuccess,
     TriggerOrderResponse,
     UserOrdersResponse,
+    UserOrderFillsResponse,
     UserSnapshotOrder,
     UserSnapshotBalance,
 )
@@ -195,6 +196,28 @@ class Orders:
             next_cursor=data.get("next_cursor"),
             has_more=data.get("has_more", False),
         )
+
+    async def get_user_order_fills(
+        self,
+        wallet_address: str,
+        market_pubkey: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> UserOrderFillsResponse:
+        """Fetch a user's filled orders with nested fill events.
+
+        Includes orders where the user was either maker or taker.
+        Optionally filter by market. Returns orders sorted by most recent fill first.
+        """
+        url = f"/api/users/order-fills?wallet_address={wallet_address}"
+        if market_pubkey is not None:
+            url += f"&market_pubkey={market_pubkey}"
+        if limit is not None:
+            url += f"&limit={limit}"
+        if cursor is not None:
+            url += f"&cursor={cursor}"
+        data = await self._client._http.get(url)
+        return UserOrderFillsResponse.from_dict(data)
 
     # ── Unified cancel (dispatches based on client signing strategy) ────
 
