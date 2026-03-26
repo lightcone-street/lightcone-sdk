@@ -43,7 +43,7 @@ import type {
 } from "../../program/types";
 import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "../../shared";
 import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
-import type { UserSnapshotBalance, UserSnapshotOrder } from "./wire";
+import type { UserSnapshotBalance, UserSnapshotOrder, UserOrderFillsResponse } from "./wire";
 
 // ─── Request types ───────────────────────────────────────────────────────────
 
@@ -396,6 +396,21 @@ export class Orders {
       next_cursor: response.next_cursor ?? undefined,
       has_more: response.has_more ?? false,
     };
+  }
+
+  async getUserOrderFills(
+    walletAddress: string,
+    marketPubkey?: string,
+    limit?: number,
+    cursor?: string,
+  ): Promise<UserOrderFillsResponse> {
+    const params = new URLSearchParams({ wallet_address: walletAddress });
+    if (marketPubkey) params.set("market_pubkey", marketPubkey);
+    if (limit !== undefined) params.set("limit", String(limit));
+    if (cursor) params.set("cursor", cursor);
+
+    const url = `${this.client.http.baseUrl()}/api/users/order-fills?${params.toString()}`;
+    return this.client.http.get<UserOrderFillsResponse>(url, RetryPolicy.Idempotent);
   }
 
   // ── Unified cancel (dispatches based on client signing strategy) ────

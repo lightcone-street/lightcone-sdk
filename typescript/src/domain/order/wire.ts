@@ -168,5 +168,40 @@ export type UserUpdate =
 
 export type AuthUpdate =
   | { status: "authenticated"; wallet: PubkeyStr }
-  | { status: "anonymous" }
-  | { status: "failed"; code: string; message?: string };
+  | { status: "anonymous"; reason?: string };
+
+// ─── User order fills (REST) ────────────────────────────────────────────────
+
+export type Role = "maker" | "taker";
+
+export type FillStatus = "filled" | "cancelled" | "partially_filled";
+
+export interface OrderFillEvent {
+  fill_amount: string;
+  tx_signature: string;
+  filled_at: number;
+}
+
+export interface UserOrderFill {
+  order_hash: string;
+  market_pubkey: PubkeyStr;
+  orderbook_id: OrderBookId;
+  side: Side;
+  role: Role;
+  price: string;
+  size: string;
+  filled_size: string;
+  remaining_size: string;
+  base_mint: PubkeyStr;
+  quote_mint: PubkeyStr;
+  outcome_index: number;
+  status: FillStatus;
+  created_at: number;
+  fills: OrderFillEvent[];
+}
+
+export interface UserOrderFillsResponse {
+  orders: UserOrderFill[];
+  next_cursor?: string;
+  has_more: boolean;
+}
