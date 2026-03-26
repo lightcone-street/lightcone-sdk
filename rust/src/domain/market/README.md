@@ -72,8 +72,8 @@ An SPL token representing a bet on one outcome.
 |-------|------|-------------|
 | `mint` | `PubkeyStr` | Token mint address |
 | `outcome_index` | `i16` | Which outcome this token represents |
-| `outcome` | `String` | Outcome name (e.g., "Yes") |
-| `short_symbol` | `String` | Short symbol (e.g., "YES") |
+| `display_name` | `String` | Human-readable name |
+| `short_name` | `String` | Abbreviated name |
 | `icon_url` | `String` | Token icon |
 
 ### `DepositAsset`
@@ -216,8 +216,8 @@ async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
         println!(
             "  Orderbook: {} ({} vs {})",
             ob.orderbook_id,
-            ob.base.symbol(),
-            ob.quote.symbol()
+            ob.base.short_name,
+            ob.quote.short_name
         );
         if let Some(price) = ob.last_trade_price {
             println!("    Last trade: {}", price);
