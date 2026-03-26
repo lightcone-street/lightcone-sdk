@@ -11,11 +11,13 @@ export interface ConditionalTokenResponse {
   id: number;
   outcome_index: number;
   token_address: string;
+  name?: string;
   symbol?: string;
   uri?: string;
+  display_name?: string;
   outcome?: string;
   deposit_symbol?: string;
-  short_symbol?: string;
+  short_name?: string;
   description?: string;
   icon_url?: string;
   metadata_uri?: string;

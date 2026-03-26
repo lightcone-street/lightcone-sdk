@@ -111,9 +111,10 @@ class OutcomeMetadataPayload:
 class ConditionalTokenMetadataPayload:
     conditional_mint_id: int
     outcome_index: Optional[int] = None
+    display_name: Optional[str] = None
     outcome: Optional[str] = None
     deposit_symbol: Optional[str] = None
-    short_symbol: Optional[str] = None
+    short_name: Optional[str] = None
     description: Optional[str] = None
     icon_url: Optional[str] = None
     metadata_uri: Optional[str] = None

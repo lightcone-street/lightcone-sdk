@@ -38,9 +38,10 @@ export interface OutcomeMetadataPayload {
 export interface ConditionalTokenMetadataPayload {
   conditional_mint_id: number;
   outcome_index?: number;
+  display_name?: string;
   outcome?: string;
   deposit_symbol?: string;
-  short_symbol?: string;
+  short_name?: string;
   description?: string;
   icon_url?: string;
   metadata_uri?: string;

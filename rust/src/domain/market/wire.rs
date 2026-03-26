@@ -52,14 +52,17 @@ pub struct ConditionalTokenResponse {
     pub id: i32,
     pub outcome_index: i16,
     pub token_address: String,
+    pub name: Option<String>,
     pub symbol: Option<String>,
     pub uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub deposit_symbol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub short_symbol: Option<String>,
+    pub short_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
