@@ -62,7 +62,7 @@ from .shared.signing import (
     SigningStrategyKind,
 )
 
-from .network import DEFAULT_API_URL, DEFAULT_WS_URL
+from .env import LightconeEnv
 
 # ============================================================================
 # Layer 2: Auth + Privy
@@ -389,9 +389,8 @@ __all__ = [
     "WsErrorKind",
     "AuthError",
     "AuthErrorKind",
-    # Network
-    "DEFAULT_API_URL",
-    "DEFAULT_WS_URL",
+    # Environment
+    "LightconeEnv",
     # Auth
     "User",
     "AuthCredentials",

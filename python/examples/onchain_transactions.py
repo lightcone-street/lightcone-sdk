@@ -2,7 +2,7 @@
 
 import asyncio
 
-from common import client as make_client, wallet, market, deposit_mint
+from common import client as make_client, get_keypair, market, deposit_mint
 from lightcone_sdk.rpc import require_connection
 
 
@@ -19,7 +19,7 @@ async def submit_transaction(name, connection, tx, keypair, blockhash):
 
 async def main():
     client = make_client()
-    keypair = wallet()
+    keypair = get_keypair()
 
     m = await market(client)
     d_mint = deposit_mint(m)

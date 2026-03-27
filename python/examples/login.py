@@ -2,13 +2,13 @@
 
 import asyncio
 
-from common import rest_client, wallet
+from common import rest_client, get_keypair
 from lightcone_sdk.auth.client import sign_login_message
 
 
 async def main():
     client = rest_client()
-    keypair = wallet()
+    keypair = get_keypair()
 
     nonce = await client.auth().get_nonce()
     message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)

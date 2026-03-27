@@ -1,14 +1,14 @@
 mod common;
 
 use common::{
-    deposit_mint, market, orderbook_mints, parse_pubkey, rest_client, wallet, ExampleResult,
+    deposit_mint, get_keypair, market, orderbook_mints, parse_pubkey, rest_client, ExampleResult,
 };
 use solana_signer::Signer;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     let market = market(&client).await?;
     let market_pubkey = parse_pubkey(&market.pubkey)?;
     let orderbook = market

@@ -6,7 +6,6 @@ import sys
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
@@ -18,15 +17,21 @@ from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import User
 from lightcone_sdk.domain.market import Market, OrderBookPair
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+DEFAULT_WALLET_PATH = "~/.config/solana/id.json"
 
 
 def client() -> LightconeClient:
-    """Build a LightconeClient with optional Solana RPC support."""
+    """Build a LightconeClient.
+
+    Defaults to production. Set ``LIGHTCONE_ENV`` to override
+    (options: local, staging, prod).
+    """
+    from lightcone_sdk.env import LightconeEnv
+
     builder = LightconeClientBuilder()
-    rpc_url = os.environ.get("SOLANA_RPC_URL")
-    if rpc_url:
-        builder = builder.rpc_url(rpc_url)
+    env_str = os.environ.get("LIGHTCONE_ENV")
+    if env_str:
+        builder = builder.env(LightconeEnv(env_str.lower()))
     return builder.build()
 
 
@@ -34,10 +39,13 @@ def client() -> LightconeClient:
 rest_client = client
 
 
-def wallet() -> Keypair:
-    raw = os.environ.get("LIGHTCONE_WALLET_PATH")
-    if not raw:
-        raise RuntimeError("set LIGHTCONE_WALLET_PATH in .env or the environment")
+def get_keypair() -> Keypair:
+    """Load a keypair from disk.
+
+    Defaults to ``~/.config/solana/id.json``. Set ``LIGHTCONE_WALLET_PATH``
+    to override.
+    """
+    raw = os.environ.get("LIGHTCONE_WALLET_PATH", DEFAULT_WALLET_PATH)
     path = Path(raw).expanduser()
     with path.open() as f:
         secret = json.load(f)

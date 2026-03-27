@@ -10,7 +10,7 @@ from common import (
     login,
     market,
     num_outcomes,
-    wallet,
+    get_keypair,
 )
 from lightcone_sdk.program.pda import get_position_alt_pda, get_position_pda
 from lightcone_sdk.rpc import require_connection
@@ -18,7 +18,7 @@ from lightcone_sdk.rpc import require_connection
 
 async def main():
     client = make_client()
-    keypair = wallet()
+    keypair = get_keypair()
     await login(client, keypair)
 
     m = await market(client)

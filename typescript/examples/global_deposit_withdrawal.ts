@@ -1,11 +1,11 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getPositionAltPda, getPositionPda } from "../src/program";
-import { depositMint, login, market, rpcClient, wallet } from "./common";
+import { depositMint, login, market, rpcClient, getKeypair } from "./common";
 
 async function main() {
   const client = rpcClient();
   const connection = client.rpc().inner();
-  const keypair = wallet();
+  const keypair = getKeypair();
   await login(client, keypair);
 
   const m = await market(client);

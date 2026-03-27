@@ -2,7 +2,7 @@
 
 import asyncio
 
-from common import rest_client, wallet, login, unix_timestamp
+from common import rest_client, get_keypair, login, unix_timestamp
 from lightcone_sdk.domain.order import CancelBody, CancelAllBody
 from lightcone_sdk.program.orders import (
     generate_cancel_all_salt,
@@ -13,7 +13,7 @@ from lightcone_sdk.program.orders import (
 
 async def main():
     client = rest_client()
-    keypair = wallet()
+    keypair = get_keypair()
     await login(client, keypair)
     pubkey = str(keypair.pubkey())
 

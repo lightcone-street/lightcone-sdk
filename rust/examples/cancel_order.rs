@@ -1,13 +1,13 @@
 mod common;
 
-use common::{login, rest_client, unix_timestamp, wallet, ExampleResult};
+use common::{get_keypair, login, rest_client, unix_timestamp, ExampleResult};
 use lightcone::prelude::*;
 use solana_signer::Signer;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     login(&client, &keypair, false).await?;
 
     let snapshot = client

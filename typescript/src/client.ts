@@ -12,9 +12,8 @@ import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
 import { LightconeHttp } from "./http";
-import { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
+import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "./env";
 import { Privy } from "./privy";
-import { PROGRAM_ID } from "./program/constants";
 import { Rpc } from "./rpc";
 import { DepositSource } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
@@ -62,7 +61,7 @@ export class LightconeClient implements ClientContext {
     authState?: AuthState;
   }) {
     this.http = params.http;
-    this.programId = params.programId ?? PROGRAM_ID;
+    this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
     this.connection = params.connection;
     this.depositSourceValue = params.depositSource ?? DepositSource.Global;
     this.signingStrategyValue = params.signingStrategy;
@@ -199,13 +198,28 @@ export class LightconeClient implements ClientContext {
 }
 
 export class LightconeClientBuilder {
-  private baseUrlValue: string = DEFAULT_API_URL;
-  private wsUrlValue: string = DEFAULT_WS_URL;
+  private baseUrlValue: string = apiUrl(LightconeEnv.Prod);
+  private wsUrlValue: string = wsUrl(LightconeEnv.Prod);
   private authCredentials?: AuthCredentials;
-  private programIdValue: PublicKey = PROGRAM_ID;
+  private programIdValue: PublicKey = envProgramId(LightconeEnv.Prod);
   private depositSourceValue: DepositSource = DepositSource.Global;
   private signingStrategyValue?: SigningStrategy;
-  private rpcUrlValue?: string;
+  private rpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
+
+  /**
+   * Set the deployment environment. Configures the API URL, WebSocket URL,
+   * RPC URL, and program ID for the given environment.
+   *
+   * Individual URL overrides (e.g. `.baseUrl()`) take precedence when
+   * called **after** `.env()`.
+   */
+  env(environment: LightconeEnv): LightconeClientBuilder {
+    this.baseUrlValue = apiUrl(environment);
+    this.wsUrlValue = wsUrl(environment);
+    this.programIdValue = envProgramId(environment);
+    this.rpcUrlValue = rpcUrl(environment);
+    return this;
+  }
 
   baseUrl(url: string): LightconeClientBuilder {
     return this.withBaseUrl(url);

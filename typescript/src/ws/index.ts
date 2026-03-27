@@ -4,7 +4,7 @@ import type { OrderBook, WsTickerData } from "../domain/orderbook";
 import type { DepositPrice, PriceHistory } from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
 import { WsError as WsErrorClass } from "../error";
-import { DEFAULT_WS_URL } from "../network";
+import { LightconeEnv, wsUrl } from "../env";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
 
 export * from "./client.node";
@@ -57,7 +57,7 @@ export interface WsConfig {
 }
 
 export const WS_DEFAULT_CONFIG: WsConfig = {
-  url: DEFAULT_WS_URL,
+  url: wsUrl(LightconeEnv.Prod),
   reconnect: true,
   maxReconnectAttempts: 10,
   baseReconnectDelayMs: 1_000,

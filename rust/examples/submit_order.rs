@@ -1,6 +1,6 @@
 mod common;
 
-use common::{fresh_order_nonce, market_and_orderbook, rest_client, wallet, ExampleResult};
+use common::{fresh_order_nonce, get_keypair, market_and_orderbook, rest_client, ExampleResult};
 use lightcone::prelude::*;
 use solana_signer::Signer;
 use std::sync::Arc;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     let maker = keypair.pubkey();
     common::login(&client, &keypair, false).await?;
     client

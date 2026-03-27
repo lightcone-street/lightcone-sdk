@@ -1,9 +1,9 @@
 import { asPubkeyStr, type WsEvent } from "../src";
-import { login, market, restClient, wallet, withTimeout } from "./common";
+import { login, market, restClient, getKeypair, withTimeout } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   await login(client, keypair);
   const m = await market(client);
   const ws = client.ws();

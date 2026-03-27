@@ -1,8 +1,8 @@
-import { restClient, wallet, login } from "./common";
+import { restClient, getKeypair, login } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   await login(client, keypair);
   const pubkey = keypair.publicKey.toBase58();
 

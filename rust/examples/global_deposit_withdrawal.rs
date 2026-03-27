@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    deposit_mint, login, market, num_outcomes, parse_pubkey, rest_client, wallet, ExampleResult,
+    deposit_mint, get_keypair, login, market, num_outcomes, parse_pubkey, rest_client,
+    ExampleResult,
 };
 use lightcone::program::{get_position_alt_pda, get_position_pda};
 use solana_signer::Signer;
@@ -10,7 +11,7 @@ use solana_transaction::Transaction;
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     login(&client, &keypair, false).await?;
 
     let market = market(&client).await?;

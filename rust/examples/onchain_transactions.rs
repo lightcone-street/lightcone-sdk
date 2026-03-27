@@ -1,6 +1,6 @@
 mod common;
 
-use common::{deposit_mint, market, rest_client, wallet, ExampleResult};
+use common::{deposit_mint, get_keypair, market, rest_client, ExampleResult};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
@@ -17,7 +17,7 @@ fn describe_tx(name: &str, tx: &Transaction) -> ExampleResult {
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     let market = market(&client).await?;
     let deposit_mint = deposit_mint(&market)?;
     let amount = 1_000_000;

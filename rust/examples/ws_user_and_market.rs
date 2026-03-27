@@ -1,6 +1,6 @@
 mod common;
 
-use common::{login, market, other, rest_client, wallet, ExampleResult};
+use common::{get_keypair, login, market, other, rest_client, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -9,7 +9,7 @@ use tokio::time::{timeout_at, Duration, Instant};
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     let market = market(&client).await?;
     login(&client, &keypair, false).await?;
 
