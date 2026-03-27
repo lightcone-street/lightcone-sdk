@@ -1,0 +1,217 @@
+name: Release
+
+on:
+  push:
+    branches: [prod]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  LIGHTCONE_API_URL: https://tapi2.lightcone.xyz
+  LIGHTCONE_WS_URL: wss://tws2.lightcone.xyz/ws
+  SOLANA_RPC_URL: https://api.devnet.solana.com
+
+jobs:
+  # ── Test phase (3 parallel jobs) ──
+
+  test-rust:
+    name: Test Rust Examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: rust-
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.rs; do
+            name=$(basename "$file" .rs)
+            echo "::group::$name"
+            timeout 120 cargo run --example "$name" --features native
+            echo "::endgroup::"
+          done
+
+  test-typescript:
+    name: Test TypeScript Examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+
+      - run: npm install
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.ts; do
+            name=$(basename "$file" .ts)
+            if [ "$name" = "common" ]; then continue; fi
+            echo "::group::$name"
+            timeout 120 npx tsx "$file"
+            echo "::endgroup::"
+          done
+
+  test-python:
+    name: Test Python Examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]" python-dotenv
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.py; do
+            name=$(basename "$file" .py)
+            if [ "$name" = "common" ]; then continue; fi
+            echo "::group::$name"
+            timeout 120 python "$file"
+            echo "::endgroup::"
+          done
+
+  # ── Bump versions ──
+
+  bump-versions:
+    name: Bump Patch Versions
+    needs: [test-rust, test-typescript, test-python]
+    runs-on: ubuntu-latest
+    outputs:
+      rust-version: ${{ steps.bump.outputs.rust_version }}
+      ts-version: ${{ steps.bump.outputs.ts_version }}
+      python-version: ${{ steps.bump.outputs.python_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bump versions
+        id: bump
+        run: |
+          chmod +x .github/scripts/bump-versions.sh
+          .github/scripts/bump-versions.sh
+
+      - name: Commit and push version bumps
+        env:
+          RUST_VERSION: ${{ steps.bump.outputs.rust_version }}
+          TS_VERSION: ${{ steps.bump.outputs.ts_version }}
+          PYTHON_VERSION: ${{ steps.bump.outputs.python_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml
+          git commit -m "chore: bump versions to rust=$RUST_VERSION ts=$TS_VERSION python=$PYTHON_VERSION [skip ci]"
+          git push origin prod
+
+  # ── Publish phase (2 parallel jobs) ──
+
+  publish-rust:
+    name: Publish Rust Crate
+    needs: [bump-versions]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify
+
+  publish-typescript:
+    name: Publish TypeScript Package
+    needs: [bump-versions]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public

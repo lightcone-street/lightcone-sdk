@@ -159,4 +159,4 @@ async function main() {
   console.log(`builder merge ix: ${mergeIx.keys.length} accounts`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

@@ -32,7 +32,7 @@ async def main():
         .maker(keypair.pubkey())
         .bid()
         .price("0.55")
-        .size("1")
+        .size("2")
         .salt(generate_salt())
         .submit(client, orderbook)
     )

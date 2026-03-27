@@ -18,20 +18,27 @@ async fn main() -> ExampleResult {
     let deposit_mint = deposit_mint(&market)?;
     let num_outcomes = num_outcomes(&market)?;
     let amount = 1_000_000;
+    let deposit_amount = amount * 2; // deposit extra so global has funds after market transfer
 
     let rpc_sub = client.rpc();
     let rpc = rpc_sub.inner()?;
 
-    // 1. Init position tokens — one-time setup per market (creates position + ALT)
-    let recent_slot = rpc.get_slot().await?;
-
     let (position_pda, _) =
         get_position_pda(&keypair.pubkey(), &market_pubkey, client.program_id());
-    let (lookup_table, _) = get_position_alt_pda(&position_pda, recent_slot);
 
-    let instructions: Vec<(&str, solana_instruction::Instruction)> = vec![
-        // 1. Init position tokens
-        (
+    // Check if position already exists (init_position_tokens is one-time per market)
+    let position_account = rpc.get_account(&position_pda).await;
+    let needs_init = position_account.is_err();
+
+    let mut instructions: Vec<(&str, solana_instruction::Instruction)> = vec![];
+
+    if needs_init {
+        // Get a fresh slot right before submitting init to avoid staleness
+        let recent_slot = rpc.get_slot().await?;
+        let (lookup_table, _) = get_position_alt_pda(&position_pda, recent_slot);
+
+        // 1. Init position tokens — one-time setup per market (creates position + ALT)
+        instructions.push((
             "init_position_tokens",
             client
                 .positions()
@@ -43,33 +50,10 @@ async fn main() -> ExampleResult {
                 .recent_slot(recent_slot)
                 .num_outcomes(num_outcomes)
                 .build_ix()?,
-        ),
-        // 2. Deposit to global — fund the global pool with collateral
-        (
-            "deposit_to_global",
-            client
-                .positions()
-                .deposit_to_global()
-                .user(keypair.pubkey())
-                .mint(deposit_mint)
-                .amount(amount)
-                .build_ix()?,
-        ),
-        // 3. Global to market deposit — move capital into a specific market
-        (
-            "global_to_market_deposit",
-            client
-                .positions()
-                .global_to_market_deposit()
-                .user(keypair.pubkey())
-                .market(market_pubkey)
-                .mint(deposit_mint)
-                .amount(amount)
-                .num_outcomes(num_outcomes)
-                .build_ix()?,
-        ),
-        // 4. Extend position tokens — add a new deposit mint to an existing ALT
-        (
+        ));
+
+        // 2. Extend position tokens — add deposit mint to ALT
+        instructions.push((
             "extend_position_tokens",
             client
                 .positions()
@@ -81,19 +65,48 @@ async fn main() -> ExampleResult {
                 .deposit_mints(vec![deposit_mint])
                 .num_outcomes(num_outcomes)
                 .build_ix()?,
-        ),
-        // 5. Withdraw from global — pull tokens back out of the global pool
-        (
-            "withdraw_from_global",
-            client
-                .positions()
-                .withdraw_from_global()
-                .user(keypair.pubkey())
-                .mint(deposit_mint)
-                .amount(amount)
-                .build_ix()?,
-        ),
-    ];
+        ));
+    } else {
+        println!("position already initialized, skipping init_position_tokens + extend");
+    }
+
+    // 3. Deposit to global — fund the global pool with collateral
+    instructions.push((
+        "deposit_to_global",
+        client
+            .positions()
+            .deposit_to_global()
+            .user(keypair.pubkey())
+            .mint(deposit_mint)
+            .amount(deposit_amount)
+            .build_ix()?,
+    ));
+
+    // 4. Global to market deposit — move capital into a specific market
+    instructions.push((
+        "global_to_market_deposit",
+        client
+            .positions()
+            .global_to_market_deposit()
+            .user(keypair.pubkey())
+            .market(market_pubkey)
+            .mint(deposit_mint)
+            .amount(amount)
+            .num_outcomes(num_outcomes)
+            .build_ix()?,
+    ));
+
+    // 5. Withdraw from global — pull tokens back out of the global pool
+    instructions.push((
+        "withdraw_from_global",
+        client
+            .positions()
+            .withdraw_from_global()
+            .user(keypair.pubkey())
+            .mint(deposit_mint)
+            .amount(amount)
+            .build_ix()?,
+    ));
 
     for (name, ix) in &instructions {
         let blockhash = rpc_sub.get_latest_blockhash().await?;
