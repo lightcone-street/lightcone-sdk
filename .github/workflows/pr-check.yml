@@ -53,6 +53,7 @@ jobs:
 
   typescript-examples:
     name: TypeScript Examples
+    needs: rust-examples
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -89,6 +90,7 @@ jobs:
 
   python-examples:
     name: Python Examples
+    needs: typescript-examples
     runs-on: ubuntu-latest
     defaults:
       run:

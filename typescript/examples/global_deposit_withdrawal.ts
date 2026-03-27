@@ -14,46 +14,72 @@ async function main() {
   const amount = 1_000_000n;
   const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 
-  const [positionPda] = getPositionPda(keypair.publicKey, marketPubkey);
+  const [positionPda] = getPositionPda(keypair.publicKey, marketPubkey, client.programId);
 
   // Check if position already exists (init_position_tokens is one-time)
   const positionAccount = await connection.getAccountInfo(positionPda);
   const needsInit = positionAccount === null;
 
-  const instructions: Array<[string, import("@solana/web3.js").TransactionInstruction]> = [];
-
   if (needsInit) {
-    const recentSlot = BigInt(await connection.getSlot());
-    const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
+    // Init + extend in a single transaction.
+    // Use "processed" commitment for getSlot to minimize staleness — the
+    // on-chain CreateLookupTable instruction rejects slots that are too old.
+    const maxAttempts = 5;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const recentSlot = BigInt(await connection.getSlot("processed"));
+        const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
 
-    // 1. Init position tokens — one-time setup per market (creates position + ALT)
-    instructions.push([
-      "init_position_tokens",
-      client.positions().initPositionTokens()
-        .payer(keypair.publicKey)
-        .user(keypair.publicKey)
-        .market(marketPubkey)
-        .depositMints([dMint])
-        .recentSlot(recentSlot)
-        .numOutcomes(m.outcomes.length)
-        .buildIx(),
-    ]);
+        const initIx = client.positions().initPositionTokens()
+          .payer(keypair.publicKey)
+          .user(keypair.publicKey)
+          .market(marketPubkey)
+          .depositMints([dMint])
+          .recentSlot(recentSlot)
+          .numOutcomes(m.outcomes.length)
+          .buildIx();
 
-    // 2. Extend position tokens — add deposit mint to ALT
-    instructions.push([
-      "extend_position_tokens",
-      client.positions().extendPositionTokens()
-        .payer(keypair.publicKey)
-        .user(keypair.publicKey)
-        .market(marketPubkey)
-        .lookupTable(lookupTable)
-        .depositMints([dMint])
-        .numOutcomes(m.outcomes.length)
-        .buildIx(),
-    ]);
+        const extendIx = client.positions().extendPositionTokens()
+          .payer(keypair.publicKey)
+          .user(keypair.publicKey)
+          .market(marketPubkey)
+          .lookupTable(lookupTable)
+          .depositMints([dMint])
+          .numOutcomes(m.outcomes.length)
+          .buildIx();
+
+        const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
+        const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight })
+          .add(initIx)
+          .add(extendIx);
+        tx.sign(keypair);
+        const signature = await connection.sendRawTransaction(tx.serialize(), {
+          skipPreflight: true,
+        });
+        const confirmation = await connection.confirmTransaction(signature);
+        if (confirmation.value.err) {
+          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+        }
+        console.log(`init_position_tokens: confirmed ${signature}`);
+        break;
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : JSON.stringify(error);
+        const retryable = message.includes("is not a recent slot")
+          || message.includes("UninitializedAccount")
+          || message.includes("already in use");
+        if (attempt < maxAttempts && retryable) {
+          console.log(`init_position_tokens: retrying (${attempt}/${maxAttempts}): ${message.slice(0, 80)}`);
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+        throw error;
+      }
+    }
   } else {
     console.log("position already initialized, skipping init_position_tokens + extend");
   }
+
+  const instructions: Array<[string, import("@solana/web3.js").TransactionInstruction]> = [];
 
   // 3. Deposit to global — fund the global pool with collateral
   instructions.push([

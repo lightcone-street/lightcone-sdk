@@ -53,7 +53,9 @@ async def main():
     ]
 
     connection = require_connection(client)
-    for name, tx in transactions:
+    for index, (name, tx) in enumerate(transactions):
+        if index > 0:
+            await asyncio.sleep(1)  # avoid devnet RPC rate limits
         await submit_transaction(name, connection, tx, keypair, blockhash)
 
     await client.close()
