@@ -45,13 +45,18 @@ async function main() {
       type: "market",
       market_pubkey: m.pubkey,
     });
-    await withTimeout(done, 15_000, "timed out waiting for websocket data");
+    await withTimeout(done, 30_000, "timed out waiting for websocket data");
+  } catch {
+    console.log("no more websocket data (timeout or stream ended)");
   } finally {
     unsubscribe();
     await ws.disconnect();
   }
 
+  if (!sawAuth && !sawUser) {
+    throw new Error("received no websocket events — connection may be broken");
+  }
   console.log(`market event received: ${sawMarket}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

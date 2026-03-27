@@ -519,11 +519,8 @@ class InitPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_init_position_tokens_instruction(
-            InitPositionTokensParams(
-                payer=payer, user=user, market=market,
-                deposit_mints=deposit_mints, recent_slot=recent_slot,
-            ),
-            num_outcomes, self._client.program_id,
+            payer, user, market, deposit_mints,
+            num_outcomes, recent_slot, self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -597,11 +594,8 @@ class ExtendPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
-            ExtendPositionTokensParams(
-                payer=payer, user=user, market=market,
-                lookup_table=lookup_table, deposit_mints=deposit_mints,
-            ),
-            num_outcomes, self._client.program_id,
+            payer, user, market, lookup_table,
+            deposit_mints, num_outcomes, self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:

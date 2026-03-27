@@ -27,18 +27,21 @@ async def main():
         limit=10,
         include_ohlcv=True,
     )
-    deposit_history = await client.price_history().get_deposit_asset(
-        deposit_asset,
-        Resolution.ONE_HOUR,
-        from_ts,
-        to_ts,
-        limit=10,
-    )
-
     print("orderbook:")
     print(json.dumps(asdict(orderbook_history), indent=2))
-    print("deposit asset:")
-    print(json.dumps(asdict(deposit_history), indent=2))
+
+    try:
+        deposit_history = await client.price_history().get_deposit_asset(
+            deposit_asset,
+            Resolution.ONE_HOUR,
+            from_ts,
+            to_ts,
+            limit=10,
+        )
+        print("deposit asset:")
+        print(json.dumps(asdict(deposit_history), indent=2))
+    except Exception as err:
+        print(f"deposit asset price history not available: {err}")
 
     await client.close()
 

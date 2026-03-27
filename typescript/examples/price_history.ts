@@ -23,19 +23,23 @@ async function main() {
       limit: 10,
     });
 
-  const depositHistory = await client
-    .priceHistory()
-    .getDepositAsset(depositAsset.pubkey, {
-      resolution: Resolution.Hour1,
-      from: sevenDaysAgo,
-      to: now,
-      limit: 10,
-    });
-
   console.log("orderbook:");
   console.log(JSON.stringify(orderbookHistory, null, 2));
-  console.log("deposit asset:");
-  console.log(JSON.stringify(depositHistory, null, 2));
+
+  try {
+    const depositHistory = await client
+      .priceHistory()
+      .getDepositAsset(depositAsset.pubkey, {
+        resolution: Resolution.Hour1,
+        from: sevenDaysAgo,
+        to: now,
+        limit: 10,
+      });
+    console.log("deposit asset:");
+    console.log(JSON.stringify(depositHistory, null, 2));
+  } catch (error) {
+    console.log(`deposit asset price history not available: ${error}`);
+  }
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

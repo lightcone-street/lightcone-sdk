@@ -40,4 +40,4 @@ async function main() {
   console.log(`cancel-all removed ${cleared.count} order(s) in ${cleared.orderbook_id}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

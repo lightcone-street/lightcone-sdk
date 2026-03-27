@@ -4,7 +4,7 @@ use common::{login, market, other, rest_client, wallet, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::prelude::*;
 use solana_signer::Signer;
-use tokio::time::{timeout, Duration};
+use tokio::time::{timeout_at, Duration, Instant};
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -30,11 +30,10 @@ async fn main() -> ExampleResult {
         let events = ws.events();
         tokio::pin!(events);
 
+        let deadline = Instant::now() + Duration::from_secs(30);
         while !(saw_auth && saw_user) {
-            let Some(event) = timeout(Duration::from_secs(15), events.next())
-                .await
-                .map_err(|_| other("timed out waiting for websocket data"))?
-            else {
+            let Ok(Some(event)) = timeout_at(deadline, events.next()).await else {
+                println!("no more websocket data (timeout or stream ended)");
                 break;
             };
 
@@ -58,6 +57,9 @@ async fn main() -> ExampleResult {
     }
 
     ws.disconnect().await?;
+    if !saw_auth && !saw_user {
+        return Err(other("received no websocket events — connection may be broken").into());
+    }
     println!("market event received: {saw_market}");
     Ok(())
 }

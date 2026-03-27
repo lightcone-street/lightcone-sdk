@@ -28,7 +28,7 @@ async function main() {
     .maker(keypair.publicKey)
     .bid()
     .price("0.55")
-    .size("1")
+    .size("2")
     .salt(generateSalt())
     .submit(client, orderbook);
 
@@ -37,4 +37,4 @@ async function main() {
   );
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

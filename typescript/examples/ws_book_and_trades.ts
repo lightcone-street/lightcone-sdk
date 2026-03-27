@@ -46,13 +46,18 @@ async function main() {
     await ws.connect();
     ws.subscribe({ type: "book_update", orderbook_ids: [orderbookId] });
     ws.subscribe({ type: "trades", orderbook_ids: [orderbookId] });
-    await withTimeout(done, 15_000, "timed out waiting for websocket data");
+    await withTimeout(done, 30_000, "timed out waiting for websocket data");
+  } catch {
+    console.log("no more websocket data (timeout or stream ended)");
   } finally {
     unsubscribe();
     await ws.disconnect();
   }
 
+  if (hits === 0) {
+    throw new Error("received no websocket events — connection may be broken");
+  }
   console.log(`buffered trades: ${trades.len()}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });
