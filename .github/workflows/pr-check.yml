@@ -2,14 +2,15 @@ name: PR Check
 
 on:
   pull_request:
-    branches: [staging]
+    branches: [staging, prod]
 
 concurrency:
   group: pr-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 env:
-  LIGHTCONE_ENV: staging
+  # Run examples against staging for staging PRs, prod for prod PRs.
+  LIGHTCONE_ENV: ${{ github.base_ref == 'prod' && 'prod' || 'staging' }}
 
 jobs:
   rust-examples:
