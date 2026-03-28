@@ -10,13 +10,6 @@ import {
 } from "@solana/spl-token";
 
 /**
- * Lightcone Pinocchio Program ID
- */
-export const PROGRAM_ID = new PublicKey(
-  "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
-);
-
-/**
  * Address Lookup Table Program ID
  */
 export const ALT_PROGRAM_ID = new PublicKey(

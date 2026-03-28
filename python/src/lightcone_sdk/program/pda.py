@@ -4,10 +4,10 @@ from typing import Tuple
 
 from solders.pubkey import Pubkey
 
+from ..env import PROGRAM_ID
 from .constants import (
     ALT_PROGRAM_ID,
     ORDERBOOK_SEED,
-    PROGRAM_ID,
     SEED_CENTRAL_STATE,
     SEED_CONDITIONAL_MINT,
     SEED_GLOBAL_DEPOSIT,

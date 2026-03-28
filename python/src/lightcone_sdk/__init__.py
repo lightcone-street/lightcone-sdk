@@ -62,7 +62,7 @@ from .shared.signing import (
     SigningStrategyKind,
 )
 
-from .env import LightconeEnv
+from .env import LightconeEnv, PROGRAM_ID
 
 # ============================================================================
 # Layer 2: Auth + Privy
@@ -199,7 +199,6 @@ from .program import (
     DepositAndSwapParams,
     ExtendPositionTokensParams,
     # Constants
-    PROGRAM_ID,
     ALT_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,

@@ -194,7 +194,7 @@ impl WsClient {
             c.borrow()
                 .as_ref()
                 .map(|cfg| cfg.url.clone())
-                .unwrap_or_else(|| crate::network::DEFAULT_WS_URL.to_string())
+                .unwrap_or_else(|| crate::env::LightconeEnv::default().ws_url().to_string())
         })
     }
 

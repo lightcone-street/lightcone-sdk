@@ -72,8 +72,8 @@ export type {
 // ============================================================================
 // CONSTANTS
 // ============================================================================
+export { PROGRAM_ID } from "../env";
 export {
-  PROGRAM_ID,
   ALT_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,

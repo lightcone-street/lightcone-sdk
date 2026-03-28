@@ -65,3 +65,10 @@ class LightconeEnv(Enum):
 
     def __str__(self) -> str:
         return self.value
+
+
+# Default program ID (production). Used as the default argument in PDA and
+# instruction helper functions. When targeting a non-production environment,
+# always pass ``program_id`` explicitly via ``LightconeClient.program_id``
+# or ``LightconeEnv.<env>.program_id``.
+PROGRAM_ID = LightconeEnv.PROD.program_id

@@ -65,3 +65,11 @@ export function programId(environment: LightconeEnv): PublicKey {
       return new PublicKey("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV");
   }
 }
+
+/**
+ * Default program ID (production). Used as the default argument in PDA and
+ * instruction helper functions. When targeting a non-production environment,
+ * always pass `programId` explicitly via `LightconeClient.programId` or
+ * `programId(env)`.
+ */
+export const PROGRAM_ID = programId(LightconeEnv.Prod);

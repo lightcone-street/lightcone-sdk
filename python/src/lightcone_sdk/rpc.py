@@ -18,7 +18,7 @@ from .program.accounts import (
     deserialize_exchange,
     deserialize_global_deposit_token,
 )
-from .program.constants import PROGRAM_ID
+from .env import PROGRAM_ID
 from .program.errors import AccountNotFoundError
 from .program.pda import (
     get_exchange_pda,
