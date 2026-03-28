@@ -17,7 +17,7 @@ export {
 } from "./shared";
 
 export { SdkError } from "./error";
-export { DEFAULT_API_URL, DEFAULT_WS_URL } from "./network";
+export { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId } from "./env";
 
 export {
   LightconeClient,

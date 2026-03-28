@@ -31,7 +31,10 @@ async fn main() -> ExampleResult {
             },
         )
         .await?;
-    let deposit_history = client
+    println!("orderbook:");
+    println!("{}", serde_json::to_string_pretty(&orderbook_history)?);
+
+    match client
         .price_history()
         .get_deposit_asset(
             deposit_asset.deposit_asset.as_str(),
@@ -43,11 +46,15 @@ async fn main() -> ExampleResult {
                 ..DepositPriceHistoryQuery::default()
             },
         )
-        .await?;
-
-    println!("orderbook:");
-    println!("{}", serde_json::to_string_pretty(&orderbook_history)?);
-    println!("deposit asset:");
-    println!("{}", serde_json::to_string_pretty(&deposit_history)?);
+        .await
+    {
+        Ok(deposit_history) => {
+            println!("deposit asset:");
+            println!("{}", serde_json::to_string_pretty(&deposit_history)?);
+        }
+        Err(err) => {
+            println!("deposit asset price history not available: {err}");
+        }
+    }
     Ok(())
 }

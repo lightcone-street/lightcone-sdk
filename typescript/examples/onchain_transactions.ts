@@ -1,7 +1,7 @@
 import { Transaction } from "@solana/web3.js";
 import {
   rpcClient,
-  wallet,
+  getKeypair,
   marketAndOrderbook,
   depositMint,
 } from "./common";
@@ -14,7 +14,7 @@ function describeTx(name: string, tx: Transaction): void {
 
 async function main() {
   const client = rpcClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   const connection = client.rpc().inner();
 
   const [m] = await marketAndOrderbook(client);
@@ -55,4 +55,4 @@ async function main() {
   }
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

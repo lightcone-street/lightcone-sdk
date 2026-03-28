@@ -1,8 +1,8 @@
-import { restClient, wallet, login, market } from "./common";
+import { restClient, getKeypair, login, market } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   const user = await login(client, keypair);
   const all = await client.positions().get(user.wallet_address);
   const m = await market(client);
@@ -14,4 +14,4 @@ async function main() {
   console.log(`positions in ${m.slug}: ${perMarket.positions.length}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

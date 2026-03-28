@@ -11,7 +11,6 @@ from spl.token.constants import (
 
 
 # Program IDs
-PROGRAM_ID = Pubkey.from_string("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV")
 ALT_PROGRAM_ID = Pubkey.from_string("AddressLookupTab1e1111111111111111111111111")
 TOKEN_PROGRAM_ID = _TOKEN_PROGRAM_ID
 TOKEN_2022_PROGRAM_ID = _TOKEN_2022_PROGRAM_ID

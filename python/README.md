@@ -20,7 +20,7 @@ Python SDK for the Lightcone impact market protocol on Solana.
 ## Installation
 
 ```bash
-pip install lightcone-sdk
+pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
 ```
 
 

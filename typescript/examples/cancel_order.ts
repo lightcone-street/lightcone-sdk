@@ -4,11 +4,11 @@ import {
   cancelAllBodySigned,
 } from "../src/domain/order/client";
 import { generateCancelAllSalt } from "../src/program";
-import { login, restClient, unixTimestamp, wallet } from "./common";
+import { login, restClient, unixTimestamp, getKeypair } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   await login(client, keypair);
   const pubkey = keypair.publicKey.toBase58();
 
@@ -40,4 +40,4 @@ async function main() {
   console.log(`cancel-all removed ${cleared.count} order(s) in ${cleared.orderbook_id}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

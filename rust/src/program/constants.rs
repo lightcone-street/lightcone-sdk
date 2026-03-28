@@ -11,9 +11,6 @@ use std::str::FromStr;
 // ============================================================================
 
 lazy_static::lazy_static! {
-    /// Lightcone Pinocchio Program ID
-    pub static ref PROGRAM_ID: Pubkey = Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV").unwrap();
-
     /// Address Lookup Table Program ID
     pub static ref ALT_PROGRAM_ID: Pubkey = Pubkey::from_str("AddressLookupTab1e1111111111111111111111111").unwrap();
 }

@@ -2,12 +2,12 @@
 
 import asyncio
 
-from common import rest_client, wallet, login
+from common import rest_client, get_keypair, login
 
 
 async def main():
     client = rest_client()
-    keypair = wallet()
+    keypair = get_keypair()
     await login(client, keypair)
     pubkey = str(keypair.pubkey())
     print(f"logged in: {pubkey}")

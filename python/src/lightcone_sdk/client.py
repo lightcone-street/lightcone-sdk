@@ -21,9 +21,8 @@ from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
 from .http.client import LightconeHttp
-from .network import DEFAULT_API_URL, DEFAULT_WS_URL
+from .env import LightconeEnv
 from .privy.client import Privy
-from .program.constants import PROGRAM_ID
 from .rpc import Rpc
 from .error import SdkError
 from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
@@ -54,7 +53,7 @@ class LightconeClient:
     ):
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
-        self._program_id: Pubkey = program_id or PROGRAM_ID
+        self._program_id: Pubkey = program_id or LightconeEnv.PROD.program_id
         self._connection = connection  # Optional[AsyncClient]
         self._deposit_source: DepositSource = deposit_source
         self._signing_strategy: Optional[SigningStrategy] = signing_strategy
@@ -267,16 +266,30 @@ class LightconeClientBuilder:
     """Builder for constructing LightconeClient instances."""
 
     def __init__(self):
-        self._base_url: str = DEFAULT_API_URL
-        self._ws_url: str = DEFAULT_WS_URL
+        environment = LightconeEnv.PROD
+        self._base_url: str = environment.api_url
+        self._ws_url: str = environment.ws_url
         self._auth_credentials: Optional[AuthCredentials] = None
         self._ws_config: Optional[WsConfig] = None
         self._timeout: int = 30
-        self._program_id: Optional[Pubkey] = None
+        self._program_id: Optional[Pubkey] = environment.program_id
         self._deposit_source: DepositSource = DepositSource.GLOBAL
         self._signing_strategy: Optional[SigningStrategy] = None
-        self._rpc_url: Optional[str] = None
+        self._rpc_url: Optional[str] = environment.rpc_url
         self._connection: Optional[object] = None
+
+    def env(self, environment: LightconeEnv) -> "LightconeClientBuilder":
+        """Set the deployment environment. Configures the API URL, WebSocket URL,
+        RPC URL, and program ID for the given environment.
+
+        Individual URL overrides (e.g. ``.base_url()``) take precedence when
+        called **after** ``.env()``.
+        """
+        self._base_url = environment.api_url
+        self._ws_url = environment.ws_url
+        self._program_id = environment.program_id
+        self._rpc_url = environment.rpc_url
+        return self
 
     def base_url(self, url: str) -> "LightconeClientBuilder":
         self._base_url = url

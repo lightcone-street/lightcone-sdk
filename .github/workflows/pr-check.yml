@@ -1,0 +1,129 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [staging, prod]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Run examples against staging for staging PRs, prod for prod PRs.
+  LIGHTCONE_ENV: ${{ github.base_ref == 'prod' && 'prod' || 'staging' }}
+
+jobs:
+  rust-examples:
+    name: Rust Examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: rust-
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.rs; do
+            name=$(basename "$file" .rs)
+            echo "::group::$name"
+            timeout 120 cargo run --example "$name" --features native
+            echo "::endgroup::"
+          done
+
+  # Jobs run sequentially because they share a single CI wallet on devnet.
+  # Parallel execution causes on-chain state races (e.g. duplicate position
+  # init) and devnet RPC rate limits (429s).
+  typescript-examples:
+    name: TypeScript Examples
+    needs: rust-examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: typescript/package-lock.json
+
+      - run: npm install
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.ts; do
+            name=$(basename "$file" .ts)
+            if [ "$name" = "common" ]; then continue; fi
+            echo "::group::$name"
+            timeout 120 npx tsx "$file"
+            echo "::endgroup::"
+          done
+
+  python-examples:
+    name: Python Examples
+    needs: typescript-examples
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Write wallet keypair
+        env:
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+
+      - name: Set wallet path
+        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Run all examples
+        run: |
+          for file in examples/*.py; do
+            name=$(basename "$file" .py)
+            if [ "$name" = "common" ]; then continue; fi
+            echo "::group::$name"
+            timeout 120 python "$file"
+            echo "::endgroup::"
+          done

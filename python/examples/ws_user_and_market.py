@@ -2,14 +2,14 @@
 
 import asyncio
 
-from common import rest_client, wallet, login, market
+from common import rest_client, get_keypair, login, market
 from lightcone_sdk.ws import WsEventType, MessageInType
 from lightcone_sdk.ws.subscriptions import UserParams, MarketParams
 
 
 async def main():
     client = rest_client()
-    keypair = wallet()
+    keypair = get_keypair()
 
     # Login required for user stream
     await login(client, keypair)

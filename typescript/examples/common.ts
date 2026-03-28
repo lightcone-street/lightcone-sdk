@@ -1,31 +1,41 @@
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { Keypair, PublicKey } from "@solana/web3.js";
-import { config } from "dotenv";
 
-import { LightconeClient, type Market, type OrderBookPair } from "../src";
+import { LightconeClient, LightconeEnv, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type User } from "../src/auth";
 
-config({ path: path.resolve(__dirname, "../.env") });
+const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
 
+/**
+ * Build a LightconeClient.
+ * Defaults to production. Set `LIGHTCONE_ENV` to override
+ * (options: local, staging, prod).
+ */
 export function restClient(): LightconeClient {
-  return LightconeClient.builder().build();
+  const builder = LightconeClient.builder();
+  const envStr = process.env.LIGHTCONE_ENV?.toLowerCase();
+  if (envStr) {
+    builder.env(envStr as LightconeEnv);
+  }
+  return builder.build();
 }
 
 export function rpcClient(): LightconeClient {
-  const url = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
-  return LightconeClient.builder().rpcUrl(url).build();
+  return restClient();
 }
 
-export function wallet(): Keypair {
-  const walletPath = process.env.LIGHTCONE_WALLET_PATH;
-  if (!walletPath) {
-    throw new Error("LIGHTCONE_WALLET_PATH not set");
-  }
-
-  const resolved = walletPath.startsWith("~")
-    ? path.join(process.env.HOME ?? "", walletPath.slice(1))
-    : walletPath;
+/**
+ * Load a keypair from disk.
+ * Defaults to `~/.config/solana/id.json`. Set `LIGHTCONE_WALLET_PATH`
+ * to override.
+ */
+export function getKeypair(): Keypair {
+  const walletFile = process.env.LIGHTCONE_WALLET_PATH ?? DEFAULT_WALLET_PATH;
+  const resolved = walletFile.startsWith("~")
+    ? path.join(os.homedir(), walletFile.slice(1))
+    : walletFile;
 
   const raw = fs.readFileSync(resolved, "utf-8");
   const secretKey = Uint8Array.from(JSON.parse(raw));

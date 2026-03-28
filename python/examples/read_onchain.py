@@ -4,13 +4,13 @@ import asyncio
 
 from solders.pubkey import Pubkey
 
-from common import client as make_client, wallet, market_and_orderbook, deposit_mint
+from common import client as make_client, get_keypair, market_and_orderbook, deposit_mint
 from lightcone_sdk.program.errors import AccountNotFoundError
 
 
 async def main():
     client = make_client()
-    keypair = wallet()
+    keypair = get_keypair()
 
     m, orderbook = await market_and_orderbook(client)
     market_pubkey = Pubkey.from_string(m.pubkey)

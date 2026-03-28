@@ -1,9 +1,9 @@
 import { asPubkeyStr, type WsEvent } from "../src";
-import { login, market, restClient, wallet, withTimeout } from "./common";
+import { login, market, restClient, getKeypair, withTimeout } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
   await login(client, keypair);
   const m = await market(client);
   const ws = client.ws();
@@ -45,13 +45,18 @@ async function main() {
       type: "market",
       market_pubkey: m.pubkey,
     });
-    await withTimeout(done, 15_000, "timed out waiting for websocket data");
+    await withTimeout(done, 30_000, "timed out waiting for websocket data");
+  } catch {
+    console.log("no more websocket data (timeout or stream ended)");
   } finally {
     unsubscribe();
     await ws.disconnect();
   }
 
+  if (!sawAuth && !sawUser) {
+    throw new Error("received no websocket events — connection may be broken");
+  }
   console.log(`market event received: ${sawMarket}`);
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

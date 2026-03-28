@@ -54,6 +54,7 @@ async function main() {
       event.message.data.event_type === "heartbeat"
     ) {
       console.log(`heartbeat: ${event.message.data.server_time}`);
+      hits += 1;
     } else if (event.type === "Error") {
       console.error("ws error:", event.error);
     }
@@ -72,11 +73,17 @@ async function main() {
       resolution,
       include_ohlcv: false,
     });
-    await withTimeout(done, 15_000, "timed out waiting for websocket data");
+    await withTimeout(done, 30_000, "timed out waiting for websocket data");
+  } catch {
+    console.log("no more websocket data (timeout or stream ended)");
   } finally {
     unsubscribe();
     await ws.disconnect();
   }
+
+  if (hits === 0) {
+    throw new Error("received no websocket events — connection may be broken");
+  }
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

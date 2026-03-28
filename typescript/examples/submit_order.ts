@@ -2,14 +2,14 @@ import { PublicKey } from "@solana/web3.js";
 import { generateSalt } from "../src/program";
 import {
   rpcClient,
-  wallet,
+  getKeypair,
   login,
   marketAndOrderbook,
   freshOrderNonce,
 } from "./common";
 
 async function main() {
-  const keypair = wallet();
+  const keypair = getKeypair();
   const client = rpcClient();
   client.setSigningStrategy({ type: "native", keypair });
   await login(client, keypair);
@@ -28,7 +28,7 @@ async function main() {
     .maker(keypair.publicKey)
     .bid()
     .price("0.55")
-    .size("1")
+    .size("2")
     .salt(generateSalt())
     .submit(client, orderbook);
 
@@ -37,4 +37,4 @@ async function main() {
   );
 }
 
-main().catch(console.error);
+main().catch((error) => { console.error(error); process.exit(1); });

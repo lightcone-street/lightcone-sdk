@@ -1,11 +1,11 @@
 mod common;
 
-use common::{login, market, rest_client, wallet, ExampleResult};
+use common::{get_keypair, login, market, rest_client, ExampleResult};
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
     let user = login(&client, &keypair, false).await?;
     let market = market(&client).await?;
 
