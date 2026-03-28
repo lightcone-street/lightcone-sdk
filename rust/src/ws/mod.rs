@@ -13,7 +13,7 @@ use crate::domain::order::wire::{AuthUpdate, UserUpdate};
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
 use crate::domain::price_history::wire::{DepositPrice, PriceHistory};
 use crate::domain::trade::wire::WsTrade;
-use crate::network::DEFAULT_WS_URL;
+use crate::env::LightconeEnv;
 use crate::shared::{OrderBookId, PubkeyStr, Resolution};
 use serde::{Deserialize, Serialize};
 
@@ -243,7 +243,7 @@ pub struct WsConfig {
 impl Default for WsConfig {
     fn default() -> Self {
         Self {
-            url: DEFAULT_WS_URL.to_string(),
+            url: LightconeEnv::default().ws_url().to_string(),
             reconnect: true,
             max_reconnect_attempts: 10,
             base_reconnect_delay_ms: 1_000,

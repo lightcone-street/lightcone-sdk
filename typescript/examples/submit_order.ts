@@ -2,14 +2,14 @@ import { PublicKey } from "@solana/web3.js";
 import { generateSalt } from "../src/program";
 import {
   rpcClient,
-  wallet,
+  getKeypair,
   login,
   marketAndOrderbook,
   freshOrderNonce,
 } from "./common";
 
 async function main() {
-  const keypair = wallet();
+  const keypair = getKeypair();
   const client = rpcClient();
   client.setSigningStrategy({ type: "native", keypair });
   await login(client, keypair);

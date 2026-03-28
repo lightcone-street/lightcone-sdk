@@ -10,7 +10,7 @@ from common import (
     login,
     market,
     num_outcomes,
-    wallet,
+    get_keypair,
 )
 from lightcone_sdk.program.pda import get_position_alt_pda, get_position_pda
 from lightcone_sdk.rpc import require_connection
@@ -18,7 +18,7 @@ from lightcone_sdk.rpc import require_connection
 
 async def main():
     client = make_client()
-    keypair = wallet()
+    keypair = get_keypair()
     await login(client, keypair)
 
     m = await market(client)
@@ -30,45 +30,68 @@ async def main():
 
     connection = require_connection(client)
 
-    position_pda, _ = get_position_pda(keypair.pubkey(), market_pubkey)
+    position_pda, _ = get_position_pda(keypair.pubkey(), market_pubkey, client.program_id)
 
     # Check if position already exists (init_position_tokens is one-time)
     position_account = await connection.get_account_info(position_pda)
     needs_init = position_account.value is None
 
-    instructions: list[tuple[str, object]] = []
-
     if needs_init:
-        recent_slot = (await connection.get_slot()).value
-        lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
+        # Init + extend in a single transaction.
+        # Use "processed" commitment for get_slot to minimize staleness — the
+        # on-chain CreateLookupTable instruction rejects slots that are too old.
+        from solana.rpc.commitment import Processed
 
-        # 1. Init position tokens — one-time setup per market (creates position + ALT)
-        instructions.append((
-            "init_position_tokens",
-            client.positions().init_position_tokens()
-                .payer(keypair.pubkey())
-                .user(keypair.pubkey())
-                .market(market_pubkey)
-                .deposit_mints([d_mint])
-                .recent_slot(recent_slot)
-                .num_outcomes(outcomes)
-                .build_ix(),
-        ))
+        max_attempts = 5
+        for attempt in range(1, max_attempts + 1):
+            try:
+                recent_slot = (await connection.get_slot(Processed)).value
+                lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
 
-        # 2. Extend position tokens — add deposit mint to ALT
-        instructions.append((
-            "extend_position_tokens",
-            client.positions().extend_position_tokens()
-                .payer(keypair.pubkey())
-                .user(keypair.pubkey())
-                .market(market_pubkey)
-                .lookup_table(lookup_table)
-                .deposit_mints([d_mint])
-                .num_outcomes(outcomes)
-                .build_ix(),
-        ))
+                init_ix = (client.positions().init_position_tokens()
+                    .payer(keypair.pubkey())
+                    .user(keypair.pubkey())
+                    .market(market_pubkey)
+                    .deposit_mints([d_mint])
+                    .recent_slot(recent_slot)
+                    .num_outcomes(outcomes)
+                    .build_ix())
+
+                extend_ix = (client.positions().extend_position_tokens()
+                    .payer(keypair.pubkey())
+                    .user(keypair.pubkey())
+                    .market(market_pubkey)
+                    .lookup_table(lookup_table)
+                    .deposit_mints([d_mint])
+                    .num_outcomes(outcomes)
+                    .build_ix())
+
+                blockhash = await client.rpc().get_latest_blockhash()
+                tx = await client.rpc().build_transaction([init_ix, extend_ix])
+                tx.sign([keypair], blockhash)
+                from solana.rpc.types import TxOpts
+                result = await connection.send_raw_transaction(
+                    bytes(tx), opts=TxOpts(skip_preflight=True)
+                )
+                await connection.confirm_transaction(result.value)
+                print(f"init_position_tokens: confirmed {result.value}")
+                break
+            except Exception as error:
+                message = str(error)
+                retryable = (
+                    "is not a recent slot" in message
+                    or "UninitializedAccount" in message
+                    or "already in use" in message
+                )
+                if attempt < max_attempts and retryable:
+                    print(f"init_position_tokens: retrying ({attempt}/{max_attempts}): {message[:80]}")
+                    await asyncio.sleep(2)
+                    continue
+                raise
     else:
         print("position already initialized, skipping init_position_tokens + extend")
+
+    instructions: list[tuple[str, object]] = []
 
     # 3. Deposit to global — fund the global pool with collateral
     instructions.append((
@@ -102,7 +125,9 @@ async def main():
             .build_ix(),
     ))
 
-    for name, ix in instructions:
+    for index, (name, ix) in enumerate(instructions):
+        if index > 0:
+            await asyncio.sleep(1)  # avoid devnet RPC rate limits
         blockhash = await client.rpc().get_latest_blockhash()
         tx = await client.rpc().build_transaction([ix])
         tx.sign([keypair], blockhash)

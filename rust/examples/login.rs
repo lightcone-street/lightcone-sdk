@@ -1,12 +1,12 @@
 mod common;
 
-use common::{rest_client, wallet, ExampleResult};
+use common::{get_keypair, rest_client, ExampleResult};
 use lightcone::auth::native::sign_login_message;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
-    let keypair = wallet()?;
+    let keypair = get_keypair()?;
 
     let nonce = client.auth().get_nonce().await?;
     let signed = sign_login_message(&keypair, &nonce);

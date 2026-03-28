@@ -1,9 +1,9 @@
 import { signLoginMessage } from "../src/auth";
-import { restClient, wallet } from "./common";
+import { restClient, getKeypair } from "./common";
 
 async function main() {
   const client = restClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
 
   const nonce = await client.auth().getNonce();
   const signed = signLoginMessage(keypair, nonce);

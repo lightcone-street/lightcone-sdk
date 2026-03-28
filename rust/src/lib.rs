@@ -14,7 +14,10 @@ pub mod program;
 /// Unified SDK error types.
 pub mod error;
 
-/// Network URL constants.
+/// Environment configuration: deployment targets, URLs, and program IDs.
+pub mod env;
+
+/// Network configuration (re-exports from [`env`]).
 pub mod network;
 
 /// RPC sub-client: PDA helpers, account fetchers, blockhash access.
@@ -92,8 +95,8 @@ pub mod prelude {
     // Errors
     pub use crate::error::SdkError;
 
-    // Network
-    pub use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
+    // Environment
+    pub use crate::env::LightconeEnv;
 
     // Auth + User types
     pub use crate::auth::{

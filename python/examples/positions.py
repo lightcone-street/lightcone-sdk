@@ -2,12 +2,12 @@
 
 import asyncio
 
-from common import rest_client, wallet, login, market
+from common import rest_client, get_keypair, login, market
 
 
 async def main():
     client = rest_client()
-    keypair = wallet()
+    keypair = get_keypair()
     user = await login(client, keypair)
     m = await market(client)
 

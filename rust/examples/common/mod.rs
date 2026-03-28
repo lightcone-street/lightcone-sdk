@@ -7,12 +7,13 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use dotenvy::dotenv;
 use lightcone::{auth::native::sign_login_message, prelude::*};
 use solana_keypair::{read_keypair_file, Keypair};
 use solana_pubkey::Pubkey;
 
 pub type ExampleResult<T = ()> = Result<T, Box<dyn Error>>;
+
+const DEFAULT_WALLET_PATH: &str = "~/.config/solana/id.json";
 
 pub fn other(message: impl Into<String>) -> io::Error {
     io::Error::new(io::ErrorKind::Other, message.into())
@@ -35,15 +36,26 @@ pub async fn fresh_order_nonce(client: &LightconeClient, user: &Pubkey) -> Examp
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
-    Ok(LightconeClient::builder()
-        .rpc_url("https://api.devnet.solana.com")
-        .build()?)
+    let mut builder = LightconeClient::builder();
+    if let Ok(env_str) = env::var("LIGHTCONE_ENV") {
+        let environment = match env_str.to_lowercase().as_str() {
+            "local" => LightconeEnv::Local,
+            "staging" => LightconeEnv::Staging,
+            "prod" => LightconeEnv::Prod,
+            other => {
+                return Err(format!(
+                    "invalid LIGHTCONE_ENV '{other}'. Options: local, staging, prod"
+                )
+                .into())
+            }
+        };
+        builder = builder.env(environment);
+    }
+    Ok(builder.build()?)
 }
 
-pub fn wallet() -> ExampleResult<Keypair> {
-    let _ = dotenv();
-    let raw = env::var("LIGHTCONE_WALLET_PATH")
-        .map_err(|_| other("set LIGHTCONE_WALLET_PATH in .env or the environment"))?;
+pub fn get_keypair() -> ExampleResult<Keypair> {
+    let raw = env::var("LIGHTCONE_WALLET_PATH").unwrap_or_else(|_| DEFAULT_WALLET_PATH.to_string());
     let path = if let Some(rest) = raw.strip_prefix("~/") {
         let home = env::var("HOME").map_err(|_| other("HOME not set"))?;
         std::path::PathBuf::from(home).join(rest)

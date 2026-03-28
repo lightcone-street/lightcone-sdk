@@ -27,7 +27,7 @@ async function main() {
     console.log(`latest: ${latest.size} ${latest.side} @ ${latest.price}`);
   }
 
-  if (page1.nextCursor !== undefined) {
+  if (page1.nextCursor != null) {
     const page2 = await client.trades().get(orderbookId, 10, page1.nextCursor);
     printTrades("page 2", page2.trades);
   }

@@ -135,13 +135,15 @@ Compact order payload without `maker`, `market`, `baseMint`, or `quoteMint`.
 
 ### Program IDs
 
+The Lightcone program ID is derived from `LightconeEnv` and accessed via `programId(env)` or `client.programId`. `PROGRAM_ID` is re-exported as a convenience default (production). When targeting staging or local, always pass `programId` explicitly.
+
 ```typescript
 import { PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
 ```
 
 | Constant | Value |
 |----------|-------|
-| `PROGRAM_ID` | `8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV` |
+| `PROGRAM_ID` | Production default, derived from `LightconeEnv.Prod` |
 | `TOKEN_PROGRAM_ID` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` |
 | `TOKEN_2022_PROGRAM_ID` | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` |
 

@@ -8,6 +8,7 @@ from typing import List
 from solders.instruction import AccountMeta, Instruction
 from solders.pubkey import Pubkey
 
+from ..env import PROGRAM_ID
 from .constants import (
     ALT_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -37,7 +38,6 @@ from .constants import (
     MAX_OUTCOME_NAME_LEN,
     MAX_OUTCOME_SYMBOL_LEN,
     MAX_OUTCOME_URI_LEN,
-    PROGRAM_ID,
     SYSTEM_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,

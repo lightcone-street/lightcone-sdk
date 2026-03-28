@@ -4,7 +4,7 @@ import asyncio
 
 from common import (
     client as make_client,
-    wallet,
+    get_keypair,
     login,
     market_and_orderbook,
 )
@@ -13,7 +13,7 @@ from lightcone_sdk.shared.signing import SigningStrategy
 
 
 async def main():
-    keypair = wallet()
+    keypair = get_keypair()
     client = make_client()
     client.set_signing_strategy(SigningStrategy.native(keypair))
     await login(client, keypair)

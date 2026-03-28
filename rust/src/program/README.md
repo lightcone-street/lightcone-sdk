@@ -451,15 +451,14 @@ All instructions use a single-byte discriminator.
 
 ### Program IDs
 
+The Lightcone program ID is derived from `LightconeEnv` and accessed via `LightconeEnv::program_id()` or `LightconeClient::program_id()`. Other program IDs are constants:
+
 ```rust
-PROGRAM_ID: Pubkey                    // "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
 TOKEN_PROGRAM_ID: Pubkey              // SPL Token
 TOKEN_2022_PROGRAM_ID: Pubkey         // Token-2022 (conditional tokens)
 ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey
 SYSTEM_PROGRAM_ID: Pubkey
 RENT_SYSVAR_ID: Pubkey
-INSTRUCTIONS_SYSVAR_ID: Pubkey
-ED25519_PROGRAM_ID: Pubkey
 ```
 
 ### Discriminators

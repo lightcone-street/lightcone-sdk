@@ -5,7 +5,6 @@ import {
   AccountMeta,
 } from "@solana/web3.js";
 import {
-  PROGRAM_ID,
   INSTRUCTION,
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
@@ -14,6 +13,7 @@ import {
   ALT_PROGRAM_ID,
   MAX_MAKERS,
 } from "./constants";
+import { PROGRAM_ID } from "../env";
 import {
   InitializeParams,
   CreateMarketParams,

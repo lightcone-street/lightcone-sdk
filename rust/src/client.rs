@@ -17,11 +17,10 @@ use crate::domain::position::client::Positions;
 use crate::domain::price_history::client::PriceHistoryClient;
 use crate::domain::referral::client::Referrals;
 use crate::domain::trade::client::Trades;
+use crate::env::LightconeEnv;
 use crate::error::SdkError;
 use crate::http::LightconeHttp;
-use crate::network::{DEFAULT_API_URL, DEFAULT_WS_URL};
 use crate::privy::client::Privy;
-use crate::program::constants::PROGRAM_ID;
 use crate::rpc::Rpc;
 use crate::shared::signing::{ExternalSigner, SigningStrategy};
 use crate::shared::DepositSource;
@@ -401,19 +400,33 @@ pub struct LightconeClientBuilder {
 
 impl Default for LightconeClientBuilder {
     fn default() -> Self {
+        let environment = LightconeEnv::default();
         Self {
-            base_url: DEFAULT_API_URL.to_string(),
-            ws_url: DEFAULT_WS_URL.to_string(),
+            base_url: environment.api_url().to_string(),
+            ws_url: environment.ws_url().to_string(),
             auth_credentials: None,
-            program_id: *PROGRAM_ID,
+            program_id: environment.program_id(),
             deposit_source: DepositSource::Global,
             signing_strategy: None,
-            rpc_url: None,
+            rpc_url: Some(environment.rpc_url().to_string()),
         }
     }
 }
 
 impl LightconeClientBuilder {
+    /// Set the deployment environment. Configures the API URL, WebSocket URL,
+    /// RPC URL, and program ID for the given environment.
+    ///
+    /// Individual URL overrides (e.g. `.base_url()`) take precedence when
+    /// called **after** `.env()`.
+    pub fn env(mut self, environment: LightconeEnv) -> Self {
+        self.base_url = environment.api_url().to_string();
+        self.ws_url = environment.ws_url().to_string();
+        self.program_id = environment.program_id();
+        self.rpc_url = Some(environment.rpc_url().to_string());
+        self
+    }
+
     pub fn base_url(mut self, url: &str) -> Self {
         self.base_url = url.to_string();
         self

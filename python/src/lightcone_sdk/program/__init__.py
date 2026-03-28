@@ -48,8 +48,8 @@ from .types import (
 )
 
 # Constants
+from ..env import PROGRAM_ID
 from .constants import (
-    PROGRAM_ID,
     ALT_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     TOKEN_2022_PROGRAM_ID,

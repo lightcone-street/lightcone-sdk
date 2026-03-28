@@ -7,6 +7,7 @@ export * as shared from "./shared";
 export * as domain from "./domain";
 export * as program from "./program";
 export * from "./error";
+export * from "./env";
 export * from "./network";
 
 // Layer 2: Auth + Privy

@@ -51,8 +51,8 @@ use solana_keypair::Keypair;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
     let client = LightconeClient::builder()
-        .rpc_url("https://api.devnet.solana.com")
         .deposit_source(DepositSource::Market)
         .build()?;
     let keypair = Keypair::new();
@@ -117,8 +117,8 @@ use lightcone::prelude::*;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
 
+// Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
 let client = LightconeClient::builder()
-    .rpc_url("https://api.devnet.solana.com")
     .deposit_source(DepositSource::Market)
     .build()?;
 let keypair = read_keypair_file("~/.config/solana/id.json")?;
@@ -211,8 +211,29 @@ let withdraw_ix = client.positions().withdraw().await
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
+## Environment Configuration
+
+The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
+
+```rust
+// Production (default — no .env() call needed)
+let client = LightconeClient::builder().build()?;
+
+// Staging
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Staging)
+    .build()?;
+
+// Local development
+let client = LightconeClient::builder()
+    .env(LightconeEnv::Local)
+    .build()?;
+```
+
+Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.base_url()`, `.ws_url()`, `.rpc_url()`) take precedence when called after `.env()`.
+
 ## Examples
-All examples are runnable with `cargo run --example <name> --features native`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
+All examples are runnable with `cargo run --example <name> --features native`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.
 
 ### Setup & Authentication
 

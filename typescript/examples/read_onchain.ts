@@ -2,14 +2,14 @@ import { PublicKey } from "@solana/web3.js";
 import { program } from "../src";
 import {
   rpcClient,
-  wallet,
+  getKeypair,
   marketAndOrderbook,
   depositMint,
 } from "./common";
 
 async function main() {
   const client = rpcClient();
-  const keypair = wallet();
+  const keypair = getKeypair();
 
   const [m, orderbook] = await marketAndOrderbook(client);
   const marketPubkey = new PublicKey(m.pubkey);

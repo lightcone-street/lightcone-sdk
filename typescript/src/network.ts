@@ -1,5 +1,7 @@
-/** Default REST API base URL. */
-export const DEFAULT_API_URL = "https://tapi.lightcone.xyz";
+/**
+ * Network configuration.
+ *
+ * See {@link LightconeEnv} for environment-specific URLs and program IDs.
+ */
 
-/** Default WebSocket URL. */
-export const DEFAULT_WS_URL = "wss://tws.lightcone.xyz/ws";
+export { LightconeEnv } from "./env";

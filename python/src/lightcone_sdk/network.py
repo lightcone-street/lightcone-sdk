@@ -1,5 +1,9 @@
-"""Network URL constants for the Lightcone SDK."""
+"""Network configuration.
 
-DEFAULT_API_URL = "https://tapi.lightcone.xyz"
+See :class:`~lightcone_sdk.env.LightconeEnv` for environment-specific URLs
+and program IDs.
+"""
 
-DEFAULT_WS_URL = "wss://tws.lightcone.xyz/ws"
+from .env import LightconeEnv
+
+__all__ = ["LightconeEnv"]

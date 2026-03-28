@@ -1,5 +1,6 @@
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, ALT_PROGRAM_ID, SEEDS } from "./constants";
+import { ALT_PROGRAM_ID, SEEDS } from "./constants";
+import { PROGRAM_ID } from "../env";
 import { ProgramSdkError } from "./error";
 import { toU64Le, toU8 } from "./utils";
 
