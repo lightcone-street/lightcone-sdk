@@ -226,7 +226,7 @@ export class WsClient implements IWsClient {
 
     if (message.type === "pong") {
       this.reconnectAttempts = 0;
-      this.resetPongTimeout();
+      this.clearPongTimeout();
     }
 
     this.emit({ type: "Message", message });
@@ -275,7 +275,7 @@ export class WsClient implements IWsClient {
 
     this.pingTimer = setInterval(() => {
       this.send(ping());
-      this.resetPongTimeout();
+      this.armPongTimeout();
     }, this.config.pingIntervalMs);
   }
 
@@ -290,7 +290,7 @@ export class WsClient implements IWsClient {
     }
   }
 
-  private resetPongTimeout(): void {
+  private armPongTimeout(): void {
     if (this.pongTimer) {
       clearTimeout(this.pongTimer);
     }
@@ -300,6 +300,13 @@ export class WsClient implements IWsClient {
         this.socket.close(4000, "Pong timeout");
       }
     }, this.config.pongTimeoutMs);
+  }
+
+  private clearPongTimeout(): void {
+    if (this.pongTimer) {
+      clearTimeout(this.pongTimer);
+      this.pongTimer = undefined;
+    }
   }
 
   private trackMessage(message: MessageOut): void {
