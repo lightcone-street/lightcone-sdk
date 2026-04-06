@@ -50,6 +50,12 @@ jobs:
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
+      - name: Install cargo-cooldown
+        run: cargo install --locked cargo-cooldown
+
+      - name: Check dependency cooldown
+        run: cargo cooldown check
+
       - name: Run all examples
         run: |
           for file in examples/*.rs; do

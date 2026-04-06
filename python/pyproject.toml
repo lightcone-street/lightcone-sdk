@@ -78,6 +78,9 @@ ignore = [
     "E501",  # line too long (handled by black)
 ]
 
+[tool.uv]
+exclude-newer = "7 days"
+
 [tool.mypy]
 python_version = "3.10"
 warn_return_any = true
