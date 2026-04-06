@@ -69,6 +69,7 @@ gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 # Async utilities (WASM-compatible)
 async-stream = "0.3"
 pin-project-lite = "0.2"
+cargo-cooldown = "0.2.0"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

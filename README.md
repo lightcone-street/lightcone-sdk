@@ -29,3 +29,19 @@ git config core.hooksPath .githooks
 ```
 
 This enables a pre-commit hook that checks Rust formatting via `cargo fmt --check`. If the check fails, run `cargo fmt --manifest-path rust/Cargo.toml` and re-stage.
+
+### Supply Chain Security
+
+All three SDKs enforce a 7-day minimum release age on dependencies to guard against supply chain attacks. Install `cargo-cooldown` so that Rust dependency updates respect the cooldown window:
+
+```bash
+cargo install --locked cargo-cooldown
+```
+
+Then use `cargo cooldown` in place of `cargo` when updating dependencies (e.g. `cargo cooldown update`). The npm and uv configs are applied automatically via `.npmrc` and `pyproject.toml`.
+
+| SDK | Mechanism | Config |
+|-----|-----------|--------|
+| Rust | [`cargo-cooldown`](https://crates.io/crates/cargo-cooldown) | `cooldown.toml` — `cooldown_minutes = 10080` |
+| TypeScript | npm `min-release-age` | `.npmrc` — `min-release-age=7` |
+| Python | uv `exclude-newer` | `pyproject.toml` — `exclude-newer = "7 days"` |
