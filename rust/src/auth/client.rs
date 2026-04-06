@@ -153,28 +153,9 @@ impl<'a> Auth<'a> {
         Ok(())
     }
 
-    /// Link an X (Twitter) account to the user's profile.
-    pub async fn connect_x(
-        &self,
-        x_user_id: &str,
-        x_username: &str,
-        x_display_name: Option<&str>,
-    ) -> Result<(), SdkError> {
-        let url = format!("{}/api/auth/connect_x", self.client.http.base_url());
-        let _: serde_json::Value = self
-            .client
-            .http
-            .post(
-                &url,
-                &serde_json::json!({
-                    "x_user_id": x_user_id,
-                    "x_username": x_username,
-                    "x_display_name": x_display_name,
-                }),
-                RetryPolicy::None,
-            )
-            .await?;
-        Ok(())
+    /// Get the URL for linking an X (Twitter) account via OAuth.
+    pub fn connect_x_url(&self) -> String {
+        format!("{}/api/auth/oauth/link/x", self.client.http.base_url())
     }
 
     /// Get current auth credentials (if authenticated).

@@ -111,21 +111,8 @@ export class Auth {
     await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
   }
 
-  async connectX(
-    xUserId: string,
-    xUsername: string,
-    xDisplayName?: string
-  ): Promise<void> {
-    const url = `${this.client.http.baseUrl()}/api/auth/connect_x`;
-    await this.client.http.post<{ success: boolean }, { x_user_id: string; x_username: string; x_display_name?: string }>(
-      url,
-      {
-        x_user_id: xUserId,
-        x_username: xUsername,
-        x_display_name: xDisplayName,
-      },
-      RetryPolicy.None
-    );
+  connectXUrl(): string {
+    return `${this.client.http.baseUrl()}/api/auth/oauth/link/x`;
   }
 
   credentials(): AuthCredentials | undefined {
