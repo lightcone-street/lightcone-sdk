@@ -68,7 +68,7 @@ impl<'a> PriceHistoryClient<'a> {
             url = format!("{}&include_ohlcv=true", url);
         }
 
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Get deposit-token price history from the same REST endpoint.
@@ -100,7 +100,7 @@ impl<'a> PriceHistoryClient<'a> {
             url = format!("{}&limit={}", url, ensure_page_limit(limit)?);
         }
 
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Get simplified midpoint line data for charting.

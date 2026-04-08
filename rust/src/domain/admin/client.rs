@@ -29,11 +29,10 @@ impl<'a> Admin<'a> {
         envelope: &AdminEnvelope<UnifiedMetadataRequest>,
     ) -> Result<UnifiedMetadataResponse, SdkError> {
         let url = format!("{}/api/admin/metadata", self.client.http.base_url());
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn allocate_codes(
@@ -44,11 +43,10 @@ impl<'a> Admin<'a> {
             "{}/api/admin/referral/allocate",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn whitelist(
@@ -59,11 +57,10 @@ impl<'a> Admin<'a> {
             "{}/api/admin/referral/whitelist",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn revoke(
@@ -71,11 +68,10 @@ impl<'a> Admin<'a> {
         envelope: &AdminEnvelope<RevokeRequest>,
     ) -> Result<RevokeResponse, SdkError> {
         let url = format!("{}/api/admin/referral/revoke", self.client.http.base_url());
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn unrevoke(
@@ -86,11 +82,10 @@ impl<'a> Admin<'a> {
             "{}/api/admin/referral/unrevoke",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn create_notification(
@@ -98,11 +93,10 @@ impl<'a> Admin<'a> {
         envelope: &AdminEnvelope<CreateNotificationRequest>,
     ) -> Result<CreateNotificationResponse, SdkError> {
         let url = format!("{}/api/admin/notifications", self.client.http.base_url());
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     pub async fn dismiss_notification(
@@ -113,11 +107,10 @@ impl<'a> Admin<'a> {
             "{}/api/admin/notifications/dismiss",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
             .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .await
     }
 
     // ── On-chain instruction builders ───────────────────────────────────

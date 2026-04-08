@@ -294,8 +294,62 @@ All SDK operations return `Result<T, SdkError>`:
 | `SdkError::MissingMarketContext(string)` | Market context not provided for operation requiring `DepositSource::Market` |
 | `SdkError::Signing(String)` | Signing operation failures |
 | `SdkError::UserCancelled` | User cancelled wallet signing prompt |
+| `SdkError::ApiRejected(ApiRejectedDetails)` | Backend rejected the request (see [API Rejections](#api-rejections)) |
 | `SdkError::Program(program::SdkError)` | On-chain program errors (RPC, account parsing) |
 | `SdkError::Other(String)` | Catch-all |
+
+### API Rejections
+
+When the backend rejects a request (insufficient balance, expired order, etc.), the SDK returns `SdkError::ApiRejected(details)` where `details` is an `ApiRejectedDetails` containing:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reason` | `String` | Human-readable error message |
+| `rejection_code` | `Option<RejectionCode>` | Machine-readable rejection code (see below) |
+| `error_code` | `Option<String>` | API-level error code (e.g. `"NOT_FOUND"`, `"INVALID_ARGUMENT"`) |
+| `error_log_id` | `Option<String>` | Backend support correlation ID (`LCERR_*`) |
+| `request_id` | `Option<String>` | SDK-generated `x-request-id` for cross-service tracing |
+
+`Display` formats all present fields as a multi-line report. Use `.to_string()` for logging or clipboard.
+
+#### `RejectionCode`
+
+Machine-readable rejection codes with a human-readable `.label()` method. Unrecognized codes from the backend are captured as `Unknown(String)` for forward compatibility.
+
+| Variant | Label | When |
+|---------|-------|------|
+| `InsufficientBalance` | "Insufficient Balance" | Not enough funds to fill the order |
+| `Expired` | "Expired" | Order expiration time has passed |
+| `NonceMismatch` | "Nonce Mismatch" | Order nonce doesn't match current user nonce |
+| `SelfTrade` | "Self Trade" | Order would match against the maker's own order |
+| `MarketInactive` | "Market Inactive" | Market is not accepting orders |
+| `BelowMinOrderSize` | "Below Min Order Size" | Order size is below the minimum |
+| `InvalidNonce` | "Invalid Nonce" | Nonce is invalid |
+| `BroadcastFailure` | "Broadcast Failure" | Failed to broadcast to the network |
+| `OrderNotFound` | "Order Not Found" | Order does not exist |
+| `NotOrderMaker` | "Not Order Maker" | Caller is not the order maker |
+| `OrderAlreadyFilled` | "Order Already Filled" | Order has already been fully filled |
+| `OrderAlreadyCancelled` | "Order Already Cancelled" | Order was already cancelled |
+| `Unknown(String)` | *(raw code)* | Unrecognized code (forward compatible) |
+
+```rust
+match client.orders().submit(&request).await {
+    Ok(response) => println!("Order placed: {}", response.order_hash),
+    Err(SdkError::ApiRejected(details)) => {
+        if let Some(code) = &details.rejection_code {
+            println!("Rejected ({}): {}", code.label(), details.reason);
+        }
+        if let Some(log_id) = &details.error_log_id {
+            println!("Support code: {}", log_id);
+        }
+    }
+    Err(other) => eprintln!("Error: {}", other),
+}
+```
+
+### Request Correlation
+
+The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On rejection, this ID is attached to `ApiRejectedDetails.request_id` for cross-service tracing. The same ID is sent to the backend for correlation in logs and error events.
 
 `HttpError` variants:
 

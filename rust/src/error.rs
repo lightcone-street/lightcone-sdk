@@ -1,5 +1,6 @@
 //! Unified SDK error types.
 
+use crate::shared::ApiRejectedDetails;
 use thiserror::Error;
 
 /// Top-level SDK error.
@@ -31,6 +32,9 @@ pub enum SdkError {
 
     #[error("User cancelled signing")]
     UserCancelled,
+
+    #[error("{0}")]
+    ApiRejected(ApiRejectedDetails),
 
     #[error("{0}")]
     Other(String),

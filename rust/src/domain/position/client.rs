@@ -40,7 +40,7 @@ impl<'a> Positions<'a> {
             self.client.http.base_url(),
             user_pubkey
         );
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Get positions for a user in a specific market.
@@ -55,7 +55,7 @@ impl<'a> Positions<'a> {
             user_pubkey,
             market_pubkey
         );
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     // ── On-chain instruction builders ───────────────────────────────────

@@ -23,9 +23,9 @@ struct DismissRequest {
 impl<'a> Notifications<'a> {
     pub async fn fetch(&self) -> Result<Vec<Notification>, SdkError> {
         let url = format!("{}/api/notifications", self.client.http.base_url());
-        let resp: NotificationsResponse =
+        let body: NotificationsResponse =
             self.client.http.get(&url, RetryPolicy::Idempotent).await?;
-        Ok(resp.notifications)
+        Ok(body.notifications)
     }
 
     pub async fn dismiss(&self, notification_id: &str) -> Result<(), SdkError> {

@@ -34,7 +34,7 @@ impl<'a> Orderbooks<'a> {
         if let Some(d) = depth {
             url = format!("{}?depth={}", url, d);
         }
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 }
 
