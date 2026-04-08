@@ -364,8 +364,9 @@ impl UserNonce {
 /// - [40..72]   mint_a (32 bytes)
 /// - [72..104]  mint_b (32 bytes)
 /// - [104..136] lookup_table (32 bytes)
-/// - [136]      bump (1 byte)
-/// - [137..144] _padding (7 bytes)
+/// - [136]      base_index (1 byte)
+/// - [137]      bump (1 byte)
+/// - [138..144] _padding (6 bytes)
 #[derive(Debug, Clone)]
 pub struct Orderbook {
     /// Account discriminator
@@ -378,6 +379,8 @@ pub struct Orderbook {
     pub mint_b: Pubkey,
     /// Address lookup table
     pub lookup_table: Pubkey,
+    /// Which mint is the base asset (0 = mint_a, 1 = mint_b)
+    pub base_index: u8,
     /// PDA bump seed
     pub bump: u8,
 }
@@ -409,7 +412,8 @@ impl Orderbook {
             mint_a: read_pubkey(data, 40),
             mint_b: read_pubkey(data, 72),
             lookup_table: read_pubkey(data, 104),
-            bump: data[136],
+            base_index: data[136],
+            bump: data[137],
         })
     }
 
@@ -585,14 +589,17 @@ mod tests {
         data[72..104].copy_from_slice(&[3u8; 32]);
         // lookup_table at offset 104
         data[104..136].copy_from_slice(&[4u8; 32]);
-        // bump at offset 136
-        data[136] = 252;
+        // base_index at offset 136
+        data[136] = 1;
+        // bump at offset 137
+        data[137] = 252;
 
         let orderbook = Orderbook::deserialize(&data).unwrap();
         assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
         assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
         assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
         assert_eq!(orderbook.lookup_table, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(orderbook.base_index, 1);
         assert_eq!(orderbook.bump, 252);
     }
 
