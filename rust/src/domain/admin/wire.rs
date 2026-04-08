@@ -74,13 +74,11 @@ pub struct ConditionalTokenMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome_index: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outcome: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deposit_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub short_name: Option<String>,
+    pub short_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

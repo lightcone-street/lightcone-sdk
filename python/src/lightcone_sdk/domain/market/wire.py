@@ -29,9 +29,7 @@ class ConditionalMintWire:
     token_address: str = ""
     outcome_index: int = 0
     outcome: str = ""
-    display_name: str = ""
-    short_name: str = ""
-    name: str = ""
+    short_symbol: str = ""
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
@@ -44,9 +42,7 @@ class ConditionalMintWire:
             token_address=d.get("token_address", ""),
             outcome_index=d.get("outcome_index", 0),
             outcome=d.get("outcome", ""),
-            display_name=d.get("display_name", ""),
-            short_name=d.get("short_name", ""),
-            name=d.get("name", ""),
+            short_symbol=d.get("short_symbol", ""),
             symbol=d.get("symbol", ""),
             description=d.get("description"),
             decimals=d.get("decimals") or 6,
