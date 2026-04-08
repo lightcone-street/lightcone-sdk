@@ -36,7 +36,7 @@ async function main() {
   );
   if (onchainOrderbook) {
     console.log(
-      `orderbook: lookup_table=${onchainOrderbook.lookupTable.toBase58()} bump=${onchainOrderbook.bump}`
+      `orderbook: lookup_table=${onchainOrderbook.lookupTable.toBase58()} base_index=${onchainOrderbook.baseIndex} bump=${onchainOrderbook.bump}`
     );
   }
   console.log(`user nonce: ${nonce}`);

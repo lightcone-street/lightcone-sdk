@@ -187,6 +187,7 @@ class Admin:
             mint_a=params.mint_a,
             mint_b=params.mint_b,
             recent_slot=params.recent_slot,
+            base_index=params.base_index,
             program_id=self._client.program_id,
         )
 

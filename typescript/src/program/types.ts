@@ -105,6 +105,7 @@ export interface Orderbook {
   mintA: PublicKey; // 32 bytes
   mintB: PublicKey; // 32 bytes
   lookupTable: PublicKey; // 32 bytes
+  baseIndex: number; // u8
   bump: number; // u8
 }
 
@@ -321,6 +322,7 @@ export interface CreateOrderbookParams {
   mintA: PublicKey;
   mintB: PublicKey;
   recentSlot: bigint;
+  baseIndex: number;
 }
 
 /**
