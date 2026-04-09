@@ -74,7 +74,7 @@ Verify the signature and establish an admin session. The backend sets an `admin_
 async fn admin_logout(&self) -> Result<(), SdkError>
 ```
 
-Log out the admin session — clears the server-side cookie and internal token.
+Log out the admin session — attempts to clear the server-side cookie and always clears the internal token.
 
 ### `upsert_metadata`
 

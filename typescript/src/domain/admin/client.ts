@@ -69,7 +69,11 @@ export class Admin {
 
   async adminLogout(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/admin/logout`;
-    await this.client.http.adminPost(url, {}, RetryPolicy.None);
+    try {
+      await this.client.http.adminPost(url, {}, RetryPolicy.None);
+    } catch {
+      // Backend cookie clear can fail in local/dev setups; still clear local state.
+    }
     this.client.http.clearAdminToken();
   }
 

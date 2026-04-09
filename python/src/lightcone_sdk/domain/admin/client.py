@@ -85,8 +85,11 @@ class Admin:
         return AdminLoginResponse.from_dict(data)
 
     async def admin_logout(self) -> None:
-        """Logout admin -- clears admin cookie."""
-        await self._client._http.admin_post("/api/admin/logout", {})
+        """Logout admin -- best-effort server logout, always clears local admin token."""
+        try:
+            await self._client._http.admin_post("/api/admin/logout", {})
+        except Exception:
+            pass
         self._client._http.clear_admin_token()
 
     # ── Admin API methods ────────────────────────────────────────────────

@@ -54,14 +54,14 @@ impl<'a> Admin<'a> {
             .await
     }
 
-    /// Admin logout — clears server-side cookie and internal token.
+    /// Admin logout — attempts to clear the server-side cookie and always clears the internal token.
     pub async fn admin_logout(&self) -> Result<(), SdkError> {
         let url = format!("{}/api/admin/logout", self.client.http.base_url());
-        let _: serde_json::Value = self
+        let _ = self
             .client
             .http
-            .admin_post(&url, &serde_json::json!({}), RetryPolicy::None)
-            .await?;
+            .admin_post::<serde_json::Value, _>(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await;
         self.client.http.clear_admin_token().await;
         Ok(())
     }
