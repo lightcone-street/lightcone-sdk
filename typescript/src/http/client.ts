@@ -1,6 +1,12 @@
 import { HttpError, SdkError } from "../error";
-import { ApiRejectedDetails, isApiResponse } from "../shared/api_response";
+import {
+  ApiRejectedDetails,
+  isApiResponse,
+  type ApiResponse,
+} from "../shared/api_response";
 import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry";
+
+type AuthMode = "cookie" | "adminCookie";
 
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
@@ -28,26 +34,25 @@ export class LightconeHttp {
   }
 
   async adminGet<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("GET", url, undefined, retry, this.adminCookieHeaders());
+    return this.requestWithRetry<T>(
+      "GET",
+      url,
+      undefined,
+      retry,
+      "adminCookie"
+    );
   }
 
   async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, this.adminCookieHeaders());
-  }
-
-  private adminCookieHeaders(): Record<string, string> {
-    if (hasBrowserWindow() || !this.adminToken) {
-      return {};
-    }
-    return { Cookie: `admin_token=${this.adminToken}` };
+    return this.requestWithRetry<T>("POST", url, body, retry, "adminCookie");
   }
 
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("GET", url, undefined, retry);
+    return this.requestWithRetry<T>("GET", url, undefined, retry, "cookie");
   }
 
   async post<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry);
+    return this.requestWithRetry<T>("POST", url, body, retry, "cookie");
   }
 
   private async requestWithRetry<T>(
@@ -55,24 +60,33 @@ export class LightconeHttp {
     url: string,
     body: object | undefined,
     policy: RetryPolicy,
-    extraHeaders?: Record<string, string>
+    authMode: AuthMode
   ): Promise<T> {
     const config = retryConfigForPolicy(policy);
     if (!config) {
-      return this.doRequest<T>(method, url, body, extraHeaders);
+      return this.sendAndParse<T>(method, url, body, authMode);
     }
 
     let lastError: HttpError | undefined;
 
     for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
       try {
-        return await this.doRequest<T>(method, url, body, extraHeaders);
+        const [apiResponse, requestId] = await this.sendRequest<ApiResponse<T>>(
+          method,
+          url,
+          body,
+          authMode
+        );
+        return parseApiResponse<T>(apiResponse, requestId);
       } catch (error) {
         if (!(error instanceof HttpError)) {
           throw error;
         }
 
-        const shouldRetry = this.shouldRetry(error, config.retryableStatuses);
+        const shouldRetry = await this.shouldRetry(
+          error,
+          config.retryableStatuses
+        );
         if (!shouldRetry || attempt >= config.maxRetries) {
           throw error;
         }
@@ -87,11 +101,18 @@ export class LightconeHttp {
     throw HttpError.maxRetriesExceeded(config.maxRetries + 1, lastError?.message ?? "unknown");
   }
 
-  private shouldRetry(error: HttpError, retryableStatuses: readonly number[]): boolean {
+  private async shouldRetry(
+    error: HttpError,
+    retryableStatuses: readonly number[]
+  ): Promise<boolean> {
     switch (error.variant) {
       case "Timeout":
       case "Request":
+        return true;
       case "RateLimited":
+        if (error.retryAfterMs !== undefined) {
+          await sleep(error.retryAfterMs);
+        }
         return true;
       case "ServerError":
         return error.status !== undefined && retryableStatuses.includes(error.status);
@@ -100,12 +121,27 @@ export class LightconeHttp {
     }
   }
 
-  private async doRequest<T>(
+  private async sendAndParse<T>(
     method: "GET" | "POST",
     url: string,
     body?: object,
-    extraHeaders?: Record<string, string>
+    authMode: AuthMode = "cookie"
   ): Promise<T> {
+    const [apiResponse, requestId] = await this.sendRequest<ApiResponse<T>>(
+      method,
+      url,
+      body,
+      authMode
+    );
+    return parseApiResponse<T>(apiResponse, requestId);
+  }
+
+  private async sendRequest<T>(
+    method: "GET" | "POST",
+    url: string,
+    body?: object,
+    authMode: AuthMode = "cookie"
+  ): Promise<[T, string]> {
     const requestId = generateRequestId();
     const headers: Record<string, string> = {};
 
@@ -115,23 +151,9 @@ export class LightconeHttp {
     headers["x-request-id"] = requestId;
 
     if (!hasBrowserWindow()) {
-      const cookieParts: string[] = [];
-      if (this.authToken) {
-        cookieParts.push(`auth_token=${this.authToken}`);
-      }
-      if (extraHeaders?.Cookie) {
-        cookieParts.push(extraHeaders.Cookie);
-      }
-      if (cookieParts.length > 0) {
-        headers.Cookie = cookieParts.join("; ");
-      }
-    }
-
-    if (extraHeaders) {
-      for (const [key, value] of Object.entries(extraHeaders)) {
-        if (key !== "Cookie") {
-          headers[key] = value;
-        }
+      const cookie = this.cookieHeader(authMode);
+      if (cookie) {
+        headers.Cookie = cookie;
       }
     }
 
@@ -164,21 +186,18 @@ export class LightconeHttp {
       }
 
       const text = await response.text();
+      let payload: T;
       try {
-        return parseResponsePayload<T>(JSON.parse(text), requestId);
+        payload = JSON.parse(text) as T;
       } catch (e) {
         throw HttpError.request(e instanceof Error ? e.message : "JSON parse failed");
       }
+
+      return [payload, requestId];
     }
 
     const bodyText = await response.text().catch(() => "");
-
-    const statusCode = response.status;
-    if (statusCode === 401) throw HttpError.unauthorized();
-    if (statusCode === 404) throw HttpError.notFound(bodyText);
-    if (statusCode === 429) throw HttpError.rateLimited();
-    if (statusCode >= 400 && statusCode < 500) throw HttpError.badRequest(bodyText);
-    throw HttpError.serverError(statusCode, bodyText);
+    throw this.mapStatusError(response.status, bodyText, response.headers);
   }
 
   private captureCookies(response: Response): void {
@@ -194,6 +213,34 @@ export class LightconeHttp {
       }
     }
   }
+
+  private cookieHeader(authMode: AuthMode): string | undefined {
+    if (hasBrowserWindow()) {
+      return undefined;
+    }
+
+    if (authMode === "adminCookie") {
+      return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
+    }
+
+    return this.authToken ? `auth_token=${this.authToken}` : undefined;
+  }
+
+  private mapStatusError(statusCode: number, bodyText: string, headers: Headers): HttpError {
+    if (statusCode === 401) {
+      return HttpError.unauthorized();
+    }
+    if (statusCode === 404) {
+      return HttpError.notFound(bodyText);
+    }
+    if (statusCode === 429) {
+      return HttpError.rateLimited(retryAfterMs(headers));
+    }
+    if (statusCode >= 400 && statusCode < 500) {
+      return HttpError.badRequest(bodyText);
+    }
+    return HttpError.serverError(statusCode, bodyText);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -202,9 +249,9 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function parseResponsePayload<T>(payload: unknown, requestId: string): T {
+function parseApiResponse<T>(payload: unknown, requestId: string): T {
   if (!isApiResponse<T>(payload)) {
-    return payload as T;
+    throw SdkError.serde("Invalid ApiResponse envelope");
   }
 
   if (payload.status === "success") {
@@ -238,6 +285,26 @@ function getSetCookieHeaders(headers: Headers): string[] {
 
   const combined = headers.get("set-cookie");
   return combined ? [combined] : [];
+}
+
+function retryAfterMs(headers: Headers): number | undefined {
+  const retryAfterMsValue = headers.get("retry-after-ms");
+  if (retryAfterMsValue) {
+    const parsed = Number.parseInt(retryAfterMsValue, 10);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  const retryAfterValue = headers.get("retry-after");
+  if (retryAfterValue) {
+    const parsed = Number.parseFloat(retryAfterValue);
+    if (Number.isFinite(parsed)) {
+      return Math.round(parsed * 1000);
+    }
+  }
+
+  return undefined;
 }
 
 function extractCookieValue(header: string, name: string): string | undefined {
