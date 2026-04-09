@@ -3,11 +3,21 @@
 from enum import Enum
 from typing import Optional
 
+from .shared.api_response import ApiRejectedDetails
+
 
 class SdkError(Exception):
     """Base exception for all Lightcone SDK errors."""
 
     pass
+
+
+class ApiRejected(SdkError):
+    """Raised when the backend rejects a request with structured details."""
+
+    def __init__(self, details: ApiRejectedDetails):
+        super().__init__(str(details))
+        self.details = details
 
 
 class DeserializationError(SdkError):
@@ -20,7 +30,9 @@ class MissingMarketContext(SdkError):
     """Raised when Market deposit source requires market context that was not provided."""
 
     def __init__(self, context: str = ""):
-        super().__init__(f"Missing required market context for Market deposit source: {context}")
+        super().__init__(
+            f"Missing required market context for Market deposit source: {context}"
+        )
 
 
 class SigningError(SdkError):
@@ -89,8 +101,12 @@ class HttpError(SdkError):
         return HttpError(message, HttpErrorKind.SERVER_ERROR, status)
 
     @staticmethod
-    def rate_limited(message: str = "Rate limited", retry_after_ms: Optional[int] = None) -> "HttpError":
-        return HttpError(message, HttpErrorKind.RATE_LIMITED, 429, retry_after_ms=retry_after_ms)
+    def rate_limited(
+        message: str = "Rate limited", retry_after_ms: Optional[int] = None
+    ) -> "HttpError":
+        return HttpError(
+            message, HttpErrorKind.RATE_LIMITED, 429, retry_after_ms=retry_after_ms
+        )
 
     @staticmethod
     def unauthorized(message: str = "Unauthorized") -> "HttpError":
@@ -212,7 +228,9 @@ class AuthError(SdkError):
         return AuthError(message, AuthErrorKind.LOGIN_FAILED)
 
     @staticmethod
-    def signature_verification_failed(message: str = "Signature verification failed") -> "AuthError":
+    def signature_verification_failed(
+        message: str = "Signature verification failed",
+    ) -> "AuthError":
         return AuthError(message, AuthErrorKind.SIGNATURE_VERIFICATION_FAILED)
 
     @staticmethod
@@ -222,6 +240,7 @@ class AuthError(SdkError):
 
 __all__ = [
     "SdkError",
+    "ApiRejected",
     "DeserializationError",
     "MissingMarketContext",
     "SigningError",

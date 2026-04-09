@@ -5,12 +5,16 @@ from dataclasses import dataclass, field
 from enum import Enum, IntEnum
 from typing import Any, Callable, Optional, TYPE_CHECKING, Union
 
+from ..env import LightconeEnv
+
 if TYPE_CHECKING:
     from ..domain.price_history.wire import (
         DepositPriceCandleUpdate,
         DepositPriceSnapshot,
         DepositPriceTick,
-        PriceHistorySnapshot, PriceHistoryUpdate, PriceHistoryHeartbeat,
+        PriceHistorySnapshot,
+        PriceHistoryUpdate,
+        PriceHistoryHeartbeat,
     )
     from ..domain.orderbook.wire import WsOrderBook, WsTickerData
     from ..domain.order.wire import UserUpdate, AuthUpdate
@@ -18,10 +22,19 @@ if TYPE_CHECKING:
     from ..domain.market.wire import MarketEvent
 
 MessageData = Union[
-    "WsOrderBook", "UserUpdate", "WsErrorData", "WsTrade", "AuthUpdate",
-    "WsTickerData", "MarketEvent",
-    "PriceHistorySnapshot", "PriceHistoryUpdate", "PriceHistoryHeartbeat",
-    "DepositPriceSnapshot", "DepositPriceTick", "DepositPriceCandleUpdate",
+    "WsOrderBook",
+    "UserUpdate",
+    "WsErrorData",
+    "WsTrade",
+    "AuthUpdate",
+    "WsTickerData",
+    "MarketEvent",
+    "PriceHistorySnapshot",
+    "PriceHistoryUpdate",
+    "PriceHistoryHeartbeat",
+    "DepositPriceSnapshot",
+    "DepositPriceTick",
+    "DepositPriceCandleUpdate",
     dict,
 ]
 
@@ -245,7 +258,9 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
         event_type = data.get("event_type", "")
         if event_type == "update" or (not event_type and "t" in data):
             return PriceHistoryUpdate.from_dict(data)
-        if event_type == "heartbeat" or (not event_type and "server_time" in data and "orderbook_id" not in data):
+        if event_type == "heartbeat" or (
+            not event_type and "server_time" in data and "orderbook_id" not in data
+        ):
             return PriceHistoryHeartbeat.from_dict(data)
         return PriceHistorySnapshot.from_dict(data)
 
@@ -295,7 +310,7 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
 class WsConfig:
     """WebSocket client configuration."""
 
-    url: str = "wss://tws.lightcone.xyz/ws"
+    url: str = LightconeEnv.PROD.ws_url
     reconnect: bool = True
     max_reconnect_attempts: int = 10
     base_reconnect_delay_ms: int = 1000
