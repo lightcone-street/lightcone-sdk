@@ -170,8 +170,9 @@ def deserialize_orderbook(data: bytes) -> Orderbook:
     - [40..72]: mint_a (Pubkey)
     - [72..104]: mint_b (Pubkey)
     - [104..136]: lookup_table (Pubkey)
-    - [136]: bump (u8)
-    - [137..144]: padding (7 bytes)
+    - [136]: base_index (u8)
+    - [137]: bump (u8)
+    - [138..144]: padding (6 bytes)
     """
     _validate_discriminator(data, ORDERBOOK_DISCRIMINATOR, "Orderbook")
 
@@ -185,7 +186,8 @@ def deserialize_orderbook(data: bytes) -> Orderbook:
         mint_a=decode_pubkey(data, 40),
         mint_b=decode_pubkey(data, 72),
         lookup_table=decode_pubkey(data, 104),
-        bump=decode_u8(data, 136),
+        base_index=decode_u8(data, 136),
+        bump=decode_u8(data, 137),
     )
 
 

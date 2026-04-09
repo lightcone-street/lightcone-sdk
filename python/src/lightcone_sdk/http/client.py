@@ -1,13 +1,28 @@
-"""HTTP client for the Lightcone SDK."""
+"""HTTP client for the Lightcone SDK.
+
+``get()`` and ``post()`` return the unwrapped API body directly. They handle:
+- ``x-request-id`` generation and header injection
+- auth/admin cookie injection
+- deserialization of the ``ApiResponse`` wrapper
+- conversion of backend rejections into ``ApiRejected``
+
+``raw_post()`` bypasses ApiResponse handling for non-API calls such as Solana
+JSON-RPC.
+"""
+
+from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import uuid
+from enum import Enum
 from typing import Any, Optional
 
 import aiohttp
 
-from ..error import HttpError, HttpErrorKind
+from ..error import ApiRejected, HttpError, HttpErrorKind
+from ..shared.api_response import ApiResponse, ApiRejectedDetails
 from .retry import RetryPolicy, delay_for_attempt
 
 logger = logging.getLogger(__name__)
@@ -15,11 +30,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_TIMEOUT_SECS = 30
 
 
-class LightconeHttp:
-    """HTTP client with retry, auth, and error mapping.
+class _AuthMode(str, Enum):
+    COOKIE = "cookie"
+    ADMIN_COOKIE = "admin_cookie"
 
-    Auth token is sent via Cookie header.
-    """
+
+class LightconeHttp:
+    """HTTP client with retry, auth, and ApiResponse unwrapping."""
 
     def __init__(
         self,
@@ -28,6 +45,7 @@ class LightconeHttp:
     ):
         self._base_url = base_url.rstrip("/")
         self._auth_token: Optional[str] = None
+        self._admin_token: Optional[str] = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -50,6 +68,22 @@ class LightconeHttp:
 
     def has_auth_token(self) -> bool:
         return self._auth_token is not None
+
+    @property
+    def admin_token(self) -> Optional[str]:
+        """Public accessor for the admin token."""
+        return self._admin_token
+
+    def set_admin_token(self, token: Optional[str]) -> None:
+        """Set or clear the admin token."""
+        self._admin_token = token
+
+    def clear_admin_token(self) -> None:
+        """Clear the admin token."""
+        self._admin_token = None
+
+    def has_admin_token(self) -> bool:
+        return self._admin_token is not None
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -75,94 +109,135 @@ class LightconeHttp:
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
         await self.close()
 
-    def _get_headers(self) -> dict[str, str]:
-        """Build headers with auth cookie if present."""
-        headers: dict[str, str] = {}
-        if self._auth_token:
-            headers["Cookie"] = f"auth_token={self._auth_token}"
-        return headers
-
-    def _map_status_error(self, status: int, message: str) -> HttpError:
-        """Map HTTP status to HttpError variant."""
-        if status == 401:
-            return HttpError.unauthorized(message)
-        elif status == 404:
-            return HttpError.not_found(message)
-        elif status == 429:
-            return HttpError.rate_limited(message)
-        elif 400 <= status <= 499:
-            return HttpError.bad_request(message)
-        else:
-            return HttpError.server_error(message, status)
-
-    async def _do_request(self, method: str, path: str, **kwargs: Any) -> Any:
-        """Execute a single HTTP request (no retry)."""
+    async def raw_post(self, url: str, body: Any) -> Any:
+        """POST an arbitrary JSON body without ApiResponse parsing."""
         session = await self._ensure_session()
-        url = f"{self._base_url}{path}"
-        headers = self._get_headers()
-        if "headers" in kwargs:
-            headers.update(kwargs.pop("headers"))
-
-        async with session.request(method, url, headers=headers, **kwargs) as response:
+        async with session.post(url, json=body) as response:
             if 200 <= response.status < 300:
-                # Auto-extract auth_token from set-cookie headers
-                for cookie_header in response.headers.getall('set-cookie', []):
-                    if cookie_header.startswith('auth_token='):
-                        token = cookie_header.split('auth_token=', 1)[1].split(';', 1)[0]
-                        if token:
-                            self._auth_token = token
-
                 try:
                     return await response.json()
-                except (ValueError, json.JSONDecodeError, aiohttp.ContentTypeError) as e:
-                    raise HttpError.request(f"Failed to parse response: {e}")
-            else:
-                body_text = await response.text()
-                raise self._map_status_error(response.status, body_text or "")
+                except (
+                    ValueError,
+                    json.JSONDecodeError,
+                    aiohttp.ContentTypeError,
+                ) as error:
+                    raise HttpError.request(
+                        f"Failed to parse response: {error}"
+                    ) from error
+
+            body_text = await response.text()
+            raise self._map_status_error(
+                response.status, body_text or "", response.headers
+            )
+
+    async def get(
+        self,
+        path: str,
+        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+    ) -> Any:
+        """Make a GET request with user auth cookie injection."""
+        return await self._request_with_retry(
+            "GET",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE,
+        )
+
+    async def post(
+        self,
+        path: str,
+        body: Any,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+    ) -> Any:
+        """Make a POST request with user auth cookie injection."""
+        return await self._request_with_retry(
+            "POST",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE,
+            json=body,
+        )
+
+    async def admin_post(
+        self,
+        path: str,
+        body: Any,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+    ) -> Any:
+        """Make a POST request with admin cookie injection."""
+        return await self._request_with_retry(
+            "POST",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.ADMIN_COOKIE,
+            json=body,
+        )
+
+    async def admin_get(
+        self,
+        path: str,
+        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+    ) -> Any:
+        """Make a GET request with admin cookie injection."""
+        return await self._request_with_retry(
+            "GET",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.ADMIN_COOKIE,
+        )
 
     async def _request_with_retry(
         self,
         method: str,
         path: str,
+        *,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        auth_mode: _AuthMode,
         **kwargs: Any,
     ) -> Any:
-        """Make an HTTP request with retry logic."""
+        """Make an HTTP request with retry logic and ApiResponse unwrapping."""
         config = retry_policy.resolve_config()
 
         if config is None:
-            # RetryPolicy.NONE — single attempt, no retry loop
-            return await self._do_request(method, path, **kwargs)
+            return await self._send_and_parse(
+                method, path, auth_mode=auth_mode, **kwargs
+            )
 
         last_error: Optional[Exception] = None
 
         for attempt in range(config.max_retries + 1):
             try:
-                return await self._do_request(method, path, **kwargs)
-            except HttpError as e:
+                return await self._send_and_parse(
+                    method, path, auth_mode=auth_mode, **kwargs
+                )
+            except ApiRejected:
+                raise
+            except HttpError as error:
                 should_retry = False
 
-                if e.kind == HttpErrorKind.SERVER_ERROR:
+                if error.kind == HttpErrorKind.SERVER_ERROR:
                     should_retry = (
-                        e.status is not None
-                        and e.status in config.retryable_statuses
+                        error.status is not None
+                        and error.status in config.retryable_statuses
                     )
-                elif e.kind == HttpErrorKind.RATE_LIMITED:
-                    # Always retry rate-limited, honor retry_after_ms
-                    if e.retry_after_ms:
-                        await asyncio.sleep(e.retry_after_ms / 1000.0)
+                elif error.kind == HttpErrorKind.RATE_LIMITED:
+                    if error.retry_after_ms:
+                        await asyncio.sleep(error.retry_after_ms / 1000.0)
                     should_retry = True
-                elif e.kind == HttpErrorKind.TIMEOUT:
+                elif error.kind == HttpErrorKind.TIMEOUT:
                     should_retry = True
 
                 if should_retry and attempt < config.max_retries:
                     delay = delay_for_attempt(attempt, config)
                     logger.debug(
-                        "Retrying request to %s%s (attempt %d/%d, delay %.1fs)",
-                        self._base_url, path, attempt + 1, config.max_retries, delay,
+                        "Retrying request to %s (attempt %d/%d, delay %.1fs)",
+                        self._resolve_url(path),
+                        attempt + 1,
+                        config.max_retries,
+                        delay,
                     )
                     await asyncio.sleep(delay)
-                    last_error = e
+                    last_error = error
                     continue
                 raise
             except asyncio.TimeoutError:
@@ -172,53 +247,166 @@ class LightconeHttp:
                     await asyncio.sleep(delay)
                     continue
                 raise last_error
-            except aiohttp.ClientError as e:
-                # Only retry connect errors (matches Rust's is_connect/is_request)
-                # Don't retry SSL errors, server disconnects, etc.
-                retryable = isinstance(e, aiohttp.ClientConnectorError) and not isinstance(e, aiohttp.ClientSSLError)
+            except aiohttp.ClientError as error:
+                retryable = isinstance(
+                    error, aiohttp.ClientConnectorError
+                ) and not isinstance(error, aiohttp.ClientSSLError)
                 if retryable and attempt < config.max_retries:
-                    last_error = HttpError.request(str(e))
+                    last_error = HttpError.request(str(error))
                     delay = delay_for_attempt(attempt, config)
                     await asyncio.sleep(delay)
                     continue
-                raise HttpError.request(str(e))
+                raise HttpError.request(str(error)) from error
 
         raise HttpError.max_retries_exceeded(
             config.max_retries + 1,
             str(last_error) if last_error else "unknown",
         )
 
-    async def get(
+    async def _send_and_parse(
         self,
+        method: str,
         path: str,
-        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        auth_mode: _AuthMode,
+        **kwargs: Any,
     ) -> Any:
-        """Make a GET request.
-
-        Args:
-            path: URL path (appended to base_url)
-            retry_policy: Retry policy (default: IDEMPOTENT with retries)
-        """
-        return await self._request_with_retry(
-            "GET", path, retry_policy=retry_policy
+        payload, request_id = await self._send_request(
+            method,
+            path,
+            auth_mode=auth_mode,
+            **kwargs,
         )
+        return self._parse_api_response(payload, request_id)
 
-    async def post(
+    @staticmethod
+    def _parse_api_response(payload: Any, request_id: str) -> Any:
+        """Unwrap an API response or raise ApiRejected with the request id."""
+        if not isinstance(payload, dict) or payload.get("status") not in {
+            "success",
+            "error",
+        }:
+            return payload
+
+        parsed = ApiResponse.from_dict(payload)
+        if parsed.status == "success":
+            return parsed.body
+
+        details = parsed.details or ApiRejectedDetails(reason="Unknown API rejection")
+        raise ApiRejected(details.with_request_id(request_id))
+
+    async def _send_request(
         self,
+        method: str,
         path: str,
-        body: Any,
-        retry_policy: RetryPolicy = RetryPolicy.NONE,
-    ) -> Any:
-        """Make a POST request.
+        *,
+        auth_mode: _AuthMode,
+        **kwargs: Any,
+    ) -> tuple[Any, str]:
+        """Send one request and return the raw decoded JSON payload plus request id."""
+        session = await self._ensure_session()
+        request_id = str(uuid.uuid4())
+        headers = dict(kwargs.pop("headers", {}))
+        headers["x-request-id"] = request_id
+        headers.update(self._auth_headers(auth_mode))
 
-        Args:
-            path: URL path (appended to base_url)
-            body: JSON body
-            retry_policy: Retry policy (default: NONE for non-idempotent)
-        """
-        return await self._request_with_retry(
-            "POST", path, retry_policy=retry_policy, json=body
-        )
+        async with session.request(
+            method,
+            self._resolve_url(path),
+            headers=headers,
+            **kwargs,
+        ) as response:
+            if 200 <= response.status < 300:
+                self._capture_cookies(response.headers)
+                try:
+                    return await response.json(), request_id
+                except (
+                    ValueError,
+                    json.JSONDecodeError,
+                    aiohttp.ContentTypeError,
+                ) as error:
+                    raise HttpError.request(
+                        f"Failed to parse response: {error}"
+                    ) from error
+
+            body_text = await response.text()
+            raise self._map_status_error(
+                response.status, body_text or "", response.headers
+            )
+
+    def _resolve_url(self, path: str) -> str:
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        return f"{self._base_url}{path}"
+
+    def _auth_headers(self, auth_mode: _AuthMode) -> dict[str, str]:
+        headers: dict[str, str] = {}
+        if auth_mode == _AuthMode.COOKIE and self._auth_token:
+            headers["Cookie"] = f"auth_token={self._auth_token}"
+        elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:
+            headers["Cookie"] = f"admin_token={self._admin_token}"
+        return headers
+
+    def _capture_cookies(self, headers: aiohttp.typedefs.LooseHeaders) -> None:
+        set_cookie_headers = []
+        if hasattr(headers, "getall"):
+            set_cookie_headers = list(headers.getall("set-cookie", []))
+        for cookie_header in set_cookie_headers:
+            if cookie_header.startswith("auth_token="):
+                token = cookie_header.split("auth_token=", 1)[1].split(";", 1)[0]
+                if token:
+                    self._auth_token = token
+            elif cookie_header.startswith("admin_token="):
+                token = cookie_header.split("admin_token=", 1)[1].split(";", 1)[0]
+                if token:
+                    self._admin_token = token
+
+    def _map_status_error(
+        self,
+        status: int,
+        message: str,
+        headers: Optional[aiohttp.typedefs.LooseHeaders] = None,
+    ) -> HttpError:
+        """Map HTTP status to HttpError."""
+        if status == 401:
+            return HttpError.unauthorized(message)
+        if status == 404:
+            return HttpError.not_found(message)
+        if status == 429:
+            return HttpError.rate_limited(
+                message or "Rate limited",
+                retry_after_ms=_retry_after_ms(headers),
+            )
+        if 400 <= status <= 499:
+            return HttpError.bad_request(message)
+        return HttpError.server_error(message, status)
+
+
+def _retry_after_ms(headers: Optional[aiohttp.typedefs.LooseHeaders]) -> Optional[int]:
+    if headers is None:
+        return None
+
+    def _header(name: str) -> Optional[str]:
+        if hasattr(headers, "get"):
+            value = headers.get(name)
+            return str(value) if value is not None else None
+        return None
+
+    retry_after_ms = _header("retry-after-ms")
+    if retry_after_ms:
+        try:
+            return int(retry_after_ms)
+        except ValueError:
+            return None
+
+    retry_after = _header("retry-after")
+    if retry_after:
+        try:
+            return int(float(retry_after) * 1000)
+        except ValueError:
+            return None
+
+    return None
 
 
 __all__ = ["LightconeHttp"]

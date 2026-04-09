@@ -28,22 +28,25 @@ pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdi
 
 ```python
 import asyncio
+import json
+from pathlib import Path
 
 from solders.keypair import Keypair
-from solders.pubkey import Pubkey
 
-from lightcone_sdk import LightconeClientBuilder
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
 from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.ws.subscriptions import BookUpdateParams
 
 
 async def main():
+    # Defaults to Prod. Use .env(LightconeEnv.STAGING) for staging.
     client = (
         LightconeClientBuilder()
-        .rpc_url("https://api.devnet.solana.com")
         .build()
     )
-    keypair = Keypair()
+    with Path("~/.config/solana/id.json").expanduser().open() as f:
+        secret = json.load(f)
+    keypair = Keypair.from_bytes(bytes(secret))
 
     # 1. Authenticate
     nonce = await client.auth().get_nonce()
@@ -99,11 +102,37 @@ keypair = Keypair.from_bytes(bytes(secret))
 
 client = (
     LightconeClientBuilder()
-    .rpc_url("https://api.devnet.solana.com")
     .native_signer(keypair)
     .build()
 )
 ```
+
+## Environment Configuration
+
+The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
+
+```python
+from lightcone_sdk import LightconeClientBuilder, LightconeEnv
+
+# Production (default)
+prod_client = LightconeClientBuilder().build()
+
+# Staging
+staging_client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.STAGING)
+    .build()
+)
+
+# Local development
+local_client = (
+    LightconeClientBuilder()
+    .env(LightconeEnv.LOCAL)
+    .build()
+)
+```
+
+Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual overrides such as `.base_url()`, `.ws_url()`, and `.rpc_url()` still take precedence when called after `.env()`.
 
 ### Step 1: Find a Market
 
@@ -135,7 +164,7 @@ order = await (
     .maker(keypair.pubkey())
     .bid()
     .price("0.55")
-    .size("1")
+    .size("2")
     .submit(client, orderbook)
 )
 ```
@@ -184,7 +213,7 @@ tx_hash = await (client.positions().merge()
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
 ## Examples
-All examples are runnable with `python examples/<name>.py`. Set environment variables in a `.env` file - see [`.env.example`](.env.example) for the template.
+All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
 
 ### Setup & Authentication
 
@@ -237,6 +266,7 @@ All SDK operations raise `SdkError` or one of its subclasses:
 
 | Variant | When |
 |---------|------|
+| `ApiRejected` | Backend rejected the request with structured details |
 | `HttpError` | REST request failures |
 | `WsError` | WebSocket connection/protocol errors |
 | `AuthError` | Authentication failures |
@@ -244,7 +274,34 @@ All SDK operations raise `SdkError` or one of its subclasses:
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
-| `SdkError` | Catch-all, including rejected order responses |
+| `SdkError` | Catch-all for other SDK failures |
+
+### API Rejections
+
+When the backend rejects a request, the SDK raises `ApiRejected(details)` where `details` is an `ApiRejectedDetails` instance containing:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `reason` | `str` | Human-readable rejection message |
+| `rejection_code` | `RejectionCode \| None` | Machine-readable rejection code |
+| `error_code` | `str \| None` | API-level error code such as `"NOT_FOUND"` |
+| `error_log_id` | `str \| None` | Backend support correlation ID (`LCERR_*`) |
+| `request_id` | `str \| None` | SDK-generated `x-request-id` header for tracing |
+
+Known rejection codes include `INSUFFICIENT_BALANCE`, `EXPIRED`, `NONCE_MISMATCH`, `SELF_TRADE`, `MARKET_INACTIVE`, `BELOW_MIN_ORDER_SIZE`, `INVALID_NONCE`, `BROADCAST_FAILURE`, `ORDER_NOT_FOUND`, `NOT_ORDER_MAKER`, `ORDER_ALREADY_FILLED`, and `ORDER_ALREADY_CANCELLED`. Unknown codes are preserved verbatim for forward compatibility.
+
+```python
+from lightcone_sdk import ApiRejected
+
+try:
+    await client.orders().submit(request)
+except ApiRejected as err:
+    print(err.details.reason)
+    if err.details.rejection_code is not None:
+        print(err.details.rejection_code.label())
+    if err.details.request_id is not None:
+        print(err.details.request_id)
+```
 
 `HttpErrorKind` variants:
 

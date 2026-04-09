@@ -85,6 +85,7 @@ class Orderbook:
     mint_a: Pubkey
     mint_b: Pubkey
     lookup_table: Pubkey
+    base_index: int
     bump: int
 
 
@@ -264,6 +265,7 @@ class CreateOrderbookParams:
     mint_a: Pubkey
     mint_b: Pubkey
     recent_slot: int
+    base_index: int
 
 
 @dataclass

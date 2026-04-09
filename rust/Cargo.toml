@@ -41,6 +41,7 @@ rand = "0.8"
 urlencoding = "2.1"
 chrono = { version = "0.4", features = ["serde"] }
 tracing = "0.1"
+uuid = { version = "1", features = ["v4"] }
 
 # ── HTTP client (WASM-safe via reqwest's wasm support) ────────────────────────
 reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }

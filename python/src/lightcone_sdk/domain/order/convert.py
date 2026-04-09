@@ -2,7 +2,14 @@
 
 from typing import Optional
 
-from . import Order, OrderStatus, SubmitOrderResponse, FillInfo, TriggerOrder, UserSnapshotOrder
+from . import (
+    Order,
+    OrderStatus,
+    SubmitOrderResponse,
+    FillInfo,
+    TriggerOrder,
+    UserSnapshotOrder,
+)
 from .wire import WsOrder
 from .state import UserOpenOrders, UserTriggerOrders
 from ...shared.types import TimeInForce, TriggerType
@@ -98,7 +105,7 @@ def split_snapshot_orders(
     trigger_orders = UserTriggerOrders()
 
     for s in snapshots:
-        if s.order_type == "trigger":
+        if str(s.order_type).lower() == "trigger":
             trigger_orders.insert(trigger_snapshot_to_order(s))
         else:
             order = limit_snapshot_to_order(s)

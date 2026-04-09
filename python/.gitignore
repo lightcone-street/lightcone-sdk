@@ -50,9 +50,6 @@ coverage.xml
 *.mo
 *.pot
 
-# Lock file (library — consumers resolve their own deps)
-uv.lock
-
 # Environments
 .env
 .venv

@@ -1,4 +1,4 @@
-import { restClient, marketAndOrderbook } from "./common";
+import { restClient, marketAndOrderbook, runExample } from "./common";
 import { orderbookDecimals } from "../src/domain/orderbook";
 
 async function main() {
@@ -17,4 +17,4 @@ async function main() {
   );
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

@@ -28,7 +28,7 @@ async def main():
     # 3. Orderbook
     try:
         onchain_orderbook = await client.orderbooks().get_onchain(base_mint, quote_mint)
-        print(f"orderbook: lookup_table={onchain_orderbook.lookup_table} bump={onchain_orderbook.bump}")
+        print(f"orderbook: lookup_table={onchain_orderbook.lookup_table} base_index={onchain_orderbook.base_index} bump={onchain_orderbook.bump}")
     except AccountNotFoundError:
         print("orderbook: not found on-chain")
 

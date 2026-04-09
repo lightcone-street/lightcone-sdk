@@ -86,11 +86,15 @@ class Orders:
         """Create an unsigned ask order."""
         return _create_ask_order(params)
 
-    def create_signed_bid_order(self, params: BidOrderParams, keypair: Keypair) -> SignedOrder:
+    def create_signed_bid_order(
+        self, params: BidOrderParams, keypair: Keypair
+    ) -> SignedOrder:
         """Create and sign a bid order."""
         return _create_signed_bid_order(params, keypair)
 
-    def create_signed_ask_order(self, params: AskOrderParams, keypair: Keypair) -> SignedOrder:
+    def create_signed_ask_order(
+        self, params: AskOrderParams, keypair: Keypair
+    ) -> SignedOrder:
         """Create and sign an ask order."""
         return _create_signed_ask_order(params, keypair)
 
@@ -129,17 +133,11 @@ class Orders:
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
         """Submit a limit order."""
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
-        place = _unwrap_status(
-            data,
-            success_statuses={"accepted", "partial_fill", "filled"},
-            rejected_statuses={"rejected"},
-        )
-        return submit_response_from_dict(place)
+        return submit_response_from_dict(data)
 
     async def cancel(self, body: CancelBody) -> CancelSuccess:
         """Cancel a single order."""
         data = await self._client._http.post("/api/orders/cancel", body.to_dict())
-        data = _unwrap_status(data, success_statuses={"cancelled"})
         return CancelSuccess(
             order_hash=data.get("order_hash", body.order_hash),
             remaining=data.get("remaining", 0),
@@ -148,7 +146,6 @@ class Orders:
     async def cancel_all(self, body: CancelAllBody) -> CancelAllSuccess:
         """Cancel all orders for a user."""
         data = await self._client._http.post("/api/orders/cancel-all", body.to_dict())
-        data = _unwrap_status(data, success_statuses={"success"})
         return CancelAllSuccess(
             cancelled_order_hashes=data.get("cancelled_order_hashes", []),
             count=data.get("count", 0),
@@ -157,10 +154,11 @@ class Orders:
             message=data.get("message", ""),
         )
 
-    async def submit_trigger(self, request: SubmitTriggerOrderRequest) -> TriggerOrderResponse:
+    async def submit_trigger(
+        self, request: SubmitTriggerOrderRequest
+    ) -> TriggerOrderResponse:
         """Submit a trigger order."""
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
-        data = _unwrap_status(data, success_statuses={"accepted"})
         return TriggerOrderResponse(
             trigger_order_id=data.get("trigger_order_id", ""),
             order_hash=data.get("order_hash", ""),
@@ -169,7 +167,6 @@ class Orders:
     async def cancel_trigger(self, body: CancelTriggerBody) -> CancelTriggerSuccess:
         """Cancel a trigger order."""
         data = await self._client._http.post("/api/orders/cancel", body.to_dict())
-        data = _unwrap_status(data, success_statuses={"cancelled"})
         return CancelTriggerSuccess(
             trigger_order_id=data.get("trigger_order_id", body.trigger_order_id),
         )
@@ -192,7 +189,9 @@ class Orders:
         return UserOrdersResponse(
             user_pubkey=data.get("user_pubkey", wallet),
             orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
-            balances=[UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])],
+            balances=[
+                UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])
+            ],
             next_cursor=data.get("next_cursor"),
             has_more=data.get("has_more", False),
         )
@@ -222,7 +221,9 @@ class Orders:
     # ── Unified cancel (dispatches based on client signing strategy) ────
 
     async def cancel_order_signed(
-        self, order_hash: str, maker: str,
+        self,
+        order_hash: str,
+        maker: str,
     ) -> CancelSuccess:
         """Cancel an order using the client's signing strategy."""
         from ...shared.signing import SigningStrategyKind, classify_signer_error
@@ -245,13 +246,16 @@ class Orders:
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
             import bs58 as _bs58
+
             sig_hex = sig_bytes.hex()
             body = CancelBody(order_hash=order_hash, maker=maker, signature=sig_hex)
             return await self.cancel(body)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             result = await self._client.privy().sign_and_cancel_order(
-                strategy.wallet_id, order_hash, maker,
+                strategy.wallet_id,
+                order_hash,
+                maker,
             )
             return CancelSuccess(
                 order_hash=result.get("order_hash", order_hash),
@@ -278,7 +282,9 @@ class Orders:
             body = CancelAllBody(
                 user_pubkey=user_pubkey,
                 orderbook_id=resolved_ob_id,
-                signature=sign_cancel_all(user_pubkey, resolved_ob_id, timestamp, salt, strategy.keypair),
+                signature=sign_cancel_all(
+                    user_pubkey, resolved_ob_id, timestamp, salt, strategy.keypair
+                ),
                 timestamp=timestamp,
                 salt=salt,
             )
@@ -302,7 +308,11 @@ class Orders:
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             result = await self._client.privy().sign_and_cancel_all_orders(
-                strategy.wallet_id, user_pubkey, resolved_ob_id, timestamp, salt,
+                strategy.wallet_id,
+                user_pubkey,
+                resolved_ob_id,
+                timestamp,
+                salt,
             )
             return CancelAllSuccess(
                 cancelled_order_hashes=result.get("cancelled_order_hashes", []),
@@ -315,7 +325,9 @@ class Orders:
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def cancel_trigger_signed(
-        self, trigger_order_id: str, maker: str,
+        self,
+        trigger_order_id: str,
+        maker: str,
     ) -> CancelTriggerSuccess:
         """Cancel a trigger order using the client's signing strategy."""
         from ...shared.signing import SigningStrategyKind, classify_signer_error
@@ -326,6 +338,7 @@ class Orders:
         if strategy.kind == SigningStrategyKind.NATIVE:
             message = cancel_trigger_order_message(trigger_order_id)
             from solders.keypair import Keypair as _Keypair
+
             keypair: _Keypair = strategy.keypair
             sig = keypair.sign_message(message)
             body = CancelTriggerBody(
@@ -343,13 +356,17 @@ class Orders:
                 raise classify_signer_error(str(exc)) from exc
             sig_hex = sig_bytes.hex()
             body = CancelTriggerBody(
-                trigger_order_id=trigger_order_id, maker=maker, signature=sig_hex,
+                trigger_order_id=trigger_order_id,
+                maker=maker,
+                signature=sig_hex,
             )
             return await self.cancel_trigger(body)
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             result = await self._client.privy().sign_and_cancel_trigger_order(
-                strategy.wallet_id, trigger_order_id, maker,
+                strategy.wallet_id,
+                trigger_order_id,
+                maker,
             )
             return CancelTriggerSuccess(
                 trigger_order_id=result.get("trigger_order_id", trigger_order_id),
@@ -412,52 +429,3 @@ class Orders:
         if nonce > 0xFFFFFFFF:
             raise ArithmeticOverflowError()
         return nonce
-
-
-def _unwrap_status(
-    data: dict,
-    *,
-    success_statuses: set[str],
-    rejected_statuses: Optional[set[str]] = None,
-) -> dict:
-    status = data.get("status")
-    if status is None or status in success_statuses:
-        return data
-
-    rejected_statuses = rejected_statuses or set()
-    if status in rejected_statuses:
-        error = data.get("error")
-        details = data.get("details")
-        rejection_reason = data.get("rejection_reason") or data.get("reason")
-        if error and details:
-            raise SdkError(f"{error}: {details}")
-        if error:
-            raise SdkError(error)
-        if details:
-            raise SdkError(details)
-        if rejection_reason:
-            raise SdkError(rejection_reason)
-
-        parts = ["Rejected"]
-        if data.get("order_hash"):
-            parts.append(f"hash={data['order_hash']}")
-        if data.get("filled") is not None:
-            parts.append(f"filled={data['filled']}")
-        if data.get("remaining") is not None:
-            parts.append(f"remaining={data['remaining']}")
-        raise SdkError(", ".join(parts))
-
-    message = data.get("message")
-    error = data.get("error")
-    details = data.get("details")
-
-    if error and details:
-        raise SdkError(f"{error}: {details}")
-    if error:
-        raise SdkError(error)
-    if message:
-        raise SdkError(message)
-    if details:
-        raise SdkError(details)
-
-    raise SdkError(f"Unexpected status: {status}")

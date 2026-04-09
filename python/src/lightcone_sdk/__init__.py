@@ -10,6 +10,9 @@ from .shared import (
     # Types
     OrderBookId,
     PubkeyStr,
+    ApiResponse,
+    ApiRejectedDetails,
+    RejectionCode,
     Side,
     TimeInForce,
     TriggerType,
@@ -44,6 +47,7 @@ from .shared import (
 
 from .error import (
     SdkError,
+    ApiRejected,
     DeserializationError,
     MissingMarketContext,
     SigningError,
@@ -349,6 +353,9 @@ __all__ = [
     # Shared types
     "OrderBookId",
     "PubkeyStr",
+    "ApiResponse",
+    "ApiRejectedDetails",
+    "RejectionCode",
     "Side",
     "TimeInForce",
     "TriggerType",
@@ -379,6 +386,7 @@ __all__ = [
     "to_decimal_value",
     # Errors
     "SdkError",
+    "ApiRejected",
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",

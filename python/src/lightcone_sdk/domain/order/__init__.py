@@ -1,7 +1,7 @@
 """Order domain types."""
 
 from dataclasses import dataclass, field
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Optional
 
@@ -10,12 +10,7 @@ from ...shared.types import TimeInForce, TriggerType
 
 class OrderType(str, Enum):
     LIMIT = "limit"
-    MARKET = "market"
-    DEPOSIT = "deposit"
-    MERGE = "merge"
-    WITHDRAW = "withdraw"
-    STOP_LIMIT = "StopLimit"
-    TAKE_PROFIT_LIMIT = "TakeProfitLimit"
+    TRIGGER = "trigger"
 
 
 class OrderStatus(str, Enum):
@@ -38,6 +33,7 @@ class FillInfo:
 @dataclass
 class Order:
     """Order domain type."""
+
     market_pubkey: str
     orderbook_id: str
     order_hash: str
@@ -57,6 +53,7 @@ class Order:
 @dataclass
 class OrderEvent:
     """WebSocket order event."""
+
     type: str
     order: Optional[Order] = None
     fill: Optional[FillInfo] = None
@@ -65,6 +62,7 @@ class OrderEvent:
 @dataclass
 class TriggerOrder:
     """Trigger order domain type."""
+
     trigger_order_id: str
     order_hash: str
     market_pubkey: str
@@ -188,7 +186,7 @@ class ConditionalBalance:
     def from_dict(d: dict) -> "ConditionalBalance":
         return ConditionalBalance(
             outcome_index=d.get("outcome_index", 0),
-            mint=d.get("mint", d.get("conditional_token", "")),
+            mint=d.get("mint") or d.get("conditional_token", ""),
             idle=d.get("idle", "0"),
             on_book=d.get("on_book", "0"),
         )
@@ -218,15 +216,20 @@ class UserSnapshotBalance:
         return UserSnapshotBalance(
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
-            outcomes=[
-                ConditionalBalance.from_dict(c)
-                for c in d.get("outcomes", [])
-            ],
+            outcomes=[ConditionalBalance.from_dict(c) for c in d.get("outcomes", [])],
         )
 
 
 @dataclass
 class UserSnapshotOrder:
+    """Unified REST/WS user order snapshot.
+
+    The backend only returns ``order_type == "limit"`` or
+    ``order_type == "trigger"``. Trigger subtype details such as stop-loss vs
+    take-profit are expressed through the trigger fields, not through additional
+    ``order_type`` variants.
+    """
+
     order_hash: str = ""
     market_pubkey: str = ""
     orderbook_id: str = ""
@@ -242,8 +245,8 @@ class UserSnapshotOrder:
     base_mint: str = ""
     quote_mint: str = ""
     outcome_index: int = 0
-    status: str = "OPEN"
-    order_type: str = "limit"
+    status: str = OrderStatus.OPEN.value
+    order_type: str = OrderType.LIMIT.value
     # Trigger-specific fields (present when order_type == "trigger")
     trigger_order_id: Optional[str] = None
     trigger_price: Optional[str] = None
@@ -258,30 +261,51 @@ class UserSnapshotOrder:
 
         trigger_type_raw = d.get("trigger_type")
         time_in_force_raw = d.get("time_in_force")
+        remaining = str(d.get("remaining", "0"))
+        filled = str(d.get("filled", "0"))
+        size = d.get("size")
+        if size is None:
+            size = _sum_decimal_strings(remaining, filled)
+        order_type = str(d.get("order_type", OrderType.LIMIT.value)).lower()
         return UserSnapshotOrder(
             order_hash=d.get("order_hash", ""),
             side=int(_Side.from_wire(d.get("side", 0))),
             price=d.get("price", "0"),
-            size=d.get("size", "0"),
+            size=str(size),
             orderbook_id=d.get("orderbook_id", ""),
             market_pubkey=d.get("market_pubkey", ""),
             amount_in=d.get("amount_in", d.get("maker_amount", "0")),
             amount_out=d.get("amount_out", d.get("taker_amount", "0")),
-            remaining=d.get("remaining", "0"),
-            filled=d.get("filled", "0"),
+            remaining=remaining,
+            filled=filled,
             expiration=d.get("expiration", 0),
             base_mint=d.get("base_mint", ""),
             quote_mint=d.get("quote_mint", ""),
             outcome_index=d.get("outcome_index", 0),
-            status=d.get("status", "open"),
-            order_type=d.get("order_type", "limit"),
+            status=d.get("status", OrderStatus.OPEN.value),
+            order_type=order_type,
             created_at=d.get("created_at"),
             trigger_order_id=d.get("trigger_order_id"),
             trigger_price=d.get("trigger_price"),
-            trigger_type=TriggerType.from_wire(trigger_type_raw) if trigger_type_raw is not None else None,
-            time_in_force=TimeInForce.from_wire(time_in_force_raw) if time_in_force_raw is not None else None,
+            trigger_type=(
+                TriggerType.from_wire(trigger_type_raw)
+                if trigger_type_raw is not None
+                else None
+            ),
+            time_in_force=(
+                TimeInForce.from_wire(time_in_force_raw)
+                if time_in_force_raw is not None
+                else None
+            ),
             tx_signature=d.get("tx_signature"),
         )
+
+
+def _sum_decimal_strings(left: str, right: str) -> str:
+    try:
+        return format(Decimal(left) + Decimal(right), "f")
+    except (InvalidOperation, ValueError):
+        return "0"
 
 
 @dataclass

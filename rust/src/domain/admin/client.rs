@@ -2,10 +2,11 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
-    AdminEnvelope, AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
-    CreateNotificationResponse, DismissNotificationRequest, DismissNotificationResponse,
-    RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
-    UnrevokeRequest, UnrevokeResponse, WhitelistRequest, WhitelistResponse,
+    AdminLoginRequest, AdminLoginResponse, AdminNonceResponse, AllocateCodesRequest,
+    AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
+    DismissNotificationRequest, DismissNotificationResponse, RevokeRequest, RevokeResponse,
+    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
+    WhitelistRequest, WhitelistResponse,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -24,100 +25,130 @@ pub struct Admin<'a> {
 }
 
 impl<'a> Admin<'a> {
-    pub async fn upsert_metadata(
+    // ── Admin auth ─────────────────────────────────────────────────────
+
+    /// Fetch admin login nonce and message to sign.
+    pub async fn get_admin_nonce(&self) -> Result<AdminNonceResponse, SdkError> {
+        let url = format!("{}/api/admin/nonce", self.client.http.base_url());
+        self.client.http.get(&url, RetryPolicy::None).await
+    }
+
+    /// Admin login — verifies signature and stores session cookie for subsequent admin requests.
+    /// On native, the HTTP client auto-captures the `admin_token` cookie from Set-Cookie headers.
+    /// On WASM, the browser handles cookie storage automatically.
+    pub async fn admin_login(
         &self,
-        envelope: &AdminEnvelope<UnifiedMetadataRequest>,
-    ) -> Result<UnifiedMetadataResponse, SdkError> {
-        let url = format!("{}/api/admin/metadata", self.client.http.base_url());
-        Ok(self
+        message: &str,
+        signature_bs58: &str,
+        pubkey_bytes: &[u8],
+    ) -> Result<AdminLoginResponse, SdkError> {
+        let url = format!("{}/api/admin/login", self.client.http.base_url());
+        let request = AdminLoginRequest {
+            message: message.to_string(),
+            signature_bs58: signature_bs58.to_string(),
+            pubkey_bytes: pubkey_bytes.to_vec(),
+        };
+        self.client
+            .http
+            .post(&url, &request, RetryPolicy::None)
+            .await
+    }
+
+    /// Admin logout — attempts to clear the server-side cookie and always clears the internal token.
+    pub async fn admin_logout(&self) -> Result<(), SdkError> {
+        let url = format!("{}/api/admin/logout", self.client.http.base_url());
+        let _ = self
             .client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post::<serde_json::Value, _>(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await;
+        self.client.http.clear_admin_token().await;
+        Ok(())
+    }
+
+    // ── Admin API methods ──────────────────────────────────────────────
+
+    pub async fn upsert_metadata(
+        &self,
+        request: &UnifiedMetadataRequest,
+    ) -> Result<UnifiedMetadataResponse, SdkError> {
+        let url = format!("{}/api/admin/metadata", self.client.http.base_url());
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
     pub async fn allocate_codes(
         &self,
-        envelope: &AdminEnvelope<AllocateCodesRequest>,
+        request: &AllocateCodesRequest,
     ) -> Result<AllocateCodesResponse, SdkError> {
         let url = format!(
             "{}/api/admin/referral/allocate",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
     pub async fn whitelist(
         &self,
-        envelope: &AdminEnvelope<WhitelistRequest>,
+        request: &WhitelistRequest,
     ) -> Result<WhitelistResponse, SdkError> {
         let url = format!(
             "{}/api/admin/referral/whitelist",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
-    pub async fn revoke(
-        &self,
-        envelope: &AdminEnvelope<RevokeRequest>,
-    ) -> Result<RevokeResponse, SdkError> {
+    pub async fn revoke(&self, request: &RevokeRequest) -> Result<RevokeResponse, SdkError> {
         let url = format!("{}/api/admin/referral/revoke", self.client.http.base_url());
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
-    pub async fn unrevoke(
-        &self,
-        envelope: &AdminEnvelope<UnrevokeRequest>,
-    ) -> Result<UnrevokeResponse, SdkError> {
+    pub async fn unrevoke(&self, request: &UnrevokeRequest) -> Result<UnrevokeResponse, SdkError> {
         let url = format!(
             "{}/api/admin/referral/unrevoke",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
     pub async fn create_notification(
         &self,
-        envelope: &AdminEnvelope<CreateNotificationRequest>,
+        request: &CreateNotificationRequest,
     ) -> Result<CreateNotificationResponse, SdkError> {
         let url = format!("{}/api/admin/notifications", self.client.http.base_url());
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
     pub async fn dismiss_notification(
         &self,
-        envelope: &AdminEnvelope<DismissNotificationRequest>,
+        request: &DismissNotificationRequest,
     ) -> Result<DismissNotificationResponse, SdkError> {
         let url = format!(
             "{}/api/admin/notifications/dismiss",
             self.client.http.base_url()
         );
-        Ok(self
-            .client
+        self.client
             .http
-            .post(&url, envelope, RetryPolicy::None)
-            .await?)
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
     }
 
     // ── On-chain instruction builders ───────────────────────────────────

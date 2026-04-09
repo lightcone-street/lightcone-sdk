@@ -1,4 +1,6 @@
 export {
+  ApiRejectedDetails,
+  RejectionCode,
   asOrderBookId,
   asPubkeyStr,
   DepositSource,
@@ -11,6 +13,7 @@ export {
   TriggerStatus,
   TriggerType,
   TriggerUpdateType,
+  type ApiResponse,
   type OrderBookId,
   type PubkeyStr,
   type SubmitOrderRequest,

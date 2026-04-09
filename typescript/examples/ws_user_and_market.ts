@@ -1,5 +1,5 @@
 import { asPubkeyStr, type WsEvent } from "../src";
-import { login, market, restClient, getKeypair, withTimeout } from "./common";
+import { login, market, restClient, getKeypair, runExample, withTimeout } from "./common";
 
 async function main() {
   const client = restClient();
@@ -59,4 +59,4 @@ async function main() {
   console.log(`market event received: ${sawMarket}`);
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

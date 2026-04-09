@@ -11,9 +11,8 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 pub use client::{
-    CancelAllBody, CancelAllResponse, CancelAllSuccess, CancelBody, CancelResponse, CancelSuccess,
-    CancelTriggerBody, CancelTriggerResponse, CancelTriggerSuccess, FillInfo, PlaceResponse,
-    SubmitOrderResponse, TriggerOrderResponse, TriggerSubmitResponse, UserOrdersResponse,
+    CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
+    CancelTriggerSuccess, FillInfo, SubmitOrderResponse, TriggerOrderResponse, UserOrdersResponse,
 };
 pub use convert::split_snapshot_orders;
 pub use state::{UserOpenOrders, UserTriggerOrders};

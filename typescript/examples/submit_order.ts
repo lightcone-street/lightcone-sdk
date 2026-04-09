@@ -6,6 +6,7 @@ import {
   login,
   marketAndOrderbook,
   freshOrderNonce,
+  runExample,
 } from "./common";
 
 async function main() {
@@ -37,4 +38,4 @@ async function main() {
   );
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

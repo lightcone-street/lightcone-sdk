@@ -356,8 +356,9 @@ export function deserializePosition(data: Buffer): Position {
  * - mint_a: Pubkey (32 bytes)
  * - mint_b: Pubkey (32 bytes)
  * - lookup_table: Pubkey (32 bytes)
+ * - base_index: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 7]
+ * - _padding: [u8; 6]
  */
 export function deserializeOrderbook(data: Buffer): Orderbook {
   if (data.length < ACCOUNT_SIZE.ORDERBOOK) {
@@ -383,10 +384,13 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
   const lookupTable = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
+  const baseIndex = data[offset];
+  offset += 1;
+
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 7 bytes
+  // Skip padding: 6 bytes
 
   return {
     discriminator,
@@ -394,6 +398,7 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
     mintA,
     mintB,
     lookupTable,
+    baseIndex,
     bump,
   };
 }

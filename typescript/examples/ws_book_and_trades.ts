@@ -1,5 +1,5 @@
 import { OrderbookSnapshot, TradeHistory, type Trade, type WsEvent } from "../src";
-import { marketAndOrderbook, restClient, withTimeout } from "./common";
+import { marketAndOrderbook, restClient, runExample, withTimeout } from "./common";
 
 async function main() {
   const client = restClient();
@@ -60,4 +60,4 @@ async function main() {
   console.log(`buffered trades: ${trades.len()}`);
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

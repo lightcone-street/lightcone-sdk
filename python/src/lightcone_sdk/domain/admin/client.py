@@ -9,13 +9,22 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from . import (
-    AdminEnvelope,
+    AdminLoginRequest,
+    AdminLoginResponse,
+    AdminNonceResponse,
+    AllocateCodesRequest,
     AllocateCodesResponse,
+    CreateNotificationRequest,
     CreateNotificationResponse,
+    DismissNotificationRequest,
     DismissNotificationResponse,
+    RevokeRequest,
     RevokeResponse,
+    UnifiedMetadataRequest,
     UnifiedMetadataResponse,
+    UnrevokeRequest,
     UnrevokeResponse,
+    WhitelistRequest,
     WhitelistResponse,
 )
 from ...program.instructions import (
@@ -53,44 +62,71 @@ class Admin:
     def __init__(self, client: "LightconeClient"):
         self._client = client
 
-    # ── HTTP methods ─────────────────────────────────────────────────────
+    # ── Admin auth ───────────────────────────────────────────────────────
 
-    async def upsert_metadata(self, envelope: AdminEnvelope) -> UnifiedMetadataResponse:
-        """Upsert market/token metadata."""
-        data = await self._client._http.post("/api/admin/metadata", envelope.to_dict())
+    async def get_admin_nonce(self) -> AdminNonceResponse:
+        """Fetch admin login nonce and message to sign."""
+        data = await self._client._http.get("/api/admin/nonce")
+        return AdminNonceResponse.from_dict(data)
+
+    async def admin_login(
+        self,
+        message: str,
+        signature_bs58: str,
+        pubkey_bytes: list[int],
+    ) -> AdminLoginResponse:
+        """Admin login -- verifies signature and stores admin cookie for subsequent admin requests."""
+        request = AdminLoginRequest(
+            message=message,
+            signature_bs58=signature_bs58,
+            pubkey_bytes=pubkey_bytes,
+        )
+        data = await self._client._http.post("/api/admin/login", request.to_dict())
+        return AdminLoginResponse.from_dict(data)
+
+    async def admin_logout(self) -> None:
+        """Logout admin -- best-effort server logout, always clears local admin token."""
+        try:
+            await self._client._http.admin_post("/api/admin/logout", {})
+        except Exception:
+            pass
+        self._client._http.clear_admin_token()
+
+    # ── Admin API methods ────────────────────────────────────────────────
+
+    async def upsert_metadata(self, request: UnifiedMetadataRequest) -> UnifiedMetadataResponse:
+        """Upsert market/token metadata. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/metadata", request.to_dict())
         return UnifiedMetadataResponse.from_dict(data)
 
-    async def allocate_codes(self, envelope: AdminEnvelope) -> AllocateCodesResponse:
-        """Allocate referral codes."""
-        data = await self._client._http.post("/api/admin/referral/allocate", envelope.to_dict())
+    async def allocate_codes(self, request: AllocateCodesRequest) -> AllocateCodesResponse:
+        """Allocate referral codes. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/referral/allocate", request.to_dict())
         return AllocateCodesResponse.from_dict(data)
 
-    async def whitelist(self, envelope: AdminEnvelope) -> WhitelistResponse:
-        """Whitelist wallet addresses."""
-        data = await self._client._http.post("/api/admin/referral/whitelist", envelope.to_dict())
+    async def whitelist(self, request: WhitelistRequest) -> WhitelistResponse:
+        """Whitelist wallet addresses. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/referral/whitelist", request.to_dict())
         return WhitelistResponse.from_dict(data)
 
-    async def revoke(self, envelope: AdminEnvelope) -> RevokeResponse:
-        """Revoke access."""
-        data = await self._client._http.post("/api/admin/referral/revoke", envelope.to_dict())
+    async def revoke(self, request: RevokeRequest) -> RevokeResponse:
+        """Revoke access. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/referral/revoke", request.to_dict())
         return RevokeResponse.from_dict(data)
 
-    async def unrevoke(self, envelope: AdminEnvelope) -> UnrevokeResponse:
-        """Unrevoke access."""
-        data = await self._client._http.post("/api/admin/referral/unrevoke", envelope.to_dict())
+    async def unrevoke(self, request: UnrevokeRequest) -> UnrevokeResponse:
+        """Unrevoke access. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/referral/unrevoke", request.to_dict())
         return UnrevokeResponse.from_dict(data)
 
-    async def create_notification(self, envelope: AdminEnvelope) -> CreateNotificationResponse:
-        """Create a notification."""
-        data = await self._client._http.post("/api/admin/notifications", envelope.to_dict())
+    async def create_notification(self, request: CreateNotificationRequest) -> CreateNotificationResponse:
+        """Create a notification. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/notifications", request.to_dict())
         return CreateNotificationResponse.from_dict(data)
 
-    async def dismiss_notification(
-        self,
-        envelope: AdminEnvelope,
-    ) -> DismissNotificationResponse:
-        """Dismiss a notification."""
-        data = await self._client._http.post("/api/admin/notifications/dismiss", envelope.to_dict())
+    async def dismiss_notification(self, request: DismissNotificationRequest) -> DismissNotificationResponse:
+        """Dismiss a notification. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/notifications/dismiss", request.to_dict())
         return DismissNotificationResponse.from_dict(data)
 
     # ── On-chain instruction builders ────────────────────────────────────
@@ -187,6 +223,7 @@ class Admin:
             mint_a=params.mint_a,
             mint_b=params.mint_b,
             recent_slot=params.recent_slot,
+            base_index=params.base_index,
             program_id=self._client.program_id,
         )
 

@@ -1,4 +1,4 @@
-import { market, restClient } from "./common";
+import { market, restClient, runExample } from "./common";
 
 async function main() {
   const client = restClient();
@@ -31,4 +31,4 @@ async function main() {
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

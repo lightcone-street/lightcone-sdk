@@ -177,69 +177,9 @@ pub struct SubmitOrderResponse {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum PlaceResponse {
-    Accepted(SubmitOrderResponse),
-    PartialFill(SubmitOrderResponse),
-    Filled(SubmitOrderResponse),
-    Rejected {
-        error: Option<String>,
-        details: Option<String>,
-        #[serde(alias = "reason")]
-        rejection_reason: Option<String>,
-        order_hash: Option<String>,
-        remaining: Option<Decimal>,
-        filled: Option<Decimal>,
-    },
-    Error {
-        error: Option<String>,
-    },
-    BadRequest {
-        error: Option<String>,
-        details: Option<String>,
-    },
-    NotFound {
-        error: Option<String>,
-    },
-    Forbidden {
-        error: Option<String>,
-    },
-    InternalError {
-        error: Option<String>,
-        details: Option<String>,
-    },
-    ConfigurationError {
-        error: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelSuccess {
     pub order_hash: String,
     pub remaining: u64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum CancelResponse {
-    Cancelled(CancelSuccess),
-    Error {
-        error: String,
-    },
-    BadRequest {
-        error: String,
-    },
-    NotFound {
-        error: String,
-    },
-    Forbidden {
-        error: String,
-    },
-    InternalError {
-        error: String,
-        #[serde(default)]
-        details: Option<String>,
-    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -252,83 +192,14 @@ pub struct CancelAllSuccess {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum CancelAllResponse {
-    Success(CancelAllSuccess),
-    Error {
-        message: String,
-    },
-    BadRequest {
-        error: String,
-    },
-    NotFound {
-        error: String,
-    },
-    Forbidden {
-        error: String,
-    },
-    InternalError {
-        error: String,
-        #[serde(default)]
-        details: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriggerOrderResponse {
     pub trigger_order_id: String,
     pub order_hash: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum TriggerSubmitResponse {
-    Accepted(TriggerOrderResponse),
-    Error {
-        error: String,
-    },
-    BadRequest {
-        error: String,
-    },
-    NotFound {
-        error: String,
-    },
-    Forbidden {
-        error: String,
-    },
-    InternalError {
-        error: String,
-        #[serde(default)]
-        details: Option<String>,
-    },
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelTriggerSuccess {
     pub trigger_order_id: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "snake_case")]
-pub enum CancelTriggerResponse {
-    Cancelled(CancelTriggerSuccess),
-    Error {
-        error: String,
-    },
-    BadRequest {
-        error: String,
-    },
-    NotFound {
-        error: String,
-    },
-    Forbidden {
-        error: String,
-    },
-    InternalError {
-        error: String,
-        #[serde(default)]
-        details: Option<String>,
-    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -393,115 +264,20 @@ impl<'a> Orders<'a> {
         request: &impl serde::Serialize,
     ) -> Result<SubmitOrderResponse, SdkError> {
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
-        let raw: serde_json::Value = self
-            .client
+        self.client
             .http
             .post(&url, request, RetryPolicy::None)
-            .await?;
-
-        let place: PlaceResponse = serde_json::from_value(raw.clone())
-            .map_err(|e| SdkError::Other(format!("{e} — raw response: {raw}")))?;
-
-        match place {
-            PlaceResponse::Accepted(data)
-            | PlaceResponse::PartialFill(data)
-            | PlaceResponse::Filled(data) => Ok(data),
-            PlaceResponse::Rejected {
-                error,
-                details,
-                rejection_reason,
-                order_hash,
-                remaining,
-                filled,
-            } => {
-                let msg = match (
-                    error.as_deref(),
-                    details.as_deref(),
-                    rejection_reason.as_deref(),
-                ) {
-                    (Some(e), Some(d), _) => format!("{e}: {d}"),
-                    (Some(e), None, _) => e.to_string(),
-                    (None, Some(d), _) => d.to_string(),
-                    (None, None, Some(r)) if !r.is_empty() => r.to_string(),
-                    _ => {
-                        let mut parts = vec!["Rejected".to_string()];
-                        if let Some(h) = &order_hash {
-                            parts.push(format!("hash={h}"));
-                        }
-                        if let Some(f) = &filled {
-                            parts.push(format!("filled={f}"));
-                        }
-                        if let Some(r) = &remaining {
-                            parts.push(format!("remaining={r}"));
-                        }
-                        parts.join(", ")
-                    }
-                };
-                Err(SdkError::Other(msg))
-            }
-            PlaceResponse::BadRequest { error, details }
-            | PlaceResponse::InternalError { error, details } => {
-                let msg = match (error.as_deref(), details.as_deref()) {
-                    (Some(e), Some(d)) => format!("{e}: {d}"),
-                    (Some(e), None) => e.to_string(),
-                    (None, Some(d)) => d.to_string(),
-                    (None, None) => format!("Unknown error — raw response: {raw}"),
-                };
-                Err(SdkError::Other(msg))
-            }
-            PlaceResponse::Error { error }
-            | PlaceResponse::NotFound { error }
-            | PlaceResponse::Forbidden { error }
-            | PlaceResponse::ConfigurationError { error } => {
-                Err(SdkError::Other(error.unwrap_or_else(|| {
-                    format!("Unknown error — raw response: {raw}")
-                })))
-            }
-        }
+            .await
     }
 
     pub async fn cancel(&self, body: &CancelBody) -> Result<CancelSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
-
-        let resp: CancelResponse = serde_json::from_value(raw)?;
-
-        match resp {
-            CancelResponse::Cancelled(data) => Ok(data),
-            CancelResponse::InternalError { error, details } => {
-                let msg = match details {
-                    Some(d) => format!("{error}: {d}"),
-                    None => error,
-                };
-                Err(SdkError::Other(msg))
-            }
-            CancelResponse::Error { error }
-            | CancelResponse::BadRequest { error }
-            | CancelResponse::NotFound { error }
-            | CancelResponse::Forbidden { error } => Err(SdkError::Other(error)),
-        }
+        self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
     pub async fn cancel_all(&self, body: &CancelAllBody) -> Result<CancelAllSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel-all", self.client.http.base_url());
-        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
-
-        let resp: CancelAllResponse = serde_json::from_value(raw)?;
-
-        match resp {
-            CancelAllResponse::Success(data) => Ok(data),
-            CancelAllResponse::Error { message } => Err(SdkError::Other(message)),
-            CancelAllResponse::InternalError { error, details } => {
-                let msg = match details {
-                    Some(d) => format!("{error}: {d}"),
-                    None => error,
-                };
-                Err(SdkError::Other(msg))
-            }
-            CancelAllResponse::BadRequest { error }
-            | CancelAllResponse::NotFound { error }
-            | CancelAllResponse::Forbidden { error } => Err(SdkError::Other(error)),
-        }
+        self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
     pub async fn submit_trigger(
@@ -509,28 +285,10 @@ impl<'a> Orders<'a> {
         request: &impl serde::Serialize,
     ) -> Result<TriggerOrderResponse, SdkError> {
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
-        let raw: serde_json::Value = self
-            .client
+        self.client
             .http
             .post(&url, request, RetryPolicy::None)
-            .await?;
-
-        let resp: TriggerSubmitResponse = serde_json::from_value(raw)?;
-
-        match resp {
-            TriggerSubmitResponse::Accepted(data) => Ok(data),
-            TriggerSubmitResponse::InternalError { error, details } => {
-                let msg = match details {
-                    Some(d) => format!("{error}: {d}"),
-                    None => error,
-                };
-                Err(SdkError::Other(msg))
-            }
-            TriggerSubmitResponse::Error { error }
-            | TriggerSubmitResponse::BadRequest { error }
-            | TriggerSubmitResponse::NotFound { error }
-            | TriggerSubmitResponse::Forbidden { error } => Err(SdkError::Other(error)),
-        }
+            .await
     }
 
     pub async fn cancel_trigger(
@@ -538,24 +296,7 @@ impl<'a> Orders<'a> {
         body: &CancelTriggerBody,
     ) -> Result<CancelTriggerSuccess, SdkError> {
         let url = format!("{}/api/orders/cancel", self.client.http.base_url());
-        let raw: serde_json::Value = self.client.http.post(&url, body, RetryPolicy::None).await?;
-
-        let resp: CancelTriggerResponse = serde_json::from_value(raw)?;
-
-        match resp {
-            CancelTriggerResponse::Cancelled(data) => Ok(data),
-            CancelTriggerResponse::InternalError { error, details } => {
-                let msg = match details {
-                    Some(d) => format!("{error}: {d}"),
-                    None => error,
-                };
-                Err(SdkError::Other(msg))
-            }
-            CancelTriggerResponse::Error { error }
-            | CancelTriggerResponse::BadRequest { error }
-            | CancelTriggerResponse::NotFound { error }
-            | CancelTriggerResponse::Forbidden { error } => Err(SdkError::Other(error)),
-        }
+        self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
     pub async fn get_user_orders(
@@ -575,7 +316,7 @@ impl<'a> Orders<'a> {
         if let Some(cursor) = cursor {
             url.push_str(&format!("&cursor={}", cursor));
         }
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Fetch a user's filled orders with nested fill events.
@@ -603,7 +344,7 @@ impl<'a> Orders<'a> {
         if let Some(cursor) = cursor {
             url.push_str(&format!("&cursor={}", cursor));
         }
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     // ── Unified cancel (dispatches based on client signing strategy) ────
@@ -646,24 +387,9 @@ impl<'a> Orders<'a> {
                     .privy()
                     .sign_and_cancel_order(&wallet_id, order_hash, maker.as_str())
                     .await?;
-                serde_json::from_value::<CancelResponse>(result)
-                    .map_err(|error| {
-                        SdkError::Other(format!("failed to parse cancel response: {error}"))
-                    })
-                    .and_then(|resp| match resp {
-                        CancelResponse::Cancelled(data) => Ok(data),
-                        CancelResponse::InternalError { error, details } => {
-                            let message = match details {
-                                Some(detail) => format!("{error}: {detail}"),
-                                None => error,
-                            };
-                            Err(SdkError::Other(message))
-                        }
-                        CancelResponse::Error { error }
-                        | CancelResponse::BadRequest { error }
-                        | CancelResponse::NotFound { error }
-                        | CancelResponse::Forbidden { error } => Err(SdkError::Other(error)),
-                    })
+                serde_json::from_value(result).map_err(|error| {
+                    SdkError::Other(format!("failed to parse cancel response: {error}"))
+                })
             }
         }
     }
@@ -736,24 +462,9 @@ impl<'a> Orders<'a> {
                         salt,
                     )
                     .await?;
-                serde_json::from_value::<CancelAllResponse>(result)
-                    .map_err(|error| {
-                        SdkError::Other(format!("failed to parse cancel-all response: {error}"))
-                    })
-                    .and_then(|resp| match resp {
-                        CancelAllResponse::Success(data) => Ok(data),
-                        CancelAllResponse::Error { message } => Err(SdkError::Other(message)),
-                        CancelAllResponse::InternalError { error, details } => {
-                            let message = match details {
-                                Some(detail) => format!("{error}: {detail}"),
-                                None => error,
-                            };
-                            Err(SdkError::Other(message))
-                        }
-                        CancelAllResponse::BadRequest { error }
-                        | CancelAllResponse::NotFound { error }
-                        | CancelAllResponse::Forbidden { error } => Err(SdkError::Other(error)),
-                    })
+                serde_json::from_value(result).map_err(|error| {
+                    SdkError::Other(format!("failed to parse cancel-all response: {error}"))
+                })
             }
         }
     }
@@ -804,24 +515,9 @@ impl<'a> Orders<'a> {
                     .privy()
                     .sign_and_cancel_trigger_order(&wallet_id, trigger_order_id, maker.as_str())
                     .await?;
-                serde_json::from_value::<CancelTriggerResponse>(result)
-                    .map_err(|error| {
-                        SdkError::Other(format!("failed to parse cancel-trigger response: {error}"))
-                    })
-                    .and_then(|resp| match resp {
-                        CancelTriggerResponse::Cancelled(data) => Ok(data),
-                        CancelTriggerResponse::InternalError { error, details } => {
-                            let message = match details {
-                                Some(detail) => format!("{error}: {detail}"),
-                                None => error,
-                            };
-                            Err(SdkError::Other(message))
-                        }
-                        CancelTriggerResponse::Error { error }
-                        | CancelTriggerResponse::BadRequest { error }
-                        | CancelTriggerResponse::NotFound { error }
-                        | CancelTriggerResponse::Forbidden { error } => Err(SdkError::Other(error)),
-                    })
+                serde_json::from_value(result).map_err(|error| {
+                    SdkError::Other(format!("failed to parse cancel-trigger response: {error}"))
+                })
             }
         }
     }

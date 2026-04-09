@@ -714,6 +714,7 @@ def build_create_orderbook_instruction(
     mint_a: Pubkey,
     mint_b: Pubkey,
     recent_slot: int,
+    base_index: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the create_orderbook instruction.
@@ -729,7 +730,7 @@ def build_create_orderbook_instruction(
     7. alt_program (readonly)
     8. system_program
 
-    Data: [15, recent_slot (u64)]
+    Data: [15, recent_slot (u64), base_index (u8)]
     """
     exchange, _ = get_exchange_pda(program_id)
     orderbook, _ = get_orderbook_pda(mint_a, mint_b, program_id)
@@ -750,6 +751,7 @@ def build_create_orderbook_instruction(
     data = bytearray()
     data.append(INSTRUCTION_CREATE_ORDERBOOK)
     data.extend(encode_u64(recent_slot))
+    data.append(base_index)
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 

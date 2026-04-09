@@ -2,11 +2,12 @@ import { RetryPolicy, type LightconeHttp } from "../http";
 import type {
   ExportWalletRequest,
   ExportWalletResponse,
+  LimitCancelResponse,
   PrivyOrderEnvelope,
   SignAndCancelAllRequest,
   SignAndCancelAllResponse,
   SignAndCancelOrderRequest,
-  SignAndCancelOrderResponse,
+  TriggerCancelResponse,
   SignAndSendOrderRequest,
   SignAndSendOrderResponse,
   SignAndSendTxRequest,
@@ -42,7 +43,7 @@ export class Privy {
     return this.client.http.post<SignAndSendOrderResponse, SignAndSendOrderRequest>(url, body, RetryPolicy.None);
   }
 
-  async signAndCancelOrder(walletId: string, orderHash: string, maker: string): Promise<SignAndCancelOrderResponse> {
+  async signAndCancelOrder(walletId: string, orderHash: string, maker: string): Promise<LimitCancelResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
     const body: SignAndCancelOrderRequest = {
       wallet_id: walletId,
@@ -50,14 +51,18 @@ export class Privy {
       cancel_type: "limit",
       order_hash: orderHash,
     };
-    return this.client.http.post<SignAndCancelOrderResponse, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
+    return this.client.http.post<LimitCancelResponse, SignAndCancelOrderRequest>(
+      url,
+      body,
+      RetryPolicy.None
+    );
   }
 
   async signAndCancelTriggerOrder(
     walletId: string,
     triggerOrderId: string,
     maker: string
-  ): Promise<SignAndCancelOrderResponse> {
+  ): Promise<TriggerCancelResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_cancel_order`;
     const body: SignAndCancelOrderRequest = {
       wallet_id: walletId,
@@ -65,7 +70,11 @@ export class Privy {
       cancel_type: "trigger",
       trigger_order_id: triggerOrderId,
     };
-    return this.client.http.post<SignAndCancelOrderResponse, SignAndCancelOrderRequest>(url, body, RetryPolicy.None);
+    return this.client.http.post<TriggerCancelResponse, SignAndCancelOrderRequest>(
+      url,
+      body,
+      RetryPolicy.None
+    );
   }
 
   async signAndCancelAllOrders(

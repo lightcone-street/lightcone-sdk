@@ -259,6 +259,8 @@ pub struct CreateOrderbookParams {
     pub mint_b: Pubkey,
     /// Recent slot for ALT creation
     pub recent_slot: u64,
+    /// Which mint is the base asset (0 = mint_a, 1 = mint_b)
+    pub base_index: u8,
 }
 
 /// Parameters for setting a new authority

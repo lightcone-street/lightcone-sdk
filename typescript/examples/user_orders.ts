@@ -1,4 +1,4 @@
-import { restClient, getKeypair, login } from "./common";
+import { restClient, getKeypair, login, runExample } from "./common";
 
 async function main() {
   const client = restClient();
@@ -40,4 +40,4 @@ async function main() {
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

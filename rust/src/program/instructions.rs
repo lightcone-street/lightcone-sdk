@@ -711,10 +711,11 @@ pub fn build_create_orderbook_ix(
         readonly(system_program_id()),
     ];
 
-    // Data: [discriminator(1), recent_slot(8)] = 9 bytes
-    let mut data = Vec::with_capacity(9);
+    // Data: [discriminator(1), recent_slot(8), base_index(1)] = 10 bytes
+    let mut data = Vec::with_capacity(10);
     data.push(instruction::CREATE_ORDERBOOK);
     data.extend_from_slice(&params.recent_slot.to_le_bytes());
+    data.push(params.base_index);
 
     Instruction {
         program_id: *program_id,
@@ -1249,11 +1250,11 @@ pub fn build_withdraw_from_global_ix(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::program::constants::PROGRAM_ID;
+    use crate::env::LightconeEnv;
     use crate::program::types::{MakerFill, OrderSide};
 
     fn test_program_id() -> Pubkey {
-        *PROGRAM_ID
+        LightconeEnv::default().program_id()
     }
 
     #[test]
@@ -1423,13 +1424,15 @@ mod tests {
             mint_a: Pubkey::new_unique(),
             mint_b: Pubkey::new_unique(),
             recent_slot: 12345,
+            base_index: 0,
         };
 
         let ix = build_create_orderbook_ix(&params, &program_id);
 
         assert_eq!(ix.accounts.len(), 9);
-        assert_eq!(ix.data.len(), 9); // 1 + 8
+        assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
         assert_eq!(ix.data[0], instruction::CREATE_ORDERBOOK);
+        assert_eq!(ix.data[9], 0); // base_index
     }
 
     #[test]
