@@ -22,27 +22,23 @@ export class LightconeHttp {
     return async () => this.authToken;
   }
 
-  setAdminToken(token: string): void {
-    this.adminToken = token;
-  }
-
   clearAdminToken(): void {
     this.adminToken = undefined;
   }
 
   async adminGet<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("GET", url, undefined, retry, this.adminBearerHeaders());
+    return this.requestWithRetry<T>("GET", url, undefined, retry, this.adminCookieHeaders());
   }
 
   async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, this.adminBearerHeaders());
+    return this.requestWithRetry<T>("POST", url, body, retry, this.adminCookieHeaders());
   }
 
-  private adminBearerHeaders(): Record<string, string> {
-    if (!this.adminToken) {
+  private adminCookieHeaders(): Record<string, string> {
+    if (hasBrowserWindow() || !this.adminToken) {
       return {};
     }
-    return { Authorization: `Bearer ${this.adminToken}` };
+    return { Cookie: `admin_token=${this.adminToken}` };
   }
 
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
@@ -115,12 +111,22 @@ export class LightconeHttp {
       headers["Content-Type"] = "application/json";
     }
 
-    if (this.authToken && !hasBrowserWindow()) {
-      headers.Cookie = `auth_token=${this.authToken}`;
+    if (!hasBrowserWindow()) {
+      const cookieParts: string[] = [];
+      if (this.authToken) {
+        cookieParts.push(`auth_token=${this.authToken}`);
+      }
+      if (extraHeaders?.Cookie) {
+        cookieParts.push(extraHeaders.Cookie);
+      }
+      if (cookieParts.length > 0) {
+        headers.Cookie = cookieParts.join("; ");
+      }
     }
 
     if (extraHeaders) {
-      Object.assign(headers, extraHeaders);
+      const { Cookie: _cookie, ...rest } = extraHeaders;
+      Object.assign(headers, rest);
     }
 
     const controller = new AbortController();
@@ -155,6 +161,12 @@ export class LightconeHttp {
             const token = trimmed.slice("auth_token=".length).split(";")[0];
             if (token) {
               this.authToken = token;
+            }
+          }
+          if (trimmed.startsWith("admin_token=")) {
+            const token = trimmed.slice("admin_token=".length).split(";")[0];
+            if (token) {
+              this.adminToken = token;
             }
           }
         }

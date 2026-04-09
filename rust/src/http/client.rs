@@ -25,8 +25,8 @@ use uuid::Uuid;
 enum AuthMode {
     /// User auth via cookie (native) or credentials (WASM).
     Cookie,
-    /// Admin auth via `Authorization: Bearer` header.
-    AdminBearer,
+    /// Admin auth via cookie (native) or credentials (WASM).
+    AdminCookie,
 }
 
 /// Generic HTTP transport for the Lightcone REST API.
@@ -81,6 +81,7 @@ impl LightconeHttp {
         self.auth_token.clone()
     }
 
+    #[allow(dead_code)]
     pub(crate) async fn set_admin_token(&self, token: String) {
         *self.admin_token.write().await = Some(token);
     }
@@ -149,7 +150,7 @@ impl LightconeHttp {
         .await
     }
 
-    /// POST with retry. Uses admin Bearer token auth.
+    /// POST with retry. Uses admin cookie auth.
     pub(crate) async fn admin_post<T: DeserializeOwned, B: Serialize>(
         &self,
         url: &str,
@@ -161,12 +162,12 @@ impl LightconeHttp {
             url,
             Some(body),
             retry,
-            AuthMode::AdminBearer,
+            AuthMode::AdminCookie,
         )
         .await
     }
 
-    /// GET with retry. Uses admin Bearer token auth.
+    /// GET with retry. Uses admin cookie auth.
     pub(crate) async fn admin_get<T: DeserializeOwned>(
         &self,
         url: &str,
@@ -177,7 +178,7 @@ impl LightconeHttp {
             url,
             None::<&()>,
             retry,
-            AuthMode::AdminBearer,
+            AuthMode::AdminCookie,
         )
         .await
     }
@@ -312,9 +313,16 @@ impl LightconeHttp {
                     req = req.fetch_credentials_include();
                 }
             }
-            AuthMode::AdminBearer => {
-                if let Some(token) = self.admin_token.read().await.as_ref() {
-                    req = req.header("Authorization", format!("Bearer {}", token));
+            AuthMode::AdminCookie => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if let Some(token) = self.admin_token.read().await.as_ref() {
+                        req = req.header("Cookie", format!("admin_token={}", token));
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    req = req.fetch_credentials_include();
                 }
             }
         }
@@ -337,6 +345,14 @@ impl LightconeHttp {
                         {
                             if !token.is_empty() {
                                 *self.auth_token.write().await = Some(token.to_string());
+                            }
+                        }
+                        if let Some(token) = header_str
+                            .strip_prefix("admin_token=")
+                            .and_then(|rest| rest.split(';').next())
+                        {
+                            if !token.is_empty() {
+                                *self.admin_token.write().await = Some(token.to_string());
                             }
                         }
                     }

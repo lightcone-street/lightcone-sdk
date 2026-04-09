@@ -13,7 +13,6 @@ export interface AdminLoginRequest {
 }
 
 export interface AdminLoginResponse {
-  token: string;
   wallet_address: string;
   expires_at: number;
 }

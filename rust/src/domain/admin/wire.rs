@@ -21,10 +21,10 @@ pub struct AdminLoginRequest {
     pub pubkey_bytes: Vec<u8>,
 }
 
-/// Response from `POST /api/admin/login` — contains the JWT and session metadata.
+/// Response from `POST /api/admin/login` — contains session metadata.
+/// The admin token is set as an HttpOnly cookie by the backend.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdminLoginResponse {
-    pub token: String,
     pub wallet_address: String,
     pub expires_at: i64,
 }

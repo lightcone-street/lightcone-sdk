@@ -19,7 +19,7 @@ class LightconeHttp:
     """HTTP client with retry, auth, and error mapping.
 
     Auth token is sent via Cookie header.
-    Admin token is sent via Authorization: Bearer header.
+    Admin token is sent via Cookie header.
     """
 
     def __init__(
@@ -101,10 +101,10 @@ class LightconeHttp:
         return headers
 
     def _get_admin_headers(self) -> dict[str, str]:
-        """Build headers with admin Bearer token if present."""
+        """Build headers with admin cookie if present."""
         headers: dict[str, str] = {}
         if self._admin_token:
-            headers["Authorization"] = f"Bearer {self._admin_token}"
+            headers["Cookie"] = f"admin_token={self._admin_token}"
         return headers
 
     def _map_status_error(self, status: int, message: str) -> HttpError:
@@ -130,12 +130,16 @@ class LightconeHttp:
 
         async with session.request(method, url, headers=headers, **kwargs) as response:
             if 200 <= response.status < 300:
-                # Auto-extract auth_token from set-cookie headers
+                # Auto-extract auth_token and admin_token from set-cookie headers
                 for cookie_header in response.headers.getall('set-cookie', []):
                     if cookie_header.startswith('auth_token='):
                         token = cookie_header.split('auth_token=', 1)[1].split(';', 1)[0]
                         if token:
                             self._auth_token = token
+                    elif cookie_header.startswith('admin_token='):
+                        token = cookie_header.split('admin_token=', 1)[1].split(';', 1)[0]
+                        if token:
+                            self._admin_token = token
 
                 try:
                     return await response.json()
@@ -251,7 +255,7 @@ class LightconeHttp:
         body: Any,
         retry_policy: RetryPolicy = RetryPolicy.NONE,
     ) -> Any:
-        """Make a POST request with admin Bearer token auth.
+        """Make a POST request with admin cookie auth.
 
         Args:
             path: URL path (appended to base_url)

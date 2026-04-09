@@ -1,6 +1,6 @@
 # Admin Operations
 
-Internal admin operations for the Lightcone team. These endpoints require JWT bearer authentication obtained via the admin login flow.
+Internal admin operations for the Lightcone team. These endpoints require cookie-based authentication obtained via the admin login flow.
 
 [<- Overview](../../../README.md)
 
@@ -13,12 +13,12 @@ Internal admin operations for the Lightcone team. These endpoints require JWT be
 
 ## Authentication
 
-Admin endpoints use JWT bearer auth. Before calling any admin method, you must complete the login flow:
+Admin endpoints use cookie-based auth (same pattern as user auth). Before calling any admin method, you must complete the login flow:
 
 1. Call `get_admin_nonce()` to get a nonce and message to sign.
 2. Sign the message with an ED25519 keypair authorized in the backend.
-3. Call `admin_login()` with the signed message — this stores the JWT internally.
-4. All subsequent admin methods automatically attach the JWT.
+3. Call `admin_login()` with the signed message — the backend sets an `admin_token` HttpOnly cookie, which the SDK captures automatically on native and the browser handles on WASM.
+4. All subsequent admin methods automatically attach the cookie.
 
 ```rust
 use lightcone::LightconeClient;
@@ -32,7 +32,7 @@ let nonce_response = admin.get_admin_nonce().await?;
 // Step 2: Sign the message with your ED25519 keypair (application-specific)
 let signature_bs58 = sign_message(&nonce_response.message, &keypair);
 
-// Step 3: Login — JWT is stored automatically for future requests
+// Step 3: Login — admin cookie is captured automatically for future requests
 let login_response = admin.admin_login(
     &nonce_response.message,
     &signature_bs58,
@@ -66,7 +66,15 @@ async fn admin_login(
 ) -> Result<AdminLoginResponse, SdkError>
 ```
 
-Verify the signature and store the JWT for subsequent admin requests. Returns the token, wallet address, and expiration timestamp.
+Verify the signature and establish an admin session. The backend sets an `admin_token` HttpOnly cookie. Returns the wallet address and expiration timestamp.
+
+### `admin_logout`
+
+```rust
+async fn admin_logout(&self) -> Result<(), SdkError>
+```
+
+Log out the admin session — clears the server-side cookie and internal token.
 
 ### `upsert_metadata`
 
@@ -289,9 +297,8 @@ Build a DepositAndSwap instruction/transaction — deposit collateral and atomic
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `token` | `String` | JWT bearer token for admin requests |
 | `wallet_address` | `String` | Wallet address of the authenticated admin |
-| `expires_at` | `i64` | Token expiration timestamp |
+| `expires_at` | `i64` | Session expiration timestamp |
 
 ### `UnifiedMetadataRequest`
 

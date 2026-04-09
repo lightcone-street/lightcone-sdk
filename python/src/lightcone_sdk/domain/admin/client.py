@@ -75,16 +75,19 @@ class Admin:
         signature_bs58: str,
         pubkey_bytes: list[int],
     ) -> AdminLoginResponse:
-        """Admin login -- verifies signature and stores JWT for subsequent admin requests."""
+        """Admin login -- verifies signature and stores admin cookie for subsequent admin requests."""
         request = AdminLoginRequest(
             message=message,
             signature_bs58=signature_bs58,
             pubkey_bytes=pubkey_bytes,
         )
         data = await self._client._http.post("/api/admin/login", request.to_dict())
-        response = AdminLoginResponse.from_dict(data)
-        self._client._http.set_admin_token(response.token)
-        return response
+        return AdminLoginResponse.from_dict(data)
+
+    async def admin_logout(self) -> None:
+        """Logout admin -- clears admin cookie."""
+        await self._client._http.admin_post("/api/admin/logout", {})
+        self._client._http.clear_admin_token()
 
     # ── Admin API methods ────────────────────────────────────────────────
 

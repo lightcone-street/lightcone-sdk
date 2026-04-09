@@ -60,14 +60,12 @@ class AdminLoginRequest:
 class AdminLoginResponse:
     """Response from POST /api/admin/login."""
 
-    token: str
     wallet_address: str
     expires_at: int
 
     @staticmethod
     def from_dict(data: dict) -> "AdminLoginResponse":
         return AdminLoginResponse(
-            token=data.get("token", ""),
             wallet_address=data.get("wallet_address", ""),
             expires_at=data.get("expires_at", 0),
         )

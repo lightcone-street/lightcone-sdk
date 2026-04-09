@@ -60,16 +60,16 @@ export class Admin {
 
   async adminLogin(request: AdminLoginRequest): Promise<AdminLoginResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/login`;
-    const response = await this.client.http.post<AdminLoginResponse, AdminLoginRequest>(
+    return this.client.http.post<AdminLoginResponse, AdminLoginRequest>(
       url,
       request,
       RetryPolicy.None
     );
-    this.client.http.setAdminToken(response.token);
-    return response;
   }
 
-  clearAdminToken(): void {
+  async adminLogout(): Promise<void> {
+    const url = `${this.client.http.baseUrl()}/api/admin/logout`;
+    await this.client.http.adminPost(url, {}, RetryPolicy.None);
     this.client.http.clearAdminToken();
   }
 

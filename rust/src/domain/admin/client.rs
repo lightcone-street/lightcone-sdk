@@ -33,7 +33,9 @@ impl<'a> Admin<'a> {
         self.client.http.get(&url, RetryPolicy::None).await
     }
 
-    /// Admin login — verifies signature and stores JWT for subsequent admin requests.
+    /// Admin login — verifies signature and stores session cookie for subsequent admin requests.
+    /// On native, the HTTP client auto-captures the `admin_token` cookie from Set-Cookie headers.
+    /// On WASM, the browser handles cookie storage automatically.
     pub async fn admin_login(
         &self,
         message: &str,
@@ -46,16 +48,22 @@ impl<'a> Admin<'a> {
             signature_bs58: signature_bs58.to_string(),
             pubkey_bytes: pubkey_bytes.to_vec(),
         };
-        let response: AdminLoginResponse = self
-            .client
-            .http
-            .post(&url, &request, RetryPolicy::None)
-            .await?;
         self.client
             .http
-            .set_admin_token(response.token.clone())
-            .await;
-        Ok(response)
+            .post(&url, &request, RetryPolicy::None)
+            .await
+    }
+
+    /// Admin logout — clears server-side cookie and internal token.
+    pub async fn admin_logout(&self) -> Result<(), SdkError> {
+        let url = format!("{}/api/admin/logout", self.client.http.base_url());
+        let _: serde_json::Value = self
+            .client
+            .http
+            .admin_post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await?;
+        self.client.http.clear_admin_token().await;
+        Ok(())
     }
 
     // ── Admin API methods ──────────────────────────────────────────────
