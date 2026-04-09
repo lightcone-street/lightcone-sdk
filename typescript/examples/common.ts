@@ -17,7 +17,17 @@ export function restClient(): LightconeClient {
   const builder = LightconeClient.builder();
   const envStr = process.env.LIGHTCONE_ENV?.toLowerCase();
   if (envStr) {
-    builder.env(envStr as LightconeEnv);
+    switch (envStr) {
+      case LightconeEnv.Local:
+      case LightconeEnv.Staging:
+      case LightconeEnv.Prod:
+        builder.env(envStr);
+        break;
+      default:
+        throw new Error(
+          `invalid LIGHTCONE_ENV '${envStr}'. Options: local, staging, prod`
+        );
+    }
   }
   return builder.build();
 }
@@ -44,14 +54,16 @@ export function getKeypair(): Keypair {
 
 export async function login(
   client: LightconeClient,
-  keypair: Keypair
+  keypair: Keypair,
+  useEmbeddedWallet = false
 ): Promise<User> {
   const nonce = await client.auth().getNonce();
   const signed = signLoginMessage(keypair, nonce);
   return client.auth().loginWithMessage(
     signed.message,
     signed.signature_bs58,
-    signed.pubkey_bytes
+    signed.pubkey_bytes,
+    useEmbeddedWallet
   );
 }
 

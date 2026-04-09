@@ -43,7 +43,12 @@ import type {
 } from "../../program/types";
 import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "../../shared";
 import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
-import type { UserSnapshotBalance, UserSnapshotOrder, UserOrderFillsResponse } from "./wire";
+import {
+  normalizeUserOrdersPayload,
+  type UserSnapshotBalance,
+  type UserSnapshotOrder,
+  type UserOrderFillsResponse,
+} from "./wire";
 
 // ─── Request types ───────────────────────────────────────────────────────────
 
@@ -153,39 +158,10 @@ export interface SubmitOrderResponse {
   fills: FillInfo[];
 }
 
-export type PlaceResponse =
-  | ({ status: "accepted" } & SubmitOrderResponse)
-  | ({ status: "partial_fill" } & SubmitOrderResponse)
-  | ({ status: "filled" } & SubmitOrderResponse)
-  | {
-      status: "rejected";
-      error?: string;
-      details?: string;
-      rejection_reason?: string;
-      reason?: string;
-      order_hash?: string;
-      remaining?: string;
-      filled?: string;
-    }
-  | { status: "error"; error?: string }
-  | { status: "bad_request"; error?: string; details?: string }
-  | { status: "not_found"; error?: string }
-  | { status: "forbidden"; error?: string }
-  | { status: "internal_error"; error?: string; details?: string }
-  | { status: "configuration_error"; error?: string };
-
 export interface CancelSuccess {
   order_hash: string;
   remaining: number;
 }
-
-export type CancelResponse =
-  | { status: "cancelled"; order_hash: string; remaining: number }
-  | { status: "error"; error: string }
-  | { status: "bad_request"; error: string }
-  | { status: "not_found"; error: string }
-  | { status: "forbidden"; error: string }
-  | { status: "internal_error"; error: string; details?: string };
 
 export interface CancelAllSuccess {
   cancelled_order_hashes: string[];
@@ -195,38 +171,14 @@ export interface CancelAllSuccess {
   message: string;
 }
 
-export type CancelAllResponse =
-  | ({ status: "success" } & CancelAllSuccess)
-  | { status: "error"; message: string }
-  | { status: "bad_request"; error: string }
-  | { status: "not_found"; error: string }
-  | { status: "forbidden"; error: string }
-  | { status: "internal_error"; error: string; details?: string };
-
 export interface TriggerOrderResponse {
   trigger_order_id: string;
   order_hash: string;
 }
 
-export type TriggerSubmitResponse =
-  | ({ status: "accepted" } & TriggerOrderResponse)
-  | { status: "error"; error: string }
-  | { status: "bad_request"; error: string }
-  | { status: "not_found"; error: string }
-  | { status: "forbidden"; error: string }
-  | { status: "internal_error"; error: string; details?: string };
-
 export interface CancelTriggerSuccess {
   trigger_order_id: string;
 }
-
-export type CancelTriggerResponse =
-  | ({ status: "cancelled" } & CancelTriggerSuccess)
-  | { status: "error"; error: string }
-  | { status: "bad_request"; error: string }
-  | { status: "not_found"; error: string }
-  | { status: "forbidden"; error: string }
-  | { status: "internal_error"; error: string; details?: string };
 
 export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
@@ -271,104 +223,39 @@ export class Orders {
 
   async submit(request: object): Promise<SubmitOrderResponse> {
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    const raw = await this.client.http.post<PlaceResponse, object>(url, request, RetryPolicy.None);
-
-    switch (raw.status) {
-      case "accepted":
-      case "partial_fill":
-      case "filled":
-        return raw;
-      case "rejected": {
-        const message = [raw.error, raw.details].filter(Boolean).join(": ") || raw.rejection_reason || raw.reason || "Rejected";
-        throw SdkError.from(new Error(message));
-      }
-      case "bad_request":
-      case "internal_error":
-        throw SdkError.from(new Error([raw.error, raw.details].filter(Boolean).join(": ")));
-      case "error":
-      case "not_found":
-      case "forbidden":
-      case "configuration_error":
-        throw SdkError.from(new Error(raw.error || "Unknown error"));
-      default:
-        throw SdkError.from(new Error("Unknown submit response"));
-    }
+    return this.client.http.post<SubmitOrderResponse, object>(url, request, RetryPolicy.None);
   }
 
   async cancel(body: CancelBody): Promise<CancelSuccess> {
     const url = `${this.client.http.baseUrl()}/api/orders/cancel`;
-    const response = await this.client.http.post<CancelResponse, CancelBody>(url, body, RetryPolicy.None);
-
-    if (response.status === "cancelled") {
-      return { order_hash: response.order_hash, remaining: response.remaining };
-    }
-
-    if (response.status === "internal_error") {
-      throw SdkError.from(new Error([response.error, response.details].filter(Boolean).join(": ")));
-    }
-
-    throw SdkError.from(new Error(response.error));
+    return this.client.http.post<CancelSuccess, CancelBody>(url, body, RetryPolicy.None);
   }
 
   async cancelAll(body: CancelAllBody): Promise<CancelAllSuccess> {
     const url = `${this.client.http.baseUrl()}/api/orders/cancel-all`;
-    const response = await this.client.http.post<CancelAllResponse, CancelAllBody>(
+    return this.client.http.post<CancelAllSuccess, CancelAllBody>(
       url,
       body,
       RetryPolicy.None
     );
-
-    if (response.status === "success") {
-      return response;
-    }
-
-    if (response.status === "error") {
-      throw SdkError.from(new Error(response.message));
-    }
-
-    if (response.status === "internal_error") {
-      throw SdkError.from(new Error([response.error, response.details].filter(Boolean).join(": ")));
-    }
-
-    throw SdkError.from(new Error(response.error));
   }
 
   async submitTrigger(request: object): Promise<TriggerOrderResponse> {
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    const response = await this.client.http.post<TriggerSubmitResponse, object>(
+    return this.client.http.post<TriggerOrderResponse, object>(
       url,
       request,
       RetryPolicy.None
     );
-
-    if (response.status === "accepted") {
-      return response;
-    }
-
-    if (response.status === "internal_error") {
-      throw SdkError.from(new Error([response.error, response.details].filter(Boolean).join(": ")));
-    }
-
-    throw SdkError.from(new Error(response.error));
   }
 
   async cancelTrigger(body: CancelTriggerBody): Promise<CancelTriggerSuccess> {
     const url = `${this.client.http.baseUrl()}/api/orders/cancel`;
-    const response = await this.client.http.post<CancelTriggerResponse, CancelTriggerBody>(
+    return this.client.http.post<CancelTriggerSuccess, CancelTriggerBody>(
       url,
       body,
       RetryPolicy.None
     );
-
-    if (response.status === "cancelled") {
-      return response;
-    }
-
-    if (response.status === "internal_error") {
-      throw SdkError.from(new Error([response.error, response.details].filter(Boolean).join(": ")));
-    }
-
-    throw SdkError.from(new Error(response.error));
   }
 
   async getUserOrders(
@@ -388,14 +275,7 @@ export class Orders {
       next_cursor?: string | null;
       has_more?: boolean;
     }>(url, RetryPolicy.Idempotent);
-
-    return {
-      user_pubkey: response.user_pubkey,
-      orders: response.orders ?? [],
-      balances: response.balances ?? [],
-      next_cursor: response.next_cursor ?? undefined,
-      has_more: response.has_more ?? false,
-    };
+    return normalizeUserOrdersPayload(response);
   }
 
   async getUserOrderFills(
@@ -446,10 +326,10 @@ export class Orders {
           orderHash,
           maker as string
         );
-        if ("order_hash" in result) {
-          return { order_hash: result.order_hash, remaining: Number(result.remaining ?? 0) };
-        }
-        throw SdkError.from(new Error("Unexpected cancel response"));
+        return {
+          order_hash: result.order_hash,
+          remaining: result.remaining,
+        };
       }
     }
   }
@@ -549,10 +429,7 @@ export class Orders {
           triggerOrderId,
           maker as string
         );
-        if ("trigger_order_id" in result) {
-          return { trigger_order_id: result.trigger_order_id };
-        }
-        throw SdkError.from(new Error("Unexpected cancel-trigger response"));
+        return { trigger_order_id: result.trigger_order_id };
       }
     }
   }
