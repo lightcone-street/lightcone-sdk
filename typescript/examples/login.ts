@@ -1,5 +1,5 @@
 import { signLoginMessage } from "../src/auth";
-import { restClient, getKeypair } from "./common";
+import { restClient, getKeypair, runExample } from "./common";
 
 async function main() {
   const client = restClient();
@@ -20,4 +20,4 @@ async function main() {
   console.log("logged out");
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

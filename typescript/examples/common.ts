@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
-import { Keypair, PublicKey } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 import { LightconeClient, LightconeEnv, type Market, type OrderBookPair } from "../src";
 import { signLoginMessage, type User } from "../src/auth";
@@ -128,5 +128,49 @@ export async function withTimeout<T>(
     if (timer) {
       clearTimeout(timer);
     }
+  }
+}
+
+export function formatError(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+}
+
+export async function runExample(main: () => Promise<void>): Promise<void> {
+  try {
+    await main();
+  } catch (error) {
+    console.error(formatError(error));
+    process.exit(1);
+  }
+}
+
+export async function confirmTransactionOrThrow(
+  connection: Connection,
+  signature: string,
+  context?: {
+    blockhash: string;
+    lastValidBlockHeight: number;
+  }
+): Promise<void> {
+  const confirmation = context
+    ? await connection.confirmTransaction({
+        signature,
+        blockhash: context.blockhash,
+        lastValidBlockHeight: context.lastValidBlockHeight,
+      })
+    : await connection.confirmTransaction(signature);
+
+  if (confirmation.value.err) {
+    throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
   }
 }

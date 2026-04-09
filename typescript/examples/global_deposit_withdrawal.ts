@@ -1,6 +1,15 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
 import { getPositionAltPda, getPositionPda } from "../src/program";
-import { depositMint, login, market, rpcClient, getKeypair } from "./common";
+import {
+  confirmTransactionOrThrow,
+  depositMint,
+  formatError,
+  login,
+  market,
+  rpcClient,
+  getKeypair,
+  runExample,
+} from "./common";
 
 async function main() {
   const client = rpcClient();
@@ -56,14 +65,14 @@ async function main() {
         const signature = await connection.sendRawTransaction(tx.serialize(), {
           skipPreflight: true,
         });
-        const confirmation = await connection.confirmTransaction(signature);
-        if (confirmation.value.err) {
-          throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-        }
+        await confirmTransactionOrThrow(connection, signature, {
+          blockhash,
+          lastValidBlockHeight,
+        });
         console.log(`init_position_tokens: confirmed ${signature}`);
         break;
       } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : JSON.stringify(error);
+        const message = formatError(error);
         const retryable = message.includes("is not a recent slot")
           || message.includes("UninitializedAccount")
           || message.includes("already in use");
@@ -118,7 +127,10 @@ async function main() {
     const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(ix);
     tx.sign(keypair);
     const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature);
+    await confirmTransactionOrThrow(connection, signature, {
+      blockhash,
+      lastValidBlockHeight,
+    });
     console.log(`${name}: confirmed ${signature}`);
   }
 
@@ -169,7 +181,7 @@ async function main() {
     .amount(amount)
     .withMarketDepositSource(m)
     .outcomeIndex(0)
-    .token2022(false)
+    .token2022(true)
     .buildIx();
   console.log(`builder market withdraw ix: ${marketWithdrawIx.keys.length} accounts`);
 
@@ -185,4 +197,4 @@ async function main() {
   console.log(`builder merge ix: ${mergeIx.keys.length} accounts`);
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

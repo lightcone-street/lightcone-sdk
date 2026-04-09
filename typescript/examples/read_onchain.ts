@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { program } from "../src";
 import {
+  runExample,
   rpcClient,
   getKeypair,
   marketAndOrderbook,
@@ -48,4 +49,4 @@ async function main() {
   );
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

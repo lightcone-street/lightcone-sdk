@@ -1,4 +1,4 @@
-import { restClient, marketAndOrderbook } from "./common";
+import { restClient, marketAndOrderbook, runExample } from "./common";
 
 function printTrades(pageLabel: string, trades: Array<{
   tradeId: string;
@@ -33,4 +33,4 @@ async function main() {
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

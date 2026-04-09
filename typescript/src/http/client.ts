@@ -125,8 +125,11 @@ export class LightconeHttp {
     }
 
     if (extraHeaders) {
-      const { Cookie: _cookie, ...rest } = extraHeaders;
-      Object.assign(headers, rest);
+      for (const [key, value] of Object.entries(extraHeaders)) {
+        if (key !== "Cookie") {
+          headers[key] = value;
+        }
+      }
     }
 
     const controller = new AbortController();
