@@ -4,6 +4,7 @@ import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
   private authToken: string | undefined;
+  private adminToken: string | undefined;
 
   constructor(baseUrl: string) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -21,6 +22,29 @@ export class LightconeHttp {
     return async () => this.authToken;
   }
 
+  setAdminToken(token: string): void {
+    this.adminToken = token;
+  }
+
+  clearAdminToken(): void {
+    this.adminToken = undefined;
+  }
+
+  async adminGet<T>(url: string, retry: RetryPolicy): Promise<T> {
+    return this.requestWithRetry<T>("GET", url, undefined, retry, this.adminBearerHeaders());
+  }
+
+  async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
+    return this.requestWithRetry<T>("POST", url, body, retry, this.adminBearerHeaders());
+  }
+
+  private adminBearerHeaders(): Record<string, string> {
+    if (!this.adminToken) {
+      return {};
+    }
+    return { Authorization: `Bearer ${this.adminToken}` };
+  }
+
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
     return this.requestWithRetry<T>("GET", url, undefined, retry);
   }
@@ -33,18 +57,19 @@ export class LightconeHttp {
     method: "GET" | "POST",
     url: string,
     body: object | undefined,
-    policy: RetryPolicy
+    policy: RetryPolicy,
+    extraHeaders?: Record<string, string>
   ): Promise<T> {
     const config = retryConfigForPolicy(policy);
     if (!config) {
-      return this.doRequest<T>(method, url, body);
+      return this.doRequest<T>(method, url, body, extraHeaders);
     }
 
     let lastError: HttpError | undefined;
 
     for (let attempt = 0; attempt <= config.maxRetries; attempt += 1) {
       try {
-        return await this.doRequest<T>(method, url, body);
+        return await this.doRequest<T>(method, url, body, extraHeaders);
       } catch (error) {
         if (!(error instanceof HttpError)) {
           throw error;
@@ -78,7 +103,12 @@ export class LightconeHttp {
     }
   }
 
-  private async doRequest<T>(method: "GET" | "POST", url: string, body?: object): Promise<T> {
+  private async doRequest<T>(
+    method: "GET" | "POST",
+    url: string,
+    body?: object,
+    extraHeaders?: Record<string, string>
+  ): Promise<T> {
     const headers: Record<string, string> = {};
 
     if (body) {
@@ -87,6 +117,10 @@ export class LightconeHttp {
 
     if (this.authToken && !hasBrowserWindow()) {
       headers.Cookie = `auth_token=${this.authToken}`;
+    }
+
+    if (extraHeaders) {
+      Object.assign(headers, extraHeaders);
     }
 
     const controller = new AbortController();

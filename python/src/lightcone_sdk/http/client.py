@@ -19,6 +19,7 @@ class LightconeHttp:
     """HTTP client with retry, auth, and error mapping.
 
     Auth token is sent via Cookie header.
+    Admin token is sent via Authorization: Bearer header.
     """
 
     def __init__(
@@ -28,6 +29,7 @@ class LightconeHttp:
     ):
         self._base_url = base_url.rstrip("/")
         self._auth_token: Optional[str] = None
+        self._admin_token: Optional[str] = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -50,6 +52,22 @@ class LightconeHttp:
 
     def has_auth_token(self) -> bool:
         return self._auth_token is not None
+
+    @property
+    def admin_token(self) -> Optional[str]:
+        """Public accessor for the admin JWT token."""
+        return self._admin_token
+
+    def set_admin_token(self, token: Optional[str]) -> None:
+        """Set or clear the admin JWT token."""
+        self._admin_token = token
+
+    def clear_admin_token(self) -> None:
+        """Clear the admin JWT token."""
+        self._admin_token = None
+
+    def has_admin_token(self) -> bool:
+        return self._admin_token is not None
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -80,6 +98,13 @@ class LightconeHttp:
         headers: dict[str, str] = {}
         if self._auth_token:
             headers["Cookie"] = f"auth_token={self._auth_token}"
+        return headers
+
+    def _get_admin_headers(self) -> dict[str, str]:
+        """Build headers with admin Bearer token if present."""
+        headers: dict[str, str] = {}
+        if self._admin_token:
+            headers["Authorization"] = f"Bearer {self._admin_token}"
         return headers
 
     def _map_status_error(self, status: int, message: str) -> HttpError:
@@ -218,6 +243,24 @@ class LightconeHttp:
         """
         return await self._request_with_retry(
             "POST", path, retry_policy=retry_policy, json=body
+        )
+
+    async def admin_post(
+        self,
+        path: str,
+        body: Any,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+    ) -> Any:
+        """Make a POST request with admin Bearer token auth.
+
+        Args:
+            path: URL path (appended to base_url)
+            body: JSON body
+            retry_policy: Retry policy (default: NONE for non-idempotent)
+        """
+        return await self._request_with_retry(
+            "POST", path, retry_policy=retry_policy, json=body,
+            headers=self._get_admin_headers(),
         )
 
 

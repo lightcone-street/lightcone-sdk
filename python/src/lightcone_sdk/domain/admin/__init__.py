@@ -1,11 +1,9 @@
 """Admin domain types aligned with the Rust SDK."""
 
 from dataclasses import dataclass, field
-from typing import Generic, Optional, TypeVar
+from typing import Optional
 
 from ...error import SdkError
-
-T = TypeVar("T")
 
 
 def _compact_dict(payload: dict) -> dict:
@@ -20,6 +18,64 @@ def _serialize_payload(value):
     if hasattr(value, "to_dict"):
         return value.to_dict()
     return value
+
+
+# ============================================================================
+# ADMIN AUTH
+# ============================================================================
+
+
+@dataclass(frozen=True)
+class AdminNonceResponse:
+    """Response from GET /api/admin/nonce."""
+
+    nonce: str
+    message: str
+
+    @staticmethod
+    def from_dict(data: dict) -> "AdminNonceResponse":
+        return AdminNonceResponse(
+            nonce=data.get("nonce", ""),
+            message=data.get("message", ""),
+        )
+
+
+@dataclass(frozen=True)
+class AdminLoginRequest:
+    """Request payload for POST /api/admin/login."""
+
+    message: str
+    signature_bs58: str
+    pubkey_bytes: list[int]
+
+    def to_dict(self) -> dict:
+        return {
+            "message": self.message,
+            "signature_bs58": self.signature_bs58,
+            "pubkey_bytes": self.pubkey_bytes,
+        }
+
+
+@dataclass(frozen=True)
+class AdminLoginResponse:
+    """Response from POST /api/admin/login."""
+
+    token: str
+    wallet_address: str
+    expires_at: int
+
+    @staticmethod
+    def from_dict(data: dict) -> "AdminLoginResponse":
+        return AdminLoginResponse(
+            token=data.get("token", ""),
+            wallet_address=data.get("wallet_address", ""),
+            expires_at=data.get("expires_at", 0),
+        )
+
+
+# ============================================================================
+# TARGET SPEC
+# ============================================================================
 
 
 @dataclass(frozen=True)
@@ -53,20 +109,6 @@ class TargetSpec:
         if self.value is None:
             raise SdkError(f"TargetSpec '{self.kind}' requires a value")
         return {self.kind: self.value}
-
-
-@dataclass
-class AdminEnvelope(Generic[T]):
-    """Signed admin request envelope."""
-
-    payload: T
-    signature: str
-
-    def to_dict(self) -> dict:
-        return {
-            "payload": _serialize_payload(self.payload),
-            "signature": self.signature,
-        }
 
 
 @dataclass
@@ -328,8 +370,10 @@ class DismissNotificationResponse:
 
 
 __all__ = [
+    "AdminNonceResponse",
+    "AdminLoginRequest",
+    "AdminLoginResponse",
     "TargetSpec",
-    "AdminEnvelope",
     "MarketMetadataPayload",
     "OutcomeMetadataPayload",
     "ConditionalTokenMetadataPayload",

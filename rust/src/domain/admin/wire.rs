@@ -2,6 +2,33 @@
 
 use serde::{Deserialize, Serialize, Serializer};
 
+// ============================================================================
+// ADMIN AUTH
+// ============================================================================
+
+/// Response from `GET /api/admin/nonce` — contains the nonce and message to sign.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AdminNonceResponse {
+    pub nonce: String,
+    pub message: String,
+}
+
+/// Request payload for `POST /api/admin/login`.
+#[derive(Debug, Clone, Serialize)]
+pub struct AdminLoginRequest {
+    pub message: String,
+    pub signature_bs58: String,
+    pub pubkey_bytes: Vec<u8>,
+}
+
+/// Response from `POST /api/admin/login` — contains the JWT and session metadata.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLoginResponse {
+    pub token: String,
+    pub wallet_address: String,
+    pub expires_at: i64,
+}
+
 /// Request payload for `POST /api/admin/metadata`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UnifiedMetadataRequest {

@@ -21,6 +21,14 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
+/// Auth mode for HTTP requests.
+enum AuthMode {
+    /// User auth via cookie (native) or credentials (WASM).
+    Cookie,
+    /// Admin auth via `Authorization: Bearer` header.
+    AdminBearer,
+}
+
 /// Generic HTTP transport for the Lightcone REST API.
 ///
 /// Provides `get` and `post` with retry policies, auth token injection,
@@ -35,6 +43,7 @@ pub struct LightconeHttp {
     base_url: String,
     client: Client,
     auth_token: Arc<RwLock<Option<String>>>,
+    admin_token: Arc<RwLock<Option<String>>>,
 }
 
 impl LightconeHttp {
@@ -51,6 +60,7 @@ impl LightconeHttp {
             base_url: base_url.trim_end_matches('/').to_string(),
             client: builder.build().expect("Failed to build HTTP client"),
             auth_token: Arc::new(RwLock::new(None)),
+            admin_token: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -69,6 +79,14 @@ impl LightconeHttp {
 
     pub(crate) fn auth_token_ref(&self) -> Arc<RwLock<Option<String>>> {
         self.auth_token.clone()
+    }
+
+    pub(crate) async fn set_admin_token(&self, token: String) {
+        *self.admin_token.write().await = Some(token);
+    }
+
+    pub(crate) async fn clear_admin_token(&self) {
+        *self.admin_token.write().await = None;
     }
 
     /// Raw POST to an arbitrary URL (no auth, no retry, no ApiResponse wrapping).
@@ -98,25 +116,70 @@ impl LightconeHttp {
         resp.json().await.map_err(Into::into)
     }
 
-    /// GET with retry. Deserializes `ApiResponse<T>` and returns the body directly.
+    /// GET with retry. Uses cookie auth.
     pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         url: &str,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
-        self.request_with_retry(reqwest::Method::GET, url, None::<&()>, retry)
-            .await
+        self.request_with_retry(
+            reqwest::Method::GET,
+            url,
+            None::<&()>,
+            retry,
+            AuthMode::Cookie,
+        )
+        .await
     }
 
-    /// POST with retry. Deserializes `ApiResponse<T>` and returns the body directly.
+    /// POST with retry. Uses cookie auth.
     pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(
         &self,
         url: &str,
         body: &B,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
-        self.request_with_retry(reqwest::Method::POST, url, Some(body), retry)
-            .await
+        self.request_with_retry(
+            reqwest::Method::POST,
+            url,
+            Some(body),
+            retry,
+            AuthMode::Cookie,
+        )
+        .await
+    }
+
+    /// POST with retry. Uses admin Bearer token auth.
+    pub(crate) async fn admin_post<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::POST,
+            url,
+            Some(body),
+            retry,
+            AuthMode::AdminBearer,
+        )
+        .await
+    }
+
+    /// GET with retry. Uses admin Bearer token auth.
+    pub(crate) async fn admin_get<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::GET,
+            url,
+            None::<&()>,
+            retry,
+            AuthMode::AdminBearer,
+        )
+        .await
     }
 
     async fn request_with_retry<T: DeserializeOwned, B: Serialize>(
@@ -125,10 +188,11 @@ impl LightconeHttp {
         url: &str,
         body: Option<&B>,
         retry: RetryPolicy,
+        auth_mode: AuthMode,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
-                return self.send_and_parse(&method, url, body).await;
+                return self.send_and_parse(&method, url, body, &auth_mode).await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
             RetryPolicy::Custom(c) => c.clone(),
@@ -138,7 +202,7 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_request::<ApiResponse<T>, B>(&method, url, body)
+                .send_request::<ApiResponse<T>, B>(&method, url, body, &auth_mode)
                 .await
             {
                 Ok((api_resp, request_id)) => {
@@ -201,9 +265,10 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        auth_mode: &AuthMode,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_request::<ApiResponse<T>, B>(method, url, body)
+            .send_request::<ApiResponse<T>, B>(method, url, body, auth_mode)
             .await?;
         Self::parse_api_response(api_resp, request_id)
     }
@@ -227,21 +292,31 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        auth_mode: &AuthMode,
     ) -> Result<(T, String), HttpError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
 
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            if let Some(token) = self.auth_token.read().await.as_ref() {
-                req = req.header("Cookie", format!("auth_token={}", token));
-            }
-        }
+        match auth_mode {
+            AuthMode::Cookie => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    if let Some(token) = self.auth_token.read().await.as_ref() {
+                        req = req.header("Cookie", format!("auth_token={}", token));
+                    }
+                }
 
-        #[cfg(target_arch = "wasm32")]
-        {
-            req = req.fetch_credentials_include();
+                #[cfg(target_arch = "wasm32")]
+                {
+                    req = req.fetch_credentials_include();
+                }
+            }
+            AuthMode::AdminBearer => {
+                if let Some(token) = self.admin_token.read().await.as_ref() {
+                    req = req.header("Authorization", format!("Bearer {}", token));
+                }
+            }
         }
 
         if let Some(b) = body {
@@ -296,6 +371,7 @@ impl Clone for LightconeHttp {
             base_url: self.base_url.clone(),
             client: self.client.clone(),
             auth_token: self.auth_token.clone(),
+            admin_token: self.admin_token.clone(),
         }
     }
 }

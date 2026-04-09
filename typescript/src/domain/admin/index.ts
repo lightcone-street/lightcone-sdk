@@ -1,7 +1,19 @@
 export * from "./client";
 export * from "./wire";
 
-export interface AdminEnvelope<T> {
-  payload: T;
-  signature: string;
+export interface AdminNonceResponse {
+  nonce: string;
+  message: string;
+}
+
+export interface AdminLoginRequest {
+  message: string;
+  signature_bs58: string;
+  pubkey_bytes: number[];
+}
+
+export interface AdminLoginResponse {
+  token: string;
+  wallet_address: string;
+  expires_at: number;
 }
