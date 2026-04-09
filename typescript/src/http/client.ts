@@ -1,4 +1,5 @@
-import { HttpError } from "../error";
+import { HttpError, SdkError } from "../error";
+import { ApiRejectedDetails, isApiResponse } from "../shared/api_response";
 import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry";
 
 export class LightconeHttp {
@@ -105,11 +106,13 @@ export class LightconeHttp {
     body?: object,
     extraHeaders?: Record<string, string>
   ): Promise<T> {
+    const requestId = generateRequestId();
     const headers: Record<string, string> = {};
 
     if (body) {
       headers["Content-Type"] = "application/json";
     }
+    headers["x-request-id"] = requestId;
 
     if (!hasBrowserWindow()) {
       const cookieParts: string[] = [];
@@ -157,27 +160,12 @@ export class LightconeHttp {
 
     if (response.ok) {
       if (!hasBrowserWindow()) {
-        const cookieHeader = response.headers.get("set-cookie") ?? "";
-        for (const part of cookieHeader.split(",")) {
-          const trimmed = part.trim();
-          if (trimmed.startsWith("auth_token=")) {
-            const token = trimmed.slice("auth_token=".length).split(";")[0];
-            if (token) {
-              this.authToken = token;
-            }
-          }
-          if (trimmed.startsWith("admin_token=")) {
-            const token = trimmed.slice("admin_token=".length).split(";")[0];
-            if (token) {
-              this.adminToken = token;
-            }
-          }
-        }
+        this.captureCookies(response);
       }
 
       const text = await response.text();
       try {
-        return JSON.parse(text) as T;
+        return parseResponsePayload<T>(JSON.parse(text), requestId);
       } catch (e) {
         throw HttpError.request(e instanceof Error ? e.message : "JSON parse failed");
       }
@@ -192,12 +180,75 @@ export class LightconeHttp {
     if (statusCode >= 400 && statusCode < 500) throw HttpError.badRequest(bodyText);
     throw HttpError.serverError(statusCode, bodyText);
   }
+
+  private captureCookies(response: Response): void {
+    for (const cookieHeader of getSetCookieHeaders(response.headers)) {
+      const authToken = extractCookieValue(cookieHeader, "auth_token");
+      if (authToken) {
+        this.authToken = authToken;
+      }
+
+      const adminToken = extractCookieValue(cookieHeader, "admin_token");
+      if (adminToken) {
+        this.adminToken = adminToken;
+      }
+    }
+  }
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+function parseResponsePayload<T>(payload: unknown, requestId: string): T {
+  if (!isApiResponse<T>(payload)) {
+    return payload as T;
+  }
+
+  if (payload.status === "success") {
+    return payload.body;
+  }
+
+  throw SdkError.apiRejected(
+    ApiRejectedDetails.fromWire(payload.error_details, requestId)
+  );
+}
+
+function generateRequestId(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+
+  return `lc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function getSetCookieHeaders(headers: Headers): string[] {
+  const headersWithCookies = headers as Headers & {
+    getSetCookie?: () => string[];
+  };
+
+  if (typeof headersWithCookies.getSetCookie === "function") {
+    const values = headersWithCookies.getSetCookie();
+    if (values.length > 0) {
+      return values;
+    }
+  }
+
+  const combined = headers.get("set-cookie");
+  return combined ? [combined] : [];
+}
+
+function extractCookieValue(header: string, name: string): string | undefined {
+  const match = header.match(
+    new RegExp(`(?:^|,\\s*)${escapeRegExp(name)}=([^;,]+)`)
+  );
+  return match?.[1];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function hasBrowserWindow(): boolean {
