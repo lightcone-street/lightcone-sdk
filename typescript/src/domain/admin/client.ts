@@ -26,7 +26,11 @@ import type {
   MatchOrdersMultiParams,
   DepositAndSwapParams,
 } from "../../program/types";
-import type { AdminEnvelope } from "./index";
+import type {
+  AdminLoginRequest,
+  AdminLoginResponse,
+  AdminNonceResponse,
+} from "./index";
 import type {
   AllocateCodesRequest,
   AllocateCodesResponse,
@@ -47,75 +51,101 @@ import type {
 export class Admin {
   constructor(private readonly client: ClientContext) {}
 
+  // ── Admin auth ───────────────────────────────────────────────────────
+
+  async getAdminNonce(): Promise<AdminNonceResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/nonce`;
+    return this.client.http.get<AdminNonceResponse>(url, RetryPolicy.None);
+  }
+
+  async adminLogin(request: AdminLoginRequest): Promise<AdminLoginResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/login`;
+    return this.client.http.post<AdminLoginResponse, AdminLoginRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
+  }
+
+  async adminLogout(): Promise<void> {
+    const url = `${this.client.http.baseUrl()}/api/admin/logout`;
+    try {
+      await this.client.http.adminPost(url, {}, RetryPolicy.None);
+    } catch {
+      // Backend cookie clear can fail in local/dev setups; still clear local state.
+    }
+    this.client.http.clearAdminToken();
+  }
+
   // ── HTTP methods ─────────────────────────────────────────────────────
 
   async upsertMetadata(
-    envelope: AdminEnvelope<UnifiedMetadataRequest>
+    request: UnifiedMetadataRequest
   ): Promise<UnifiedMetadataResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/metadata`;
-    return this.client.http.post<UnifiedMetadataResponse, AdminEnvelope<UnifiedMetadataRequest>>(
+    return this.client.http.adminPost<UnifiedMetadataResponse, UnifiedMetadataRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
   async allocateCodes(
-    envelope: AdminEnvelope<AllocateCodesRequest>
+    request: AllocateCodesRequest
   ): Promise<AllocateCodesResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/referral/allocate`;
-    return this.client.http.post<AllocateCodesResponse, AdminEnvelope<AllocateCodesRequest>>(
+    return this.client.http.adminPost<AllocateCodesResponse, AllocateCodesRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
-  async whitelist(envelope: AdminEnvelope<WhitelistRequest>): Promise<WhitelistResponse> {
+  async whitelist(request: WhitelistRequest): Promise<WhitelistResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/referral/whitelist`;
-    return this.client.http.post<WhitelistResponse, AdminEnvelope<WhitelistRequest>>(
+    return this.client.http.adminPost<WhitelistResponse, WhitelistRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
-  async revoke(envelope: AdminEnvelope<RevokeRequest>): Promise<RevokeResponse> {
+  async revoke(request: RevokeRequest): Promise<RevokeResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/referral/revoke`;
-    return this.client.http.post<RevokeResponse, AdminEnvelope<RevokeRequest>>(
+    return this.client.http.adminPost<RevokeResponse, RevokeRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
-  async unrevoke(envelope: AdminEnvelope<UnrevokeRequest>): Promise<UnrevokeResponse> {
+  async unrevoke(request: UnrevokeRequest): Promise<UnrevokeResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/referral/unrevoke`;
-    return this.client.http.post<UnrevokeResponse, AdminEnvelope<UnrevokeRequest>>(
+    return this.client.http.adminPost<UnrevokeResponse, UnrevokeRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
   async createNotification(
-    envelope: AdminEnvelope<CreateNotificationRequest>
+    request: CreateNotificationRequest
   ): Promise<CreateNotificationResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/notifications`;
-    return this.client.http.post<CreateNotificationResponse, AdminEnvelope<CreateNotificationRequest>>(
+    return this.client.http.adminPost<CreateNotificationResponse, CreateNotificationRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }
 
   async dismissNotification(
-    envelope: AdminEnvelope<DismissNotificationRequest>
+    request: DismissNotificationRequest
   ): Promise<DismissNotificationResponse> {
     const url = `${this.client.http.baseUrl()}/api/admin/notifications/dismiss`;
-    return this.client.http.post<DismissNotificationResponse, AdminEnvelope<DismissNotificationRequest>>(
+    return this.client.http.adminPost<DismissNotificationResponse, DismissNotificationRequest>(
       url,
-      envelope,
+      request,
       RetryPolicy.None
     );
   }

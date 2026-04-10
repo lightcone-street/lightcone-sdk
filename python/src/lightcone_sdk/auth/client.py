@@ -167,30 +167,9 @@ class Auth:
             retry_policy=RetryPolicy.NONE,
         )
 
-    async def connect_x(
-        self,
-        x_user_id: str,
-        x_username: str,
-        x_display_name: Optional[str] = None,
-    ) -> None:
-        """Link an X (Twitter) account to the user's profile.
-
-        Args:
-            x_user_id: X user ID
-            x_username: X username
-            x_display_name: X display name (optional)
-        """
-        body: dict = {
-            "x_user_id": x_user_id,
-            "x_username": x_username,
-        }
-        if x_display_name is not None:
-            body["x_display_name"] = x_display_name
-
-        await self._client._http.post(
-            "/api/auth/connect_x", body,
-            retry_policy=RetryPolicy.NONE,
-        )
+    def connect_x_url(self) -> str:
+        """Get the URL for linking an X (Twitter) account via OAuth."""
+        return f"{self._client._http.base_url}/api/auth/oauth/link/x"
 
 
 # ---------------------------------------------------------------------------

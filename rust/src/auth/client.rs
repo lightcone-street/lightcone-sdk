@@ -21,8 +21,8 @@ impl<'a> Auth<'a> {
     /// to build the message.
     pub async fn get_nonce(&self) -> Result<String, SdkError> {
         let url = format!("{}/api/auth/nonce", self.client.http.base_url());
-        let resp: NonceResponse = self.client.http.get(&url, RetryPolicy::None).await?;
-        Ok(resp.nonce)
+        let body: NonceResponse = self.client.http.get(&url, RetryPolicy::None).await?;
+        Ok(body.nonce)
     }
 
     /// Login with a pre-signed message and return the full user profile.
@@ -95,11 +95,16 @@ impl<'a> Auth<'a> {
     pub async fn check_session(&self) -> Result<User, SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
-        let me: MeResponse = match self.client.http.get(&url, RetryPolicy::Idempotent).await {
-            Ok(me) => me,
-            Err(e) => {
+        let me: MeResponse = match self
+            .client
+            .http
+            .get::<MeResponse>(&url, RetryPolicy::Idempotent)
+            .await
+        {
+            Ok(body) => body,
+            Err(error) => {
                 *self.client.auth_credentials.write().await = None;
-                return Err(e.into());
+                return Err(error);
             }
         };
 
@@ -153,28 +158,9 @@ impl<'a> Auth<'a> {
         Ok(())
     }
 
-    /// Link an X (Twitter) account to the user's profile.
-    pub async fn connect_x(
-        &self,
-        x_user_id: &str,
-        x_username: &str,
-        x_display_name: Option<&str>,
-    ) -> Result<(), SdkError> {
-        let url = format!("{}/api/auth/connect_x", self.client.http.base_url());
-        let _: serde_json::Value = self
-            .client
-            .http
-            .post(
-                &url,
-                &serde_json::json!({
-                    "x_user_id": x_user_id,
-                    "x_username": x_username,
-                    "x_display_name": x_display_name,
-                }),
-                RetryPolicy::None,
-            )
-            .await?;
-        Ok(())
+    /// Get the URL for linking an X (Twitter) account via OAuth.
+    pub fn connect_x_url(&self) -> String {
+        format!("{}/api/auth/oauth/link/x", self.client.http.base_url())
     }
 
     /// Get current auth credentials (if authenticated).

@@ -150,18 +150,13 @@ async fn is_authenticated(&self) -> bool
 
 Quick check based on cached credentials. For server-validated check, use `check_session()`.
 
-### `connect_x`
+### `connect_x_url`
 
 ```rust
-async fn connect_x(
-    &self,
-    x_user_id: &str,
-    x_username: &str,
-    x_display_name: Option<&str>,
-) -> Result<(), SdkError>
+fn connect_x_url(&self) -> String
 ```
 
-Link an X (Twitter) account to the user's profile.
+Get the URL for linking an X (Twitter) account via OAuth. Opens in a browser to complete the flow.
 
 ### `disconnect_x`
 

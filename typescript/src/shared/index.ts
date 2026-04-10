@@ -20,6 +20,15 @@ export {
   type SubmitOrderRequest,
 } from "./types";
 
+export {
+  ApiRejectedDetails,
+  isApiResponse,
+  type ApiRejectedDetailsWire,
+  type ApiResponse,
+} from "./api_response";
+
+export { RejectionCode } from "./rejection";
+
 export { formatDecimal, isZero, parseDecimal } from "./price";
 
 export {

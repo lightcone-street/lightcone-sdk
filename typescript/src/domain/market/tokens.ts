@@ -128,8 +128,7 @@ function conditionalFromWire(
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
-  if (!source.short_name) errors.push("Missing short_name");
-  if (!source.display_name) errors.push("Missing display_name");
+  if (!source.short_symbol) errors.push("Missing short_symbol");
   if (!source.outcome) errors.push("Missing outcome");
 
   if (errors.length > 0) {
@@ -143,8 +142,8 @@ function conditionalFromWire(
     depositAsset: asPubkeyStr(depositAsset),
     depositSymbol,
     pubkey: asPubkeyStr(source.token_address),
-    name: source.display_name ?? "",
-    symbol: source.short_name ?? "",
+    name: source.outcome ?? "",
+    symbol: source.short_symbol ?? "",
     description: source.description,
     decimals: source.decimals ?? 0,
     iconUrl,

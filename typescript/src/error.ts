@@ -1,3 +1,5 @@
+import { ApiRejectedDetails } from "./shared/api_response";
+
 export type HttpErrorVariant =
   | "Request"
   | "ServerError"
@@ -128,22 +130,43 @@ export class AuthError extends Error {
   }
 }
 
-export type SdkErrorVariant = "Http" | "Ws" | "Auth" | "Validation" | "Serde" | "MissingMarketContext" | "Signing" | "UserCancelled" | "Program" | "Other";
+export type SdkErrorVariant =
+  | "Http"
+  | "Ws"
+  | "Auth"
+  | "Validation"
+  | "Serde"
+  | "MissingMarketContext"
+  | "Signing"
+  | "UserCancelled"
+  | "ApiRejected"
+  | "Program"
+  | "Other";
 
 export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
   readonly causeError?: Error;
+  readonly apiRejectedDetails?: ApiRejectedDetails;
 
-  constructor(variant: SdkErrorVariant, message: string, causeError?: Error) {
+  constructor(
+    variant: SdkErrorVariant,
+    message: string,
+    causeError?: Error,
+    apiRejectedDetails?: ApiRejectedDetails
+  ) {
     super(message);
     this.name = "SdkError";
     this.variant = variant;
     this.causeError = causeError;
+    this.apiRejectedDetails = apiRejectedDetails;
   }
 
   static from(error: unknown): SdkError {
     if (error instanceof SdkError) {
       return error;
+    }
+    if (error instanceof ApiRejectedDetails) {
+      return SdkError.apiRejected(error);
     }
     if (error instanceof HttpError) {
       return new SdkError("Http", error.message, error);
@@ -189,5 +212,9 @@ export class SdkError extends Error {
 
   static userCancelled(): SdkError {
     return new SdkError("UserCancelled", "User cancelled signing");
+  }
+
+  static apiRejected(details: ApiRejectedDetails): SdkError {
+    return new SdkError("ApiRejected", details.toString(), undefined, details);
   }
 }

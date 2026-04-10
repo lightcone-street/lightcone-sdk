@@ -116,7 +116,7 @@ impl<'a> Markets<'a> {
         if let Some(l) = limit {
             url = format!("{}?limit={}", url, l);
         }
-        Ok(self.client.http.get(&url, RetryPolicy::Idempotent).await?)
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Get featured markets. Only returns Active and Resolved markets.

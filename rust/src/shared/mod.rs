@@ -4,13 +4,17 @@
 //! to the raw format the backend sends, so they can be used directly in wire types
 //! without conversion overhead.
 
+pub mod api_response;
 pub mod fmt;
 pub mod price;
+pub mod rejection;
 pub mod scaling;
 pub mod serde_util;
 pub mod signing;
 
+pub use api_response::{ApiRejectedDetails, ApiResponse};
 pub use price::{format_decimal, parse_decimal};
+pub use rejection::RejectionCode;
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

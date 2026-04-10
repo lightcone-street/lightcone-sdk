@@ -1,5 +1,5 @@
 import type { MarketEvent } from "../domain/market";
-import type { AuthUpdate, UserUpdate } from "../domain/order";
+import { normalizeUserUpdate, type AuthUpdate, type UserUpdate } from "../domain/order/wire";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
 import type { DepositPrice, PriceHistory } from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
@@ -263,5 +263,12 @@ export function parseMessageIn(input: string): MessageIn {
   if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
     throw new WsErrorClass("ProtocolError", `Invalid WS message: missing or invalid "data" field`);
   }
-  return parsed as MessageIn;
+  const message = parsed as MessageIn;
+  if (message.type === "user") {
+    return {
+      ...message,
+      data: normalizeUserUpdate(message.data as Parameters<typeof normalizeUserUpdate>[0]),
+    };
+  }
+  return message;
 }

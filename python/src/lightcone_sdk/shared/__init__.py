@@ -1,5 +1,6 @@
 """Shared utilities used across the Lightcone SDK."""
 
+from .api_response import ApiRejectedDetails, ApiResponse
 from .types import (
     OrderBookId,
     PubkeyStr,
@@ -26,8 +27,20 @@ from .fmt import (
     to_decimal_value,
 )
 from .price import parse_decimal, format_decimal, is_zero
-from .scaling import OrderbookDecimals, ScaledAmounts, ScalingError, align_price_to_tick, scale_price_size
-from .signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
+from .rejection import RejectionCode
+from .scaling import (
+    OrderbookDecimals,
+    ScaledAmounts,
+    ScalingError,
+    align_price_to_tick,
+    scale_price_size,
+)
+from .signing import (
+    ExternalSigner,
+    SigningStrategy,
+    SigningStrategyKind,
+    classify_signer_error,
+)
 
 
 def derive_orderbook_id(base_token: str, quote_token: str) -> str:
@@ -42,6 +55,9 @@ __all__ = [
     # Types
     "OrderBookId",
     "PubkeyStr",
+    "ApiResponse",
+    "ApiRejectedDetails",
+    "RejectionCode",
     "Side",
     "TimeInForce",
     "TriggerType",

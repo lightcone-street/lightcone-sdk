@@ -15,7 +15,7 @@ RUST_OLD=$(grep '^version = ' "$RUST_FILE" | head -1 | sed 's/version = "\(.*\)"
 RUST_NEW=$(bump_patch "$RUST_OLD")
 sed -i "0,/^version = \"${RUST_OLD}\"/s//version = \"${RUST_NEW}\"/" "$RUST_FILE"
 echo "Rust: $RUST_OLD -> $RUST_NEW"
-(cd rust && cargo generate-lockfile)
+sed -i "/^name = \"lightcone\"/{n;s/version = \"${RUST_OLD}\"/version = \"${RUST_NEW}\"/;}" rust/Cargo.lock
 
 # ── TypeScript (package.json) ──
 TS_FILE="typescript/package.json"
@@ -28,7 +28,7 @@ node -e "
   fs.writeFileSync('$TS_FILE', JSON.stringify(pkg, null, 2) + '\n');
 "
 echo "TypeScript: $TS_OLD -> $TS_NEW"
-(cd typescript && npm install --package-lock-only)
+sed -i "s/\"version\": \"${TS_OLD}\"/\"version\": \"${TS_NEW}\"/g" typescript/package-lock.json
 
 # ── Python (pyproject.toml) ──
 PY_FILE="python/pyproject.toml"

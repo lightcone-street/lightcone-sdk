@@ -7,15 +7,8 @@ export * from "./state";
 export { limitSnapshotToOrder, splitSnapshotOrders, triggerSnapshotToOrder, orderFromUpdate } from "./convert";
 
 export enum OrderType {
-  Limit = "Limit",
-  Market = "Market",
-  Deposit = "Deposit",
-  Merge = "Merge",
-  Withdraw = "Withdraw",
-  StopMarket = "StopMarket",
-  StopLimit = "StopLimit",
-  TakeProfitMarket = "TakeProfitMarket",
-  TakeProfitLimit = "TakeProfitLimit",
+  Limit = "limit",
+  Trigger = "trigger",
 }
 
 export enum OrderStatus {

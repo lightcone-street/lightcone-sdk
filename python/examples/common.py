@@ -31,7 +31,12 @@ def client() -> LightconeClient:
     builder = LightconeClientBuilder()
     env_str = os.environ.get("LIGHTCONE_ENV")
     if env_str:
-        builder = builder.env(LightconeEnv(env_str.lower()))
+        try:
+            builder = builder.env(LightconeEnv(env_str.lower()))
+        except ValueError as exc:
+            raise RuntimeError(
+                f"invalid LIGHTCONE_ENV '{env_str}'. Options: local, staging, prod"
+            ) from exc
     return builder.build()
 
 

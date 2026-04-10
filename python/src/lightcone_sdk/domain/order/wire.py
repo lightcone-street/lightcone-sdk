@@ -7,13 +7,20 @@ from typing import Optional, Union
 
 from ...error import _require
 from ...shared.types import Side, TimeInForce, TriggerType
-from . import UserSnapshotOrder, UserSnapshotBalance, GlobalDepositBalance, ConditionalBalance, TriggerOrder
+from . import (
+    UserSnapshotOrder,
+    UserSnapshotBalance,
+    GlobalDepositBalance,
+    ConditionalBalance,
+    TriggerOrder,
+)
 from ..notification import Notification
 
 
 @dataclass
 class UserOrderUpdateBalance:
     """Balance update included with order events."""
+
     outcomes: list[ConditionalBalance] = field(default_factory=list)
 
     @staticmethod
@@ -26,6 +33,7 @@ class UserOrderUpdateBalance:
 @dataclass
 class WsOrder:
     """WebSocket order update."""
+
     order_hash: str
     side: int
     price: str
@@ -51,7 +59,11 @@ class WsOrder:
         if size is None:
             size = _sum_decimal_strings(remaining, filled)
         bal_raw = d.get("balance")
-        balance = UserOrderUpdateBalance.from_dict(bal_raw) if isinstance(bal_raw, dict) else None
+        balance = (
+            UserOrderUpdateBalance.from_dict(bal_raw)
+            if isinstance(bal_raw, dict)
+            else None
+        )
         return WsOrder(
             order_hash=_require(d, "order_hash", "WsOrder"),
             side=int(Side.from_wire(d.get("side", 0))),
@@ -75,6 +87,7 @@ class WsOrder:
 @dataclass
 class OrderUpdate:
     """WebSocket order update wrapper."""
+
     market_pubkey: str
     orderbook_id: str
     timestamp: Optional[str] = None
@@ -126,12 +139,24 @@ class TriggerOrderUpdate:
             market_pubkey=d.get("market_pubkey", ""),
             orderbook_id=d.get("orderbook_id", ""),
             order_hash=d.get("order_hash", ""),
-            trigger_price=str(d.get("trigger_price")) if d.get("trigger_price") is not None else None,
+            trigger_price=(
+                str(d.get("trigger_price"))
+                if d.get("trigger_price") is not None
+                else None
+            ),
             trigger_above=d.get("trigger_above"),
             update_type=d.get("type", d.get("update_type")),
             result_status=d.get("result_status"),
-            result_filled=str(d.get("result_filled", "0")) if d.get("result_filled") is not None else None,
-            result_remaining=str(d.get("result_remaining", "0")) if d.get("result_remaining") is not None else None,
+            result_filled=(
+                str(d.get("result_filled", "0"))
+                if d.get("result_filled") is not None
+                else None
+            ),
+            result_remaining=(
+                str(d.get("result_remaining", "0"))
+                if d.get("result_remaining") is not None
+                else None
+            ),
             timestamp=d.get("timestamp"),
             side=int(Side.from_wire(d.get("side", 0))),
             maker_amount=str(d.get("maker_amount", "0")),
@@ -141,7 +166,9 @@ class TriggerOrderUpdate:
 
     def into_trigger_order(self) -> TriggerOrder:
         """Convert this WS update into a domain TriggerOrder."""
-        trigger_type = TriggerType.TAKE_PROFIT if self.trigger_above else TriggerType.STOP_LOSS
+        trigger_type = (
+            TriggerType.TAKE_PROFIT if self.trigger_above else TriggerType.STOP_LOSS
+        )
         return TriggerOrder(
             trigger_order_id=self.trigger_order_id,
             order_hash=self.order_hash,
@@ -160,6 +187,7 @@ class TriggerOrderUpdate:
 @dataclass
 class UserBalanceUpdate:
     """WebSocket user balance update."""
+
     market_pubkey: str = ""
     orderbook_id: str = ""
     balance: Optional[UserSnapshotBalance] = None
@@ -182,18 +210,22 @@ class UserBalanceUpdate:
 @dataclass
 class NotificationUpdate:
     """WebSocket notification push."""
+
     notification: Optional[Notification] = None
 
     @staticmethod
     def from_dict(d: dict) -> "NotificationUpdate":
         notif_raw = d.get("notification")
-        notif = Notification.from_dict(notif_raw) if isinstance(notif_raw, dict) else None
+        notif = (
+            Notification.from_dict(notif_raw) if isinstance(notif_raw, dict) else None
+        )
         return NotificationUpdate(notification=notif)
 
 
 @dataclass
 class GlobalDepositUpdate:
     """WS global deposit update event."""
+
     mint: str = ""
     balance: str = "0"
     timestamp: Optional[str] = None
@@ -210,6 +242,7 @@ class GlobalDepositUpdate:
 @dataclass
 class NonceUpdate:
     """WS nonce update event."""
+
     user_pubkey: str = ""
     new_nonce: int = 0
     timestamp: Optional[str] = None
@@ -226,6 +259,7 @@ class NonceUpdate:
 @dataclass
 class UserSnapshot:
     """WebSocket user snapshot."""
+
     orders: list[UserSnapshotOrder] = field(default_factory=list)
     balances: list[UserSnapshotBalance] = field(default_factory=list)
     global_deposits: list[GlobalDepositBalance] = field(default_factory=list)
@@ -236,20 +270,39 @@ class UserSnapshot:
     def from_dict(d: dict) -> "UserSnapshot":
         balances_raw = d.get("balances", [])
         if isinstance(balances_raw, dict):
-            balances_raw = list(balances_raw.values())
+            balances_raw = [
+                {
+                    **(
+                        {"orderbook_id": orderbook_id}
+                        if isinstance(balance, dict) and "orderbook_id" not in balance
+                        else {}
+                    ),
+                    **(balance if isinstance(balance, dict) else {}),
+                }
+                for orderbook_id, balance in balances_raw.items()
+            ]
         return UserSnapshot(
             orders=[UserSnapshotOrder.from_dict(o) for o in d.get("orders", [])],
             balances=[UserSnapshotBalance.from_dict(b) for b in balances_raw],
-            global_deposits=[GlobalDepositBalance.from_dict(g) for g in d.get("global_deposits", [])],
-            notifications=[Notification.from_dict(n) for n in d.get("notifications", [])],
+            global_deposits=[
+                GlobalDepositBalance.from_dict(g) for g in d.get("global_deposits", [])
+            ],
+            notifications=[
+                Notification.from_dict(n) for n in d.get("notifications", [])
+            ],
             nonce=d.get("nonce", 0),
         )
 
 
 UserUpdateData = Union[
-    "UserSnapshot", "OrderUpdate", "TriggerOrderUpdate",
-    "UserBalanceUpdate", "GlobalDepositUpdate", "NonceUpdate",
-    "NotificationUpdate", dict,
+    "UserSnapshot",
+    "OrderUpdate",
+    "TriggerOrderUpdate",
+    "UserBalanceUpdate",
+    "GlobalDepositUpdate",
+    "NonceUpdate",
+    "NotificationUpdate",
+    dict,
 ]
 
 
@@ -304,19 +357,21 @@ class AuthUpdate:
 
 
 def _parse_order_event(d: dict) -> Union[OrderUpdate, TriggerOrderUpdate]:
-    if d.get("order_type") == "trigger":
+    if str(d.get("order_type", "")).lower() == "trigger":
         return TriggerOrderUpdate.from_dict(d)
     return OrderUpdate.from_dict(d)
 
 
 class Role(str, Enum):
     """Whether the user was the maker or taker on an order."""
+
     MAKER = "maker"
     TAKER = "taker"
 
 
 class FillStatus(str, Enum):
     """Status of a filled order, derived from DB state after the fact."""
+
     FILLED = "filled"
     CANCELLED = "cancelled"
     PARTIALLY_FILLED = "partially_filled"
@@ -325,6 +380,7 @@ class FillStatus(str, Enum):
 @dataclass
 class OrderFillEvent:
     """A single fill event within an order."""
+
     fill_amount: str = "0"
     tx_signature: str = ""
     filled_at: str = ""
@@ -341,6 +397,7 @@ class OrderFillEvent:
 @dataclass
 class UserOrderFill:
     """An order the user participated in, with nested fill events."""
+
     order_hash: str = ""
     market_pubkey: str = ""
     orderbook_id: str = ""
@@ -383,6 +440,7 @@ class UserOrderFill:
 @dataclass
 class UserOrderFillsResponse:
     """Response from GET /api/users/order-fills."""
+
     orders: list[UserOrderFill] = field(default_factory=list)
     next_cursor: Optional[str] = None
     has_more: bool = False

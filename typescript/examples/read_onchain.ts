@@ -1,6 +1,7 @@
 import { PublicKey } from "@solana/web3.js";
 import { program } from "../src";
 import {
+  runExample,
   rpcClient,
   getKeypair,
   marketAndOrderbook,
@@ -36,7 +37,7 @@ async function main() {
   );
   if (onchainOrderbook) {
     console.log(
-      `orderbook: lookup_table=${onchainOrderbook.lookupTable.toBase58()} bump=${onchainOrderbook.bump}`
+      `orderbook: lookup_table=${onchainOrderbook.lookupTable.toBase58()} base_index=${onchainOrderbook.baseIndex} bump=${onchainOrderbook.bump}`
     );
   }
   console.log(`user nonce: ${nonce}`);
@@ -48,4 +49,4 @@ async function main() {
   );
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

@@ -874,7 +874,7 @@ export function buildSetAuthorityIx(
  * 7. alt_program (readonly)
  * 8. system_program (readonly)
  *
- * Data: [discriminator, recent_slot (u64)]
+ * Data: [discriminator, recent_slot (u64), base_index (u8)]
  */
 export function buildCreateOrderbookIx(
   params: CreateOrderbookParams,
@@ -899,6 +899,7 @@ export function buildCreateOrderbookIx(
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.CREATE_ORDERBOOK]),
     toU64Le(params.recentSlot),
+    Buffer.from([params.baseIndex]),
   ]);
 
   return new TransactionInstruction({

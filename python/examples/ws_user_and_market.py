@@ -60,11 +60,13 @@ async def main():
     ws.on(on_event)
 
     try:
-        await asyncio.wait_for(done.wait(), timeout=15)
+        await asyncio.wait_for(done.wait(), timeout=30)
     except asyncio.TimeoutError:
-        pass
+        print("no more websocket data (timeout)")
 
     await ws.disconnect()
+    if not saw_auth and not saw_user:
+        raise RuntimeError("received no websocket events — connection may be broken")
     print(f"market event received: {saw_market}")
     await client.close()
 

@@ -71,8 +71,8 @@ def market_from_wire(wire: MarketWire) -> Market:
         ))
 
         for ct in da.conditional_mints:
-            ct_name = ct.display_name or ct.name
-            ct_symbol = ct.short_name or ct.symbol
+            ct_name = ct.outcome
+            ct_symbol = ct.short_symbol or ct.symbol
             conditional_tokens.append(ConditionalToken(
                 pubkey=ct.token_address,
                 outcome_index=ct.outcome_index,

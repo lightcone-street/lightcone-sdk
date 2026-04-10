@@ -1,5 +1,5 @@
 import { Resolution } from "../src";
-import { restClient, marketAndOrderbook, unixTimestampMs } from "./common";
+import { formatError, restClient, marketAndOrderbook, runExample, unixTimestampMs } from "./common";
 
 async function main() {
   const client = restClient();
@@ -38,8 +38,8 @@ async function main() {
     console.log("deposit asset:");
     console.log(JSON.stringify(depositHistory, null, 2));
   } catch (error) {
-    console.log(`deposit asset price history not available: ${error}`);
+    console.log(`deposit asset price history not available: ${formatError(error)}`);
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

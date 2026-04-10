@@ -1,4 +1,4 @@
-import { restClient, getKeypair, login, market } from "./common";
+import { restClient, getKeypair, login, market, runExample } from "./common";
 
 async function main() {
   const client = restClient();
@@ -14,4 +14,4 @@ async function main() {
   console.log(`positions in ${m.slug}: ${perMarket.positions.length}`);
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);

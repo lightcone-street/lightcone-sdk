@@ -1,114 +1,157 @@
 # Admin Operations
 
-Internal admin operations for the Lightcone team. These endpoints require ED25519 signature authorization from a key registered in the backend.
+Internal admin operations for the Lightcone team. These endpoints require cookie-based authentication obtained via the admin login flow.
 
-[← Overview](../../../README.md)
+[<- Overview](../../../README.md)
 
 ## Table of Contents
 
-- [AdminEnvelope](#adminenvelope)
+- [Authentication](#authentication)
 - [Client Methods](#client-methods)
 - [Wire Types](#wire-types)
 - [TargetSpec](#targetspec)
 
-## AdminEnvelope
+## Authentication
 
-All admin requests are wrapped in an `AdminEnvelope<T>` that contains the payload and an ED25519 signature over the canonical JSON representation of the payload.
+Admin endpoints use cookie-based auth (same pattern as user auth). Before calling any admin method, you must complete the login flow:
+
+1. Call `get_admin_nonce()` to get a nonce and message to sign.
+2. Sign the message with an ED25519 keypair authorized in the backend.
+3. Call `admin_login()` with the signed message — the backend sets an `admin_token` HttpOnly cookie, which the SDK captures automatically on native and the browser handles on WASM.
+4. All subsequent admin methods automatically attach the cookie.
 
 ```rust
-use lightcone::domain::admin::{AdminEnvelope, UnifiedMetadataRequest};
+use lightcone::LightconeClient;
 
-let envelope = AdminEnvelope {
-    payload: UnifiedMetadataRequest { /* ... */ },
-    signature: "base58_encoded_ed25519_signature".to_string(),
-};
+let client = LightconeClient::new("https://api.example.com");
+let admin = client.admin();
+
+// Step 1: Get the nonce and message
+let nonce_response = admin.get_admin_nonce().await?;
+
+// Step 2: Sign the message with your ED25519 keypair (application-specific)
+let signature_bs58 = sign_message(&nonce_response.message, &keypair);
+
+// Step 3: Login — admin cookie is captured automatically for future requests
+let login_response = admin.admin_login(
+    &nonce_response.message,
+    &signature_bs58,
+    &keypair.pubkey().to_bytes(),
+).await?;
+
+// Step 4: Admin methods now work
+let response = admin.upsert_metadata(&metadata_request).await?;
 ```
-
-The caller is responsible for:
-1. Serializing the payload to canonical JSON (`serde_json::to_string`)
-2. Signing the JSON bytes with an authorized ED25519 keypair
-3. Base58-encoding the signature
 
 ## Client Methods
 
 Access via `client.admin()`.
+
+### `get_admin_nonce`
+
+```rust
+async fn get_admin_nonce(&self) -> Result<AdminNonceResponse, SdkError>
+```
+
+Fetch the nonce and message to sign for admin login.
+
+### `admin_login`
+
+```rust
+async fn admin_login(
+    &self,
+    message: &str,
+    signature_bs58: &str,
+    pubkey_bytes: &[u8],
+) -> Result<AdminLoginResponse, SdkError>
+```
+
+Verify the signature and establish an admin session. The backend sets an `admin_token` HttpOnly cookie. Returns the wallet address and expiration timestamp.
+
+### `admin_logout`
+
+```rust
+async fn admin_logout(&self) -> Result<(), SdkError>
+```
+
+Log out the admin session — attempts to clear the server-side cookie and always clears the internal token.
 
 ### `upsert_metadata`
 
 ```rust
 async fn upsert_metadata(
     &self,
-    envelope: &AdminEnvelope<UnifiedMetadataRequest>,
+    request: &UnifiedMetadataRequest,
 ) -> Result<UnifiedMetadataResponse, SdkError>
 ```
 
-Upsert metadata for markets, outcomes, conditional tokens, and deposit tokens in a single batch operation.
+Upsert metadata for markets, outcomes, conditional tokens, and deposit tokens in a single batch operation. Requires prior `admin_login()`.
 
 ### `allocate_codes`
 
 ```rust
 async fn allocate_codes(
     &self,
-    envelope: &AdminEnvelope<AllocateCodesRequest>,
+    request: &AllocateCodesRequest,
 ) -> Result<AllocateCodesResponse, SdkError>
 ```
 
-Allocate referral codes to users. Can target all users, a specific user, or use vanity codes.
+Allocate referral codes to users. Can target all users, a specific user, or use vanity codes. Requires prior `admin_login()`.
 
 ### `whitelist`
 
 ```rust
 async fn whitelist(
     &self,
-    envelope: &AdminEnvelope<WhitelistRequest>,
+    request: &WhitelistRequest,
 ) -> Result<WhitelistResponse, SdkError>
 ```
 
-Whitelist wallet addresses for beta access, optionally allocating referral codes.
+Whitelist wallet addresses for beta access, optionally allocating referral codes. Requires prior `admin_login()`.
 
 ### `revoke`
 
 ```rust
 async fn revoke(
     &self,
-    envelope: &AdminEnvelope<RevokeRequest>,
+    request: &RevokeRequest,
 ) -> Result<RevokeResponse, SdkError>
 ```
 
-Revoke a user's beta access and/or referral codes.
+Revoke a user's beta access and/or referral codes. Requires prior `admin_login()`.
 
 ### `unrevoke`
 
 ```rust
 async fn unrevoke(
     &self,
-    envelope: &AdminEnvelope<UnrevokeRequest>,
+    request: &UnrevokeRequest,
 ) -> Result<UnrevokeResponse, SdkError>
 ```
 
-Restore a previously revoked user's access.
+Restore a previously revoked user's access. Requires prior `admin_login()`.
 
 ### `create_notification`
 
 ```rust
 async fn create_notification(
     &self,
-    envelope: &AdminEnvelope<CreateNotificationRequest>,
+    request: &CreateNotificationRequest,
 ) -> Result<CreateNotificationResponse, SdkError>
 ```
 
-Create a notification for users.
+Create a notification for users. Requires prior `admin_login()`.
 
 ### `dismiss_notification`
 
 ```rust
 async fn dismiss_notification(
     &self,
-    envelope: &AdminEnvelope<DismissNotificationRequest>,
+    request: &DismissNotificationRequest,
 ) -> Result<DismissNotificationResponse, SdkError>
 ```
 
-Dismiss a notification.
+Dismiss a notification. Requires prior `admin_login()`.
 
 ### On-Chain Instruction & Transaction Builders
 
@@ -235,9 +278,31 @@ Build a DepositAndSwap instruction/transaction — deposit collateral and atomic
 
 ## Wire Types
 
+### `AdminNonceResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `nonce` | `String` | Server-generated nonce |
+| `message` | `String` | Message to sign with ED25519 keypair |
+
+### `AdminLoginRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `message` | `String` | The message that was signed |
+| `signature_bs58` | `String` | Base58-encoded ED25519 signature |
+| `pubkey_bytes` | `Vec<u8>` | Public key bytes of the signing keypair |
+
+### `AdminLoginResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `wallet_address` | `String` | Wallet address of the authenticated admin |
+| `expires_at` | `i64` | Session expiration timestamp |
+
 ### `UnifiedMetadataRequest`
 
-Batch metadata upsert payload. All arrays are optional -- only include the entities you want to update.
+Batch metadata upsert payload. All arrays are optional — only include the entities you want to update.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -246,7 +311,7 @@ Batch metadata upsert payload. All arrays are optional -- only include the entit
 | `conditional_tokens` | `Vec<ConditionalTokenMetadataPayload>` | Token metadata updates |
 | `deposit_tokens` | `Vec<DepositTokenMetadataPayload>` | Deposit token metadata updates |
 
-Each payload struct uses `Option<T>` fields -- only non-`None` fields are updated, leaving other fields unchanged.
+Each payload struct uses `Option<T>` fields — only non-`None` fields are updated, leaving other fields unchanged.
 
 ### `AllocateCodesRequest`
 
@@ -293,4 +358,4 @@ let all = TargetSpec::all();
 
 ---
 
-[← Overview](../../../README.md)
+[<- Overview](../../../README.md)

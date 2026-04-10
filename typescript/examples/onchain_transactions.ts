@@ -1,9 +1,11 @@
 import { Transaction } from "@solana/web3.js";
 import {
+  confirmTransactionOrThrow,
   rpcClient,
   getKeypair,
   marketAndOrderbook,
   depositMint,
+  runExample,
 } from "./common";
 
 function describeTx(name: string, tx: Transaction): void {
@@ -50,9 +52,12 @@ async function main() {
     tx.sign(keypair);
     describeTx(name, tx);
     const signature = await connection.sendRawTransaction(tx.serialize());
-    await connection.confirmTransaction(signature);
+    await confirmTransactionOrThrow(connection, signature, {
+      blockhash,
+      lastValidBlockHeight,
+    });
     console.log(`${name}: confirmed ${signature}`);
   }
 }
 
-main().catch((error) => { console.error(error); process.exit(1); });
+void runExample(main);
