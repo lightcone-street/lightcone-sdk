@@ -29,8 +29,9 @@ async function main() {
         price: event.message.data.price,
         size: event.message.data.size,
         side: event.message.data.side,
+        sequence: event.message.data.sequence,
       };
-      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price}`);
+      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price} seq=${trade.sequence}`);
       trades.push(trade);
       hits += 1;
     } else if (event.type === "Error") {

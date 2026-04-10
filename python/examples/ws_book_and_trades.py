@@ -55,8 +55,9 @@ async def main():
                     price=ws_trade.price,
                     size=ws_trade.size,
                     side=ws_trade.side,
+                    sequence=ws_trade.sequence,
                 ))
-                print(f"trade: {ws_trade.size} {ws_trade.side} @ {ws_trade.price}")
+                print(f"trade: {ws_trade.size} {ws_trade.side} @ {ws_trade.price} seq={ws_trade.sequence}")
                 hits += 1
 
         elif event.type == WsEventType.ERROR:

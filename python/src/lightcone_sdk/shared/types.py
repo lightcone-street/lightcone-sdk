@@ -107,6 +107,7 @@ class TriggerStatus(str, Enum):
     TRIGGERED = "triggered"
     FAILED = "failed"
     EXPIRED = "expired"
+    INVALIDATED = "invalidated"
 
     def as_wire(self) -> str:
         return self.value
@@ -159,6 +160,7 @@ class TriggerUpdateType(str, Enum):
     TRIGGERED = "TRIGGERED"
     FAILED = "FAILED"
     EXPIRED = "EXPIRED"
+    INVALIDATED = "INVALIDATED"
 
     def as_wire(self) -> str:
         return self.value

@@ -12,6 +12,8 @@ export interface Trade {
   price: string;
   size: string;
   side: Side;
+  /** Monotonic sequence number per orderbook for ordering guarantees. 0 for REST trades. */
+  sequence: number;
 }
 
 export interface TradesPage {

@@ -18,6 +18,7 @@ impl From<TradeResponse> for Trade {
             price: Decimal::from_str(&t.price).unwrap_or_default(),
             size: Decimal::from_str(&t.size).unwrap_or_default(),
             side: t.side,
+            sequence: 0,
         }
     }
 }
@@ -31,6 +32,7 @@ impl From<WsTrade> for Trade {
             price: t.price,
             size: t.size,
             side: t.side,
+            sequence: t.sequence,
         }
     }
 }
@@ -64,6 +66,7 @@ mod tests {
             price: Decimal::new(75, 1),
             size: Decimal::new(5, 0),
             side: Side::Ask,
+            sequence: 1,
         }
     }
 
@@ -76,6 +79,7 @@ mod tests {
         assert_eq!(trade.price, Decimal::from_str("5.000000").unwrap());
         assert_eq!(trade.size, Decimal::from_str("10.000000").unwrap());
         assert_eq!(trade.side, Side::Bid);
+        assert_eq!(trade.sequence, 0);
     }
 
     #[test]
@@ -87,5 +91,6 @@ mod tests {
         assert_eq!(trade.price, Decimal::new(75, 1));
         assert_eq!(trade.size, Decimal::new(5, 0));
         assert_eq!(trade.side, Side::Ask);
+        assert_eq!(trade.sequence, 1);
     }
 }

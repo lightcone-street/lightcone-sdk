@@ -83,6 +83,8 @@ class WsTrade:
     side: int
     timestamp: str
     trade_id: str
+    sequence: int = 0
+    """Monotonic sequence number per orderbook for ordering guarantees."""
 
     @staticmethod
     def from_dict(d: dict) -> "WsTrade":
@@ -93,4 +95,5 @@ class WsTrade:
             side=d.get("side", 0),
             timestamp=d.get("timestamp", ""),
             trade_id=_require(d, "trade_id", "WsTrade"),
+            sequence=d.get("sequence", 0),
         )

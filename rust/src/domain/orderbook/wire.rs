@@ -79,7 +79,7 @@ pub struct OrderBook {
     #[serde(default)]
     pub is_snapshot: bool,
     #[serde(default)]
-    pub seq: u32,
+    pub seq: u64,
     #[serde(default = "Vec::new")]
     pub bids: Vec<WsBookLevel>,
     #[serde(default = "Vec::new")]
