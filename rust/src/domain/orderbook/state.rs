@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Default)]
 pub struct OrderbookSnapshot {
     pub orderbook_id: OrderBookId,
-    pub seq: u32,
+    pub seq: u64,
     bids: BTreeMap<Decimal, Decimal>,
     asks: BTreeMap<Decimal, Decimal>,
 }
@@ -28,10 +28,16 @@ impl OrderbookSnapshot {
     }
 
     /// Apply a WS orderbook message (snapshot replaces, delta merges).
+    ///
+    /// Snapshots are always applied. Deltas with a `seq` at or below the
+    /// current value are silently dropped to prevent stale or duplicate
+    /// updates from corrupting the book.
     pub fn apply(&mut self, book: &OrderBook) {
         if book.is_snapshot {
             self.bids.clear();
             self.asks.clear();
+        } else if book.seq > 0 && book.seq <= self.seq {
+            return;
         }
 
         self.seq = book.seq;
@@ -115,7 +121,7 @@ mod tests {
 
     fn order_book(
         snapshot: bool,
-        seq: u32,
+        seq: u64,
         bids: Vec<(f64, f64)>,
         asks: Vec<(f64, f64)>,
     ) -> OrderBook {
@@ -189,6 +195,29 @@ mod tests {
         snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(52.0, 5.0)]));
         assert_eq!(snap.mid_price(), Some(Decimal::try_from(51.0).unwrap()));
         assert_eq!(snap.spread(), Some(Decimal::try_from(2.0).unwrap()));
+    }
+
+    #[test]
+    fn test_stale_delta_is_dropped() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        snap.apply(&order_book(false, 2, vec![(49.0, 20.0)], vec![]));
+        assert_eq!(snap.seq, 2);
+        assert_eq!(snap.bids().len(), 2);
+
+        // Stale delta (seq <= current) should be ignored
+        snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(snap.seq, 2);
+        assert_eq!(snap.bids().len(), 2); // unchanged
+
+        // Duplicate seq should also be ignored
+        snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(snap.bids().len(), 2); // unchanged
+
+        // Snapshot always applies regardless of seq
+        snap.apply(&order_book(true, 1, vec![(48.0, 5.0)], vec![]));
+        assert_eq!(snap.seq, 1);
+        assert_eq!(snap.bids().len(), 1);
     }
 
     #[test]

@@ -12,6 +12,7 @@ def trade_from_wire(wire: TradeResponseWire) -> Trade:
         price=wire.price,
         size=wire.size,
         side=wire.side,
+        sequence=0,
     )
 
 
@@ -23,4 +24,5 @@ def trade_from_ws(ws: WsTrade) -> Trade:
         price=ws.price,
         size=ws.size,
         side=ws.side,
+        sequence=ws.sequence,
     )

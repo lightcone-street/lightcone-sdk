@@ -26,6 +26,7 @@ A single trade execution record.
 | `price` | `Decimal` | Trade price |
 | `size` | `Decimal` | Trade size |
 | `side` | `Side` | Taker side (`Bid` or `Ask`) |
+| `sequence` | `u64` | Monotonic sequence number per orderbook (0 for REST trades) |
 
 ### `TradesPage`
 
@@ -74,7 +75,7 @@ let mut history = TradeHistory::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"), 100)
 | Method | Description |
 |--------|-------------|
 | `new(orderbook_id, max_size)` | Create a buffer with the given capacity |
-| `push(trade)` | Append a trade (evicts oldest if at capacity) |
+| `push(trade)` | Insert a trade in sequence order (evicts oldest if at capacity) |
 | `replace(trades)` | Replace all trades (e.g., from an initial REST fetch) |
 | `trades()` | Get all trades as a `VecDeque<Trade>` |
 | `latest()` | Get the most recent trade |

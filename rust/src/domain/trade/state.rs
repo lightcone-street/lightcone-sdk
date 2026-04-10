@@ -23,12 +23,25 @@ impl TradeHistory {
         }
     }
 
-    /// Push a new trade, evicting the oldest if at capacity.
+    /// Push a new trade, inserting in descending sequence order.
+    ///
+    /// Trades with `sequence > 0` are inserted at the correct position so the
+    /// buffer stays sorted by sequence (newest first). Trades with `sequence == 0`
+    /// (e.g. from REST) are prepended as before.
     pub fn push(&mut self, trade: Trade) {
         if self.trades.len() >= self.max_size {
             self.trades.pop_back();
         }
-        self.trades.push_front(trade);
+        if trade.sequence == 0 {
+            self.trades.push_front(trade);
+            return;
+        }
+        let position = self
+            .trades
+            .iter()
+            .position(|existing| existing.sequence < trade.sequence)
+            .unwrap_or(self.trades.len());
+        self.trades.insert(position, trade);
     }
 
     /// Replace all trades (e.g. from a REST fetch).
@@ -67,7 +80,7 @@ mod tests {
     use chrono::Utc;
     use rust_decimal::Decimal;
 
-    fn make_trade(id: &str, price: f64, size: f64) -> Trade {
+    fn make_trade(id: &str, price: f64, size: f64, sequence: u64) -> Trade {
         Trade {
             orderbook_id: OrderBookId::from("ob1"),
             trade_id: id.to_string(),
@@ -75,14 +88,15 @@ mod tests {
             price: Decimal::try_from(price).unwrap(),
             size: Decimal::try_from(size).unwrap(),
             side: Side::Bid,
+            sequence,
         }
     }
 
     #[test]
     fn test_push_adds_trades() {
         let mut th = TradeHistory::new(OrderBookId::from("ob1"), 10);
-        th.push(make_trade("t1", 50.0, 5.0));
-        th.push(make_trade("t2", 51.0, 3.0));
+        th.push(make_trade("t1", 50.0, 5.0, 0));
+        th.push(make_trade("t2", 51.0, 3.0, 0));
         assert_eq!(th.len(), 2);
         assert_eq!(th.latest().unwrap().trade_id, "t2");
     }
@@ -90,21 +104,35 @@ mod tests {
     #[test]
     fn test_rolling_buffer_evicts_oldest() {
         let mut th = TradeHistory::new(OrderBookId::from("ob1"), 3);
-        th.push(make_trade("t1", 50.0, 1.0));
-        th.push(make_trade("t2", 51.0, 2.0));
-        th.push(make_trade("t3", 52.0, 3.0));
+        th.push(make_trade("t1", 50.0, 1.0, 0));
+        th.push(make_trade("t2", 51.0, 2.0, 0));
+        th.push(make_trade("t3", 52.0, 3.0, 0));
         assert_eq!(th.len(), 3);
-        th.push(make_trade("t4", 53.0, 4.0));
+        th.push(make_trade("t4", 53.0, 4.0, 0));
         assert_eq!(th.len(), 3);
         let ids: Vec<_> = th.trades().iter().map(|t| t.trade_id.as_str()).collect();
         assert_eq!(ids, ["t4", "t3", "t2"]);
     }
 
     #[test]
+    fn test_push_reorders_by_sequence() {
+        let mut th = TradeHistory::new(OrderBookId::from("ob1"), 10);
+        // Arrive out of order: seq 3, then 1, then 2
+        th.push(make_trade("t3", 52.0, 3.0, 3));
+        th.push(make_trade("t1", 50.0, 1.0, 1));
+        th.push(make_trade("t2", 51.0, 2.0, 2));
+        let ids: Vec<_> = th.trades().iter().map(|t| t.trade_id.as_str()).collect();
+        assert_eq!(ids, ["t3", "t2", "t1"]);
+    }
+
+    #[test]
     fn test_replace_clears_and_fills() {
         let mut th = TradeHistory::new(OrderBookId::from("ob1"), 10);
-        th.push(make_trade("t1", 50.0, 1.0));
-        th.replace(vec![make_trade("a", 49.0, 1.0), make_trade("b", 50.0, 2.0)]);
+        th.push(make_trade("t1", 50.0, 1.0, 0));
+        th.replace(vec![
+            make_trade("a", 49.0, 1.0, 0),
+            make_trade("b", 50.0, 2.0, 0),
+        ]);
         assert_eq!(th.len(), 2);
         // replace uses push_back, so first vec element is at front (latest)
         assert_eq!(th.latest().unwrap().trade_id, "a");

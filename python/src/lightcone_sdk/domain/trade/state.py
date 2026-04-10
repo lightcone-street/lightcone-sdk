@@ -17,7 +17,24 @@ class TradeHistory:
         self._trades = deque(maxlen=self.max_size)
 
     def push(self, trade: Trade) -> None:
-        self._trades.append(trade)
+        """Insert a trade in ascending sequence order (oldest first, newest last).
+
+        Trades with ``sequence > 0`` are placed at the correct position so the
+        buffer stays sorted. Trades with ``sequence == 0`` (REST) are appended
+        to the end as before.
+        """
+        if trade.sequence == 0:
+            self._trades.append(trade)
+            return
+        # deque.insert() raises IndexError at maxlen, so evict manually
+        if len(self._trades) >= self.max_size:
+            self._trades.popleft()
+        # Scan from the end (newest) to find the insertion point
+        for index in range(len(self._trades) - 1, -1, -1):
+            if self._trades[index].sequence <= trade.sequence:
+                self._trades.insert(index + 1, trade)
+                return
+        self._trades.appendleft(trade)
 
     def add(self, trade: Trade) -> None:
         """Alias for push()."""

@@ -360,7 +360,7 @@ mod tests {
 
     #[test]
     fn test_kind_trades_deserialization() {
-        let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid"}, "version": 0.1}"#;
+        let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid", "sequence": 1}, "version": 0.1}"#;
         let msg: MessageIn = serde_json::from_str(json).unwrap();
         assert!(matches!(msg.kind, Kind::Trade(_)));
     }

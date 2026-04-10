@@ -46,7 +46,10 @@ async fn main() -> ExampleResult {
                     hits += 1;
                 }
                 WsEvent::Message(Kind::Trade(trade)) => {
-                    println!("trade: {} {} @ {}", trade.size, trade.side, trade.price);
+                    println!(
+                        "trade: {} {} @ {} seq={}",
+                        trade.size, trade.side, trade.price, trade.sequence
+                    );
                     trades.push(trade.into());
                     hits += 1;
                 }

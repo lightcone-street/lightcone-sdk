@@ -19,10 +19,18 @@ export class OrderbookSnapshot {
     this.cachedBestAsk = null;
   }
 
+  /**
+   * Apply a WS orderbook message (snapshot replaces, delta merges).
+   *
+   * Snapshots are always applied. Deltas with a `seq` at or below the
+   * current value are silently dropped to prevent stale updates.
+   */
   apply(book: OrderBook): void {
     if (book.is_snapshot) {
       this.bidsMap.clear();
       this.asksMap.clear();
+    } else if (book.seq && book.seq > 0 && book.seq <= this.seq) {
+      return;
     }
 
     this.seq = book.seq ?? this.seq;

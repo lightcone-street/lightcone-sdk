@@ -24,10 +24,16 @@ class OrderbookSnapshot:
             self._apply_dict(update)
 
     def _apply_typed(self, update) -> None:
-        """Apply a WsOrderBook dataclass."""
+        """Apply a WsOrderBook dataclass.
+
+        Snapshots are always applied. Deltas with a seq at or below the
+        current value are silently dropped to prevent stale updates.
+        """
         if update.is_snapshot:
             self.bids.clear()
             self.asks.clear()
+        elif update.seq > 0 and update.seq <= self.sequence:
+            return
 
         for bid in update.bids:
             if bid.size == "0":
@@ -44,10 +50,19 @@ class OrderbookSnapshot:
         self.sequence = update.seq
 
     def _apply_dict(self, update: dict) -> None:
-        """Apply a raw dict update."""
-        if update.get("is_snapshot", False):
+        """Apply a raw dict update.
+
+        Snapshots are always applied. Deltas with a seq at or below the
+        current value are silently dropped to prevent stale updates.
+        """
+        is_snapshot = update.get("is_snapshot", False)
+        if is_snapshot:
             self.bids.clear()
             self.asks.clear()
+        else:
+            seq = update.get("seq", 0)
+            if seq > 0 and seq <= self.sequence:
+                return
 
         for bid in update.get("bids", []):
             price = str(bid.get("price", bid[0] if isinstance(bid, list) else "0"))

@@ -9,6 +9,7 @@ export function tradeFromResponse(source: TradeResponse): Trade {
     price: source.price,
     size: source.size,
     side: source.side,
+    sequence: 0,
   };
 }
 
@@ -20,5 +21,6 @@ export function tradeFromWs(source: WsTrade): Trade {
     price: source.price,
     size: source.size,
     side: source.side,
+    sequence: source.sequence,
   };
 }

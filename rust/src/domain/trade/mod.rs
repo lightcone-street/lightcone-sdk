@@ -21,6 +21,10 @@ pub struct Trade {
     pub price: Decimal,
     pub size: Decimal,
     pub side: Side,
+    /// Monotonic sequence number per orderbook for ordering guarantees.
+    /// Always present for WS trades; 0 for REST trades.
+    #[serde(default)]
+    pub sequence: u64,
 }
 
 /// A page of trades with cursor-based pagination metadata.

@@ -12,10 +12,28 @@ export class TradeHistory {
     this.buffer = [];
   }
 
+  /**
+   * Insert a trade in descending sequence order.
+   *
+   * Trades with `sequence > 0` are placed at the correct position so the
+   * buffer stays sorted newest-first. Trades with `sequence === 0` (REST)
+   * are prepended.
+   */
   push(trade: Trade): void {
-    this.buffer.unshift(trade);
-    if (this.buffer.length > this.maxSize) {
+    if (this.buffer.length >= this.maxSize) {
       this.buffer.pop();
+    }
+    if (trade.sequence === 0) {
+      this.buffer.unshift(trade);
+      return;
+    }
+    const position = this.buffer.findIndex(
+      (existing) => existing.sequence < trade.sequence,
+    );
+    if (position === -1) {
+      this.buffer.push(trade);
+    } else {
+      this.buffer.splice(position, 0, trade);
     }
   }
 

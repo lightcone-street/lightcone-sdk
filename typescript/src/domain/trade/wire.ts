@@ -34,4 +34,6 @@ export interface WsTrade {
   price: string;
   size: string;
   side: Side;
+  /** Monotonic sequence number per orderbook for ordering guarantees. */
+  sequence: number;
 }
