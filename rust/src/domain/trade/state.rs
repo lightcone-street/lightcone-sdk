@@ -29,19 +29,37 @@ impl TradeHistory {
     /// buffer stays sorted by sequence (newest first). Trades with `sequence == 0`
     /// (e.g. from REST) are prepended as before.
     pub fn push(&mut self, trade: Trade) {
-        if self.trades.len() >= self.max_size {
-            self.trades.pop_back();
-        }
-        if trade.sequence == 0 {
-            self.trades.push_front(trade);
+        // Treat a zero-capacity history as disabled.
+        if self.max_size == 0 {
             return;
         }
+        if trade.sequence == 0 {
+            // REST trades do not carry ordering metadata, so preserve the legacy
+            // "latest first" behavior and let normal capacity eviction apply.
+            self.trades.push_front(trade);
+            if self.trades.len() > self.max_size {
+                self.trades.pop_back();
+            }
+            return;
+        }
+        // Find the first retained trade that is older than the incoming
+        // sequence. Inserting there keeps the buffer sorted newest-first.
         let position = self
             .trades
             .iter()
             .position(|existing| existing.sequence < trade.sequence)
             .unwrap_or(self.trades.len());
+        if self.trades.len() >= self.max_size && position == self.trades.len() {
+            // The buffer is full and the new trade is older than everything we
+            // already keep, so dropping it preserves the newest retained window.
+            return;
+        }
         self.trades.insert(position, trade);
+        if self.trades.len() > self.max_size {
+            // The new trade landed inside the retained window, so evict the
+            // oldest trade at the tail to restore capacity.
+            self.trades.pop_back();
+        }
     }
 
     /// Replace all trades (e.g. from a REST fetch).
@@ -123,6 +141,19 @@ mod tests {
         th.push(make_trade("t2", 51.0, 2.0, 2));
         let ids: Vec<_> = th.trades().iter().map(|t| t.trade_id.as_str()).collect();
         assert_eq!(ids, ["t3", "t2", "t1"]);
+    }
+
+    #[test]
+    fn test_push_drops_older_sequence_when_full() {
+        let mut th = TradeHistory::new(OrderBookId::from("ob1"), 3);
+        th.push(make_trade("t5", 54.0, 5.0, 5));
+        th.push(make_trade("t4", 53.0, 4.0, 4));
+        th.push(make_trade("t3", 52.0, 3.0, 3));
+
+        th.push(make_trade("t2", 51.0, 2.0, 2));
+
+        let ids: Vec<_> = th.trades().iter().map(|t| t.trade_id.as_str()).collect();
+        assert_eq!(ids, ["t5", "t4", "t3"]);
     }
 
     #[test]

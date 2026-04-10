@@ -59,5 +59,6 @@ pub struct WsTrade {
     pub size: Decimal,
     pub side: Side,
     /// Monotonic sequence number per orderbook for ordering guarantees.
+    #[serde(default)]
     pub sequence: u64,
 }

@@ -362,7 +362,20 @@ mod tests {
     fn test_kind_trades_deserialization() {
         let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid", "sequence": 1}, "version": 0.1}"#;
         let msg: MessageIn = serde_json::from_str(json).unwrap();
-        assert!(matches!(msg.kind, Kind::Trade(_)));
+        match msg.kind {
+            Kind::Trade(trade) => assert_eq!(trade.sequence, 1),
+            _ => panic!("expected Kind::Trade"),
+        }
+    }
+
+    #[test]
+    fn test_kind_trades_deserialization_without_sequence() {
+        let json = r#"{"type": "trades", "data": {"orderbook_id": "abc", "trade_id": "t1", "timestamp": "2025-01-01T00:00:00Z", "price": "1.5", "size": "100", "side": "bid"}, "version": 0.1}"#;
+        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        match msg.kind {
+            Kind::Trade(trade) => assert_eq!(trade.sequence, 0),
+            _ => panic!("expected Kind::Trade"),
+        }
     }
 
     #[test]
