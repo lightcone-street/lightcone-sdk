@@ -21,7 +21,8 @@ A single trade execution record.
 | Field | Type | Description |
 |-------|------|-------------|
 | `orderbook_id` | `OrderBookId` | Which orderbook the trade occurred on |
-| `trade_id` | `String` | Unique trade identifier |
+| `trade_id` | `String` | Canonical trade identifier shared by REST and WS |
+| `cursor_id` | `Option<i64>` | Numeric REST row id used for pagination (`None` on WS trades) |
 | `timestamp` | `DateTime<Utc>` | Execution timestamp |
 | `price` | `Decimal` | Trade price |
 | `size` | `Decimal` | Trade size |
@@ -58,7 +59,7 @@ Fetch trades for an orderbook with cursor-based pagination.
 **Parameters:**
 - `orderbook_id` -- which orderbook to query
 - `limit` -- maximum number of trades to return
-- `cursor` -- cursor from `next_cursor` of a previous response (fetch older trades)
+- `cursor` -- numeric cursor from `next_cursor` of a previous response (fetch older trades)
 
 ## State Container: TradeHistory
 

@@ -2,6 +2,7 @@ import type { OrderBookId, Side } from "../../shared";
 
 export interface TradeResponse {
   id: number;
+  trade_id: string;
   orderbook_id: OrderBookId;
   taker_pubkey: string;
   maker_pubkey: string;

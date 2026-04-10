@@ -8,6 +8,8 @@ export { tradeFromResponse, tradeFromWs } from "./convert";
 export interface Trade {
   orderbookId: OrderBookId;
   tradeId: string;
+  /** Numeric REST row id used for cursor pagination. Undefined on WS trades. */
+  cursorId?: number;
   timestamp: Date;
   price: string;
   size: string;
