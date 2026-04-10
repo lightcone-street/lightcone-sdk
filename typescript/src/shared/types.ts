@@ -45,6 +45,7 @@ export enum TriggerStatus {
   Triggered = "triggered",
   Failed = "failed",
   Expired = "expired",
+  Invalidated = "invalidated",
 }
 
 export enum OrderUpdateType {
@@ -58,6 +59,7 @@ export enum TriggerUpdateType {
   Triggered = "TRIGGERED",
   Failed = "FAILED",
   Expired = "EXPIRED",
+  Invalidated = "INVALIDATED",
 }
 
 export enum TriggerResultStatus {
