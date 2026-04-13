@@ -5,6 +5,14 @@ use crate::shared::OrderBookId;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 
+/// Result of applying an orderbook snapshot or delta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ApplyResult {
+    Applied,
+    IgnoredStale,
+    GapDetected { expected: u64, got: u64 },
+}
+
 /// Live orderbook state that can apply snapshots and deltas.
 ///
 /// The app owns instances of this type (e.g. inside a Dioxus `Signal`).
@@ -31,13 +39,37 @@ impl OrderbookSnapshot {
     ///
     /// Snapshots are always applied. Deltas with a `seq` at or below the
     /// current value are silently dropped to prevent stale or duplicate
-    /// updates from corrupting the book.
-    pub fn apply(&mut self, book: &OrderBook) {
+    /// updates from corrupting the book. Deltas that skip one or more
+    /// expected sequence values are rejected so callers can refresh from
+    /// a fresh snapshot instead of mutating a corrupted book.
+    pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
         if book.is_snapshot {
             self.bids.clear();
             self.asks.clear();
-        } else if book.seq > 0 && book.seq <= self.seq {
-            return;
+        } else {
+            // The backend sends snapshots with seq=0 and starts delta seq at 1.
+            // A delta with seq=0 means it has no valid sequence, so drop it.
+            if book.seq == 0 {
+                return ApplyResult::IgnoredStale;
+            }
+
+            if self.seq == 0 {
+                return ApplyResult::GapDetected {
+                    expected: 0,
+                    got: book.seq,
+                };
+            }
+
+            if book.seq <= self.seq {
+                return ApplyResult::IgnoredStale;
+            }
+
+            if book.seq != self.seq + 1 {
+                return ApplyResult::GapDetected {
+                    expected: self.seq + 1,
+                    got: book.seq,
+                };
+            }
         }
 
         self.seq = book.seq;
@@ -57,6 +89,8 @@ impl OrderbookSnapshot {
                 self.asks.insert(order.price, order.size);
             }
         }
+
+        ApplyResult::Applied
     }
 
     /// Bids sorted by price descending.
@@ -151,13 +185,19 @@ mod tests {
     #[test]
     fn test_snapshot_replaces_state() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.bids().len(), 1);
         assert_eq!(snap.asks().len(), 1);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
         assert_eq!(snap.best_ask(), Some(Decimal::try_from(51.0).unwrap()));
 
-        snap.apply(&order_book(true, 2, vec![(49.0, 20.0)], vec![(52.0, 8.0)]));
+        assert_eq!(
+            snap.apply(&order_book(true, 2, vec![(49.0, 20.0)], vec![(52.0, 8.0)])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.bids().len(), 1);
         assert_eq!(snap.asks().len(), 1);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(49.0).unwrap()));
@@ -167,13 +207,19 @@ mod tests {
     #[test]
     fn test_delta_merges_with_snapshot() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
-        snap.apply(&order_book(
-            false,
-            2,
-            vec![(49.0, 15.0), (48.0, 3.0)],
-            vec![(52.0, 2.0)],
-        ));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+        assert_eq!(
+            snap.apply(&order_book(
+                false,
+                2,
+                vec![(49.0, 15.0), (48.0, 3.0)],
+                vec![(52.0, 2.0)],
+            )),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.bids().len(), 3);
         assert_eq!(snap.asks().len(), 2);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
@@ -183,8 +229,14 @@ mod tests {
     #[test]
     fn test_zero_size_removes_level() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
-        snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+        assert_eq!(
+            snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.bids().len(), 0);
         assert_eq!(snap.best_bid(), None);
     }
@@ -192,7 +244,10 @@ mod tests {
     #[test]
     fn test_mid_price_and_spread() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(52.0, 5.0)]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(52.0, 5.0)])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.mid_price(), Some(Decimal::try_from(51.0).unwrap()));
         assert_eq!(snap.spread(), Some(Decimal::try_from(2.0).unwrap()));
     }
@@ -200,30 +255,83 @@ mod tests {
     #[test]
     fn test_stale_delta_is_dropped() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
-        snap.apply(&order_book(false, 2, vec![(49.0, 20.0)], vec![]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+        assert_eq!(
+            snap.apply(&order_book(false, 2, vec![(49.0, 20.0)], vec![])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.seq, 2);
         assert_eq!(snap.bids().len(), 2);
 
         // Stale delta (seq <= current) should be ignored
-        snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(
+            snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![])),
+            ApplyResult::IgnoredStale
+        );
         assert_eq!(snap.seq, 2);
         assert_eq!(snap.bids().len(), 2); // unchanged
 
         // Duplicate seq should also be ignored
-        snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![]));
+        assert_eq!(
+            snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
+            ApplyResult::IgnoredStale
+        );
         assert_eq!(snap.bids().len(), 2); // unchanged
 
         // Snapshot always applies regardless of seq
-        snap.apply(&order_book(true, 1, vec![(48.0, 5.0)], vec![]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(48.0, 5.0)], vec![])),
+            ApplyResult::Applied
+        );
         assert_eq!(snap.seq, 1);
         assert_eq!(snap.bids().len(), 1);
     }
 
     #[test]
+    fn test_gap_delta_is_detected_and_not_applied() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+
+        assert_eq!(
+            snap.apply(&order_book(false, 3, vec![(49.0, 20.0)], vec![])),
+            ApplyResult::GapDetected {
+                expected: 2,
+                got: 3,
+            }
+        );
+        assert_eq!(snap.seq, 1);
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+    }
+
+    #[test]
+    fn test_delta_before_snapshot_is_detected_as_gap() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+
+        assert_eq!(
+            snap.apply(&order_book(false, 1, vec![(50.0, 10.0)], vec![])),
+            ApplyResult::GapDetected {
+                expected: 0,
+                got: 1,
+            }
+        );
+        assert_eq!(snap.seq, 0);
+        assert!(snap.is_empty());
+    }
+
+    #[test]
     fn test_clear() {
         let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
-        snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)]));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
         snap.clear();
         assert!(snap.is_empty());
         assert_eq!(snap.seq, 0);
