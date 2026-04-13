@@ -17,6 +17,9 @@ pub use state::TradeHistory;
 pub struct Trade {
     pub orderbook_id: OrderBookId,
     pub trade_id: String,
+    /// Numeric REST row id used for cursor pagination. Absent on WS trades.
+    #[serde(default)]
+    pub cursor_id: Option<i64>,
     pub timestamp: DateTime<Utc>,
     pub price: Decimal,
     pub size: Decimal,

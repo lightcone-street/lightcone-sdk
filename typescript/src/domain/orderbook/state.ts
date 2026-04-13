@@ -2,6 +2,11 @@ import Decimal from "decimal.js";
 import type { OrderBookId } from "../../shared";
 import type { OrderBook } from "./wire";
 
+export type OrderbookApplyResult =
+  | { kind: "applied" }
+  | { kind: "ignored_stale" }
+  | { kind: "gap_detected"; expected: number; got: number };
+
 export class OrderbookSnapshot {
   readonly orderbookId: OrderBookId;
   seq: number;
@@ -23,17 +28,35 @@ export class OrderbookSnapshot {
    * Apply a WS orderbook message (snapshot replaces, delta merges).
    *
    * Snapshots are always applied. Deltas with a `seq` at or below the
-   * current value are silently dropped to prevent stale updates.
+   * current value are silently dropped to prevent stale updates. Deltas
+   * that skip one or more expected sequence values are rejected so callers
+   * can refresh from a fresh snapshot instead of mutating a corrupted book.
    */
-  apply(book: OrderBook): void {
+  apply(book: OrderBook): OrderbookApplyResult {
     if (book.is_snapshot) {
       this.bidsMap.clear();
       this.asksMap.clear();
-    } else if (book.seq && book.seq > 0 && book.seq <= this.seq) {
-      return;
+    } else {
+      // The backend sends snapshots with seq=0 and starts delta seq at 1.
+      // A delta with seq=0 means it has no valid sequence, so drop it.
+      if (!book.seq || book.seq <= 0) {
+        return { kind: "ignored_stale" };
+      }
+
+      if (this.seq === 0) {
+        return { kind: "gap_detected", expected: 0, got: book.seq };
+      }
+
+      if (book.seq <= this.seq) {
+        return { kind: "ignored_stale" };
+      }
+
+      if (book.seq !== this.seq + 1) {
+        return { kind: "gap_detected", expected: this.seq + 1, got: book.seq };
+      }
     }
 
-    this.seq = book.seq ?? this.seq;
+    this.seq = book.seq;
 
     for (const level of book.bids) {
       if (new Decimal(level.size).isZero()) {
@@ -53,6 +76,8 @@ export class OrderbookSnapshot {
 
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
+
+    return { kind: "applied" };
   }
 
   bids(): ReadonlyMap<string, string> {

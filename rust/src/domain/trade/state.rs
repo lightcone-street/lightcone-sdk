@@ -102,6 +102,7 @@ mod tests {
         Trade {
             orderbook_id: OrderBookId::from("ob1"),
             trade_id: id.to_string(),
+            cursor_id: id.parse().ok(),
             timestamp: Utc::now(),
             price: Decimal::try_from(price).unwrap(),
             size: Decimal::try_from(size).unwrap(),

@@ -10,7 +10,8 @@ impl From<TradeResponse> for Trade {
     fn from(t: TradeResponse) -> Self {
         Self {
             orderbook_id: t.orderbook_id,
-            trade_id: t.id.to_string(),
+            trade_id: t.trade_id,
+            cursor_id: Some(t.id),
             timestamp: chrono::Utc
                 .timestamp_millis_opt(t.executed_at)
                 .single()
@@ -28,6 +29,7 @@ impl From<WsTrade> for Trade {
         Self {
             orderbook_id: t.orderbook_id,
             trade_id: t.trade_id,
+            cursor_id: None,
             timestamp: t.timestamp,
             price: t.price,
             size: t.size,
@@ -46,6 +48,7 @@ mod tests {
     fn sample_trade_response() -> TradeResponse {
         TradeResponse {
             id: 456,
+            trade_id: "taker_hash_maker_hash".to_string(),
             orderbook_id: OrderBookId::from("ob_123"),
             taker_pubkey: "taker123".to_string(),
             maker_pubkey: "maker456".to_string(),
@@ -75,7 +78,8 @@ mod tests {
         let resp = sample_trade_response();
         let trade: Trade = resp.into();
         assert_eq!(trade.orderbook_id.as_str(), "ob_123");
-        assert_eq!(trade.trade_id, "456");
+        assert_eq!(trade.trade_id, "taker_hash_maker_hash");
+        assert_eq!(trade.cursor_id, Some(456));
         assert_eq!(trade.price, Decimal::from_str("5.000000").unwrap());
         assert_eq!(trade.size, Decimal::from_str("10.000000").unwrap());
         assert_eq!(trade.side, Side::Bid);
@@ -88,6 +92,7 @@ mod tests {
         let trade: Trade = ws.into();
         assert_eq!(trade.orderbook_id.as_str(), "ob_789");
         assert_eq!(trade.trade_id, "ws_trade_999");
+        assert_eq!(trade.cursor_id, None);
         assert_eq!(trade.price, Decimal::new(75, 1));
         assert_eq!(trade.size, Decimal::new(5, 0));
         assert_eq!(trade.side, Side::Ask);

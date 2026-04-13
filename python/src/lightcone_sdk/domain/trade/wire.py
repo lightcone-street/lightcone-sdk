@@ -8,7 +8,8 @@ from ...error import _require
 
 @dataclass
 class TradeResponseWire:
-    id: str
+    id: int
+    trade_id: str
     orderbook_id: str
     taker_pubkey: Optional[str] = None
     maker_pubkey: Optional[str] = None
@@ -24,7 +25,8 @@ class TradeResponseWire:
     @staticmethod
     def from_dict(d: dict) -> "TradeResponseWire":
         return TradeResponseWire(
-            id=_require(d, "id", "TradeResponseWire"),
+            id=int(_require(d, "id", "TradeResponseWire")),
+            trade_id=_require(d, "trade_id", "TradeResponseWire"),
             orderbook_id=_require(d, "orderbook_id", "TradeResponseWire"),
             taker_pubkey=d.get("taker_pubkey"),
             maker_pubkey=d.get("maker_pubkey"),

@@ -13,7 +13,7 @@ pub struct Trades<'a> {
 impl<'a> Trades<'a> {
     /// Get trades for an orderbook.
     ///
-    /// `cursor` is a trade ID for pagination — pass `next_cursor`
+    /// `cursor` is a numeric REST row id for pagination — pass `next_cursor`
     /// from a previous response to get the next page.
     pub async fn get(
         &self,
