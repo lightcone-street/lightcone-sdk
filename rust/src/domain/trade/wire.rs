@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TradeResponse {
     pub id: i64,
+    pub trade_id: String,
     pub orderbook_id: OrderBookId,
     pub taker_pubkey: String,
     pub maker_pubkey: String,
@@ -58,4 +59,7 @@ pub struct WsTrade {
     pub price: Decimal,
     pub size: Decimal,
     pub side: Side,
+    /// Monotonic sequence number per orderbook for ordering guarantees.
+    #[serde(default)]
+    pub sequence: u64,
 }

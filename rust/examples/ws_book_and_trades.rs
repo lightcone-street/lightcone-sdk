@@ -11,7 +11,7 @@ async fn main() -> ExampleResult {
     let (_, orderbook) = market_and_orderbook(&client).await?;
     let mut ws = client.ws_native();
     let orderbook_id = orderbook.orderbook_id.clone();
-    let mut book = OrderbookSnapshot::new(orderbook_id.clone());
+    let mut book = OrderbookState::new(orderbook_id.clone());
     let mut trades = TradeHistory::new(orderbook_id.clone(), 20);
 
     ws.connect().await?;
@@ -46,7 +46,10 @@ async fn main() -> ExampleResult {
                     hits += 1;
                 }
                 WsEvent::Message(Kind::Trade(trade)) => {
-                    println!("trade: {} {} @ {}", trade.size, trade.side, trade.price);
+                    println!(
+                        "trade: {} {} @ {} seq={}",
+                        trade.size, trade.side, trade.price, trade.sequence
+                    );
                     trades.push(trade.into());
                     hits += 1;
                 }

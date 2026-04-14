@@ -1,4 +1,4 @@
-import { OrderbookSnapshot, TradeHistory, type Trade, type WsEvent } from "../src";
+import { OrderbookState, TradeHistory, type Trade, type WsEvent } from "../src";
 import { marketAndOrderbook, restClient, runExample, withTimeout } from "./common";
 
 async function main() {
@@ -6,7 +6,7 @@ async function main() {
   const [, orderbook] = await marketAndOrderbook(client);
   const orderbookId = orderbook.orderbookId;
 
-  const book = new OrderbookSnapshot(orderbookId);
+  const book = new OrderbookState(orderbookId);
   const trades = new TradeHistory(orderbookId, 20);
   const ws = client.ws();
   let hits = 0;
@@ -29,8 +29,9 @@ async function main() {
         price: event.message.data.price,
         size: event.message.data.size,
         side: event.message.data.side,
+        sequence: event.message.data.sequence,
       };
-      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price}`);
+      console.log(`trade: ${trade.size} ${trade.side} @ ${trade.price} seq=${trade.sequence}`);
       trades.push(trade);
       hits += 1;
     } else if (event.type === "Error") {

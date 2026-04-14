@@ -256,7 +256,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 
 | Example | Description |
 |---------|-------------|
-| [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history line data with `PriceHistoryState` |
 | [`ws_user_and_market`](examples/ws_user_and_market.py) | Authenticated user stream (orders, balances) + market lifecycle events |
 

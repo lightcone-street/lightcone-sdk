@@ -7,11 +7,13 @@ from .wire import TradeResponseWire, WsTrade
 def trade_from_wire(wire: TradeResponseWire) -> Trade:
     return Trade(
         orderbook_id=wire.orderbook_id,
-        trade_id=wire.id,
+        trade_id=wire.trade_id,
         timestamp=wire.executed_at or "",
         price=wire.price,
         size=wire.size,
         side=wire.side,
+        sequence=0,
+        cursor_id=wire.id,
     )
 
 
@@ -23,4 +25,6 @@ def trade_from_ws(ws: WsTrade) -> Trade:
         price=ws.price,
         size=ws.size,
         side=ws.side,
+        sequence=ws.sequence,
+        cursor_id=None,
     )

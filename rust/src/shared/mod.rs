@@ -236,6 +236,8 @@ pub enum TriggerStatus {
     Failed,
     /// Trigger condition met, but the pre-signed order had expired.
     Expired,
+    /// Trigger order was invalidated.
+    Invalidated,
 }
 
 // ─── OrderUpdateType ────────────────────────────────────────────────────────
@@ -262,6 +264,7 @@ pub enum TriggerUpdateType {
     Triggered,
     Failed,
     Expired,
+    Invalidated,
 }
 
 // ─── TriggerResultStatus ────────────────────────────────────────────────────

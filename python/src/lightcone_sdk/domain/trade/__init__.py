@@ -13,6 +13,9 @@ class Trade:
     price: str
     size: str
     side: int
+    sequence: int = 0
+    """Monotonic sequence number per orderbook for ordering guarantees. 0 for REST trades."""
+    cursor_id: Optional[int] = None
 
 
 @dataclass
