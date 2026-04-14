@@ -60,7 +60,7 @@ export type {
   WsBookLevel,
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
-export { OrderbookSnapshot } from "./domain/orderbook/state";
+export { OrderbookState } from "./domain/orderbook/state";
 
 export type {
   CancelAllBody,

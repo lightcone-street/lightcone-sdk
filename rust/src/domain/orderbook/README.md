@@ -8,7 +8,7 @@ Orderbook depth, decimals, live state management, and ticker data.
 
 - [Types](#types)
 - [Client Methods](#client-methods)
-- [State Container: OrderbookSnapshot](#state-container-orderbooksnapshot)
+- [State Container: OrderbookState](#state-container-orderbookstate)
 - [Examples](#examples)
 - [Wire Types](#wire-types)
 
@@ -98,14 +98,14 @@ async fn clear_cache(&self)
 
 Clear the internal decimals cache. Rarely needed.
 
-## State Container: OrderbookSnapshot
+## State Container: OrderbookState
 
-`OrderbookSnapshot` is an app-owned state container for maintaining a live orderbook from WebSocket updates.
+`OrderbookState` is an app-owned state container for maintaining a live orderbook from WebSocket updates.
 
 ```rust
 use lightcone::prelude::*;
 
-let mut book = OrderbookSnapshot::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"));
+let mut book = OrderbookState::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"));
 ```
 
 ### Methods
@@ -129,7 +129,7 @@ Returned by `apply()` to indicate what happened:
 | Variant | Description |
 |---------|-------------|
 | `Applied` | The snapshot or delta was successfully merged into the book. |
-| `IgnoredStale` | The delta was dropped because its sequence is at or behind the current book sequence, or it had no valid sequence (`seq == 0`). The book is unchanged. |
+| `Stale` | The delta was dropped because its sequence is at or behind the current book sequence, it had no valid sequence (`seq == 0`), or the server requested resync. The book is unchanged. |
 | `GapDetected { expected, got }` | The delta's sequence skipped ahead of the expected next value, indicating missed messages. The book is unchanged — callers should request a fresh snapshot. |
 
 **Sequence protocol:** The backend sends snapshots with `seq = 0` and starts delta sequences at `1`. Deltas are applied only when `seq == current + 1`. Out-of-order or duplicate deltas are silently ignored, and gaps trigger a re-snapshot.
@@ -162,7 +162,7 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
         orderbook_ids: vec![orderbook_id.clone()],
     }).unwrap();
 
-    let mut snapshot = OrderbookSnapshot::new(orderbook_id);
+    let mut snapshot = OrderbookState::new(orderbook_id);
     let mut stream = ws.events();
 
     while let Some(event) = stream.next().await {
@@ -174,7 +174,13 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
                     snapshot.best_ask(),
                     snapshot.spread()
                 ),
-                ApplyResult::IgnoredStale => {} // duplicate or late delta
+                ApplyResult::Stale => {
+                    if book.resync {
+                        eprintln!("Server requested orderbook resync");
+                        // re-subscribe or request a fresh snapshot
+                    }
+                    // duplicate, late delta, invalid zero-seq delta, or resync signal
+                }
                 ApplyResult::GapDetected { expected, got } => {
                     eprintln!("Gap: expected seq {expected}, got {got} — re-snapshot needed");
                     // re-subscribe or request a fresh snapshot

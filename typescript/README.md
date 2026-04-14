@@ -287,7 +287,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`ws_book_and_trades`](examples/ws_book_and_trades.ts) | Live orderbook depth with `OrderbookSnapshot` state + rolling `TradeHistory` buffer |
+| [`ws_book_and_trades`](examples/ws_book_and_trades.ts) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.ts) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
 | [`ws_user_and_market`](examples/ws_user_and_market.ts) | Authenticated user stream (orders, balances) + market lifecycle events |
 

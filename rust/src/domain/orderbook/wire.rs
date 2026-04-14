@@ -80,6 +80,8 @@ pub struct OrderBook {
     pub is_snapshot: bool,
     #[serde(default)]
     pub seq: u64,
+    #[serde(default)]
+    pub resync: bool,
     #[serde(default = "Vec::new")]
     pub bids: Vec<WsBookLevel>,
     #[serde(default = "Vec::new")]

@@ -120,6 +120,7 @@ class WsOrderBook:
     orderbook_id: str
     is_snapshot: bool = False
     seq: int = 0
+    resync: bool = False
     bids: list[WsBookLevel] = field(default_factory=list)
     asks: list[WsBookLevel] = field(default_factory=list)
 
@@ -133,6 +134,7 @@ class WsOrderBook:
             orderbook_id=ob_id,
             is_snapshot=d.get("is_snapshot", False),
             seq=d.get("seq", 0),
+            resync=d.get("resync", False),
             bids=[WsBookLevel.from_dict(b) for b in d.get("bids", [])],
             asks=[WsBookLevel.from_dict(a) for a in d.get("asks", [])],
         )
