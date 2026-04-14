@@ -5,7 +5,8 @@ import type { OrderBook } from "./wire";
 export type OrderbookApplyResult =
   | { kind: "applied" }
   | { kind: "ignored_stale" }
-  | { kind: "gap_detected"; expected: number; got: number };
+  | { kind: "gap_detected"; expected: number; got: number }
+  | { kind: "resync_required" };
 
 export class OrderbookSnapshot {
   readonly orderbookId: OrderBookId;
@@ -14,6 +15,7 @@ export class OrderbookSnapshot {
   private readonly asksMap: Map<string, string>;
   private cachedBestBid: string | undefined | null;
   private cachedBestAsk: string | undefined | null;
+  private hasSnapshot: boolean;
 
   constructor(orderbookId: OrderBookId) {
     this.orderbookId = orderbookId;
@@ -22,6 +24,7 @@ export class OrderbookSnapshot {
     this.asksMap = new Map();
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
+    this.hasSnapshot = false;
   }
 
   /**
@@ -33,30 +36,37 @@ export class OrderbookSnapshot {
    * can refresh from a fresh snapshot instead of mutating a corrupted book.
    */
   apply(book: OrderBook): OrderbookApplyResult {
+    if (book.resync) {
+      return { kind: "resync_required" };
+    }
+
+    const seq = book.seq ?? 0;
+
     if (book.is_snapshot) {
       this.bidsMap.clear();
       this.asksMap.clear();
+      this.hasSnapshot = true;
     } else {
       // The backend sends snapshots with seq=0 and starts delta seq at 1.
       // A delta with seq=0 means it has no valid sequence, so drop it.
-      if (!book.seq || book.seq <= 0) {
+      if (seq <= 0) {
         return { kind: "ignored_stale" };
       }
 
-      if (this.seq === 0) {
-        return { kind: "gap_detected", expected: 0, got: book.seq };
+      if (!this.hasSnapshot) {
+        return { kind: "gap_detected", expected: 0, got: seq };
       }
 
-      if (book.seq <= this.seq) {
+      if (seq <= this.seq) {
         return { kind: "ignored_stale" };
       }
 
-      if (book.seq !== this.seq + 1) {
-        return { kind: "gap_detected", expected: this.seq + 1, got: book.seq };
+      if (seq !== this.seq + 1) {
+        return { kind: "gap_detected", expected: this.seq + 1, got: seq };
       }
     }
 
-    this.seq = book.seq;
+    this.seq = seq;
 
     for (const level of book.bids) {
       if (new Decimal(level.size).isZero()) {
@@ -147,5 +157,6 @@ export class OrderbookSnapshot {
     this.seq = 0;
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
+    this.hasSnapshot = false;
   }
 }

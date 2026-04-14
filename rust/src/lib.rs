@@ -148,6 +148,6 @@ pub mod prelude {
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};
 
     // State containers
-    pub use crate::domain::orderbook::state::OrderbookSnapshot;
+    pub use crate::domain::orderbook::state::{ApplyResult, OrderbookSnapshot};
     pub use crate::domain::trade::TradeHistory;
 }

@@ -131,6 +131,7 @@ Returned by `apply()` to indicate what happened:
 | `Applied` | The snapshot or delta was successfully merged into the book. |
 | `IgnoredStale` | The delta was dropped because its sequence is at or behind the current book sequence, or it had no valid sequence (`seq == 0`). The book is unchanged. |
 | `GapDetected { expected, got }` | The delta's sequence skipped ahead of the expected next value, indicating missed messages. The book is unchanged — callers should request a fresh snapshot. |
+| `ResyncRequired` | The server explicitly requested a resync. The book is unchanged — callers should re-subscribe or request a fresh snapshot. |
 
 **Sequence protocol:** The backend sends snapshots with `seq = 0` and starts delta sequences at `1`. Deltas are applied only when `seq == current + 1`. Out-of-order or duplicate deltas are silently ignored, and gaps trigger a re-snapshot.
 
@@ -177,6 +178,10 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
                 ApplyResult::IgnoredStale => {} // duplicate or late delta
                 ApplyResult::GapDetected { expected, got } => {
                     eprintln!("Gap: expected seq {expected}, got {got} — re-snapshot needed");
+                    // re-subscribe or request a fresh snapshot
+                }
+                ApplyResult::ResyncRequired => {
+                    eprintln!("Server requested orderbook resync");
                     // re-subscribe or request a fresh snapshot
                 }
             }

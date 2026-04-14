@@ -56,6 +56,7 @@ export interface OrderBook {
   orderbook_id: OrderBookId;
   is_snapshot?: boolean;
   seq?: number;
+  resync?: boolean;
   timestamp?: string;
   bids: WsBookLevel[];
   asks: WsBookLevel[];

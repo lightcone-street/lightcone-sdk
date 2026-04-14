@@ -23,6 +23,10 @@ class OrderbookApplyResult:
     def gap_detected(expected: int, got: int) -> "OrderbookApplyResult":
         return OrderbookApplyResult(kind="gap_detected", expected=expected, got=got)
 
+    @staticmethod
+    def resync_required() -> "OrderbookApplyResult":
+        return OrderbookApplyResult(kind="resync_required")
+
 
 @dataclass
 class OrderbookSnapshot:
@@ -31,6 +35,7 @@ class OrderbookSnapshot:
     bids: dict[str, str] = field(default_factory=dict)
     asks: dict[str, str] = field(default_factory=dict)
     sequence: int = 0
+    _has_snapshot: bool = field(default=False, init=False, repr=False)
 
     def apply(self, update) -> OrderbookApplyResult:
         """Apply a book update (snapshot or delta).
@@ -49,15 +54,19 @@ class OrderbookSnapshot:
         that skip one or more expected sequence values are rejected so callers
         can refresh from a fresh snapshot instead of mutating a corrupted book.
         """
+        if getattr(update, "resync", False):
+            return OrderbookApplyResult.resync_required()
+
         if update.is_snapshot:
             self.bids.clear()
             self.asks.clear()
+            self._has_snapshot = True
         else:
             # The backend sends snapshots with seq=0 and starts delta seq at 1.
             # A delta with seq=0 means it has no valid sequence, so drop it.
             if update.seq <= 0:
                 return OrderbookApplyResult.ignored_stale()
-            if self.sequence == 0:
+            if not self._has_snapshot:
                 return OrderbookApplyResult.gap_detected(0, update.seq)
             if update.seq <= self.sequence:
                 return OrderbookApplyResult.ignored_stale()
@@ -87,17 +96,21 @@ class OrderbookSnapshot:
         that skip one or more expected sequence values are rejected so callers
         can refresh from a fresh snapshot instead of mutating a corrupted book.
         """
+        if update.get("resync", False):
+            return OrderbookApplyResult.resync_required()
+
         is_snapshot = update.get("is_snapshot", False)
         if is_snapshot:
             self.bids.clear()
             self.asks.clear()
+            self._has_snapshot = True
         else:
             seq = update.get("seq", 0)
             # The backend sends snapshots with seq=0 and starts delta seq at 1.
             # A delta with seq=0 means it has no valid sequence, so drop it.
             if seq <= 0:
                 return OrderbookApplyResult.ignored_stale()
-            if self.sequence == 0:
+            if not self._has_snapshot:
                 return OrderbookApplyResult.gap_detected(0, seq)
             if seq <= self.sequence:
                 return OrderbookApplyResult.ignored_stale()
@@ -156,3 +169,4 @@ class OrderbookSnapshot:
         self.bids.clear()
         self.asks.clear()
         self.sequence = 0
+        self._has_snapshot = False

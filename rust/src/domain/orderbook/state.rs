@@ -11,6 +11,7 @@ pub enum ApplyResult {
     Applied,
     IgnoredStale,
     GapDetected { expected: u64, got: u64 },
+    ResyncRequired,
 }
 
 /// Live orderbook state that can apply snapshots and deltas.
@@ -23,6 +24,7 @@ pub struct OrderbookSnapshot {
     pub seq: u64,
     bids: BTreeMap<Decimal, Decimal>,
     asks: BTreeMap<Decimal, Decimal>,
+    has_snapshot: bool,
 }
 
 impl OrderbookSnapshot {
@@ -32,6 +34,7 @@ impl OrderbookSnapshot {
             seq: 0,
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
+            has_snapshot: false,
         }
     }
 
@@ -43,9 +46,14 @@ impl OrderbookSnapshot {
     /// expected sequence values are rejected so callers can refresh from
     /// a fresh snapshot instead of mutating a corrupted book.
     pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
+        if book.resync {
+            return ApplyResult::ResyncRequired;
+        }
+
         if book.is_snapshot {
             self.bids.clear();
             self.asks.clear();
+            self.has_snapshot = true;
         } else {
             // The backend sends snapshots with seq=0 and starts delta seq at 1.
             // A delta with seq=0 means it has no valid sequence, so drop it.
@@ -53,7 +61,7 @@ impl OrderbookSnapshot {
                 return ApplyResult::IgnoredStale;
             }
 
-            if self.seq == 0 {
+            if !self.has_snapshot {
                 return ApplyResult::GapDetected {
                     expected: 0,
                     got: book.seq,
@@ -137,6 +145,7 @@ impl OrderbookSnapshot {
         self.bids.clear();
         self.asks.clear();
         self.seq = 0;
+        self.has_snapshot = false;
     }
 }
 
@@ -163,6 +172,7 @@ mod tests {
             id: OrderBookId::from("ob_test"),
             is_snapshot: snapshot,
             seq,
+            resync: false,
             bids: bids
                 .into_iter()
                 .map(|(price, size)| WsBookLevel {
@@ -224,6 +234,41 @@ mod tests {
         assert_eq!(snap.asks().len(), 2);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
         assert_eq!(snap.best_ask(), Some(Decimal::try_from(51.0).unwrap()));
+    }
+
+    #[test]
+    fn test_first_delta_after_zero_sequence_snapshot_applies() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(true, 0, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+
+        assert_eq!(
+            snap.apply(&order_book(false, 1, vec![(49.0, 20.0)], vec![])),
+            ApplyResult::Applied
+        );
+
+        assert_eq!(snap.seq, 1);
+        assert_eq!(snap.bids().len(), 2);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+    }
+
+    #[test]
+    fn test_resync_signal_leaves_book_unchanged() {
+        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+
+        let mut resync = order_book(false, 2, vec![(49.0, 20.0)], vec![]);
+        resync.resync = true;
+        assert_eq!(snap.apply(&resync), ApplyResult::ResyncRequired);
+
+        assert_eq!(snap.seq, 1);
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
     }
 
     #[test]
