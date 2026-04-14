@@ -9,9 +9,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyResult {
     Applied,
-    IgnoredStale,
+    Stale,
     GapDetected { expected: u64, got: u64 },
-    ResyncRequired,
 }
 
 /// Live orderbook state that can apply snapshots and deltas.
@@ -19,7 +18,7 @@ pub enum ApplyResult {
 /// The app owns instances of this type (e.g. inside a Dioxus `Signal`).
 /// The SDK provides the update methods.
 #[derive(Debug, Clone, Default)]
-pub struct OrderbookSnapshot {
+pub struct OrderbookState {
     pub orderbook_id: OrderBookId,
     pub seq: u64,
     bids: BTreeMap<Decimal, Decimal>,
@@ -27,7 +26,7 @@ pub struct OrderbookSnapshot {
     has_snapshot: bool,
 }
 
-impl OrderbookSnapshot {
+impl OrderbookState {
     pub fn new(orderbook_id: OrderBookId) -> Self {
         Self {
             orderbook_id,
@@ -44,10 +43,11 @@ impl OrderbookSnapshot {
     /// current value are silently dropped to prevent stale or duplicate
     /// updates from corrupting the book. Deltas that skip one or more
     /// expected sequence values are rejected so callers can refresh from
-    /// a fresh snapshot instead of mutating a corrupted book.
+    /// a fresh snapshot instead of mutating a corrupted book. Server resync
+    /// messages leave the book unchanged and return `ApplyResult::Stale`.
     pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
         if book.resync {
-            return ApplyResult::ResyncRequired;
+            return ApplyResult::Stale;
         }
 
         if book.is_snapshot {
@@ -58,7 +58,7 @@ impl OrderbookSnapshot {
             // The backend sends snapshots with seq=0 and starts delta seq at 1.
             // A delta with seq=0 means it has no valid sequence, so drop it.
             if book.seq == 0 {
-                return ApplyResult::IgnoredStale;
+                return ApplyResult::Stale;
             }
 
             if !self.has_snapshot {
@@ -69,7 +69,7 @@ impl OrderbookSnapshot {
             }
 
             if book.seq <= self.seq {
-                return ApplyResult::IgnoredStale;
+                return ApplyResult::Stale;
             }
 
             if book.seq != self.seq + 1 {
@@ -194,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_snapshot_replaces_state() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn test_delta_merges_with_snapshot() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_first_delta_after_zero_sequence_snapshot_applies() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 0, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -256,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_resync_signal_leaves_book_unchanged() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -264,7 +264,7 @@ mod tests {
 
         let mut resync = order_book(false, 2, vec![(49.0, 20.0)], vec![]);
         resync.resync = true;
-        assert_eq!(snap.apply(&resync), ApplyResult::ResyncRequired);
+        assert_eq!(snap.apply(&resync), ApplyResult::Stale);
 
         assert_eq!(snap.seq, 1);
         assert_eq!(snap.bids().len(), 1);
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_zero_size_removes_level() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -288,7 +288,7 @@ mod tests {
 
     #[test]
     fn test_mid_price_and_spread() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(52.0, 5.0)])),
             ApplyResult::Applied
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn test_stale_delta_is_dropped() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -314,7 +314,7 @@ mod tests {
         // Stale delta (seq <= current) should be ignored
         assert_eq!(
             snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::IgnoredStale
+            ApplyResult::Stale
         );
         assert_eq!(snap.seq, 2);
         assert_eq!(snap.bids().len(), 2); // unchanged
@@ -322,7 +322,7 @@ mod tests {
         // Duplicate seq should also be ignored
         assert_eq!(
             snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::IgnoredStale
+            ApplyResult::Stale
         );
         assert_eq!(snap.bids().len(), 2); // unchanged
 
@@ -337,7 +337,7 @@ mod tests {
 
     #[test]
     fn test_gap_delta_is_detected_and_not_applied() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn test_delta_before_snapshot_is_detected_as_gap() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
 
         assert_eq!(
             snap.apply(&order_book(false, 1, vec![(50.0, 10.0)], vec![])),
@@ -372,7 +372,7 @@ mod tests {
 
     #[test]
     fn test_clear() {
-        let mut snap = OrderbookSnapshot::new(OrderBookId::from("ob1"));
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied

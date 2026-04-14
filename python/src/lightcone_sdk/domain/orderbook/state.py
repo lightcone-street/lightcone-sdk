@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional, Union
+from typing import Optional
 
 
 @dataclass(frozen=True)
@@ -16,20 +16,15 @@ class OrderbookApplyResult:
         return OrderbookApplyResult(kind="applied")
 
     @staticmethod
-    def ignored_stale() -> "OrderbookApplyResult":
-        return OrderbookApplyResult(kind="ignored_stale")
+    def stale() -> "OrderbookApplyResult":
+        return OrderbookApplyResult(kind="stale")
 
     @staticmethod
     def gap_detected(expected: int, got: int) -> "OrderbookApplyResult":
         return OrderbookApplyResult(kind="gap_detected", expected=expected, got=got)
 
-    @staticmethod
-    def resync_required() -> "OrderbookApplyResult":
-        return OrderbookApplyResult(kind="resync_required")
-
-
 @dataclass
-class OrderbookSnapshot:
+class OrderbookState:
     """Local orderbook state maintained from WebSocket updates."""
     orderbook_id: str
     bids: dict[str, str] = field(default_factory=dict)
@@ -53,9 +48,10 @@ class OrderbookSnapshot:
         current value are silently dropped to prevent stale updates. Deltas
         that skip one or more expected sequence values are rejected so callers
         can refresh from a fresh snapshot instead of mutating a corrupted book.
+        Server resync messages leave the book unchanged and return stale.
         """
         if getattr(update, "resync", False):
-            return OrderbookApplyResult.resync_required()
+            return OrderbookApplyResult.stale()
 
         if update.is_snapshot:
             self.bids.clear()
@@ -65,11 +61,11 @@ class OrderbookSnapshot:
             # The backend sends snapshots with seq=0 and starts delta seq at 1.
             # A delta with seq=0 means it has no valid sequence, so drop it.
             if update.seq <= 0:
-                return OrderbookApplyResult.ignored_stale()
+                return OrderbookApplyResult.stale()
             if not self._has_snapshot:
                 return OrderbookApplyResult.gap_detected(0, update.seq)
             if update.seq <= self.sequence:
-                return OrderbookApplyResult.ignored_stale()
+                return OrderbookApplyResult.stale()
             if update.seq != self.sequence + 1:
                 return OrderbookApplyResult.gap_detected(self.sequence + 1, update.seq)
 
@@ -95,9 +91,10 @@ class OrderbookSnapshot:
         current value are silently dropped to prevent stale updates. Deltas
         that skip one or more expected sequence values are rejected so callers
         can refresh from a fresh snapshot instead of mutating a corrupted book.
+        Server resync messages leave the book unchanged and return stale.
         """
         if update.get("resync", False):
-            return OrderbookApplyResult.resync_required()
+            return OrderbookApplyResult.stale()
 
         is_snapshot = update.get("is_snapshot", False)
         if is_snapshot:
@@ -109,11 +106,11 @@ class OrderbookSnapshot:
             # The backend sends snapshots with seq=0 and starts delta seq at 1.
             # A delta with seq=0 means it has no valid sequence, so drop it.
             if seq <= 0:
-                return OrderbookApplyResult.ignored_stale()
+                return OrderbookApplyResult.stale()
             if not self._has_snapshot:
                 return OrderbookApplyResult.gap_detected(0, seq)
             if seq <= self.sequence:
-                return OrderbookApplyResult.ignored_stale()
+                return OrderbookApplyResult.stale()
             if seq != self.sequence + 1:
                 return OrderbookApplyResult.gap_detected(self.sequence + 1, seq)
 

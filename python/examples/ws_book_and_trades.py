@@ -1,11 +1,11 @@
-"""Live orderbook depth with OrderbookSnapshot state + rolling TradeHistory buffer."""
+"""Live orderbook depth with OrderbookState state + rolling TradeHistory buffer."""
 
 import asyncio
 
 from common import rest_client, market_and_orderbook
 from lightcone_sdk.ws import WsEventType, MessageInType
 from lightcone_sdk.ws.subscriptions import BookUpdateParams, TradesParams
-from lightcone_sdk.domain.orderbook.state import OrderbookSnapshot
+from lightcone_sdk.domain.orderbook.state import OrderbookState
 from lightcone_sdk.domain.trade.state import TradeHistory
 from lightcone_sdk.domain.trade import Trade
 
@@ -16,7 +16,7 @@ async def main():
     orderbook_id = orderbook.orderbook_id
 
     # State trackers
-    book = OrderbookSnapshot(orderbook_id=orderbook_id)
+    book = OrderbookState(orderbook_id=orderbook_id)
     trades = TradeHistory(orderbook_id=orderbook_id, max_size=20)
 
     # Connect WebSocket

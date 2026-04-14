@@ -1,4 +1,4 @@
-import { OrderbookSnapshot, TradeHistory, type Trade, type WsEvent } from "../src";
+import { OrderbookState, TradeHistory, type Trade, type WsEvent } from "../src";
 import { marketAndOrderbook, restClient, runExample, withTimeout } from "./common";
 
 async function main() {
@@ -6,7 +6,7 @@ async function main() {
   const [, orderbook] = await marketAndOrderbook(client);
   const orderbookId = orderbook.orderbookId;
 
-  const book = new OrderbookSnapshot(orderbookId);
+  const book = new OrderbookState(orderbookId);
   const trades = new TradeHistory(orderbookId, 20);
   const ws = client.ws();
   let hits = 0;

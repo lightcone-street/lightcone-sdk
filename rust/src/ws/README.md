@@ -210,7 +210,7 @@ async fn run_market_maker(
         wallet_address: wallet,
     }).unwrap();
 
-    let mut book = OrderbookSnapshot::new(orderbook_id);
+    let mut book = OrderbookState::new(orderbook_id);
     let mut open_orders = UserOpenOrders::new();
     let mut stream = ws.events();
 

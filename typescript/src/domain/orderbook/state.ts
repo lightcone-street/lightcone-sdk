@@ -4,11 +4,10 @@ import type { OrderBook } from "./wire";
 
 export type OrderbookApplyResult =
   | { kind: "applied" }
-  | { kind: "ignored_stale" }
-  | { kind: "gap_detected"; expected: number; got: number }
-  | { kind: "resync_required" };
+  | { kind: "stale" }
+  | { kind: "gap_detected"; expected: number; got: number };
 
-export class OrderbookSnapshot {
+export class OrderbookState {
   readonly orderbookId: OrderBookId;
   seq: number;
   private readonly bidsMap: Map<string, string>;
@@ -34,10 +33,11 @@ export class OrderbookSnapshot {
    * current value are silently dropped to prevent stale updates. Deltas
    * that skip one or more expected sequence values are rejected so callers
    * can refresh from a fresh snapshot instead of mutating a corrupted book.
+   * Server resync messages leave the book unchanged and return `stale`.
    */
   apply(book: OrderBook): OrderbookApplyResult {
     if (book.resync) {
-      return { kind: "resync_required" };
+      return { kind: "stale" };
     }
 
     const seq = book.seq ?? 0;
@@ -50,7 +50,7 @@ export class OrderbookSnapshot {
       // The backend sends snapshots with seq=0 and starts delta seq at 1.
       // A delta with seq=0 means it has no valid sequence, so drop it.
       if (seq <= 0) {
-        return { kind: "ignored_stale" };
+        return { kind: "stale" };
       }
 
       if (!this.hasSnapshot) {
@@ -58,7 +58,7 @@ export class OrderbookSnapshot {
       }
 
       if (seq <= this.seq) {
-        return { kind: "ignored_stale" };
+        return { kind: "stale" };
       }
 
       if (seq !== this.seq + 1) {
