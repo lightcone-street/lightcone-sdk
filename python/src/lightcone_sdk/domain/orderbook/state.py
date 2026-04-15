@@ -2,7 +2,7 @@
 
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Optional
+from typing import Optional, Union
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,7 @@ class OrderbookRefreshReason:
 @dataclass(frozen=True)
 class OrderbookApplyResult:
     kind: str
-    reason: Optional[Union[OrderbookIgnoreReason | OrderbookRefreshReason]] = None
+    reason: Optional[Union[OrderbookIgnoreReason, OrderbookRefreshReason]] = None
 
     @staticmethod
     def applied() -> "OrderbookApplyResult":
