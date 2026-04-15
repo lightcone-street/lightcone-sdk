@@ -46,7 +46,7 @@ class OrderbookRefreshReason:
 @dataclass(frozen=True)
 class OrderbookApplyResult:
     kind: str
-    reason: Optional[OrderbookIgnoreReason | OrderbookRefreshReason] = None
+    reason: Optional[Union[OrderbookIgnoreReason | OrderbookRefreshReason]] = None
 
     @staticmethod
     def applied() -> "OrderbookApplyResult":
@@ -64,6 +64,7 @@ class OrderbookApplyResult:
 @dataclass
 class OrderbookState:
     """Local orderbook state maintained from WebSocket updates."""
+
     orderbook_id: str
     bids: dict[str, str] = field(default_factory=dict)
     asks: dict[str, str] = field(default_factory=dict)
@@ -194,7 +195,11 @@ class OrderbookState:
 
         for bid in update.get("bids", []):
             price = str(bid.get("price", bid[0] if isinstance(bid, list) else "0"))
-            size = str(bid.get("size", bid[1] if isinstance(bid, list) and len(bid) > 1 else "0"))
+            size = str(
+                bid.get(
+                    "size", bid[1] if isinstance(bid, list) and len(bid) > 1 else "0"
+                )
+            )
             if size == "0":
                 self.bids.pop(price, None)
             else:
@@ -202,7 +207,11 @@ class OrderbookState:
 
         for ask in update.get("asks", []):
             price = str(ask.get("price", ask[0] if isinstance(ask, list) else "0"))
-            size = str(ask.get("size", ask[1] if isinstance(ask, list) and len(ask) > 1 else "0"))
+            size = str(
+                ask.get(
+                    "size", ask[1] if isinstance(ask, list) and len(ask) > 1 else "0"
+                )
+            )
             if size == "0":
                 self.asks.pop(price, None)
             else:
