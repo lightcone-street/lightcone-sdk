@@ -41,6 +41,15 @@ impl From<wire::OrderbookPriceCandle> for LineData {
     }
 }
 
+impl From<wire::DepositTokenCandle> for LineData {
+    fn from(c: wire::DepositTokenCandle) -> Self {
+        Self {
+            time: c.t,
+            value: c.c,
+        }
+    }
+}
+
 /// Key for deposit-price lookups.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct DepositPriceKey {

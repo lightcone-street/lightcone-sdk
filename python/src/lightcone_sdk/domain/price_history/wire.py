@@ -160,6 +160,8 @@ class DepositTokenCandle:
 
 @dataclass
 class DepositPriceSnapshot:
+    """Initial batch of historical candles sent on subscription."""
+
     deposit_asset: str = ""
     resolution: str = "1m"
     prices: list[DepositTokenCandle] = field(default_factory=list)
@@ -175,6 +177,8 @@ class DepositPriceSnapshot:
 
 @dataclass
 class DepositPriceTick:
+    """Real-time spot price tick, broadcast to all resolutions."""
+
     deposit_asset: str = ""
     price: str = "0"
     event_time: int = 0
@@ -190,6 +194,8 @@ class DepositPriceTick:
 
 @dataclass
 class DepositPriceCandleUpdate:
+    """A single candle update for a specific resolution (e.g. a 1m candle closed)."""
+
     deposit_asset: str = ""
     resolution: str = "1m"
     t: int = 0

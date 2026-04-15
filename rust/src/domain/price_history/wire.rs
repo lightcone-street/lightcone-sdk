@@ -137,10 +137,13 @@ pub struct DepositPriceTick {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "event_type")]
 pub enum DepositPrice {
+    /// Initial batch of historical candles sent on subscription.
     #[serde(rename = "snapshot")]
     Snapshot(DepositPriceSnapshot),
+    /// A single candle update for a specific resolution (e.g. a 1m candle closed).
     #[serde(rename = "candle")]
     Candle(DepositPriceCandleUpdate),
+    /// Real-time spot price tick, broadcast to all resolutions.
     #[serde(rename = "price")]
     Price(DepositPriceTick),
 }

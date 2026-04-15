@@ -56,6 +56,7 @@ export interface DepositTokenCandle {
   c: string;
 }
 
+/** Initial batch of historical candles sent on subscription. */
 export interface DepositPriceSnapshot {
   event_type: "snapshot";
   deposit_asset: string;
@@ -63,6 +64,7 @@ export interface DepositPriceSnapshot {
   prices: DepositTokenCandle[];
 }
 
+/** Real-time spot price tick, broadcast to all resolutions. */
 export interface DepositPriceTick {
   event_type: "price";
   deposit_asset: string;
@@ -70,6 +72,7 @@ export interface DepositPriceTick {
   event_time: number;
 }
 
+/** A single candle update for a specific resolution (e.g. a 1m candle closed). */
 export interface DepositPriceCandleUpdate {
   event_type: "candle";
   deposit_asset: string;
