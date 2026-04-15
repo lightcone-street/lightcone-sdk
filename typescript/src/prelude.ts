@@ -61,6 +61,11 @@ export type {
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
 export { OrderbookState } from "./domain/orderbook/state";
+export type {
+  OrderbookApplyResult,
+  OrderbookIgnoreReason,
+  OrderbookRefreshReason,
+} from "./domain/orderbook/state";
 
 export type {
   CancelAllBody,
