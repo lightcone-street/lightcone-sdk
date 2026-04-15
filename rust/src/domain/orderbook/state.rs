@@ -9,8 +9,30 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyResult {
     Applied,
-    Stale,
-    GapDetected { expected: u64, got: u64 },
+    Ignored(IgnoreReason),
+    RefreshRequired(RefreshReason),
+}
+
+/// A dropped update that does not require consumer action.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IgnoreReason {
+    /// Deltas must have a positive sequence. Snapshots may have `seq == 0`.
+    InvalidDeltaSequence { got: u64 },
+    /// The delta arrived at or behind the current book sequence.
+    StaleDelta { current: u64, got: u64 },
+    /// The book is already waiting for a snapshot after a gap or resync signal.
+    AlreadyAwaitingSnapshot { got: u64 },
+}
+
+/// A dropped update that means consumers should request a fresh snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefreshReason {
+    /// A delta arrived before any snapshot initialized this book.
+    MissingSnapshot { got: u64 },
+    /// A delta skipped the next expected sequence.
+    SequenceGap { expected: u64, got: u64 },
+    /// The backend explicitly requested a resync.
+    ServerResync { got: u64 },
 }
 
 /// Live orderbook state that can apply snapshots and deltas.
@@ -24,6 +46,7 @@ pub struct OrderbookState {
     bids: BTreeMap<Decimal, Decimal>,
     asks: BTreeMap<Decimal, Decimal>,
     has_snapshot: bool,
+    awaiting_snapshot: bool,
 }
 
 impl OrderbookState {
@@ -34,49 +57,63 @@ impl OrderbookState {
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
             has_snapshot: false,
+            awaiting_snapshot: false,
         }
     }
 
     /// Apply a WS orderbook message (snapshot replaces, delta merges).
     ///
-    /// Snapshots are always applied. Deltas with a `seq` at or below the
-    /// current value are silently dropped to prevent stale or duplicate
-    /// updates from corrupting the book. Deltas that skip one or more
-    /// expected sequence values are rejected so callers can refresh from
-    /// a fresh snapshot instead of mutating a corrupted book. Server resync
-    /// messages leave the book unchanged and return `ApplyResult::Stale`.
+    /// Server resync messages take precedence and return `RefreshRequired`.
+    /// Otherwise, snapshots are applied and deltas with a `seq` at or below
+    /// the current value are ignored to prevent stale or duplicate updates from
+    /// corrupting the book. Deltas that skip one or more expected sequence
+    /// values return `RefreshRequired` so callers can request a fresh snapshot
+    /// instead of mutating a corrupted book.
     pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
         if book.resync {
-            return ApplyResult::Stale;
+            self.awaiting_snapshot = true;
+            return ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: book.seq });
         }
 
         if book.is_snapshot {
             self.bids.clear();
             self.asks.clear();
             self.has_snapshot = true;
+            self.awaiting_snapshot = false;
         } else {
+            if self.awaiting_snapshot {
+                return ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot {
+                    got: book.seq,
+                });
+            }
+
             // The backend sends snapshots with seq=0 and starts delta seq at 1.
             // A delta with seq=0 means it has no valid sequence, so drop it.
             if book.seq == 0 {
-                return ApplyResult::Stale;
+                return ApplyResult::Ignored(IgnoreReason::InvalidDeltaSequence { got: book.seq });
             }
 
             if !self.has_snapshot {
-                return ApplyResult::GapDetected {
-                    expected: 0,
+                self.awaiting_snapshot = true;
+                return ApplyResult::RefreshRequired(RefreshReason::MissingSnapshot {
                     got: book.seq,
-                };
+                });
             }
 
             if book.seq <= self.seq {
-                return ApplyResult::Stale;
+                return ApplyResult::Ignored(IgnoreReason::StaleDelta {
+                    current: self.seq,
+                    got: book.seq,
+                });
             }
 
-            if book.seq != self.seq + 1 {
-                return ApplyResult::GapDetected {
-                    expected: self.seq + 1,
+            let expected = self.seq + 1;
+            if book.seq != expected {
+                self.awaiting_snapshot = true;
+                return ApplyResult::RefreshRequired(RefreshReason::SequenceGap {
+                    expected,
                     got: book.seq,
-                };
+                });
             }
         }
 
@@ -146,6 +183,7 @@ impl OrderbookState {
         self.asks.clear();
         self.seq = 0;
         self.has_snapshot = false;
+        self.awaiting_snapshot = false;
     }
 }
 
@@ -264,11 +302,19 @@ mod tests {
 
         let mut resync = order_book(false, 2, vec![(49.0, 20.0)], vec![]);
         resync.resync = true;
-        assert_eq!(snap.apply(&resync), ApplyResult::Stale);
+        assert_eq!(
+            snap.apply(&resync),
+            ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: 2 })
+        );
 
         assert_eq!(snap.seq, 1);
         assert_eq!(snap.bids().len(), 1);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+
+        assert_eq!(
+            snap.apply(&order_book(false, 3, vec![(48.0, 20.0)], vec![])),
+            ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot { got: 3 })
+        );
     }
 
     #[test]
@@ -314,7 +360,7 @@ mod tests {
         // Stale delta (seq <= current) should be ignored
         assert_eq!(
             snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::Stale
+            ApplyResult::Ignored(IgnoreReason::StaleDelta { current: 2, got: 1 })
         );
         assert_eq!(snap.seq, 2);
         assert_eq!(snap.bids().len(), 2); // unchanged
@@ -322,7 +368,7 @@ mod tests {
         // Duplicate seq should also be ignored
         assert_eq!(
             snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::Stale
+            ApplyResult::Ignored(IgnoreReason::StaleDelta { current: 2, got: 2 })
         );
         assert_eq!(snap.bids().len(), 2); // unchanged
 
@@ -345,14 +391,26 @@ mod tests {
 
         assert_eq!(
             snap.apply(&order_book(false, 3, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::GapDetected {
+            ApplyResult::RefreshRequired(RefreshReason::SequenceGap {
                 expected: 2,
                 got: 3,
-            }
+            })
         );
         assert_eq!(snap.seq, 1);
         assert_eq!(snap.bids().len(), 1);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
+
+        let mut resync = order_book(false, 4, vec![(48.0, 20.0)], vec![]);
+        resync.resync = true;
+        assert_eq!(
+            snap.apply(&resync),
+            ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: 4 })
+        );
+
+        assert_eq!(
+            snap.apply(&order_book(false, 5, vec![(47.0, 20.0)], vec![])),
+            ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot { got: 5 })
+        );
     }
 
     #[test]
@@ -361,13 +419,26 @@ mod tests {
 
         assert_eq!(
             snap.apply(&order_book(false, 1, vec![(50.0, 10.0)], vec![])),
-            ApplyResult::GapDetected {
-                expected: 0,
-                got: 1,
-            }
+            ApplyResult::RefreshRequired(RefreshReason::MissingSnapshot { got: 1 })
         );
         assert_eq!(snap.seq, 0);
         assert!(snap.is_empty());
+    }
+
+    #[test]
+    fn test_zero_sequence_delta_is_ignored() {
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(true, 0, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            ApplyResult::Applied
+        );
+
+        assert_eq!(
+            snap.apply(&order_book(false, 0, vec![(49.0, 20.0)], vec![])),
+            ApplyResult::Ignored(IgnoreReason::InvalidDeltaSequence { got: 0 })
+        );
+        assert_eq!(snap.seq, 0);
+        assert_eq!(snap.bids().len(), 1);
     }
 
     #[test]

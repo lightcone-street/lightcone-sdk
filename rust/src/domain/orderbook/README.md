@@ -129,10 +129,10 @@ Returned by `apply()` to indicate what happened:
 | Variant | Description |
 |---------|-------------|
 | `Applied` | The snapshot or delta was successfully merged into the book. |
-| `Stale` | The delta was dropped because its sequence is at or behind the current book sequence, it had no valid sequence (`seq == 0`), or the server requested resync. The book is unchanged. |
-| `GapDetected { expected, got }` | The delta's sequence skipped ahead of the expected next value, indicating missed messages. The book is unchanged — callers should request a fresh snapshot. |
+| `Ignored(IgnoreReason)` | The update was dropped and the consumer should take no recovery action. Reasons include an invalid zero-sequence delta, a stale/duplicate delta, or a later delta while the book is already awaiting a snapshot. |
+| `RefreshRequired(RefreshReason)` | The book cannot be trusted until a fresh snapshot is applied. Reasons include a missing initial snapshot, a skipped sequence, or a backend resync request. |
 
-**Sequence protocol:** The backend sends snapshots with `seq = 0` and starts delta sequences at `1`. Deltas are applied only when `seq == current + 1`. Out-of-order or duplicate deltas are silently ignored, and gaps trigger a re-snapshot.
+**Sequence protocol:** The backend sends snapshots with `seq = 0` and starts delta sequences at `1`. Deltas are applied only when `seq == current + 1`. Out-of-order or duplicate deltas are ignored, and gaps trigger a re-snapshot. After `RefreshRequired`, later deltas are ignored with `IgnoreReason::AlreadyAwaitingSnapshot` until a snapshot is applied.
 
 ## Examples
 
@@ -174,15 +174,11 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
                     snapshot.best_ask(),
                     snapshot.spread()
                 ),
-                ApplyResult::Stale => {
-                    if book.resync {
-                        eprintln!("Server requested orderbook resync");
-                        // re-subscribe or request a fresh snapshot
-                    }
-                    // duplicate, late delta, invalid zero-seq delta, or resync signal
+                ApplyResult::Ignored(reason) => {
+                    eprintln!("Ignored book update: {reason:?}");
                 }
-                ApplyResult::GapDetected { expected, got } => {
-                    eprintln!("Gap: expected seq {expected}, got {got} — re-snapshot needed");
+                ApplyResult::RefreshRequired(reason) => {
+                    eprintln!("Refresh required: {reason:?}");
                     // re-subscribe or request a fresh snapshot
                 }
             }
