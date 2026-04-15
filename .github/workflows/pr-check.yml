@@ -58,12 +58,8 @@ jobs:
             echo "::endgroup::"
           done
 
-  # Jobs run sequentially because they share a single CI wallet on devnet.
-  # Parallel execution causes on-chain state races (e.g. duplicate position
-  # init) and devnet RPC rate limits (429s).
   typescript-examples:
     name: TypeScript Examples
-    needs: rust-examples
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -82,7 +78,7 @@ jobs:
 
       - name: Write wallet keypair
         env:
-          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_TS }}
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
@@ -100,7 +96,6 @@ jobs:
 
   python-examples:
     name: Python Examples
-    needs: typescript-examples
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,7 +113,7 @@ jobs:
 
       - name: Write wallet keypair
         env:
-          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_PYTHON }}
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
