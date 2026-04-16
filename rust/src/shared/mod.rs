@@ -341,6 +341,22 @@ impl Resolution {
     }
 }
 
+impl std::str::FromStr for Resolution {
+    type Err = String;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "1m" => Ok(Self::Minute1),
+            "5m" => Ok(Self::Minute5),
+            "15m" => Ok(Self::Minute15),
+            "1h" => Ok(Self::Hour1),
+            "4h" => Ok(Self::Hour4),
+            "1d" => Ok(Self::Day1),
+            other => Err(format!("Invalid resolution: {other}")),
+        }
+    }
+}
+
 impl std::fmt::Display for Resolution {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.as_str())

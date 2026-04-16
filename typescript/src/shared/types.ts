@@ -82,6 +82,25 @@ export enum Resolution {
   Day1 = "1d",
 }
 
+export function parseResolution(value: string): Resolution {
+  switch (value) {
+    case "1m":
+      return Resolution.Minute1;
+    case "5m":
+      return Resolution.Minute5;
+    case "15m":
+      return Resolution.Minute15;
+    case "1h":
+      return Resolution.Hour1;
+    case "4h":
+      return Resolution.Hour4;
+    case "1d":
+      return Resolution.Day1;
+    default:
+      throw SdkError.validation(`Invalid resolution: ${value}`);
+  }
+}
+
 export function resolutionSeconds(resolution: Resolution): number {
   switch (resolution) {
     case Resolution.Minute1:
