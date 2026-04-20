@@ -164,6 +164,33 @@ pub struct MarketSearchResult {
     pub orderbooks: Vec<SearchOrderbook>,
 }
 
+// ─── Global deposit asset wire types ────────────────────────────────────────
+
+/// REST response for a single globally whitelisted deposit asset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GlobalDepositAssetResponse {
+    pub id: i32,
+    pub mint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url: Option<String>,
+    pub decimals: Option<i16>,
+    pub whitelist_index: i16,
+    pub active: bool,
+}
+
+/// REST response envelope for the global deposit asset whitelist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalDepositAssetsListResponse {
+    pub assets: Vec<GlobalDepositAssetResponse>,
+    pub total: usize,
+}
+
 /// WS market lifecycle event.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "event_type")]

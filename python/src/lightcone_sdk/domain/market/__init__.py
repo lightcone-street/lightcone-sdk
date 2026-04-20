@@ -62,6 +62,23 @@ class DepositAsset:
 
 
 @dataclass
+class GlobalDepositAsset:
+    """A globally whitelisted deposit asset (platform-scoped, not market-bound).
+
+    Distinct from ``DepositAsset``, which is bound to a specific market.
+    """
+    id: int = 0
+    deposit_asset: str = ""
+    name: str = ""
+    symbol: str = ""
+    description: Optional[str] = None
+    decimals: int = 6
+    icon_url: str = ""
+    whitelist_index: int = 0
+    active: bool = False
+
+
+@dataclass
 class ValidatedTokens:
     token: Optional[DepositAsset] = None
     conditionals: list[ConditionalToken] = field(default_factory=list)
@@ -111,6 +128,17 @@ class MarketsResult:
     validation_errors: list[str] = field(default_factory=list)
 
 
+@dataclass
+class GlobalDepositAssetsResult:
+    """Result of fetching the global deposit asset whitelist.
+
+    Assets that fail validation are skipped and their errors are reported
+    separately.
+    """
+    assets: list[GlobalDepositAsset] = field(default_factory=list)
+    validation_errors: list[str] = field(default_factory=list)
+
+
 class MarketValidationError(Exception):
     def __init__(self, message: str, details: Optional[list[str]] = None):
         super().__init__(message)
@@ -122,10 +150,12 @@ __all__ = [
     "Outcome",
     "ConditionalToken",
     "DepositAsset",
+    "GlobalDepositAsset",
     "ValidatedTokens",
     "TokenMetadata",
     "OrderBookPair",
     "Market",
     "MarketsResult",
+    "GlobalDepositAssetsResult",
     "MarketValidationError",
 ]

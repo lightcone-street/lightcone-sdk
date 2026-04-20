@@ -2,8 +2,10 @@ import { asPubkeyStr } from "../../shared";
 import { orderBookPairFromWire } from "../orderbook/convert";
 import { outcomeFromWire } from "./outcome";
 import { statusFromWire, type Market, MarketValidationError, Status } from "./index";
-import { validatedTokensFromWire } from "./tokens";
+import { globalDepositAssetFromWire, validatedTokensFromWire } from "./tokens";
 import type { MarketResponse } from "./wire";
+
+export { globalDepositAssetFromWire };
 
 export function marketFromWire(source: MarketResponse): Market {
   const errors: string[] = [];

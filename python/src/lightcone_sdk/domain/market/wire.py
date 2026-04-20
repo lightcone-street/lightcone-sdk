@@ -286,3 +286,48 @@ class MarketEvent:
             winning_outcome=d.get("winning_outcome"),
             orderbook_id=d.get("orderbook_id"),
         )
+
+
+@dataclass
+class GlobalDepositAssetWire:
+    """Raw globally whitelisted deposit asset from the API."""
+    id: int = 0
+    mint: str = ""
+    display_name: Optional[str] = None
+    symbol: Optional[str] = None
+    description: Optional[str] = None
+    icon_url: Optional[str] = None
+    decimals: Optional[int] = None
+    whitelist_index: int = 0
+    active: bool = False
+
+    @staticmethod
+    def from_dict(d: dict) -> "GlobalDepositAssetWire":
+        return GlobalDepositAssetWire(
+            id=d.get("id", 0),
+            mint=_require(d, "mint", "GlobalDepositAssetWire"),
+            display_name=d.get("display_name"),
+            symbol=d.get("symbol"),
+            description=d.get("description"),
+            icon_url=d.get("icon_url"),
+            decimals=d.get("decimals"),
+            whitelist_index=d.get("whitelist_index", 0),
+            active=d.get("active", False),
+        )
+
+
+@dataclass
+class GlobalDepositAssetsListWire:
+    """API response envelope for the global deposit asset whitelist."""
+    assets: list[GlobalDepositAssetWire] = field(default_factory=list)
+    total: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "GlobalDepositAssetsListWire":
+        return GlobalDepositAssetsListWire(
+            assets=[
+                GlobalDepositAssetWire.from_dict(a)
+                for a in d.get("assets", [])
+            ],
+            total=d.get("total", 0),
+        )

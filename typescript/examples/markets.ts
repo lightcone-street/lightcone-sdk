@@ -29,6 +29,14 @@ async function main() {
   for (const result of results) {
     console.log(`  - ${result.slug}`);
   }
+
+  const globalAssets = await client.markets().globalDepositAssets();
+  console.log(
+    `global deposit assets: ${globalAssets.assets.length}, ${globalAssets.validationErrors.length} validation error(s)`
+  );
+  for (const asset of globalAssets.assets) {
+    console.log(`  - ${asset.symbol} (${asset.pubkey})`);
+  }
 }
 
 void runExample(main);

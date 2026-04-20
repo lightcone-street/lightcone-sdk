@@ -38,6 +38,7 @@ export type {
 
 export type {
   AdminClient,
+  GlobalDepositAssetsResult,
   MarketsClient,
   MarketsResult,
   OrdersClient,

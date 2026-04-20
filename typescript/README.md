@@ -256,7 +256,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |

@@ -109,3 +109,20 @@ export type MarketEvent =
   | { event_type: "opened"; market_pubkey: string }
   | { event_type: "paused"; market_pubkey: string }
   | { event_type: "orderbook_created"; market_pubkey: string; orderbook_id: string };
+
+export interface GlobalDepositAssetResponse {
+  id: number;
+  mint: string;
+  display_name?: string;
+  symbol?: string;
+  description?: string;
+  icon_url?: string;
+  decimals: number | null;
+  whitelist_index: number;
+  active: boolean;
+}
+
+export interface GlobalDepositAssetsListResponse {
+  assets: GlobalDepositAssetResponse[];
+  total: number;
+}

@@ -6,6 +6,8 @@ pub mod outcome;
 pub mod tokens;
 pub mod wire;
 
+pub use self::tokens::GlobalDepositAsset;
+
 use crate::domain::orderbook;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};

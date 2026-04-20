@@ -2,11 +2,12 @@
 
 from typing import Optional
 from . import (
-    Market, Status, Outcome, ConditionalToken, DepositAsset,
+    Market, Status, Outcome, ConditionalToken, DepositAsset, GlobalDepositAsset,
     TokenMetadata,
 )
+from ...error import SdkError
 from ..orderbook import OrderBookPair
-from .wire import MarketWire
+from .wire import GlobalDepositAssetWire, MarketWire
 
 
 def _parse_status(s: Optional[str]) -> Status:
@@ -143,4 +144,43 @@ def market_from_wire(wire: MarketWire) -> Market:
         orderbook_pairs=orderbook_pairs,
         orderbook_ids=orderbook_ids,
         token_metadata=token_metadata,
+    )
+
+
+def global_deposit_asset_from_wire(
+    wire: GlobalDepositAssetWire,
+) -> GlobalDepositAsset:
+    """Convert a ``GlobalDepositAssetWire`` to a ``GlobalDepositAsset``.
+
+    Raises ``SdkError`` with a rendered multi-error message when required
+    fields (``display_name``, ``symbol``, ``icon_url``, ``decimals``) are
+    missing on the wire payload.
+    """
+    errors: list[str] = []
+
+    if wire.display_name is None:
+        errors.append(f"Missing display name: {wire.mint}")
+    if wire.symbol is None:
+        errors.append(f"Missing symbol: {wire.mint}")
+    if wire.icon_url is None:
+        errors.append(f"Missing icon URL: {wire.mint}")
+    if wire.decimals is None:
+        errors.append(f"Missing decimals: {wire.mint}")
+
+    if errors:
+        rendered = "\n".join(f"  - {error}" for error in errors)
+        raise SdkError(
+            f"Token validation errors ({wire.mint}):\n{rendered}"
+        )
+
+    return GlobalDepositAsset(
+        id=wire.id,
+        deposit_asset=wire.mint,
+        name=wire.display_name or "",
+        symbol=wire.symbol or "",
+        description=wire.description,
+        decimals=wire.decimals or 0,
+        icon_url=wire.icon_url or "",
+        whitelist_index=wire.whitelist_index,
+        active=wire.active,
     )

@@ -34,6 +34,15 @@ async def main():
     for result in results:
         print(f"  - {result.slug}")
 
+    # 5. Global deposit asset whitelist
+    global_assets = await client.markets().global_deposit_assets()
+    print(
+        f"global deposit assets: {len(global_assets.assets)}, "
+        f"{len(global_assets.validation_errors)} validation error(s)"
+    )
+    for asset in global_assets.assets:
+        print(f"  - {asset.symbol}")
+
     await client.close()
 
 

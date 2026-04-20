@@ -1,6 +1,7 @@
 mod common;
 
 use common::{market, rest_client, ExampleResult};
+use lightcone::prelude::Token;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -40,6 +41,16 @@ async fn main() -> ExampleResult {
     println!("search '{query}': {} result(s)", results.len());
     for result in &results {
         println!("  - {}", result.slug);
+    }
+
+    let global_assets = client.markets().global_deposit_assets().await?;
+    println!(
+        "global deposit assets: {} ({} validation errors)",
+        global_assets.assets.len(),
+        global_assets.validation_errors.len()
+    );
+    for asset in &global_assets.assets {
+        println!("  - {} ({})", asset.symbol(), asset.pubkey());
     }
     Ok(())
 }

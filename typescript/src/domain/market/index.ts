@@ -7,7 +7,7 @@ export * from "./client";
 export * from "./wire";
 export * from "./outcome";
 export * from "./tokens";
-export { marketFromWire, tryMarketFromWire } from "./convert";
+export { globalDepositAssetFromWire, marketFromWire, tryMarketFromWire } from "./convert";
 
 export enum Status {
   Pending = "Pending",

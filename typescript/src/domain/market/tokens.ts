@@ -1,6 +1,10 @@
 import type { PubkeyStr } from "../../shared";
 import { asPubkeyStr } from "../../shared";
-import type { ConditionalTokenResponse, DepositAssetResponse } from "./wire";
+import type {
+  ConditionalTokenResponse,
+  DepositAssetResponse,
+  GlobalDepositAssetResponse,
+} from "./wire";
 
 export interface Token {
   id: number;
@@ -23,6 +27,17 @@ export interface DepositAsset extends Token {
   marketPda: PubkeyStr;
   depositAsset: PubkeyStr;
   numOutcomes: number;
+}
+
+/**
+ * A globally whitelisted deposit asset (platform-scoped, not market-bound).
+ *
+ * Distinct from `DepositAsset`, which is bound to a specific market.
+ */
+export interface GlobalDepositAsset extends Token {
+  depositAsset: PubkeyStr;
+  whitelistIndex: number;
+  active: boolean;
 }
 
 export interface TokenMetadata {
@@ -117,6 +132,40 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
     },
     conditionals,
     metadata,
+  };
+}
+
+export function globalDepositAssetFromWire(
+  source: GlobalDepositAssetResponse
+): GlobalDepositAsset {
+  const errors: string[] = [];
+
+  const name = source.display_name;
+  const symbol = source.symbol;
+  const iconUrl = source.icon_url;
+  const decimals = source.decimals;
+
+  if (!name) errors.push("Missing display name");
+  if (!symbol) errors.push("Missing symbol");
+  if (!iconUrl) errors.push("Missing icon URL");
+  if (decimals === undefined || decimals === null) errors.push("Missing decimals");
+
+  if (errors.length > 0) {
+    throw new TokenValidationError(source.mint, errors);
+  }
+
+  const depositAsset = asPubkeyStr(source.mint);
+  return {
+    id: source.id,
+    pubkey: depositAsset,
+    depositAsset,
+    name: name ?? "",
+    symbol: symbol ?? "",
+    description: source.description,
+    decimals: decimals ?? 0,
+    iconUrl: iconUrl ?? "",
+    whitelistIndex: source.whitelist_index,
+    active: source.active,
   };
 }
 

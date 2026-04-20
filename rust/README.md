@@ -245,7 +245,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
