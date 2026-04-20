@@ -169,7 +169,7 @@ impl<'a> Markets<'a> {
                 Ok(asset) => assets.push(asset),
                 Err(error) => {
                     let message = error.to_string();
-                    tracing::warn!("Global deposit asset validation error: {}", message);
+                    tracing::error!("Global deposit asset validation error: {}", message);
                     validation_errors.push(message);
                 }
             }
