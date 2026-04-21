@@ -30,10 +30,10 @@ export function abbrNumber(value: Decimal, digits = 2, showSign = true): string 
   const abs = value.abs();
 
   const units: Array<[Decimal, string]> = [
-    [new Decimal("1000000000000"), "T"],
-    [new Decimal("1000000000"), "B"],
-    [new Decimal("1000000"), "M"],
-    [new Decimal("1000"), "K"],
+    [new Decimal("1000000000000"), "t"],
+    [new Decimal("1000000000"), "b"],
+    [new Decimal("1000000"), "m"],
+    [new Decimal("1000"), "k"],
   ];
 
   for (const [threshold, suffix] of units) {

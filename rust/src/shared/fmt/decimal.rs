@@ -128,7 +128,7 @@ pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bo
 
     if abs_amount >= *get_trillion() {
         format!(
-            "{}{}T",
+            "{}{}t",
             sign,
             format!(
                 "{:.precision$}",
@@ -138,7 +138,7 @@ pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bo
         )
     } else if abs_amount >= *get_billion() {
         format!(
-            "{}{}B",
+            "{}{}b",
             sign,
             format!(
                 "{:.precision$}",
@@ -148,7 +148,7 @@ pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bo
         )
     } else if abs_amount >= *get_million() {
         format!(
-            "{}{}M",
+            "{}{}m",
             sign,
             format!(
                 "{:.precision$}",
@@ -158,7 +158,7 @@ pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bo
         )
     } else if abs_amount >= *get_thousand() {
         format!(
-            "{}{}K",
+            "{}{}k",
             sign,
             format!(
                 "{:.precision$}",
