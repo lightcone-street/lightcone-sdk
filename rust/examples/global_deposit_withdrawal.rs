@@ -136,6 +136,23 @@ async fn main() -> ExampleResult {
             .build_ix()?,
     ));
 
+    // 6. Merge — burn the complete set of conditional tokens minted in step 4
+    //    back to the deposit asset, returning the collateral to the user's
+    //    token account. Closes out the market position so the full example is
+    //    net-neutral on the wallet's balance, the global pool, and the market
+    //    position across CI runs.
+    instructions.push((
+        "merge",
+        client
+            .positions()
+            .merge()
+            .user(keypair.pubkey())
+            .market(&market)
+            .mint(deposit_mint)
+            .amount(amount)
+            .build_ix()?,
+    ));
+
     for (name, ix) in &instructions {
         let blockhash = rpc_sub.get_latest_blockhash().await?;
         let mut tx = Transaction::new_with_payer(&[ix.clone()], Some(&keypair.pubkey()));

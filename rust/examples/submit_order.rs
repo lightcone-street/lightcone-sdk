@@ -9,8 +9,8 @@ use solana_transaction::Transaction;
 use std::sync::Arc;
 
 // Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Keeping this as a constant so deposit, order, and withdraw stay
-// in sync.
+// decimals). Must stay in sync with the same constant in `cancel_order.rs`,
+// which withdraws this amount back out of the global pool after cancelling.
 const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
 
 #[tokio::main]
@@ -29,7 +29,10 @@ async fn main() -> ExampleResult {
     //
     // submit_order uses the client's default DepositSource (Global), so the
     // global pool must cover `price * size` in the deposit asset's base units
-    // before the order can be placed.
+    // before the order can be placed. The companion `cancel_order` example
+    // cancels this order and withdraws the same amount back to the user's
+    // token account, keeping the deposit/submit/cancel/withdraw cycle
+    // net-neutral across CI runs.
     let deposit_ix = client
         .positions()
         .deposit_to_global()
@@ -70,29 +73,6 @@ async fn main() -> ExampleResult {
         response.remaining,
         response.fills.len()
     );
-
-    // 3. Clean up so the example is net-neutral on the wallet's token balance.
-    //    Cancel the open order to release the locked collateral, then withdraw
-    //    it from the global pool back to the user's token account.
-    let cancel = CancelBody::signed(response.order_hash.clone(), maker.into(), keypair.as_ref());
-    let cancelled = client.orders().cancel(&cancel).await?;
-    println!(
-        "cancelled: {} remaining={}",
-        cancelled.order_hash, cancelled.remaining
-    );
-
-    let withdraw_ix = client
-        .positions()
-        .withdraw_from_global()
-        .user(maker)
-        .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
-        .build_ix()?;
-    let blockhash = rpc_sub.get_latest_blockhash().await?;
-    let mut withdraw_tx = Transaction::new_with_payer(&[withdraw_ix], Some(&maker));
-    withdraw_tx.try_sign(&[keypair.as_ref()], blockhash)?;
-    let withdraw_sig = rpc.send_and_confirm_transaction(&withdraw_tx).await?;
-    println!("withdraw_from_global: confirmed {withdraw_sig}");
 
     Ok(())
 }

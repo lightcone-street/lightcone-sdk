@@ -1,6 +1,4 @@
 import { Transaction } from "@solana/web3.js";
-import { asPubkeyStr } from "../src";
-import { cancelBodySigned } from "../src/domain/order/client";
 import { generateSalt } from "../src/program";
 import {
   confirmTransactionOrThrow,
@@ -14,8 +12,8 @@ import {
 } from "./common";
 
 // Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Keeping this as a constant so deposit, order, and withdraw stay
-// in sync.
+// decimals). Must stay in sync with the same constant in `cancel_order.ts`,
+// which withdraws this amount back out of the global pool after cancelling.
 const ORDER_QUOTE_AMOUNT = 1_100_000n; // 0.55 * 2 USDC, 6 decimals
 
 async function main() {
@@ -32,7 +30,10 @@ async function main() {
   //
   // submit_order uses the client's default deposit source (Global), so the
   // global pool must cover `price * size` in the deposit asset's base units
-  // before the order can be placed.
+  // before the order can be placed. The companion `cancel_order` example
+  // cancels this order and withdraws the same amount back to the user's
+  // token account, keeping the deposit/submit/cancel/withdraw cycle
+  // net-neutral across CI runs.
   const depositIx = client
     .positions()
     .depositToGlobal()
@@ -70,37 +71,6 @@ async function main() {
   console.log(
     `submitted: ${response.order_hash} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
   );
-
-  // 3. Clean up so the example is net-neutral on the wallet's token balance.
-  //    Cancel the open order to release the locked collateral, then withdraw
-  //    it from the global pool back to the user's token account.
-  const cancel = cancelBodySigned(
-    response.order_hash,
-    asPubkeyStr(keypair.publicKey.toBase58()),
-    keypair
-  );
-  const cancelled = await client.orders().cancel(cancel);
-  console.log(`cancelled: ${cancelled.order_hash} remaining=${cancelled.remaining}`);
-
-  const withdrawIx = client
-    .positions()
-    .withdrawFromGlobal()
-    .user(keypair.publicKey)
-    .mint(mint)
-    .amount(ORDER_QUOTE_AMOUNT)
-    .buildIx();
-  {
-    const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-    const tx = new Transaction({
-      feePayer: keypair.publicKey,
-      blockhash,
-      lastValidBlockHeight,
-    }).add(withdrawIx);
-    tx.sign(keypair);
-    const sig = await connection.sendRawTransaction(tx.serialize());
-    await confirmTransactionOrThrow(connection, sig, { blockhash, lastValidBlockHeight });
-    console.log(`withdraw_from_global: confirmed ${sig}`);
-  }
 }
 
 void runExample(main);
