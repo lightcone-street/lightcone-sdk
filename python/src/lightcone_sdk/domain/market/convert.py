@@ -2,8 +2,8 @@
 
 from typing import Optional
 from . import (
-    Market, Status, Outcome, ConditionalToken, DepositAsset, GlobalDepositAsset,
-    TokenMetadata,
+    Market, Status, Outcome, ConditionalToken, DepositAsset, DepositAssetPair,
+    GlobalDepositAsset, TokenMetadata,
 )
 from ...error import SdkError
 from ..orderbook import OrderBookPair
@@ -120,6 +120,8 @@ def market_from_wire(wire: MarketWire) -> Market:
         if ob.orderbook_id:
             orderbook_ids.append(ob.orderbook_id)
 
+    deposit_asset_pairs = _derive_deposit_asset_pairs(deposit_assets, orderbook_pairs)
+
     return Market(
         id=wire.market_id,
         pubkey=wire.market_pubkey,
@@ -139,12 +141,45 @@ def market_from_wire(wire: MarketWire) -> Market:
         category=wire.category,
         tags=wire.tags,
         deposit_assets=deposit_assets,
+        deposit_asset_pairs=deposit_asset_pairs,
         conditional_tokens=conditional_tokens,
         outcomes=outcomes,
         orderbook_pairs=orderbook_pairs,
         orderbook_ids=orderbook_ids,
         token_metadata=token_metadata,
     )
+
+
+def _derive_deposit_asset_pairs(
+    deposit_assets: list[DepositAsset],
+    orderbook_pairs: list[OrderBookPair],
+) -> list[DepositAssetPair]:
+    """Derive unique base/quote deposit-asset pairs.
+
+    Deduplicated by ``(base_pubkey, quote_pubkey)``; orderbook pairs whose
+    base or quote deposit asset is not present in ``deposit_assets`` are
+    skipped. Order is not guaranteed.
+    """
+    seen: dict[tuple[str, str], DepositAssetPair] = {}
+    for pair in orderbook_pairs:
+        base = next(
+            (a for a in deposit_assets if a.deposit_asset == pair.base.deposit_asset),
+            None,
+        )
+        quote = next(
+            (a for a in deposit_assets if a.deposit_asset == pair.quote.deposit_asset),
+            None,
+        )
+        if base is None or quote is None:
+            continue
+        key = (base.deposit_asset, quote.deposit_asset)
+        if key not in seen:
+            seen[key] = DepositAssetPair(
+                id=f"{base.deposit_asset}-{quote.deposit_asset}",
+                base=base,
+                quote=quote,
+            )
+    return list(seen.values())
 
 
 def global_deposit_asset_from_wire(

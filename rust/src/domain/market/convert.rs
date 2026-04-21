@@ -89,6 +89,8 @@ impl TryFrom<wire::MarketResponse> for Market {
             return Err(ValidationError::Multiple(market_pubkey, errors));
         }
 
+        let deposit_asset_pairs = derive_deposit_asset_pairs(&deposit_assets, &orderbook_pairs);
+
         Ok(Market {
             id: source.market_id,
             pubkey: source.market_pubkey.into(),
@@ -114,10 +116,41 @@ impl TryFrom<wire::MarketResponse> for Market {
                 .collect(),
             orderbook_pairs,
             deposit_assets,
+            deposit_asset_pairs,
             conditional_tokens,
             token_metadata,
         })
     }
+}
+
+/// Derive unique base/quote deposit-asset pairs across the market's orderbook
+/// pairs. Deduplicated by `(base_pubkey, quote_pubkey)`; orderbook pairs whose
+/// base or quote deposit asset is not present in `deposit_assets` are skipped.
+fn derive_deposit_asset_pairs(
+    deposit_assets: &[tokens::DepositAsset],
+    orderbook_pairs: &[orderbook::OrderBookPair],
+) -> Vec<tokens::DepositAssetPair> {
+    let mut seen: HashMap<(PubkeyStr, PubkeyStr), tokens::DepositAssetPair> = HashMap::new();
+
+    for pair in orderbook_pairs {
+        let base = deposit_assets
+            .iter()
+            .find(|asset| asset.deposit_asset == pair.base.deposit_asset);
+        let quote = deposit_assets
+            .iter()
+            .find(|asset| asset.deposit_asset == pair.quote.deposit_asset);
+
+        if let (Some(base), Some(quote)) = (base, quote) {
+            let key = (base.deposit_asset.clone(), quote.deposit_asset.clone());
+            seen.entry(key).or_insert_with(|| tokens::DepositAssetPair {
+                id: format!("{}-{}", base.deposit_asset, quote.deposit_asset),
+                base: base.clone(),
+                quote: quote.clone(),
+            });
+        }
+    }
+
+    seen.into_values().collect()
 }
 
 #[cfg(test)]
@@ -182,5 +215,95 @@ mod tests {
         let result = Market::try_from(resp);
         // Should fail with InvalidStatus in the error chain
         assert!(result.is_err());
+    }
+
+    fn deposit_asset(mint: &str) -> tokens::DepositAsset {
+        tokens::DepositAsset {
+            id: 1,
+            market_pda: PubkeyStr::from("market".to_string()),
+            deposit_asset: PubkeyStr::from(mint.to_string()),
+            num_outcomes: 2,
+            name: mint.to_string(),
+            symbol: mint.to_string(),
+            description: None,
+            decimals: 6,
+            icon_url: String::new(),
+        }
+    }
+
+    fn orderbook_pair(
+        base_mint: &str,
+        quote_mint: &str,
+        outcome_index: i16,
+    ) -> orderbook::OrderBookPair {
+        use crate::shared::OrderBookId;
+        orderbook::OrderBookPair {
+            id: outcome_index as i32,
+            market_pubkey: PubkeyStr::from("market".to_string()),
+            orderbook_id: OrderBookId::from(format!("ob-{outcome_index}")),
+            base: tokens::ConditionalToken::test_new_with_deposit(
+                format!("cond-base-{outcome_index}"),
+                outcome_index,
+                base_mint,
+            ),
+            quote: tokens::ConditionalToken::test_new_with_deposit(
+                format!("cond-quote-{outcome_index}"),
+                outcome_index,
+                quote_mint,
+            ),
+            outcome_index,
+            tick_size: 1,
+            total_bids: 0,
+            total_asks: 0,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+        }
+    }
+
+    #[test]
+    fn derive_deposit_asset_pairs_deduplicates_across_outcomes() {
+        let base = deposit_asset("USDC");
+        let quote = deposit_asset("USDT");
+        let pairs = super::derive_deposit_asset_pairs(
+            &[base.clone(), quote.clone()],
+            &[
+                orderbook_pair("USDC", "USDT", 0),
+                orderbook_pair("USDC", "USDT", 1),
+            ],
+        );
+
+        assert_eq!(pairs.len(), 1);
+        assert_eq!(pairs[0].id, "USDC-USDT");
+        assert_eq!(pairs[0].base, base);
+        assert_eq!(pairs[0].quote, quote);
+    }
+
+    #[test]
+    fn derive_deposit_asset_pairs_skips_orderbook_pairs_without_matching_deposit_asset() {
+        let base = deposit_asset("USDC");
+        let pairs =
+            super::derive_deposit_asset_pairs(&[base], &[orderbook_pair("USDC", "MISSING", 0)]);
+
+        assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn derive_deposit_asset_pairs_returns_all_distinct_pairs() {
+        let usdc = deposit_asset("USDC");
+        let usdt = deposit_asset("USDT");
+        let dai = deposit_asset("DAI");
+        let mut pairs = super::derive_deposit_asset_pairs(
+            &[usdc, usdt, dai],
+            &[
+                orderbook_pair("USDC", "USDT", 0),
+                orderbook_pair("USDC", "DAI", 0),
+            ],
+        );
+        pairs.sort_by(|a, b| a.id.cmp(&b.id));
+
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(pairs[0].id, "USDC-DAI");
+        assert_eq!(pairs[1].id, "USDC-USDT");
     }
 }

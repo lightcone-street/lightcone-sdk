@@ -34,6 +34,11 @@ async def main():
     for result in results:
         print(f"  - {result.slug}")
 
+    # Deposit asset pairs for selected market
+    print(f"deposit asset pairs for {m.slug}:")
+    for pair in m.deposit_asset_pairs:
+        print(f"  - {pair.id} ({pair.base.symbol}/{pair.quote.symbol})")
+
     # 5. Global deposit asset whitelist
     global_assets = await client.markets().global_deposit_assets()
     print(

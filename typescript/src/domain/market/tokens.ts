@@ -30,6 +30,20 @@ export interface DepositAsset extends Token {
 }
 
 /**
+ * A base/quote pairing of two `DepositAsset`s.
+ *
+ * Populated on `Market.depositAssetPairs` during wire→domain conversion —
+ * one entry per unique base/quote combination across the market's orderbook
+ * pairs.
+ */
+export interface DepositAssetPair {
+  /** Stable identifier of the form `"{basePubkey}-{quotePubkey}"`. */
+  id: string;
+  base: DepositAsset;
+  quote: DepositAsset;
+}
+
+/**
  * A globally whitelisted deposit asset (platform-scoped, not market-bound).
  *
  * Distinct from `DepositAsset`, which is bound to a specific market.

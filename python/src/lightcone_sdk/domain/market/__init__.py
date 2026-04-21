@@ -62,6 +62,19 @@ class DepositAsset:
 
 
 @dataclass
+class DepositAssetPair:
+    """A base/quote pairing of two :class:`DepositAsset` instances.
+
+    Populated on :attr:`Market.deposit_asset_pairs` during wire→domain
+    conversion; one entry per unique ``(base.deposit_asset, quote.deposit_asset)``
+    combination across the market's orderbook pairs.
+    """
+    id: str
+    base: DepositAsset
+    quote: DepositAsset
+
+
+@dataclass
 class GlobalDepositAsset:
     """A globally whitelisted deposit asset (platform-scoped, not market-bound).
 
@@ -115,6 +128,7 @@ class Market:
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     deposit_assets: list[DepositAsset] = field(default_factory=list)
+    deposit_asset_pairs: list[DepositAssetPair] = field(default_factory=list)
     conditional_tokens: list[ConditionalToken] = field(default_factory=list)
     outcomes: list[Outcome] = field(default_factory=list)
     orderbook_pairs: list[OrderBookPair] = field(default_factory=list)
@@ -150,6 +164,7 @@ __all__ = [
     "Outcome",
     "ConditionalToken",
     "DepositAsset",
+    "DepositAssetPair",
     "GlobalDepositAsset",
     "ValidatedTokens",
     "TokenMetadata",

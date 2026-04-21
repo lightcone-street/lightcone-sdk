@@ -43,6 +43,14 @@ async fn main() -> ExampleResult {
         println!("  - {}", result.slug);
     }
 
+    println!("deposit asset pairs for {}:", market.slug);
+    for pair in &market.deposit_asset_pairs {
+        println!(
+            "  - {} ({}/{})",
+            pair.id, pair.base.symbol, pair.quote.symbol
+        );
+    }
+
     let global_assets = client.markets().global_deposit_assets().await?;
     println!(
         "global deposit assets: {} ({} validation errors)",

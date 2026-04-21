@@ -182,6 +182,21 @@ impl DepositAsset {
     }
 }
 
+// ─── DepositAssetPair ────────────────────────────────────────────────────────
+
+/// A pair of deposit assets that can be traded against each other as base/quote.
+///
+/// Populated on `Market::deposit_asset_pairs` during wire→domain conversion;
+/// one entry per unique `(base.deposit_asset, quote.deposit_asset)` combination
+/// across the market's orderbook pairs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DepositAssetPair {
+    /// Stable identifier of the form `"{base_pubkey}-{quote_pubkey}"`.
+    pub id: String,
+    pub base: DepositAsset,
+    pub quote: DepositAsset,
+}
+
 // ─── GlobalDepositAsset ──────────────────────────────────────────────────────
 
 /// A globally whitelisted deposit asset (platform-scoped, not market-bound).
