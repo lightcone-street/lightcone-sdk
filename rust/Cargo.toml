@@ -114,6 +114,10 @@ name = "price_history"
 required-features = ["native"]
 
 [[example]]
+name = "price_history_consistency"
+required-features = ["native"]
+
+[[example]]
 name = "read_onchain"
 required-features = ["native"]
 
