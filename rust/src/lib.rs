@@ -60,7 +60,8 @@ pub mod prelude {
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
     pub use crate::domain::market::tokens::{
-        ConditionalToken, DepositAsset, GlobalDepositAsset, Token, TokenMetadata, ValidatedTokens,
+        sort_by_display_priority, ConditionalToken, DepositAsset, GlobalDepositAsset, Token,
+        TokenMetadata, ValidatedTokens,
     };
     pub use crate::domain::market::{Market, Status};
 

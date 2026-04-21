@@ -2,6 +2,7 @@
 
 use super::outcome;
 use super::tokens;
+use super::tokens::Token;
 use super::wire;
 use super::{Market, Status, ValidationError};
 use crate::domain::orderbook;
@@ -85,11 +86,21 @@ impl TryFrom<wire::MarketResponse> for Market {
             String::new()
         });
 
+        let mut deposit_asset_pairs = derive_deposit_asset_pairs(&deposit_assets, &orderbook_pairs);
+        deposit_asset_pairs.sort_by(|left, right| {
+            left.base
+                .display_priority()
+                .cmp(&right.base.display_priority())
+                .then_with(|| left.base.symbol().cmp(right.base.symbol()))
+        });
+
+        if deposit_asset_pairs.is_empty() {
+            errors.push(ValidationError::MissingDepositAssetPairs);
+        }
+
         if !errors.is_empty() {
             return Err(ValidationError::Multiple(market_pubkey, errors));
         }
-
-        let deposit_asset_pairs = derive_deposit_asset_pairs(&deposit_assets, &orderbook_pairs);
 
         Ok(Market {
             id: source.market_id,
@@ -215,6 +226,57 @@ mod tests {
         let result = Market::try_from(resp);
         // Should fail with InvalidStatus in the error chain
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_market_missing_deposit_asset_pairs_fails() {
+        // A response with no deposit assets and no orderbooks yields zero pairs.
+        let resp = minimal_market_response();
+        let err = Market::try_from(resp).unwrap_err();
+        assert!(
+            format!("{err}").contains("Missing deposit asset pairs"),
+            "expected MissingDepositAssetPairs in error, got: {err}",
+        );
+    }
+
+    #[test]
+    fn deposit_asset_pairs_are_sorted_by_display_priority() {
+        let pairs = super::derive_deposit_asset_pairs(
+            &[
+                deposit_asset("USDC"),
+                deposit_asset("SOL"),
+                deposit_asset("WETH"),
+                deposit_asset("AAA"),
+                deposit_asset("WBTC"),
+                deposit_asset("ETH"),
+                deposit_asset("BTC"),
+                deposit_asset("ZZZ"),
+            ],
+            &[
+                orderbook_pair("BTC", "USDC", 0),
+                orderbook_pair("WBTC", "USDC", 0),
+                orderbook_pair("ETH", "USDC", 0),
+                orderbook_pair("WETH", "USDC", 0),
+                orderbook_pair("SOL", "USDC", 0),
+                orderbook_pair("AAA", "USDC", 0),
+                orderbook_pair("ZZZ", "USDC", 0),
+            ],
+        );
+
+        // Apply the same sort as TryFrom<MarketResponse>.
+        let mut sorted = pairs;
+        sorted.sort_by(|left, right| {
+            left.base
+                .display_priority()
+                .cmp(&right.base.display_priority())
+                .then_with(|| left.base.symbol().cmp(right.base.symbol()))
+        });
+
+        let base_symbols: Vec<&str> = sorted.iter().map(|pair| pair.base.symbol()).collect();
+        assert_eq!(
+            base_symbols,
+            vec!["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "ZZZ"]
+        );
     }
 
     fn deposit_asset(mint: &str) -> tokens::DepositAsset {

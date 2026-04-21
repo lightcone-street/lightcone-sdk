@@ -5,6 +5,7 @@ import { outcomeFromWire } from "./outcome";
 import { statusFromWire, type Market, MarketValidationError, Status } from "./index";
 import {
   globalDepositAssetFromWire,
+  tokenDisplayPriority,
   validatedTokensFromWire,
   type DepositAsset,
   type DepositAssetPair,
@@ -58,11 +59,20 @@ export function marketFromWire(source: MarketResponse): Market {
   if (!source.icon_url) errors.push("Missing icon URL");
   if (!source.banner_image_url) errors.push("Missing banner image URL");
 
+  const depositAssetPairs = deriveDepositAssetPairs(depositAssets, orderbookPairs);
+  depositAssetPairs.sort((left, right) => {
+    const priorityDelta = tokenDisplayPriority(left.base) - tokenDisplayPriority(right.base);
+    if (priorityDelta !== 0) return priorityDelta;
+    return left.base.symbol.localeCompare(right.base.symbol);
+  });
+
+  if (depositAssetPairs.length === 0) {
+    errors.push("Missing deposit asset pairs");
+  }
+
   if (errors.length > 0) {
     throw new MarketValidationError(source.market_pubkey, errors);
   }
-
-  const depositAssetPairs = deriveDepositAssetPairs(depositAssets, orderbookPairs);
 
   return {
     id: source.market_id,

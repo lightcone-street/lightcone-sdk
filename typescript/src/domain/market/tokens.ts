@@ -16,6 +16,40 @@ export interface Token {
   iconUrl: string;
 }
 
+/**
+ * Display priority for sorting: lower values come first. BTC/WBTC tie at 0,
+ * ETH/WETH tie at 1, SOL at 2; everything else falls to the alphabetical tail.
+ */
+export function tokenDisplayPriority(token: Pick<Token, "symbol">): number {
+  switch (token.symbol) {
+    case "BTC":
+    case "WBTC":
+      return 0;
+    case "ETH":
+    case "WETH":
+      return 1;
+    case "SOL":
+      return 2;
+    default:
+      return 255;
+  }
+}
+
+/**
+ * Returns a new array ordered for display: priority groups first
+ * (BTC/WBTC → ETH/WETH → SOL), then all remaining tokens alphabetically by
+ * symbol.
+ */
+export function sortByDisplayPriority<T extends Pick<Token, "symbol">>(tokens: readonly T[]): T[] {
+  const copy = [...tokens];
+  copy.sort((left, right) => {
+    const priorityDelta = tokenDisplayPriority(left) - tokenDisplayPriority(right);
+    if (priorityDelta !== 0) return priorityDelta;
+    return left.symbol.localeCompare(right.symbol);
+  });
+  return copy;
+}
+
 export interface ConditionalToken extends Token {
   outcomeIndex: number;
   outcome: string;

@@ -1,7 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { deriveDepositAssetPairs } from "../src/domain/market/convert";
-import type { ConditionalToken, DepositAsset } from "../src/domain/market";
+import {
+  sortByDisplayPriority,
+  tokenDisplayPriority,
+  type ConditionalToken,
+  type DepositAsset,
+} from "../src/domain/market";
 import type { OrderBookPair } from "../src/domain/orderbook";
 import { asPubkeyStr, type OrderBookId } from "../src/shared";
 
@@ -94,5 +99,32 @@ describe("deriveDepositAssetPairs", () => {
     assert.equal(pairs.length, 2);
     assert.equal(pairs[0]!.id, "USDC-DAI");
     assert.equal(pairs[1]!.id, "USDC-USDT");
+  });
+});
+
+describe("tokenDisplayPriority / sortByDisplayPriority", () => {
+  const cases: ReadonlyArray<[string, number]> = [
+    ["BTC", 0],
+    ["WBTC", 0],
+    ["ETH", 1],
+    ["WETH", 1],
+    ["SOL", 2],
+    ["USDC", 255],
+    ["ZZZ", 255],
+  ];
+
+  for (const [symbol, priority] of cases) {
+    it(`tokenDisplayPriority returns ${priority} for ${symbol}`, () => {
+      assert.equal(tokenDisplayPriority({ symbol }), priority);
+    });
+  }
+
+  it("sorts priority groups first then alphabetical", () => {
+    const symbols = ["USDC", "SOL", "WETH", "AAA", "WBTC", "ETH", "BTC", "ZZZ"];
+    const sorted = sortByDisplayPriority(symbols.map((symbol) => ({ symbol })));
+    assert.deepEqual(
+      sorted.map((token) => token.symbol),
+      ["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"],
+    );
   });
 });

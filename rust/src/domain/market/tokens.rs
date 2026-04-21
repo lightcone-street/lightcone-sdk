@@ -19,6 +19,31 @@ pub trait Token {
     fn description(&self) -> &Option<String>;
     fn decimals(&self) -> u16;
     fn icon_url(&self) -> &str;
+
+    /// Display priority for sorting: lower values come first. BTC/WBTC tie
+    /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
+    /// alphabetical tail.
+    fn display_priority(&self) -> u8 {
+        match self.symbol() {
+            "BTC" | "WBTC" => 0,
+            "ETH" | "WETH" => 1,
+            "SOL" => 2,
+            _ => u8::MAX,
+        }
+    }
+}
+
+/// Returns a new `Vec` ordered for display: priority groups first
+/// (BTC/WBTC → ETH/WETH → SOL), then all remaining tokens alphabetically by
+/// symbol.
+pub fn sort_by_display_priority<T: Token + Clone>(tokens: &[T]) -> Vec<T> {
+    let mut sorted = tokens.to_vec();
+    sorted.sort_by(|left, right| {
+        left.display_priority()
+            .cmp(&right.display_priority())
+            .then_with(|| left.symbol().cmp(right.symbol()))
+    });
+    sorted
 }
 
 // ─── ConditionalToken ────────────────────────────────────────────────────────
@@ -250,28 +275,6 @@ impl GlobalDepositAsset {
         } else {
             ""
         }
-    }
-
-    fn display_priority(&self) -> u8 {
-        match self.symbol() {
-            "BTC" | "WBTC" => 0,
-            "ETH" | "WETH" => 1,
-            "SOL" => 2,
-            _ => u8::MAX,
-        }
-    }
-
-    /// Returns a new `Vec` ordered for display: BTC/WBTC, then ETH/WETH, then SOL,
-    /// followed by all remaining assets sorted alphabetically by symbol.
-    pub fn sort_by_display_priority(assets: &[Self]) -> Vec<Self> {
-        let mut sorted = assets.to_vec();
-        sorted.sort_by(|left, right| {
-            match left.display_priority().cmp(&right.display_priority()) {
-                std::cmp::Ordering::Equal => left.symbol().cmp(right.symbol()),
-                other => other,
-            }
-        });
-        sorted
     }
 }
 
@@ -637,7 +640,7 @@ mod tests {
             global_deposit_asset_with_symbol("ZZZ"),
         ];
 
-        let sorted = GlobalDepositAsset::sort_by_display_priority(&assets);
+        let sorted = sort_by_display_priority(&assets);
         let symbols: Vec<&str> = sorted.iter().map(|a| a.symbol()).collect();
 
         assert_eq!(

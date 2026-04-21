@@ -4,9 +4,38 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Optional, Protocol, TypeVar
 
 from ..orderbook import OrderBookPair
+
+
+class _HasSymbol(Protocol):
+    symbol: str
+
+
+def token_display_priority(token: _HasSymbol) -> int:
+    """Display priority for sorting: lower values come first.
+
+    BTC/WBTC tie at 0, ETH/WETH tie at 1, SOL at 2; everything else falls
+    to the alphabetical tail.
+    """
+    match token.symbol:
+        case "BTC" | "WBTC":
+            return 0
+        case "ETH" | "WETH":
+            return 1
+        case "SOL":
+            return 2
+        case _:
+            return 255
+
+
+_T = TypeVar("_T", bound=_HasSymbol)
+
+
+def sort_by_display_priority(tokens: list[_T]) -> list[_T]:
+    """Return a new list ordered by display priority then alphabetical by symbol."""
+    return sorted(tokens, key=lambda token: (token_display_priority(token), token.symbol))
 
 
 class Status(str, Enum):
@@ -173,4 +202,6 @@ __all__ = [
     "MarketsResult",
     "GlobalDepositAssetsResult",
     "MarketValidationError",
+    "token_display_priority",
+    "sort_by_display_priority",
 ]

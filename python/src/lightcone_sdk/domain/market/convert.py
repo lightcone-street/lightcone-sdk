@@ -2,8 +2,8 @@
 
 from typing import Optional
 from . import (
-    Market, Status, Outcome, ConditionalToken, DepositAsset, DepositAssetPair,
-    GlobalDepositAsset, TokenMetadata,
+    Market, MarketValidationError, Status, Outcome, ConditionalToken, DepositAsset,
+    DepositAssetPair, GlobalDepositAsset, TokenMetadata, token_display_priority,
 )
 from ...error import SdkError
 from ..orderbook import OrderBookPair
@@ -121,6 +121,16 @@ def market_from_wire(wire: MarketWire) -> Market:
             orderbook_ids.append(ob.orderbook_id)
 
     deposit_asset_pairs = _derive_deposit_asset_pairs(deposit_assets, orderbook_pairs)
+    deposit_asset_pairs.sort(
+        key=lambda pair: (token_display_priority(pair.base), pair.base.symbol)
+    )
+
+    if not deposit_asset_pairs:
+        identifier = wire.market_pubkey or str(wire.market_id)
+        raise MarketValidationError(
+            f"Market validation errors ({identifier}): Missing deposit asset pairs",
+            ["Missing deposit asset pairs"],
+        )
 
     return Market(
         id=wire.market_id,
