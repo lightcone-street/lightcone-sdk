@@ -255,7 +255,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | Limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.rs) | Deposit into the global pool, place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking, then cancel and withdraw to stay net-neutral |
 
 ### Cancelling Orders
 

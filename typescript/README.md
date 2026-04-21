@@ -266,7 +266,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.ts) | Limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.ts) | Deposit into the global pool, place a limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking, then cancel and withdraw to stay net-neutral |
 
 ### Cancelling Orders
 
