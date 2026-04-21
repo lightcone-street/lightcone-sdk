@@ -1,13 +1,18 @@
 import type { OrderBookId, PubkeyStr } from "../../shared";
 import type { OrderBookPair } from "../orderbook";
 import type { Outcome } from "./outcome";
-import type { ConditionalToken, DepositAsset, TokenMetadata } from "./tokens";
+import type {
+  ConditionalToken,
+  DepositAsset,
+  DepositAssetPair,
+  TokenMetadata,
+} from "./tokens";
 
 export * from "./client";
 export * from "./wire";
 export * from "./outcome";
 export * from "./tokens";
-export { marketFromWire, tryMarketFromWire } from "./convert";
+export { globalDepositAssetFromWire, marketFromWire, tryMarketFromWire } from "./convert";
 
 export enum Status {
   Pending = "Pending",
@@ -50,6 +55,11 @@ export interface Market {
   category?: string;
   tags: string[];
   depositAssets: DepositAsset[];
+  /**
+   * Unique base/quote deposit-asset pairs derived from `orderbookPairs`
+   * during wire→domain conversion. Deduplicated by `(base, quote)` pubkey.
+   */
+  depositAssetPairs: DepositAssetPair[];
   conditionalTokens: ConditionalToken[];
   outcomes: Outcome[];
   orderbookPairs: OrderBookPair[];

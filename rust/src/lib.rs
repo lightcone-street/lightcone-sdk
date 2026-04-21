@@ -60,7 +60,8 @@ pub mod prelude {
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
     pub use crate::domain::market::tokens::{
-        ConditionalToken, DepositAsset, Token, TokenMetadata, ValidatedTokens,
+        sort_by_display_priority, ConditionalToken, DepositAsset, GlobalDepositAsset,
+        HasDisplayToken, Token, TokenMetadata, ValidatedTokens,
     };
     pub use crate::domain::market::{Market, Status};
 
@@ -137,9 +138,10 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
-        MarketsResult, NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
-        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        AdminClient, AuthClient, GlobalDepositAssetsResult, LightconeClient,
+        LightconeClientBuilder, MarketsClient, MarketsResult, NotificationsClient,
+        OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient,
+        RpcClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

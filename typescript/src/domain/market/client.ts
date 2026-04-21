@@ -11,12 +11,26 @@ import {
 import { deserializeMarket as deserializeProgramMarket } from "../../program/accounts";
 import { deriveConditionId } from "../../program/utils";
 import type { Market as ProgramMarket } from "../../program/types";
-import { marketFromWire } from "./convert";
-import { Status, type Market } from "./index";
-import type { MarketSearchResult, MarketsResponse, SingleMarketResponse } from "./wire";
+import { globalDepositAssetFromWire, marketFromWire } from "./convert";
+import { Status, type GlobalDepositAsset, type Market } from "./index";
+import type {
+  GlobalDepositAssetsListResponse,
+  MarketSearchResult,
+  MarketsResponse,
+  SingleMarketResponse,
+} from "./wire";
 
 export interface MarketsResult {
   markets: Market[];
+  validationErrors: string[];
+}
+
+/**
+ * Result of fetching the global deposit asset whitelist. Assets that fail
+ * validation are skipped with their errors reported separately.
+ */
+export interface GlobalDepositAssetsResult {
+  assets: GlobalDepositAsset[];
   validationErrors: string[];
 }
 
@@ -115,6 +129,33 @@ export class Markets {
     return result.filter(
       (item) => item.market_status === Status.Active || item.market_status === Status.Resolved
     );
+  }
+
+  /**
+   * Fetch the active global deposit asset whitelist (platform-scoped, not
+   * market-bound).
+   *
+   * Assets that fail validation are skipped and their errors are returned in
+   * `GlobalDepositAssetsResult.validationErrors`.
+   */
+  async globalDepositAssets(): Promise<GlobalDepositAssetsResult> {
+    const url = `${this.client.http.baseUrl()}/api/global-deposit-assets`;
+    const response = await this.client.http.get<GlobalDepositAssetsListResponse>(
+      url,
+      RetryPolicy.Idempotent
+    );
+
+    const assets: GlobalDepositAsset[] = [];
+    const validationErrors: string[] = [];
+    for (const wireAsset of response.assets) {
+      try {
+        assets.push(globalDepositAssetFromWire(wireAsset));
+      } catch (error) {
+        validationErrors.push(error instanceof Error ? error.message : String(error));
+      }
+    }
+
+    return { assets, validationErrors };
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

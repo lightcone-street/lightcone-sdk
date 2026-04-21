@@ -122,6 +122,21 @@ async function main() {
       .buildIx(),
   ]);
 
+  // 6. Merge — burn the complete set of conditional tokens minted in step 4
+  //    back to the deposit asset, returning the collateral to the user's
+  //    token account. Closes out the market position so the full example is
+  //    net-neutral on the wallet's balance, the global pool, and the market
+  //    position across CI runs.
+  instructions.push([
+    "merge",
+    client.positions().merge()
+      .user(keypair.publicKey)
+      .market(m)
+      .mint(dMint)
+      .amount(amount)
+      .buildIx(),
+  ]);
+
   for (const [name, ix] of instructions) {
     const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
     const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(ix);

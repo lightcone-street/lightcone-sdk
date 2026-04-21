@@ -47,6 +47,7 @@ export type {
   Outcome,
   ConditionalToken,
   DepositAsset,
+  GlobalDepositAsset,
   Token,
   TokenMetadata,
   ValidatedTokens,
@@ -209,6 +210,7 @@ export type AuthClient = import("./auth").Auth;
 export type AdminClient = import("./domain/admin").Admin;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
+export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;
 export type OrderbooksClient = import("./domain/orderbook").Orderbooks;
 export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;

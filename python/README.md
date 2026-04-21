@@ -225,7 +225,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
 | [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and derive decimal precision metadata |
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
@@ -235,20 +235,20 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.py) | Limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.py) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
 | Example | Description |
 |---------|-------------|
-| [`cancel_order`](examples/cancel_order.py) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`cancel_order`](examples/cancel_order.py) | Cancel a single order by hash, cancel all orders in an orderbook, and withdraw the released collateral from the global pool |
 | [`user_orders`](examples/user_orders.py) | Fetch open orders for an authenticated user |
 
 ### On-Chain Operations
 
 | Example | Description |
 |---------|-------------|
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 

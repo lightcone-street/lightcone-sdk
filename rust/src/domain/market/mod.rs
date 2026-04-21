@@ -6,6 +6,8 @@ pub mod outcome;
 pub mod tokens;
 pub mod wire;
 
+pub use self::tokens::{DepositAssetPair, GlobalDepositAsset};
+
 use crate::domain::orderbook;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
@@ -69,6 +71,9 @@ pub struct Market {
     pub category: Option<String>,
     pub tags: Vec<String>,
     pub deposit_assets: Vec<self::tokens::DepositAsset>,
+    /// Unique base/quote deposit-asset pairs derived from `orderbook_pairs`
+    /// during wire→domain conversion. Deduplicated by `(base, quote)` pubkey.
+    pub deposit_asset_pairs: Vec<self::tokens::DepositAssetPair>,
     pub conditional_tokens: Vec<self::tokens::ConditionalToken>,
     pub outcomes: Vec<self::outcome::Outcome>,
     pub orderbook_pairs: Vec<orderbook::OrderBookPair>,
@@ -88,6 +93,7 @@ pub enum ValidationError {
     MissingDescription,
     MissingDefinition,
     MissingSlug,
+    MissingDepositAssetPairs,
     Token(self::tokens::TokenValidationError),
     Outcome(self::outcome::OutcomeValidationError),
     OrderBook(orderbook::OrderBookValidationError),
@@ -110,6 +116,7 @@ impl fmt::Display for ValidationError {
             ValidationError::MissingSlug => write!(f, "Missing slug"),
             ValidationError::MissingBannerImage => write!(f, "Missing banner image"),
             ValidationError::MissingThumbnailImage => write!(f, "Missing thumbnail image"),
+            ValidationError::MissingDepositAssetPairs => write!(f, "Missing deposit asset pairs"),
             ValidationError::Token(err) => write!(f, "Token: {}", err),
             ValidationError::Outcome(err) => write!(f, "Outcome: {}", err),
             ValidationError::OrderBook(err) => write!(f, "OrderBook: {}", err),

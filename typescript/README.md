@@ -256,7 +256,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
@@ -266,13 +266,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.ts) | Limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.ts) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
 | Example | Description |
 |---------|-------------|
-| [`cancel_order`](examples/cancel_order.ts) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`cancel_order`](examples/cancel_order.ts) | Cancel a single order by hash, cancel all orders in an orderbook, and withdraw the released collateral from the global pool |
 | [`user_orders`](examples/user_orders.ts) | Fetch open orders for an authenticated user |
 
 ### On-Chain Operations
@@ -281,7 +281,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 
 ### WebSocket Streaming
 

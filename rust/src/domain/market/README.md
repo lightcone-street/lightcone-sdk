@@ -88,6 +88,21 @@ Collateral token accepted by the market.
 | `decimals` | `u8` | Token decimals |
 | `icon_url` | `String` | Token icon |
 
+### `DepositAssetPair`
+
+A base/quote pairing of two `DepositAsset`s. Populated on
+`Market::deposit_asset_pairs` during wire→domain conversion — one entry per
+unique base/quote combination across the market's orderbook pairs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Stable identifier `"{base_pubkey}-{quote_pubkey}"` |
+| `base` | `DepositAsset` | Base deposit asset |
+| `quote` | `DepositAsset` | Quote deposit asset |
+
+Use this when building UIs that let users pick which collateral pair to trade,
+independently of outcome selection.
+
 ## Client Methods
 
 Access via `client.markets()`.
@@ -222,6 +237,11 @@ async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
         if let Some(price) = ob.last_trade_price {
             println!("    Last trade: {}", price);
         }
+    }
+
+    println!("Deposit asset pairs:");
+    for pair in &market.deposit_asset_pairs {
+        println!("  - {} (base={}, quote={})", pair.id, pair.base.symbol, pair.quote.symbol);
     }
 
     Ok(())

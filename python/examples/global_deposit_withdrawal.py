@@ -125,6 +125,21 @@ async def main():
             .build_ix(),
     ))
 
+    # 6. Merge — burn the complete set of conditional tokens minted in step 4
+    #    back to the deposit asset, returning the collateral to the user's
+    #    token account. Closes out the market position so the full example is
+    #    net-neutral on the wallet's balance, the global pool, and the market
+    #    position across CI runs.
+    instructions.append((
+        "merge",
+        client.positions().merge()
+            .user(keypair.pubkey())
+            .market(m)
+            .mint(d_mint)
+            .amount(amount)
+            .build_ix(),
+    ))
+
     for index, (name, ix) in enumerate(instructions):
         if index > 0:
             await asyncio.sleep(1)  # avoid devnet RPC rate limits
