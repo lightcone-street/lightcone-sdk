@@ -33,15 +33,34 @@ pub trait Token {
     }
 }
 
+/// Types that expose a `Token` reference for display-priority sorting.
+///
+/// Blanket-implemented for every `T: Token`, so any token type sorts directly.
+/// Composite types (e.g. `DepositAssetPair`, `OrderBookPair`) can implement
+/// this by returning their `base` token, making them sortable with the same
+/// `sort_by_display_priority` helper.
+pub trait HasDisplayToken {
+    fn display_token(&self) -> &dyn Token;
+}
+
+impl<T: Token> HasDisplayToken for T {
+    fn display_token(&self) -> &dyn Token {
+        self
+    }
+}
+
 /// Returns a new `Vec` ordered for display: priority groups first
-/// (BTC/WBTC → ETH/WETH → SOL), then all remaining tokens alphabetically by
-/// symbol.
-pub fn sort_by_display_priority<T: Token + Clone>(tokens: &[T]) -> Vec<T> {
-    let mut sorted = tokens.to_vec();
+/// (BTC/WBTC → ETH/WETH → SOL), then all remaining items alphabetically by
+/// the display token's symbol.
+pub fn sort_by_display_priority<T: HasDisplayToken + Clone>(items: &[T]) -> Vec<T> {
+    let mut sorted = items.to_vec();
     sorted.sort_by(|left, right| {
-        left.display_priority()
-            .cmp(&right.display_priority())
-            .then_with(|| left.symbol().cmp(right.symbol()))
+        let left_token = left.display_token();
+        let right_token = right.display_token();
+        left_token
+            .display_priority()
+            .cmp(&right_token.display_priority())
+            .then_with(|| left_token.symbol().cmp(right_token.symbol()))
     });
     sorted
 }
@@ -220,6 +239,12 @@ pub struct DepositAssetPair {
     pub id: String,
     pub base: DepositAsset,
     pub quote: DepositAsset,
+}
+
+impl HasDisplayToken for DepositAssetPair {
+    fn display_token(&self) -> &dyn Token {
+        &self.base
+    }
 }
 
 // ─── GlobalDepositAsset ──────────────────────────────────────────────────────

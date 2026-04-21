@@ -36,16 +36,36 @@ export function tokenDisplayPriority(token: Pick<Token, "symbol">): number {
 }
 
 /**
- * Returns a new array ordered for display: priority groups first
- * (BTC/WBTC → ETH/WETH → SOL), then all remaining tokens alphabetically by
- * symbol.
+ * Shape accepted by {@link sortByDisplayPriority}. Either a token with a
+ * top-level `symbol`, or a composite (e.g. `DepositAssetPair`, `OrderBookPair`)
+ * that carries its display token on `base`.
  */
-export function sortByDisplayPriority<T extends Pick<Token, "symbol">>(tokens: readonly T[]): T[] {
-  const copy = [...tokens];
+export type DisplaySortable =
+  | Pick<Token, "symbol">
+  | { readonly base: Pick<Token, "symbol"> };
+
+function displaySymbol(item: DisplaySortable): string {
+  return "symbol" in item ? item.symbol : item.base.symbol;
+}
+
+/**
+ * Returns a new array ordered for display: priority groups first
+ * (BTC/WBTC → ETH/WETH → SOL), then all remaining items alphabetically by the
+ * display token's symbol.
+ *
+ * Accepts both pure tokens and composite types whose display token lives on
+ * `base` (e.g. `DepositAssetPair`, `OrderBookPair`).
+ */
+export function sortByDisplayPriority<T extends DisplaySortable>(items: readonly T[]): T[] {
+  const copy = [...items];
   copy.sort((left, right) => {
-    const priorityDelta = tokenDisplayPriority(left) - tokenDisplayPriority(right);
+    const leftSymbol = displaySymbol(left);
+    const rightSymbol = displaySymbol(right);
+    const priorityDelta =
+      tokenDisplayPriority({ symbol: leftSymbol }) -
+      tokenDisplayPriority({ symbol: rightSymbol });
     if (priorityDelta !== 0) return priorityDelta;
-    return left.symbol.localeCompare(right.symbol);
+    return leftSymbol.localeCompare(rightSymbol);
   });
   return copy;
 }

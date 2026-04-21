@@ -26,6 +26,12 @@ class OrderBookPair:
     last_trade_time: Optional[str] = None
     active: bool = True
 
+    @property
+    def symbol(self) -> str:
+        """Display symbol delegated to the base conditional token — enables
+        `sort_by_display_priority` to treat orderbook pairs like tokens."""
+        return self.base.symbol
+
     def market(self) -> "Pubkey":
         """Return the market as a ``Pubkey``."""
         from solders.pubkey import Pubkey

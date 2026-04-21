@@ -3,7 +3,7 @@
 from typing import Optional
 from . import (
     Market, MarketValidationError, Status, Outcome, ConditionalToken, DepositAsset,
-    DepositAssetPair, GlobalDepositAsset, TokenMetadata, token_display_priority,
+    DepositAssetPair, GlobalDepositAsset, TokenMetadata, sort_by_display_priority,
 )
 from ...error import SdkError
 from ..orderbook import OrderBookPair
@@ -120,9 +120,8 @@ def market_from_wire(wire: MarketWire) -> Market:
         if ob.orderbook_id:
             orderbook_ids.append(ob.orderbook_id)
 
-    deposit_asset_pairs = _derive_deposit_asset_pairs(deposit_assets, orderbook_pairs)
-    deposit_asset_pairs.sort(
-        key=lambda pair: (token_display_priority(pair.base), pair.base.symbol)
+    deposit_asset_pairs = sort_by_display_priority(
+        _derive_deposit_asset_pairs(deposit_assets, orderbook_pairs)
     )
 
     if not deposit_asset_pairs:

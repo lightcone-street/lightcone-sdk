@@ -5,6 +5,7 @@ import pytest
 from lightcone_sdk.domain.market import (
     ConditionalToken,
     DepositAsset,
+    DepositAssetPair,
     GlobalDepositAsset,
     sort_by_display_priority,
     token_display_priority,
@@ -111,3 +112,15 @@ class TestSortByDisplayPriority:
         ]
         sorted_symbols = [asset.symbol for asset in sort_by_display_priority(assets)]
         assert sorted_symbols == ["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"]
+
+    def test_sort_pairs_via_symbol_property(self):
+        # DepositAssetPair exposes `symbol` via a property delegating to base —
+        # so the same sort helper works on pairs.
+        pairs = [
+            DepositAssetPair(
+                id=f"{symbol}-DAI", base=deposit_asset(symbol), quote=deposit_asset("DAI")
+            )
+            for symbol in ["USDC", "SOL", "BTC", "ETH"]
+        ]
+        sorted_symbols = [pair.base.symbol for pair in sort_by_display_priority(pairs)]
+        assert sorted_symbols == ["BTC", "ETH", "SOL", "USDC"]

@@ -8,7 +8,7 @@ pub mod wire;
 
 pub use ticker::TickerData;
 
-use crate::domain::market::tokens::{self, Token};
+use crate::domain::market::tokens::{self, HasDisplayToken, Token};
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
 use rust_decimal::prelude::*;
@@ -33,6 +33,12 @@ pub struct OrderBookPair {
     pub last_trade_price: Option<Decimal>,
     pub last_trade_time: Option<DateTime<Utc>>,
     pub active: bool,
+}
+
+impl HasDisplayToken for OrderBookPair {
+    fn display_token(&self) -> &dyn Token {
+        &self.base
+    }
 }
 
 impl OrderBookPair {

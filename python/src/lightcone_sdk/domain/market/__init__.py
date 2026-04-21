@@ -102,6 +102,12 @@ class DepositAssetPair:
     base: DepositAsset
     quote: DepositAsset
 
+    @property
+    def symbol(self) -> str:
+        """Display symbol delegated to the base deposit asset — enables
+        `sort_by_display_priority` to treat pairs like tokens."""
+        return self.base.symbol
+
 
 @dataclass
 class GlobalDepositAsset:

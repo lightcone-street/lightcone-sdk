@@ -127,4 +127,18 @@ describe("tokenDisplayPriority / sortByDisplayPriority", () => {
       ["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"],
     );
   });
+
+  it("sorts composite pair types via their base token", () => {
+    // DepositAssetPair-shaped objects (no top-level symbol, base carries it).
+    const pairs = ["USDC", "SOL", "BTC", "ETH"].map((symbol) => ({
+      id: `${symbol}-DAI`,
+      base: depositAsset(symbol),
+      quote: depositAsset("DAI"),
+    }));
+    const sorted = sortByDisplayPriority(pairs);
+    assert.deepEqual(
+      sorted.map((pair) => pair.base.symbol),
+      ["BTC", "ETH", "SOL", "USDC"],
+    );
+  });
 });

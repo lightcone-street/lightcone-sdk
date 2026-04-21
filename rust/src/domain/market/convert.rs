@@ -2,7 +2,7 @@
 
 use super::outcome;
 use super::tokens;
-use super::tokens::Token;
+use super::tokens::sort_by_display_priority;
 use super::wire;
 use super::{Market, Status, ValidationError};
 use crate::domain::orderbook;
@@ -86,13 +86,10 @@ impl TryFrom<wire::MarketResponse> for Market {
             String::new()
         });
 
-        let mut deposit_asset_pairs = derive_deposit_asset_pairs(&deposit_assets, &orderbook_pairs);
-        deposit_asset_pairs.sort_by(|left, right| {
-            left.base
-                .display_priority()
-                .cmp(&right.base.display_priority())
-                .then_with(|| left.base.symbol().cmp(right.base.symbol()))
-        });
+        let deposit_asset_pairs = sort_by_display_priority(&derive_deposit_asset_pairs(
+            &deposit_assets,
+            &orderbook_pairs,
+        ));
 
         if deposit_asset_pairs.is_empty() {
             errors.push(ValidationError::MissingDepositAssetPairs);
@@ -241,6 +238,7 @@ mod tests {
 
     #[test]
     fn deposit_asset_pairs_are_sorted_by_display_priority() {
+        use tokens::Token;
         let pairs = super::derive_deposit_asset_pairs(
             &[
                 deposit_asset("USDC"),
@@ -263,20 +261,28 @@ mod tests {
             ],
         );
 
-        // Apply the same sort as TryFrom<MarketResponse>.
-        let mut sorted = pairs;
-        sorted.sort_by(|left, right| {
-            left.base
-                .display_priority()
-                .cmp(&right.base.display_priority())
-                .then_with(|| left.base.symbol().cmp(right.base.symbol()))
-        });
-
+        let sorted = sort_by_display_priority(&pairs);
         let base_symbols: Vec<&str> = sorted.iter().map(|pair| pair.base.symbol()).collect();
         assert_eq!(
             base_symbols,
             vec!["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "ZZZ"]
         );
+    }
+
+    #[test]
+    fn sort_by_display_priority_accepts_orderbook_pairs() {
+        // Type-check sanity: `OrderBookPair: HasDisplayToken` lets the same sort
+        // helper accept a list of pairs. Fixtures here all share a symbol so we
+        // only assert the call type-checks and returns the expected count;
+        // meaningful ordering is covered by
+        // `deposit_asset_pairs_are_sorted_by_display_priority`.
+        let pairs = vec![
+            orderbook_pair("BTC", "DAI", 0),
+            orderbook_pair("ETH", "DAI", 0),
+        ];
+
+        let sorted = sort_by_display_priority(&pairs);
+        assert_eq!(sorted.len(), 2);
     }
 
     fn deposit_asset(mint: &str) -> tokens::DepositAsset {
