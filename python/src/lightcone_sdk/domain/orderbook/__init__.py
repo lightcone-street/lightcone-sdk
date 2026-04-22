@@ -63,35 +63,36 @@ class OrderBookPair:
             tick_size=max(self.tick_size, 0),
         )
 
-    def impact_pct(self, deposit_price: str) -> tuple[float, str]:
+    @staticmethod
+    def impact_pct(deposit_price: str, conditional_price: str) -> tuple[float, str]:
         """Price impact as percentage relative to a deposit asset price."""
-        dp = Decimal(deposit_price)
-        if dp == 0:
+        deposit = Decimal(deposit_price)
+        if deposit == 0:
             return (0.0, "")
-        if self.last_trade_price is not None:
-            conditional = Decimal(self.last_trade_price)
-            val = float((conditional - dp) / dp * 100)
-            sign = "+" if val > 0 else ""
-            return (val, sign)
-        return (0.0, "")
+        conditional = Decimal(conditional_price)
+        if conditional == 0:
+            return (0.0, "")
+        val = float((conditional - deposit) / deposit * 100)
+        sign = "+" if val > 0 else ""
+        return (val, sign)
 
+    @staticmethod
     def impact(
-        self,
         deposit_asset_price: str,
         conditional_price: str,
     ) -> OutcomeImpact:
         """Full impact calculation with sign, percentage, and dollar difference."""
-        dap = Decimal(deposit_asset_price)
-        cp = Decimal(conditional_price)
-        if dap == 0:
+        deposit = Decimal(deposit_asset_price)
+        conditional = Decimal(conditional_price)
+        if deposit == 0:
             return OutcomeImpact(pct=0.0, dollar="0")
-        pct = float((cp - dap) / dap * 100)
+        pct = float((conditional - deposit) / deposit * 100)
         sign = "+" if pct > 0 else "-"
         return OutcomeImpact(
             sign=sign,
             is_positive=pct > 0,
             pct=abs(pct),
-            dollar=str(abs(cp - dap)),
+            dollar=str(abs(conditional - deposit)),
         )
 
 

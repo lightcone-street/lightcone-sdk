@@ -33,10 +33,12 @@ A tradable pair of conditional tokens within a market.
 | `last_trade_time` | `Option<DateTime<Utc>>` | Most recent trade timestamp |
 | `active` | `bool` | Whether the orderbook is accepting orders |
 
-**Methods:**
+**Associated functions:**
 
-- `impact_pct(deposit_price)` -- price impact as a percentage relative to a deposit asset price
-- `impact(deposit_asset_price, conditional_price)` -- full impact calculation with sign, percentage, and dollar difference
+- `OrderBookPair::impact_pct(deposit_price, conditional_price)` -- price impact as a percentage relative to a deposit asset price
+- `OrderBookPair::impact(deposit_asset_price, conditional_price)` -- full impact calculation with sign, percentage, and dollar difference
+
+Both short-circuit to zero/empty when `deposit_price` is zero; `impact_pct` also returns `(0.0, "")` when `conditional_price` is zero. Callers typically source `conditional_price` from `pair.last_trade_price` (with `Decimal::ZERO` as a fallback).
 
 ### `OutcomeImpact`
 

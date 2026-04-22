@@ -32,13 +32,12 @@ export interface OutcomeImpact {
   isPositive: boolean;
 }
 
-export function impactPct(pair: OrderBookPair, depositPrice: Decimal): [number, string] {
-  if (depositPrice.isZero() || !pair.lastTradePrice) {
+export function impactPct(depositPrice: Decimal, conditionalPrice: Decimal): [number, string] {
+  if (depositPrice.isZero() || conditionalPrice.isZero()) {
     return [0, ""];
   }
 
-  const conditional = new Decimal(pair.lastTradePrice);
-  const value = conditional.minus(depositPrice).div(depositPrice).mul(100);
+  const value = conditionalPrice.minus(depositPrice).div(depositPrice).mul(100);
   return [value.toNumber(), value.greaterThan(0) ? "+" : ""];
 }
 

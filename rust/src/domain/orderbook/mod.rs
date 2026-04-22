@@ -58,13 +58,13 @@ impl OrderBookPair {
     }
 
     /// Price impact as percentage relative to a deposit asset price.
-    pub fn impact_pct(&self, deposit_price: Decimal) -> (f64, &'static str) {
+    pub fn impact_pct(deposit_price: Decimal, conditional_price: Decimal) -> (f64, &'static str) {
         if deposit_price == Decimal::ZERO {
             return (0.0, "");
         }
 
-        if let Some(conditional) = self.last_trade_price {
-            let val = ((conditional - deposit_price) / deposit_price) * Decimal::from(100);
+        if conditional_price != Decimal::ZERO {
+            let val = ((conditional_price - deposit_price) / deposit_price) * Decimal::from(100);
             let sign = if val > Decimal::ZERO { "+" } else { "" };
             (val.to_f64().unwrap_or(0.0), sign)
         } else {
@@ -73,11 +73,7 @@ impl OrderBookPair {
     }
 
     /// Full impact calculation with sign, percentage, and dollar difference.
-    pub fn impact(
-        &self,
-        deposit_asset_price: Decimal,
-        conditional_price: Decimal,
-    ) -> OutcomeImpact {
+    pub fn impact(deposit_asset_price: Decimal, conditional_price: Decimal) -> OutcomeImpact {
         if deposit_asset_price == Decimal::ZERO {
             return OutcomeImpact::default();
         }
