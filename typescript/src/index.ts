@@ -41,6 +41,7 @@ export type {
   GlobalDepositAssetsResult,
   MarketsClient,
   MarketsResult,
+  MetricsClient,
   OrdersClient,
   OrderbooksClient,
   PositionsClient,

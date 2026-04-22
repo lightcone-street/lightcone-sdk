@@ -14,6 +14,7 @@ import type { Market as ProgramMarket } from "../../program/types";
 import { globalDepositAssetFromWire, marketFromWire } from "./convert";
 import { Status, type GlobalDepositAsset, type Market } from "./index";
 import type {
+  DepositMintsResponse,
   GlobalDepositAssetsListResponse,
   MarketSearchResult,
   MarketsResponse,
@@ -129,6 +130,15 @@ export class Markets {
     return result.filter(
       (item) => item.market_status === Status.Active || item.market_status === Status.Resolved
     );
+  }
+
+  /**
+   * Fetch deposit assets registered for a specific market, including each
+   * asset's conditional mints.
+   */
+  async depositAssets(marketPubkey: string): Promise<DepositMintsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/markets/${encodeURIComponent(marketPubkey)}/deposit-assets`;
+    return this.client.http.get<DepositMintsResponse>(url, RetryPolicy.Idempotent);
   }
 
   /**

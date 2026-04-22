@@ -317,6 +317,26 @@ class GlobalDepositAssetWire:
 
 
 @dataclass
+class DepositMintsResponse:
+    """API response for GET /api/markets/{market_pubkey}/deposit-assets."""
+
+    market_pubkey: str = ""
+    deposit_assets: list[DepositAssetWire] = field(default_factory=list)
+    total: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositMintsResponse":
+        return DepositMintsResponse(
+            market_pubkey=d.get("market_pubkey", ""),
+            deposit_assets=[
+                DepositAssetWire.from_dict(a)
+                for a in d.get("deposit_assets", [])
+            ],
+            total=d.get("total", 0),
+        )
+
+
+@dataclass
 class GlobalDepositAssetsListWire:
     """API response envelope for the global deposit asset whitelist."""
     assets: list[GlobalDepositAssetWire] = field(default_factory=list)

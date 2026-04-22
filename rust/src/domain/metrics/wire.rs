@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // ─── Platform ────────────────────────────────────────────────────────────────
 
 /// `GET /api/metrics/platform` response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PlatformMetrics {
     pub volume_24h_usd: Decimal,
     pub volume_7d_usd: Decimal,
@@ -43,7 +43,7 @@ pub struct PlatformMetrics {
 // ─── Market (listing + detail) ───────────────────────────────────────────────
 
 /// Entry in `GET /api/metrics/markets`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketVolumeMetrics {
     pub market_pubkey: PubkeyStr,
     #[serde(default)]
@@ -76,14 +76,23 @@ pub struct MarketVolumeMetrics {
 }
 
 /// `GET /api/metrics/markets` envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketsMetrics {
     pub markets: Vec<MarketVolumeMetrics>,
     pub total: usize,
 }
 
+impl Default for MarketsMetrics {
+    fn default() -> Self {
+        Self {
+            markets: Vec::new(),
+            total: 0,
+        }
+    }
+}
+
 /// Per-outcome breakdown inside `MarketDetailMetrics`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OutcomeVolumeMetrics {
     pub outcome_index: Option<i16>,
     #[serde(default)]
@@ -111,7 +120,7 @@ pub struct OutcomeVolumeMetrics {
 }
 
 /// Per-orderbook breakdown inside `MarketDetailMetrics`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketOrderbookVolumeMetrics {
     pub orderbook_id: OrderBookId,
     pub outcome_index: Option<i16>,
@@ -167,7 +176,7 @@ pub struct MarketOrderbookVolumeMetrics {
 }
 
 /// `GET /api/metrics/markets/{market_pubkey}` response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketDetailMetrics {
     pub market_pubkey: PubkeyStr,
     #[serde(default)]
@@ -205,7 +214,7 @@ pub struct MarketDetailMetrics {
 // ─── Orderbook ───────────────────────────────────────────────────────────────
 
 /// `GET /api/metrics/orderbooks/{orderbook_id}` response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderbookVolumeMetrics {
     pub orderbook_id: OrderBookId,
     pub market_pubkey: PubkeyStr,
@@ -268,7 +277,7 @@ pub struct OrderbookVolumeMetrics {
 
 /// Entry in `GET /api/metrics/categories` and the single response from
 /// `GET /api/metrics/categories/{category}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CategoryVolumeMetrics {
     pub category: String,
     pub volume_24h_usd: Decimal,
@@ -295,7 +304,7 @@ pub struct CategoryVolumeMetrics {
 }
 
 /// `GET /api/metrics/categories` envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CategoriesMetrics {
     pub categories: Vec<CategoryVolumeMetrics>,
 }
@@ -304,7 +313,7 @@ pub struct CategoriesMetrics {
 
 /// Entry in `GET /api/metrics/deposit-tokens`, also nested in platform/market/category
 /// responses.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DepositTokenVolumeMetrics {
     pub deposit_asset: PubkeyStr,
     #[serde(default)]
@@ -329,7 +338,7 @@ pub struct DepositTokenVolumeMetrics {
 }
 
 /// `GET /api/metrics/deposit-tokens` envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DepositTokensMetrics {
     pub deposit_tokens: Vec<DepositTokenVolumeMetrics>,
 }
@@ -337,7 +346,7 @@ pub struct DepositTokensMetrics {
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 
 /// Entry in `GET /api/metrics/leaderboard/markets`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LeaderboardEntry {
     pub rank: i32,
     pub market_pubkey: PubkeyStr,
@@ -353,7 +362,7 @@ pub struct LeaderboardEntry {
 }
 
 /// `GET /api/metrics/leaderboard/markets` envelope.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Leaderboard {
     pub entries: Vec<LeaderboardEntry>,
     pub period: String,
@@ -362,7 +371,7 @@ pub struct Leaderboard {
 // ─── History ─────────────────────────────────────────────────────────────────
 
 /// Bucket in `GET /api/metrics/history/{scope}/{scope_key}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HistoryPoint {
     /// Bucket start, Unix epoch milliseconds.
     pub bucket_start: i64,
@@ -370,7 +379,7 @@ pub struct HistoryPoint {
 }
 
 /// `GET /api/metrics/history/{scope}/{scope_key}` response.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MetricsHistory {
     pub scope: String,
     pub scope_key: String,
@@ -381,23 +390,23 @@ pub struct MetricsHistory {
 // ─── Queries (SDK-side; not wire-returned from the backend) ──────────────────
 
 /// Query parameters for `GET /api/metrics/markets` (reserved for future filters).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct MarketsMetricsQuery {}
 
 /// Query parameters for `GET /api/metrics/markets/{market_pubkey}` (reserved for future filters).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct MarketMetricsQuery {}
 
 /// Query parameters for `GET /api/metrics/orderbooks/{orderbook_id}` (reserved for future filters).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct OrderbookMetricsQuery {}
 
 /// Query parameters for `GET /api/metrics/categories/{category}` (reserved for future filters).
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct CategoryMetricsQuery {}
 
 /// Query parameters for `GET /api/metrics/history/{scope}/{scope_key}`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct MetricsHistoryQuery {
     pub resolution: String,
     #[serde(skip_serializing_if = "Option::is_none")]

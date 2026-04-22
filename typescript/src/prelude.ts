@@ -33,6 +33,7 @@ export type { ClientContext } from "./context";
 export { Auth } from "./auth";
 export { Admin } from "./domain/admin";
 export { Markets } from "./domain/market";
+export { Metrics } from "./domain/metrics";
 export { Orderbooks } from "./domain/orderbook";
 export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
@@ -40,6 +41,57 @@ export { Trades } from "./domain/trade";
 export { PriceHistoryClient } from "./domain/price_history";
 export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
+
+export type {
+  AdminLogEvent,
+  AdminLogEventsQuery,
+  AdminLogEventsResponse,
+  AdminLogMetricBreakdown,
+  AdminLogMetricHistoryQuery,
+  AdminLogMetricHistoryResponse,
+  AdminLogMetricPoint,
+  AdminLogMetricSummary,
+  AdminLogMetricsQuery,
+  AdminLogMetricsResponse,
+  CodeListEntry,
+  ListCodesRequest,
+  ListCodesResponse,
+  ReferralConfig,
+  UpdateCodeRequest,
+  UpdateCodeResponse,
+  UpdateConfigRequest,
+} from "./domain/admin";
+
+export type {
+  CategoriesMetrics,
+  CategoryVolumeMetrics,
+  DepositTokenVolumeMetrics,
+  DepositTokensMetrics,
+  HistoryPoint,
+  Leaderboard,
+  LeaderboardEntry,
+  MarketDetailMetrics,
+  MarketOrderbookVolumeMetrics,
+  MarketVolumeMetrics,
+  MarketsMetrics,
+  MetricsHistory,
+  MetricsHistoryQuery,
+  OrderbookVolumeMetrics,
+  OutcomeVolumeMetrics,
+  PlatformMetrics,
+} from "./domain/metrics";
+
+export type {
+  FaucetRequest,
+  FaucetResponse,
+  FaucetToken,
+} from "./domain/faucet";
+
+export type {
+  ConditionalTokenResponse,
+  DepositAssetResponse,
+  DepositMintsResponse,
+} from "./domain/market/wire";
 
 export type {
   Market,
@@ -211,6 +263,7 @@ export type AdminClient = import("./domain/admin").Admin;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
 export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;
+export type MetricsClient = import("./domain/metrics").Metrics;
 export type OrderbooksClient = import("./domain/orderbook").Orderbooks;
 export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;

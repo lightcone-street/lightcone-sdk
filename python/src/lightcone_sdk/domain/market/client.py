@@ -15,6 +15,7 @@ from . import (
     Status,
 )
 from .wire import (
+    DepositMintsResponse,
     GlobalDepositAssetsListWire,
     MarketResponse,
     MarketSearchResult,
@@ -145,6 +146,13 @@ class Markets:
             result for result in results
             if result.market_status in {"Active", "Resolved"}
         ]
+
+    async def deposit_assets(self, market_pubkey: str) -> DepositMintsResponse:
+        """Fetch deposit assets registered for a specific market, including conditional mints."""
+        data = await self._client._http.get(
+            f"/api/markets/{url_quote(market_pubkey, safe='')}/deposit-assets"
+        )
+        return DepositMintsResponse.from_dict(data)
 
     async def global_deposit_assets(self) -> GlobalDepositAssetsResult:
         """Fetch the active global deposit asset whitelist.
