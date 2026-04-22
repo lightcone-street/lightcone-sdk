@@ -1,5 +1,7 @@
 //! Wire types for admin requests and responses.
 
+use crate::shared::{OrderBookId, PubkeyStr};
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize, Serializer};
 
 // ============================================================================
@@ -323,4 +325,284 @@ pub struct DismissNotificationRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DismissNotificationResponse {
     pub status: String,
+}
+
+// ============================================================================
+// REFERRAL CONFIG / CODES ADMIN
+// ============================================================================
+
+/// Response from `POST /api/admin/referral/config/get` and
+/// `POST /api/admin/referral/config/update`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReferralConfig {
+    pub default_code_count: i32,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Request payload for `POST /api/admin/referral/config/update`.
+///
+/// `default_code_count: None` is accepted by the backend as a no-op; set `Some`
+/// to change the server-wide default.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct UpdateConfigRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_code_count: Option<i32>,
+}
+
+/// Request payload for `POST /api/admin/referral/codes` (admin list).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ListCodesRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub owner_user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub batch_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+/// Response from `POST /api/admin/referral/codes`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ListCodesResponse {
+    pub codes: Vec<CodeListEntry>,
+    pub count: usize,
+}
+
+/// A single referral code returned from the admin list endpoint.
+#[derive(Debug, Clone, Deserialize)]
+pub struct CodeListEntry {
+    pub code: String,
+    pub owner_user_id: String,
+    pub batch_id: String,
+    pub is_vanity: bool,
+    pub max_uses: i32,
+    pub use_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Request payload for `POST /api/admin/referral/codes/update`.
+#[derive(Debug, Clone, Serialize)]
+pub struct UpdateCodeRequest {
+    pub code: String,
+    pub max_uses: i32,
+}
+
+/// Response from `POST /api/admin/referral/codes/update`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateCodeResponse {
+    pub status: String,
+    pub code: String,
+    pub max_uses: i32,
+}
+
+// ============================================================================
+// ADMIN LOGS
+// ============================================================================
+
+/// Query for `GET /api/admin/logs/events`.
+///
+/// All filters are optional; pagination is cursor-based.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AdminLogEventsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub component: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_visible: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_pubkey: Option<PubkeyStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_pubkey: Option<PubkeyStr>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orderbook_id: Option<OrderBookId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger_order_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tx_signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub checkpoint_signature: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
+
+/// Response from `GET /api/admin/logs/events`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogEventsResponse {
+    pub events: Vec<AdminLogEvent>,
+    #[serde(default)]
+    pub next_cursor: Option<String>,
+    pub limit: u32,
+}
+
+/// A single log event from `GET /api/admin/logs/events`
+/// or `GET /api/admin/logs/events/{public_id}`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogEvent {
+    pub id: i64,
+    pub public_id: String,
+    pub service_name: String,
+    pub environment: String,
+    pub component: String,
+    pub operation: String,
+    pub category: String,
+    pub severity: String,
+    pub occurred_at_ms: i64,
+    #[serde(default)]
+    pub occurred_at: Option<String>,
+    pub created_at_ms: i64,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    pub user_visible: bool,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub user_pubkey: Option<PubkeyStr>,
+    #[serde(default)]
+    pub market_pubkey: Option<PubkeyStr>,
+    #[serde(default)]
+    pub orderbook_id: Option<OrderBookId>,
+    #[serde(default)]
+    pub order_hash: Option<String>,
+    #[serde(default)]
+    pub trigger_order_id: Option<String>,
+    #[serde(default)]
+    pub tx_signature: Option<String>,
+    #[serde(default)]
+    pub checkpoint_signature: Option<String>,
+    #[serde(default)]
+    pub http_status: Option<i32>,
+    #[serde(default)]
+    pub grpc_code: Option<String>,
+    pub message: String,
+    #[serde(default)]
+    pub fingerprint: Option<String>,
+    #[serde(default)]
+    pub response_status: Option<String>,
+    pub context: serde_json::Value,
+}
+
+/// Query for `GET /api/admin/logs/metrics`.
+///
+/// `windows` and `scopes` are CSV lists (e.g. `"1h,24h"` or `"service,component"`).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AdminLogMetricsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub windows: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit_per_scope: Option<u32>,
+}
+
+/// Response from `GET /api/admin/logs/metrics`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogMetricsResponse {
+    #[serde(default)]
+    pub computed_at: Option<String>,
+    pub computed_at_ms: i64,
+    pub breakdowns: Vec<AdminLogMetricBreakdown>,
+}
+
+/// A single (window, scope) breakdown in `AdminLogMetricsResponse`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogMetricBreakdown {
+    pub window: String,
+    pub scope: String,
+    pub rows: Vec<AdminLogMetricSummary>,
+}
+
+/// A summary row within an `AdminLogMetricBreakdown`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogMetricSummary {
+    pub scope_key: String,
+    pub total_count: u64,
+    pub error_count: u64,
+    pub critical_count: u64,
+    pub user_visible_count: u64,
+    pub computed_at_ms: i64,
+    #[serde(default)]
+    pub computed_at: Option<String>,
+}
+
+/// Query for `GET /api/admin/logs/metrics/history`.
+///
+/// `scope` is required (e.g. `"service"`, `"component"`); `scope_key` narrows
+/// the history to a single key within that scope.
+#[derive(Debug, Clone, Serialize)]
+pub struct AdminLogMetricHistoryQuery {
+    pub scope: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_key: Option<String>,
+    pub resolution: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_ms: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+impl AdminLogMetricHistoryQuery {
+    /// Construct a history query for the given scope with the default `"1h"` resolution.
+    pub fn new(scope: impl Into<String>) -> Self {
+        Self {
+            scope: scope.into(),
+            scope_key: None,
+            resolution: "1h".to_string(),
+            from_ms: None,
+            to_ms: None,
+            limit: None,
+        }
+    }
+}
+
+/// Response from `GET /api/admin/logs/metrics/history`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogMetricHistoryResponse {
+    pub scope: String,
+    pub scope_key: String,
+    pub resolution: String,
+    pub from_ms: i64,
+    pub to_ms: i64,
+    #[serde(default)]
+    pub from: Option<String>,
+    #[serde(default)]
+    pub to: Option<String>,
+    pub points: Vec<AdminLogMetricPoint>,
+}
+
+/// A single bucket in `AdminLogMetricHistoryResponse`.
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdminLogMetricPoint {
+    pub bucket_start_ms: i64,
+    #[serde(default)]
+    pub bucket_start: Option<String>,
+    pub total_count: u64,
+    pub error_count: u64,
+    pub critical_count: u64,
+    pub user_visible_count: u64,
 }

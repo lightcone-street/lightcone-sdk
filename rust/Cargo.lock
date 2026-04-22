@@ -1724,6 +1724,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha3",
  "solana-client",
  "solana-commitment-config",

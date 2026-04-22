@@ -4,9 +4,13 @@ pub mod client;
 pub mod wire;
 
 pub use wire::{
-    AdminLoginRequest, AdminLoginResponse, AdminNonceResponse, AllocateCodesRequest,
-    AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
-    DismissNotificationRequest, DismissNotificationResponse, RevokeRequest, RevokeResponse,
-    TargetSpec, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
-    WhitelistRequest, WhitelistResponse,
+    AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
+    AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
+    AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, AdminLoginRequest,
+    AdminLoginResponse, AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse,
+    CodeListEntry, CreateNotificationRequest, CreateNotificationResponse,
+    DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
+    ReferralConfig, RevokeRequest, RevokeResponse, TargetSpec, UnifiedMetadataRequest,
+    UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest,
+    UpdateCodeResponse, UpdateConfigRequest, WhitelistRequest, WhitelistResponse,
 };

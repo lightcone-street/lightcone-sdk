@@ -153,6 +153,88 @@ async fn dismiss_notification(
 
 Dismiss a notification. Requires prior `admin_login()`.
 
+### `get_referral_config`
+
+```rust
+async fn get_referral_config(&self) -> Result<ReferralConfig, SdkError>
+```
+
+Fetch the platform-wide referral configuration (`default_code_count` + `updated_at`). Requires prior `admin_login()`.
+
+### `update_referral_config`
+
+```rust
+async fn update_referral_config(
+    &self,
+    request: &UpdateConfigRequest,
+) -> Result<ReferralConfig, SdkError>
+```
+
+Update the platform-wide referral configuration. Passing `default_code_count: None` is accepted as a no-op. Requires prior `admin_login()`.
+
+### `list_referral_codes`
+
+```rust
+async fn list_referral_codes(
+    &self,
+    request: &ListCodesRequest,
+) -> Result<ListCodesResponse, SdkError>
+```
+
+List referral codes with optional owner/batch/code filters and offset+limit pagination. Requires prior `admin_login()`.
+
+### `update_referral_code`
+
+```rust
+async fn update_referral_code(
+    &self,
+    request: &UpdateCodeRequest,
+) -> Result<UpdateCodeResponse, SdkError>
+```
+
+Update the `max_uses` on an existing referral code. Requires prior `admin_login()`.
+
+### `list_log_events`
+
+```rust
+async fn list_log_events(
+    &self,
+    query: &AdminLogEventsQuery,
+) -> Result<AdminLogEventsResponse, SdkError>
+```
+
+List structured log events with optional filters (time range, service, component, severity, user/market/orderbook, etc.). Pagination is cursor-based — pass the previous response's `next_cursor` on the next call. Requires prior `admin_login()`.
+
+### `get_log_event`
+
+```rust
+async fn get_log_event(&self, public_id: &str) -> Result<AdminLogEvent, SdkError>
+```
+
+Fetch a single log event by its `public_id`. Requires prior `admin_login()`.
+
+### `log_metrics`
+
+```rust
+async fn log_metrics(
+    &self,
+    query: &AdminLogMetricsQuery,
+) -> Result<AdminLogMetricsResponse, SdkError>
+```
+
+Fetch rolled-up log metrics broken down by window and scope. `windows` and `scopes` are CSV lists (`"1h,24h"` or `"service,component"`). Requires prior `admin_login()`.
+
+### `log_metric_history`
+
+```rust
+async fn log_metric_history(
+    &self,
+    query: &AdminLogMetricHistoryQuery,
+) -> Result<AdminLogMetricHistoryResponse, SdkError>
+```
+
+Fetch a time-series of log metric buckets for a given scope (optionally narrowed to a `scope_key`). Use `AdminLogMetricHistoryQuery::new("service")` for default `"1h"` resolution. Requires prior `admin_login()`.
+
 ### On-Chain Instruction & Transaction Builders
 
 Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
@@ -336,6 +418,65 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 |-------|------|-------------|
 | `target` | `TargetSpec` | Who to revoke/unrevoke |
 | `reason` | `Option<String>` | Reason for revocation (revoke only) |
+
+### `ReferralConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default_code_count` | `i32` | Codes allocated per new user |
+| `updated_at` | `DateTime<Utc>` | Last time the config changed |
+
+### `UpdateConfigRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default_code_count` | `Option<i32>` | New default; `None` is a no-op |
+
+### `ListCodesRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `owner_user_id` / `batch_id` / `code` | `Option<String>` | Filters |
+| `limit` | `u32` | Max codes per page |
+| `offset` | `u32` | Offset for pagination |
+
+### `ListCodesResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `codes` | `Vec<CodeListEntry>` | Codes matching the filter |
+| `count` | `usize` | Total matching codes (across pages) |
+
+### `CodeListEntry`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `String` | The referral code |
+| `owner_user_id` | `String` | User who owns the code |
+| `batch_id` | `String` | Batch identifier |
+| `is_vanity` | `bool` | Whether it was manually assigned |
+| `max_uses` | `i32` | Maximum redemptions |
+| `use_count` | `i64` | Redemptions so far |
+| `created_at` | `DateTime<Utc>` | When the code was created |
+
+### `UpdateCodeRequest` / `UpdateCodeResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `String` | The referral code to update |
+| `max_uses` | `i32` | New maximum redemption count |
+
+### `AdminLogEventsQuery`
+
+Filter set for the events listing endpoint. All fields optional. Keys include `from_ms`, `to_ms`, `service_name`, `environment`, `category`, `severity`, `component`, `operation`, `fingerprint`, `response_status`, `user_visible`, `request_id`, `user_pubkey` (`PubkeyStr`), `market_pubkey` (`PubkeyStr`), `orderbook_id` (`OrderBookId`), `order_hash`, `trigger_order_id`, `tx_signature`, `checkpoint_signature`, `limit`, and `cursor`.
+
+### `AdminLogEvent`
+
+A single structured log event. Key fields: `id`, `public_id`, `service_name`, `environment`, `component`, `operation`, `category`, `severity`, `occurred_at_ms`, `created_at_ms`, `user_visible`, and free-form `context: serde_json::Value`. Entity bindings (`user_pubkey`, `market_pubkey`, `orderbook_id`, etc.) are all optional.
+
+### `AdminLogEventsResponse`, `AdminLogMetricsResponse`, `AdminLogMetricHistoryResponse`
+
+Envelope types holding paged events, breakdown rows, and history points respectively. See [`wire.rs`](./wire.rs) for the exact field list.
 
 ## TargetSpec
 

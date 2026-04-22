@@ -2,10 +2,13 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
+    AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricHistoryQuery,
+    AdminLogMetricHistoryResponse, AdminLogMetricsQuery, AdminLogMetricsResponse,
     AdminLoginRequest, AdminLoginResponse, AdminNonceResponse, AllocateCodesRequest,
     AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
-    DismissNotificationRequest, DismissNotificationResponse, RevokeRequest, RevokeResponse,
-    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
+    DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
+    ReferralConfig, RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
+    UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     WhitelistRequest, WhitelistResponse,
 };
 use crate::error::SdkError;
@@ -148,6 +151,149 @@ impl<'a> Admin<'a> {
         self.client
             .http
             .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    // ── Referral config / codes ────────────────────────────────────────
+
+    /// Fetch the platform-wide referral configuration.
+    ///
+    /// Returns `default_code_count` (the number of codes allocated per new user)
+    /// and `updated_at`. Requires prior `admin_login()`.
+    pub async fn get_referral_config(&self) -> Result<ReferralConfig, SdkError> {
+        let url = format!(
+            "{}/api/admin/referral/config/get",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await
+    }
+
+    /// Update the platform-wide referral configuration.
+    ///
+    /// A `None` field leaves the server value unchanged. Requires prior `admin_login()`.
+    pub async fn update_referral_config(
+        &self,
+        request: &UpdateConfigRequest,
+    ) -> Result<ReferralConfig, SdkError> {
+        let url = format!(
+            "{}/api/admin/referral/config/update",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// List referral codes with optional owner / batch / code filters.
+    ///
+    /// Pagination is offset/limit-based. Requires prior `admin_login()`.
+    pub async fn list_referral_codes(
+        &self,
+        request: &ListCodesRequest,
+    ) -> Result<ListCodesResponse, SdkError> {
+        let url = format!("{}/api/admin/referral/codes", self.client.http.base_url());
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Update the maximum redemption count for a referral code.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn update_referral_code(
+        &self,
+        request: &UpdateCodeRequest,
+    ) -> Result<UpdateCodeResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/referral/codes/update",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    // ── Admin logs ─────────────────────────────────────────────────────
+
+    /// List structured log events with optional filters.
+    ///
+    /// Pagination is cursor-based; pass the `next_cursor` from a previous
+    /// response to continue. Requires prior `admin_login()`.
+    pub async fn list_log_events(
+        &self,
+        query: &AdminLogEventsQuery,
+    ) -> Result<AdminLogEventsResponse, SdkError> {
+        let mut url = format!("{}/api/admin/logs/events", self.client.http.base_url());
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Fetch a single log event by its `public_id`.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn get_log_event(&self, public_id: &str) -> Result<AdminLogEvent, SdkError> {
+        let url = format!(
+            "{}/api/admin/logs/events/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(public_id)
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Fetch rolled-up log metrics broken down by window and scope.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn log_metrics(
+        &self,
+        query: &AdminLogMetricsQuery,
+    ) -> Result<AdminLogMetricsResponse, SdkError> {
+        let mut url = format!("{}/api/admin/logs/metrics", self.client.http.base_url());
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Fetch the history (bucketed time-series) of log metrics for a given scope.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn log_metric_history(
+        &self,
+        query: &AdminLogMetricHistoryQuery,
+    ) -> Result<AdminLogMetricHistoryResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/admin/logs/metrics/history",
+            self.client.http.base_url()
+        );
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
             .await
     }
 
