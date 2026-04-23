@@ -1,3 +1,4 @@
+#![cfg(feature = "native-auth")]
 //! Integration tests for nonce-based wallet authentication.
 //!
 //! Exercises the full challenge-response flow against a running API:

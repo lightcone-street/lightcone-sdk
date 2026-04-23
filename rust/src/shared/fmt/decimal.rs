@@ -115,7 +115,7 @@ pub fn display(value: &Decimal) -> String {
     }
 }
 
-/// Abbreviate a `Decimal` with K/M/B/T suffixes.
+/// Abbreviate a `Decimal` with k/m/b/t suffixes.
 pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bool>) -> String {
     let digits = digits.unwrap_or(2);
     let show_sign = show_sign.unwrap_or(true);
@@ -272,20 +272,20 @@ mod tests {
 
     #[test]
     fn test_abbr_number_thousands() {
-        assert_eq!(abbr_number(&dec("1000"), None, None), "1.00K");
-        assert_eq!(abbr_number(&dec("1500"), None, None), "1.50K");
-        assert_eq!(abbr_number(&dec("12345"), None, None), "12.34K");
+        assert_eq!(abbr_number(&dec("1000"), None, None), "1.00k");
+        assert_eq!(abbr_number(&dec("1500"), None, None), "1.50k");
+        assert_eq!(abbr_number(&dec("12345"), None, None), "12.34k");
     }
 
     #[test]
     fn test_abbr_number_millions() {
-        assert_eq!(abbr_number(&dec("1000000"), None, None), "1.00M");
-        assert_eq!(abbr_number(&dec("1500000"), None, None), "1.50M");
+        assert_eq!(abbr_number(&dec("1000000"), None, None), "1.00m");
+        assert_eq!(abbr_number(&dec("1500000"), None, None), "1.50m");
     }
 
     #[test]
     fn test_abbr_number_negative() {
-        assert_eq!(abbr_number(&dec("-1500000"), None, None), "-1.50M");
-        assert_eq!(abbr_number(&dec("-1500000"), None, Some(false)), "1.50M");
+        assert_eq!(abbr_number(&dec("-1500000"), None, None), "-1.50m");
+        assert_eq!(abbr_number(&dec("-1500000"), None, Some(false)), "1.50m");
     }
 }
