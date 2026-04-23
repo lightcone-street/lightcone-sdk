@@ -9,7 +9,8 @@ use crate::domain::admin::{
     DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
     ReferralConfig, RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
     UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
-    WhitelistRequest, WhitelistResponse,
+    UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse, WhitelistRequest,
+    WhitelistResponse,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -76,6 +77,22 @@ impl<'a> Admin<'a> {
         request: &UnifiedMetadataRequest,
     ) -> Result<UnifiedMetadataResponse, SdkError> {
         let url = format!("{}/api/admin/metadata", self.client.http.base_url());
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Upload banner/icon/outcome/token images and metadata for a newly created
+    /// market, returning the uploaded URLs. Requires prior `admin_login()`.
+    pub async fn upload_market_deployment_assets(
+        &self,
+        request: &UploadMarketDeploymentAssetsRequest,
+    ) -> Result<UploadMarketDeploymentAssetsResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/upload-market-deployment-assets",
+            self.client.http.base_url()
+        );
         self.client
             .http
             .admin_post(&url, request, RetryPolicy::None)

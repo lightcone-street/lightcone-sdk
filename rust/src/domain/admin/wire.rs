@@ -606,3 +606,135 @@ pub struct AdminLogMetricPoint {
     pub critical_count: u64,
     pub user_visible_count: u64,
 }
+
+// ============================================================================
+// MARKET DEPLOYMENT ASSET UPLOAD
+// ============================================================================
+
+/// Request payload for `POST /api/admin/metadata/upload-market-deployment-assets`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadMarketDeploymentAssetsRequest {
+    pub market_id: i64,
+    pub market_pubkey: String,
+    pub market: MarketDeploymentMarket,
+    #[serde(default)]
+    pub outcomes: Vec<MarketDeploymentOutcome>,
+    #[serde(default)]
+    pub deposit_assets: Vec<MarketDeploymentDepositAsset>,
+    #[serde(default)]
+    pub conditional_tokens: Vec<MarketDeploymentConditionalToken>,
+}
+
+/// Market-level fields for a deployment asset upload.
+///
+/// When a `*_image_data_url` + `*_image_content_type` pair is provided the
+/// backend uploads the image and ignores the matching `*_image_url` field;
+/// otherwise the existing `*_image_url` is preserved.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDeploymentMarket {
+    pub name: String,
+    pub slug: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub definition: Option<String>,
+    #[serde(default)]
+    pub banner_image_url: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub subcategory: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub featured_rank: Option<i32>,
+    #[serde(default)]
+    pub banner_image_data_url: Option<String>,
+    #[serde(default)]
+    pub banner_image_content_type: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type: Option<String>,
+}
+
+/// A single outcome within an upload deployment asset request.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDeploymentOutcome {
+    pub index: i32,
+    pub name: String,
+    pub symbol: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type: Option<String>,
+}
+
+/// A deposit asset referenced by the market being deployed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDeploymentDepositAsset {
+    pub mint: String,
+    pub display_name: String,
+    pub symbol: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    pub decimals: i32,
+}
+
+/// A conditional token to upload image + metadata for.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketDeploymentConditionalToken {
+    pub outcome_index: i32,
+    pub deposit_mint: String,
+    pub conditional_mint: String,
+    pub name: String,
+    pub symbol: String,
+    #[serde(default)]
+    pub description: Option<String>,
+    pub image_data_url: String,
+    pub image_content_type: String,
+}
+
+/// Response from `POST /api/admin/metadata/upload-market-deployment-assets`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadMarketDeploymentAssetsResponse {
+    pub market_metadata_uri: String,
+    pub market: UploadedMarketImages,
+    #[serde(default)]
+    pub outcomes: Vec<UploadedOutcomeImages>,
+    #[serde(default)]
+    pub tokens: Vec<UploadedConditionalToken>,
+}
+
+/// Uploaded market banner/icon URLs.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UploadedMarketImages {
+    #[serde(default)]
+    pub banner_image_url: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+}
+
+/// Uploaded icon URL for a single outcome.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadedOutcomeImages {
+    pub index: i32,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+}
+
+/// Uploaded conditional token image + metadata URIs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadedConditionalToken {
+    pub conditional_mint: String,
+    pub image_url: String,
+    pub metadata_uri: String,
+}

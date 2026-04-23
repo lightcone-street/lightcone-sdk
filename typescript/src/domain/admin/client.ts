@@ -57,6 +57,8 @@ import type {
   UpdateCodeRequest,
   UpdateCodeResponse,
   UpdateConfigRequest,
+  UploadMarketDeploymentAssetsRequest,
+  UploadMarketDeploymentAssetsResponse,
   WhitelistRequest,
   WhitelistResponse,
 } from "./wire";
@@ -101,6 +103,16 @@ export class Admin {
       request,
       RetryPolicy.None
     );
+  }
+
+  async uploadMarketDeploymentAssets(
+    request: UploadMarketDeploymentAssetsRequest
+  ): Promise<UploadMarketDeploymentAssetsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/metadata/upload-market-deployment-assets`;
+    return this.client.http.adminPost<
+      UploadMarketDeploymentAssetsResponse,
+      UploadMarketDeploymentAssetsRequest
+    >(url, request, RetryPolicy.None);
   }
 
   async allocateCodes(

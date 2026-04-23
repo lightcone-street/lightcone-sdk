@@ -363,3 +363,94 @@ export interface AdminLogMetricHistoryResponse {
   from?: string;
   to?: string;
 }
+
+// ============================================================================
+// Market deployment asset upload
+// ============================================================================
+
+/** Request for `POST /api/admin/metadata/upload-market-deployment-assets`. */
+export interface UploadMarketDeploymentAssetsRequest {
+  market_id: number;
+  market_pubkey: string;
+  market: MarketDeploymentMarket;
+  outcomes?: MarketDeploymentOutcome[];
+  deposit_assets?: MarketDeploymentDepositAsset[];
+  conditional_tokens?: MarketDeploymentConditionalToken[];
+}
+
+/**
+ * Market-level fields for a deployment asset upload.
+ *
+ * When a `*_image_data_url` + `*_image_content_type` pair is provided the
+ * backend uploads the image and ignores the matching `*_image_url` field;
+ * otherwise the existing `*_image_url` is preserved.
+ */
+export interface MarketDeploymentMarket {
+  name: string;
+  slug: string;
+  description?: string;
+  definition?: string;
+  banner_image_url?: string;
+  icon_url?: string;
+  category?: string;
+  subcategory?: string;
+  tags?: string[];
+  featured_rank?: number;
+  banner_image_data_url?: string;
+  banner_image_content_type?: string;
+  icon_image_data_url?: string;
+  icon_image_content_type?: string;
+}
+
+export interface MarketDeploymentOutcome {
+  index: number;
+  name: string;
+  symbol: string;
+  description?: string;
+  icon_url?: string;
+  icon_image_data_url?: string;
+  icon_image_content_type?: string;
+}
+
+export interface MarketDeploymentDepositAsset {
+  mint: string;
+  display_name: string;
+  symbol: string;
+  description?: string;
+  icon_url?: string;
+  decimals: number;
+}
+
+export interface MarketDeploymentConditionalToken {
+  outcome_index: number;
+  deposit_mint: string;
+  conditional_mint: string;
+  name: string;
+  symbol: string;
+  description?: string;
+  image_data_url: string;
+  image_content_type: string;
+}
+
+export interface UploadMarketDeploymentAssetsResponse {
+  market_metadata_uri: string;
+  market: UploadedMarketImages;
+  outcomes: UploadedOutcomeImages[];
+  tokens: UploadedConditionalToken[];
+}
+
+export interface UploadedMarketImages {
+  banner_image_url?: string;
+  icon_url?: string;
+}
+
+export interface UploadedOutcomeImages {
+  index: number;
+  icon_url?: string;
+}
+
+export interface UploadedConditionalToken {
+  conditional_mint: string;
+  image_url: string;
+  metadata_uri: string;
+}

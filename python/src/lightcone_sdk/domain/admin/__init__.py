@@ -763,6 +763,187 @@ class AdminLogMetricHistoryResponse:
         )
 
 
+# ============================================================================
+# MARKET DEPLOYMENT ASSET UPLOAD
+# ============================================================================
+
+
+@dataclass
+class MarketDeploymentMarket:
+    """Market-level fields for a deployment asset upload.
+
+    When a ``*_image_data_url`` + ``*_image_content_type`` pair is provided the
+    backend uploads the image and ignores the matching ``*_image_url`` field;
+    otherwise the existing ``*_image_url`` is preserved.
+    """
+
+    name: str
+    slug: str
+    description: Optional[str] = None
+    definition: Optional[str] = None
+    banner_image_url: Optional[str] = None
+    icon_url: Optional[str] = None
+    category: Optional[str] = None
+    subcategory: Optional[str] = None
+    tags: list[str] = field(default_factory=list)
+    featured_rank: Optional[int] = None
+    banner_image_data_url: Optional[str] = None
+    banner_image_content_type: Optional[str] = None
+    icon_image_data_url: Optional[str] = None
+    icon_image_content_type: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        payload = {
+            "name": self.name,
+            "slug": self.slug,
+            "description": self.description,
+            "definition": self.definition,
+            "banner_image_url": self.banner_image_url,
+            "icon_url": self.icon_url,
+            "category": self.category,
+            "subcategory": self.subcategory,
+            "tags": self.tags,
+            "featured_rank": self.featured_rank,
+            "banner_image_data_url": self.banner_image_data_url,
+            "banner_image_content_type": self.banner_image_content_type,
+            "icon_image_data_url": self.icon_image_data_url,
+            "icon_image_content_type": self.icon_image_content_type,
+        }
+        return _compact_dict(payload)
+
+
+@dataclass
+class MarketDeploymentOutcome:
+    index: int
+    name: str
+    symbol: str
+    description: Optional[str] = None
+    icon_url: Optional[str] = None
+    icon_image_data_url: Optional[str] = None
+    icon_image_content_type: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return _compact_dict(self.__dict__)
+
+
+@dataclass
+class MarketDeploymentDepositAsset:
+    mint: str
+    display_name: str
+    symbol: str
+    decimals: int
+    description: Optional[str] = None
+    icon_url: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return _compact_dict(self.__dict__)
+
+
+@dataclass
+class MarketDeploymentConditionalToken:
+    outcome_index: int
+    deposit_mint: str
+    conditional_mint: str
+    name: str
+    symbol: str
+    image_data_url: str
+    image_content_type: str
+    description: Optional[str] = None
+
+    def to_dict(self) -> dict:
+        return _compact_dict(self.__dict__)
+
+
+@dataclass
+class UploadMarketDeploymentAssetsRequest:
+    """Request payload for POST /api/admin/metadata/upload-market-deployment-assets."""
+
+    market_id: int
+    market_pubkey: str
+    market: MarketDeploymentMarket
+    outcomes: list[MarketDeploymentOutcome] = field(default_factory=list)
+    deposit_assets: list[MarketDeploymentDepositAsset] = field(default_factory=list)
+    conditional_tokens: list[MarketDeploymentConditionalToken] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "market_id": self.market_id,
+            "market_pubkey": self.market_pubkey,
+            "market": self.market.to_dict(),
+            "outcomes": [outcome.to_dict() for outcome in self.outcomes],
+            "deposit_assets": [asset.to_dict() for asset in self.deposit_assets],
+            "conditional_tokens": [
+                token.to_dict() for token in self.conditional_tokens
+            ],
+        }
+
+
+@dataclass(frozen=True)
+class UploadedMarketImages:
+    banner_image_url: Optional[str] = None
+    icon_url: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "UploadedMarketImages":
+        return UploadedMarketImages(
+            banner_image_url=d.get("banner_image_url"),
+            icon_url=d.get("icon_url"),
+        )
+
+
+@dataclass(frozen=True)
+class UploadedOutcomeImages:
+    index: int
+    icon_url: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "UploadedOutcomeImages":
+        return UploadedOutcomeImages(
+            index=d.get("index", 0),
+            icon_url=d.get("icon_url"),
+        )
+
+
+@dataclass(frozen=True)
+class UploadedConditionalToken:
+    conditional_mint: str
+    image_url: str
+    metadata_uri: str
+
+    @staticmethod
+    def from_dict(d: dict) -> "UploadedConditionalToken":
+        return UploadedConditionalToken(
+            conditional_mint=d.get("conditional_mint", ""),
+            image_url=d.get("image_url", ""),
+            metadata_uri=d.get("metadata_uri", ""),
+        )
+
+
+@dataclass
+class UploadMarketDeploymentAssetsResponse:
+    """Response from POST /api/admin/metadata/upload-market-deployment-assets."""
+
+    market_metadata_uri: str = ""
+    market: UploadedMarketImages = field(default_factory=UploadedMarketImages)
+    outcomes: list[UploadedOutcomeImages] = field(default_factory=list)
+    tokens: list[UploadedConditionalToken] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UploadMarketDeploymentAssetsResponse":
+        return UploadMarketDeploymentAssetsResponse(
+            market_metadata_uri=d.get("market_metadata_uri", ""),
+            market=UploadedMarketImages.from_dict(d.get("market") or {}),
+            outcomes=[
+                UploadedOutcomeImages.from_dict(outcome)
+                for outcome in d.get("outcomes", [])
+            ],
+            tokens=[
+                UploadedConditionalToken.from_dict(token)
+                for token in d.get("tokens", [])
+            ],
+        )
+
+
 __all__ = [
     "AdminNonceResponse",
     "AdminLoginRequest",
@@ -803,4 +984,13 @@ __all__ = [
     "AdminLogMetricHistoryQuery",
     "AdminLogMetricHistoryResponse",
     "AdminLogMetricPoint",
+    "MarketDeploymentMarket",
+    "MarketDeploymentOutcome",
+    "MarketDeploymentDepositAsset",
+    "MarketDeploymentConditionalToken",
+    "UploadMarketDeploymentAssetsRequest",
+    "UploadMarketDeploymentAssetsResponse",
+    "UploadedMarketImages",
+    "UploadedOutcomeImages",
+    "UploadedConditionalToken",
 ]

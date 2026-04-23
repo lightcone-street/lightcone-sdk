@@ -39,6 +39,8 @@ from . import (
     UpdateCodeRequest,
     UpdateCodeResponse,
     UpdateConfigRequest,
+    UploadMarketDeploymentAssetsRequest,
+    UploadMarketDeploymentAssetsResponse,
     WhitelistRequest,
     WhitelistResponse,
 )
@@ -113,6 +115,18 @@ class Admin:
         """Upsert market/token metadata. Requires prior admin_login()."""
         data = await self._client._http.admin_post("/api/admin/metadata", request.to_dict())
         return UnifiedMetadataResponse.from_dict(data)
+
+    async def upload_market_deployment_assets(
+        self, request: UploadMarketDeploymentAssetsRequest
+    ) -> UploadMarketDeploymentAssetsResponse:
+        """Upload banner/icon/outcome/token images and metadata for a newly created market.
+
+        Returns the uploaded URLs. Requires prior admin_login().
+        """
+        data = await self._client._http.admin_post(
+            "/api/admin/metadata/upload-market-deployment-assets", request.to_dict()
+        )
+        return UploadMarketDeploymentAssetsResponse.from_dict(data)
 
     async def allocate_codes(self, request: AllocateCodesRequest) -> AllocateCodesResponse:
         """Allocate referral codes. Requires prior admin_login()."""

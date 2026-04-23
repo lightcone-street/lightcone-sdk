@@ -83,14 +83,6 @@ bincode = "^1.3.3"
 # ── Examples ─────────────────────────────────────────────────────────────────
 
 [[example]]
-name = "admin_logs"
-required-features = ["native"]
-
-[[example]]
-name = "admin_referral_codes"
-required-features = ["native"]
-
-[[example]]
 name = "cancel_order"
 required-features = ["native"]
 

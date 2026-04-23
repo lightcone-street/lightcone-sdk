@@ -53,6 +53,13 @@ jobs:
         run: |
           for file in examples/*.rs; do
             name=$(basename "$file" .rs)
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 cargo run --example "$name" --features native
             echo "::endgroup::"
@@ -89,6 +96,13 @@ jobs:
           for file in examples/*.ts; do
             name=$(basename "$file" .ts)
             if [ "$name" = "common" ]; then continue; fi
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 npx tsx "$file"
             echo "::endgroup::"
@@ -124,6 +138,13 @@ jobs:
           for file in examples/*.py; do
             name=$(basename "$file" .py)
             if [ "$name" = "common" ]; then continue; fi
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 python "$file"
             echo "::endgroup::"

@@ -87,6 +87,17 @@ async fn upsert_metadata(
 
 Upsert metadata for markets, outcomes, conditional tokens, and deposit tokens in a single batch operation. Requires prior `admin_login()`.
 
+### `upload_market_deployment_assets`
+
+```rust
+async fn upload_market_deployment_assets(
+    &self,
+    request: &UploadMarketDeploymentAssetsRequest,
+) -> Result<UploadMarketDeploymentAssetsResponse, SdkError>
+```
+
+Upload banner/icon/outcome/conditional-token images and metadata for a newly created market. Each image is passed as an `*_image_data_url` (data URL) plus `*_image_content_type`; the backend stores them and returns the resulting URLs. Requires prior `admin_login()`.
+
 ### `allocate_codes`
 
 ```rust
@@ -394,6 +405,89 @@ Batch metadata upsert payload. All arrays are optional — only include the enti
 | `deposit_tokens` | `Vec<DepositTokenMetadataPayload>` | Deposit token metadata updates |
 
 Each payload struct uses `Option<T>` fields — only non-`None` fields are updated, leaving other fields unchanged.
+
+### `UploadMarketDeploymentAssetsRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_id` | `i64` | On-chain market ID |
+| `market_pubkey` | `String` | On-chain market public key |
+| `market` | `MarketDeploymentMarket` | Market-level fields and image payloads |
+| `outcomes` | `Vec<MarketDeploymentOutcome>` | Per-outcome metadata + images (default empty) |
+| `deposit_assets` | `Vec<MarketDeploymentDepositAsset>` | Deposit assets referenced by this market (default empty) |
+| `conditional_tokens` | `Vec<MarketDeploymentConditionalToken>` | Per-token metadata + image (default empty) |
+
+#### `MarketDeploymentMarket`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` / `slug` | `String` | Required display name + URL slug |
+| `description` / `definition` | `Option<String>` | Long description and resolution definition |
+| `banner_image_url` / `icon_url` | `Option<String>` | Existing URLs (used when no matching data URL is supplied) |
+| `category` / `subcategory` | `Option<String>` | Categorization |
+| `tags` | `Vec<String>` | Free-form tags (default empty) |
+| `featured_rank` | `Option<i32>` | Rank on the featured list, if any |
+| `banner_image_data_url` / `banner_image_content_type` | `Option<String>` | New banner upload (data URL + MIME) |
+| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+
+#### `MarketDeploymentOutcome`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | `i32` | Outcome index within the market |
+| `name` / `symbol` | `String` | Display name and short symbol |
+| `description` | `Option<String>` | Optional long description |
+| `icon_url` | `Option<String>` | Existing icon URL (used when no data URL is supplied) |
+| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+
+#### `MarketDeploymentDepositAsset`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | `String` | Deposit asset mint (base58) |
+| `display_name` / `symbol` | `String` | Display name and ticker symbol |
+| `decimals` | `i32` | Token decimals |
+| `description` / `icon_url` | `Option<String>` | Optional description and icon URL |
+
+#### `MarketDeploymentConditionalToken`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `outcome_index` | `i32` | Associated outcome index |
+| `deposit_mint` / `conditional_mint` | `String` | Underlying deposit mint and derived conditional mint |
+| `name` / `symbol` | `String` | Display name and ticker symbol for the conditional token |
+| `description` | `Option<String>` | Optional description |
+| `image_data_url` / `image_content_type` | `String` | Required image upload (data URL + MIME) |
+
+### `UploadMarketDeploymentAssetsResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_metadata_uri` | `String` | URI of the uploaded market metadata JSON |
+| `market` | `UploadedMarketImages` | Resolved banner/icon URLs for the market |
+| `outcomes` | `Vec<UploadedOutcomeImages>` | Resolved icon URLs per outcome |
+| `tokens` | `Vec<UploadedConditionalToken>` | Resolved image + metadata URIs per conditional token |
+
+#### `UploadedMarketImages`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `banner_image_url` / `icon_url` | `Option<String>` | Uploaded URLs (or `None` if not supplied) |
+
+#### `UploadedOutcomeImages`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | `i32` | Outcome index |
+| `icon_url` | `Option<String>` | Uploaded icon URL (or `None` if not supplied) |
+
+#### `UploadedConditionalToken`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditional_mint` | `String` | Conditional token mint |
+| `image_url` | `String` | Uploaded image URL |
+| `metadata_uri` | `String` | Uploaded metadata JSON URI |
 
 ### `AllocateCodesRequest`
 
