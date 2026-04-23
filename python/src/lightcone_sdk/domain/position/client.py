@@ -8,6 +8,7 @@ from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from . import DepositTokenBalance
 from .builders import (
     DepositBuilder,
     DepositToGlobalBuilder,
@@ -78,6 +79,20 @@ class Positions:
             f"/api/users/{user_pubkey}/markets/{market_pubkey}/positions"
         )
         return MarketPositionsResponseWire.from_dict(data)
+
+    async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
+        """Get SPL deposit-token balances for the authenticated user.
+
+        The wallet is resolved server-side from the ``auth_token`` cookie, so
+        no parameter is required. Returns balances keyed by mint pubkey for
+        every deposit token registered in the backend's
+        ``deposit_token_metadata``. An empty dict means the user has none of
+        the tracked balances — this is not an error.
+        """
+        data = await self._client._http.get("/api/users/deposit-token-balances")
+        return {
+            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
+        }
 
     # ── On-chain instruction builders ────────────────────────────────────
 

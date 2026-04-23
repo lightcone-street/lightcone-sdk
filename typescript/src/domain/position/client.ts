@@ -23,6 +23,8 @@ import type {
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
 } from "../../program/types";
+import type { PubkeyStr } from "../../shared";
+import type { DepositTokenBalance } from "./index";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -56,6 +58,23 @@ export class Positions {
   async getForMarket(userPubkey: string, marketPubkey: string): Promise<MarketPositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`;
     return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Get SPL deposit-token balances for the authenticated user.
+   *
+   * The wallet is resolved server-side from the `auth_token` cookie, so no
+   * parameter is required. Returns balances keyed by mint pubkey for every
+   * deposit token registered in the backend's `deposit_token_metadata`.
+   * An empty object means the user has none of the tracked balances — this
+   * is not an error.
+   */
+  async depositTokenBalances(): Promise<Record<PubkeyStr, DepositTokenBalance>> {
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
+    return this.client.http.get<Record<PubkeyStr, DepositTokenBalance>>(
+      url,
+      RetryPolicy.Idempotent,
+    );
   }
 
   // ── On-chain transaction builders ────────────────────────────────────
