@@ -2,11 +2,13 @@
 
 use crate::client::LightconeClient;
 use crate::domain::market::wire::{
-    GlobalDepositAssetsListResponse, MarketSearchResult, MarketsResponse, SingleMarketResponse,
+    DepositMintsResponse, GlobalDepositAssetsListResponse, MarketSearchResult, MarketsResponse,
+    SingleMarketResponse,
 };
 use crate::domain::market::{self, GlobalDepositAsset, Market, Status};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 
@@ -151,6 +153,20 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
+    }
+
+    /// Fetch the deposit assets registered for a specific market (including their
+    /// conditional mints).
+    pub async fn deposit_assets(
+        &self,
+        market_pubkey: &PubkeyStr,
+    ) -> Result<DepositMintsResponse, SdkError> {
+        let url = format!(
+            "{}/api/markets/{}/deposit-assets",
+            self.client.http.base_url(),
+            market_pubkey.as_str()
+        );
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Fetch the active global deposit asset whitelist (platform-scoped, not market-bound).

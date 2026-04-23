@@ -93,6 +93,33 @@ pub mod prelude {
     };
     pub use crate::domain::trade::Trade;
 
+    // Domain types — metrics
+    pub use crate::domain::metrics::{
+        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeMetrics,
+        DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
+        MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
+        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,
+        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics,
+    };
+
+    // Domain types — faucet
+    pub use crate::domain::faucet::{FaucetRequest, FaucetResponse, FaucetToken};
+
+    // Domain types — market wire (deposit-asset responses exposed by
+    // `client.markets().deposit_assets(...)`)
+    pub use crate::domain::market::wire::{
+        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse,
+    };
+
+    // Domain types — admin (referral config/codes and logs)
+    pub use crate::domain::admin::{
+        AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
+        AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
+        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, CodeListEntry,
+        ListCodesRequest, ListCodesResponse, ReferralConfig, UpdateCodeRequest, UpdateCodeResponse,
+        UpdateConfigRequest,
+    };
+
     // Errors
     pub use crate::error::SdkError;
 
@@ -139,7 +166,7 @@ pub mod prelude {
     #[cfg(feature = "http")]
     pub use crate::client::{
         AdminClient, AuthClient, GlobalDepositAssetsResult, LightconeClient,
-        LightconeClientBuilder, MarketsClient, MarketsResult, NotificationsClient,
+        LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient, NotificationsClient,
         OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient,
         RpcClient, TradesClient,
     };

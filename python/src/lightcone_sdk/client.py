@@ -12,7 +12,9 @@ from solders.pubkey import Pubkey
 from .auth import AuthCredentials
 from .auth.client import Auth
 from .domain.admin.client import Admin
+from .domain.faucet import FaucetRequest, FaucetResponse
 from .domain.market.client import Markets
+from .domain.metrics.client import Metrics
 from .domain.notification.client import Notifications
 from .domain.order.client import Orders
 from .domain.orderbook.client import Orderbooks
@@ -72,6 +74,7 @@ class LightconeClient:
         self._privy = Privy(self)
         self._referrals = Referrals(self)
         self._notifications = Notifications(self)
+        self._metrics = Metrics(self)
         self._rpc = Rpc(self)
 
     # ── Properties ───────────────────────────────────────────────────────
@@ -236,6 +239,23 @@ class LightconeClient:
 
     def notifications(self) -> Notifications:
         return self._notifications
+
+    def metrics(self) -> Metrics:
+        """Metrics sub-client — platform / market / orderbook / category /
+        deposit-token volume metrics, market leaderboard, and time-series history."""
+        return self._metrics
+
+    async def claim(self, wallet_address: str) -> FaucetResponse:
+        """Request testnet SOL + whitelisted deposit tokens for a wallet.
+
+        Only active on environments whose backend has the faucet enabled
+        (typically local and staging).
+
+        POST /api/claim
+        """
+        request = FaucetRequest(wallet_address=wallet_address)
+        data = await self._http.post("/api/claim", request.to_dict())
+        return FaucetResponse.from_dict(data)
 
     def rpc(self) -> Rpc:
         """RPC sub-client — PDA helpers, account fetchers, and blockhash access."""

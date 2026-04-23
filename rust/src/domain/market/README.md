@@ -159,6 +159,25 @@ async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError>
 
 Get the current featured markets. Returns only `Active` and `Resolved` markets.
 
+### `deposit_assets`
+
+```rust
+async fn deposit_assets(
+    &self,
+    market_pubkey: &PubkeyStr,
+) -> Result<DepositMintsResponse, SdkError>
+```
+
+Fetch the deposit assets registered for a specific market, including each asset's conditional mints. Returns the raw wire response (`DepositMintsResponse` / `DepositAssetResponse` / `ConditionalTokenResponse`) rather than a rich type so consumers can access the full payload without re-fetching the parent market.
+
+### `global_deposit_assets`
+
+```rust
+async fn global_deposit_assets(&self) -> Result<GlobalDepositAssetsResult, SdkError>
+```
+
+Fetch the active global deposit asset whitelist (platform-scoped, not market-bound). Assets that fail validation are skipped with their errors in `validation_errors`.
+
 ### Market Helpers
 
 #### `derive_condition_id`

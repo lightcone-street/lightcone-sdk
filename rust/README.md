@@ -246,10 +246,20 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
+| [`market_deposit_assets`](examples/market_deposit_assets.rs) | List the deposit assets and conditional mints for a specific market |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+| [`metrics_all`](examples/metrics_all.rs) | Exercise every endpoint on `client.metrics()` — platform, markets, categories, orderbook, leaderboard, history |
+
+### Admin & Testnet
+
+| Example | Description |
+|---------|-------------|
+| [`faucet_claim`](examples/faucet_claim.rs) | Request testnet SOL + deposit tokens via `client.claim()` |
+
+Admin API methods (`client.admin()`) live in the SDK but are not exercised by an example because they require an admin keypair the CI runner doesn't have. See [`domain/admin/ADMIN.md`](src/domain/admin/ADMIN.md) for usage.
 
 ### Placing Orders
 

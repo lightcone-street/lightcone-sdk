@@ -3,7 +3,9 @@ import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
 import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
 import { Admin } from "./domain/admin";
+import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
+import { Metrics } from "./domain/metrics";
 import { Notifications } from "./domain/notification";
 import { Orders } from "./domain/order";
 import { Orderbooks } from "./domain/orderbook";
@@ -11,11 +13,11 @@ import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
-import { LightconeHttp } from "./http";
+import { LightconeHttp, RetryPolicy } from "./http";
 import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "./env";
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
-import { DepositSource } from "./shared";
+import { DepositSource, type PubkeyStr } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
@@ -148,6 +150,31 @@ export class LightconeClient implements ClientContext {
 
   notifications(): Notifications {
     return new Notifications(this);
+  }
+
+  /**
+   * Metrics sub-client — platform / market / orderbook / category / deposit-token
+   * volume metrics, market leaderboard, and time-series history.
+   */
+  metrics(): Metrics {
+    return new Metrics(this);
+  }
+
+  /**
+   * Request testnet SOL and whitelisted deposit tokens for a wallet.
+   *
+   * Only active on environments whose backend has the faucet enabled (typically
+   * local and staging).
+   *
+   * `POST /api/claim`
+   */
+  async claim(walletAddress: PubkeyStr): Promise<FaucetResponse> {
+    const url = `${this.http.baseUrl()}/api/claim`;
+    return this.http.post<FaucetResponse, FaucetRequest>(
+      url,
+      { wallet_address: walletAddress },
+      RetryPolicy.None
+    );
   }
 
   admin(): Admin {

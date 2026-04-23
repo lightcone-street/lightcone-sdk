@@ -32,18 +32,33 @@ import type {
   AdminNonceResponse,
 } from "./index";
 import type {
+  AdminLogEvent,
+  AdminLogEventsQuery,
+  AdminLogEventsResponse,
+  AdminLogMetricHistoryQuery,
+  AdminLogMetricHistoryResponse,
+  AdminLogMetricsQuery,
+  AdminLogMetricsResponse,
   AllocateCodesRequest,
   AllocateCodesResponse,
   CreateNotificationRequest,
   CreateNotificationResponse,
   DismissNotificationRequest,
   DismissNotificationResponse,
+  ListCodesRequest,
+  ListCodesResponse,
+  ReferralConfig,
   RevokeRequest,
   RevokeResponse,
   UnifiedMetadataRequest,
   UnifiedMetadataResponse,
   UnrevokeRequest,
   UnrevokeResponse,
+  UpdateCodeRequest,
+  UpdateCodeResponse,
+  UpdateConfigRequest,
+  UploadMarketDeploymentAssetsRequest,
+  UploadMarketDeploymentAssetsResponse,
   WhitelistRequest,
   WhitelistResponse,
 } from "./wire";
@@ -88,6 +103,16 @@ export class Admin {
       request,
       RetryPolicy.None
     );
+  }
+
+  async uploadMarketDeploymentAssets(
+    request: UploadMarketDeploymentAssetsRequest
+  ): Promise<UploadMarketDeploymentAssetsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/metadata/upload-market-deployment-assets`;
+    return this.client.http.adminPost<
+      UploadMarketDeploymentAssetsResponse,
+      UploadMarketDeploymentAssetsRequest
+    >(url, request, RetryPolicy.None);
   }
 
   async allocateCodes(
@@ -148,6 +173,77 @@ export class Admin {
       request,
       RetryPolicy.None
     );
+  }
+
+  // ── Referral config / codes ──────────────────────────────────────────
+
+  async getReferralConfig(): Promise<ReferralConfig> {
+    const url = `${this.client.http.baseUrl()}/api/admin/referral/config/get`;
+    return this.client.http.adminPost<ReferralConfig, Record<string, never>>(
+      url,
+      {},
+      RetryPolicy.None
+    );
+  }
+
+  async updateReferralConfig(
+    request: UpdateConfigRequest
+  ): Promise<ReferralConfig> {
+    const url = `${this.client.http.baseUrl()}/api/admin/referral/config/update`;
+    return this.client.http.adminPost<ReferralConfig, UpdateConfigRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
+  }
+
+  async listReferralCodes(
+    request: ListCodesRequest
+  ): Promise<ListCodesResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/referral/codes`;
+    return this.client.http.adminPost<ListCodesResponse, ListCodesRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
+  }
+
+  async updateReferralCode(
+    request: UpdateCodeRequest
+  ): Promise<UpdateCodeResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/referral/codes/update`;
+    return this.client.http.adminPost<UpdateCodeResponse, UpdateCodeRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
+  }
+
+  // ── Admin logs ───────────────────────────────────────────────────────
+
+  async listLogEvents(query: AdminLogEventsQuery): Promise<AdminLogEventsResponse> {
+    const qs = buildQueryString(query);
+    const url = `${this.client.http.baseUrl()}/api/admin/logs/events${qs}`;
+    return this.client.http.adminGet<AdminLogEventsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  async getLogEvent(publicId: string): Promise<AdminLogEvent> {
+    const url = `${this.client.http.baseUrl()}/api/admin/logs/events/${encodeURIComponent(publicId)}`;
+    return this.client.http.adminGet<AdminLogEvent>(url, RetryPolicy.Idempotent);
+  }
+
+  async logMetrics(query: AdminLogMetricsQuery): Promise<AdminLogMetricsResponse> {
+    const qs = buildQueryString(query);
+    const url = `${this.client.http.baseUrl()}/api/admin/logs/metrics${qs}`;
+    return this.client.http.adminGet<AdminLogMetricsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  async logMetricHistory(
+    query: AdminLogMetricHistoryQuery
+  ): Promise<AdminLogMetricHistoryResponse> {
+    const qs = buildQueryString(query);
+    const url = `${this.client.http.baseUrl()}/api/admin/logs/metrics/history${qs}`;
+    return this.client.http.adminGet<AdminLogMetricHistoryResponse>(url, RetryPolicy.Idempotent);
   }
 
   // ── On-chain transaction builders ────────────────────────────────────
@@ -269,4 +365,14 @@ export class Admin {
     const ix = this.depositAndSwapIx(params);
     return new Transaction({ feePayer: params.operator }).add(ix);
   }
+}
+
+function buildQueryString(query: object): string {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(query)) {
+    if (value === undefined || value === null) continue;
+    params.append(key, String(value));
+  }
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
 }

@@ -28,6 +28,7 @@ spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
 # Serialization (WASM-compatible)
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_urlencoded = "0.7"
 
 # Utilities (WASM-compatible)
 thiserror = "2.0"
@@ -83,6 +84,18 @@ bincode = "^1.3.3"
 
 [[example]]
 name = "cancel_order"
+required-features = ["native"]
+
+[[example]]
+name = "faucet_claim"
+required-features = ["native"]
+
+[[example]]
+name = "market_deposit_assets"
+required-features = ["native"]
+
+[[example]]
+name = "metrics_all"
 required-features = ["native"]
 
 [[example]]
