@@ -1,3 +1,4 @@
+#![cfg(feature = "ws-native")]
 //! Integration tests for the native WebSocket client.
 //!
 //! These tests connect to the staging WS server and exercise the full

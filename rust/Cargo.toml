@@ -7,6 +7,9 @@ license = "MIT"
 repository = "https://github.com/lightcone-street/lightcone-sdk/tree/main/rust"
 keywords = ["solana", "lightcone", "sdk", "impact-markets"]
 
+[lib]
+doctest = false
+
 [dependencies]
 # ── Core types (always available, WASM-safe) ──────────────────────────────────
 solana-pubkey = { version = "3.0", features = ["serde"] }
