@@ -5,8 +5,8 @@ use crate::client::LightconeClient;
 use crate::domain::metrics::wire::{
     CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokensMetrics,
     Leaderboard, MarketDetailMetrics, MarketMetricsQuery, MarketsMetrics, MarketsMetricsQuery,
-    MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery, OrderbookVolumeMetrics,
-    PlatformMetrics,
+    MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery, OrderbookTickersResponse,
+    OrderbookVolumeMetrics, PlatformMetrics,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -61,6 +61,29 @@ impl<'a> Metrics<'a> {
         );
         if let Ok(qs) = serde_urlencoded::to_string(query) {
             append_query(&mut url, &qs);
+        }
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Batch BBO + midpoint per active orderbook (same shape as the WS
+    /// `Ticker` stream, delivered in one REST call). Optionally filter to
+    /// orderbooks whose base conditional-token is backed by `deposit_asset`.
+    /// Prices per orderbook are scaled using that orderbook's own decimals.
+    ///
+    /// `GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>]`
+    pub async fn orderbook_tickers(
+        &self,
+        deposit_asset: Option<&str>,
+    ) -> Result<OrderbookTickersResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/metrics/orderbooks/tickers",
+            self.client.http.base_url()
+        );
+        if let Some(mint) = deposit_asset.map(str::trim).filter(|s| !s.is_empty()) {
+            append_query(
+                &mut url,
+                &format!("deposit_asset={}", urlencoding::encode(mint)),
+            );
         }
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }

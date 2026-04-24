@@ -61,6 +61,15 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
+    /// Get all conditional-token positions for the authenticated user across
+    /// every market. The wallet is resolved server-side from the `auth_token`
+    /// cookie, so no parameter is required. Same response shape as
+    /// [`Positions::get`]; empty `positions` array when the user has none.
+    pub async fn positions(&self) -> Result<PositionsResponse, SdkError> {
+        let url = format!("{}/api/users/positions", self.client.http.base_url());
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
     /// Get SPL deposit-token balances for the authenticated user.
     ///
     /// The wallet is resolved server-side from the `auth_token` cookie, so no

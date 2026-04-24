@@ -92,6 +92,68 @@ class DepositTokensMetrics:
         )
 
 
+# ─── Orderbook tickers (batch) ───────────────────────────────────────────────
+
+
+@dataclass
+class OrderbookTickerEntry:
+    """One entry in /api/metrics/orderbooks/tickers.
+
+    Same shape (BBO + midpoint) as the WS ``Ticker`` stream, delivered in
+    batch over REST. Price fields are ``None`` when the orderbook has no
+    liquidity yet.
+    """
+
+    orderbook_id: str = ""
+    market_pubkey: str = ""
+    outcome_index: Optional[int] = None
+    outcome_name: Optional[str] = None
+    base_deposit_asset: str = ""
+    quote_deposit_asset: str = ""
+    best_bid: Optional[str] = None
+    best_ask: Optional[str] = None
+    midpoint: Optional[str] = None
+    computed_at: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "OrderbookTickerEntry":
+        def _opt_str(key: str) -> Optional[str]:
+            v = d.get(key)
+            return None if v is None else str(v)
+
+        def _opt_int(key: str) -> Optional[int]:
+            v = d.get(key)
+            return None if v is None else int(v)
+
+        return OrderbookTickerEntry(
+            orderbook_id=str(d.get("orderbook_id", "")),
+            market_pubkey=str(d.get("market_pubkey", "")),
+            outcome_index=_opt_int("outcome_index"),
+            outcome_name=_opt_str("outcome_name"),
+            base_deposit_asset=str(d.get("base_deposit_asset", "")),
+            quote_deposit_asset=str(d.get("quote_deposit_asset", "")),
+            best_bid=_opt_str("best_bid"),
+            best_ask=_opt_str("best_ask"),
+            midpoint=_opt_str("midpoint"),
+            computed_at=_opt_str("computed_at"),
+        )
+
+
+@dataclass
+class OrderbookTickersResponse:
+    """Response of /api/metrics/orderbooks/tickers."""
+
+    tickers: list[OrderbookTickerEntry] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "OrderbookTickersResponse":
+        return OrderbookTickersResponse(
+            tickers=[
+                OrderbookTickerEntry.from_dict(x) for x in d.get("tickers", [])
+            ],
+        )
+
+
 # ─── Platform ────────────────────────────────────────────────────────────────
 
 

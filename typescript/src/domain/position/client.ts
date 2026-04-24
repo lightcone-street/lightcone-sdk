@@ -61,6 +61,18 @@ export class Positions {
   }
 
   /**
+   * Get all conditional-token positions for the authenticated user across
+   * every market. The wallet is resolved server-side from the `auth_token`
+   * cookie, so no parameter is required. Same response shape as `get()`.
+   *
+   * `GET /api/users/positions`
+   */
+  async positions(): Promise<PositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/positions`;
+    return this.client.http.get<PositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
    * Get SPL deposit-token balances for the authenticated user.
    *
    * The wallet is resolved server-side from the `auth_token` cookie, so no

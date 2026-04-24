@@ -9,6 +9,37 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+// ─── Orderbook tickers (batch) ───────────────────────────────────────────────
+
+/// One entry in `GET /api/metrics/orderbooks/tickers`. Same shape (BBO +
+/// midpoint) as the WS `Ticker` stream, delivered in batch over REST.
+/// Price fields are `None` when the orderbook has no liquidity yet.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrderbookTickerEntry {
+    pub orderbook_id: OrderBookId,
+    pub market_pubkey: PubkeyStr,
+    #[serde(default)]
+    pub outcome_index: Option<i16>,
+    #[serde(default)]
+    pub outcome_name: Option<String>,
+    pub base_deposit_asset: PubkeyStr,
+    pub quote_deposit_asset: PubkeyStr,
+    #[serde(default)]
+    pub best_bid: Option<Decimal>,
+    #[serde(default)]
+    pub best_ask: Option<Decimal>,
+    #[serde(default)]
+    pub midpoint: Option<Decimal>,
+    #[serde(default)]
+    pub computed_at: Option<DateTime<Utc>>,
+}
+
+/// `GET /api/metrics/orderbooks/tickers` response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OrderbookTickersResponse {
+    pub tickers: Vec<OrderbookTickerEntry>,
+}
+
 // ─── Platform ────────────────────────────────────────────────────────────────
 
 /// `GET /api/metrics/platform` response.
