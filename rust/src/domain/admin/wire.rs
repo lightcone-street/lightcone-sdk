@@ -152,7 +152,6 @@ pub struct DepositTokenMetadataPayload {
 /// Response from `POST /api/admin/metadata`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UnifiedMetadataResponse {
-    pub status: String,
     #[serde(default)]
     pub markets: Vec<serde_json::Value>,
     #[serde(default)]

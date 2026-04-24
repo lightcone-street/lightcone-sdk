@@ -204,7 +204,6 @@ class UnifiedMetadataRequest:
 
 @dataclass
 class UnifiedMetadataResponse:
-    status: str = ""
     markets: list[dict] = field(default_factory=list)
     outcomes: list[dict] = field(default_factory=list)
     conditional_tokens: list[dict] = field(default_factory=list)
@@ -213,7 +212,6 @@ class UnifiedMetadataResponse:
     @staticmethod
     def from_dict(d: dict) -> "UnifiedMetadataResponse":
         return UnifiedMetadataResponse(
-            status=d.get("status", ""),
             markets=d.get("markets") or [],
             outcomes=d.get("outcomes") or [],
             conditional_tokens=d.get("conditional_tokens") or [],

@@ -104,7 +104,6 @@ export interface DepositTokenMetadataResponse {
 }
 
 export interface UnifiedMetadataResponse {
-  status: string;
   markets?: MarketMetadataResponse[];
   outcomes?: OutcomeMetadataResponse[];
   conditional_tokens?: ConditionalTokenMetadataResponse[];
