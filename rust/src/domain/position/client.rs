@@ -7,6 +7,7 @@ use crate::domain::position::builders::{
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
 use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
+use crate::domain::position::DepositTokenBalance;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
@@ -15,9 +16,11 @@ use crate::program::types::{
     InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 };
+use crate::shared::PubkeyStr;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
+use std::collections::HashMap;
 
 pub struct Positions<'a> {
     pub(crate) client: &'a LightconeClient,
@@ -54,6 +57,23 @@ impl<'a> Positions<'a> {
             self.client.http.base_url(),
             user_pubkey,
             market_pubkey
+        );
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Get SPL deposit-token balances for the authenticated user.
+    ///
+    /// The wallet is resolved server-side from the `auth_token` cookie, so no
+    /// parameter is required. Returns balances keyed by mint pubkey for every
+    /// deposit token registered in the backend's `deposit_token_metadata`.
+    /// An empty map means the user has none of the tracked balances — this is
+    /// not an error.
+    pub async fn deposit_token_balances(
+        &self,
+    ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
+        let url = format!(
+            "{}/api/users/deposit-token-balances",
+            self.client.http.base_url()
         );
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }

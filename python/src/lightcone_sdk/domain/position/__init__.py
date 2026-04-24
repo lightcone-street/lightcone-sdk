@@ -65,7 +65,6 @@ class DepositAssetMetadata:
     symbol: str = ""
     name: str = ""
     icon_url: str = ""
-    value: str = "0"
 
 
 @dataclass
