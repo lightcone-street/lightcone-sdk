@@ -80,6 +80,17 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
+    async def positions(self) -> PositionsResponseWire:
+        """Get all conditional-token positions for the authenticated user.
+
+        Wallet is resolved server-side from the ``auth_token`` cookie; no
+        parameter required. Same response shape as ``get(wallet)``.
+
+        GET /api/users/positions
+        """
+        data = await self._client._http.get("/api/users/positions")
+        return PositionsResponseWire.from_dict(data)
+
     async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
         """Get SPL deposit-token balances for the authenticated user.
 

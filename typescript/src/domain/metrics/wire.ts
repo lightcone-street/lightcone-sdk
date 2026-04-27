@@ -4,6 +4,29 @@ import type { OrderBookId, PubkeyStr } from "../../shared";
 
 // ─── Platform ───────────────────────────────────────────────────────────────
 
+/**
+ * One entry in `GET /api/metrics/orderbooks/tickers`. Same shape (BBO +
+ * midpoint) as the WS `Ticker` stream, delivered in batch over REST.
+ * Price fields are undefined when the orderbook has no liquidity yet.
+ */
+export interface OrderbookTickerEntry {
+  orderbook_id: string;
+  market_pubkey: string;
+  outcome_index?: number;
+  outcome_name?: string;
+  base_deposit_asset: string;
+  quote_deposit_asset: string;
+  best_bid?: string;
+  best_ask?: string;
+  midpoint?: string;
+  computed_at?: string;
+}
+
+/** Response of `GET /api/metrics/orderbooks/tickers`. */
+export interface OrderbookTickersResponse {
+  tickers: OrderbookTickerEntry[];
+}
+
 /** Response of `GET /api/metrics/platform`. */
 export interface PlatformMetrics {
   volume_24h_usd: string;

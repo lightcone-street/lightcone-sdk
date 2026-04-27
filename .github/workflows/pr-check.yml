@@ -44,7 +44,7 @@ jobs:
         run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
       - name: Install cargo-cooldown
-        run: cargo install --locked cargo-cooldown
+        run: cargo install --locked --version 0.2.0 cargo-cooldown
 
       - name: Check dependency cooldown
         run: cargo cooldown check

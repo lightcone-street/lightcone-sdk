@@ -76,6 +76,8 @@ export type {
   MarketsMetrics,
   MetricsHistory,
   MetricsHistoryQuery,
+  OrderbookTickerEntry,
+  OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   OutcomeVolumeMetrics,
   PlatformMetrics,

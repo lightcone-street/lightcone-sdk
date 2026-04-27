@@ -10,6 +10,7 @@ import type {
   MarketsMetrics,
   MetricsHistory,
   MetricsHistoryQuery,
+  OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   PlatformMetrics,
 } from "./wire";
@@ -39,6 +40,23 @@ export class Metrics {
   async market(marketPubkey: PubkeyStr): Promise<MarketDetailMetrics> {
     const url = `${this.client.http.baseUrl()}/api/metrics/markets/${encodeURIComponent(marketPubkey)}`;
     return this.client.http.get<MarketDetailMetrics>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Batch BBO + midpoint per active orderbook (same shape as the WS
+   * `Ticker` stream, delivered in one REST call). Optionally filter to
+   * orderbooks whose base conditional-token is backed by `depositAsset`.
+   * Prices per orderbook are scaled using that orderbook's own decimals.
+   *
+   * `GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>]`
+   */
+  async orderbookTickers(depositAsset?: string): Promise<OrderbookTickersResponse> {
+    let url = `${this.client.http.baseUrl()}/api/metrics/orderbooks/tickers`;
+    const trimmed = depositAsset?.trim();
+    if (trimmed) {
+      url += `?deposit_asset=${encodeURIComponent(trimmed)}`;
+    }
+    return this.client.http.get<OrderbookTickersResponse>(url, RetryPolicy.Idempotent);
   }
 
   /** `GET /api/metrics/orderbooks/{orderbook_id}` */

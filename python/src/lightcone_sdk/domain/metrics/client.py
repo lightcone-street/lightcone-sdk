@@ -15,6 +15,7 @@ from .wire import (
     MarketsMetrics,
     MetricsHistory,
     MetricsHistoryQuery,
+    OrderbookTickersResponse,
     OrderbookVolumeMetrics,
     PlatformMetrics,
 )
@@ -45,6 +46,24 @@ class Metrics:
             f"/api/metrics/markets/{url_quote(market_pubkey, safe='')}"
         )
         return MarketDetailMetrics.from_dict(data)
+
+    async def orderbook_tickers(
+        self, deposit_asset: Optional[str] = None
+    ) -> OrderbookTickersResponse:
+        """GET /api/metrics/orderbooks/tickers[?deposit_asset=<mint>]
+
+        Batch BBO + midpoint per active orderbook (same shape as the WS
+        ``Ticker`` stream, delivered in one REST call). Optionally filter to
+        orderbooks whose base conditional-token is backed by
+        ``deposit_asset``. Prices per orderbook are scaled using that
+        orderbook's own decimals.
+        """
+        url = "/api/metrics/orderbooks/tickers"
+        mint = deposit_asset.strip() if deposit_asset else None
+        if mint:
+            url += f"?deposit_asset={url_quote(mint, safe='')}"
+        data = await self._client._http.get(url)
+        return OrderbookTickersResponse.from_dict(data)
 
     async def orderbook(self, orderbook_id: str) -> OrderbookVolumeMetrics:
         """GET /api/metrics/orderbooks/{orderbook_id}"""
