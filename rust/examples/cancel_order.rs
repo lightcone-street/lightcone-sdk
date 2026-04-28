@@ -1,8 +1,16 @@
 mod common;
 
-use common::{get_keypair, login, rest_client, unix_timestamp, ExampleResult};
+use common::{
+    deposit_mint, get_keypair, login, market, rest_client, unix_timestamp, ExampleResult,
+};
 use lightcone::prelude::*;
 use solana_signer::Signer;
+use solana_transaction::Transaction;
+
+// Mirrors the constant in `submit_order.rs`. When we cancel the order that
+// example left open, we withdraw the same quote amount back from the global
+// pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
+const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -46,5 +54,27 @@ async fn main() -> ExampleResult {
         "cancel-all removed {} order(s) in {}",
         cleared.count, cleared.orderbook_id
     );
+
+    // Cleanup: cancelling the order released its locked collateral back into
+    // the global pool. Withdraw that amount to the user's token account so the
+    // companion `submit_order` → `cancel_order` cycle is net-neutral on the
+    // wallet's balance and the global pool.
+    let market = market(&client).await?;
+    let mint = deposit_mint(&market)?;
+    let rpc_sub = client.rpc();
+    let rpc = rpc_sub.inner()?;
+    let withdraw_ix = client
+        .positions()
+        .withdraw_from_global()
+        .user(keypair.pubkey())
+        .mint(mint)
+        .amount(ORDER_QUOTE_AMOUNT)
+        .build_ix()?;
+    let blockhash = rpc_sub.get_latest_blockhash().await?;
+    let mut withdraw_tx = Transaction::new_with_payer(&[withdraw_ix], Some(&keypair.pubkey()));
+    withdraw_tx.try_sign(&[&keypair], blockhash)?;
+    let withdraw_sig = rpc.send_and_confirm_transaction(&withdraw_tx).await?;
+    println!("withdraw_from_global: confirmed {withdraw_sig}");
+
     Ok(())
 }

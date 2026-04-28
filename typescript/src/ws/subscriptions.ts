@@ -12,7 +12,8 @@ export type SubscribeParams =
     }
   | { type: "ticker"; orderbook_ids: OrderBookId[] }
   | { type: "market"; market_pubkey: PubkeyStr }
-  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution };
+  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution }
+  | { type: "deposit_asset_price"; deposit_asset: string };
 
 export type UnsubscribeParams =
   | { type: "book_update"; orderbook_ids: OrderBookId[] }
@@ -21,7 +22,8 @@ export type UnsubscribeParams =
   | { type: "price_history"; orderbook_id: OrderBookId; resolution: Resolution }
   | { type: "ticker"; orderbook_ids: OrderBookId[] }
   | { type: "market"; market_pubkey: PubkeyStr }
-  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution };
+  | { type: "deposit_price"; deposit_asset: string; resolution: Resolution }
+  | { type: "deposit_asset_price"; deposit_asset: string };
 
 export interface Subscription {
   toSubscribeParams(): SubscribeParams;
@@ -46,6 +48,8 @@ export function subscriptionKey(params: SubscribeParams): string {
       return `market:${params.market_pubkey}`;
     case "deposit_price":
       return `deposit_price:${params.deposit_asset}:${params.resolution}`;
+    case "deposit_asset_price":
+      return `deposit_asset_price:${params.deposit_asset}`;
   }
 }
 
@@ -78,6 +82,8 @@ export function unsubscribeMatches(
         subscribe.deposit_asset === (unsubscribe as { deposit_asset: string }).deposit_asset &&
         subscribe.resolution === (unsubscribe as { resolution: Resolution }).resolution
       );
+    case "deposit_asset_price":
+      return subscribe.deposit_asset === (unsubscribe as { deposit_asset: string }).deposit_asset;
   }
 }
 

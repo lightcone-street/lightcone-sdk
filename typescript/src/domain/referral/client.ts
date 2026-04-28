@@ -12,16 +12,22 @@ export class Referrals {
   async getStatus(): Promise<ReferralStatus> {
     const url = `${this.client.http.baseUrl()}/api/referral/status`;
     const response = await this.client.http.get<ReferralStatusResponse>(url, RetryPolicy.Idempotent);
+    return referralStatusFromWire(response);
+  }
 
-    return {
-      isBeta: response.is_beta,
-      source: response.source,
-      referralCodes: response.referral_codes.map((code) => ({
-        code: code.code,
-        maxUses: code.max_uses,
-        useCount: code.use_count,
-      })),
-    };
+  /**
+   * Same as {@link getStatus}, but uses the supplied `authToken` for this
+   * call instead of the SDK's process-wide cookie store. For server-side
+   * cookie forwarding (SSR / route handlers).
+   */
+  async getStatusWithAuthOverride(authToken: string): Promise<ReferralStatus> {
+    const url = `${this.client.http.baseUrl()}/api/referral/status`;
+    const response = await this.client.http.getWithAuth<ReferralStatusResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+    return referralStatusFromWire(response);
   }
 
   async redeem(code: string): Promise<RedeemResult> {
@@ -38,4 +44,16 @@ export class Referrals {
       isBeta: response.is_beta,
     };
   }
+}
+
+function referralStatusFromWire(response: ReferralStatusResponse): ReferralStatus {
+  return {
+    isBeta: response.is_beta,
+    source: response.source,
+    referralCodes: response.referral_codes.map((code) => ({
+      code: code.code,
+      maxUses: code.max_uses,
+      useCount: code.use_count,
+    })),
+  };
 }

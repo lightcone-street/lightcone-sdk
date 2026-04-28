@@ -29,6 +29,19 @@ async function main() {
   for (const result of results) {
     console.log(`  - ${result.slug}`);
   }
+
+  console.log(`deposit asset pairs for ${selectedMarket.slug}:`);
+  for (const pair of selectedMarket.depositAssetPairs) {
+    console.log(`  - ${pair.id} (${pair.base.symbol}/${pair.quote.symbol})`);
+  }
+
+  const globalAssets = await client.markets().globalDepositAssets();
+  console.log(
+    `global deposit assets: ${globalAssets.assets.length}, ${globalAssets.validationErrors.length} validation error(s)`
+  );
+  for (const asset of globalAssets.assets) {
+    console.log(`  - ${asset.symbol} (${asset.pubkey})`);
+  }
 }
 
 void runExample(main);

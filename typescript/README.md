@@ -216,6 +216,33 @@ const withdrawIx = client.positions().withdraw()
 
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
 
+### Cookie handling
+
+After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. Behaviour depends on the runtime:
+
+- **Node / non-browser**: token is stored on the `LightconeHttp` instance and added as a `Cookie` header per request.
+- **Browser**: requests use `credentials: "include"` and the runtime supplies the cookie automatically — the SDK's internal store is unused.
+
+### Server-side cookie forwarding (`*WithAuthOverride` variants)
+
+When the SDK runs on a server (SSR, an Express / Next.js route handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+
+For these cases, authed methods that need per-call forwarding ship a `*WithAuthOverride(authToken)` sibling that injects the cookie just for that one call:
+
+```typescript
+// Inside a server route, after extracting the auth_token cookie
+// from the incoming request:
+const balances = await client
+  .positions()
+  .depositTokenBalancesWithAuthOverride(authToken);
+
+const positions = await client
+  .positions()
+  .positionsWithAuthOverride(authToken);
+```
+
+In a browser context these methods are equivalent to their non-`WithAuthOverride` counterparts because the runtime is already attaching the cookie via `credentials: "include"`.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
@@ -251,12 +278,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
+| [`auth_override`](examples/auth_override.ts) | Per-call cookie override for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuthOverride` variant |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
@@ -266,13 +294,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.ts) | Limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.ts) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
 | Example | Description |
 |---------|-------------|
-| [`cancel_order`](examples/cancel_order.ts) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`cancel_order`](examples/cancel_order.ts) | Cancel a single order by hash, cancel all orders in an orderbook, and withdraw the released collateral from the global pool |
 | [`user_orders`](examples/user_orders.ts) | Fetch open orders for an authenticated user |
 
 ### On-Chain Operations
@@ -281,7 +309,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 
 ### WebSocket Streaming
 

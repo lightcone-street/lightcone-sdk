@@ -2,6 +2,7 @@ import { SdkError } from "../../error";
 import { Resolution } from "../../shared";
 import { RetryPolicy, type LightconeHttp } from "../../http";
 import type {
+  DepositAssetPricesSnapshotResponse,
   DepositTokenPriceHistoryResponse,
   OrderbookPriceHistoryResponse,
   PriceCandle,
@@ -123,6 +124,21 @@ export class PriceHistoryClient {
 
     const url = `${this.client.http.baseUrl()}/api/price-history?${params.toString()}`;
     return this.client.http.get<DepositTokenPriceHistoryResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Snapshot of current prices for every active mint in `global_deposit_tokens`.
+   *
+   * No params. Returns a map of mint -> price (Decimal-as-string). The
+   * backend prefers the live tick from `deposit_token_prices` and falls
+   * back to the most recent 1m candle close. Assets with neither are
+   * silently absent.
+   *
+   * For live updates, subscribe via `subscribeDepositAssetPrice` per asset.
+   */
+  async getDepositAssetPricesSnapshot(): Promise<DepositAssetPricesSnapshotResponse> {
+    const url = `${this.client.http.baseUrl()}/api/deposit-asset-prices-snapshot`;
+    return this.client.http.get<DepositAssetPricesSnapshotResponse>(url, RetryPolicy.Idempotent);
   }
 
   async getLineData(

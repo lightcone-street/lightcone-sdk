@@ -2,7 +2,7 @@
 //!
 //! Sub-entity of market. Wire types live in `super::wire`.
 
-use super::wire::DepositAssetResponse;
+use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,6 +19,50 @@ pub trait Token {
     fn description(&self) -> &Option<String>;
     fn decimals(&self) -> u16;
     fn icon_url(&self) -> &str;
+
+    /// Display priority for sorting: lower values come first. BTC/WBTC tie
+    /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
+    /// alphabetical tail.
+    fn display_priority(&self) -> u8 {
+        match self.symbol() {
+            "BTC" | "WBTC" => 0,
+            "ETH" | "WETH" => 1,
+            "SOL" => 2,
+            _ => u8::MAX,
+        }
+    }
+}
+
+/// Types that expose a `Token` reference for display-priority sorting.
+///
+/// Blanket-implemented for every `T: Token`, so any token type sorts directly.
+/// Composite types (e.g. `DepositAssetPair`, `OrderBookPair`) can implement
+/// this by returning their `base` token, making them sortable with the same
+/// `sort_by_display_priority` helper.
+pub trait HasDisplayToken {
+    fn display_token(&self) -> &dyn Token;
+}
+
+impl<T: Token> HasDisplayToken for T {
+    fn display_token(&self) -> &dyn Token {
+        self
+    }
+}
+
+/// Returns a new `Vec` ordered for display: priority groups first
+/// (BTC/WBTC → ETH/WETH → SOL), then all remaining items alphabetically by
+/// the display token's symbol.
+pub fn sort_by_display_priority<T: HasDisplayToken + Clone>(items: &[T]) -> Vec<T> {
+    let mut sorted = items.to_vec();
+    sorted.sort_by(|left, right| {
+        let left_token = left.display_token();
+        let right_token = right.display_token();
+        left_token
+            .display_priority()
+            .cmp(&right_token.display_priority())
+            .then_with(|| left_token.symbol().cmp(right_token.symbol()))
+    });
+    sorted
 }
 
 // ─── ConditionalToken ────────────────────────────────────────────────────────
@@ -179,6 +223,128 @@ impl DepositAsset {
         } else {
             ""
         }
+    }
+}
+
+// ─── DepositAssetPair ────────────────────────────────────────────────────────
+
+/// A pair of deposit assets that can be traded against each other as base/quote.
+///
+/// Populated on `Market::deposit_asset_pairs` during wire→domain conversion;
+/// one entry per unique `(base.deposit_asset, quote.deposit_asset)` combination
+/// across the market's orderbook pairs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DepositAssetPair {
+    /// Stable identifier of the form `"{base_pubkey}-{quote_pubkey}"`.
+    pub id: String,
+    pub base: DepositAsset,
+    pub quote: DepositAsset,
+}
+
+impl HasDisplayToken for DepositAssetPair {
+    fn display_token(&self) -> &dyn Token {
+        &self.base
+    }
+}
+
+// ─── GlobalDepositAsset ──────────────────────────────────────────────────────
+
+/// A globally whitelisted deposit asset (platform-scoped, not market-bound).
+///
+/// Distinct from `DepositAsset`, which is bound to a specific market.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlobalDepositAsset {
+    id: i32,
+    deposit_asset: PubkeyStr,
+    name: String,
+    symbol: String,
+    description: Option<String>,
+    decimals: u16,
+    icon_url: String,
+    pub whitelist_index: i16,
+    pub active: bool,
+}
+
+impl Token for GlobalDepositAsset {
+    fn id(&self) -> i32 {
+        self.id
+    }
+    fn pubkey(&self) -> &PubkeyStr {
+        &self.deposit_asset
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+    fn description(&self) -> &Option<String> {
+        &self.description
+    }
+    fn decimals(&self) -> u16 {
+        self.decimals
+    }
+    fn icon_url(&self) -> &str {
+        &self.icon_url
+    }
+}
+
+impl GlobalDepositAsset {
+    pub fn is_usd_stable_coin(&self) -> bool {
+        is_usd_stablecoin(&self.deposit_asset)
+    }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        if is_usd_stablecoin(self.pubkey()) {
+            "$"
+        } else {
+            ""
+        }
+    }
+}
+
+impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
+    type Error = TokenValidationError;
+
+    fn try_from(source: GlobalDepositAssetResponse) -> Result<Self, Self::Error> {
+        let mut errors: Vec<TokenValidationError> = Vec::new();
+        let mint_str = source.mint.clone();
+
+        let name = source.display_name.unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingDisplayName(mint_str.clone()));
+            String::new()
+        });
+        let symbol = source.symbol.unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingSymbol(mint_str.clone()));
+            String::new()
+        });
+        let icon_url = source.icon_url.unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingIconUrl(mint_str.clone()));
+            String::new()
+        });
+        let decimals = source
+            .decimals
+            .map(|value| value as u16)
+            .unwrap_or_else(|| {
+                errors.push(TokenValidationError::MissingDecimals(mint_str.clone()));
+                0
+            });
+
+        if !errors.is_empty() {
+            return Err(TokenValidationError::Multiple(mint_str, errors));
+        }
+
+        Ok(Self {
+            id: source.id,
+            deposit_asset: PubkeyStr::from(source.mint),
+            name,
+            symbol,
+            description: source.description,
+            decimals,
+            icon_url,
+            whitelist_index: source.whitelist_index,
+            active: source.active,
+        })
     }
 }
 
@@ -433,5 +599,89 @@ mod tests {
         // ConditionalToken::is_usd_stable_coin checks deposit_asset.
         let ct = ConditionalToken::test_new_with_deposit("mint", 0, USDC_MAINNET);
         assert!(ct.is_usd_stable_coin());
+    }
+
+    fn minimal_global_deposit_asset_response() -> GlobalDepositAssetResponse {
+        GlobalDepositAssetResponse {
+            id: 1,
+            mint: USDC_MAINNET.to_string(),
+            display_name: Some("USD Coin".to_string()),
+            symbol: Some("USDC".to_string()),
+            description: Some("Stablecoin".to_string()),
+            icon_url: Some("https://example.com/usdc.png".to_string()),
+            decimals: Some(6),
+            whitelist_index: 0,
+            active: true,
+        }
+    }
+
+    #[test]
+    fn test_global_deposit_asset_valid_conversion() {
+        let response = minimal_global_deposit_asset_response();
+        let asset = GlobalDepositAsset::try_from(response).unwrap();
+        assert_eq!(asset.symbol(), "USDC");
+        assert_eq!(asset.name(), "USD Coin");
+        assert_eq!(asset.decimals(), 6);
+        assert_eq!(asset.whitelist_index, 0);
+        assert!(asset.active);
+        assert!(asset.is_usd_stable_coin());
+    }
+
+    #[test]
+    fn test_global_deposit_asset_missing_symbol_fails() {
+        let mut response = minimal_global_deposit_asset_response();
+        response.symbol = None;
+        let error = GlobalDepositAsset::try_from(response).unwrap_err();
+        let rendered = format!("{error}");
+        assert!(rendered.contains("symbol") || rendered.contains("Symbol"));
+    }
+
+    #[test]
+    fn test_global_deposit_asset_missing_decimals_fails() {
+        let mut response = minimal_global_deposit_asset_response();
+        response.decimals = None;
+        let error = GlobalDepositAsset::try_from(response).unwrap_err();
+        let rendered = format!("{error}");
+        assert!(rendered.contains("ecimals"));
+    }
+
+    fn global_deposit_asset_with_symbol(symbol: &str) -> GlobalDepositAsset {
+        let mut response = minimal_global_deposit_asset_response();
+        response.symbol = Some(symbol.to_string());
+        response.mint = format!("mint_{symbol}");
+        GlobalDepositAsset::try_from(response).unwrap()
+    }
+
+    #[test]
+    fn test_sort_by_display_priority_orders_priority_then_alpha() {
+        let assets = vec![
+            global_deposit_asset_with_symbol("USDC"),
+            global_deposit_asset_with_symbol("SOL"),
+            global_deposit_asset_with_symbol("WETH"),
+            global_deposit_asset_with_symbol("AAA"),
+            global_deposit_asset_with_symbol("WBTC"),
+            global_deposit_asset_with_symbol("ETH"),
+            global_deposit_asset_with_symbol("BTC"),
+            global_deposit_asset_with_symbol("ZZZ"),
+        ];
+
+        let sorted = sort_by_display_priority(&assets);
+        let symbols: Vec<&str> = sorted.iter().map(|a| a.symbol()).collect();
+
+        assert_eq!(
+            symbols,
+            vec!["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"]
+        );
+    }
+
+    #[test]
+    fn test_global_deposit_asset_impls_token_trait() {
+        let response = minimal_global_deposit_asset_response();
+        let asset = GlobalDepositAsset::try_from(response).unwrap();
+        let trait_object: &dyn Token = &asset;
+        assert_eq!(trait_object.id(), 1);
+        assert_eq!(trait_object.symbol(), "USDC");
+        assert_eq!(trait_object.decimals(), 6);
+        assert_eq!(trait_object.icon_url(), "https://example.com/usdc.png");
     }
 }

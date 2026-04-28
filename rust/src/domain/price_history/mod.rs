@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub use state::{DepositPriceState, LatestDepositPrice, PriceHistoryState};
 pub use wire::{
-    DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryResponse,
-    DepositPriceSnapshot, DepositPriceTick, DepositTokenCandle, OrderbookPriceCandle,
-    OrderbookPriceHistoryResponse, PriceHistoryDecimals,
+    DepositAssetPriceEvent, DepositAssetPriceSnapshot, DepositAssetPriceTick,
+    DepositAssetPricesSnapshotResponse, DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate,
+    DepositPriceHistoryResponse, DepositPriceSnapshot, DepositPriceTick, DepositTokenCandle,
+    OrderbookPriceCandle, OrderbookPriceHistoryResponse, PriceHistoryDecimals,
 };
 
 /// A single data point on a price chart (simplified from the full candle).
@@ -37,6 +38,15 @@ impl From<wire::OrderbookPriceCandle> for LineData {
         Self {
             time: c.t,
             value: c.m.or(c.c).unwrap_or_default(),
+        }
+    }
+}
+
+impl From<wire::DepositTokenCandle> for LineData {
+    fn from(c: wire::DepositTokenCandle) -> Self {
+        Self {
+            time: c.t,
+            value: c.c,
         }
     }
 }

@@ -2,11 +2,12 @@
 
 from typing import Optional
 from . import (
-    Market, Status, Outcome, ConditionalToken, DepositAsset,
-    TokenMetadata,
+    Market, MarketValidationError, Status, Outcome, ConditionalToken, DepositAsset,
+    DepositAssetPair, GlobalDepositAsset, TokenMetadata, sort_by_display_priority,
 )
+from ...error import SdkError
 from ..orderbook import OrderBookPair
-from .wire import MarketWire
+from .wire import GlobalDepositAssetWire, MarketWire
 
 
 def _parse_status(s: Optional[str]) -> Status:
@@ -119,6 +120,17 @@ def market_from_wire(wire: MarketWire) -> Market:
         if ob.orderbook_id:
             orderbook_ids.append(ob.orderbook_id)
 
+    deposit_asset_pairs = sort_by_display_priority(
+        _derive_deposit_asset_pairs(deposit_assets, orderbook_pairs)
+    )
+
+    if not deposit_asset_pairs:
+        identifier = wire.market_pubkey or str(wire.market_id)
+        raise MarketValidationError(
+            f"Market validation errors ({identifier}): Missing deposit asset pairs",
+            ["Missing deposit asset pairs"],
+        )
+
     return Market(
         id=wire.market_id,
         pubkey=wire.market_pubkey,
@@ -138,9 +150,81 @@ def market_from_wire(wire: MarketWire) -> Market:
         category=wire.category,
         tags=wire.tags,
         deposit_assets=deposit_assets,
+        deposit_asset_pairs=deposit_asset_pairs,
         conditional_tokens=conditional_tokens,
         outcomes=outcomes,
         orderbook_pairs=orderbook_pairs,
         orderbook_ids=orderbook_ids,
         token_metadata=token_metadata,
+    )
+
+
+def _derive_deposit_asset_pairs(
+    deposit_assets: list[DepositAsset],
+    orderbook_pairs: list[OrderBookPair],
+) -> list[DepositAssetPair]:
+    """Derive unique base/quote deposit-asset pairs.
+
+    Deduplicated by ``(base_pubkey, quote_pubkey)``; orderbook pairs whose
+    base or quote deposit asset is not present in ``deposit_assets`` are
+    skipped. Order is not guaranteed.
+    """
+    seen: dict[tuple[str, str], DepositAssetPair] = {}
+    for pair in orderbook_pairs:
+        base = next(
+            (a for a in deposit_assets if a.deposit_asset == pair.base.deposit_asset),
+            None,
+        )
+        quote = next(
+            (a for a in deposit_assets if a.deposit_asset == pair.quote.deposit_asset),
+            None,
+        )
+        if base is None or quote is None:
+            continue
+        key = (base.deposit_asset, quote.deposit_asset)
+        if key not in seen:
+            seen[key] = DepositAssetPair(
+                id=f"{base.deposit_asset}-{quote.deposit_asset}",
+                base=base,
+                quote=quote,
+            )
+    return list(seen.values())
+
+
+def global_deposit_asset_from_wire(
+    wire: GlobalDepositAssetWire,
+) -> GlobalDepositAsset:
+    """Convert a ``GlobalDepositAssetWire`` to a ``GlobalDepositAsset``.
+
+    Raises ``SdkError`` with a rendered multi-error message when required
+    fields (``display_name``, ``symbol``, ``icon_url``, ``decimals``) are
+    missing on the wire payload.
+    """
+    errors: list[str] = []
+
+    if wire.display_name is None:
+        errors.append(f"Missing display name: {wire.mint}")
+    if wire.symbol is None:
+        errors.append(f"Missing symbol: {wire.mint}")
+    if wire.icon_url is None:
+        errors.append(f"Missing icon URL: {wire.mint}")
+    if wire.decimals is None:
+        errors.append(f"Missing decimals: {wire.mint}")
+
+    if errors:
+        rendered = "\n".join(f"  - {error}" for error in errors)
+        raise SdkError(
+            f"Token validation errors ({wire.mint}):\n{rendered}"
+        )
+
+    return GlobalDepositAsset(
+        id=wire.id,
+        deposit_asset=wire.mint,
+        name=wire.display_name or "",
+        symbol=wire.symbol or "",
+        description=wire.description,
+        decimals=wire.decimals or 0,
+        icon_url=wire.icon_url or "",
+        whitelist_index=wire.whitelist_index,
+        active=wire.active,
     )

@@ -8,7 +8,16 @@ from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from urllib.parse import quote as url_quote, urlencode
+
 from . import (
+    AdminLogEvent,
+    AdminLogEventsQuery,
+    AdminLogEventsResponse,
+    AdminLogMetricHistoryQuery,
+    AdminLogMetricHistoryResponse,
+    AdminLogMetricsQuery,
+    AdminLogMetricsResponse,
     AdminLoginRequest,
     AdminLoginResponse,
     AdminNonceResponse,
@@ -18,12 +27,20 @@ from . import (
     CreateNotificationResponse,
     DismissNotificationRequest,
     DismissNotificationResponse,
+    ListCodesRequest,
+    ListCodesResponse,
+    ReferralConfig,
     RevokeRequest,
     RevokeResponse,
     UnifiedMetadataRequest,
     UnifiedMetadataResponse,
     UnrevokeRequest,
     UnrevokeResponse,
+    UpdateCodeRequest,
+    UpdateCodeResponse,
+    UpdateConfigRequest,
+    UploadMarketDeploymentAssetsRequest,
+    UploadMarketDeploymentAssetsResponse,
     WhitelistRequest,
     WhitelistResponse,
 )
@@ -99,6 +116,18 @@ class Admin:
         data = await self._client._http.admin_post("/api/admin/metadata", request.to_dict())
         return UnifiedMetadataResponse.from_dict(data)
 
+    async def upload_market_deployment_assets(
+        self, request: UploadMarketDeploymentAssetsRequest
+    ) -> UploadMarketDeploymentAssetsResponse:
+        """Upload banner/icon/outcome/token images and metadata for a newly created market.
+
+        Returns the uploaded URLs. Requires prior admin_login().
+        """
+        data = await self._client._http.admin_post(
+            "/api/admin/metadata/upload-market-deployment-assets", request.to_dict()
+        )
+        return UploadMarketDeploymentAssetsResponse.from_dict(data)
+
     async def allocate_codes(self, request: AllocateCodesRequest) -> AllocateCodesResponse:
         """Allocate referral codes. Requires prior admin_login()."""
         data = await self._client._http.admin_post("/api/admin/referral/allocate", request.to_dict())
@@ -128,6 +157,73 @@ class Admin:
         """Dismiss a notification. Requires prior admin_login()."""
         data = await self._client._http.admin_post("/api/admin/notifications/dismiss", request.to_dict())
         return DismissNotificationResponse.from_dict(data)
+
+    # ── Referral config / codes ──────────────────────────────────────────
+
+    async def get_referral_config(self) -> ReferralConfig:
+        """Fetch the platform-wide referral configuration. Requires prior admin_login()."""
+        data = await self._client._http.admin_post("/api/admin/referral/config/get", {})
+        return ReferralConfig.from_dict(data)
+
+    async def update_referral_config(self, request: UpdateConfigRequest) -> ReferralConfig:
+        """Update the platform-wide referral configuration. Requires prior admin_login()."""
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/config/update", request.to_dict()
+        )
+        return ReferralConfig.from_dict(data)
+
+    async def list_referral_codes(self, request: ListCodesRequest) -> ListCodesResponse:
+        """List referral codes with optional owner/batch/code filters. Requires prior admin_login()."""
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/codes", request.to_dict()
+        )
+        return ListCodesResponse.from_dict(data)
+
+    async def update_referral_code(self, request: UpdateCodeRequest) -> UpdateCodeResponse:
+        """Update the max_uses for a referral code. Requires prior admin_login()."""
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/codes/update", request.to_dict()
+        )
+        return UpdateCodeResponse.from_dict(data)
+
+    # ── Admin logs ───────────────────────────────────────────────────────
+
+    async def list_log_events(
+        self, query: AdminLogEventsQuery
+    ) -> AdminLogEventsResponse:
+        """List structured log events with cursor-based pagination. Requires prior admin_login()."""
+        url = "/api/admin/logs/events"
+        params = query.to_query()
+        if params:
+            url += "?" + urlencode(params)
+        data = await self._client._http.admin_get(url)
+        return AdminLogEventsResponse.from_dict(data)
+
+    async def get_log_event(self, public_id: str) -> AdminLogEvent:
+        """Fetch a single log event by its public_id. Requires prior admin_login()."""
+        data = await self._client._http.admin_get(
+            f"/api/admin/logs/events/{url_quote(public_id, safe='')}"
+        )
+        return AdminLogEvent.from_dict(data)
+
+    async def log_metrics(
+        self, query: AdminLogMetricsQuery
+    ) -> AdminLogMetricsResponse:
+        """Fetch rolled-up log metrics broken down by window and scope. Requires prior admin_login()."""
+        url = "/api/admin/logs/metrics"
+        params = query.to_query()
+        if params:
+            url += "?" + urlencode(params)
+        data = await self._client._http.admin_get(url)
+        return AdminLogMetricsResponse.from_dict(data)
+
+    async def log_metric_history(
+        self, query: AdminLogMetricHistoryQuery
+    ) -> AdminLogMetricHistoryResponse:
+        """Fetch the history of log metric buckets for a given scope. Requires prior admin_login()."""
+        url = "/api/admin/logs/metrics/history?" + urlencode(query.to_query())
+        data = await self._client._http.admin_get(url)
+        return AdminLogMetricHistoryResponse.from_dict(data)
 
     # ── On-chain instruction builders ────────────────────────────────────
 

@@ -1,10 +1,14 @@
 //! Markets sub-client — fetch, search, and on-chain market operations.
 
 use crate::client::LightconeClient;
-use crate::domain::market::wire::{MarketSearchResult, MarketsResponse, SingleMarketResponse};
-use crate::domain::market::{self, Market, Status};
+use crate::domain::market::wire::{
+    DepositMintsResponse, GlobalDepositAssetsListResponse, MarketSearchResult, MarketsResponse,
+    SingleMarketResponse,
+};
+use crate::domain::market::{self, GlobalDepositAsset, Market, Status};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 
@@ -13,6 +17,14 @@ use solana_pubkey::Pubkey;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketsResult {
     pub markets: Vec<Market>,
+    pub validation_errors: Vec<String>,
+}
+
+/// Result of fetching the global deposit asset whitelist. Assets that fail
+/// validation are skipped with their errors reported separately.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalDepositAssetsResult {
+    pub assets: Vec<GlobalDepositAsset>,
     pub validation_errors: Vec<String>,
 }
 
@@ -141,6 +153,48 @@ impl<'a> Markets<'a> {
         }
 
         Ok(kept)
+    }
+
+    /// Fetch the deposit assets registered for a specific market (including their
+    /// conditional mints).
+    pub async fn deposit_assets(
+        &self,
+        market_pubkey: &PubkeyStr,
+    ) -> Result<DepositMintsResponse, SdkError> {
+        let url = format!(
+            "{}/api/markets/{}/deposit-assets",
+            self.client.http.base_url(),
+            market_pubkey.as_str()
+        );
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Fetch the active global deposit asset whitelist (platform-scoped, not market-bound).
+    ///
+    /// Assets that fail validation are skipped and their errors are returned in
+    /// `GlobalDepositAssetsResult::validation_errors`.
+    pub async fn global_deposit_assets(&self) -> Result<GlobalDepositAssetsResult, SdkError> {
+        let url = format!("{}/api/global-deposit-assets", self.client.http.base_url());
+        let response: GlobalDepositAssetsListResponse =
+            self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+
+        let mut assets = Vec::new();
+        let mut validation_errors = Vec::new();
+        for wire_asset in response.assets {
+            match GlobalDepositAsset::try_from(wire_asset) {
+                Ok(asset) => assets.push(asset),
+                Err(error) => {
+                    let message = error.to_string();
+                    tracing::error!("Global deposit asset validation error: {}", message);
+                    validation_errors.push(message);
+                }
+            }
+        }
+
+        Ok(GlobalDepositAssetsResult {
+            assets,
+            validation_errors,
+        })
     }
 
     // ── PDA helpers ──────────────────────────────────────────────────────

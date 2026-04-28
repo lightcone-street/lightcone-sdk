@@ -143,6 +143,8 @@ from .ws import (
     unsubscribe_market,
     subscribe_deposit_price,
     unsubscribe_deposit_price,
+    subscribe_deposit_asset_price,
+    unsubscribe_deposit_asset_price,
     parse_message_in,
 )
 
@@ -457,6 +459,8 @@ __all__ = [
     "unsubscribe_market",
     "subscribe_deposit_price",
     "unsubscribe_deposit_price",
+    "subscribe_deposit_asset_price",
+    "unsubscribe_deposit_asset_price",
     "parse_message_in",
     # Program - Types
     "MarketStatus",
