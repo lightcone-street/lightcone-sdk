@@ -6,7 +6,10 @@ import {
 } from "../shared/api_response";
 import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry";
 
-type AuthMode = "cookie" | "adminCookie";
+type AuthMode =
+  | { kind: "cookie" }
+  | { kind: "cookieOverride"; token: string }
+  | { kind: "adminCookie" };
 
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
@@ -39,20 +42,38 @@ export class LightconeHttp {
       url,
       undefined,
       retry,
-      "adminCookie"
+      { kind: "adminCookie" }
     );
   }
 
   async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, "adminCookie");
+    return this.requestWithRetry<T>("POST", url, body, retry, { kind: "adminCookie" });
   }
 
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("GET", url, undefined, retry, "cookie");
+    return this.requestWithRetry<T>("GET", url, undefined, retry, { kind: "cookie" });
   }
 
   async post<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, "cookie");
+    return this.requestWithRetry<T>("POST", url, body, retry, { kind: "cookie" });
+  }
+
+  /**
+   * GET with retry, using an explicit per-call `authToken` instead of the
+   * SDK's process-wide cookie store. Intended for server-side cookie
+   * forwarding (SSR / server functions) where the per-request browser cookie
+   * can't propagate to the shared client. In a browser context this is
+   * equivalent to {@link get} — the runtime is already attaching the cookie
+   * via `credentials: "include"`.
+   */
+  async getWithAuth<T>(url: string, retry: RetryPolicy, authToken: string): Promise<T> {
+    return this.requestWithRetry<T>(
+      "GET",
+      url,
+      undefined,
+      retry,
+      { kind: "cookieOverride", token: authToken }
+    );
   }
 
   private async requestWithRetry<T>(
@@ -125,7 +146,7 @@ export class LightconeHttp {
     method: "GET" | "POST",
     url: string,
     body?: object,
-    authMode: AuthMode = "cookie"
+    authMode: AuthMode = { kind: "cookie" }
   ): Promise<T> {
     const [apiResponse, requestId] = await this.sendRequest<ApiResponse<T>>(
       method,
@@ -140,7 +161,7 @@ export class LightconeHttp {
     method: "GET" | "POST",
     url: string,
     body?: object,
-    authMode: AuthMode = "cookie"
+    authMode: AuthMode = { kind: "cookie" }
   ): Promise<[T, string]> {
     const requestId = generateRequestId();
     const headers: Record<string, string> = {};
@@ -219,11 +240,14 @@ export class LightconeHttp {
       return undefined;
     }
 
-    if (authMode === "adminCookie") {
-      return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
+    switch (authMode.kind) {
+      case "adminCookie":
+        return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
+      case "cookieOverride":
+        return `auth_token=${authMode.token}`;
+      case "cookie":
+        return this.authToken ? `auth_token=${this.authToken}` : undefined;
     }
-
-    return this.authToken ? `auth_token=${this.authToken}` : undefined;
   }
 
   private mapStatusError(statusCode: number, bodyText: string, headers: Headers): HttpError {

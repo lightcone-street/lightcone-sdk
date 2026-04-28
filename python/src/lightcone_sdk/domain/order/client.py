@@ -178,23 +178,27 @@ class Orders:
         cursor: Optional[str] = None,
     ) -> UserOrdersResponse:
         """Get user's orders with pagination."""
-        url = f"/api/users/orders?wallet_address={wallet}"
-        if limit is not None:
-            url += f"&limit={limit}"
-        if cursor is not None:
-            url += f"&cursor={cursor}"
-
+        url = _build_user_orders_url(wallet, limit, cursor)
         data = await self._client._http.get(url)
+        return _user_orders_response_from_wire(data, wallet)
 
-        return UserOrdersResponse(
-            user_pubkey=data.get("user_pubkey", wallet),
-            orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
-            balances=[
-                UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])
-            ],
-            next_cursor=data.get("next_cursor"),
-            has_more=data.get("has_more", False),
-        )
+    async def get_user_orders_with_auth_override(
+        self,
+        wallet: str,
+        limit: Optional[int],
+        cursor: Optional[str],
+        auth_token: str,
+    ) -> UserOrdersResponse:
+        """Same as :meth:`get_user_orders`, with an explicit per-call ``auth_token``.
+
+        Intended for server-side cookie forwarding (SSR / route handlers)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The override is used only for this call
+        and never written back to the shared store.
+        """
+        url = _build_user_orders_url(wallet, limit, cursor)
+        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        return _user_orders_response_from_wire(data, wallet)
 
     async def get_user_order_fills(
         self,
@@ -208,14 +212,27 @@ class Orders:
         Includes orders where the user was either maker or taker.
         Optionally filter by market. Returns orders sorted by most recent fill first.
         """
-        url = f"/api/users/order-fills?wallet_address={wallet_address}"
-        if market_pubkey is not None:
-            url += f"&market_pubkey={market_pubkey}"
-        if limit is not None:
-            url += f"&limit={limit}"
-        if cursor is not None:
-            url += f"&cursor={cursor}"
+        url = _build_user_order_fills_url(wallet_address, market_pubkey, limit, cursor)
         data = await self._client._http.get(url)
+        return UserOrderFillsResponse.from_dict(data)
+
+    async def get_user_order_fills_with_auth_override(
+        self,
+        wallet_address: str,
+        market_pubkey: Optional[str],
+        limit: Optional[int],
+        cursor: Optional[str],
+        auth_token: str,
+    ) -> UserOrderFillsResponse:
+        """Same as :meth:`get_user_order_fills`, with an explicit per-call ``auth_token``.
+
+        Intended for server-side cookie forwarding (SSR / route handlers)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The override is used only for this call
+        and never written back to the shared store.
+        """
+        url = _build_user_order_fills_url(wallet_address, market_pubkey, limit, cursor)
+        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
         return UserOrderFillsResponse.from_dict(data)
 
     # ── Unified cancel (dispatches based on client signing strategy) ────
@@ -429,3 +446,44 @@ class Orders:
         if nonce > 0xFFFFFFFF:
             raise ArithmeticOverflowError()
         return nonce
+
+
+def _build_user_orders_url(
+    wallet: str,
+    limit: Optional[int],
+    cursor: Optional[str],
+) -> str:
+    url = f"/api/users/orders?wallet_address={wallet}"
+    if limit is not None:
+        url += f"&limit={limit}"
+    if cursor is not None:
+        url += f"&cursor={cursor}"
+    return url
+
+
+def _build_user_order_fills_url(
+    wallet_address: str,
+    market_pubkey: Optional[str],
+    limit: Optional[int],
+    cursor: Optional[str],
+) -> str:
+    url = f"/api/users/order-fills?wallet_address={wallet_address}"
+    if market_pubkey is not None:
+        url += f"&market_pubkey={market_pubkey}"
+    if limit is not None:
+        url += f"&limit={limit}"
+    if cursor is not None:
+        url += f"&cursor={cursor}"
+    return url
+
+
+def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:
+    return UserOrdersResponse(
+        user_pubkey=data.get("user_pubkey", wallet),
+        orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
+        balances=[
+            UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])
+        ],
+        next_cursor=data.get("next_cursor"),
+        has_more=data.get("has_more", False),
+    )

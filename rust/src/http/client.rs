@@ -25,6 +25,12 @@ use uuid::Uuid;
 enum AuthMode {
     /// User auth via cookie (native) or credentials (WASM).
     Cookie,
+    /// Per-call user auth token override. Used for server-side cookie
+    /// forwarding (e.g. SSR / server functions) where the per-request browser
+    /// cookie can't propagate to the SDK's process-wide token store. On
+    /// WASM this is equivalent to `Cookie` because the browser already
+    /// attaches credentials.
+    CookieOverride(String),
     /// Admin auth via cookie (native) or credentials (WASM).
     AdminCookie,
 }
@@ -129,6 +135,25 @@ impl LightconeHttp {
             None::<&()>,
             retry,
             AuthMode::Cookie,
+        )
+        .await
+    }
+
+    /// GET with retry, using an explicit per-call `auth_token` instead of
+    /// the SDK's process-wide token store. Intended for server-side cookie
+    /// forwarding (SSR / server functions).
+    pub(crate) async fn get_with_auth<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+        auth_token: &str,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::GET,
+            url,
+            None::<&()>,
+            retry,
+            AuthMode::CookieOverride(auth_token.to_string()),
         )
         .await
     }
@@ -310,6 +335,19 @@ impl LightconeHttp {
 
                 #[cfg(target_arch = "wasm32")]
                 {
+                    req = req.fetch_credentials_include();
+                }
+            }
+            AuthMode::CookieOverride(token) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    req = req.header("Cookie", format!("auth_token={}", token));
+                }
+                // On WASM the browser is already attaching the cookie via
+                // credentials mode; the per-call token is unused.
+                #[cfg(target_arch = "wasm32")]
+                {
+                    let _ = token;
                     req = req.fetch_credentials_include();
                 }
             }
