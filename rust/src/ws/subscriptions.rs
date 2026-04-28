@@ -33,6 +33,11 @@ pub enum SubscribeParams {
         deposit_asset: PubkeyStr,
         resolution: Resolution,
     },
+    /// Live spot price for a single deposit asset. Snapshot on subscribe +
+    /// per-asset price ticks. Distinct from `deposit_price` which carries
+    /// OHLCV candles per resolution.
+    #[serde(rename = "deposit_asset_price")]
+    DepositAssetPrice { deposit_asset: PubkeyStr },
 }
 
 /// Parameters for unsubscribing from a WS channel.
@@ -62,6 +67,8 @@ pub enum UnsubscribeParams {
         deposit_asset: PubkeyStr,
         resolution: Resolution,
     },
+    #[serde(rename = "deposit_asset_price")]
+    DepositAssetPrice { deposit_asset: PubkeyStr },
 }
 
 /// Trait for subscription types that can be tracked and matched.
@@ -109,6 +116,11 @@ impl Subscription for SubscribeParams {
                 deposit_asset: deposit_asset.clone(),
                 resolution: *resolution,
             },
+            SubscribeParams::DepositAssetPrice { deposit_asset } => {
+                UnsubscribeParams::DepositAssetPrice {
+                    deposit_asset: deposit_asset.clone(),
+                }
+            }
         }
     }
 
@@ -187,6 +199,14 @@ impl Subscription for SubscribeParams {
                     resolution: unsub_res,
                 },
             ) => sub_asset == unsub_asset && sub_res == unsub_res,
+            (
+                SubscribeParams::DepositAssetPrice {
+                    deposit_asset: sub_asset,
+                },
+                UnsubscribeParams::DepositAssetPrice {
+                    deposit_asset: unsub_asset,
+                },
+            ) => sub_asset == unsub_asset,
             _ => false,
         }
     }
@@ -217,6 +237,9 @@ impl Subscription for SubscribeParams {
                 deposit_asset,
                 resolution,
             } => format!("deposit_price:{}:{}", deposit_asset, resolution),
+            SubscribeParams::DepositAssetPrice { deposit_asset } => {
+                format!("deposit_asset_price:{}", deposit_asset)
+            }
         }
     }
 }

@@ -234,6 +234,57 @@ class DepositPriceHistoryResponse:
         )
 
 
+@dataclass
+class DepositAssetPricesSnapshotResponse:
+    """REST response for `GET /api/deposit-asset-prices-snapshot`.
+
+    Map of mint -> latest price (Decimal-as-string). Covers every active mint
+    in `global_deposit_tokens` with a row in `deposit_token_prices` (live tick)
+    or a recent 1m candle close (fallback). Mints with neither are absent.
+    """
+
+    prices: dict[str, str] = field(default_factory=dict)
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositAssetPricesSnapshotResponse":
+        prices = d.get("prices") or {}
+        return DepositAssetPricesSnapshotResponse(
+            prices={str(mint): str(price) for mint, price in prices.items()},
+        )
+
+
+@dataclass
+class DepositAssetPriceSnapshot:
+    """Snapshot payload sent on subscribe to `deposit_asset_price` for one asset."""
+
+    deposit_asset: str = ""
+    price: str = "0"
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositAssetPriceSnapshot":
+        return DepositAssetPriceSnapshot(
+            deposit_asset=d.get("deposit_asset", ""),
+            price=str(d.get("price", "0")),
+        )
+
+
+@dataclass
+class DepositAssetPriceTick:
+    """Live price tick payload for one deposit asset."""
+
+    deposit_asset: str = ""
+    price: str = "0"
+    event_time: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositAssetPriceTick":
+        return DepositAssetPriceTick(
+            deposit_asset=d.get("deposit_asset", ""),
+            price=str(d.get("price", "0")),
+            event_time=int(d.get("event_time", 0)),
+        )
+
+
 __all__ = [
     "PriceCandle",
     "OrderbookPriceCandle",
@@ -246,4 +297,7 @@ __all__ = [
     "DepositPriceTick",
     "DepositPriceCandleUpdate",
     "DepositPriceHistoryResponse",
+    "DepositAssetPricesSnapshotResponse",
+    "DepositAssetPriceSnapshot",
+    "DepositAssetPriceTick",
 ]

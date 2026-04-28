@@ -1,7 +1,11 @@
 import type { MarketEvent } from "../domain/market";
 import { normalizeUserUpdate, type AuthUpdate, type UserUpdate } from "../domain/order/wire";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
-import type { DepositPrice, PriceHistory } from "../domain/price_history";
+import type {
+  DepositAssetPriceEvent,
+  DepositPrice,
+  PriceHistory,
+} from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
 import { WsError as WsErrorClass } from "../error";
 import { LightconeEnv, wsUrl } from "../env";
@@ -26,7 +30,8 @@ export type MessageIn =
   | { type: "auth"; version: number; data: AuthUpdate }
   | { type: "ticker"; version: number; data: WsTickerData }
   | { type: "market"; version: number; data: MarketEvent }
-  | { type: "deposit_price"; version: number; data: DepositPrice };
+  | { type: "deposit_price"; version: number; data: DepositPrice }
+  | { type: "deposit_asset_price"; version: number; data: DepositAssetPriceEvent };
 
 export type Kind = MessageIn;
 
@@ -235,6 +240,25 @@ export function unsubscribeDepositPrice(depositAsset: string, resolution: Resolu
   };
 }
 
+/**
+ * Subscribe to the live spot price for one deposit asset (snapshot +
+ * per-asset price ticks). Distinct from `subscribeDepositPrice`, which
+ * carries OHLCV candles per resolution.
+ */
+export function subscribeDepositAssetPrice(depositAsset: string): MessageOut {
+  return {
+    method: "subscribe",
+    params: { type: "deposit_asset_price", deposit_asset: depositAsset },
+  };
+}
+
+export function unsubscribeDepositAssetPrice(depositAsset: string): MessageOut {
+  return {
+    method: "unsubscribe",
+    params: { type: "deposit_asset_price", deposit_asset: depositAsset },
+  };
+}
+
 const VALID_MESSAGE_TYPES = new Set([
   "book_update",
   "pong",
@@ -246,6 +270,7 @@ const VALID_MESSAGE_TYPES = new Set([
   "ticker",
   "market",
   "deposit_price",
+  "deposit_asset_price",
 ]);
 
 export function parseMessageIn(input: string): MessageIn {

@@ -59,6 +59,11 @@ jobs:
                 echo "::endgroup::"
                 continue
                 ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
+                echo "::endgroup::"
+                continue
+                ;;
             esac
             echo "::group::$name"
             timeout 120 cargo run --example "$name" --features native
@@ -102,6 +107,11 @@ jobs:
                 echo "::endgroup::"
                 continue
                 ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
+                echo "::endgroup::"
+                continue
+                ;;
             esac
             echo "::group::$name"
             timeout 120 npx tsx "$file"
@@ -141,6 +151,11 @@ jobs:
             case "$name" in
               admin_*)
                 echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
                 echo "::endgroup::"
                 continue
                 ;;

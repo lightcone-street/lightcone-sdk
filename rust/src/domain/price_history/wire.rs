@@ -148,6 +148,43 @@ pub enum DepositPrice {
     Price(DepositPriceTick),
 }
 
+/// REST response for `GET /api/deposit-asset-prices-snapshot`.
+///
+/// Map of mint -> latest price (Decimal-as-string). Covers every active mint
+/// in `global_deposit_tokens` with a row in `deposit_token_prices` (live tick)
+/// or a recent 1m candle close (fallback). Mints with neither are absent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepositAssetPricesSnapshotResponse {
+    pub prices: std::collections::HashMap<String, String>,
+}
+
+/// Snapshot payload sent on subscribe to `deposit_asset_price` for one asset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepositAssetPriceSnapshot {
+    pub deposit_asset: String,
+    pub price: String,
+}
+
+/// Live price tick payload for one deposit asset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DepositAssetPriceTick {
+    pub deposit_asset: String,
+    pub price: String,
+    pub event_time: i64,
+}
+
+/// Tagged websocket payload for the per-asset `deposit_asset_price` channel.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "event_type")]
+pub enum DepositAssetPriceEvent {
+    /// Initial price for the subscribed asset, sent on subscribe.
+    #[serde(rename = "snapshot")]
+    Snapshot(DepositAssetPriceSnapshot),
+    /// A single live tick for the subscribed asset.
+    #[serde(rename = "price")]
+    Price(DepositAssetPriceTick),
+}
+
 /// Orderbook price candle from the REST API.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct OrderbookPriceCandle {
