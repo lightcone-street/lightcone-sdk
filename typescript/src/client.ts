@@ -112,6 +112,27 @@ export class LightconeClient implements ClientContext {
     this.orderNonceValue = undefined;
   }
 
+  // ── Auth token (cookie) ─────────────────────────────────────────────
+
+  /**
+   * Get the current `auth_token` cookie value, if any. Populated by the SDK
+   * after a successful login, then attached on every authed request. Useful
+   * for forwarding the token through the `*WithAuthOverride` methods, or
+   * persisting the session across processes.
+   */
+  async authToken(): Promise<string | undefined> {
+    return this.http.authTokenRef()();
+  }
+
+  /**
+   * Clear the cached `auth_token`. Subsequent authed calls will go out
+   * without a `Cookie` header (and 401) unless they use a
+   * `*WithAuthOverride` variant.
+   */
+  async clearAuthToken(): Promise<void> {
+    await this.http.clearAuthToken();
+  }
+
   // ── Transaction signing + submission ────────────────────────────────
 
   async signAndSubmitTx(tx: Transaction): Promise<string> {

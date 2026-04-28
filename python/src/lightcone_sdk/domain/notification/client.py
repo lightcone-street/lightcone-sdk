@@ -22,6 +22,23 @@ class Notifications:
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
+    async def fetch_with_auth_override(
+        self, auth_token: str
+    ) -> list[Notification]:
+        """Same as :meth:`fetch`, with an explicit per-call ``auth_token``.
+
+        Intended for server-side cookie forwarding (SSR / route handlers)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The override is used only for this call
+        and never written back to the shared store.
+        """
+        data = await self._client._http.get_with_auth(
+            "/api/notifications",
+            auth_token=auth_token,
+        )
+        notifications_data = data.get("notifications", [])
+        return [_parse_notification(n) for n in notifications_data]
+
     async def dismiss(self, notification_id: str) -> None:
         """Dismiss a notification."""
         await self._client._http.post("/api/notifications/dismiss", {

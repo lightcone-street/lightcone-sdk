@@ -175,6 +175,29 @@ impl LightconeClient {
         &self.program_id
     }
 
+    /// Get the current `auth_token` cookie value, if any. Populated by the
+    /// SDK after a successful login, then attached on every authed request.
+    /// Useful for forwarding the token through the `_with_auth_override`
+    /// methods, or persisting the session across processes.
+    ///
+    /// Native only — on WASM the cookie lives in the browser's cookie jar
+    /// and the SDK never sees it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn auth_token(&self) -> Option<String> {
+        self.http.auth_token_ref().read().await.clone()
+    }
+
+    /// Clear the cached `auth_token`. Subsequent authed calls will go out
+    /// without a `Cookie` header (and 401) unless they use a
+    /// `_with_auth_override` variant.
+    ///
+    /// Native only — on WASM the cookie lives in the browser's cookie jar
+    /// and the SDK never sees it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn clear_auth_token(&self) {
+        self.http.clear_auth_token().await;
+    }
+
     // ── Deposit source ──────────────────────────────────────────────────
 
     /// Get the current deposit source setting.

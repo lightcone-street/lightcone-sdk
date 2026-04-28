@@ -70,6 +70,24 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
+    /// Same as [`Self::positions`], but uses the supplied `auth_token` for
+    /// this call instead of the SDK's process-wide token store.
+    ///
+    /// Intended for server-side cookie forwarding (SSR / server functions)
+    /// where the per-request browser cookie can't propagate to the shared
+    /// client. On WASM this is equivalent to [`Self::positions`] because the
+    /// browser is already attaching the cookie via credentials mode.
+    pub async fn positions_with_auth_override(
+        &self,
+        auth_token: &str,
+    ) -> Result<PositionsResponse, SdkError> {
+        let url = format!("{}/api/users/positions", self.client.http.base_url());
+        self.client
+            .http
+            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .await
+    }
+
     /// Get SPL deposit-token balances for the authenticated user.
     ///
     /// The wallet is resolved server-side from the `auth_token` cookie, so no
@@ -85,6 +103,29 @@ impl<'a> Positions<'a> {
             self.client.http.base_url()
         );
         self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Same as [`Self::deposit_token_balances`], but uses the supplied
+    /// `auth_token` for this call instead of the SDK's process-wide token
+    /// store.
+    ///
+    /// Intended for server-side cookie forwarding (SSR / server functions)
+    /// where the per-request browser cookie can't propagate to the shared
+    /// client. On WASM this is equivalent to
+    /// [`Self::deposit_token_balances`] because the browser is already
+    /// attaching the cookie via credentials mode.
+    pub async fn deposit_token_balances_with_auth_override(
+        &self,
+        auth_token: &str,
+    ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
+        let url = format!(
+            "{}/api/users/deposit-token-balances",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .await
     }
 
     // ── On-chain instruction builders ───────────────────────────────────

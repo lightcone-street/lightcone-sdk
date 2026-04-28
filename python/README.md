@@ -212,6 +212,28 @@ tx_hash = await (client.positions().merge()
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
+### Cookie handling
+
+After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
+
+### Server-side cookie forwarding (`*_with_auth_override` variants)
+
+When the SDK runs on a server (FastAPI, Starlette, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+
+For these cases, authed methods that need per-call forwarding ship a `*_with_auth_override(auth_token)` sibling that injects the cookie just for that one call. The override is used only for that call and is **not** written back to the shared store, even if the backend rotates the cookie via `Set-Cookie`:
+
+```python
+# Inside a server route handler, after extracting the auth_token cookie
+# from the incoming request:
+balances = await client.positions().deposit_token_balances_with_auth_override(
+    auth_token=auth_token,
+)
+
+positions = await client.positions().positions_with_auth_override(
+    auth_token=auth_token,
+)
+```
+
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
 
@@ -220,6 +242,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.py) | Full auth lifecycle: sign message, login, check session, logout |
+| [`auth_override`](examples/auth_override.py) | Per-call cookie override for SSR / route-handler consumers — logs in, captures the token via `client.auth_token`, clears the SDK's internal store, and exercises every `*_with_auth_override` variant |
 
 ### Market Discovery & Data
 

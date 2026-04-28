@@ -263,18 +263,28 @@ export class Orders {
     limit?: number,
     cursor?: string
   ): Promise<UserOrdersResponse> {
-    const params = new URLSearchParams({ wallet_address: walletAddress });
-    if (limit !== undefined) params.set("limit", String(limit));
-    if (cursor) params.set("cursor", cursor);
+    const url = buildUserOrdersUrl(this.client.http.baseUrl(), walletAddress, limit, cursor);
+    const response = await this.client.http.get<UserOrdersRawResponse>(url, RetryPolicy.Idempotent);
+    return normalizeUserOrdersPayload(response);
+  }
 
-    const url = `${this.client.http.baseUrl()}/api/users/orders?${params.toString()}`;
-    const response = await this.client.http.get<{
-      user_pubkey: PubkeyStr;
-      orders?: UserSnapshotOrder[];
-      balances?: UserSnapshotBalance[];
-      next_cursor?: string | null;
-      has_more?: boolean;
-    }>(url, RetryPolicy.Idempotent);
+  /**
+   * Same as {@link getUserOrders}, but uses the supplied `authToken` for
+   * this call instead of the SDK's process-wide cookie store. For
+   * server-side cookie forwarding (SSR / route handlers).
+   */
+  async getUserOrdersWithAuthOverride(
+    walletAddress: string,
+    limit: number | undefined,
+    cursor: string | undefined,
+    authToken: string,
+  ): Promise<UserOrdersResponse> {
+    const url = buildUserOrdersUrl(this.client.http.baseUrl(), walletAddress, limit, cursor);
+    const response = await this.client.http.getWithAuth<UserOrdersRawResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
     return normalizeUserOrdersPayload(response);
   }
 
@@ -284,13 +294,40 @@ export class Orders {
     limit?: number,
     cursor?: string,
   ): Promise<UserOrderFillsResponse> {
-    const params = new URLSearchParams({ wallet_address: walletAddress });
-    if (marketPubkey) params.set("market_pubkey", marketPubkey);
-    if (limit !== undefined) params.set("limit", String(limit));
-    if (cursor) params.set("cursor", cursor);
-
-    const url = `${this.client.http.baseUrl()}/api/users/order-fills?${params.toString()}`;
+    const url = buildUserOrderFillsUrl(
+      this.client.http.baseUrl(),
+      walletAddress,
+      marketPubkey,
+      limit,
+      cursor,
+    );
     return this.client.http.get<UserOrderFillsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Same as {@link getUserOrderFills}, but uses the supplied `authToken`
+   * for this call instead of the SDK's process-wide cookie store. For
+   * server-side cookie forwarding (SSR / route handlers).
+   */
+  async getUserOrderFillsWithAuthOverride(
+    walletAddress: string,
+    marketPubkey: string | undefined,
+    limit: number | undefined,
+    cursor: string | undefined,
+    authToken: string,
+  ): Promise<UserOrderFillsResponse> {
+    const url = buildUserOrderFillsUrl(
+      this.client.http.baseUrl(),
+      walletAddress,
+      marketPubkey,
+      limit,
+      cursor,
+    );
+    return this.client.http.getWithAuth<UserOrderFillsResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
   }
 
   // ── Unified cancel (dispatches based on client signing strategy) ────
@@ -527,4 +564,38 @@ export class Orders {
     }
     return Number(nonce);
   }
+}
+
+interface UserOrdersRawResponse {
+  user_pubkey: PubkeyStr;
+  orders?: UserSnapshotOrder[];
+  balances?: UserSnapshotBalance[];
+  next_cursor?: string | null;
+  has_more?: boolean;
+}
+
+function buildUserOrdersUrl(
+  baseUrl: string,
+  walletAddress: string,
+  limit: number | undefined,
+  cursor: string | undefined,
+): string {
+  const params = new URLSearchParams({ wallet_address: walletAddress });
+  if (limit !== undefined) params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
+  return `${baseUrl}/api/users/orders?${params.toString()}`;
+}
+
+function buildUserOrderFillsUrl(
+  baseUrl: string,
+  walletAddress: string,
+  marketPubkey: string | undefined,
+  limit: number | undefined,
+  cursor: string | undefined,
+): string {
+  const params = new URLSearchParams({ wallet_address: walletAddress });
+  if (marketPubkey) params.set("market_pubkey", marketPubkey);
+  if (limit !== undefined) params.set("limit", String(limit));
+  if (cursor) params.set("cursor", cursor);
+  return `${baseUrl}/api/users/order-fills?${params.toString()}`;
 }

@@ -271,6 +271,27 @@ class LightconeClient:
     def ws_config(self) -> WsConfig:
         return self._ws_config
 
+    # ── Auth token (cookie) ─────────────────────────────────────────────
+
+    @property
+    def auth_token(self) -> Optional[str]:
+        """Current ``auth_token`` cookie value, if any.
+
+        Populated by the SDK after a successful login, then attached on
+        every authed request. Useful for forwarding the token through
+        ``*_with_auth_override`` methods or persisting the session across
+        processes.
+        """
+        return self._http.auth_token
+
+    def clear_auth_token(self) -> None:
+        """Clear the cached ``auth_token``.
+
+        Subsequent authed calls will go out without a ``Cookie`` header
+        (and 401) unless they use a ``*_with_auth_override`` variant.
+        """
+        self._http.clear_auth_token()
+
     async def close(self) -> None:
         """Close the HTTP session."""
         await self._http.close()

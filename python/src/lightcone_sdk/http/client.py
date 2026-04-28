@@ -32,6 +32,7 @@ DEFAULT_TIMEOUT_SECS = 30
 
 class _AuthMode(str, Enum):
     COOKIE = "cookie"
+    COOKIE_OVERRIDE = "cookie_override"
     ADMIN_COOKIE = "admin_cookie"
 
 
@@ -143,6 +144,29 @@ class LightconeHttp:
             auth_mode=_AuthMode.COOKIE,
         )
 
+    async def get_with_auth(
+        self,
+        path: str,
+        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        auth_token: str,
+    ) -> Any:
+        """Make a GET request with an explicit per-call ``auth_token`` cookie.
+
+        Intended for server-side cookie forwarding (SSR / server functions)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. Bypasses both the stored ``auth_token``
+        and the response-side ``Set-Cookie`` capture so per-call overrides
+        never mutate shared state.
+        """
+        return await self._request_with_retry(
+            "GET",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE_OVERRIDE,
+            auth_token_override=auth_token,
+        )
+
     async def post(
         self,
         path: str,
@@ -193,6 +217,7 @@ class LightconeHttp:
         *,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         auth_mode: _AuthMode,
+        auth_token_override: Optional[str] = None,
         **kwargs: Any,
     ) -> Any:
         """Make an HTTP request with retry logic and ApiResponse unwrapping."""
@@ -200,7 +225,11 @@ class LightconeHttp:
 
         if config is None:
             return await self._send_and_parse(
-                method, path, auth_mode=auth_mode, **kwargs
+                method,
+                path,
+                auth_mode=auth_mode,
+                auth_token_override=auth_token_override,
+                **kwargs,
             )
 
         last_error: Optional[Exception] = None
@@ -208,7 +237,11 @@ class LightconeHttp:
         for attempt in range(config.max_retries + 1):
             try:
                 return await self._send_and_parse(
-                    method, path, auth_mode=auth_mode, **kwargs
+                    method,
+                    path,
+                    auth_mode=auth_mode,
+                    auth_token_override=auth_token_override,
+                    **kwargs,
                 )
             except ApiRejected:
                 raise
@@ -269,12 +302,14 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
+        auth_token_override: Optional[str] = None,
         **kwargs: Any,
     ) -> Any:
         payload, request_id = await self._send_request(
             method,
             path,
             auth_mode=auth_mode,
+            auth_token_override=auth_token_override,
             **kwargs,
         )
         return self._parse_api_response(payload, request_id)
@@ -301,6 +336,7 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
+        auth_token_override: Optional[str] = None,
         **kwargs: Any,
     ) -> tuple[Any, str]:
         """Send one request and return the raw decoded JSON payload plus request id."""
@@ -308,7 +344,7 @@ class LightconeHttp:
         request_id = str(uuid.uuid4())
         headers = dict(kwargs.pop("headers", {}))
         headers["x-request-id"] = request_id
-        headers.update(self._auth_headers(auth_mode))
+        headers.update(self._auth_headers(auth_mode, auth_token_override))
 
         async with session.request(
             method,
@@ -317,7 +353,11 @@ class LightconeHttp:
             **kwargs,
         ) as response:
             if 200 <= response.status < 300:
-                self._capture_cookies(response.headers)
+                # Per-call overrides must not mutate the shared cookie store —
+                # response Set-Cookie headers from a forwarded auth_token would
+                # otherwise leak into the SDK's process-wide token slot.
+                if auth_mode is not _AuthMode.COOKIE_OVERRIDE:
+                    self._capture_cookies(response.headers)
                 try:
                     return await response.json(), request_id
                 except (
@@ -339,9 +379,16 @@ class LightconeHttp:
             return path
         return f"{self._base_url}{path}"
 
-    def _auth_headers(self, auth_mode: _AuthMode) -> dict[str, str]:
+    def _auth_headers(
+        self,
+        auth_mode: _AuthMode,
+        auth_token_override: Optional[str] = None,
+    ) -> dict[str, str]:
         headers: dict[str, str] = {}
-        if auth_mode == _AuthMode.COOKIE and self._auth_token:
+        if auth_mode == _AuthMode.COOKIE_OVERRIDE:
+            if auth_token_override:
+                headers["Cookie"] = f"auth_token={auth_token_override}"
+        elif auth_mode == _AuthMode.COOKIE and self._auth_token:
             headers["Cookie"] = f"auth_token={self._auth_token}"
         elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:
             headers["Cookie"] = f"admin_token={self._admin_token}"

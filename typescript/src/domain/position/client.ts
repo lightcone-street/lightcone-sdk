@@ -73,6 +73,25 @@ export class Positions {
   }
 
   /**
+   * Same as {@link positions}, but uses the supplied `authToken` for this
+   * call instead of the SDK's process-wide cookie store.
+   *
+   * Intended for server-side cookie forwarding (SSR / server functions)
+   * where the per-request browser cookie can't propagate to the shared
+   * client. In a browser context this is equivalent to {@link positions}
+   * because the runtime is already attaching the cookie via
+   * `credentials: "include"`.
+   */
+  async positionsWithAuthOverride(authToken: string): Promise<PositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/positions`;
+    return this.client.http.getWithAuth<PositionsResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+  }
+
+  /**
    * Get SPL deposit-token balances for the authenticated user.
    *
    * The wallet is resolved server-side from the `auth_token` cookie, so no
@@ -86,6 +105,27 @@ export class Positions {
     return this.client.http.get<Record<PubkeyStr, DepositTokenBalance>>(
       url,
       RetryPolicy.Idempotent,
+    );
+  }
+
+  /**
+   * Same as {@link depositTokenBalances}, but uses the supplied `authToken`
+   * for this call instead of the SDK's process-wide cookie store.
+   *
+   * Intended for server-side cookie forwarding (SSR / server functions)
+   * where the per-request browser cookie can't propagate to the shared
+   * client. In a browser context this is equivalent to
+   * {@link depositTokenBalances} because the runtime is already attaching
+   * the cookie via `credentials: "include"`.
+   */
+  async depositTokenBalancesWithAuthOverride(
+    authToken: string,
+  ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
+    return this.client.http.getWithAuth<Record<PubkeyStr, DepositTokenBalance>>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
     );
   }
 

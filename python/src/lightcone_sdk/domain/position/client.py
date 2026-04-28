@@ -91,6 +91,22 @@ class Positions:
         data = await self._client._http.get("/api/users/positions")
         return PositionsResponseWire.from_dict(data)
 
+    async def positions_with_auth_override(
+        self, auth_token: str
+    ) -> PositionsResponseWire:
+        """Same as :meth:`positions`, with an explicit per-call ``auth_token``.
+
+        Intended for server-side cookie forwarding (SSR / server functions)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The override is used only for this call
+        and never written back to the shared store.
+        """
+        data = await self._client._http.get_with_auth(
+            "/api/users/positions",
+            auth_token=auth_token,
+        )
+        return PositionsResponseWire.from_dict(data)
+
     async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
         """Get SPL deposit-token balances for the authenticated user.
 
@@ -101,6 +117,24 @@ class Positions:
         the tracked balances — this is not an error.
         """
         data = await self._client._http.get("/api/users/deposit-token-balances")
+        return {
+            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
+        }
+
+    async def deposit_token_balances_with_auth_override(
+        self, auth_token: str
+    ) -> dict[str, DepositTokenBalance]:
+        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``auth_token``.
+
+        Intended for server-side cookie forwarding (SSR / server functions)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The override is used only for this call
+        and never written back to the shared store.
+        """
+        data = await self._client._http.get_with_auth(
+            "/api/users/deposit-token-balances",
+            auth_token=auth_token,
+        )
         return {
             mint: DepositTokenBalance(**balance) for mint, balance in data.items()
         }
