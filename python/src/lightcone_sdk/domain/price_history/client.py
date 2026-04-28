@@ -10,6 +10,7 @@ from ...error import SdkError
 from .wire import (
     OrderbookPriceHistoryResponse,
     DepositPriceHistoryResponse,
+    DepositAssetPricesSnapshotResponse,
 )
 from .convert import line_data_from_candle
 from ...shared.types import Resolution
@@ -80,6 +81,20 @@ class PriceHistoryClient:
         url = f"/api/price-history?{urlencode(params)}"
         data = await self._client._http.get(url)
         return DepositPriceHistoryResponse.from_dict(data)
+
+    async def get_deposit_asset_prices_snapshot(self) -> DepositAssetPricesSnapshotResponse:
+        """Snapshot of current prices for every active mint in `global_deposit_tokens`.
+
+        No params. Returns a map of mint -> price (Decimal-as-string). The
+        backend prefers the live tick from `deposit_token_prices` and falls
+        back to the most recent 1m candle close. Assets with neither are
+        silently absent.
+
+        For live updates, subscribe to ``deposit_asset_price`` per asset via
+        :func:`lightcone_sdk.ws.subscribe_deposit_asset_price`.
+        """
+        data = await self._client._http.get("/api/deposit-asset-prices-snapshot")
+        return DepositAssetPricesSnapshotResponse.from_dict(data)
 
     async def get_line_data(
         self,

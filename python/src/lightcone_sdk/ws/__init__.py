@@ -9,6 +9,8 @@ from ..env import LightconeEnv
 
 if TYPE_CHECKING:
     from ..domain.price_history.wire import (
+        DepositAssetPriceSnapshot,
+        DepositAssetPriceTick,
         DepositPriceCandleUpdate,
         DepositPriceSnapshot,
         DepositPriceTick,
@@ -35,6 +37,8 @@ MessageData = Union[
     "DepositPriceSnapshot",
     "DepositPriceTick",
     "DepositPriceCandleUpdate",
+    "DepositAssetPriceSnapshot",
+    "DepositAssetPriceTick",
     dict,
 ]
 
@@ -182,6 +186,26 @@ def unsubscribe_deposit_price(deposit_asset: str, resolution: str) -> dict[str, 
     }
 
 
+def subscribe_deposit_asset_price(deposit_asset: str) -> dict[str, Any]:
+    """Subscribe to the live spot price for one deposit asset.
+
+    Snapshot on subscribe + per-asset price ticks. Distinct from
+    ``subscribe_deposit_price`` which carries OHLCV candles per resolution.
+    """
+    return {
+        "method": "subscribe",
+        "params": {"type": "deposit_asset_price", "deposit_asset": deposit_asset},
+    }
+
+
+def unsubscribe_deposit_asset_price(deposit_asset: str) -> dict[str, Any]:
+    """Unsubscribe from a per-asset ``deposit_asset_price`` stream."""
+    return {
+        "method": "unsubscribe",
+        "params": {"type": "deposit_asset_price", "deposit_asset": deposit_asset},
+    }
+
+
 # ---------------------------------------------------------------------------
 # Message types (incoming)
 # ---------------------------------------------------------------------------
@@ -200,6 +224,7 @@ class MessageInType(str, Enum):
     TICKER = "ticker"
     MARKET = "market"
     DEPOSIT_PRICE = "deposit_price"
+    DEPOSIT_ASSET_PRICE = "deposit_asset_price"
 
 
 @dataclass
@@ -297,6 +322,17 @@ def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
         if event_type == "candle":
             return DepositPriceCandleUpdate.from_dict(data)
         return DepositPriceSnapshot.from_dict(data)
+
+    if message_type == MessageInType.DEPOSIT_ASSET_PRICE.value:
+        from ..domain.price_history.wire import (
+            DepositAssetPriceSnapshot,
+            DepositAssetPriceTick,
+        )
+
+        event_type = data.get("event_type", "")
+        if event_type == "price":
+            return DepositAssetPriceTick.from_dict(data)
+        return DepositAssetPriceSnapshot.from_dict(data)
 
     return data
 

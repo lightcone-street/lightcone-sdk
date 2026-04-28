@@ -9,9 +9,10 @@ use serde::{Deserialize, Serialize};
 
 pub use state::{DepositPriceState, LatestDepositPrice, PriceHistoryState};
 pub use wire::{
-    DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryResponse,
-    DepositPriceSnapshot, DepositPriceTick, DepositTokenCandle, OrderbookPriceCandle,
-    OrderbookPriceHistoryResponse, PriceHistoryDecimals,
+    DepositAssetPriceEvent, DepositAssetPriceSnapshot, DepositAssetPriceTick,
+    DepositAssetPricesSnapshotResponse, DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate,
+    DepositPriceHistoryResponse, DepositPriceSnapshot, DepositPriceTick, DepositTokenCandle,
+    OrderbookPriceCandle, OrderbookPriceHistoryResponse, PriceHistoryDecimals,
 };
 
 /// A single data point on a price chart (simplified from the full candle).
