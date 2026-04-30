@@ -91,21 +91,48 @@ class Positions:
         data = await self._client._http.get("/api/users/positions")
         return PositionsResponseWire.from_dict(data)
 
-    async def positions_with_auth_override(
+    async def positions_with_auth(
         self, auth_token: str
     ) -> PositionsResponseWire:
         """Same as :meth:`positions`, with an explicit per-call ``auth_token``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. The override is used only for this call
-        and never written back to the shared store.
+        process-wide cookie store. The token is used only for this call and
+        never written back to the shared store.
         """
         data = await self._client._http.get_with_auth(
             "/api/users/positions",
             auth_token=auth_token,
         )
         return PositionsResponseWire.from_dict(data)
+
+    async def positions_for_market(
+        self, market_pubkey: str
+    ) -> MarketPositionsResponseWire:
+        """Get the authenticated user's positions in a specific market.
+
+        Wallet is resolved server-side from the ``auth_token`` cookie.
+
+        GET /api/users/markets/{market_pubkey}/positions
+        """
+        data = await self._client._http.get(
+            f"/api/users/markets/{market_pubkey}/positions"
+        )
+        return MarketPositionsResponseWire.from_dict(data)
+
+    async def positions_for_market_with_auth(
+        self, market_pubkey: str, auth_token: str
+    ) -> MarketPositionsResponseWire:
+        """Same as :meth:`positions_for_market`, with an explicit per-call ``auth_token``.
+
+        For server-side cookie forwarding (SSR / route handlers).
+        """
+        data = await self._client._http.get_with_auth(
+            f"/api/users/markets/{market_pubkey}/positions",
+            auth_token=auth_token,
+        )
+        return MarketPositionsResponseWire.from_dict(data)
 
     async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
         """Get SPL deposit-token balances for the authenticated user.
@@ -121,15 +148,15 @@ class Positions:
             mint: DepositTokenBalance(**balance) for mint, balance in data.items()
         }
 
-    async def deposit_token_balances_with_auth_override(
+    async def deposit_token_balances_with_auth(
         self, auth_token: str
     ) -> dict[str, DepositTokenBalance]:
         """Same as :meth:`deposit_token_balances`, with an explicit per-call ``auth_token``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. The override is used only for this call
-        and never written back to the shared store.
+        process-wide cookie store. The token is used only for this call and
+        never written back to the shared store.
         """
         data = await self._client._http.get_with_auth(
             "/api/users/deposit-token-balances",

@@ -11,12 +11,15 @@
 
 mod common;
 
-use common::{rest_client, ExampleResult};
+use common::{get_keypair, login, rest_client, ExampleResult};
 use lightcone::prelude::*;
+use solana_signer::Signer;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
     let client = rest_client()?;
+    let keypair = get_keypair()?;
+    login(&client, &keypair, false).await?;
 
     // ── Platform ─────────────────────────────────────────────────────────
     let platform = client.metrics().platform().await?;
@@ -122,6 +125,27 @@ async fn main() -> ExampleResult {
         "history platform/platform @ {}: {} buckets",
         history.resolution,
         history.points.len()
+    );
+
+    // ── Per-user metrics ────────────────────────────────────────────────
+    // JWT (uses the SDK's process-wide token captured by the login above)
+    let user_metrics = client.metrics().user().await?;
+    println!(
+        "user (jwt) {}: outcomes_traded={} volume=${} referrals_used={}",
+        user_metrics.wallet_address,
+        user_metrics.total_outcomes_traded,
+        user_metrics.total_volume_usd,
+        user_metrics.total_referrals_used
+    );
+
+    // Public path-based variant — no auth required.
+    let by_wallet = client
+        .metrics()
+        .user_by_wallet(&keypair.pubkey().to_string())
+        .await?;
+    println!(
+        "user (by-wallet) {}: outcomes_traded={} volume=${}",
+        by_wallet.wallet_address, by_wallet.total_outcomes_traded, by_wallet.total_volume_usd
     );
 
     Ok(())

@@ -6,7 +6,7 @@ use crate::domain::metrics::wire::{
     CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokensMetrics,
     Leaderboard, MarketDetailMetrics, MarketMetricsQuery, MarketsMetrics, MarketsMetricsQuery,
     MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery, OrderbookTickersResponse,
-    OrderbookVolumeMetrics, PlatformMetrics,
+    OrderbookVolumeMetrics, PlatformMetrics, UserMetrics,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -179,6 +179,43 @@ impl<'a> Metrics<'a> {
         if let Ok(qs) = serde_urlencoded::to_string(query) {
             append_query(&mut url, &qs);
         }
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Fetch per-wallet trading + referral aggregates for the authenticated
+    /// user: distinct outcomes traded, total USD volume across all the
+    /// wallet's trades, and the number of times the wallet's referral codes
+    /// have been redeemed. The wallet is resolved server-side from the
+    /// `auth_token` cookie.
+    ///
+    /// `GET /api/metrics/user`
+    pub async fn user(&self) -> Result<UserMetrics, SdkError> {
+        let url = format!("{}/api/metrics/user", self.client.http.base_url());
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Same as [`Self::user`] but uses the supplied `auth_token` for this
+    /// call instead of the SDK's process-wide token store.
+    ///
+    /// Intended for server-side cookie forwarding (SSR / Dioxus server
+    /// functions) where the per-request browser cookie can't propagate to
+    /// the shared client.
+    pub async fn user_with_auth(&self, auth_token: &str) -> Result<UserMetrics, SdkError> {
+        let url = format!("{}/api/metrics/user", self.client.http.base_url());
+        self.client
+            .http
+            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .await
+    }
+
+    /// Public variant of [`Self::user`]. Takes the user's wallet via the URL
+    /// path (`GET /api/metrics/user/{wallet_address}`) and requires no auth.
+    pub async fn user_by_wallet(&self, wallet_address: &str) -> Result<UserMetrics, SdkError> {
+        let url = format!(
+            "{}/api/metrics/user/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(wallet_address)
+        );
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 }

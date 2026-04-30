@@ -31,7 +31,7 @@ async def main():
     pubkey = str(keypair.pubkey())
 
     # 1. Find an open limit order
-    snapshot = await client.orders().get_user_orders(pubkey, 50)
+    snapshot = await client.orders().get_user_orders(50)
     limit_order = next(
         (o for o in snapshot.orders if o.order_type == "limit"), None
     )

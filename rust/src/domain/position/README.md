@@ -73,7 +73,7 @@ Access via `client.positions()`.
 async fn get(&self, user_pubkey: &str) -> Result<PositionsResponse, SdkError>
 ```
 
-Fetch all positions for a user across all markets. Returns the full portfolio including wallet holdings and conditional token positions.
+Fetch all positions for a user across all markets. Public path-based endpoint; no auth required. Returns the full portfolio including wallet holdings and conditional token positions.
 
 ### `get_for_market`
 
@@ -85,7 +85,30 @@ async fn get_for_market(
 ) -> Result<MarketPositionsResponse, SdkError>
 ```
 
-Fetch positions for a user in a specific market.
+Fetch positions for a user in a specific market. Public path-based endpoint; no auth required.
+
+### `positions`
+
+```rust
+async fn positions(&self) -> Result<PositionsResponse, SdkError>
+```
+
+Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_auth` story.
+
+### `positions_for_market`
+
+```rust
+async fn positions_for_market(
+    &self,
+    market_pubkey: &str,
+) -> Result<MarketPositionsResponse, SdkError>
+```
+
+Fetch positions for the authenticated user in a specific market.
+
+### `positions_with_auth` / `positions_for_market_with_auth` / `deposit_token_balances_with_auth`
+
+Same as the no-arg authed variants above, but accept an explicit `auth_token: &str`. For SSR / Dioxus server-function callers that need to forward the per-request cookie. See [the Authentication section](../../../README.md#authentication).
 
 ### On-Chain Instruction & Transaction Builders
 

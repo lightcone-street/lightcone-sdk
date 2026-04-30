@@ -82,9 +82,37 @@ export class Positions {
    * because the runtime is already attaching the cookie via
    * `credentials: "include"`.
    */
-  async positionsWithAuthOverride(authToken: string): Promise<PositionsResponse> {
+  async positionsWithAuth(authToken: string): Promise<PositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/positions`;
     return this.client.http.getWithAuth<PositionsResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+  }
+
+  /**
+   * Get the authenticated user's positions in a specific market. The wallet
+   * is resolved server-side from the `auth_token` cookie.
+   *
+   * `GET /api/users/markets/{market_pubkey}/positions`
+   */
+  async positionsForMarket(marketPubkey: string): Promise<MarketPositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Same as {@link positionsForMarket}, but uses the supplied `authToken`
+   * for this call instead of the SDK's process-wide cookie store. For
+   * server-side cookie forwarding (SSR / server functions).
+   */
+  async positionsForMarketWithAuth(
+    marketPubkey: string,
+    authToken: string,
+  ): Promise<MarketPositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    return this.client.http.getWithAuth<MarketPositionsResponse>(
       url,
       RetryPolicy.Idempotent,
       authToken,
@@ -118,7 +146,7 @@ export class Positions {
    * {@link depositTokenBalances} because the runtime is already attaching
    * the cookie via `credentials: "include"`.
    */
-  async depositTokenBalancesWithAuthOverride(
+  async depositTokenBalancesWithAuth(
     authToken: string,
   ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
     const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;

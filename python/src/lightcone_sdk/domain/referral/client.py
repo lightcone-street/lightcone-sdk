@@ -21,7 +21,7 @@ class Referrals:
         data = await self._client._http.get("/api/referral/status")
         return _referral_status_from_wire(data)
 
-    async def get_status_with_auth_override(self, auth_token: str) -> ReferralStatus:
+    async def get_status_with_auth(self, auth_token: str) -> ReferralStatus:
         """Same as :meth:`get_status`, with an explicit per-call ``auth_token``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)

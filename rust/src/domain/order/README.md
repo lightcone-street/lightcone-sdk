@@ -197,18 +197,34 @@ Cancel a trigger order by its ID. **Not retried.**
 ```rust
 async fn get_user_orders(
     &self,
-    wallet_address: &str,
     limit: Option<u32>,
     cursor: Option<&str>,
 ) -> Result<UserOrdersResponse, SdkError>
 ```
 
-Fetch a user's orders (both limit and trigger) with cursor-based pagination.
+Fetch the **authenticated** user's open orders (both limit and trigger) with cursor-based pagination. Wallet is resolved from the `auth_token` cookie. See `get_user_orders_with_auth` for the SSR variant.
 
 ### `get_user_order_fills`
 
 ```rust
 async fn get_user_order_fills(
+    &self,
+    market_pubkey: Option<&str>,
+    limit: Option<u32>,
+    cursor: Option<&str>,
+) -> Result<UserOrderFillsResponse, SdkError>
+```
+
+Fetch the **authenticated** user's filled orders (with nested fill events). See `get_user_order_fills_with_auth` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+
+### `get_user_orders_with_auth` / `get_user_order_fills_with_auth`
+
+SSR / server-function variants — accept an explicit `auth_token: &str` instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
+
+### `get_user_order_fills_by_wallet`
+
+```rust
+async fn get_user_order_fills_by_wallet(
     &self,
     wallet_address: &str,
     market_pubkey: Option<&str>,
@@ -216,6 +232,8 @@ async fn get_user_order_fills(
     cursor: Option<&str>,
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
+
+Public path-based variant. Hits `GET /api/users/{wallet_address}/order-fills` and requires no auth.
 
 Fetch a user's filled orders with nested fill events. Includes orders where the user was either maker or taker. Optionally filter by market. Returns orders sorted by most recent fill first.
 
@@ -513,11 +531,11 @@ use lightcone::prelude::*;
 
 async fn show_fill_history(
     client: &LightconeClient,
-    keypair: &solana_keypair::Keypair,
     market_pubkey: &str,
 ) -> Result<(), SdkError> {
+    // Authenticated user — wallet from JWT cookie. (For a public lookup of
+    // another wallet, use `get_user_order_fills_by_wallet(wallet, ...)`.)
     let response = client.orders().get_user_order_fills(
-        &keypair.pubkey().to_string(),
         Some(market_pubkey),
         Some(20),
         None,
@@ -535,7 +553,6 @@ async fn show_fill_history(
     // Paginate
     if response.has_more {
         let next_page = client.orders().get_user_order_fills(
-            &keypair.pubkey().to_string(),
             Some(market_pubkey),
             Some(20),
             response.next_cursor.as_deref(),

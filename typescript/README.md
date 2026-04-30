@@ -223,25 +223,27 @@ After login succeeds, the SDK stores the session token internally and attaches i
 - **Node / non-browser**: token is stored on the `LightconeHttp` instance and added as a `Cookie` header per request.
 - **Browser**: requests use `credentials: "include"` and the runtime supplies the cookie automatically — the SDK's internal store is unused.
 
-### Server-side cookie forwarding (`*WithAuthOverride` variants)
+### Server-side cookie forwarding (`*WithAuth` variants)
+
+> **Naming note.** The `WithAuth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (e.g. `positions().positions()`, `metrics().user()`) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `*WithAuth(authToken: string)` siblings exist for **server-side rendering (SSR) and route-handler callers** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
 
 When the SDK runs on a server (SSR, an Express / Next.js route handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
-For these cases, authed methods that need per-call forwarding ship a `*WithAuthOverride(authToken)` sibling that injects the cookie just for that one call:
+For these cases, authed methods that need per-call forwarding ship a `*WithAuth(authToken)` sibling that injects the cookie just for that one call:
 
 ```typescript
 // Inside a server route, after extracting the auth_token cookie
 // from the incoming request:
 const balances = await client
   .positions()
-  .depositTokenBalancesWithAuthOverride(authToken);
+  .depositTokenBalancesWithAuth(authToken);
 
 const positions = await client
   .positions()
-  .positionsWithAuthOverride(authToken);
+  .positionsWithAuth(authToken);
 ```
 
-In a browser context these methods are equivalent to their non-`WithAuthOverride` counterparts because the runtime is already attaching the cookie via `credentials: "include"`.
+In a browser context these methods are equivalent to their non-`WithAuth` counterparts because the runtime is already attaching the cookie via `credentials: "include"`.
 
 ## Environment Configuration
 
@@ -278,7 +280,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
-| [`auth_override`](examples/auth_override.ts) | Per-call cookie override for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuthOverride` variant |
+| [`with_auth`](examples/with_auth.ts) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuth` variant |
 
 ### Market Discovery & Data
 

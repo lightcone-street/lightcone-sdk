@@ -22,7 +22,7 @@ class Notifications:
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
-    async def fetch_with_auth_override(
+    async def fetch_with_auth(
         self, auth_token: str
     ) -> list[Notification]:
         """Same as :meth:`fetch`, with an explicit per-call ``auth_token``.

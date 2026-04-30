@@ -18,10 +18,7 @@ async fn main() -> ExampleResult {
     let keypair = get_keypair()?;
     login(&client, &keypair, false).await?;
 
-    let snapshot = client
-        .orders()
-        .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
-        .await?;
+    let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
     let Some((order_hash, orderbook_id)) = snapshot.orders.iter().find_map(|order| match order {
         UserSnapshotOrder::Limit { common, .. } => {

@@ -216,20 +216,22 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
 
-### Server-side cookie forwarding (`*_with_auth_override` variants)
+### Server-side cookie forwarding (`*_with_auth` variants)
+
+> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (e.g. `positions().positions()`, `metrics().user()`) read auth from the SDK's process-wide token store automatically; that's the typical client-side path. The `*_with_auth(auth_token)` siblings exist for **server-side rendering (SSR) and route-handler callers** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
 
 When the SDK runs on a server (FastAPI, Starlette, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
-For these cases, authed methods that need per-call forwarding ship a `*_with_auth_override(auth_token)` sibling that injects the cookie just for that one call. The override is used only for that call and is **not** written back to the shared store, even if the backend rotates the cookie via `Set-Cookie`:
+For these cases, authed methods that need per-call forwarding ship a `*_with_auth(auth_token)` sibling that injects the cookie just for that one call. The token is used only for that call and is **not** written back to the shared store, even if the backend rotates the cookie via `Set-Cookie`:
 
 ```python
 # Inside a server route handler, after extracting the auth_token cookie
 # from the incoming request:
-balances = await client.positions().deposit_token_balances_with_auth_override(
+balances = await client.positions().deposit_token_balances_with_auth(
     auth_token=auth_token,
 )
 
-positions = await client.positions().positions_with_auth_override(
+positions = await client.positions().positions_with_auth(
     auth_token=auth_token,
 )
 ```
@@ -242,7 +244,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.py) | Full auth lifecycle: sign message, login, check session, logout |
-| [`auth_override`](examples/auth_override.py) | Per-call cookie override for SSR / route-handler consumers — logs in, captures the token via `client.auth_token`, clears the SDK's internal store, and exercises every `*_with_auth_override` variant |
+| [`with_auth`](examples/with_auth.py) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.auth_token`, clears the SDK's internal store, and exercises every `*_with_auth` variant |
 
 ### Market Discovery & Data
 

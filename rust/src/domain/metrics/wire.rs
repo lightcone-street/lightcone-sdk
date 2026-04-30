@@ -458,3 +458,13 @@ impl Default for MetricsHistoryQuery {
         }
     }
 }
+
+/// Per-wallet trading + referral aggregates. Response shape of
+/// `metrics().user`, `metrics().user_with_auth`, and `metrics().user_by_wallet`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UserMetrics {
+    pub wallet_address: PubkeyStr,
+    pub total_outcomes_traded: i64,
+    pub total_volume_usd: Decimal,
+    pub total_referrals_used: i64,
+}

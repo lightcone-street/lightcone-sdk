@@ -31,10 +31,7 @@ impl<'a> Notifications<'a> {
     /// Same as [`Self::fetch`], but uses the supplied `auth_token` for this
     /// call instead of the SDK's process-wide token store. For server-side
     /// cookie forwarding (SSR / server functions).
-    pub async fn fetch_with_auth_override(
-        &self,
-        auth_token: &str,
-    ) -> Result<Vec<Notification>, SdkError> {
+    pub async fn fetch_with_auth(&self, auth_token: &str) -> Result<Vec<Notification>, SdkError> {
         let url = format!("{}/api/notifications", self.client.http.base_url());
         let body: NotificationsResponse = self
             .client

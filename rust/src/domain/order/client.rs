@@ -202,7 +202,7 @@ pub struct CancelTriggerSuccess {
     pub trigger_order_id: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserOrdersResponse {
     pub user_pubkey: PubkeyStr,
     /// All orders (both limit and trigger) in a single array.
@@ -299,47 +299,46 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
+    /// Fetch the authenticated user's open orders. Wallet is resolved
+    /// server-side from the `auth_token` cookie, so no parameter is required.
     pub async fn get_user_orders(
         &self,
-        wallet_address: &str,
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_url(self.client.http.base_url(), wallet_address, limit, cursor);
+        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     /// Same as [`Self::get_user_orders`], but uses the supplied `auth_token`
-    /// for this call instead of the SDK's process-wide token store. For
-    /// server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_orders_with_auth_override(
+    /// for this call instead of the SDK's process-wide token store. Intended
+    /// for server-side cookie forwarding (SSR / server functions).
+    pub async fn get_user_orders_with_auth(
         &self,
-        wallet_address: &str,
         limit: Option<u32>,
         cursor: Option<&str>,
         auth_token: &str,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_url(self.client.http.base_url(), wallet_address, limit, cursor);
+        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
         self.client
             .http
             .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
             .await
     }
 
-    /// Fetch a user's filled orders with nested fill events.
+    /// Fetch the authenticated user's filled orders with nested fill events.
+    /// Wallet is resolved server-side from the `auth_token` cookie.
     ///
     /// Includes orders where the user was either maker or taker.
     /// Optionally filter by market. Returns orders sorted by most recent fill first.
     pub async fn get_user_order_fills(
         &self,
-        wallet_address: &str,
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_url(
+        let url = build_user_order_fills_authenticated_url(
             self.client.http.base_url(),
-            wallet_address,
             market_pubkey,
             limit,
             cursor,
@@ -349,18 +348,16 @@ impl<'a> Orders<'a> {
 
     /// Same as [`Self::get_user_order_fills`], but uses the supplied
     /// `auth_token` for this call instead of the SDK's process-wide token
-    /// store. For server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_order_fills_with_auth_override(
+    /// store. Intended for server-side cookie forwarding (SSR / server functions).
+    pub async fn get_user_order_fills_with_auth(
         &self,
-        wallet_address: &str,
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
         auth_token: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_url(
+        let url = build_user_order_fills_authenticated_url(
             self.client.http.base_url(),
-            wallet_address,
             market_pubkey,
             limit,
             cursor,
@@ -369,6 +366,26 @@ impl<'a> Orders<'a> {
             .http
             .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
             .await
+    }
+
+    /// Public variant of [`Self::get_user_order_fills`]. Takes the user's
+    /// wallet via the URL path (`GET /api/users/{wallet}/order-fills`) and
+    /// requires no auth.
+    pub async fn get_user_order_fills_by_wallet(
+        &self,
+        wallet_address: &str,
+        market_pubkey: Option<&str>,
+        limit: Option<u32>,
+        cursor: Option<&str>,
+    ) -> Result<UserOrderFillsResponse, SdkError> {
+        let url = build_user_order_fills_by_wallet_url(
+            self.client.http.base_url(),
+            wallet_address,
+            market_pubkey,
+            limit,
+            cursor,
+        );
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
     // ── Unified cancel (dispatches based on client signing strategy) ────
@@ -668,44 +685,64 @@ impl<'a> Orders<'a> {
     }
 }
 
-fn build_user_orders_url(
+fn build_user_orders_authenticated_url(
     base_url: &str,
-    wallet_address: &str,
     limit: Option<u32>,
     cursor: Option<&str>,
 ) -> String {
-    let mut url = format!(
-        "{}/api/users/orders?wallet_address={}",
-        base_url, wallet_address
-    );
+    let mut url = format!("{}/api/users/orders", base_url);
+    let mut separator = '?';
     if let Some(limit) = limit {
-        url.push_str(&format!("&limit={}", limit));
+        url.push_str(&format!("{}limit={}", separator, limit));
+        separator = '&';
     }
     if let Some(cursor) = cursor {
-        url.push_str(&format!("&cursor={}", cursor));
+        url.push_str(&format!("{}cursor={}", separator, cursor));
     }
     url
 }
 
-fn build_user_order_fills_url(
+fn build_user_order_fills_authenticated_url(
+    base_url: &str,
+    market_pubkey: Option<&str>,
+    limit: Option<u32>,
+    cursor: Option<&str>,
+) -> String {
+    let mut url = format!("{}/api/users/order-fills", base_url);
+    let mut separator = '?';
+    if let Some(market_pubkey) = market_pubkey {
+        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
+        separator = '&';
+    }
+    if let Some(limit) = limit {
+        url.push_str(&format!("{}limit={}", separator, limit));
+        separator = '&';
+    }
+    if let Some(cursor) = cursor {
+        url.push_str(&format!("{}cursor={}", separator, cursor));
+    }
+    url
+}
+
+fn build_user_order_fills_by_wallet_url(
     base_url: &str,
     wallet_address: &str,
     market_pubkey: Option<&str>,
     limit: Option<u32>,
     cursor: Option<&str>,
 ) -> String {
-    let mut url = format!(
-        "{}/api/users/order-fills?wallet_address={}",
-        base_url, wallet_address
-    );
+    let mut url = format!("{}/api/users/{}/order-fills", base_url, wallet_address);
+    let mut separator = '?';
     if let Some(market_pubkey) = market_pubkey {
-        url.push_str(&format!("&market_pubkey={}", market_pubkey));
+        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
+        separator = '&';
     }
     if let Some(limit) = limit {
-        url.push_str(&format!("&limit={}", limit));
+        url.push_str(&format!("{}limit={}", separator, limit));
+        separator = '&';
     }
     if let Some(cursor) = cursor {
-        url.push_str(&format!("&cursor={}", cursor));
+        url.push_str(&format!("{}cursor={}", separator, cursor));
     }
     url
 }

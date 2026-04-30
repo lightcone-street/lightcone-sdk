@@ -361,3 +361,18 @@ export interface MetricsHistoryQuery {
   to?: number;
   limit?: number;
 }
+
+// ─── Per-user metrics ───────────────────────────────────────────────────────
+
+/**
+ * Per-wallet trading + referral aggregates. Response shape of
+ * `metrics().user()`, `metrics().userWithAuth()`, and
+ * `metrics().userByWallet()`.
+ */
+export interface UserMetrics {
+  wallet_address: PubkeyStr;
+  total_outcomes_traded: number;
+  /** USD volume as a stringified Decimal. */
+  total_volume_usd: string;
+  total_referrals_used: number;
+}

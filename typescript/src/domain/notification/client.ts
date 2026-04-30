@@ -23,7 +23,7 @@ export class Notifications {
    * instead of the SDK's process-wide cookie store. For server-side cookie
    * forwarding (SSR / route handlers).
    */
-  async fetchWithAuthOverride(authToken: string): Promise<Notification[]> {
+  async fetchWithAuth(authToken: string): Promise<Notification[]> {
     const url = `${this.client.http.baseUrl()}/api/notifications`;
     const resp = await this.client.http.getWithAuth<NotificationsResponse>(
       url,

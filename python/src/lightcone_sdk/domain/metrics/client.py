@@ -18,6 +18,7 @@ from .wire import (
     OrderbookTickersResponse,
     OrderbookVolumeMetrics,
     PlatformMetrics,
+    UserMetrics,
 )
 
 if TYPE_CHECKING:
@@ -117,3 +118,35 @@ class Metrics:
             url += "?" + urlencode(params)
         data = await self._client._http.get(url)
         return MetricsHistory.from_dict(data)
+
+    async def user(self) -> UserMetrics:
+        """Per-wallet trading + referral aggregates for the authenticated user.
+
+        Wallet is resolved server-side from the ``auth_token`` cookie.
+
+        GET /api/metrics/user
+        """
+        data = await self._client._http.get("/api/metrics/user")
+        return UserMetrics.from_dict(data)
+
+    async def user_with_auth(self, auth_token: str) -> UserMetrics:
+        """Same as :meth:`user`, with an explicit per-call ``auth_token``.
+
+        For server-side cookie forwarding (SSR / route handlers).
+        """
+        data = await self._client._http.get_with_auth(
+            "/api/metrics/user",
+            auth_token=auth_token,
+        )
+        return UserMetrics.from_dict(data)
+
+    async def user_by_wallet(self, wallet_address: str) -> UserMetrics:
+        """Public variant of :meth:`user`.
+
+        Takes the user's wallet via the URL path
+        (``GET /api/metrics/user/{wallet_address}``) and requires no auth.
+        """
+        data = await self._client._http.get(
+            f"/api/metrics/user/{url_quote(wallet_address, safe='')}"
+        )
+        return UserMetrics.from_dict(data)
