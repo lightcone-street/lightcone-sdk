@@ -423,7 +423,8 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 |-------|------|-------------|
 | `name` / `slug` | `String` | Required display name + URL slug |
 | `description` / `definition` | `Option<String>` | Long description and resolution definition |
-| `banner_image_url` / `icon_url` | `Option<String>` | Existing URLs (used when no matching data URL is supplied) |
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Existing banner URLs by quality (used when no matching data URL is supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no matching data URL is supplied) |
 | `category` / `subcategory` | `Option<String>` | Categorization |
 | `tags` | `Vec<String>` | Free-form tags (default empty) |
 | `featured_rank` | `Option<i32>` | Rank on the featured list, if any |
@@ -437,7 +438,7 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `index` | `i32` | Outcome index within the market |
 | `name` / `symbol` | `String` | Display name and short symbol |
 | `description` | `Option<String>` | Optional long description |
-| `icon_url` | `Option<String>` | Existing icon URL (used when no data URL is supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no data URL is supplied) |
 | `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
 
 #### `MarketDeploymentDepositAsset`
@@ -447,7 +448,8 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `mint` | `String` | Deposit asset mint (base58) |
 | `display_name` / `symbol` | `String` | Display name and ticker symbol |
 | `decimals` | `i32` | Token decimals |
-| `description` / `icon_url` | `Option<String>` | Optional description and icon URL |
+| `description` | `Option<String>` | Optional description |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Icon URLs by quality |
 
 #### `MarketDeploymentConditionalToken`
 
@@ -472,14 +474,15 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `banner_image_url` / `icon_url` | `Option<String>` | Uploaded URLs (or `None` if not supplied) |
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded banner URLs by quality (or `None` if not supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded icon URLs by quality (or `None` if not supplied) |
 
 #### `UploadedOutcomeImages`
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `index` | `i32` | Outcome index |
-| `icon_url` | `Option<String>` | Uploaded icon URL (or `None` if not supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded icon URLs by quality (or `None` if not supplied) |
 
 #### `UploadedConditionalToken`
 

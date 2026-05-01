@@ -165,7 +165,7 @@ let order = client.orders().submit(&request).await?;
 ```rust
 let open = client
     .orders()
-    .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
+    .get_user_orders(Some(50), None)
     .await?;
 let mut ws = client.ws_native();
 ws.connect().await?;
@@ -220,6 +220,8 @@ After `client.auth().login_with_message(...)` succeeds, the SDK stores the sessi
 
 ### Server-side cookie forwarding (`_with_auth` variants)
 
+> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_auth(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+
 When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
 For these cases, authed methods that need per-call forwarding ship a `_with_auth(auth_token)` sibling that injects the cookie just for that one call:
@@ -271,7 +273,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
-| [`auth_override`](examples/auth_override.rs) | Per-call cookie override for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_auth_override` variant |
+| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_auth` variant |
 
 ### Market Discovery & Data
 

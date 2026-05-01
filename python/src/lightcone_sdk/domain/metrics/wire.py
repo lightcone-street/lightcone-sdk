@@ -897,6 +897,29 @@ class MetricsHistoryQuery:
         return params
 
 
+@dataclass
+class UserMetrics:
+    """Per-wallet trading + referral aggregates.
+
+    Response shape of ``metrics().user()``, ``metrics().user_with_auth()``,
+    and ``metrics().user_by_wallet()``.
+    """
+
+    wallet_address: str
+    total_outcomes_traded: int
+    total_volume_usd: str
+    total_referrals_used: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "UserMetrics":
+        return cls(
+            wallet_address=data.get("wallet_address", ""),
+            total_outcomes_traded=int(data.get("total_outcomes_traded", 0)),
+            total_volume_usd=str(data.get("total_volume_usd", "0")),
+            total_referrals_used=int(data.get("total_referrals_used", 0)),
+        )
+
+
 __all__ = [
     "DepositTokenVolumeMetrics",
     "DepositTokensMetrics",
@@ -914,4 +937,5 @@ __all__ = [
     "HistoryPoint",
     "MetricsHistory",
     "MetricsHistoryQuery",
+    "UserMetrics",
 ]

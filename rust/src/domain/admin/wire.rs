@@ -56,9 +56,17 @@ pub struct MarketMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub definition: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub banner_image_url: Option<String>,
+    pub banner_image_url_low: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub banner_image_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_image_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -84,7 +92,11 @@ pub struct OutcomeMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -111,7 +123,11 @@ pub struct ConditionalTokenMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -136,7 +152,11 @@ pub struct DepositTokenMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -638,9 +658,17 @@ pub struct MarketDeploymentMarket {
     #[serde(default)]
     pub definition: Option<String>,
     #[serde(default)]
-    pub banner_image_url: Option<String>,
+    pub banner_image_url_low: Option<String>,
     #[serde(default)]
-    pub icon_url: Option<String>,
+    pub banner_image_url_medium: Option<String>,
+    #[serde(default)]
+    pub banner_image_url_high: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
     #[serde(default)]
     pub category: Option<String>,
     #[serde(default)]
@@ -668,7 +696,11 @@ pub struct MarketDeploymentOutcome {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
     #[serde(default)]
     pub icon_image_data_url: Option<String>,
     #[serde(default)]
@@ -684,7 +716,11 @@ pub struct MarketDeploymentDepositAsset {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
     pub decimals: i32,
 }
 
@@ -717,9 +753,17 @@ pub struct UploadMarketDeploymentAssetsResponse {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct UploadedMarketImages {
     #[serde(default)]
-    pub banner_image_url: Option<String>,
+    pub banner_image_url_low: Option<String>,
     #[serde(default)]
-    pub icon_url: Option<String>,
+    pub banner_image_url_medium: Option<String>,
+    #[serde(default)]
+    pub banner_image_url_high: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
 }
 
 /// Uploaded icon URL for a single outcome.
@@ -727,7 +771,11 @@ pub struct UploadedMarketImages {
 pub struct UploadedOutcomeImages {
     pub index: i32,
     #[serde(default)]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
 }
 
 /// Uploaded conditional token image + metadata URIs.

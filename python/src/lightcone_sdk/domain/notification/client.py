@@ -22,7 +22,7 @@ class Notifications:
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
-    async def fetch_with_auth_override(
+    async def fetch_with_auth(
         self, auth_token: str
     ) -> list[Notification]:
         """Same as :meth:`fetch`, with an explicit per-call ``auth_token``.
@@ -82,7 +82,9 @@ def _parse_notification(d: dict) -> Notification:
             market_slug=data.get("market_slug"),
             market_name=data.get("market_name"),
             outcome_name=data.get("outcome_name"),
-            outcome_icon_url=data.get("outcome_icon_url"),
+            outcome_icon_url_low=data.get("outcome_icon_url_low"),
+            outcome_icon_url_medium=data.get("outcome_icon_url_medium"),
+            outcome_icon_url_high=data.get("outcome_icon_url_high"),
         )
     elif kind in (NotificationKind.NEW_MARKET, NotificationKind.RULES_CLARIFIED) and data:
         notification.market_data = MarketData(

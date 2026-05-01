@@ -130,6 +130,47 @@ impl<'a> Auth<'a> {
         })
     }
 
+    /// Same as [`Self::check_session`], but uses the supplied `auth_token`
+    /// for this call instead of the SDK's process-wide token store, and does
+    /// **not** mutate the shared `auth_credentials` (safe under concurrent
+    /// SSR). Returns both the validated `User` and the parsed
+    /// `AuthCredentials` so SSR consumers can read the wallet + token
+    /// expiry without making a follow-up call.
+    pub async fn check_session_with_auth(
+        &self,
+        auth_token: &str,
+    ) -> Result<(User, AuthCredentials), SdkError> {
+        let url = format!("{}/api/auth/me", self.client.http.base_url());
+
+        let me: MeResponse = self
+            .client
+            .http
+            .get_with_auth::<MeResponse>(&url, RetryPolicy::Idempotent, auth_token)
+            .await?;
+
+        let expires_at = parse_expires_at(me.expires_at);
+
+        let credentials = AuthCredentials {
+            user_id: me.user_id.clone(),
+            wallet_address: PubkeyStr::from(me.wallet_address.as_str()),
+            expires_at,
+        };
+
+        let user = User {
+            id: me.user_id,
+            wallet_address: me.wallet_address,
+            linked_account: me.linked_account,
+            privy_id: me.privy_id,
+            embedded_wallet: me.embedded_wallet,
+            x_username: me.x_username,
+            x_user_id: me.x_user_id,
+            x_display_name: me.x_display_name,
+            google_email: me.google_email,
+        };
+
+        Ok((user, credentials))
+    }
+
     /// Logout — clears server-side cookie + internal token + all caches.
     pub async fn logout(&self) -> Result<(), SdkError> {
         let url = format!("{}/api/auth/logout", self.client.http.base_url());

@@ -2,6 +2,7 @@
 //!
 //! Sub-entity of market. Wire types live in `super::wire`.
 
+use super::resolve_icon_urls;
 use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,9 @@ pub trait Token {
     fn symbol(&self) -> &str;
     fn description(&self) -> &Option<String>;
     fn decimals(&self) -> u16;
-    fn icon_url(&self) -> &str;
+    fn icon_url_low(&self) -> &str;
+    fn icon_url_medium(&self) -> &str;
+    fn icon_url_high(&self) -> &str;
 
     /// Display priority for sorting: lower values come first. BTC/WBTC tie
     /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
@@ -80,7 +83,9 @@ pub struct ConditionalToken {
     symbol: String,
     description: Option<String>,
     decimals: u16,
-    icon_url: String,
+    icon_url_low: String,
+    icon_url_medium: String,
+    icon_url_high: String,
 }
 
 impl Token for ConditionalToken {
@@ -102,8 +107,14 @@ impl Token for ConditionalToken {
     fn decimals(&self) -> u16 {
         self.decimals
     }
-    fn icon_url(&self) -> &str {
-        &self.icon_url
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
     }
 }
 
@@ -120,7 +131,9 @@ pub struct DepositAsset {
     pub symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
-    pub icon_url: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
 }
 
 impl Token for DepositAsset {
@@ -142,8 +155,14 @@ impl Token for DepositAsset {
     fn decimals(&self) -> u16 {
         self.decimals
     }
-    fn icon_url(&self) -> &str {
-        &self.icon_url
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
     }
 }
 
@@ -155,7 +174,9 @@ pub struct TokenMetadata {
     pub pubkey: PubkeyStr,
     pub symbol: String,
     pub decimals: u16,
-    pub icon_url: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
     pub name: String,
 }
 
@@ -207,7 +228,9 @@ impl ConditionalToken {
             symbol: "YES".to_string(),
             description: None,
             decimals: 6,
-            icon_url: "https://example.com/icon.png".to_string(),
+            icon_url_low: "https://example.com/icon_low.png".to_string(),
+            icon_url_medium: "https://example.com/icon_medium.png".to_string(),
+            icon_url_high: "https://example.com/icon_high.png".to_string(),
         }
     }
 }
@@ -260,7 +283,9 @@ pub struct GlobalDepositAsset {
     symbol: String,
     description: Option<String>,
     decimals: u16,
-    icon_url: String,
+    icon_url_low: String,
+    icon_url_medium: String,
+    icon_url_high: String,
     pub whitelist_index: i16,
     pub active: bool,
 }
@@ -284,8 +309,14 @@ impl Token for GlobalDepositAsset {
     fn decimals(&self) -> u16 {
         self.decimals
     }
-    fn icon_url(&self) -> &str {
-        &self.icon_url
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
     }
 }
 
@@ -318,9 +349,14 @@ impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
             errors.push(TokenValidationError::MissingSymbol(mint_str.clone()));
             String::new()
         });
-        let icon_url = source.icon_url.unwrap_or_else(|| {
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingIconUrl(mint_str.clone()));
-            String::new()
+            (String::new(), String::new(), String::new())
         });
         let decimals = source
             .decimals
@@ -341,7 +377,9 @@ impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
             symbol,
             description: source.description,
             decimals,
-            icon_url,
+            icon_url_low,
+            icon_url_medium,
+            icon_url_high,
             whitelist_index: source.whitelist_index,
             active: source.active,
         })
@@ -419,11 +457,16 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
         let mut conditionals: Vec<ConditionalToken> = Vec::new();
         let pubkey: PubkeyStr = source.deposit_asset.clone().into();
 
-        let icon_url = source.icon_url.unwrap_or_else(|| {
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingIconUrl(
                 source.deposit_asset.clone(),
             ));
-            String::new()
+            (String::new(), String::new(), String::new())
         });
         let name = source.display_name.unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingDisplayName(
@@ -450,7 +493,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 pubkey: pubkey.clone(),
                 symbol: symbol.clone(),
                 decimals,
-                icon_url: icon_url.clone(),
+                icon_url_low: icon_url_low.clone(),
+                icon_url_medium: icon_url_medium.clone(),
+                icon_url_high: icon_url_high.clone(),
                 name: name.clone(),
             },
         );
@@ -482,13 +527,27 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 continue;
             }
 
+            // First try cross-fallback among the conditional token's own URLs,
+            // then fall back to the parent deposit asset URLs.
+            let (ct_icon_url_low, ct_icon_url_medium, ct_icon_url_high) =
+                resolve_icon_urls(ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high)
+                    .unwrap_or_else(|| {
+                        (
+                            icon_url_low.clone(),
+                            icon_url_medium.clone(),
+                            icon_url_high.clone(),
+                        )
+                    });
+
             metadata.insert(
                 ct_pubkey.clone(),
                 TokenMetadata {
                     pubkey: ct_pubkey.clone(),
                     symbol: ct_symbol.clone(),
                     decimals: ct_decimals,
-                    icon_url: icon_url.clone(),
+                    icon_url_low: ct_icon_url_low.clone(),
+                    icon_url_medium: ct_icon_url_medium.clone(),
+                    icon_url_high: ct_icon_url_high.clone(),
                     name: ct_outcome.clone(),
                 },
             );
@@ -498,7 +557,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 deposit_symbol: symbol.clone(),
                 deposit_asset: pubkey.clone(),
                 outcome_index: ct.outcome_index,
-                icon_url: icon_url.clone(),
+                icon_url_low: ct_icon_url_low,
+                icon_url_medium: ct_icon_url_medium,
+                icon_url_high: ct_icon_url_high,
                 description: ct.description,
                 outcome: ct_outcome.clone(),
                 mint: ct_pubkey,
@@ -522,7 +583,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 symbol,
                 description: source.description,
                 decimals,
-                icon_url,
+                icon_url_low,
+                icon_url_medium,
+                icon_url_high,
             },
             conditionals,
             metadata,
@@ -547,7 +610,9 @@ mod tests {
             vault: "vault".to_string(),
             num_outcomes: 2,
             description: None,
-            icon_url: Some("https://example.com/usdc.png".to_string()),
+            icon_url_low: Some("https://example.com/usdc_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/usdc_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
             conditional_mints: vec![ConditionalTokenResponse {
@@ -560,7 +625,9 @@ mod tests {
                 deposit_symbol: None,
                 short_symbol: Some("YES".to_string()),
                 description: None,
-                icon_url: None,
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
                 metadata_uri: None,
                 decimals: Some(6),
                 created_at: Utc::now(),
@@ -587,9 +654,11 @@ mod tests {
     }
 
     #[test]
-    fn test_validated_tokens_missing_icon_fails() {
+    fn test_validated_tokens_missing_all_icons_fails() {
         let mut resp = minimal_deposit_asset_response();
-        resp.icon_url = None;
+        resp.icon_url_low = None;
+        resp.icon_url_medium = None;
+        resp.icon_url_high = None;
         let err = ValidatedTokens::try_from(resp).unwrap_err();
         assert!(format!("{err}").contains("icon") || format!("{err}").contains("Icon"));
     }
@@ -608,7 +677,9 @@ mod tests {
             display_name: Some("USD Coin".to_string()),
             symbol: Some("USDC".to_string()),
             description: Some("Stablecoin".to_string()),
-            icon_url: Some("https://example.com/usdc.png".to_string()),
+            icon_url_low: Some("https://example.com/usdc_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/usdc_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             decimals: Some(6),
             whitelist_index: 0,
             active: true,
@@ -682,6 +753,17 @@ mod tests {
         assert_eq!(trait_object.id(), 1);
         assert_eq!(trait_object.symbol(), "USDC");
         assert_eq!(trait_object.decimals(), 6);
-        assert_eq!(trait_object.icon_url(), "https://example.com/usdc.png");
+        assert_eq!(
+            trait_object.icon_url_low(),
+            "https://example.com/usdc_low.png"
+        );
+        assert_eq!(
+            trait_object.icon_url_medium(),
+            "https://example.com/usdc_medium.png"
+        );
+        assert_eq!(
+            trait_object.icon_url_high(),
+            "https://example.com/usdc_high.png"
+        );
     }
 }

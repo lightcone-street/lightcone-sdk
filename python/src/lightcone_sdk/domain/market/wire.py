@@ -11,14 +11,18 @@ class OutcomeWire:
     """Raw outcome from the API."""
     index: int = 0
     name: str = ""
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
     @staticmethod
     def from_dict(d: dict, fallback_index: int = 0) -> "OutcomeWire":
         return OutcomeWire(
             index=d.get("index", fallback_index),
             name=d.get("name", ""),
-            icon_url=d.get("icon_url", ""),
+            icon_url_low=d.get("icon_url_low", ""),
+            icon_url_medium=d.get("icon_url_medium", ""),
+            icon_url_high=d.get("icon_url_high", ""),
         )
 
 
@@ -33,7 +37,9 @@ class ConditionalMintWire:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
     @staticmethod
     def from_dict(d: dict) -> "ConditionalMintWire":
@@ -46,7 +52,9 @@ class ConditionalMintWire:
             symbol=d.get("symbol", ""),
             description=d.get("description"),
             decimals=d.get("decimals") or 6,
-            icon_url=d.get("icon_url", ""),
+            icon_url_low=d.get("icon_url_low", ""),
+            icon_url_medium=d.get("icon_url_medium", ""),
+            icon_url_high=d.get("icon_url_high", ""),
         )
 
 
@@ -62,7 +70,9 @@ class DepositAssetWire:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
     conditional_mints: list[ConditionalMintWire] = field(default_factory=list)
 
     @staticmethod
@@ -77,7 +87,9 @@ class DepositAssetWire:
             symbol=d.get("symbol", ""),
             description=d.get("description"),
             decimals=d.get("decimals") or 6,
-            icon_url=d.get("icon_url", ""),
+            icon_url_low=d.get("icon_url_low", ""),
+            icon_url_medium=d.get("icon_url_medium", ""),
+            icon_url_high=d.get("icon_url_high", ""),
             conditional_mints=[
                 ConditionalMintWire.from_dict(cm)
                 for cm in d.get("conditional_mints", [])
@@ -129,8 +141,12 @@ class SearchOrderbook:
     deposit_quote_asset: str = ""
     deposit_base_symbol: str = ""
     deposit_quote_symbol: str = ""
-    base_icon_url: str = ""
-    quote_icon_url: str = ""
+    base_icon_url_low: str = ""
+    base_icon_url_medium: str = ""
+    base_icon_url_high: str = ""
+    quote_icon_url_low: str = ""
+    quote_icon_url_medium: str = ""
+    quote_icon_url_high: str = ""
     conditional_base_mint: str = ""
     conditional_quote_mint: str = ""
     latest_mid_price: Optional[str] = None
@@ -145,8 +161,12 @@ class SearchOrderbook:
             deposit_quote_asset=d.get("deposit_quote_asset", ""),
             deposit_base_symbol=d.get("deposit_base_symbol", ""),
             deposit_quote_symbol=d.get("deposit_quote_symbol", ""),
-            base_icon_url=d.get("base_icon_url", ""),
-            quote_icon_url=d.get("quote_icon_url", ""),
+            base_icon_url_low=d.get("base_icon_url_low", ""),
+            base_icon_url_medium=d.get("base_icon_url_medium", ""),
+            base_icon_url_high=d.get("base_icon_url_high", ""),
+            quote_icon_url_low=d.get("quote_icon_url_low", ""),
+            quote_icon_url_medium=d.get("quote_icon_url_medium", ""),
+            quote_icon_url_high=d.get("quote_icon_url_high", ""),
             conditional_base_mint=d.get("conditional_base_mint", ""),
             conditional_quote_mint=d.get("conditional_quote_mint", ""),
             latest_mid_price=d.get("latest_mid_price"),
@@ -162,8 +182,12 @@ class MarketWire:
     slug: Optional[str] = None
     description: Optional[str] = None
     definition: Optional[str] = None
-    banner_image_url: Optional[str] = None
-    icon_url: Optional[str] = None
+    banner_image_url_low: Optional[str] = None
+    banner_image_url_medium: Optional[str] = None
+    banner_image_url_high: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
@@ -191,8 +215,12 @@ class MarketWire:
             slug=d.get("slug"),
             description=d.get("description"),
             definition=d.get("definition"),
-            banner_image_url=d.get("banner_image_url"),
-            icon_url=d.get("icon_url"),
+            banner_image_url_low=d.get("banner_image_url_low"),
+            banner_image_url_medium=d.get("banner_image_url_medium"),
+            banner_image_url_high=d.get("banner_image_url_high"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
             category=d.get("category"),
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
@@ -247,7 +275,9 @@ class MarketSearchResult:
     tags: list[str] = field(default_factory=list)
     featured_rank: int = 0
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     orderbooks: list[SearchOrderbook] = field(default_factory=list)
 
     @staticmethod
@@ -260,7 +290,9 @@ class MarketSearchResult:
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank", 0),
             description=d.get("description"),
-            icon_url=d.get("icon_url"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
             orderbooks=[
                 SearchOrderbook.from_dict(ob)
                 for ob in d.get("orderbooks", [])
@@ -296,7 +328,9 @@ class GlobalDepositAssetWire:
     display_name: Optional[str] = None
     symbol: Optional[str] = None
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     decimals: Optional[int] = None
     whitelist_index: int = 0
     active: bool = False
@@ -309,7 +343,9 @@ class GlobalDepositAssetWire:
             display_name=d.get("display_name"),
             symbol=d.get("symbol"),
             description=d.get("description"),
-            icon_url=d.get("icon_url"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
             decimals=d.get("decimals"),
             whitelist_index=d.get("whitelist_index", 0),
             active=d.get("active", False),

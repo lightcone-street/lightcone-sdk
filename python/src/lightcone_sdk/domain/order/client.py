@@ -173,18 +173,21 @@ class Orders:
 
     async def get_user_orders(
         self,
-        wallet: str,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
     ) -> UserOrdersResponse:
-        """Get user's orders with pagination."""
-        url = _build_user_orders_url(wallet, limit, cursor)
-        data = await self._client._http.get(url)
-        return _user_orders_response_from_wire(data, wallet)
+        """Get the authenticated user's open orders with pagination.
 
-    async def get_user_orders_with_auth_override(
+        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Open orders are JWT-only — there is intentionally no public path-based
+        variant.
+        """
+        url = _build_user_orders_authenticated_url(limit, cursor)
+        data = await self._client._http.get(url)
+        return _user_orders_response_from_wire(data, "")
+
+    async def get_user_orders_with_auth(
         self,
-        wallet: str,
         limit: Optional[int],
         cursor: Optional[str],
         auth_token: str,
@@ -193,32 +196,31 @@ class Orders:
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. The override is used only for this call
-        and never written back to the shared store.
+        process-wide cookie store. The token is used only for this call and
+        never written back to the shared store.
         """
-        url = _build_user_orders_url(wallet, limit, cursor)
+        url = _build_user_orders_authenticated_url(limit, cursor)
         data = await self._client._http.get_with_auth(url, auth_token=auth_token)
-        return _user_orders_response_from_wire(data, wallet)
+        return _user_orders_response_from_wire(data, "")
 
     async def get_user_order_fills(
         self,
-        wallet_address: str,
         market_pubkey: Optional[str] = None,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
     ) -> UserOrderFillsResponse:
-        """Fetch a user's filled orders with nested fill events.
+        """Fetch the authenticated user's filled orders with nested fill events.
 
+        Wallet is resolved server-side from the ``auth_token`` cookie.
         Includes orders where the user was either maker or taker.
         Optionally filter by market. Returns orders sorted by most recent fill first.
         """
-        url = _build_user_order_fills_url(wallet_address, market_pubkey, limit, cursor)
+        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
         data = await self._client._http.get(url)
         return UserOrderFillsResponse.from_dict(data)
 
-    async def get_user_order_fills_with_auth_override(
+    async def get_user_order_fills_with_auth(
         self,
-        wallet_address: str,
         market_pubkey: Optional[str],
         limit: Optional[int],
         cursor: Optional[str],
@@ -228,11 +230,29 @@ class Orders:
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. The override is used only for this call
-        and never written back to the shared store.
+        process-wide cookie store. The token is used only for this call and
+        never written back to the shared store.
         """
-        url = _build_user_order_fills_url(wallet_address, market_pubkey, limit, cursor)
+        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
         data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        return UserOrderFillsResponse.from_dict(data)
+
+    async def get_user_order_fills_by_wallet(
+        self,
+        wallet_address: str,
+        market_pubkey: Optional[str] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+    ) -> UserOrderFillsResponse:
+        """Public variant of :meth:`get_user_order_fills`.
+
+        Takes the user's wallet via the URL path
+        (``GET /api/users/{wallet}/order-fills``) and requires no auth.
+        """
+        url = _build_user_order_fills_by_wallet_url(
+            wallet_address, market_pubkey, limit, cursor
+        )
+        data = await self._client._http.get(url)
         return UserOrderFillsResponse.from_dict(data)
 
     # ── Unified cancel (dispatches based on client signing strategy) ────
@@ -448,32 +468,54 @@ class Orders:
         return nonce
 
 
-def _build_user_orders_url(
-    wallet: str,
+def _build_user_orders_authenticated_url(
     limit: Optional[int],
     cursor: Optional[str],
 ) -> str:
-    url = f"/api/users/orders?wallet_address={wallet}"
+    url = "/api/users/orders"
+    sep = "?"
     if limit is not None:
-        url += f"&limit={limit}"
+        url += f"{sep}limit={limit}"
+        sep = "&"
     if cursor is not None:
-        url += f"&cursor={cursor}"
+        url += f"{sep}cursor={cursor}"
     return url
 
 
-def _build_user_order_fills_url(
+def _build_user_order_fills_authenticated_url(
+    market_pubkey: Optional[str],
+    limit: Optional[int],
+    cursor: Optional[str],
+) -> str:
+    url = "/api/users/order-fills"
+    sep = "?"
+    if market_pubkey is not None:
+        url += f"{sep}market_pubkey={market_pubkey}"
+        sep = "&"
+    if limit is not None:
+        url += f"{sep}limit={limit}"
+        sep = "&"
+    if cursor is not None:
+        url += f"{sep}cursor={cursor}"
+    return url
+
+
+def _build_user_order_fills_by_wallet_url(
     wallet_address: str,
     market_pubkey: Optional[str],
     limit: Optional[int],
     cursor: Optional[str],
 ) -> str:
-    url = f"/api/users/order-fills?wallet_address={wallet_address}"
+    url = f"/api/users/{wallet_address}/order-fills"
+    sep = "?"
     if market_pubkey is not None:
-        url += f"&market_pubkey={market_pubkey}"
+        url += f"{sep}market_pubkey={market_pubkey}"
+        sep = "&"
     if limit is not None:
-        url += f"&limit={limit}"
+        url += f"{sep}limit={limit}"
+        sep = "&"
     if cursor is not None:
-        url += f"&cursor={cursor}"
+        url += f"{sep}cursor={cursor}"
     return url
 
 

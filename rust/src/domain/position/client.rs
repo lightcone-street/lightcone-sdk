@@ -77,11 +77,44 @@ impl<'a> Positions<'a> {
     /// where the per-request browser cookie can't propagate to the shared
     /// client. On WASM this is equivalent to [`Self::positions`] because the
     /// browser is already attaching the cookie via credentials mode.
-    pub async fn positions_with_auth_override(
+    pub async fn positions_with_auth(
         &self,
         auth_token: &str,
     ) -> Result<PositionsResponse, SdkError> {
         let url = format!("{}/api/users/positions", self.client.http.base_url());
+        self.client
+            .http
+            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .await
+    }
+
+    /// Get the authenticated user's positions in a specific market. The
+    /// wallet is resolved server-side from the `auth_token` cookie.
+    pub async fn positions_for_market(
+        &self,
+        market_pubkey: &str,
+    ) -> Result<MarketPositionsResponse, SdkError> {
+        let url = format!(
+            "{}/api/users/markets/{}/positions",
+            self.client.http.base_url(),
+            market_pubkey
+        );
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Same as [`Self::positions_for_market`], but uses the supplied
+    /// `auth_token` for this call instead of the SDK's process-wide token
+    /// store. For server-side cookie forwarding (SSR / server functions).
+    pub async fn positions_for_market_with_auth(
+        &self,
+        market_pubkey: &str,
+        auth_token: &str,
+    ) -> Result<MarketPositionsResponse, SdkError> {
+        let url = format!(
+            "{}/api/users/markets/{}/positions",
+            self.client.http.base_url(),
+            market_pubkey
+        );
         self.client
             .http
             .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
@@ -114,7 +147,7 @@ impl<'a> Positions<'a> {
     /// client. On WASM this is equivalent to
     /// [`Self::deposit_token_balances`] because the browser is already
     /// attaching the cookie via credentials mode.
-    pub async fn deposit_token_balances_with_auth_override(
+    pub async fn deposit_token_balances_with_auth(
         &self,
         auth_token: &str,
     ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {

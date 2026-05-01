@@ -9,5 +9,5 @@ pub use wire::{
     DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
     MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
     MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,
-    OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics,
+    OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics, UserMetrics,
 };

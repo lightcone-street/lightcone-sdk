@@ -4,9 +4,8 @@ async function main() {
   const client = restClient();
   const keypair = getKeypair();
   await login(client, keypair);
-  const pubkey = keypair.publicKey.toBase58();
 
-  const snapshot = await client.orders().getUserOrders(pubkey, 50);
+  const snapshot = await client.orders().getUserOrders(50);
   const counts = snapshot.orders.reduce<[number, number]>(
     (acc, order) =>
       order.order_type === "limit"
@@ -35,7 +34,7 @@ async function main() {
   if (snapshot.has_more && snapshot.next_cursor) {
     const page2 = await client
       .orders()
-      .getUserOrders(pubkey, 50, snapshot.next_cursor);
+      .getUserOrders(50, snapshot.next_cursor);
     console.log(`next page: ${page2.orders.length} order(s)`);
   }
 }

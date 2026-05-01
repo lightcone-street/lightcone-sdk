@@ -133,7 +133,7 @@ export type {
   FillInfo,
   GlobalDepositUpdate,
   NonceUpdate,
-  Order,
+  LimitOrder,
   OrderEvent,
   OrderStatus,
   OrderType,
@@ -145,7 +145,7 @@ export type {
   UserSnapshotOrder,
   UserOrdersResponse,
 } from "./domain/order";
-export type { UserOpenOrders, UserTriggerOrders } from "./domain/order/state";
+export type { UserOpenLimitOrders, UserTriggerOrders } from "./domain/order/state";
 
 export type {
   Portfolio,

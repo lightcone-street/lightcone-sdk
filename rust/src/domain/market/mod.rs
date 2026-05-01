@@ -16,6 +16,31 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
+// ─── Icon URL resolution ────────────────────────────────────────────────────
+
+/// Resolve three icon URL quality variants with cross-fallback.
+/// Returns `None` if all three inputs are `None`.
+pub fn resolve_icon_urls(
+    low: Option<String>,
+    medium: Option<String>,
+    high: Option<String>,
+) -> Option<(String, String, String)> {
+    // Return None when all three are missing.
+    let fallback = low.as_ref().or(medium.as_ref()).or(high.as_ref())?.clone();
+    let resolved_low = low
+        .clone()
+        .or_else(|| medium.clone())
+        .or_else(|| high.clone())
+        .unwrap_or_else(|| fallback.clone());
+    let resolved_medium = medium
+        .clone()
+        .or_else(|| low.clone())
+        .or_else(|| high.clone())
+        .unwrap_or_else(|| fallback.clone());
+    let resolved_high = high.or(medium).or(low).unwrap_or(fallback);
+    Some((resolved_low, resolved_medium, resolved_high))
+}
+
 // ─── Status ──────────────────────────────────────────────────────────────────
 
 /// Market lifecycle status.
@@ -56,8 +81,12 @@ pub struct Market {
     pub id: i64,
     pub pubkey: PubkeyStr,
     pub name: String,
-    pub banner_image_url: String,
-    pub icon_url: String,
+    pub banner_image_url_low: String,
+    pub banner_image_url_medium: String,
+    pub banner_image_url_high: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
     pub featured_rank: Option<i16>,
     pub volume: Decimal,
     pub slug: String,
@@ -87,8 +116,8 @@ pub struct Market {
 pub enum ValidationError {
     Multiple(String, Vec<ValidationError>),
     MarketNameMissing,
-    MissingThumbnailImage,
-    MissingBannerImage,
+    MissingIconUrl,
+    MissingBannerUrl,
     InvalidStatus,
     MissingDescription,
     MissingDefinition,
@@ -114,8 +143,8 @@ impl fmt::Display for ValidationError {
             ValidationError::MissingDescription => write!(f, "Missing description"),
             ValidationError::MissingDefinition => write!(f, "Missing definition"),
             ValidationError::MissingSlug => write!(f, "Missing slug"),
-            ValidationError::MissingBannerImage => write!(f, "Missing banner image"),
-            ValidationError::MissingThumbnailImage => write!(f, "Missing thumbnail image"),
+            ValidationError::MissingBannerUrl => write!(f, "Missing banner URL"),
+            ValidationError::MissingIconUrl => write!(f, "Missing icon URL"),
             ValidationError::MissingDepositAssetPairs => write!(f, "Missing deposit asset pairs"),
             ValidationError::Token(err) => write!(f, "Token: {}", err),
             ValidationError::Outcome(err) => write!(f, "Outcome: {}", err),

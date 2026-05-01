@@ -1,5 +1,6 @@
 //! Outcome — market outcome definitions (sub-entity of market).
 
+use super::resolve_icon_urls;
 use super::wire::OutcomeResponse;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -8,7 +9,9 @@ use std::fmt;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Outcome {
     pub index: i16,
-    pub icon_url: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
     pub name: String,
 }
 
@@ -16,7 +19,7 @@ pub struct Outcome {
 #[derive(Debug)]
 pub enum OutcomeValidationError {
     Multiple(String, Vec<OutcomeValidationError>),
-    MissingThumbnailUrl(String),
+    MissingIconUrl(String),
 }
 
 impl fmt::Display for OutcomeValidationError {
@@ -29,8 +32,8 @@ impl fmt::Display for OutcomeValidationError {
                 }
                 Ok(())
             }
-            OutcomeValidationError::MissingThumbnailUrl(name) => {
-                write!(f, "Missing thumbnail URL for outcome: {}", name)
+            OutcomeValidationError::MissingIconUrl(name) => {
+                write!(f, "Missing icon URL for outcome: {}", name)
             }
         }
     }
@@ -42,25 +45,23 @@ impl TryFrom<OutcomeResponse> for Outcome {
     type Error = OutcomeValidationError;
 
     fn try_from(source: OutcomeResponse) -> Result<Self, Self::Error> {
-        let mut errors: Vec<OutcomeValidationError> = Vec::new();
-
-        let icon_url = source.icon_url.unwrap_or_else(|| {
-            errors.push(OutcomeValidationError::MissingThumbnailUrl(
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .ok_or_else(|| {
+            OutcomeValidationError::Multiple(
                 source.name.clone(),
-            ));
-            String::new()
-        });
-
-        if !errors.is_empty() {
-            return Err(OutcomeValidationError::Multiple(
-                source.name.clone(),
-                errors,
-            ));
-        }
+                vec![OutcomeValidationError::MissingIconUrl(source.name.clone())],
+            )
+        })?;
 
         Ok(Outcome {
             index: source.index,
-            icon_url,
+            icon_url_low,
+            icon_url_medium,
+            icon_url_high,
             name: source.name,
         })
     }
@@ -75,12 +76,19 @@ mod tests {
         let wire = OutcomeResponse {
             index: 0,
             name: "Yes".to_string(),
-            icon_url: Some("https://example.com/yes.png".to_string()),
+            icon_url_low: Some("https://example.com/yes_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/yes_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/yes_high.png".to_string()),
         };
         let outcome = Outcome::try_from(wire).unwrap();
         assert_eq!(outcome.index, 0);
         assert_eq!(outcome.name, "Yes");
-        assert_eq!(outcome.icon_url, "https://example.com/yes.png");
+        assert_eq!(outcome.icon_url_low, "https://example.com/yes_low.png");
+        assert_eq!(
+            outcome.icon_url_medium,
+            "https://example.com/yes_medium.png"
+        );
+        assert_eq!(outcome.icon_url_high, "https://example.com/yes_high.png");
     }
 
     #[test]
@@ -88,9 +96,11 @@ mod tests {
         let wire = OutcomeResponse {
             index: 1,
             name: "No".to_string(),
-            icon_url: None,
+            icon_url_low: None,
+            icon_url_medium: None,
+            icon_url_high: None,
         };
         let err = Outcome::try_from(wire).unwrap_err();
-        assert!(format!("{err}").contains("Missing thumbnail"));
+        assert!(format!("{err}").contains("Missing icon URL"));
     }
 }

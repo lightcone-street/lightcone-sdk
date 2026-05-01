@@ -13,6 +13,7 @@ import type {
   OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   PlatformMetrics,
+  UserMetrics,
 } from "./wire";
 
 /**
@@ -110,5 +111,42 @@ export class Metrics {
 
     const url = `${this.client.http.baseUrl()}/api/metrics/history/${encodeURIComponent(scope)}/${encodeURIComponent(scopeKey)}?${search.toString()}`;
     return this.client.http.get<MetricsHistory>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Fetch per-wallet trading + referral aggregates for the authenticated
+   * user: distinct outcomes traded, total USD volume across all the
+   * wallet's trades, and the number of times the wallet's referral codes
+   * have been redeemed. The wallet is resolved server-side from the
+   * `auth_token` cookie.
+   *
+   * `GET /api/metrics/user`
+   */
+  async user(): Promise<UserMetrics> {
+    const url = `${this.client.http.baseUrl()}/api/metrics/user`;
+    return this.client.http.get<UserMetrics>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Same as {@link user} but uses the supplied `authToken` for this call
+   * instead of the SDK's process-wide cookie store. For server-side cookie
+   * forwarding (SSR / route handlers).
+   */
+  async userWithAuth(authToken: string): Promise<UserMetrics> {
+    const url = `${this.client.http.baseUrl()}/api/metrics/user`;
+    return this.client.http.getWithAuth<UserMetrics>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+  }
+
+  /**
+   * Public variant of {@link user}. Takes the user's wallet via the URL
+   * path (`GET /api/metrics/user/{wallet_address}`) and requires no auth.
+   */
+  async userByWallet(walletAddress: string): Promise<UserMetrics> {
+    const url = `${this.client.http.baseUrl()}/api/metrics/user/${encodeURIComponent(walletAddress)}`;
+    return this.client.http.get<UserMetrics>(url, RetryPolicy.Idempotent);
   }
 }

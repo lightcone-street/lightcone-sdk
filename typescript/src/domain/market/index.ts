@@ -12,7 +12,7 @@ export * from "./client";
 export * from "./wire";
 export * from "./outcome";
 export * from "./tokens";
-export { globalDepositAssetFromWire, marketFromWire, tryMarketFromWire } from "./convert";
+export { globalDepositAssetFromWire, marketFromWire, tryMarketFromWire, resolveIconUrls } from "./convert";
 
 export enum Status {
   Pending = "Pending",
@@ -40,8 +40,12 @@ export interface Market {
   id: number;
   pubkey: PubkeyStr;
   name: string;
-  bannerImageUrl: string;
-  iconUrl: string;
+  bannerImageUrlLow: string;
+  bannerImageUrlMedium: string;
+  bannerImageUrlHigh: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
   featuredRank?: number;
   volume: string;
   slug: string;

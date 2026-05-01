@@ -1,8 +1,11 @@
+import { resolveIconUrls } from "./icon";
 import type { OutcomeResponse } from "./wire";
 
 export interface Outcome {
   index: number;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
   name: string;
 }
 
@@ -17,18 +20,16 @@ export class OutcomeValidationError extends Error {
 }
 
 export function outcomeFromWire(source: OutcomeResponse): Outcome {
-  const errors: string[] = [];
-  if (!source.icon_url) {
-    errors.push("Missing thumbnail URL");
-  }
-
-  if (errors.length > 0) {
-    throw new OutcomeValidationError(source.name, errors);
+  const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
+  if (!iconUrls) {
+    throw new OutcomeValidationError(source.name, ["Missing icon URL"]);
   }
 
   return {
     index: source.index,
-    iconUrl: source.icon_url ?? "",
+    iconUrlLow: iconUrls.low,
+    iconUrlMedium: iconUrls.medium,
+    iconUrlHigh: iconUrls.high,
     name: source.name,
   };
 }

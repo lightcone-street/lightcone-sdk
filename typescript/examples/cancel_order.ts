@@ -27,7 +27,7 @@ async function main() {
   await login(client, keypair);
   const pubkey = keypair.publicKey.toBase58();
 
-  const snapshot = await client.orders().getUserOrders(pubkey, 50);
+  const snapshot = await client.orders().getUserOrders(50);
   const limitOrder = snapshot.orders.find((o) => o.order_type === "limit");
 
   if (!limitOrder) {

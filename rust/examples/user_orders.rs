@@ -2,7 +2,6 @@ mod common;
 
 use common::{get_keypair, login, rest_client, ExampleResult};
 use lightcone::prelude::*;
-use solana_signer::Signer;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -10,10 +9,7 @@ async fn main() -> ExampleResult {
     let keypair = get_keypair()?;
     login(&client, &keypair, false).await?;
 
-    let snapshot = client
-        .orders()
-        .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
-        .await?;
+    let snapshot = client.orders().get_user_orders(Some(50), None).await?;
 
     let (limit_orders, trigger_orders) =
         snapshot
@@ -56,7 +52,7 @@ async fn main() -> ExampleResult {
     if let Some(cursor) = snapshot.next_cursor.as_deref() {
         let next = client
             .orders()
-            .get_user_orders(&keypair.pubkey().to_string(), Some(50), Some(cursor))
+            .get_user_orders(Some(50), Some(cursor))
             .await?;
         println!("next page: {} order(s)", next.orders.len());
     }

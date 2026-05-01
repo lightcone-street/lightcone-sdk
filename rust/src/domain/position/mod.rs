@@ -144,5 +144,7 @@ pub struct DepositTokenBalance {
     pub idle: Decimal,
     pub symbol: String,
     pub name: String,
-    pub icon_url: String,
+    pub icon_url_low: Option<String>,
+    pub icon_url_medium: Option<String>,
+    pub icon_url_high: Option<String>,
 }

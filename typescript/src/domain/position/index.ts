@@ -73,7 +73,9 @@ export interface DepositTokenBalance {
   idle: string;
   symbol: string;
   name: string;
-  iconUrl: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
 }
 
 export function computedBase(

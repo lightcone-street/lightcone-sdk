@@ -22,10 +22,7 @@ impl<'a> Referrals<'a> {
     /// Same as [`Self::get_status`], but uses the supplied `auth_token` for
     /// this call instead of the SDK's process-wide token store. For
     /// server-side cookie forwarding (SSR / server functions).
-    pub async fn get_status_with_auth_override(
-        &self,
-        auth_token: &str,
-    ) -> Result<ReferralStatus, SdkError> {
+    pub async fn get_status_with_auth(&self, auth_token: &str) -> Result<ReferralStatus, SdkError> {
         let url = format!("{}/api/referral/status", self.client.http.base_url());
         let resp: ReferralStatusResponse = self
             .client

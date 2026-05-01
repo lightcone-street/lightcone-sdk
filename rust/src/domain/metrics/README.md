@@ -61,6 +61,15 @@ Plural envelopes holding a `Vec<_>` of their single-dimension counterparts (plus
 
 Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: i64` (Unix epoch ms) and `volume_usd: Decimal`.
 
+### `UserMetrics` — response of `metrics().user()`, `metrics().user_with_auth()`, and `metrics().user_by_wallet()`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `wallet_address` | `PubkeyStr` | The wallet the metrics describe |
+| `total_outcomes_traded` | `i64` | Distinct orderbooks the wallet has traded as taker or maker |
+| `total_volume_usd` | `Decimal` | Sum of `usd_value` across all the wallet's trades |
+| `total_referrals_used` | `i64` | Redemptions of referral codes owned by this wallet's user |
+
 ## Client Methods
 
 Access via `client.metrics()`.
@@ -153,6 +162,30 @@ async fn history(
 ```
 
 Time-series of volume buckets. `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`. `MetricsHistoryQuery::default()` uses `"1h"` resolution with no time bounds.
+
+### `user`
+
+```rust
+async fn user(&self) -> Result<UserMetrics, SdkError>
+```
+
+Per-wallet trading + referral aggregates for the **authenticated** user. Hits `GET /api/metrics/user`; the wallet is resolved server-side from the `auth_token` cookie.
+
+### `user_with_auth`
+
+```rust
+async fn user_with_auth(&self, auth_token: &str) -> Result<UserMetrics, SdkError>
+```
+
+SSR / server-function variant of [`user`]. Hits the same authenticated endpoint with the supplied `auth_token` injected as `Cookie: auth_token=…` for that single call. Does not touch the SDK's process-wide token store; safe under concurrent SSR. See [the Authentication section](../../../README.md#authentication) for the broader `_with_auth` story.
+
+### `user_by_wallet`
+
+```rust
+async fn user_by_wallet(&self, wallet_address: &str) -> Result<UserMetrics, SdkError>
+```
+
+Public path-based variant. Hits `GET /api/metrics/user/{wallet_address}` and requires no auth — useful for leaderboards / "view another trader's profile" flows.
 
 ## Examples
 

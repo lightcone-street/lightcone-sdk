@@ -20,7 +20,7 @@ export class Referrals {
    * call instead of the SDK's process-wide cookie store. For server-side
    * cookie forwarding (SSR / route handlers).
    */
-  async getStatusWithAuthOverride(authToken: string): Promise<ReferralStatus> {
+  async getStatusWithAuth(authToken: string): Promise<ReferralStatus> {
     const url = `${this.client.http.baseUrl()}/api/referral/status`;
     const response = await this.client.http.getWithAuth<ReferralStatusResponse>(
       url,

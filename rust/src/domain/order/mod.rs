@@ -15,12 +15,23 @@ pub use client::{
     CancelTriggerSuccess, FillInfo, SubmitOrderResponse, TriggerOrderResponse, UserOrdersResponse,
 };
 pub use convert::split_snapshot_orders;
-pub use state::{UserOpenOrders, UserTriggerOrders};
+pub use state::{UserOpenLimitOrders, UserTriggerOrders};
 pub use wire::{
     ConditionalBalance, FillStatus, GlobalDepositBalance, GlobalDepositUpdate, NonceUpdate,
     NotificationUpdate, OrderEvent, OrderFillEvent, Role, TriggerOrderUpdate, UserOrderFill,
     UserOrderFillsResponse, UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
 };
+
+// ─── Order (trait) ──────────────────────────────────────────────────────────
+
+pub trait Order {
+    fn id(&self) -> &str;
+    fn order_hash(&self) -> &str;
+    fn market_pubkey(&self) -> &PubkeyStr;
+    fn orderbook_id(&self) -> &OrderBookId;
+    fn side(&self) -> Side;
+    fn created_at(&self) -> DateTime<Utc>;
+}
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
@@ -62,11 +73,10 @@ pub enum OrderStatus {
     Pending,
 }
 
-// ─── Order ───────────────────────────────────────────────────────────────────
+// ─── LimitOrder ─────────────────────────────────────────────────────────────
 
-/// A validated, domain-level order.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Order {
+pub struct LimitOrder {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
     pub tx_signature: Option<String>,
@@ -83,9 +93,29 @@ pub struct Order {
     pub outcome_index: i16,
 }
 
+impl Order for LimitOrder {
+    fn id(&self) -> &str {
+        &self.order_hash
+    }
+    fn order_hash(&self) -> &str {
+        &self.order_hash
+    }
+    fn market_pubkey(&self) -> &PubkeyStr {
+        &self.market_pubkey
+    }
+    fn orderbook_id(&self) -> &OrderBookId {
+        &self.orderbook_id
+    }
+    fn side(&self) -> Side {
+        self.side.clone()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+}
+
 // ─── TriggerOrder ───────────────────────────────────────────────────────────
 
-/// A validated, domain-level trigger order (take-profit / stop-loss).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TriggerOrder {
     pub trigger_order_id: String,
@@ -101,20 +131,109 @@ pub struct TriggerOrder {
     pub created_at: DateTime<Utc>,
 }
 
+impl Order for TriggerOrder {
+    fn id(&self) -> &str {
+        &self.trigger_order_id
+    }
+    fn order_hash(&self) -> &str {
+        &self.order_hash
+    }
+    fn market_pubkey(&self) -> &PubkeyStr {
+        &self.market_pubkey
+    }
+    fn orderbook_id(&self) -> &OrderBookId {
+        &self.orderbook_id
+    }
+    fn side(&self) -> Side {
+        self.side.clone()
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        self.created_at
+    }
+}
+
 impl TriggerOrder {
-    /// Derive the limit price from pre-scaled amounts.
-    ///
-    /// `amount_in` and `amount_out` are already human-readable decimals
-    /// (scaled by the snapshot/websocket layer), so no further decimal
-    /// conversion is needed.
-    ///
-    /// For Ask: maker gives base, receives quote → price = quote / base
-    /// For Bid: maker gives quote, receives base → price = quote / base
     pub fn limit_price(&self) -> Option<Decimal> {
         match self.side {
             Side::Ask if self.amount_in > Decimal::ZERO => Some(self.amount_out / self.amount_in),
             Side::Bid if self.amount_out > Decimal::ZERO => Some(self.amount_in / self.amount_out),
             _ => None,
         }
+    }
+}
+
+// ─── AnyOrder ───────────────────────────────────────────────────────────────
+
+#[derive(Clone, PartialEq)]
+pub enum AnyOrder {
+    Limit(LimitOrder),
+    Trigger(TriggerOrder),
+}
+
+impl From<LimitOrder> for AnyOrder {
+    fn from(order: LimitOrder) -> Self {
+        Self::Limit(order)
+    }
+}
+
+impl From<TriggerOrder> for AnyOrder {
+    fn from(order: TriggerOrder) -> Self {
+        Self::Trigger(order)
+    }
+}
+
+impl Order for AnyOrder {
+    fn id(&self) -> &str {
+        match self {
+            Self::Limit(order) => order.id(),
+            Self::Trigger(order) => order.id(),
+        }
+    }
+    fn order_hash(&self) -> &str {
+        match self {
+            Self::Limit(order) => order.order_hash(),
+            Self::Trigger(order) => order.order_hash(),
+        }
+    }
+    fn market_pubkey(&self) -> &PubkeyStr {
+        match self {
+            Self::Limit(order) => order.market_pubkey(),
+            Self::Trigger(order) => order.market_pubkey(),
+        }
+    }
+    fn orderbook_id(&self) -> &OrderBookId {
+        match self {
+            Self::Limit(order) => order.orderbook_id(),
+            Self::Trigger(order) => order.orderbook_id(),
+        }
+    }
+    fn side(&self) -> Side {
+        match self {
+            Self::Limit(order) => order.side(),
+            Self::Trigger(order) => order.side(),
+        }
+    }
+    fn created_at(&self) -> DateTime<Utc> {
+        match self {
+            Self::Limit(order) => order.created_at(),
+            Self::Trigger(order) => order.created_at(),
+        }
+    }
+}
+
+impl AnyOrder {
+    pub fn vec_from(
+        limit_orders: Vec<LimitOrder>,
+        trigger_orders: Vec<TriggerOrder>,
+    ) -> Vec<AnyOrder> {
+        let mut entries: Vec<AnyOrder> = Vec::new();
+        for order in limit_orders.into_iter() {
+            entries.push(AnyOrder::Limit(order));
+        }
+        for trigger_order in trigger_orders.into_iter() {
+            entries.push(AnyOrder::Trigger(trigger_order));
+        }
+        entries.sort_by(|a, b| Order::created_at(a).cmp(&Order::created_at(b)));
+        entries
     }
 }

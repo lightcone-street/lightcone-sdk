@@ -59,7 +59,9 @@ class Status(str, Enum):
 class Outcome:
     index: int
     name: str
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
 
 @dataclass
@@ -74,7 +76,9 @@ class ConditionalToken:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
 
 @dataclass
@@ -87,7 +91,9 @@ class DepositAsset:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
 
 @dataclass
@@ -121,7 +127,9 @@ class GlobalDepositAsset:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
     whitelist_index: int = 0
     active: bool = False
 
@@ -138,7 +146,9 @@ class TokenMetadata:
     pubkey: str = ""
     symbol: str = ""
     decimals: int = 6
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
     name: str = ""
 
 
@@ -148,8 +158,12 @@ class Market:
     id: int
     pubkey: str
     name: str
-    banner_image_url: str = ""
-    icon_url: str = ""
+    banner_image_url_low: str = ""
+    banner_image_url_medium: str = ""
+    banner_image_url_high: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
     featured_rank: Optional[int] = None
     volume: str = "0"
     slug: str = ""

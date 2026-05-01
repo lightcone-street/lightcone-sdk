@@ -116,8 +116,12 @@ class MarketMetadataPayload:
     slug: Optional[str] = None
     description: Optional[str] = None
     definition: Optional[str] = None
-    banner_image_url: Optional[str] = None
-    icon_url: Optional[str] = None
+    banner_image_url_low: Optional[str] = None
+    banner_image_url_medium: Optional[str] = None
+    banner_image_url_high: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     category: Optional[str] = None
     subcategory: Optional[str] = None
     tags: Optional[list[str]] = None
@@ -136,7 +140,9 @@ class OutcomeMetadataPayload:
     market_id: int
     outcome_index: int
     name: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     description: Optional[str] = None
     metadata_uri: Optional[str] = None
     s3_synced: Optional[bool] = None
@@ -155,7 +161,9 @@ class ConditionalTokenMetadataPayload:
     deposit_symbol: Optional[str] = None
     short_symbol: Optional[str] = None
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     metadata_uri: Optional[str] = None
     decimals: Optional[int] = None
     s3_synced: Optional[bool] = None
@@ -173,7 +181,9 @@ class DepositTokenMetadataPayload:
     symbol: Optional[str] = None
     token_symbol: Optional[str] = None
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     metadata_uri: Optional[str] = None
     decimals: Optional[int] = None
     s3_synced: Optional[bool] = None
@@ -779,8 +789,12 @@ class MarketDeploymentMarket:
     slug: str
     description: Optional[str] = None
     definition: Optional[str] = None
-    banner_image_url: Optional[str] = None
-    icon_url: Optional[str] = None
+    banner_image_url_low: Optional[str] = None
+    banner_image_url_medium: Optional[str] = None
+    banner_image_url_high: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     category: Optional[str] = None
     subcategory: Optional[str] = None
     tags: list[str] = field(default_factory=list)
@@ -796,8 +810,12 @@ class MarketDeploymentMarket:
             "slug": self.slug,
             "description": self.description,
             "definition": self.definition,
-            "banner_image_url": self.banner_image_url,
-            "icon_url": self.icon_url,
+            "banner_image_url_low": self.banner_image_url_low,
+            "banner_image_url_medium": self.banner_image_url_medium,
+            "banner_image_url_high": self.banner_image_url_high,
+            "icon_url_low": self.icon_url_low,
+            "icon_url_medium": self.icon_url_medium,
+            "icon_url_high": self.icon_url_high,
             "category": self.category,
             "subcategory": self.subcategory,
             "tags": self.tags,
@@ -816,7 +834,9 @@ class MarketDeploymentOutcome:
     name: str
     symbol: str
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
     icon_image_data_url: Optional[str] = None
     icon_image_content_type: Optional[str] = None
 
@@ -831,7 +851,9 @@ class MarketDeploymentDepositAsset:
     symbol: str
     decimals: int
     description: Optional[str] = None
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -878,27 +900,39 @@ class UploadMarketDeploymentAssetsRequest:
 
 @dataclass(frozen=True)
 class UploadedMarketImages:
-    banner_image_url: Optional[str] = None
-    icon_url: Optional[str] = None
+    banner_image_url_low: Optional[str] = None
+    banner_image_url_medium: Optional[str] = None
+    banner_image_url_high: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UploadedMarketImages":
         return UploadedMarketImages(
-            banner_image_url=d.get("banner_image_url"),
-            icon_url=d.get("icon_url"),
+            banner_image_url_low=d.get("banner_image_url_low"),
+            banner_image_url_medium=d.get("banner_image_url_medium"),
+            banner_image_url_high=d.get("banner_image_url_high"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
         )
 
 
 @dataclass(frozen=True)
 class UploadedOutcomeImages:
     index: int
-    icon_url: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UploadedOutcomeImages":
         return UploadedOutcomeImages(
             index=d.get("index", 0),
-            icon_url=d.get("icon_url"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
         )
 
 
