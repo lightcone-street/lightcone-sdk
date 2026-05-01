@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    deposit_mint, get_keypair, market, orderbook_mints, parse_pubkey, rest_client, ExampleResult,
+    get_keypair, market, orderbook_mints, parse_pubkey, quote_deposit_mint, rest_client,
+    ExampleResult,
 };
 use solana_signer::Signer;
 
@@ -30,7 +31,7 @@ async fn main() -> ExampleResult {
         .positions()
         .get_onchain(&keypair.pubkey(), &market_pubkey)
         .await?;
-    let deposit_mint = deposit_mint(&market)?;
+    let deposit_mint = quote_deposit_mint(orderbook)?;
 
     println!(
         "exchange: authority={} operator={} paused={}",

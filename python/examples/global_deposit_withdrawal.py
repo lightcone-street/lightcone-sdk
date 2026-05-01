@@ -6,10 +6,10 @@ from solders.pubkey import Pubkey
 
 from common import (
     client as make_client,
-    deposit_mint,
     login,
-    market,
+    market_and_orderbook,
     num_outcomes,
+    quote_deposit_mint,
     get_keypair,
 )
 from lightcone_sdk.program.pda import get_position_alt_pda, get_position_pda
@@ -21,9 +21,9 @@ async def main():
     keypair = get_keypair()
     await login(client, keypair)
 
-    m = await market(client)
+    m, ob = await market_and_orderbook(client)
     market_pubkey = Pubkey.from_string(m.pubkey)
-    d_mint = deposit_mint(m)
+    d_mint = quote_deposit_mint(ob)
     outcomes = num_outcomes(m)
     amount = 1_000_000
     deposit_amount = amount * 2  # deposit extra so global has funds after market transfer

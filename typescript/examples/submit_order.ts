@@ -2,11 +2,11 @@ import { Transaction } from "@solana/web3.js";
 import { generateSalt } from "../src/program";
 import {
   confirmTransactionOrThrow,
-  depositMint,
   freshOrderNonce,
   getKeypair,
   login,
   marketAndOrderbook,
+  quoteDepositMint,
   rpcClient,
   runExample,
   waitForGlobalBalance,
@@ -24,7 +24,7 @@ async function main() {
   await login(client, keypair);
 
   const [market, orderbook] = await marketAndOrderbook(client);
-  const mint = depositMint(market);
+  const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
 
   // 1. Deposit collateral into the global pool.
@@ -55,7 +55,7 @@ async function main() {
     console.log(`deposit_to_global: confirmed ${sig}`);
   }
 
-  await waitForGlobalBalance(client, mint, ORDER_QUOTE_AMOUNT);
+  await waitForGlobalBalance(client, mint, 1.1);
 
   // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
   //    subsequent orders that omit `.nonce()` use this cached value.

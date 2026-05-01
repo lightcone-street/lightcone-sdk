@@ -4,7 +4,7 @@ import {
   rpcClient,
   getKeypair,
   marketAndOrderbook,
-  depositMint,
+  quoteDepositMint,
   runExample,
 } from "./common";
 
@@ -19,8 +19,8 @@ async function main() {
   const keypair = getKeypair();
   const connection = client.rpc().inner();
 
-  const [m] = await marketAndOrderbook(client);
-  const dMint = depositMint(m);
+  const [m, ob] = await marketAndOrderbook(client);
+  const dMint = quoteDepositMint(ob);
 
   const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
 

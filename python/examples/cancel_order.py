@@ -4,10 +4,10 @@ import asyncio
 
 from common import (
     client as make_client,
-    deposit_mint,
     get_keypair,
     login,
-    market,
+    market_and_orderbook,
+    quote_deposit_mint,
     unix_timestamp,
 )
 from lightcone_sdk.domain.order import CancelBody, CancelAllBody
@@ -70,8 +70,8 @@ async def main():
     #    the global pool. Withdraw that amount to the user's token account so
     #    the companion submit_order → cancel_order cycle is net-neutral on the
     #    wallet's balance and the global pool.
-    m = await market(client)
-    mint = deposit_mint(m)
+    _, orderbook = await market_and_orderbook(client)
+    mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
     withdraw_ix = (
         client.positions().withdraw_from_global()

@@ -2,10 +2,10 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { getPositionAltPda, getPositionPda } from "../src/program";
 import {
   confirmTransactionOrThrow,
-  depositMint,
   formatError,
   login,
-  market,
+  marketAndOrderbook,
+  quoteDepositMint,
   rpcClient,
   getKeypair,
   runExample,
@@ -17,9 +17,9 @@ async function main() {
   const keypair = getKeypair();
   await login(client, keypair);
 
-  const m = await market(client);
+  const [m, ob] = await marketAndOrderbook(client);
   const marketPubkey = new PublicKey(m.pubkey);
-  const dMint = depositMint(m);
+  const dMint = quoteDepositMint(ob);
   const amount = 1_000_000n;
   const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 

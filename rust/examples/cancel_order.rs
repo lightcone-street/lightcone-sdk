@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    deposit_mint, get_keypair, login, market, rest_client, unix_timestamp, ExampleResult,
+    get_keypair, login, market_and_orderbook, quote_deposit_mint, rest_client, unix_timestamp,
+    ExampleResult,
 };
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -56,8 +57,8 @@ async fn main() -> ExampleResult {
     // the global pool. Withdraw that amount to the user's token account so the
     // companion `submit_order` → `cancel_order` cycle is net-neutral on the
     // wallet's balance and the global pool.
-    let market = market(&client).await?;
-    let mint = deposit_mint(&market)?;
+    let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let mint = quote_deposit_mint(&orderbook)?;
     let rpc_sub = client.rpc();
     let rpc = rpc_sub.inner()?;
     let withdraw_ix = client

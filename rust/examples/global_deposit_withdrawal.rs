@@ -1,8 +1,8 @@
 mod common;
 
 use common::{
-    deposit_mint, get_keypair, login, market, num_outcomes, parse_pubkey, rest_client,
-    ExampleResult,
+    get_keypair, login, market_and_orderbook, num_outcomes, parse_pubkey, quote_deposit_mint,
+    rest_client, ExampleResult,
 };
 use lightcone::program::{get_position_alt_pda, get_position_pda};
 use solana_commitment_config::CommitmentConfig;
@@ -15,9 +15,9 @@ async fn main() -> ExampleResult {
     let keypair = get_keypair()?;
     login(&client, &keypair, false).await?;
 
-    let market = market(&client).await?;
+    let (market, orderbook) = market_and_orderbook(&client).await?;
     let market_pubkey = parse_pubkey(&market.pubkey)?;
-    let deposit_mint = deposit_mint(&market)?;
+    let deposit_mint = quote_deposit_mint(&orderbook)?;
     let num_outcomes = num_outcomes(&market)?;
     let amount = 1_000_000;
     let deposit_amount = amount * 2; // deposit extra so global has funds after market transfer

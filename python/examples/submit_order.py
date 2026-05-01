@@ -4,10 +4,10 @@ import asyncio
 
 from common import (
     client as make_client,
-    deposit_mint,
     get_keypair,
     login,
     market_and_orderbook,
+    quote_deposit_mint,
     wait_for_global_balance,
 )
 from lightcone_sdk.program.orders import generate_salt
@@ -27,7 +27,7 @@ async def main():
     await login(client, keypair)
 
     market, orderbook = await market_and_orderbook(client)
-    mint = deposit_mint(market)
+    mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
 
     # 1. Deposit collateral into the global pool.
@@ -52,7 +52,7 @@ async def main():
     await connection.confirm_transaction(deposit_result.value)
     print(f"deposit_to_global: confirmed {deposit_result.value}")
 
-    await wait_for_global_balance(client, mint, ORDER_QUOTE_AMOUNT)
+    await wait_for_global_balance(client, mint, 1.1)
 
     # 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     #    subsequent orders that omit .nonce() use this cached value.

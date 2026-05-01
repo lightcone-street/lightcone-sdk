@@ -7,10 +7,10 @@ import {
 import { generateCancelAllSalt } from "../src/program";
 import {
   confirmTransactionOrThrow,
-  depositMint,
   getKeypair,
   login,
-  market,
+  marketAndOrderbook,
+  quoteDepositMint,
   restClient,
   runExample,
   unixTimestamp,
@@ -58,8 +58,8 @@ async function main() {
   // the global pool. Withdraw that amount to the user's token account so the
   // companion `submit_order` → `cancel_order` cycle is net-neutral on the
   // wallet's balance and the global pool.
-  const m = await market(client);
-  const mint = depositMint(m);
+  const [, orderbook] = await marketAndOrderbook(client);
+  const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
   const withdrawIx = client
     .positions()

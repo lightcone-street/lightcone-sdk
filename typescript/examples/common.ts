@@ -84,10 +84,8 @@ export async function marketAndOrderbook(
   return [m, ob];
 }
 
-export function depositMint(m: Market): PublicKey {
-  const asset = m.depositAssets[0];
-  if (!asset) throw new Error("Market has no deposit assets");
-  return new PublicKey(asset.pubkey);
+export function quoteDepositMint(orderbook: OrderBookPair): PublicKey {
+  return new PublicKey(orderbook.quote.depositAsset);
 }
 
 export function numOutcomes(m: Market): number {
@@ -97,7 +95,7 @@ export function numOutcomes(m: Market): number {
 export async function waitForGlobalBalance(
   client: LightconeClient,
   mint: PublicKey,
-  minimumAmount: bigint,
+  minimumAmount: number,
   timeoutMs = 30_000,
   intervalMs = 2_000,
 ): Promise<void> {
@@ -109,7 +107,7 @@ export async function waitForGlobalBalance(
     attempt++;
     const balances = await client.positions().depositTokenBalances();
     const entry = Object.values(balances).find((balance) => balance.mint === mintStr);
-    const currentIdle = entry ? BigInt(entry.idle) : 0n;
+    const currentIdle = entry ? Number(entry.idle) : 0;
     const symbol = entry?.symbol ?? "unknown";
     if (currentIdle >= minimumAmount) {
       console.log(`global balance ready: ${symbol} idle=${currentIdle} (attempt ${attempt})`);

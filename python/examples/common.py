@@ -92,10 +92,8 @@ async def market_and_orderbook(
     return m, ob
 
 
-def deposit_mint(m: Market) -> Pubkey:
-    if not m.deposit_assets:
-        raise RuntimeError("selected market has no deposit assets")
-    return Pubkey.from_string(m.deposit_assets[0].deposit_asset)
+def quote_deposit_mint(orderbook: OrderBookPair) -> Pubkey:
+    return Pubkey.from_string(orderbook.quote.deposit_asset)
 
 
 def num_outcomes(m: Market) -> int:
@@ -105,7 +103,7 @@ def num_outcomes(m: Market) -> int:
 async def wait_for_global_balance(
     client: LightconeClient,
     mint: Pubkey,
-    minimum_amount: int,
+    minimum_amount: float,
     timeout_seconds: float = 30.0,
     interval_seconds: float = 2.0,
 ) -> None:
@@ -122,7 +120,7 @@ async def wait_for_global_balance(
             (balance for balance in balances.values() if balance.mint == mint_str),
             None,
         )
-        current_idle = int(entry.idle) if entry is not None else 0
+        current_idle = float(entry.idle) if entry is not None else 0.0
         symbol = entry.symbol if entry is not None else "unknown"
         if current_idle >= minimum_amount:
             print(f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})")

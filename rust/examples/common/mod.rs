@@ -111,18 +111,16 @@ pub async fn market_and_orderbook(
 pub async fn wait_for_global_balance(
     client: &LightconeClient,
     mint: &Pubkey,
-    minimum_amount: u64,
+    minimum: rust_decimal::Decimal,
 ) -> ExampleResult {
-    use rust_decimal::Decimal;
     use std::time::{Duration, Instant};
 
     let mint_str = mint.to_string();
-    let minimum = Decimal::from(minimum_amount);
     let deadline = Instant::now() + Duration::from_secs(30);
     let interval = Duration::from_secs(2);
     let mut attempt = 0u32;
 
-    println!("waiting for global balance: mint={mint_str} required={minimum_amount}");
+    println!("waiting for global balance: mint={mint_str} required={minimum}");
 
     loop {
         attempt += 1;
@@ -140,14 +138,14 @@ pub async fn wait_for_global_balance(
 
         let remaining = deadline.saturating_duration_since(Instant::now());
         println!(
-            "global balance not ready: {symbol} idle={current_idle}/{minimum_amount} \
+            "global balance not ready: {symbol} idle={current_idle}/{minimum} \
              (attempt {attempt}, {}s remaining)",
             remaining.as_secs()
         );
 
         if Instant::now() >= deadline {
             return Err(format!(
-                "global balance for {mint_str} did not reach {minimum_amount} within 30s"
+                "global balance for {mint_str} did not reach {minimum} within 30s"
             )
             .into());
         }
@@ -166,14 +164,8 @@ pub fn orderbook_mints(orderbook: &OrderBookPair) -> ExampleResult<(Pubkey, Pubk
     ))
 }
 
-pub fn deposit_mint(market: &Market) -> ExampleResult<Pubkey> {
-    parse_pubkey(
-        market
-            .deposit_assets
-            .first()
-            .ok_or_else(|| other("selected market has no deposit assets"))?
-            .pubkey(),
-    )
+pub fn quote_deposit_mint(orderbook: &OrderBookPair) -> ExampleResult<Pubkey> {
+    parse_pubkey(&orderbook.quote.deposit_asset)
 }
 
 pub fn num_outcomes(market: &Market) -> ExampleResult<u8> {

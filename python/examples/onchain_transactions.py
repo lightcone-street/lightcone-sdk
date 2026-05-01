@@ -2,7 +2,7 @@
 
 import asyncio
 
-from common import client as make_client, get_keypair, market, deposit_mint
+from common import client as make_client, get_keypair, market_and_orderbook, quote_deposit_mint
 from lightcone_sdk.rpc import require_connection
 
 
@@ -21,8 +21,8 @@ async def main():
     client = make_client()
     keypair = get_keypair()
 
-    m = await market(client)
-    d_mint = deposit_mint(m)
+    m, ob = await market_and_orderbook(client)
+    d_mint = quote_deposit_mint(ob)
     amount = 1_000_000
     blockhash = await client.rpc().get_latest_blockhash()
 

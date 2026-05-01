@@ -4,7 +4,7 @@ import asyncio
 
 from solders.pubkey import Pubkey
 
-from common import client as make_client, get_keypair, market_and_orderbook, deposit_mint
+from common import client as make_client, get_keypair, market_and_orderbook, quote_deposit_mint
 from lightcone_sdk.program.errors import AccountNotFoundError
 
 
@@ -41,7 +41,7 @@ async def main():
     print(f"position exists: {position is not None}")
 
     # 6. PDA derivations (via sub-client accessors)
-    d_mint = deposit_mint(m)
+    d_mint = quote_deposit_mint(orderbook)
     exchange_pda = client.rpc().get_exchange_pda()
     market_pda = client.markets().pda(onchain_market.market_id)
     position_pda = client.positions().pda(keypair.pubkey(), market_pubkey)

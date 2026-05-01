@@ -1,7 +1,7 @@
 mod common;
 
 use common::{
-    deposit_mint, fresh_order_nonce, get_keypair, market_and_orderbook, rest_client,
+    fresh_order_nonce, get_keypair, market_and_orderbook, quote_deposit_mint, rest_client,
     wait_for_global_balance, ExampleResult,
 };
 use lightcone::prelude::*;
@@ -21,8 +21,8 @@ async fn main() -> ExampleResult {
     let maker = keypair.pubkey();
     common::login(&client, keypair.as_ref(), false).await?;
 
-    let (market, orderbook) = market_and_orderbook(&client).await?;
-    let mint = deposit_mint(&market)?;
+    let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let mint = quote_deposit_mint(&orderbook)?;
     let rpc_sub = client.rpc();
     let rpc = rpc_sub.inner()?;
 
@@ -51,7 +51,7 @@ async fn main() -> ExampleResult {
         .set_signing_strategy(SigningStrategy::Native(keypair.clone()))
         .await;
 
-    wait_for_global_balance(&client, &mint, ORDER_QUOTE_AMOUNT).await?;
+    wait_for_global_balance(&client, &mint, rust_decimal::Decimal::new(11, 1)).await?;
 
     // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     //    subsequent orders that omit `.nonce()` use this cached value.
