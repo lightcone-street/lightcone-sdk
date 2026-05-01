@@ -11,6 +11,7 @@ from . import (
     GlobalDepositAsset,
     GlobalDepositAssetsResult,
     Market,
+    MarketValidationError,
     MarketsResult,
     Status,
 )
@@ -100,7 +101,11 @@ class Markets:
             if errors:
                 continue
 
-            market = market_from_wire(wire_market)
+            try:
+                market = market_from_wire(wire_market)
+            except MarketValidationError as exc:
+                validation_errors.append(str(exc))
+                continue
             if market.status in {Status.ACTIVE, Status.RESOLVED}:
                 markets.append(market)
 
