@@ -65,7 +65,9 @@ export interface TokenBalanceComputedBase {
 export interface DepositAssetMetadata {
   symbol: string;
   name: string;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
 }
 
 export interface DepositTokenBalance {
@@ -73,7 +75,9 @@ export interface DepositTokenBalance {
   idle: string;
   symbol: string;
   name: string;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
 }
 
 export function computedBase(

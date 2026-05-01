@@ -27,9 +27,9 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing description")
     if not wire.definition:
         errors.append("Missing definition")
-    if not wire.icon_url:
+    if not wire.icon_url_low:
         errors.append("Missing thumbnail image")
-    if not wire.banner_image_url:
+    if not wire.banner_image_url_low:
         errors.append("Missing banner image")
     if wire.market_status and wire.market_status not in {"Pending", "Active", "Resolved", "Cancelled"}:
         errors.append("Invalid status")
@@ -47,7 +47,9 @@ def market_from_wire(wire: MarketWire) -> Market:
         Outcome(
             index=o.index,
             name=o.name,
-            icon_url=o.icon_url,
+            icon_url_low=o.icon_url_low,
+            icon_url_medium=o.icon_url_medium,
+            icon_url_high=o.icon_url_high,
         )
         for o in wire.outcomes
     ]
@@ -68,7 +70,9 @@ def market_from_wire(wire: MarketWire) -> Market:
             symbol=da_symbol,
             description=da.description,
             decimals=da.decimals,
-            icon_url=da.icon_url,
+            icon_url_low=da.icon_url_low,
+            icon_url_medium=da.icon_url_medium,
+            icon_url_high=da.icon_url_high,
         ))
 
         for ct in da.conditional_mints:
@@ -85,14 +89,18 @@ def market_from_wire(wire: MarketWire) -> Market:
                 symbol=ct_symbol,
                 description=ct.description,
                 decimals=ct.decimals,
-                icon_url=ct.icon_url,
+                icon_url_low=ct.icon_url_low,
+                icon_url_medium=ct.icon_url_medium,
+                icon_url_high=ct.icon_url_high,
             ))
             if ct.token_address:
                 token_metadata[ct.token_address] = TokenMetadata(
                     pubkey=ct.token_address,
                     symbol=ct_symbol,
                     decimals=ct.decimals,
-                    icon_url=ct.icon_url,
+                    icon_url_low=ct.icon_url_low,
+                    icon_url_medium=ct.icon_url_medium,
+                    icon_url_high=ct.icon_url_high,
                     name=ct_name,
                 )
 
@@ -135,8 +143,12 @@ def market_from_wire(wire: MarketWire) -> Market:
         id=wire.market_id,
         pubkey=wire.market_pubkey,
         name=wire.market_name,
-        banner_image_url=wire.banner_image_url or "",
-        icon_url=wire.icon_url or "",
+        banner_image_url_low=wire.banner_image_url_low or "",
+        banner_image_url_medium=wire.banner_image_url_medium or "",
+        banner_image_url_high=wire.banner_image_url_high or "",
+        icon_url_low=wire.icon_url_low or "",
+        icon_url_medium=wire.icon_url_medium or "",
+        icon_url_high=wire.icon_url_high or "",
         featured_rank=wire.featured_rank,
         volume=wire.volume or "0",
         slug=wire.slug or "",
@@ -197,7 +209,7 @@ def global_deposit_asset_from_wire(
     """Convert a ``GlobalDepositAssetWire`` to a ``GlobalDepositAsset``.
 
     Raises ``SdkError`` with a rendered multi-error message when required
-    fields (``display_name``, ``symbol``, ``icon_url``, ``decimals``) are
+    fields (``display_name``, ``symbol``, ``icon_url_low``, ``decimals``) are
     missing on the wire payload.
     """
     errors: list[str] = []
@@ -206,7 +218,7 @@ def global_deposit_asset_from_wire(
         errors.append(f"Missing display name: {wire.mint}")
     if wire.symbol is None:
         errors.append(f"Missing symbol: {wire.mint}")
-    if wire.icon_url is None:
+    if wire.icon_url_low is None:
         errors.append(f"Missing icon URL: {wire.mint}")
     if wire.decimals is None:
         errors.append(f"Missing decimals: {wire.mint}")
@@ -224,7 +236,9 @@ def global_deposit_asset_from_wire(
         symbol=wire.symbol or "",
         description=wire.description,
         decimals=wire.decimals or 0,
-        icon_url=wire.icon_url or "",
+        icon_url_low=wire.icon_url_low or "",
+        icon_url_medium=wire.icon_url_medium or "",
+        icon_url_high=wire.icon_url_high or "",
         whitelist_index=wire.whitelist_index,
         active=wire.active,
     )

@@ -13,7 +13,9 @@ export interface Token {
   symbol: string;
   description?: string;
   decimals: number;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
 }
 
 /**
@@ -112,7 +114,9 @@ export interface TokenMetadata {
   pubkey: PubkeyStr;
   symbol: string;
   decimals: number;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
   name: string;
 }
 
@@ -149,12 +153,16 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   const metadata: Record<string, TokenMetadata> = {};
 
   const depositPubkey = asPubkeyStr(source.deposit_asset);
-  const iconUrl = source.icon_url;
+  const iconUrlLow = source.icon_url_low;
+  const iconUrlMedium = source.icon_url_medium;
+  const iconUrlHigh = source.icon_url_high;
   const name = source.display_name;
   const symbol = source.symbol;
   const decimals = source.decimals;
 
-  if (!iconUrl) errors.push("Missing icon URL");
+  if (!iconUrlLow) errors.push("Missing icon URL (low)");
+  if (!iconUrlMedium) errors.push("Missing icon URL (medium)");
+  if (!iconUrlHigh) errors.push("Missing icon URL (high)");
   if (!name) errors.push("Missing display name");
   if (!symbol) errors.push("Missing symbol");
   if (decimals === undefined) errors.push("Missing decimals");
@@ -167,12 +175,14 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
     pubkey: depositPubkey,
     symbol: symbol ?? "",
     decimals: decimals ?? 0,
-    iconUrl: iconUrl ?? "",
+    iconUrlLow: iconUrlLow ?? "",
+    iconUrlMedium: iconUrlMedium ?? "",
+    iconUrlHigh: iconUrlHigh ?? "",
     name: name ?? "",
   };
 
   const conditionals = source.conditional_mints.map((conditional) =>
-    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrl ?? "")
+    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrlLow ?? "", iconUrlMedium ?? "", iconUrlHigh ?? "")
   );
 
   for (const conditional of conditionals) {
@@ -180,7 +190,9 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       pubkey: conditional.pubkey,
       symbol: conditional.symbol,
       decimals: conditional.decimals,
-      iconUrl: conditional.iconUrl,
+      iconUrlLow: conditional.iconUrlLow,
+      iconUrlMedium: conditional.iconUrlMedium,
+      iconUrlHigh: conditional.iconUrlHigh,
       name: conditional.name,
     };
   }
@@ -196,7 +208,9 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       symbol: symbol ?? "",
       description: source.description,
       decimals: decimals ?? 0,
-      iconUrl: iconUrl ?? "",
+      iconUrlLow: iconUrlLow ?? "",
+      iconUrlMedium: iconUrlMedium ?? "",
+      iconUrlHigh: iconUrlHigh ?? "",
     },
     conditionals,
     metadata,
@@ -210,12 +224,16 @@ export function globalDepositAssetFromWire(
 
   const name = source.display_name;
   const symbol = source.symbol;
-  const iconUrl = source.icon_url;
+  const iconUrlLow = source.icon_url_low;
+  const iconUrlMedium = source.icon_url_medium;
+  const iconUrlHigh = source.icon_url_high;
   const decimals = source.decimals;
 
   if (!name) errors.push("Missing display name");
   if (!symbol) errors.push("Missing symbol");
-  if (!iconUrl) errors.push("Missing icon URL");
+  if (!iconUrlLow) errors.push("Missing icon URL (low)");
+  if (!iconUrlMedium) errors.push("Missing icon URL (medium)");
+  if (!iconUrlHigh) errors.push("Missing icon URL (high)");
   if (decimals === undefined || decimals === null) errors.push("Missing decimals");
 
   if (errors.length > 0) {
@@ -231,7 +249,9 @@ export function globalDepositAssetFromWire(
     symbol: symbol ?? "",
     description: source.description,
     decimals: decimals ?? 0,
-    iconUrl: iconUrl ?? "",
+    iconUrlLow: iconUrlLow ?? "",
+    iconUrlMedium: iconUrlMedium ?? "",
+    iconUrlHigh: iconUrlHigh ?? "",
     whitelistIndex: source.whitelist_index,
     active: source.active,
   };
@@ -241,7 +261,9 @@ function conditionalFromWire(
   source: ConditionalTokenResponse,
   depositAsset: string,
   depositSymbol: string,
-  iconUrl: string
+  iconUrlLow: string,
+  iconUrlMedium: string,
+  iconUrlHigh: string
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
@@ -263,6 +285,8 @@ function conditionalFromWire(
     symbol: source.short_symbol ?? "",
     description: source.description,
     decimals: source.decimals ?? 0,
-    iconUrl,
+    iconUrlLow,
+    iconUrlMedium,
+    iconUrlHigh,
   };
 }

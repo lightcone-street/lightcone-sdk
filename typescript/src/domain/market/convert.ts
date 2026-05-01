@@ -56,8 +56,12 @@ export function marketFromWire(source: MarketResponse): Market {
   if (!status) errors.push(`Invalid status: ${source.market_status}`);
   if (!source.description) errors.push("Missing description");
   if (!source.definition) errors.push("Missing definition");
-  if (!source.icon_url) errors.push("Missing icon URL");
-  if (!source.banner_image_url) errors.push("Missing banner image URL");
+  if (!source.icon_url_low) errors.push("Missing icon URL (low)");
+  if (!source.icon_url_medium) errors.push("Missing icon URL (medium)");
+  if (!source.icon_url_high) errors.push("Missing icon URL (high)");
+  if (!source.banner_image_url_low) errors.push("Missing banner image URL (low)");
+  if (!source.banner_image_url_medium) errors.push("Missing banner image URL (medium)");
+  if (!source.banner_image_url_high) errors.push("Missing banner image URL (high)");
 
   const depositAssetPairs = sortByDisplayPriority(
     deriveDepositAssetPairs(depositAssets, orderbookPairs),
@@ -75,8 +79,12 @@ export function marketFromWire(source: MarketResponse): Market {
     id: source.market_id,
     pubkey: asPubkeyStr(source.market_pubkey),
     name: source.market_name ?? "",
-    bannerImageUrl: source.banner_image_url ?? "",
-    iconUrl: source.icon_url ?? "",
+    bannerImageUrlLow: source.banner_image_url_low ?? "",
+    bannerImageUrlMedium: source.banner_image_url_medium ?? "",
+    bannerImageUrlHigh: source.banner_image_url_high ?? "",
+    iconUrlLow: source.icon_url_low ?? "",
+    iconUrlMedium: source.icon_url_medium ?? "",
+    iconUrlHigh: source.icon_url_high ?? "",
     featuredRank: source.featured_rank,
     volume: "0",
     slug: source.slug ?? "",

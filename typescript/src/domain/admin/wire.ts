@@ -11,8 +11,12 @@ export interface MarketMetadataPayload {
   slug?: string;
   description?: string;
   definition?: string;
-  banner_image_url?: string;
-  icon_url?: string;
+  banner_image_url_low?: string;
+  banner_image_url_medium?: string;
+  banner_image_url_high?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   category?: string;
   subcategory?: string;
   tags?: string[];
@@ -27,7 +31,9 @@ export interface OutcomeMetadataPayload {
   market_id: number;
   outcome_index: number;
   name?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   description?: string;
   metadata_uri?: string;
   s3_synced?: boolean;
@@ -42,7 +48,9 @@ export interface ConditionalTokenMetadataPayload {
   deposit_symbol?: string;
   short_symbol?: string;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
   s3_synced?: boolean;
@@ -56,7 +64,9 @@ export interface DepositTokenMetadataPayload {
   symbol?: string;
   token_symbol?: string;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
   s3_synced?: boolean;
@@ -93,7 +103,9 @@ export interface DepositTokenMetadataResponse {
   binance_symbol: string | null;
   binance_enabled: boolean;
   description: string | null;
-  icon_url: string | null;
+  icon_url_low: string | null;
+  icon_url_medium: string | null;
+  icon_url_high: string | null;
   metadata_uri: string | null;
   decimals: number | null;
   s3_synced: boolean;
@@ -389,8 +401,12 @@ export interface MarketDeploymentMarket {
   slug: string;
   description?: string;
   definition?: string;
-  banner_image_url?: string;
-  icon_url?: string;
+  banner_image_url_low?: string;
+  banner_image_url_medium?: string;
+  banner_image_url_high?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   category?: string;
   subcategory?: string;
   tags?: string[];
@@ -406,7 +422,9 @@ export interface MarketDeploymentOutcome {
   name: string;
   symbol: string;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   icon_image_data_url?: string;
   icon_image_content_type?: string;
 }
@@ -416,7 +434,9 @@ export interface MarketDeploymentDepositAsset {
   display_name: string;
   symbol: string;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   decimals: number;
 }
 
@@ -439,13 +459,19 @@ export interface UploadMarketDeploymentAssetsResponse {
 }
 
 export interface UploadedMarketImages {
-  banner_image_url?: string;
-  icon_url?: string;
+  banner_image_url_low?: string;
+  banner_image_url_medium?: string;
+  banner_image_url_high?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
 }
 
 export interface UploadedOutcomeImages {
   index: number;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
 }
 
 export interface UploadedConditionalToken {

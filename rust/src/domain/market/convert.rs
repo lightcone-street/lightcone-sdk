@@ -77,14 +77,18 @@ impl TryFrom<wire::MarketResponse> for Market {
             errors.push(ValidationError::MissingDefinition);
             String::new()
         });
-        let icon_url = source.icon_url.clone().unwrap_or_else(|| {
+        let icon_url_low = source.icon_url_low.clone().unwrap_or_else(|| {
             errors.push(ValidationError::MissingThumbnailImage);
             String::new()
         });
-        let banner_image_url = source.banner_image_url.clone().unwrap_or_else(|| {
+        let icon_url_medium = source.icon_url_medium.clone().unwrap_or_default();
+        let icon_url_high = source.icon_url_high.clone().unwrap_or_default();
+        let banner_image_url_low = source.banner_image_url_low.clone().unwrap_or_else(|| {
             errors.push(ValidationError::MissingBannerImage);
             String::new()
         });
+        let banner_image_url_medium = source.banner_image_url_medium.clone().unwrap_or_default();
+        let banner_image_url_high = source.banner_image_url_high.clone().unwrap_or_default();
 
         let deposit_asset_pairs = sort_by_display_priority(&derive_deposit_asset_pairs(
             &deposit_assets,
@@ -115,8 +119,12 @@ impl TryFrom<wire::MarketResponse> for Market {
             definition,
             tags: source.tags.unwrap_or_default(),
             outcomes,
-            icon_url,
-            banner_image_url,
+            icon_url_low,
+            icon_url_medium,
+            icon_url_high,
+            banner_image_url_low,
+            banner_image_url_medium,
+            banner_image_url_high,
             category: source.category,
             orderbook_ids: orderbook_pairs
                 .iter()
@@ -175,10 +183,16 @@ mod tests {
             outcomes: vec![wire::OutcomeResponse {
                 index: 0,
                 name: "Yes".to_string(),
-                icon_url: Some("https://example.com/yes.png".to_string()),
+                icon_url_low: Some("https://example.com/yes_low.png".to_string()),
+                icon_url_medium: Some("https://example.com/yes_medium.png".to_string()),
+                icon_url_high: Some("https://example.com/yes_high.png".to_string()),
             }],
-            banner_image_url: Some("https://example.com/banner.png".to_string()),
-            icon_url: Some("https://example.com/icon.png".to_string()),
+            banner_image_url_low: Some("https://example.com/banner_low.png".to_string()),
+            banner_image_url_medium: Some("https://example.com/banner_medium.png".to_string()),
+            banner_image_url_high: Some("https://example.com/banner_high.png".to_string()),
+            icon_url_low: Some("https://example.com/icon_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/icon_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/icon_high.png".to_string()),
             category: None,
             tags: None,
             featured_rank: None,
@@ -295,7 +309,9 @@ mod tests {
             symbol: mint.to_string(),
             description: None,
             decimals: 6,
-            icon_url: String::new(),
+            icon_url_low: String::new(),
+            icon_url_medium: String::new(),
+            icon_url_high: String::new(),
         }
     }
 

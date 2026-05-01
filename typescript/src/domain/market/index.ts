@@ -40,8 +40,12 @@ export interface Market {
   id: number;
   pubkey: PubkeyStr;
   name: string;
-  bannerImageUrl: string;
-  iconUrl: string;
+  bannerImageUrlLow: string;
+  bannerImageUrlMedium: string;
+  bannerImageUrlHigh: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
   featuredRank?: number;
   volume: string;
   slug: string;
