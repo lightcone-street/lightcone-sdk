@@ -31,8 +31,8 @@ class FillInfo:
 
 
 @dataclass
-class Order:
-    """Order domain type."""
+class LimitOrder:
+    """Limit order domain type."""
 
     market_pubkey: str
     orderbook_id: str
@@ -55,7 +55,7 @@ class OrderEvent:
     """WebSocket order event."""
 
     type: str
-    order: Optional[Order] = None
+    order: Optional[LimitOrder] = None
     fill: Optional[FillInfo] = None
 
 
@@ -329,7 +329,7 @@ __all__ = [
     "OrderType",
     "OrderStatus",
     "FillInfo",
-    "Order",
+    "LimitOrder",
     "OrderEvent",
     "TriggerOrder",
     "TriggerOrderResponse",

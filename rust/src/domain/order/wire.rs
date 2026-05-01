@@ -161,6 +161,15 @@ pub enum UserSnapshotOrder {
     },
 }
 
+impl UserSnapshotOrder {
+    pub fn common(&self) -> &UserSnapshotOrderCommon {
+        match self {
+            UserSnapshotOrder::Limit { common, .. } => common,
+            UserSnapshotOrder::Trigger { common, .. } => common,
+        }
+    }
+}
+
 /// Balance information attached to an order update.
 #[derive(Deserialize, Debug, Clone)]
 pub struct UserOrderUpdateBalance {

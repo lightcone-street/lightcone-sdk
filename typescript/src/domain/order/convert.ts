@@ -1,10 +1,10 @@
 import Decimal from "decimal.js";
 import { TimeInForce } from "../../shared";
-import type { Order, TriggerOrder } from "./index";
+import type { LimitOrder, TriggerOrder } from "./index";
 import type { OrderUpdate, UserSnapshotOrder, UserSnapshotOrderCommon } from "./wire";
-import { UserOpenOrders, UserTriggerOrders } from "./state";
+import { UserOpenLimitOrders, UserTriggerOrders } from "./state";
 
-export function orderFromUpdate(update: OrderUpdate): Order {
+export function orderFromUpdate(update: OrderUpdate): LimitOrder {
   const size = new Decimal(update.order.filled).plus(update.order.remaining);
 
   return {
@@ -25,7 +25,7 @@ export function orderFromUpdate(update: OrderUpdate): Order {
   };
 }
 
-export function limitSnapshotToOrder(common: UserSnapshotOrderCommon, txSignature?: string): Order {
+export function limitSnapshotToOrder(common: UserSnapshotOrderCommon, txSignature?: string): LimitOrder {
   const size = new Decimal(common.filled).plus(common.remaining);
   return {
     marketPubkey: common.market_pubkey,
@@ -67,8 +67,8 @@ export function triggerSnapshotToOrder(
   };
 }
 
-export function splitSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenOrders, UserTriggerOrders] {
-  const openOrders = new UserOpenOrders();
+export function splitSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenLimitOrders, UserTriggerOrders] {
+  const openOrders = new UserOpenLimitOrders();
   const triggerOrders = new UserTriggerOrders();
 
   for (const snapshot of orders) {

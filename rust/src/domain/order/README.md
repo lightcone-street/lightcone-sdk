@@ -15,7 +15,22 @@ Submit, cancel, and track limit and trigger orders.
 
 ## Types
 
-### `Order`
+### `Order` trait
+
+Common interface shared by `LimitOrder` and `TriggerOrder`. Provides accessors for the six fields present on both types:
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `id()` | `&str` | Unique identifier (`order_hash` for limit, `trigger_order_id` for trigger) |
+| `order_hash()` | `&str` | Underlying order hash |
+| `market_pubkey()` | `&PubkeyStr` | Parent market |
+| `orderbook_id()` | `&OrderBookId` | Which orderbook |
+| `side()` | `Side` | `Bid` or `Ask` |
+| `created_at()` | `DateTime<Utc>` | Creation timestamp |
+
+Also implemented on `AnyOrder` (delegates to the inner variant).
+
+### `LimitOrder`
 
 A validated, domain-level limit order.
 
@@ -394,26 +409,43 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 
 ## State Containers
 
-### `UserOpenOrders`
+### `AnyOrder`
 
-Tracks a user's open limit orders grouped by market pubkey. Updated from WebSocket user events.
+Enum wrapping either a `LimitOrder` or `TriggerOrder`. Implements the `Order` trait by delegating to the inner type.
+
+```rust
+pub enum AnyOrder {
+    Limit(LimitOrder),
+    Trigger(TriggerOrder),
+}
+```
+
+| Method | Description |
+|--------|-------------|
+| `vec_from(limit_orders, trigger_orders)` | Combine both types into a sorted `Vec<AnyOrder>` |
+
+### `UserOpenLimitOrders`
+
+Tracks a user's open limit orders grouped by market pubkey and orderbook ID. Updated from WebSocket user events.
 
 | Method | Description |
 |--------|-------------|
 | `new()` | Create empty tracker |
-| `get(&market_pubkey)` | Get orders for a specific market |
+| `get(&market_pubkey, &orderbook_id)` | Get orders for a specific orderbook |
+| `get_by_market(&market_pubkey)` | Get orders for a market, grouped by orderbook |
 | `upsert(&order_update)` | Insert or update an order from a WS event |
 | `remove(order_hash)` | Remove a cancelled/filled order |
 | `clear()` | Remove all tracked orders |
 
 ### `UserTriggerOrders`
 
-Tracks trigger orders grouped by orderbook ID.
+Tracks trigger orders grouped by market pubkey and orderbook ID.
 
 | Method | Description |
 |--------|-------------|
 | `new()` | Create empty tracker |
-| `get(&orderbook_id)` | Get trigger orders for an orderbook |
+| `get(&market_pubkey, &orderbook_id)` | Get trigger orders for a specific orderbook |
+| `get_by_market(&market_pubkey)` | Get trigger orders for a market, grouped by orderbook |
 | `get_by_id(trigger_order_id)` | Find a specific trigger order |
 | `insert(order)` | Add a trigger order |
 | `remove(trigger_order_id)` | Remove a trigger order |
@@ -467,7 +499,7 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
         wallet_address: PubkeyStr::from(keypair.pubkey()),
     }).unwrap();
 
-    let mut open_orders = UserOpenOrders::new();
+    let mut open_orders = UserOpenLimitOrders::new();
     let mut stream = ws.events();
 
     while let Some(event) = stream.next().await {
