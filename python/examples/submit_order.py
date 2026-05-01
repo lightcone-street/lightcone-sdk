@@ -8,6 +8,7 @@ from common import (
     get_keypair,
     login,
     market_and_orderbook,
+    wait_for_global_balance,
 )
 from lightcone_sdk.program.orders import generate_salt
 from lightcone_sdk.rpc import require_connection
@@ -50,6 +51,8 @@ async def main():
     deposit_result = await connection.send_raw_transaction(bytes(deposit_tx))
     await connection.confirm_transaction(deposit_result.value)
     print(f"deposit_to_global: confirmed {deposit_result.value}")
+
+    await wait_for_global_balance(client, mint, ORDER_QUOTE_AMOUNT)
 
     # 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     #    subsequent orders that omit .nonce() use this cached value.

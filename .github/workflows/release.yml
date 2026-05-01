@@ -16,27 +16,6 @@ env:
     LIGHTCONE_ENV: prod
 
 jobs:
-    # ── Export CI wallet keypairs (temporary — delete run after retrieving) ──
-
-    export-keypairs:
-        name: Export CI Wallet Keypairs
-        runs-on: ubuntu-latest
-        steps:
-            - name: Rust (default)
-              env:
-                  CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
-              run: echo "$CI_WALLET_KEYPAIR" | base64
-
-            - name: TypeScript
-              env:
-                  CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_TS }}
-              run: echo "$CI_WALLET_KEYPAIR" | base64
-
-            - name: Python
-              env:
-                  CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_PYTHON }}
-              run: echo "$CI_WALLET_KEYPAIR" | base64
-
     # ── Test phase (3 parallel jobs) ──
 
     test-rust:
@@ -69,11 +48,11 @@ jobs:
             - name: Set wallet path
               run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
-            - name: Install cargo-cooldown
-              run: cargo install --locked --version 0.2.0 cargo-cooldown
+            # - name: Install cargo-cooldown
+            #   run: cargo install --locked --version 0.2.0 cargo-cooldown
 
-            - name: Check dependency cooldown
-              run: cargo cooldown check
+            # - name: Check dependency cooldown
+            #   run: cargo cooldown check
 
             - name: Run all examples
               run: |

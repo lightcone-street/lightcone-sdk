@@ -9,6 +9,7 @@ import {
   marketAndOrderbook,
   rpcClient,
   runExample,
+  waitForGlobalBalance,
 } from "./common";
 
 // Quote needed for the bid below (price * size, scaled to the deposit asset's
@@ -53,6 +54,8 @@ async function main() {
     await confirmTransactionOrThrow(connection, sig, { blockhash, lastValidBlockHeight });
     console.log(`deposit_to_global: confirmed ${sig}`);
   }
+
+  await waitForGlobalBalance(client, mint, ORDER_QUOTE_AMOUNT);
 
   // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
   //    subsequent orders that omit `.nonce()` use this cached value.

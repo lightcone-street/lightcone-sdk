@@ -108,6 +108,53 @@ pub async fn market_and_orderbook(
     Ok((market, orderbook))
 }
 
+pub async fn wait_for_global_balance(
+    client: &LightconeClient,
+    mint: &Pubkey,
+    minimum_amount: u64,
+) -> ExampleResult {
+    use rust_decimal::Decimal;
+    use std::time::{Duration, Instant};
+
+    let mint_str = mint.to_string();
+    let minimum = Decimal::from(minimum_amount);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let interval = Duration::from_secs(2);
+    let mut attempt = 0u32;
+
+    println!("waiting for global balance: mint={mint_str} required={minimum_amount}");
+
+    loop {
+        attempt += 1;
+        let balances = client.positions().deposit_token_balances().await?;
+        let entry = balances
+            .values()
+            .find(|balance| balance.mint.as_str() == mint_str);
+        let current_idle = entry.map(|e| e.idle).unwrap_or_default();
+        let symbol = entry.map(|e| e.symbol.as_str()).unwrap_or("unknown");
+
+        if current_idle >= minimum {
+            println!("global balance ready: {symbol} idle={current_idle} (attempt {attempt})");
+            return Ok(());
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        println!(
+            "global balance not ready: {symbol} idle={current_idle}/{minimum_amount} \
+             (attempt {attempt}, {}s remaining)",
+            remaining.as_secs()
+        );
+
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "global balance for {mint_str} did not reach {minimum_amount} within 30s"
+            )
+            .into());
+        }
+        tokio::time::sleep(interval).await;
+    }
+}
+
 pub fn parse_pubkey(value: &PubkeyStr) -> ExampleResult<Pubkey> {
     value.to_pubkey().map_err(|err| other(err).into())
 }

@@ -1,7 +1,8 @@
 mod common;
 
 use common::{
-    deposit_mint, fresh_order_nonce, get_keypair, market_and_orderbook, rest_client, ExampleResult,
+    deposit_mint, fresh_order_nonce, get_keypair, market_and_orderbook, rest_client,
+    wait_for_global_balance, ExampleResult,
 };
 use lightcone::prelude::*;
 use solana_signer::Signer;
@@ -49,6 +50,8 @@ async fn main() -> ExampleResult {
     client
         .set_signing_strategy(SigningStrategy::Native(keypair.clone()))
         .await;
+
+    wait_for_global_balance(&client, &mint, ORDER_QUOTE_AMOUNT).await?;
 
     // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     //    subsequent orders that omit `.nonce()` use this cached value.
