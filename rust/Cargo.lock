@@ -1704,7 +1704,7 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "lightcone"
-version = "0.5.2"
+version = "0.6.0"
 dependencies = [
  "async-lock",
  "async-stream",
@@ -1724,6 +1724,7 @@ dependencies = [
  "rust_decimal",
  "serde",
  "serde_json",
+ "serde_urlencoded",
  "sha3",
  "solana-client",
  "solana-commitment-config",

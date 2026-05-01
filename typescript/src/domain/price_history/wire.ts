@@ -56,6 +56,7 @@ export interface DepositTokenCandle {
   c: string;
 }
 
+/** Initial batch of historical candles sent on subscription. */
 export interface DepositPriceSnapshot {
   event_type: "snapshot";
   deposit_asset: string;
@@ -63,6 +64,7 @@ export interface DepositPriceSnapshot {
   prices: DepositTokenCandle[];
 }
 
+/** Real-time spot price tick, broadcast to all resolutions. */
 export interface DepositPriceTick {
   event_type: "price";
   deposit_asset: string;
@@ -70,6 +72,7 @@ export interface DepositPriceTick {
   event_time: number;
 }
 
+/** A single candle update for a specific resolution (e.g. a 1m candle closed). */
 export interface DepositPriceCandleUpdate {
   event_type: "candle";
   deposit_asset: string;
@@ -107,3 +110,33 @@ export interface DepositTokenPriceHistoryResponse {
   next_cursor: number | null;
   has_more: boolean;
 }
+
+/**
+ * REST response for `GET /api/deposit-asset-prices-snapshot`.
+ *
+ * Map of mint -> latest price (Decimal-as-string). Covers every active mint
+ * in `global_deposit_tokens` with a row in `deposit_token_prices` (live tick)
+ * or a recent 1m candle close (fallback). Mints with neither are absent.
+ */
+export interface DepositAssetPricesSnapshotResponse {
+  prices: Record<string, string>;
+}
+
+/** Snapshot payload sent on subscribe to `deposit_asset_price` for one asset. */
+export interface DepositAssetPriceSnapshot {
+  event_type: "snapshot";
+  deposit_asset: string;
+  price: string;
+}
+
+/** Live price tick for one deposit asset. */
+export interface DepositAssetPriceTick {
+  event_type: "price";
+  deposit_asset: string;
+  price: string;
+  event_time: number;
+}
+
+export type DepositAssetPriceEvent =
+  | DepositAssetPriceSnapshot
+  | DepositAssetPriceTick;

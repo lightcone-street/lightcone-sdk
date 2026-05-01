@@ -35,8 +35,12 @@ A fully validated market with all nested domain types.
 | `orderbook_pairs` | `Vec<OrderBookPair>` | Tradable pairs for this market |
 | `orderbook_ids` | `Vec<OrderBookId>` | Convenience list of orderbook IDs |
 | `token_metadata` | `HashMap<PubkeyStr, TokenMetadata>` | Metadata keyed by token mint |
-| `banner_image_url` | `String` | Market banner image |
-| `icon_url` | `String` | Market thumbnail |
+| `banner_image_url_low` | `String` | Market banner image (low quality) |
+| `banner_image_url_medium` | `String` | Market banner image (medium quality) |
+| `banner_image_url_high` | `String` | Market banner image (high quality) |
+| `icon_url_low` | `String` | Market thumbnail (low quality) |
+| `icon_url_medium` | `String` | Market thumbnail (medium quality) |
+| `icon_url_high` | `String` | Market thumbnail (high quality) |
 | `featured_rank` | `Option<i16>` | Featured position (if featured) |
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `activated_at` | `Option<DateTime<Utc>>` | When market became active |
@@ -62,7 +66,9 @@ An individual outcome within a market.
 |-------|------|-------------|
 | `index` | `i16` | Outcome index (0-based) |
 | `name` | `String` | Outcome name (e.g., "Yes", "No") |
-| `icon_url` | `Option<String>` | Outcome-specific icon |
+| `icon_url_low` | `String` | Outcome-specific icon (low quality) |
+| `icon_url_medium` | `String` | Outcome-specific icon (medium quality) |
+| `icon_url_high` | `String` | Outcome-specific icon (high quality) |
 
 ### `ConditionalToken`
 
@@ -74,7 +80,9 @@ An SPL token representing a bet on one outcome.
 | `outcome_index` | `i16` | Which outcome this token represents |
 | `outcome` | `String` | Outcome name (e.g., "Yes") |
 | `short_symbol` | `String` | Short symbol (e.g., "YES") |
-| `icon_url` | `String` | Token icon |
+| `icon_url_low` | `String` | Token icon (low quality) |
+| `icon_url_medium` | `String` | Token icon (medium quality) |
+| `icon_url_high` | `String` | Token icon (high quality) |
 
 ### `DepositAsset`
 
@@ -86,7 +94,24 @@ Collateral token accepted by the market.
 | `display_name` | `String` | Human-readable name |
 | `symbol` | `String` | Token symbol (e.g., "USDC") |
 | `decimals` | `u8` | Token decimals |
-| `icon_url` | `String` | Token icon |
+| `icon_url_low` | `String` | Token icon (low quality) |
+| `icon_url_medium` | `String` | Token icon (medium quality) |
+| `icon_url_high` | `String` | Token icon (high quality) |
+
+### `DepositAssetPair`
+
+A base/quote pairing of two `DepositAsset`s. Populated on
+`Market::deposit_asset_pairs` during wire→domain conversion — one entry per
+unique base/quote combination across the market's orderbook pairs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `String` | Stable identifier `"{base_pubkey}-{quote_pubkey}"` |
+| `base` | `DepositAsset` | Base deposit asset |
+| `quote` | `DepositAsset` | Quote deposit asset |
+
+Use this when building UIs that let users pick which collateral pair to trade,
+independently of outcome selection.
 
 ## Client Methods
 
@@ -143,6 +168,25 @@ async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError>
 ```
 
 Get the current featured markets. Returns only `Active` and `Resolved` markets.
+
+### `deposit_assets`
+
+```rust
+async fn deposit_assets(
+    &self,
+    market_pubkey: &PubkeyStr,
+) -> Result<DepositMintsResponse, SdkError>
+```
+
+Fetch the deposit assets registered for a specific market, including each asset's conditional mints. Returns the raw wire response (`DepositMintsResponse` / `DepositAssetResponse` / `ConditionalTokenResponse`) rather than a rich type so consumers can access the full payload without re-fetching the parent market.
+
+### `global_deposit_assets`
+
+```rust
+async fn global_deposit_assets(&self) -> Result<GlobalDepositAssetsResult, SdkError>
+```
+
+Fetch the active global deposit asset whitelist (platform-scoped, not market-bound). Assets that fail validation are skipped with their errors in `validation_errors`.
 
 ### Market Helpers
 
@@ -222,6 +266,11 @@ async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
         if let Some(price) = ob.last_trade_price {
             println!("    Last trade: {}", price);
         }
+    }
+
+    println!("Deposit asset pairs:");
+    for pair in &market.deposit_asset_pairs {
+        println!("  - {} (base={}, quote={})", pair.id, pair.base.symbol, pair.quote.symbol);
     }
 
     Ok(())

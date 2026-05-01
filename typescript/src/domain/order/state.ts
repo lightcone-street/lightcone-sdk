@@ -1,39 +1,55 @@
 import type { OrderBookId, PubkeyStr } from "../../shared";
-import type { Order, TriggerOrder } from "./index";
+import type { LimitOrder, TriggerOrder } from "./index";
 import type { OrderUpdate } from "./wire";
 import { orderFromUpdate } from "./convert";
 
-export class UserOpenOrders {
-  readonly orders: Map<PubkeyStr, Order[]>;
+export class UserOpenLimitOrders {
+  readonly orders: Map<PubkeyStr, Map<OrderBookId, LimitOrder[]>>;
 
   constructor() {
     this.orders = new Map();
   }
 
-  get(market: PubkeyStr): Order[] | undefined {
+  get(market: PubkeyStr, orderbookId: OrderBookId): LimitOrder[] | undefined {
+    return this.orders.get(market)?.get(orderbookId);
+  }
+
+  getByMarket(market: PubkeyStr): Map<OrderBookId, LimitOrder[]> | undefined {
     return this.orders.get(market);
   }
 
-  insert(order: Order): void {
-    const current = this.orders.get(order.marketPubkey) ?? [];
+  insert(order: LimitOrder): void {
+    let marketMap = this.orders.get(order.marketPubkey);
+    if (!marketMap) {
+      marketMap = new Map();
+      this.orders.set(order.marketPubkey, marketMap);
+    }
+    const current = marketMap.get(order.orderbookId) ?? [];
     current.push(order);
-    this.orders.set(order.marketPubkey, current);
+    marketMap.set(order.orderbookId, current);
   }
 
   upsert(update: OrderUpdate): void {
     const order = orderFromUpdate(update);
-    const current = this.orders.get(order.marketPubkey) ?? [];
+    let marketMap = this.orders.get(order.marketPubkey);
+    if (!marketMap) {
+      marketMap = new Map();
+      this.orders.set(order.marketPubkey, marketMap);
+    }
+    const current = marketMap.get(order.orderbookId) ?? [];
     const next = current.filter((existing) => existing.orderHash !== order.orderHash);
     next.push(order);
-    this.orders.set(order.marketPubkey, next);
+    marketMap.set(order.orderbookId, next);
   }
 
   remove(orderHash: string): void {
-    for (const [market, orders] of this.orders.entries()) {
-      this.orders.set(
-        market,
-        orders.filter((order) => order.orderHash !== orderHash)
-      );
+    for (const [, marketMap] of this.orders.entries()) {
+      for (const [orderbookId, orderList] of marketMap.entries()) {
+        marketMap.set(
+          orderbookId,
+          orderList.filter((order) => order.orderHash !== orderHash)
+        );
+      }
     }
   }
 
@@ -42,26 +58,39 @@ export class UserOpenOrders {
   }
 
   isEmpty(): boolean {
-    return Array.from(this.orders.values()).every((orders) => orders.length === 0);
+    for (const marketMap of this.orders.values()) {
+      for (const orderList of marketMap.values()) {
+        if (orderList.length > 0) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 }
 
 export class UserTriggerOrders {
-  readonly orders: Map<OrderBookId, TriggerOrder[]>;
+  readonly orders: Map<PubkeyStr, Map<OrderBookId, TriggerOrder[]>>;
 
   constructor() {
     this.orders = new Map();
   }
 
-  get(orderbookId: OrderBookId): TriggerOrder[] | undefined {
-    return this.orders.get(orderbookId);
+  get(market: PubkeyStr, orderbookId: OrderBookId): TriggerOrder[] | undefined {
+    return this.orders.get(market)?.get(orderbookId);
+  }
+
+  getByMarket(market: PubkeyStr): Map<OrderBookId, TriggerOrder[]> | undefined {
+    return this.orders.get(market);
   }
 
   getById(triggerOrderId: string): TriggerOrder | undefined {
-    for (const orders of this.orders.values()) {
-      const found = orders.find((order) => order.triggerOrderId === triggerOrderId);
-      if (found) {
-        return found;
+    for (const marketMap of this.orders.values()) {
+      for (const orderList of marketMap.values()) {
+        const found = orderList.find((order) => order.triggerOrderId === triggerOrderId);
+        if (found) {
+          return found;
+        }
       }
     }
 
@@ -69,18 +98,25 @@ export class UserTriggerOrders {
   }
 
   insert(order: TriggerOrder): void {
-    const current = this.orders.get(order.orderbookId) ?? [];
+    let marketMap = this.orders.get(order.marketPubkey);
+    if (!marketMap) {
+      marketMap = new Map();
+      this.orders.set(order.marketPubkey, marketMap);
+    }
+    const current = marketMap.get(order.orderbookId) ?? [];
     current.push(order);
-    this.orders.set(order.orderbookId, current);
+    marketMap.set(order.orderbookId, current);
   }
 
   remove(triggerOrderId: string): TriggerOrder | undefined {
-    for (const [orderbookId, orders] of this.orders.entries()) {
-      const index = orders.findIndex((order) => order.triggerOrderId === triggerOrderId);
-      if (index >= 0) {
-        const [removed] = orders.splice(index, 1);
-        this.orders.set(orderbookId, orders);
-        return removed;
+    for (const [, marketMap] of this.orders.entries()) {
+      for (const [orderbookId, orderList] of marketMap.entries()) {
+        const index = orderList.findIndex((order) => order.triggerOrderId === triggerOrderId);
+        if (index >= 0) {
+          const [removed] = orderList.splice(index, 1);
+          marketMap.set(orderbookId, orderList);
+          return removed;
+        }
       }
     }
 
@@ -92,14 +128,33 @@ export class UserTriggerOrders {
   }
 
   isEmpty(): boolean {
-    return Array.from(this.orders.values()).every((orders) => orders.length === 0);
+    for (const marketMap of this.orders.values()) {
+      for (const orderList of marketMap.values()) {
+        if (orderList.length > 0) {
+          return false;
+        }
+      }
+    }
+    return true;
   }
 
   len(): number {
-    return Array.from(this.orders.values()).reduce((acc, orders) => acc + orders.length, 0);
+    let count = 0;
+    for (const marketMap of this.orders.values()) {
+      for (const orderList of marketMap.values()) {
+        count += orderList.length;
+      }
+    }
+    return count;
   }
 
   all(): TriggerOrder[] {
-    return Array.from(this.orders.values()).flatMap((orders) => orders);
+    const result: TriggerOrder[] = [];
+    for (const marketMap of this.orders.values()) {
+      for (const orderList of marketMap.values()) {
+        result.push(...orderList);
+      }
+    }
+    return result;
   }
 }

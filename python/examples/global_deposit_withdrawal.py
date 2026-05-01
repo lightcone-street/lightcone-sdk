@@ -6,10 +6,10 @@ from solders.pubkey import Pubkey
 
 from common import (
     client as make_client,
-    deposit_mint,
     login,
-    market,
+    market_and_orderbook,
     num_outcomes,
+    quote_deposit_mint,
     get_keypair,
 )
 from lightcone_sdk.program.pda import get_position_alt_pda, get_position_pda
@@ -21,9 +21,9 @@ async def main():
     keypair = get_keypair()
     await login(client, keypair)
 
-    m = await market(client)
+    m, ob = await market_and_orderbook(client)
     market_pubkey = Pubkey.from_string(m.pubkey)
-    d_mint = deposit_mint(m)
+    d_mint = quote_deposit_mint(ob)
     outcomes = num_outcomes(m)
     amount = 1_000_000
     deposit_amount = amount * 2  # deposit extra so global has funds after market transfer
@@ -120,6 +120,21 @@ async def main():
         "withdraw_from_global",
         client.positions().withdraw_from_global()
             .user(keypair.pubkey())
+            .mint(d_mint)
+            .amount(amount)
+            .build_ix(),
+    ))
+
+    # 6. Merge — burn the complete set of conditional tokens minted in step 4
+    #    back to the deposit asset, returning the collateral to the user's
+    #    token account. Closes out the market position so the full example is
+    #    net-neutral on the wallet's balance, the global pool, and the market
+    #    position across CI runs.
+    instructions.append((
+        "merge",
+        client.positions().merge()
+            .user(keypair.pubkey())
+            .market(m)
             .mint(d_mint)
             .amount(amount)
             .build_ix(),

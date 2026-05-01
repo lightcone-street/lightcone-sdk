@@ -81,6 +81,17 @@ pub struct TokenBalance {
     pub token_type: TokenBalanceTokenType,
 }
 
+impl From<DepositTokenBalance> for TokenBalance {
+    fn from(value: DepositTokenBalance) -> Self {
+        Self {
+            mint: value.mint,
+            idle: value.idle,
+            on_book: Decimal::ZERO,
+            token_type: TokenBalanceTokenType::DepositAsset,
+        }
+    }
+}
+
 impl Default for TokenBalance {
     fn default() -> Self {
         Self {
@@ -124,7 +135,6 @@ pub struct DepositAssetMetadata {
     pub symbol: String,
     pub name: String,
     pub icon_url: String,
-    pub value: Decimal,
 }
 
 /// Combined balance + metadata for a deposit token.
@@ -134,5 +144,7 @@ pub struct DepositTokenBalance {
     pub idle: Decimal,
     pub symbol: String,
     pub name: String,
-    pub icon_url: String,
+    pub icon_url_low: Option<String>,
+    pub icon_url_medium: Option<String>,
+    pub icon_url_high: Option<String>,
 }

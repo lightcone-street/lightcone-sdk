@@ -11,7 +11,7 @@ pub mod wasm;
 use crate::domain::market::wire::MarketEvent;
 use crate::domain::order::wire::{AuthUpdate, UserUpdate};
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
-use crate::domain::price_history::wire::{DepositPrice, PriceHistory};
+use crate::domain::price_history::wire::{DepositAssetPriceEvent, DepositPrice, PriceHistory};
 use crate::domain::trade::wire::WsTrade;
 use crate::env::LightconeEnv;
 use crate::shared::{OrderBookId, PubkeyStr, Resolution};
@@ -139,6 +139,17 @@ impl MessageOut {
         }
         .into()
     }
+
+    /// Subscribe to the live spot price for one deposit asset (snapshot +
+    /// per-asset price ticks). Distinct from `subscribe_deposit_price`,
+    /// which carries OHLCV candles per resolution.
+    pub fn subscribe_deposit_asset_price(deposit_asset: PubkeyStr) -> MessageOut {
+        SubscribeParams::DepositAssetPrice { deposit_asset }.into()
+    }
+
+    pub fn unsubscribe_deposit_asset_price(deposit_asset: PubkeyStr) -> MessageOut {
+        UnsubscribeParams::DepositAssetPrice { deposit_asset }.into()
+    }
 }
 
 // ─── Inbound messages ────────────────────────────────────────────────────────
@@ -177,6 +188,8 @@ pub enum Kind {
     Market(MarketEvent),
     #[serde(rename = "deposit_price")]
     DepositPrice(DepositPrice),
+    #[serde(rename = "deposit_asset_price")]
+    DepositAssetPrice(DepositAssetPriceEvent),
 }
 
 #[derive(Deserialize, Debug, Clone)]

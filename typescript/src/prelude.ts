@@ -33,6 +33,7 @@ export type { ClientContext } from "./context";
 export { Auth } from "./auth";
 export { Admin } from "./domain/admin";
 export { Markets } from "./domain/market";
+export { Metrics } from "./domain/metrics";
 export { Orderbooks } from "./domain/orderbook";
 export { Orders } from "./domain/order";
 export { Positions } from "./domain/position";
@@ -42,11 +43,65 @@ export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
 
 export type {
+  AdminLogEvent,
+  AdminLogEventsQuery,
+  AdminLogEventsResponse,
+  AdminLogMetricBreakdown,
+  AdminLogMetricHistoryQuery,
+  AdminLogMetricHistoryResponse,
+  AdminLogMetricPoint,
+  AdminLogMetricSummary,
+  AdminLogMetricsQuery,
+  AdminLogMetricsResponse,
+  CodeListEntry,
+  ListCodesRequest,
+  ListCodesResponse,
+  ReferralConfig,
+  UpdateCodeRequest,
+  UpdateCodeResponse,
+  UpdateConfigRequest,
+} from "./domain/admin";
+
+export type {
+  CategoriesMetrics,
+  CategoryVolumeMetrics,
+  DepositTokenVolumeMetrics,
+  DepositTokensMetrics,
+  HistoryPoint,
+  Leaderboard,
+  LeaderboardEntry,
+  MarketDetailMetrics,
+  MarketOrderbookVolumeMetrics,
+  MarketVolumeMetrics,
+  MarketsMetrics,
+  MetricsHistory,
+  MetricsHistoryQuery,
+  OrderbookTickerEntry,
+  OrderbookTickersResponse,
+  OrderbookVolumeMetrics,
+  OutcomeVolumeMetrics,
+  PlatformMetrics,
+} from "./domain/metrics";
+
+export type {
+  FaucetRequest,
+  FaucetResponse,
+  FaucetToken,
+} from "./domain/faucet";
+
+export type {
+  ConditionalTokenResponse,
+  DepositAssetResponse,
+  DepositMintsResponse,
+} from "./domain/market/wire";
+
+export type {
   Market,
   Status,
   Outcome,
   ConditionalToken,
   DepositAsset,
+  GlobalDepositAsset,
   Token,
   TokenMetadata,
   ValidatedTokens,
@@ -61,6 +116,11 @@ export type {
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
 export { OrderbookState } from "./domain/orderbook/state";
+export type {
+  OrderbookApplyResult,
+  OrderbookIgnoreReason,
+  OrderbookRefreshReason,
+} from "./domain/orderbook/state";
 
 export type {
   CancelAllBody,
@@ -73,7 +133,7 @@ export type {
   FillInfo,
   GlobalDepositUpdate,
   NonceUpdate,
-  Order,
+  LimitOrder,
   OrderEvent,
   OrderStatus,
   OrderType,
@@ -85,7 +145,7 @@ export type {
   UserSnapshotOrder,
   UserOrdersResponse,
 } from "./domain/order";
-export type { UserOpenOrders, UserTriggerOrders } from "./domain/order/state";
+export type { UserOpenLimitOrders, UserTriggerOrders } from "./domain/order/state";
 
 export type {
   Portfolio,
@@ -122,6 +182,10 @@ export type {
   DepositPriceTick,
   DepositTokenCandle,
   DepositTokenPriceHistoryResponse,
+  DepositAssetPriceEvent,
+  DepositAssetPriceSnapshot,
+  DepositAssetPriceTick,
+  DepositAssetPricesSnapshotResponse,
   LineData,
   MidpointPriceCandle,
   OhlcvPriceCandle,
@@ -204,6 +268,8 @@ export type AuthClient = import("./auth").Auth;
 export type AdminClient = import("./domain/admin").Admin;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
+export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;
+export type MetricsClient = import("./domain/metrics").Metrics;
 export type OrderbooksClient = import("./domain/orderbook").Orderbooks;
 export type OrdersClient = import("./domain/order").Orders;
 export type PositionsClient = import("./domain/position").Positions;

@@ -5,7 +5,7 @@ import {
   rpcClient,
   getKeypair,
   marketAndOrderbook,
-  depositMint,
+  quoteDepositMint,
 } from "./common";
 
 async function main() {
@@ -27,7 +27,7 @@ async function main() {
   }
   const nonce = await client.orders().currentNonce(keypair.publicKey);
   const position = await client.positions().getOnchain(keypair.publicKey, marketPubkey);
-  const dMint = depositMint(m);
+  const dMint = quoteDepositMint(orderbook);
 
   console.log(
     `exchange: authority=${exchange.authority.toBase58()} operator=${exchange.operator.toBase58()} paused=${exchange.paused}`

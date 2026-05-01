@@ -1,6 +1,6 @@
 mod common;
 
-use common::{deposit_mint, get_keypair, market, rest_client, ExampleResult};
+use common::{get_keypair, market_and_orderbook, quote_deposit_mint, rest_client, ExampleResult};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 
@@ -18,8 +18,8 @@ fn describe_tx(name: &str, tx: &Transaction) -> ExampleResult {
 async fn main() -> ExampleResult {
     let client = rest_client()?;
     let keypair = get_keypair()?;
-    let market = market(&client).await?;
-    let deposit_mint = deposit_mint(&market)?;
+    let (market, orderbook) = market_and_orderbook(&client).await?;
+    let deposit_mint = quote_deposit_mint(&orderbook)?;
     let amount = 1_000_000;
     let blockhash = client.rpc().get_latest_blockhash().await?;
 

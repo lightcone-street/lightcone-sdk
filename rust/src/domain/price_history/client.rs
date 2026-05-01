@@ -2,7 +2,7 @@
 
 use crate::client::LightconeClient;
 use crate::domain::price_history::wire::{
-    DepositPriceHistoryResponse, OrderbookPriceHistoryResponse,
+    DepositAssetPricesSnapshotResponse, DepositPriceHistoryResponse, OrderbookPriceHistoryResponse,
 };
 use crate::domain::price_history::{
     DepositPriceHistoryQuery, LineData, OrderbookPriceHistoryQuery,
@@ -100,6 +100,25 @@ impl<'a> PriceHistoryClient<'a> {
             url = format!("{}&limit={}", url, ensure_page_limit(limit)?);
         }
 
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Snapshot of current prices for every active mint in `global_deposit_tokens`.
+    ///
+    /// No params. Returns a map of mint -> price (Decimal-as-string). The
+    /// backend prefers the live tick from `deposit_token_prices` and falls
+    /// back to the most recent 1m candle close. Assets with neither are
+    /// silently absent.
+    ///
+    /// For live updates, subscribe to `MessageOut::subscribe_deposit_asset_price`
+    /// per asset.
+    pub async fn get_deposit_asset_prices_snapshot(
+        &self,
+    ) -> Result<DepositAssetPricesSnapshotResponse, SdkError> {
+        let url = format!(
+            "{}/api/deposit-asset-prices-snapshot",
+            self.client.http.base_url()
+        );
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 

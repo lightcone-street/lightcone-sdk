@@ -13,7 +13,7 @@ async def main():
     print(f"logged in: {pubkey}")
 
     # 1. First page of user orders
-    snapshot = await client.orders().get_user_orders(pubkey, 50)
+    snapshot = await client.orders().get_user_orders(50)
 
     limit_orders = [o for o in snapshot.orders if o.order_type == "limit"]
     trigger_orders = [o for o in snapshot.orders if o.order_type == "trigger"]
@@ -35,9 +35,7 @@ async def main():
 
     # 2. Pagination
     if snapshot.next_cursor:
-        page2 = await client.orders().get_user_orders(
-            pubkey, 50, snapshot.next_cursor
-        )
+        page2 = await client.orders().get_user_orders(50, snapshot.next_cursor)
         print(f"next page: {len(page2.orders)} order(s)")
     else:
         print("no more pages")

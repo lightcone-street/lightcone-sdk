@@ -2,7 +2,8 @@
 //!
 //! Sub-entity of market. Wire types live in `super::wire`.
 
-use super::wire::DepositAssetResponse;
+use super::resolve_icon_urls;
+use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -18,7 +19,53 @@ pub trait Token {
     fn symbol(&self) -> &str;
     fn description(&self) -> &Option<String>;
     fn decimals(&self) -> u16;
-    fn icon_url(&self) -> &str;
+    fn icon_url_low(&self) -> &str;
+    fn icon_url_medium(&self) -> &str;
+    fn icon_url_high(&self) -> &str;
+
+    /// Display priority for sorting: lower values come first. BTC/WBTC tie
+    /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
+    /// alphabetical tail.
+    fn display_priority(&self) -> u8 {
+        match self.symbol() {
+            "BTC" | "WBTC" => 0,
+            "ETH" | "WETH" => 1,
+            "SOL" => 2,
+            _ => u8::MAX,
+        }
+    }
+}
+
+/// Types that expose a `Token` reference for display-priority sorting.
+///
+/// Blanket-implemented for every `T: Token`, so any token type sorts directly.
+/// Composite types (e.g. `DepositAssetPair`, `OrderBookPair`) can implement
+/// this by returning their `base` token, making them sortable with the same
+/// `sort_by_display_priority` helper.
+pub trait HasDisplayToken {
+    fn display_token(&self) -> &dyn Token;
+}
+
+impl<T: Token> HasDisplayToken for T {
+    fn display_token(&self) -> &dyn Token {
+        self
+    }
+}
+
+/// Returns a new `Vec` ordered for display: priority groups first
+/// (BTC/WBTC → ETH/WETH → SOL), then all remaining items alphabetically by
+/// the display token's symbol.
+pub fn sort_by_display_priority<T: HasDisplayToken + Clone>(items: &[T]) -> Vec<T> {
+    let mut sorted = items.to_vec();
+    sorted.sort_by(|left, right| {
+        let left_token = left.display_token();
+        let right_token = right.display_token();
+        left_token
+            .display_priority()
+            .cmp(&right_token.display_priority())
+            .then_with(|| left_token.symbol().cmp(right_token.symbol()))
+    });
+    sorted
 }
 
 // ─── ConditionalToken ────────────────────────────────────────────────────────
@@ -36,7 +83,9 @@ pub struct ConditionalToken {
     symbol: String,
     description: Option<String>,
     decimals: u16,
-    icon_url: String,
+    icon_url_low: String,
+    icon_url_medium: String,
+    icon_url_high: String,
 }
 
 impl Token for ConditionalToken {
@@ -58,8 +107,14 @@ impl Token for ConditionalToken {
     fn decimals(&self) -> u16 {
         self.decimals
     }
-    fn icon_url(&self) -> &str {
-        &self.icon_url
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
     }
 }
 
@@ -76,7 +131,9 @@ pub struct DepositAsset {
     pub symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
-    pub icon_url: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
 }
 
 impl Token for DepositAsset {
@@ -98,8 +155,14 @@ impl Token for DepositAsset {
     fn decimals(&self) -> u16 {
         self.decimals
     }
-    fn icon_url(&self) -> &str {
-        &self.icon_url
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
     }
 }
 
@@ -111,7 +174,9 @@ pub struct TokenMetadata {
     pub pubkey: PubkeyStr,
     pub symbol: String,
     pub decimals: u16,
-    pub icon_url: String,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
     pub name: String,
 }
 
@@ -163,7 +228,9 @@ impl ConditionalToken {
             symbol: "YES".to_string(),
             description: None,
             decimals: 6,
-            icon_url: "https://example.com/icon.png".to_string(),
+            icon_url_low: "https://example.com/icon_low.png".to_string(),
+            icon_url_medium: "https://example.com/icon_medium.png".to_string(),
+            icon_url_high: "https://example.com/icon_high.png".to_string(),
         }
     }
 }
@@ -179,6 +246,143 @@ impl DepositAsset {
         } else {
             ""
         }
+    }
+}
+
+// ─── DepositAssetPair ────────────────────────────────────────────────────────
+
+/// A pair of deposit assets that can be traded against each other as base/quote.
+///
+/// Populated on `Market::deposit_asset_pairs` during wire→domain conversion;
+/// one entry per unique `(base.deposit_asset, quote.deposit_asset)` combination
+/// across the market's orderbook pairs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DepositAssetPair {
+    /// Stable identifier of the form `"{base_pubkey}-{quote_pubkey}"`.
+    pub id: String,
+    pub base: DepositAsset,
+    pub quote: DepositAsset,
+}
+
+impl HasDisplayToken for DepositAssetPair {
+    fn display_token(&self) -> &dyn Token {
+        &self.base
+    }
+}
+
+// ─── GlobalDepositAsset ──────────────────────────────────────────────────────
+
+/// A globally whitelisted deposit asset (platform-scoped, not market-bound).
+///
+/// Distinct from `DepositAsset`, which is bound to a specific market.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GlobalDepositAsset {
+    id: i32,
+    deposit_asset: PubkeyStr,
+    name: String,
+    symbol: String,
+    description: Option<String>,
+    decimals: u16,
+    icon_url_low: String,
+    icon_url_medium: String,
+    icon_url_high: String,
+    pub whitelist_index: i16,
+    pub active: bool,
+}
+
+impl Token for GlobalDepositAsset {
+    fn id(&self) -> i32 {
+        self.id
+    }
+    fn pubkey(&self) -> &PubkeyStr {
+        &self.deposit_asset
+    }
+    fn name(&self) -> &str {
+        &self.name
+    }
+    fn symbol(&self) -> &str {
+        &self.symbol
+    }
+    fn description(&self) -> &Option<String> {
+        &self.description
+    }
+    fn decimals(&self) -> u16 {
+        self.decimals
+    }
+    fn icon_url_low(&self) -> &str {
+        &self.icon_url_low
+    }
+    fn icon_url_medium(&self) -> &str {
+        &self.icon_url_medium
+    }
+    fn icon_url_high(&self) -> &str {
+        &self.icon_url_high
+    }
+}
+
+impl GlobalDepositAsset {
+    pub fn is_usd_stable_coin(&self) -> bool {
+        is_usd_stablecoin(&self.deposit_asset)
+    }
+
+    pub fn currency_symbol(&self) -> &'static str {
+        if is_usd_stablecoin(self.pubkey()) {
+            "$"
+        } else {
+            ""
+        }
+    }
+}
+
+impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
+    type Error = TokenValidationError;
+
+    fn try_from(source: GlobalDepositAssetResponse) -> Result<Self, Self::Error> {
+        let mut errors: Vec<TokenValidationError> = Vec::new();
+        let mint_str = source.mint.clone();
+
+        let name = source.display_name.unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingDisplayName(mint_str.clone()));
+            String::new()
+        });
+        let symbol = source.symbol.unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingSymbol(mint_str.clone()));
+            String::new()
+        });
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
+            errors.push(TokenValidationError::MissingIconUrl(mint_str.clone()));
+            (String::new(), String::new(), String::new())
+        });
+        let decimals = source
+            .decimals
+            .map(|value| value as u16)
+            .unwrap_or_else(|| {
+                errors.push(TokenValidationError::MissingDecimals(mint_str.clone()));
+                0
+            });
+
+        if !errors.is_empty() {
+            return Err(TokenValidationError::Multiple(mint_str, errors));
+        }
+
+        Ok(Self {
+            id: source.id,
+            deposit_asset: PubkeyStr::from(source.mint),
+            name,
+            symbol,
+            description: source.description,
+            decimals,
+            icon_url_low,
+            icon_url_medium,
+            icon_url_high,
+            whitelist_index: source.whitelist_index,
+            active: source.active,
+        })
     }
 }
 
@@ -253,11 +457,16 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
         let mut conditionals: Vec<ConditionalToken> = Vec::new();
         let pubkey: PubkeyStr = source.deposit_asset.clone().into();
 
-        let icon_url = source.icon_url.unwrap_or_else(|| {
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingIconUrl(
                 source.deposit_asset.clone(),
             ));
-            String::new()
+            (String::new(), String::new(), String::new())
         });
         let name = source.display_name.unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingDisplayName(
@@ -284,7 +493,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 pubkey: pubkey.clone(),
                 symbol: symbol.clone(),
                 decimals,
-                icon_url: icon_url.clone(),
+                icon_url_low: icon_url_low.clone(),
+                icon_url_medium: icon_url_medium.clone(),
+                icon_url_high: icon_url_high.clone(),
                 name: name.clone(),
             },
         );
@@ -316,13 +527,27 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 continue;
             }
 
+            // First try cross-fallback among the conditional token's own URLs,
+            // then fall back to the parent deposit asset URLs.
+            let (ct_icon_url_low, ct_icon_url_medium, ct_icon_url_high) =
+                resolve_icon_urls(ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high)
+                    .unwrap_or_else(|| {
+                        (
+                            icon_url_low.clone(),
+                            icon_url_medium.clone(),
+                            icon_url_high.clone(),
+                        )
+                    });
+
             metadata.insert(
                 ct_pubkey.clone(),
                 TokenMetadata {
                     pubkey: ct_pubkey.clone(),
                     symbol: ct_symbol.clone(),
                     decimals: ct_decimals,
-                    icon_url: icon_url.clone(),
+                    icon_url_low: ct_icon_url_low.clone(),
+                    icon_url_medium: ct_icon_url_medium.clone(),
+                    icon_url_high: ct_icon_url_high.clone(),
                     name: ct_outcome.clone(),
                 },
             );
@@ -332,7 +557,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 deposit_symbol: symbol.clone(),
                 deposit_asset: pubkey.clone(),
                 outcome_index: ct.outcome_index,
-                icon_url: icon_url.clone(),
+                icon_url_low: ct_icon_url_low,
+                icon_url_medium: ct_icon_url_medium,
+                icon_url_high: ct_icon_url_high,
                 description: ct.description,
                 outcome: ct_outcome.clone(),
                 mint: ct_pubkey,
@@ -356,7 +583,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 symbol,
                 description: source.description,
                 decimals,
-                icon_url,
+                icon_url_low,
+                icon_url_medium,
+                icon_url_high,
             },
             conditionals,
             metadata,
@@ -381,7 +610,9 @@ mod tests {
             vault: "vault".to_string(),
             num_outcomes: 2,
             description: None,
-            icon_url: Some("https://example.com/usdc.png".to_string()),
+            icon_url_low: Some("https://example.com/usdc_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/usdc_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
             conditional_mints: vec![ConditionalTokenResponse {
@@ -394,7 +625,9 @@ mod tests {
                 deposit_symbol: None,
                 short_symbol: Some("YES".to_string()),
                 description: None,
-                icon_url: None,
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
                 metadata_uri: None,
                 decimals: Some(6),
                 created_at: Utc::now(),
@@ -421,9 +654,11 @@ mod tests {
     }
 
     #[test]
-    fn test_validated_tokens_missing_icon_fails() {
+    fn test_validated_tokens_missing_all_icons_fails() {
         let mut resp = minimal_deposit_asset_response();
-        resp.icon_url = None;
+        resp.icon_url_low = None;
+        resp.icon_url_medium = None;
+        resp.icon_url_high = None;
         let err = ValidatedTokens::try_from(resp).unwrap_err();
         assert!(format!("{err}").contains("icon") || format!("{err}").contains("Icon"));
     }
@@ -433,5 +668,102 @@ mod tests {
         // ConditionalToken::is_usd_stable_coin checks deposit_asset.
         let ct = ConditionalToken::test_new_with_deposit("mint", 0, USDC_MAINNET);
         assert!(ct.is_usd_stable_coin());
+    }
+
+    fn minimal_global_deposit_asset_response() -> GlobalDepositAssetResponse {
+        GlobalDepositAssetResponse {
+            id: 1,
+            mint: USDC_MAINNET.to_string(),
+            display_name: Some("USD Coin".to_string()),
+            symbol: Some("USDC".to_string()),
+            description: Some("Stablecoin".to_string()),
+            icon_url_low: Some("https://example.com/usdc_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/usdc_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
+            decimals: Some(6),
+            whitelist_index: 0,
+            active: true,
+        }
+    }
+
+    #[test]
+    fn test_global_deposit_asset_valid_conversion() {
+        let response = minimal_global_deposit_asset_response();
+        let asset = GlobalDepositAsset::try_from(response).unwrap();
+        assert_eq!(asset.symbol(), "USDC");
+        assert_eq!(asset.name(), "USD Coin");
+        assert_eq!(asset.decimals(), 6);
+        assert_eq!(asset.whitelist_index, 0);
+        assert!(asset.active);
+        assert!(asset.is_usd_stable_coin());
+    }
+
+    #[test]
+    fn test_global_deposit_asset_missing_symbol_fails() {
+        let mut response = minimal_global_deposit_asset_response();
+        response.symbol = None;
+        let error = GlobalDepositAsset::try_from(response).unwrap_err();
+        let rendered = format!("{error}");
+        assert!(rendered.contains("symbol") || rendered.contains("Symbol"));
+    }
+
+    #[test]
+    fn test_global_deposit_asset_missing_decimals_fails() {
+        let mut response = minimal_global_deposit_asset_response();
+        response.decimals = None;
+        let error = GlobalDepositAsset::try_from(response).unwrap_err();
+        let rendered = format!("{error}");
+        assert!(rendered.contains("ecimals"));
+    }
+
+    fn global_deposit_asset_with_symbol(symbol: &str) -> GlobalDepositAsset {
+        let mut response = minimal_global_deposit_asset_response();
+        response.symbol = Some(symbol.to_string());
+        response.mint = format!("mint_{symbol}");
+        GlobalDepositAsset::try_from(response).unwrap()
+    }
+
+    #[test]
+    fn test_sort_by_display_priority_orders_priority_then_alpha() {
+        let assets = vec![
+            global_deposit_asset_with_symbol("USDC"),
+            global_deposit_asset_with_symbol("SOL"),
+            global_deposit_asset_with_symbol("WETH"),
+            global_deposit_asset_with_symbol("AAA"),
+            global_deposit_asset_with_symbol("WBTC"),
+            global_deposit_asset_with_symbol("ETH"),
+            global_deposit_asset_with_symbol("BTC"),
+            global_deposit_asset_with_symbol("ZZZ"),
+        ];
+
+        let sorted = sort_by_display_priority(&assets);
+        let symbols: Vec<&str> = sorted.iter().map(|a| a.symbol()).collect();
+
+        assert_eq!(
+            symbols,
+            vec!["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"]
+        );
+    }
+
+    #[test]
+    fn test_global_deposit_asset_impls_token_trait() {
+        let response = minimal_global_deposit_asset_response();
+        let asset = GlobalDepositAsset::try_from(response).unwrap();
+        let trait_object: &dyn Token = &asset;
+        assert_eq!(trait_object.id(), 1);
+        assert_eq!(trait_object.symbol(), "USDC");
+        assert_eq!(trait_object.decimals(), 6);
+        assert_eq!(
+            trait_object.icon_url_low(),
+            "https://example.com/usdc_low.png"
+        );
+        assert_eq!(
+            trait_object.icon_url_medium(),
+            "https://example.com/usdc_medium.png"
+        );
+        assert_eq!(
+            trait_object.icon_url_high(),
+            "https://example.com/usdc_high.png"
+        );
     }
 }

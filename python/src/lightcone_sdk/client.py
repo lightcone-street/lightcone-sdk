@@ -12,7 +12,9 @@ from solders.pubkey import Pubkey
 from .auth import AuthCredentials
 from .auth.client import Auth
 from .domain.admin.client import Admin
+from .domain.faucet import FaucetRequest, FaucetResponse
 from .domain.market.client import Markets
+from .domain.metrics.client import Metrics
 from .domain.notification.client import Notifications
 from .domain.order.client import Orders
 from .domain.orderbook.client import Orderbooks
@@ -72,6 +74,7 @@ class LightconeClient:
         self._privy = Privy(self)
         self._referrals = Referrals(self)
         self._notifications = Notifications(self)
+        self._metrics = Metrics(self)
         self._rpc = Rpc(self)
 
     # ── Properties ───────────────────────────────────────────────────────
@@ -237,6 +240,23 @@ class LightconeClient:
     def notifications(self) -> Notifications:
         return self._notifications
 
+    def metrics(self) -> Metrics:
+        """Metrics sub-client — platform / market / orderbook / category /
+        deposit-token volume metrics, market leaderboard, and time-series history."""
+        return self._metrics
+
+    async def claim(self, wallet_address: str) -> FaucetResponse:
+        """Request testnet SOL + whitelisted deposit tokens for a wallet.
+
+        Only active on environments whose backend has the faucet enabled
+        (typically local and staging).
+
+        POST /api/claim
+        """
+        request = FaucetRequest(wallet_address=wallet_address)
+        data = await self._http.post("/api/claim", request.to_dict())
+        return FaucetResponse.from_dict(data)
+
     def rpc(self) -> Rpc:
         """RPC sub-client — PDA helpers, account fetchers, and blockhash access."""
         return self._rpc
@@ -250,6 +270,27 @@ class LightconeClient:
 
     def ws_config(self) -> WsConfig:
         return self._ws_config
+
+    # ── Auth token (cookie) ─────────────────────────────────────────────
+
+    @property
+    def auth_token(self) -> Optional[str]:
+        """Current ``auth_token`` cookie value, if any.
+
+        Populated by the SDK after a successful login, then attached on
+        every authed request. Useful for forwarding the token through
+        ``*_with_auth`` methods or persisting the session across
+        processes.
+        """
+        return self._http.auth_token
+
+    def clear_auth_token(self) -> None:
+        """Clear the cached ``auth_token``.
+
+        Subsequent authed calls will go out without a ``Cookie`` header
+        (and 401) unless they use a ``*_with_auth`` variant.
+        """
+        self._http.clear_auth_token()
 
     async def close(self) -> None:
         """Close the HTTP session."""

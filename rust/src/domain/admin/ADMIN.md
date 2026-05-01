@@ -87,6 +87,17 @@ async fn upsert_metadata(
 
 Upsert metadata for markets, outcomes, conditional tokens, and deposit tokens in a single batch operation. Requires prior `admin_login()`.
 
+### `upload_market_deployment_assets`
+
+```rust
+async fn upload_market_deployment_assets(
+    &self,
+    request: &UploadMarketDeploymentAssetsRequest,
+) -> Result<UploadMarketDeploymentAssetsResponse, SdkError>
+```
+
+Upload banner/icon/outcome/conditional-token images and metadata for a newly created market. Each image is passed as an `*_image_data_url` (data URL) plus `*_image_content_type`; the backend stores them and returns the resulting URLs. Requires prior `admin_login()`.
+
 ### `allocate_codes`
 
 ```rust
@@ -152,6 +163,88 @@ async fn dismiss_notification(
 ```
 
 Dismiss a notification. Requires prior `admin_login()`.
+
+### `get_referral_config`
+
+```rust
+async fn get_referral_config(&self) -> Result<ReferralConfig, SdkError>
+```
+
+Fetch the platform-wide referral configuration (`default_code_count` + `updated_at`). Requires prior `admin_login()`.
+
+### `update_referral_config`
+
+```rust
+async fn update_referral_config(
+    &self,
+    request: &UpdateConfigRequest,
+) -> Result<ReferralConfig, SdkError>
+```
+
+Update the platform-wide referral configuration. Passing `default_code_count: None` is accepted as a no-op. Requires prior `admin_login()`.
+
+### `list_referral_codes`
+
+```rust
+async fn list_referral_codes(
+    &self,
+    request: &ListCodesRequest,
+) -> Result<ListCodesResponse, SdkError>
+```
+
+List referral codes with optional owner/batch/code filters and offset+limit pagination. Requires prior `admin_login()`.
+
+### `update_referral_code`
+
+```rust
+async fn update_referral_code(
+    &self,
+    request: &UpdateCodeRequest,
+) -> Result<UpdateCodeResponse, SdkError>
+```
+
+Update the `max_uses` on an existing referral code. Requires prior `admin_login()`.
+
+### `list_log_events`
+
+```rust
+async fn list_log_events(
+    &self,
+    query: &AdminLogEventsQuery,
+) -> Result<AdminLogEventsResponse, SdkError>
+```
+
+List structured log events with optional filters (time range, service, component, severity, user/market/orderbook, etc.). Pagination is cursor-based — pass the previous response's `next_cursor` on the next call. Requires prior `admin_login()`.
+
+### `get_log_event`
+
+```rust
+async fn get_log_event(&self, public_id: &str) -> Result<AdminLogEvent, SdkError>
+```
+
+Fetch a single log event by its `public_id`. Requires prior `admin_login()`.
+
+### `log_metrics`
+
+```rust
+async fn log_metrics(
+    &self,
+    query: &AdminLogMetricsQuery,
+) -> Result<AdminLogMetricsResponse, SdkError>
+```
+
+Fetch rolled-up log metrics broken down by window and scope. `windows` and `scopes` are CSV lists (`"1h,24h"` or `"service,component"`). Requires prior `admin_login()`.
+
+### `log_metric_history`
+
+```rust
+async fn log_metric_history(
+    &self,
+    query: &AdminLogMetricHistoryQuery,
+) -> Result<AdminLogMetricHistoryResponse, SdkError>
+```
+
+Fetch a time-series of log metric buckets for a given scope (optionally narrowed to a `scope_key`). Use `AdminLogMetricHistoryQuery::new("service")` for default `"1h"` resolution. Requires prior `admin_login()`.
 
 ### On-Chain Instruction & Transaction Builders
 
@@ -313,6 +406,92 @@ Batch metadata upsert payload. All arrays are optional — only include the enti
 
 Each payload struct uses `Option<T>` fields — only non-`None` fields are updated, leaving other fields unchanged.
 
+### `UploadMarketDeploymentAssetsRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_id` | `i64` | On-chain market ID |
+| `market_pubkey` | `String` | On-chain market public key |
+| `market` | `MarketDeploymentMarket` | Market-level fields and image payloads |
+| `outcomes` | `Vec<MarketDeploymentOutcome>` | Per-outcome metadata + images (default empty) |
+| `deposit_assets` | `Vec<MarketDeploymentDepositAsset>` | Deposit assets referenced by this market (default empty) |
+| `conditional_tokens` | `Vec<MarketDeploymentConditionalToken>` | Per-token metadata + image (default empty) |
+
+#### `MarketDeploymentMarket`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` / `slug` | `String` | Required display name + URL slug |
+| `description` / `definition` | `Option<String>` | Long description and resolution definition |
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Existing banner URLs by quality (used when no matching data URL is supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no matching data URL is supplied) |
+| `category` / `subcategory` | `Option<String>` | Categorization |
+| `tags` | `Vec<String>` | Free-form tags (default empty) |
+| `featured_rank` | `Option<i32>` | Rank on the featured list, if any |
+| `banner_image_data_url` / `banner_image_content_type` | `Option<String>` | New banner upload (data URL + MIME) |
+| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+
+#### `MarketDeploymentOutcome`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | `i32` | Outcome index within the market |
+| `name` / `symbol` | `String` | Display name and short symbol |
+| `description` | `Option<String>` | Optional long description |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no data URL is supplied) |
+| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+
+#### `MarketDeploymentDepositAsset`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | `String` | Deposit asset mint (base58) |
+| `display_name` / `symbol` | `String` | Display name and ticker symbol |
+| `decimals` | `i32` | Token decimals |
+| `description` | `Option<String>` | Optional description |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Icon URLs by quality |
+
+#### `MarketDeploymentConditionalToken`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `outcome_index` | `i32` | Associated outcome index |
+| `deposit_mint` / `conditional_mint` | `String` | Underlying deposit mint and derived conditional mint |
+| `name` / `symbol` | `String` | Display name and ticker symbol for the conditional token |
+| `description` | `Option<String>` | Optional description |
+| `image_data_url` / `image_content_type` | `String` | Required image upload (data URL + MIME) |
+
+### `UploadMarketDeploymentAssetsResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_metadata_uri` | `String` | URI of the uploaded market metadata JSON |
+| `market` | `UploadedMarketImages` | Resolved banner/icon URLs for the market |
+| `outcomes` | `Vec<UploadedOutcomeImages>` | Resolved icon URLs per outcome |
+| `tokens` | `Vec<UploadedConditionalToken>` | Resolved image + metadata URIs per conditional token |
+
+#### `UploadedMarketImages`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded banner URLs by quality (or `None` if not supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded icon URLs by quality (or `None` if not supplied) |
+
+#### `UploadedOutcomeImages`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | `i32` | Outcome index |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded icon URLs by quality (or `None` if not supplied) |
+
+#### `UploadedConditionalToken`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditional_mint` | `String` | Conditional token mint |
+| `image_url` | `String` | Uploaded image URL |
+| `metadata_uri` | `String` | Uploaded metadata JSON URI |
+
 ### `AllocateCodesRequest`
 
 | Field | Type | Description |
@@ -336,6 +515,65 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 |-------|------|-------------|
 | `target` | `TargetSpec` | Who to revoke/unrevoke |
 | `reason` | `Option<String>` | Reason for revocation (revoke only) |
+
+### `ReferralConfig`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default_code_count` | `i32` | Codes allocated per new user |
+| `updated_at` | `DateTime<Utc>` | Last time the config changed |
+
+### `UpdateConfigRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `default_code_count` | `Option<i32>` | New default; `None` is a no-op |
+
+### `ListCodesRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `owner_user_id` / `batch_id` / `code` | `Option<String>` | Filters |
+| `limit` | `u32` | Max codes per page |
+| `offset` | `u32` | Offset for pagination |
+
+### `ListCodesResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `codes` | `Vec<CodeListEntry>` | Codes matching the filter |
+| `count` | `usize` | Total matching codes (across pages) |
+
+### `CodeListEntry`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `String` | The referral code |
+| `owner_user_id` | `String` | User who owns the code |
+| `batch_id` | `String` | Batch identifier |
+| `is_vanity` | `bool` | Whether it was manually assigned |
+| `max_uses` | `i32` | Maximum redemptions |
+| `use_count` | `i64` | Redemptions so far |
+| `created_at` | `DateTime<Utc>` | When the code was created |
+
+### `UpdateCodeRequest` / `UpdateCodeResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `code` | `String` | The referral code to update |
+| `max_uses` | `i32` | New maximum redemption count |
+
+### `AdminLogEventsQuery`
+
+Filter set for the events listing endpoint. All fields optional. Keys include `from_ms`, `to_ms`, `service_name`, `environment`, `category`, `severity`, `component`, `operation`, `fingerprint`, `response_status`, `user_visible`, `request_id`, `user_pubkey` (`PubkeyStr`), `market_pubkey` (`PubkeyStr`), `orderbook_id` (`OrderBookId`), `order_hash`, `trigger_order_id`, `tx_signature`, `checkpoint_signature`, `limit`, and `cursor`.
+
+### `AdminLogEvent`
+
+A single structured log event. Key fields: `id`, `public_id`, `service_name`, `environment`, `component`, `operation`, `category`, `severity`, `occurred_at_ms`, `created_at_ms`, `user_visible`, and free-form `context: serde_json::Value`. Entity bindings (`user_pubkey`, `market_pubkey`, `orderbook_id`, etc.) are all optional.
+
+### `AdminLogEventsResponse`, `AdminLogMetricsResponse`, `AdminLogMetricHistoryResponse`
+
+Envelope types holding paged events, breakdown rows, and history points respectively. See [`wire.rs`](./wire.rs) for the exact field list.
 
 ## TargetSpec
 

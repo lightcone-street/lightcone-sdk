@@ -54,6 +54,18 @@ class DepositPriceParams:
     resolution: str = "1m"
 
 
+@dataclass
+class DepositAssetPriceParams:
+    """Subscribe to the live spot price for one deposit asset.
+
+    Snapshot on subscribe + per-asset price ticks. Distinct from
+    `DepositPriceParams` which carries OHLCV candles per resolution.
+    """
+
+    type: str = "deposit_asset_price"
+    deposit_asset: str = ""
+
+
 SubscribeParams = Union[
     BookUpdateParams,
     TradesParams,
@@ -62,6 +74,7 @@ SubscribeParams = Union[
     TickerParams,
     MarketParams,
     DepositPriceParams,
+    DepositAssetPriceParams,
 ]
 
 UnsubscribeParams = SubscribeParams  # Same shapes for unsubscribe
@@ -91,6 +104,8 @@ def subscription_key(params: SubscribeParams) -> str:
         return f"market:{params.market_pubkey}"
     elif isinstance(params, DepositPriceParams):
         return f"deposit_price:{params.deposit_asset}:{params.resolution}"
+    elif isinstance(params, DepositAssetPriceParams):
+        return f"deposit_asset_price:{params.deposit_asset}"
     return f"unknown:{id(params)}"
 
 
@@ -109,6 +124,7 @@ __all__ = [
     "TickerParams",
     "MarketParams",
     "DepositPriceParams",
+    "DepositAssetPriceParams",
     "SubscribeParams",
     "UnsubscribeParams",
     "subscription_key",

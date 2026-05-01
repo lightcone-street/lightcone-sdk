@@ -84,14 +84,45 @@ export async function marketAndOrderbook(
   return [m, ob];
 }
 
-export function depositMint(m: Market): PublicKey {
-  const asset = m.depositAssets[0];
-  if (!asset) throw new Error("Market has no deposit assets");
-  return new PublicKey(asset.pubkey);
+export function quoteDepositMint(orderbook: OrderBookPair): PublicKey {
+  return new PublicKey(orderbook.quote.depositAsset);
 }
 
 export function numOutcomes(m: Market): number {
   return m.outcomes.length;
+}
+
+export async function waitForGlobalBalance(
+  client: LightconeClient,
+  mint: PublicKey,
+  minimumAmount: number,
+  timeoutMs = 30_000,
+  intervalMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  const mintStr = mint.toBase58();
+  let attempt = 0;
+  console.log(`waiting for global balance: mint=${mintStr} required=${minimumAmount}`);
+  while (Date.now() < deadline) {
+    attempt++;
+    const balances = await client.positions().depositTokenBalances();
+    const entry = Object.values(balances).find((balance) => balance.mint === mintStr);
+    const currentIdle = entry ? Number(entry.idle) : 0;
+    const symbol = entry?.symbol ?? "unknown";
+    if (currentIdle >= minimumAmount) {
+      console.log(`global balance ready: ${symbol} idle=${currentIdle} (attempt ${attempt})`);
+      return;
+    }
+    const remainingMs = deadline - Date.now();
+    console.log(
+      `global balance not ready: ${symbol} idle=${currentIdle}/${minimumAmount} ` +
+      `(attempt ${attempt}, ${Math.round(remainingMs / 1000)}s remaining)`
+    );
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error(
+    `global balance for ${mintStr} did not reach ${minimumAmount} within ${timeoutMs}ms`,
+  );
 }
 
 export async function freshOrderNonce(

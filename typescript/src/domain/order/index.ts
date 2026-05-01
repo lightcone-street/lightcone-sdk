@@ -19,7 +19,7 @@ export enum OrderStatus {
   Pending = "PENDING",
 }
 
-export interface Order {
+export interface LimitOrder {
   marketPubkey: PubkeyStr;
   orderbookId: OrderBookId;
   txSignature?: string;

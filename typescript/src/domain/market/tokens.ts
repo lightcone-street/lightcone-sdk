@@ -1,6 +1,11 @@
 import type { PubkeyStr } from "../../shared";
 import { asPubkeyStr } from "../../shared";
-import type { ConditionalTokenResponse, DepositAssetResponse } from "./wire";
+import { resolveIconUrls } from "./icon";
+import type {
+  ConditionalTokenResponse,
+  DepositAssetResponse,
+  GlobalDepositAssetResponse,
+} from "./wire";
 
 export interface Token {
   id: number;
@@ -9,7 +14,63 @@ export interface Token {
   symbol: string;
   description?: string;
   decimals: number;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
+}
+
+/**
+ * Display priority for sorting: lower values come first. BTC/WBTC tie at 0,
+ * ETH/WETH tie at 1, SOL at 2; everything else falls to the alphabetical tail.
+ */
+export function tokenDisplayPriority(token: Pick<Token, "symbol">): number {
+  switch (token.symbol) {
+    case "BTC":
+    case "WBTC":
+      return 0;
+    case "ETH":
+    case "WETH":
+      return 1;
+    case "SOL":
+      return 2;
+    default:
+      return 255;
+  }
+}
+
+/**
+ * Shape accepted by {@link sortByDisplayPriority}. Either a token with a
+ * top-level `symbol`, or a composite (e.g. `DepositAssetPair`, `OrderBookPair`)
+ * that carries its display token on `base`.
+ */
+export type DisplaySortable =
+  | Pick<Token, "symbol">
+  | { readonly base: Pick<Token, "symbol"> };
+
+function displaySymbol(item: DisplaySortable): string {
+  return "symbol" in item ? item.symbol : item.base.symbol;
+}
+
+/**
+ * Returns a new array ordered for display: priority groups first
+ * (BTC/WBTC → ETH/WETH → SOL), then all remaining items alphabetically by the
+ * display token's symbol.
+ *
+ * Accepts both pure tokens and composite types whose display token lives on
+ * `base` (e.g. `DepositAssetPair`, `OrderBookPair`).
+ */
+export function sortByDisplayPriority<T extends DisplaySortable>(items: readonly T[]): T[] {
+  const copy = [...items];
+  copy.sort((left, right) => {
+    const leftSymbol = displaySymbol(left);
+    const rightSymbol = displaySymbol(right);
+    const priorityDelta =
+      tokenDisplayPriority({ symbol: leftSymbol }) -
+      tokenDisplayPriority({ symbol: rightSymbol });
+    if (priorityDelta !== 0) return priorityDelta;
+    return leftSymbol.localeCompare(rightSymbol);
+  });
+  return copy;
 }
 
 export interface ConditionalToken extends Token {
@@ -25,11 +86,38 @@ export interface DepositAsset extends Token {
   numOutcomes: number;
 }
 
+/**
+ * A base/quote pairing of two `DepositAsset`s.
+ *
+ * Populated on `Market.depositAssetPairs` during wire→domain conversion —
+ * one entry per unique base/quote combination across the market's orderbook
+ * pairs.
+ */
+export interface DepositAssetPair {
+  /** Stable identifier of the form `"{basePubkey}-{quotePubkey}"`. */
+  id: string;
+  base: DepositAsset;
+  quote: DepositAsset;
+}
+
+/**
+ * A globally whitelisted deposit asset (platform-scoped, not market-bound).
+ *
+ * Distinct from `DepositAsset`, which is bound to a specific market.
+ */
+export interface GlobalDepositAsset extends Token {
+  depositAsset: PubkeyStr;
+  whitelistIndex: number;
+  active: boolean;
+}
+
 export interface TokenMetadata {
   pubkey: PubkeyStr;
   symbol: string;
   decimals: number;
-  iconUrl: string;
+  iconUrlLow: string;
+  iconUrlMedium: string;
+  iconUrlHigh: string;
   name: string;
 }
 
@@ -66,12 +154,12 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   const metadata: Record<string, TokenMetadata> = {};
 
   const depositPubkey = asPubkeyStr(source.deposit_asset);
-  const iconUrl = source.icon_url;
+  const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
   const name = source.display_name;
   const symbol = source.symbol;
   const decimals = source.decimals;
 
-  if (!iconUrl) errors.push("Missing icon URL");
+  if (!iconUrls) errors.push("Missing icon URL");
   if (!name) errors.push("Missing display name");
   if (!symbol) errors.push("Missing symbol");
   if (decimals === undefined) errors.push("Missing decimals");
@@ -84,12 +172,14 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
     pubkey: depositPubkey,
     symbol: symbol ?? "",
     decimals: decimals ?? 0,
-    iconUrl: iconUrl ?? "",
+    iconUrlLow: iconUrls?.low ?? "",
+    iconUrlMedium: iconUrls?.medium ?? "",
+    iconUrlHigh: iconUrls?.high ?? "",
     name: name ?? "",
   };
 
   const conditionals = source.conditional_mints.map((conditional) =>
-    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrl ?? "")
+    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrls?.low ?? "", iconUrls?.medium ?? "", iconUrls?.high ?? "")
   );
 
   for (const conditional of conditionals) {
@@ -97,7 +187,9 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       pubkey: conditional.pubkey,
       symbol: conditional.symbol,
       decimals: conditional.decimals,
-      iconUrl: conditional.iconUrl,
+      iconUrlLow: conditional.iconUrlLow,
+      iconUrlMedium: conditional.iconUrlMedium,
+      iconUrlHigh: conditional.iconUrlHigh,
       name: conditional.name,
     };
   }
@@ -113,10 +205,48 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       symbol: symbol ?? "",
       description: source.description,
       decimals: decimals ?? 0,
-      iconUrl: iconUrl ?? "",
+      iconUrlLow: iconUrls?.low ?? "",
+      iconUrlMedium: iconUrls?.medium ?? "",
+      iconUrlHigh: iconUrls?.high ?? "",
     },
     conditionals,
     metadata,
+  };
+}
+
+export function globalDepositAssetFromWire(
+  source: GlobalDepositAssetResponse
+): GlobalDepositAsset {
+  const errors: string[] = [];
+
+  const name = source.display_name;
+  const symbol = source.symbol;
+  const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
+  const decimals = source.decimals;
+
+  if (!name) errors.push("Missing display name");
+  if (!symbol) errors.push("Missing symbol");
+  if (!iconUrls) errors.push("Missing icon URL");
+  if (decimals === undefined || decimals === null) errors.push("Missing decimals");
+
+  if (errors.length > 0) {
+    throw new TokenValidationError(source.mint, errors);
+  }
+
+  const depositAsset = asPubkeyStr(source.mint);
+  return {
+    id: source.id,
+    pubkey: depositAsset,
+    depositAsset,
+    name: name ?? "",
+    symbol: symbol ?? "",
+    description: source.description,
+    decimals: decimals ?? 0,
+    iconUrlLow: iconUrls?.low ?? "",
+    iconUrlMedium: iconUrls?.medium ?? "",
+    iconUrlHigh: iconUrls?.high ?? "",
+    whitelistIndex: source.whitelist_index,
+    active: source.active,
   };
 }
 
@@ -124,7 +254,9 @@ function conditionalFromWire(
   source: ConditionalTokenResponse,
   depositAsset: string,
   depositSymbol: string,
-  iconUrl: string
+  parentIconUrlLow: string,
+  parentIconUrlMedium: string,
+  parentIconUrlHigh: string
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
@@ -134,6 +266,11 @@ function conditionalFromWire(
   if (errors.length > 0) {
     throw new TokenValidationError(source.token_address, errors);
   }
+
+  const ownIconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
+  const resolvedIconUrlLow = ownIconUrls?.low ?? parentIconUrlLow;
+  const resolvedIconUrlMedium = ownIconUrls?.medium ?? parentIconUrlMedium;
+  const resolvedIconUrlHigh = ownIconUrls?.high ?? parentIconUrlHigh;
 
   return {
     id: source.id,
@@ -146,6 +283,8 @@ function conditionalFromWire(
     symbol: source.short_symbol ?? "",
     description: source.description,
     decimals: source.decimals ?? 0,
-    iconUrl,
+    iconUrlLow: resolvedIconUrlLow,
+    iconUrlMedium: resolvedIconUrlMedium,
+    iconUrlHigh: resolvedIconUrlHigh,
   };
 }

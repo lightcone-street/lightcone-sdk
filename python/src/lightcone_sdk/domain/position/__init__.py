@@ -65,7 +65,6 @@ class DepositAssetMetadata:
     symbol: str = ""
     name: str = ""
     icon_url: str = ""
-    value: str = "0"
 
 
 @dataclass
@@ -74,7 +73,9 @@ class DepositTokenBalance:
     idle: str = "0"
     symbol: str = ""
     name: str = ""
-    icon_url: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
 
 
 @dataclass

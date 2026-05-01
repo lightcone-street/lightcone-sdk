@@ -23,6 +23,8 @@ import type {
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
 } from "../../program/types";
+import type { PubkeyStr } from "../../shared";
+import type { DepositTokenBalance } from "./index";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -56,6 +58,103 @@ export class Positions {
   async getForMarket(userPubkey: string, marketPubkey: string): Promise<MarketPositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/${encodeURIComponent(userPubkey)}/markets/${encodeURIComponent(marketPubkey)}/positions`;
     return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Get all conditional-token positions for the authenticated user across
+   * every market. The wallet is resolved server-side from the `auth_token`
+   * cookie, so no parameter is required. Same response shape as `get()`.
+   *
+   * `GET /api/users/positions`
+   */
+  async positions(): Promise<PositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/positions`;
+    return this.client.http.get<PositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Same as {@link positions}, but uses the supplied `authToken` for this
+   * call instead of the SDK's process-wide cookie store.
+   *
+   * Intended for server-side cookie forwarding (SSR / server functions)
+   * where the per-request browser cookie can't propagate to the shared
+   * client. In a browser context this is equivalent to {@link positions}
+   * because the runtime is already attaching the cookie via
+   * `credentials: "include"`.
+   */
+  async positionsWithAuth(authToken: string): Promise<PositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/positions`;
+    return this.client.http.getWithAuth<PositionsResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+  }
+
+  /**
+   * Get the authenticated user's positions in a specific market. The wallet
+   * is resolved server-side from the `auth_token` cookie.
+   *
+   * `GET /api/users/markets/{market_pubkey}/positions`
+   */
+  async positionsForMarket(marketPubkey: string): Promise<MarketPositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    return this.client.http.get<MarketPositionsResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  /**
+   * Same as {@link positionsForMarket}, but uses the supplied `authToken`
+   * for this call instead of the SDK's process-wide cookie store. For
+   * server-side cookie forwarding (SSR / server functions).
+   */
+  async positionsForMarketWithAuth(
+    marketPubkey: string,
+    authToken: string,
+  ): Promise<MarketPositionsResponse> {
+    const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
+    return this.client.http.getWithAuth<MarketPositionsResponse>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
+  }
+
+  /**
+   * Get SPL deposit-token balances for the authenticated user.
+   *
+   * The wallet is resolved server-side from the `auth_token` cookie, so no
+   * parameter is required. Returns balances keyed by mint pubkey for every
+   * deposit token registered in the backend's `deposit_token_metadata`.
+   * An empty object means the user has none of the tracked balances — this
+   * is not an error.
+   */
+  async depositTokenBalances(): Promise<Record<PubkeyStr, DepositTokenBalance>> {
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
+    return this.client.http.get<Record<PubkeyStr, DepositTokenBalance>>(
+      url,
+      RetryPolicy.Idempotent,
+    );
+  }
+
+  /**
+   * Same as {@link depositTokenBalances}, but uses the supplied `authToken`
+   * for this call instead of the SDK's process-wide cookie store.
+   *
+   * Intended for server-side cookie forwarding (SSR / server functions)
+   * where the per-request browser cookie can't propagate to the shared
+   * client. In a browser context this is equivalent to
+   * {@link depositTokenBalances} because the runtime is already attaching
+   * the cookie via `credentials: "include"`.
+   */
+  async depositTokenBalancesWithAuth(
+    authToken: string,
+  ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
+    return this.client.http.getWithAuth<Record<PubkeyStr, DepositTokenBalance>>(
+      url,
+      RetryPolicy.Idempotent,
+      authToken,
+    );
   }
 
   // ── On-chain transaction builders ────────────────────────────────────

@@ -211,7 +211,7 @@ async fn run_market_maker(
     }).unwrap();
 
     let mut book = OrderbookState::new(orderbook_id);
-    let mut open_orders = UserOpenOrders::new();
+    let mut open_orders = UserOpenLimitOrders::new();
     let mut stream = ws.events();
 
     while let Some(event) = stream.next().await {

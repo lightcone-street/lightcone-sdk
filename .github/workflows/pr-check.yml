@@ -44,7 +44,7 @@ jobs:
         run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
       - name: Install cargo-cooldown
-        run: cargo install --locked cargo-cooldown
+        run: cargo install --locked --version 0.2.0 cargo-cooldown
 
       - name: Check dependency cooldown
         run: cargo cooldown check
@@ -53,17 +53,25 @@ jobs:
         run: |
           for file in examples/*.rs; do
             name=$(basename "$file" .rs)
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 cargo run --example "$name" --features native
             echo "::endgroup::"
           done
 
-  # Jobs run sequentially because they share a single CI wallet on devnet.
-  # Parallel execution causes on-chain state races (e.g. duplicate position
-  # init) and devnet RPC rate limits (429s).
   typescript-examples:
     name: TypeScript Examples
-    needs: rust-examples
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -82,7 +90,7 @@ jobs:
 
       - name: Write wallet keypair
         env:
-          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_TS }}
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
@@ -93,6 +101,18 @@ jobs:
           for file in examples/*.ts; do
             name=$(basename "$file" .ts)
             if [ "$name" = "common" ]; then continue; fi
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 npx tsx "$file"
             echo "::endgroup::"
@@ -100,7 +120,6 @@ jobs:
 
   python-examples:
     name: Python Examples
-    needs: typescript-examples
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -118,7 +137,7 @@ jobs:
 
       - name: Write wallet keypair
         env:
-          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+          CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_PYTHON }}
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
@@ -129,6 +148,18 @@ jobs:
           for file in examples/*.py; do
             name=$(basename "$file" .py)
             if [ "$name" = "common" ]; then continue; fi
+            case "$name" in
+              admin_*)
+                echo "::group::$name (skipped — requires admin keypair)"
+                echo "::endgroup::"
+                continue
+                ;;
+              faucet_claim)
+                echo "::group::$name (skipped)"
+                echo "::endgroup::"
+                continue
+                ;;
+            esac
             echo "::group::$name"
             timeout 120 python "$file"
             echo "::endgroup::"

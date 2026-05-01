@@ -114,6 +114,21 @@ impl DepositPriceState {
             .insert(deposit_asset, LatestDepositPrice { price, event_time });
     }
 
+    /// Apply a per-asset snapshot from the `deposit_asset_price` WS channel.
+    ///
+    /// The snapshot wire format only carries `price` (no `event_time`), so
+    /// `event_time` is set to `0` for snapshot entries. Live ticks set the
+    /// real `event_time`.
+    pub fn apply_deposit_asset_price_snapshot(&mut self, deposit_asset: PubkeyStr, price: String) {
+        self.latest_price.insert(
+            deposit_asset,
+            LatestDepositPrice {
+                price,
+                event_time: 0,
+            },
+        );
+    }
+
     pub fn get_candles(
         &self,
         deposit_asset: &PubkeyStr,

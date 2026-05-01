@@ -1,5 +1,7 @@
 export * as admin from "./admin";
+export * as faucet from "./faucet";
 export * as market from "./market";
+export * as metrics from "./metrics";
 export * as notification from "./notification";
 export * as order from "./order";
 export * as orderbook from "./orderbook";

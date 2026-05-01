@@ -4,7 +4,9 @@ import type { Status } from "./index";
 export interface OutcomeResponse {
   index: number;
   name: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
 }
 
 export interface ConditionalTokenResponse {
@@ -17,7 +19,9 @@ export interface ConditionalTokenResponse {
   deposit_symbol?: string;
   short_symbol?: string;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
   created_at: string;
@@ -33,7 +37,9 @@ export interface DepositAssetResponse {
   vault: string;
   num_outcomes: number;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
   conditional_mints: ConditionalTokenResponse[];
@@ -46,8 +52,12 @@ export interface MarketResponse {
   description?: string;
   definition?: string;
   outcomes: OutcomeResponse[];
-  banner_image_url?: string;
-  icon_url?: string;
+  banner_image_url_low?: string;
+  banner_image_url_medium?: string;
+  banner_image_url_high?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   category?: string;
   tags?: string[];
   featured_rank?: number;
@@ -84,8 +94,12 @@ export interface SearchOrderbook {
   deposit_quote_asset: PubkeyStr;
   deposit_base_symbol: string;
   deposit_quote_symbol: string;
-  base_icon_url: string;
-  quote_icon_url: string;
+  base_icon_url_low?: string;
+  base_icon_url_medium?: string;
+  base_icon_url_high?: string;
+  quote_icon_url_low?: string;
+  quote_icon_url_medium?: string;
+  quote_icon_url_high?: string;
   conditional_base_mint: PubkeyStr;
   conditional_quote_mint: PubkeyStr;
   latest_mid_price?: string;
@@ -99,7 +113,9 @@ export interface MarketSearchResult {
   tags: string[];
   featured_rank: number;
   description?: string;
-  icon_url?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
   orderbooks: SearchOrderbook[];
 }
 
@@ -109,3 +125,28 @@ export type MarketEvent =
   | { event_type: "opened"; market_pubkey: string }
   | { event_type: "paused"; market_pubkey: string }
   | { event_type: "orderbook_created"; market_pubkey: string; orderbook_id: string };
+
+export interface DepositMintsResponse {
+  market_pubkey: string;
+  deposit_assets: DepositAssetResponse[];
+  total: number;
+}
+
+export interface GlobalDepositAssetResponse {
+  id: number;
+  mint: string;
+  display_name?: string;
+  symbol?: string;
+  description?: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
+  decimals: number | null;
+  whitelist_index: number;
+  active: boolean;
+}
+
+export interface GlobalDepositAssetsListResponse {
+  assets: GlobalDepositAssetResponse[];
+  total: number;
+}

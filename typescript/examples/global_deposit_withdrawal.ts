@@ -2,10 +2,10 @@ import { PublicKey, Transaction } from "@solana/web3.js";
 import { getPositionAltPda, getPositionPda } from "../src/program";
 import {
   confirmTransactionOrThrow,
-  depositMint,
   formatError,
   login,
-  market,
+  marketAndOrderbook,
+  quoteDepositMint,
   rpcClient,
   getKeypair,
   runExample,
@@ -17,9 +17,9 @@ async function main() {
   const keypair = getKeypair();
   await login(client, keypair);
 
-  const m = await market(client);
+  const [m, ob] = await marketAndOrderbook(client);
   const marketPubkey = new PublicKey(m.pubkey);
-  const dMint = depositMint(m);
+  const dMint = quoteDepositMint(ob);
   const amount = 1_000_000n;
   const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 
@@ -117,6 +117,21 @@ async function main() {
     "withdraw_from_global",
     client.positions().withdrawFromGlobal()
       .user(keypair.publicKey)
+      .mint(dMint)
+      .amount(amount)
+      .buildIx(),
+  ]);
+
+  // 6. Merge — burn the complete set of conditional tokens minted in step 4
+  //    back to the deposit asset, returning the collateral to the user's
+  //    token account. Closes out the market position so the full example is
+  //    net-neutral on the wallet's balance, the global pool, and the market
+  //    position across CI runs.
+  instructions.push([
+    "merge",
+    client.positions().merge()
+      .user(keypair.publicKey)
+      .market(m)
       .mint(dMint)
       .amount(amount)
       .buildIx(),

@@ -9,7 +9,9 @@
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
 use crate::domain::admin::client::Admin;
+use crate::domain::faucet::{FaucetRequest, FaucetResponse};
 use crate::domain::market::client::Markets;
+use crate::domain::metrics::client::Metrics;
 use crate::domain::notification::client::Notifications;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
@@ -19,11 +21,12 @@ use crate::domain::referral::client::Referrals;
 use crate::domain::trade::client::Trades;
 use crate::env::LightconeEnv;
 use crate::error::SdkError;
+use crate::http::retry::RetryPolicy;
 use crate::http::LightconeHttp;
 use crate::privy::client::Privy;
 use crate::rpc::Rpc;
 use crate::shared::signing::{ExternalSigner, SigningStrategy};
-use crate::shared::DepositSource;
+use crate::shared::{DepositSource, PubkeyStr};
 use crate::ws::WsConfig;
 
 #[cfg(feature = "solana-rpc")]
@@ -38,7 +41,10 @@ use std::sync::Arc;
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
 pub use crate::domain::admin::client::Admin as AdminClient;
-pub use crate::domain::market::client::{Markets as MarketsClient, MarketsResult};
+pub use crate::domain::market::client::{
+    GlobalDepositAssetsResult, Markets as MarketsClient, MarketsResult,
+};
+pub use crate::domain::metrics::client::Metrics as MetricsClient;
 pub use crate::domain::notification::client::Notifications as NotificationsClient;
 pub use crate::domain::order::client::Orders as OrdersClient;
 pub use crate::domain::orderbook::client::Orderbooks as OrderbooksClient;
@@ -130,6 +136,12 @@ impl LightconeClient {
         Notifications { client: self }
     }
 
+    /// Metrics sub-client — platform / market / orderbook / category / deposit-token
+    /// volume metrics, market leaderboard, and time-series history.
+    pub fn metrics(&self) -> Metrics<'_> {
+        Metrics { client: self }
+    }
+
     /// RPC sub-client — PDA helpers, account fetchers, and blockhash access.
     pub fn rpc(&self) -> Rpc<'_> {
         Rpc { client: self }
@@ -161,6 +173,29 @@ impl LightconeClient {
     /// Get the program ID.
     pub fn program_id(&self) -> &Pubkey {
         &self.program_id
+    }
+
+    /// Get the current `auth_token` cookie value, if any. Populated by the
+    /// SDK after a successful login, then attached on every authed request.
+    /// Useful for forwarding the token through the `_with_auth`
+    /// methods, or persisting the session across processes.
+    ///
+    /// Native only — on WASM the cookie lives in the browser's cookie jar
+    /// and the SDK never sees it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn auth_token(&self) -> Option<String> {
+        self.http.auth_token_ref().read().await.clone()
+    }
+
+    /// Clear the cached `auth_token`. Subsequent authed calls will go out
+    /// without a `Cookie` header (and 401) unless they use a
+    /// `_with_auth` variant.
+    ///
+    /// Native only — on WASM the cookie lives in the browser's cookie jar
+    /// and the SDK never sees it.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn clear_auth_token(&self) {
+        self.http.clear_auth_token().await;
     }
 
     // ── Deposit source ──────────────────────────────────────────────────
@@ -221,6 +256,23 @@ impl LightconeClient {
     /// Clear the signing strategy (e.g. on logout).
     pub async fn clear_signing_strategy(&self) {
         *self.signing_strategy.write().await = None;
+    }
+
+    // ── Faucet (testnet only) ──────────────────────────────────────────
+
+    /// Request testnet SOL and whitelisted deposit tokens for a wallet.
+    ///
+    /// Only active on environments whose backend has the faucet enabled
+    /// (typically local and staging). Returns the mint tx signature plus the
+    /// SOL and token amounts transferred.
+    ///
+    /// `POST /api/claim`
+    pub async fn claim(&self, wallet_address: &PubkeyStr) -> Result<FaucetResponse, SdkError> {
+        let url = format!("{}/api/claim", self.http.base_url());
+        let request = FaucetRequest {
+            wallet_address: wallet_address.clone(),
+        };
+        self.http.post(&url, &request, RetryPolicy::None).await
     }
 
     // ── RPC helpers (HTTP-based, works on all platforms) ─────────────────

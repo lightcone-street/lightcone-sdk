@@ -58,13 +58,13 @@ def abbr_number(amount: Decimal, digits: int | None = None, show_sign: bool | No
     abs_amount = abs(amount)
 
     if abs_amount >= _TRILLION:
-        return f"{sign}{abs_amount / _TRILLION:.{digits}f}T"
+        return f"{sign}{abs_amount / _TRILLION:.{digits}f}t"
     if abs_amount >= _BILLION:
-        return f"{sign}{abs_amount / _BILLION:.{digits}f}B"
+        return f"{sign}{abs_amount / _BILLION:.{digits}f}b"
     if abs_amount >= _MILLION:
-        return f"{sign}{abs_amount / _MILLION:.{digits}f}M"
+        return f"{sign}{abs_amount / _MILLION:.{digits}f}m"
     if abs_amount >= _THOUSAND:
-        return f"{sign}{abs_amount / _THOUSAND:.{digits}f}K"
+        return f"{sign}{abs_amount / _THOUSAND:.{digits}f}k"
     return f"{sign}{abs_amount:.{digits}f}"
 
 

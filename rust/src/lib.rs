@@ -60,7 +60,8 @@ pub mod prelude {
     // Domain types — market (includes outcome + tokens)
     pub use crate::domain::market::outcome::Outcome;
     pub use crate::domain::market::tokens::{
-        ConditionalToken, DepositAsset, Token, TokenMetadata, ValidatedTokens,
+        sort_by_display_priority, ConditionalToken, DepositAsset, GlobalDepositAsset,
+        HasDisplayToken, Token, TokenMetadata, ValidatedTokens,
     };
     pub use crate::domain::market::{Market, Status};
 
@@ -69,11 +70,12 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
+        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
         CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance,
-        GlobalDepositUpdate, Order, OrderEvent, OrderStatus, OrderType, SubmitOrderResponse,
-        TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate, UserOpenOrders, UserOrdersResponse,
-        UserSnapshotBalance, UserSnapshotOrder, UserTriggerOrders,
+        GlobalDepositUpdate, LimitOrder, Order, OrderEvent, OrderStatus, OrderType,
+        SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
+        UserOpenLimitOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        UserTriggerOrders,
     };
 
     // Domain types — position (includes portfolio + token balances)
@@ -84,13 +86,42 @@ pub mod prelude {
 
     // Domain types — trade, price history
     pub use crate::domain::price_history::{
-        DepositPrice, DepositPriceCandle, DepositPriceCandleUpdate, DepositPriceHistoryQuery,
-        DepositPriceHistoryResponse, DepositPriceKey, DepositPriceSnapshot, DepositPriceState,
-        DepositPriceTick, DepositTokenCandle, LatestDepositPrice, LineData, OrderbookPriceCandle,
+        DepositAssetPriceEvent, DepositAssetPriceSnapshot, DepositAssetPriceTick,
+        DepositAssetPricesSnapshotResponse, DepositPrice, DepositPriceCandle,
+        DepositPriceCandleUpdate, DepositPriceHistoryQuery, DepositPriceHistoryResponse,
+        DepositPriceKey, DepositPriceSnapshot, DepositPriceState, DepositPriceTick,
+        DepositTokenCandle, LatestDepositPrice, LineData, OrderbookPriceCandle,
         OrderbookPriceHistoryQuery, OrderbookPriceHistoryResponse, PriceHistoryDecimals,
         PriceHistoryState,
     };
     pub use crate::domain::trade::Trade;
+
+    // Domain types — metrics
+    pub use crate::domain::metrics::{
+        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeMetrics,
+        DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
+        MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
+        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,
+        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics,
+    };
+
+    // Domain types — faucet
+    pub use crate::domain::faucet::{FaucetRequest, FaucetResponse, FaucetToken};
+
+    // Domain types — market wire (deposit-asset responses exposed by
+    // `client.markets().deposit_assets(...)`)
+    pub use crate::domain::market::wire::{
+        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse,
+    };
+
+    // Domain types — admin (referral config/codes and logs)
+    pub use crate::domain::admin::{
+        AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
+        AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
+        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, CodeListEntry,
+        ListCodesRequest, ListCodesResponse, ReferralConfig, UpdateCodeRequest, UpdateCodeResponse,
+        UpdateConfigRequest,
+    };
 
     // Errors
     pub use crate::error::SdkError;
@@ -137,9 +168,10 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AdminClient, AuthClient, LightconeClient, LightconeClientBuilder, MarketsClient,
-        MarketsResult, NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
-        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        AdminClient, AuthClient, GlobalDepositAssetsResult, LightconeClient,
+        LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient, NotificationsClient,
+        OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient,
+        RpcClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
@@ -148,6 +180,8 @@ pub mod prelude {
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};
 
     // State containers
-    pub use crate::domain::orderbook::state::{ApplyResult, OrderbookState};
+    pub use crate::domain::orderbook::state::{
+        ApplyResult, IgnoreReason, OrderbookState, RefreshReason,
+    };
     pub use crate::domain::trade::TradeHistory;
 }

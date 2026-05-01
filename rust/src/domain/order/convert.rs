@@ -1,13 +1,13 @@
 //! Conversions: WS wire types → Order domain types.
 
 use super::wire;
-use super::{Order, TriggerOrder, UserOpenOrders, UserTriggerOrders};
+use super::{LimitOrder, TriggerOrder, UserOpenLimitOrders, UserTriggerOrders};
 use crate::shared::{OrderBookId, PubkeyStr, TimeInForce};
 use std::collections::HashMap;
 
-impl From<wire::OrderUpdate> for Order {
+impl From<wire::OrderUpdate> for LimitOrder {
     fn from(update: wire::OrderUpdate) -> Self {
-        Order {
+        LimitOrder {
             market_pubkey: update.market_pubkey,
             orderbook_id: update.orderbook_id,
             base_mint: update.order.base_mint,
@@ -26,12 +26,11 @@ impl From<wire::OrderUpdate> for Order {
     }
 }
 
-/// Convert a limit snapshot (from the tagged enum) to a domain Order.
 pub fn limit_snapshot_to_order(
     common: wire::UserSnapshotOrderCommon,
     tx_signature: Option<String>,
-) -> Order {
-    Order {
+) -> LimitOrder {
+    LimitOrder {
         market_pubkey: common.market_pubkey,
         orderbook_id: common.orderbook_id,
         order_hash: common.order_hash,
@@ -49,7 +48,6 @@ pub fn limit_snapshot_to_order(
     }
 }
 
-/// Convert a trigger snapshot (from the tagged enum) to a domain TriggerOrder.
 pub fn trigger_snapshot_to_order(
     common: wire::UserSnapshotOrderCommon,
     trigger_order_id: String,
@@ -72,23 +70,26 @@ pub fn trigger_snapshot_to_order(
     }
 }
 
-/// Build UserOpenOrders + UserTriggerOrders from a unified snapshot orders array.
 pub fn split_snapshot_orders(
     orders: Vec<wire::UserSnapshotOrder>,
-) -> (UserOpenOrders, UserTriggerOrders) {
-    let mut open_orders: HashMap<PubkeyStr, Vec<Order>> = HashMap::new();
-    let mut trigger_orders: HashMap<OrderBookId, Vec<TriggerOrder>> = HashMap::new();
+) -> (UserOpenLimitOrders, UserTriggerOrders) {
+    let mut open_orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>> = HashMap::new();
+    let mut trigger_orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<TriggerOrder>>> =
+        HashMap::new();
 
-    for snap in orders {
-        match snap {
+    for snapshot in orders {
+        match snapshot {
             wire::UserSnapshotOrder::Limit {
                 common,
                 tx_signature,
             } => {
                 if !common.remaining.is_zero() {
                     let market = common.market_pubkey.clone();
+                    let orderbook = common.orderbook_id.clone();
                     open_orders
                         .entry(market)
+                        .or_default()
+                        .entry(orderbook)
                         .or_default()
                         .push(limit_snapshot_to_order(common, tx_signature));
                 }
@@ -100,9 +101,12 @@ pub fn split_snapshot_orders(
                 trigger_type,
                 time_in_force,
             } => {
-                let ob_id = common.orderbook_id.clone();
+                let market = common.market_pubkey.clone();
+                let orderbook = common.orderbook_id.clone();
                 trigger_orders
-                    .entry(ob_id)
+                    .entry(market)
+                    .or_default()
+                    .entry(orderbook)
                     .or_default()
                     .push(trigger_snapshot_to_order(
                         common,
@@ -116,7 +120,7 @@ pub fn split_snapshot_orders(
     }
 
     (
-        UserOpenOrders {
+        UserOpenLimitOrders {
             orders: open_orders,
         },
         UserTriggerOrders {
@@ -133,11 +137,16 @@ mod tests {
     use chrono::Utc;
     use rust_decimal::Decimal;
 
-    fn make_common(market: &str, hash: &str, remaining: Decimal) -> wire::UserSnapshotOrderCommon {
+    fn make_common(
+        market: &str,
+        hash: &str,
+        orderbook: &str,
+        remaining: Decimal,
+    ) -> wire::UserSnapshotOrderCommon {
         wire::UserSnapshotOrderCommon {
             order_hash: hash.to_string(),
             market_pubkey: PubkeyStr::from(market),
-            orderbook_id: OrderBookId::from("ob1"),
+            orderbook_id: OrderBookId::from(orderbook),
             side: Side::Bid,
             amount_in: Decimal::ZERO,
             amount_out: Decimal::ZERO,
@@ -159,17 +168,21 @@ mod tests {
         remaining: Decimal,
     ) -> wire::UserSnapshotOrder {
         wire::UserSnapshotOrder::Limit {
-            common: make_common(market, hash, remaining),
+            common: make_common(market, hash, "ob1", remaining),
             tx_signature: None,
         }
     }
 
-    fn make_trigger_snapshot(id: &str, ob_id: &str) -> wire::UserSnapshotOrder {
+    fn make_trigger_snapshot(
+        trigger_id: &str,
+        market: &str,
+        orderbook: &str,
+    ) -> wire::UserSnapshotOrder {
         wire::UserSnapshotOrder::Trigger {
             common: wire::UserSnapshotOrderCommon {
-                order_hash: format!("hash-{id}"),
-                market_pubkey: PubkeyStr::from("mkt-xyz"),
-                orderbook_id: OrderBookId::from(ob_id),
+                order_hash: format!("hash-{trigger_id}"),
+                market_pubkey: PubkeyStr::from(market),
+                orderbook_id: OrderBookId::from(orderbook),
                 side: Side::Bid,
                 amount_in: Decimal::new(1000, 0),
                 amount_out: Decimal::new(500, 0),
@@ -183,7 +196,7 @@ mod tests {
                 outcome_index: 0,
                 status: OrderStatus::Pending,
             },
-            trigger_order_id: id.to_string(),
+            trigger_order_id: trigger_id.to_string(),
             trigger_price: Decimal::new(55, 2),
             trigger_type: TriggerType::TakeProfit,
             time_in_force: None,
@@ -214,7 +227,7 @@ mod tests {
                 balance: Some(wire::UserOrderUpdateBalance { outcomes: vec![] }),
             },
         };
-        let order: Order = update.into();
+        let order: LimitOrder = update.into();
         assert_eq!(order.order_hash, "hash_xyz");
         assert_eq!(order.size, Decimal::new(10, 0));
         assert_eq!(order.filled_size, Decimal::new(2, 0));
@@ -224,11 +237,11 @@ mod tests {
 
     #[test]
     fn test_limit_snapshot_conversion() {
-        let snap = make_limit_snapshot("mkt222", "snap_hash", Decimal::new(5, 0));
+        let snapshot = make_limit_snapshot("mkt222", "snap_hash", Decimal::new(5, 0));
         if let wire::UserSnapshotOrder::Limit {
             common,
             tx_signature,
-        } = snap
+        } = snapshot
         {
             let order = limit_snapshot_to_order(common, tx_signature);
             assert_eq!(order.order_hash, "snap_hash");
@@ -240,14 +253,14 @@ mod tests {
 
     #[test]
     fn test_trigger_snapshot_conversion() {
-        let snap = make_trigger_snapshot("trig-123", "ob_test");
+        let snapshot = make_trigger_snapshot("trig-123", "mkt-xyz", "ob_test");
         if let wire::UserSnapshotOrder::Trigger {
             common,
             trigger_order_id,
             trigger_price,
             trigger_type,
             time_in_force,
-        } = snap
+        } = snapshot
         {
             let order = trigger_snapshot_to_order(
                 common,
@@ -271,16 +284,20 @@ mod tests {
         let orders = vec![
             make_limit_snapshot("mkt1", "o1", Decimal::new(1, 0)),
             make_limit_snapshot("mkt1", "o2", Decimal::ZERO),
-            make_trigger_snapshot("t1", "ob_test"),
-            make_trigger_snapshot("t2", "ob_test"),
+            make_trigger_snapshot("t1", "mkt-xyz", "ob_test"),
+            make_trigger_snapshot("t2", "mkt-xyz", "ob_test"),
         ];
 
         let (open, triggers) = split_snapshot_orders(orders);
-        assert_eq!(open.orders.len(), 1);
-        assert_eq!(open.orders.values().next().unwrap().len(), 1);
+        let mkt1_by_orderbook = open.get_by_market(&PubkeyStr::from("mkt1")).unwrap();
+        let total_limit_orders: usize = mkt1_by_orderbook.values().map(|v| v.len()).sum();
+        assert_eq!(total_limit_orders, 1);
         assert_eq!(triggers.len(), 2);
         assert_eq!(
-            triggers.get(&OrderBookId::from("ob_test")).unwrap().len(),
+            triggers
+                .get(&PubkeyStr::from("mkt-xyz"), &OrderBookId::from("ob_test"))
+                .unwrap()
+                .len(),
             2
         );
     }

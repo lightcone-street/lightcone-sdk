@@ -92,14 +92,48 @@ async def market_and_orderbook(
     return m, ob
 
 
-def deposit_mint(m: Market) -> Pubkey:
-    if not m.deposit_assets:
-        raise RuntimeError("selected market has no deposit assets")
-    return Pubkey.from_string(m.deposit_assets[0].deposit_asset)
+def quote_deposit_mint(orderbook: OrderBookPair) -> Pubkey:
+    return Pubkey.from_string(orderbook.quote.deposit_asset)
 
 
 def num_outcomes(m: Market) -> int:
     return len(m.outcomes)
+
+
+async def wait_for_global_balance(
+    client: LightconeClient,
+    mint: Pubkey,
+    minimum_amount: float,
+    timeout_seconds: float = 30.0,
+    interval_seconds: float = 2.0,
+) -> None:
+    import asyncio
+
+    mint_str = str(mint)
+    deadline = time.monotonic() + timeout_seconds
+    attempt = 0
+    print(f"waiting for global balance: mint={mint_str} required={minimum_amount}")
+    while time.monotonic() < deadline:
+        attempt += 1
+        balances = await client.positions().deposit_token_balances()
+        entry = next(
+            (balance for balance in balances.values() if balance.mint == mint_str),
+            None,
+        )
+        current_idle = float(entry.idle) if entry is not None else 0.0
+        symbol = entry.symbol if entry is not None else "unknown"
+        if current_idle >= minimum_amount:
+            print(f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})")
+            return
+        remaining = deadline - time.monotonic()
+        print(
+            f"global balance not ready: {symbol} idle={current_idle}/{minimum_amount} "
+            f"(attempt {attempt}, {remaining:.0f}s remaining)"
+        )
+        await asyncio.sleep(interval_seconds)
+    raise RuntimeError(
+        f"global balance for {mint_str} did not reach {minimum_amount} within {timeout_seconds}s"
+    )
 
 
 def unix_timestamp() -> int:

@@ -43,7 +43,11 @@ pub struct OrderFilledData {
     #[serde(default)]
     pub outcome_name: Option<String>,
     #[serde(default)]
-    pub outcome_icon_url: Option<String>,
+    pub outcome_icon_url_low: Option<String>,
+    #[serde(default)]
+    pub outcome_icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub outcome_icon_url_high: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

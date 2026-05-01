@@ -7,9 +7,26 @@ from urllib.parse import quote as url_quote
 
 from solders.pubkey import Pubkey
 
-from . import Market, MarketsResult, Status
-from .wire import MarketWire, MarketResponse, MarketSearchResult
-from .convert import market_from_wire, validation_errors_from_wire
+from . import (
+    GlobalDepositAsset,
+    GlobalDepositAssetsResult,
+    Market,
+    MarketValidationError,
+    MarketsResult,
+    Status,
+)
+from .wire import (
+    DepositMintsResponse,
+    GlobalDepositAssetsListWire,
+    MarketResponse,
+    MarketSearchResult,
+    MarketWire,
+)
+from .convert import (
+    global_deposit_asset_from_wire,
+    market_from_wire,
+    validation_errors_from_wire,
+)
 from ...error import SdkError
 from ...program.accounts import deserialize_market
 from ...program.errors import AccountNotFoundError
@@ -84,7 +101,11 @@ class Markets:
             if errors:
                 continue
 
-            market = market_from_wire(wire_market)
+            try:
+                market = market_from_wire(wire_market)
+            except MarketValidationError as exc:
+                validation_errors.append(str(exc))
+                continue
             if market.status in {Status.ACTIVE, Status.RESOLVED}:
                 markets.append(market)
 
@@ -130,6 +151,36 @@ class Markets:
             result for result in results
             if result.market_status in {"Active", "Resolved"}
         ]
+
+    async def deposit_assets(self, market_pubkey: str) -> DepositMintsResponse:
+        """Fetch deposit assets registered for a specific market, including conditional mints."""
+        data = await self._client._http.get(
+            f"/api/markets/{url_quote(market_pubkey, safe='')}/deposit-assets"
+        )
+        return DepositMintsResponse.from_dict(data)
+
+    async def global_deposit_assets(self) -> GlobalDepositAssetsResult:
+        """Fetch the active global deposit asset whitelist.
+
+        Platform-scoped (not market-bound). Assets that fail validation are
+        skipped and their errors are returned in
+        ``GlobalDepositAssetsResult.validation_errors``.
+        """
+        data = await self._client._http.get("/api/global-deposit-assets")
+        response = GlobalDepositAssetsListWire.from_dict(data)
+
+        assets: list[GlobalDepositAsset] = []
+        validation_errors: list[str] = []
+        for wire_asset in response.assets:
+            try:
+                assets.append(global_deposit_asset_from_wire(wire_asset))
+            except SdkError as error:
+                validation_errors.append(str(error))
+
+        return GlobalDepositAssetsResult(
+            assets=assets,
+            validation_errors=validation_errors,
+        )
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

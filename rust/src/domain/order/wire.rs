@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 // ─── WS balance wire types ──────────────────────────────────────────────────
 
 /// Balance for a single conditional token (from WS user updates).
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ConditionalBalance {
     pub outcome_index: i16,
     #[serde(alias = "conditional_token")]
@@ -37,7 +37,7 @@ pub struct BalanceUpdateOutcomes {
 }
 
 /// WS user snapshot balance.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UserSnapshotBalance {
     pub market_pubkey: PubkeyStr,
     pub orderbook_id: OrderBookId,
@@ -105,7 +105,7 @@ pub struct WsOrder {
 }
 
 /// Fields shared by both limit and trigger order snapshots.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UserSnapshotOrderCommon {
     pub order_hash: String,
     pub market_pubkey: PubkeyStr,
@@ -137,7 +137,7 @@ pub struct UserSnapshotOrderCommon {
 /// Used in REST `GET /api/users/orders` and WS user snapshots.
 /// The backend returns limit and trigger orders in the same array,
 /// distinguished by the `order_type` field.
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 #[serde(tag = "order_type", rename_all = "lowercase")]
 pub enum UserSnapshotOrder {
     Limit {
@@ -159,6 +159,15 @@ pub enum UserSnapshotOrder {
         )]
         time_in_force: Option<TimeInForce>,
     },
+}
+
+impl UserSnapshotOrder {
+    pub fn common(&self) -> &UserSnapshotOrderCommon {
+        match self {
+            UserSnapshotOrder::Limit { common, .. } => common,
+            UserSnapshotOrder::Trigger { common, .. } => common,
+        }
+    }
 }
 
 /// Balance information attached to an order update.
@@ -296,7 +305,7 @@ pub enum AuthUpdate {
 // ─── User order fills (REST) ───────────────────────────────────────────────
 
 /// Response from `GET /api/users/order-fills`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserOrderFillsResponse {
     pub orders: Vec<UserOrderFill>,
     pub next_cursor: Option<String>,
@@ -304,7 +313,7 @@ pub struct UserOrderFillsResponse {
 }
 
 /// An order the user participated in, with nested fill events.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UserOrderFill {
     pub order_hash: String,
     pub market_pubkey: PubkeyStr,
@@ -325,7 +334,7 @@ pub struct UserOrderFill {
 }
 
 /// A single fill event within an order.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OrderFillEvent {
     pub fill_amount: Decimal,
     pub tx_signature: String,

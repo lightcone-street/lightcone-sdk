@@ -165,7 +165,7 @@ let order = client.orders().submit(&request).await?;
 ```rust
 let open = client
     .orders()
-    .get_user_orders(&keypair.pubkey().to_string(), Some(50), None)
+    .get_user_orders(Some(50), None)
     .await?;
 let mut ws = client.ws_native();
 ws.connect().await?;
@@ -211,6 +211,39 @@ let withdraw_ix = client.positions().withdraw().await
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
 
+### Cookie handling
+
+After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The behaviour depends on the build target:
+
+- **Native builds**: token lives in a process-wide `Arc<RwLock<Option<String>>>` on the `LightconeClient`. Every authed call reads from it.
+- **WASM builds**: requests use `credentials: "include"` and the browser supplies the cookie automatically — the SDK's internal store is unused.
+
+### Server-side cookie forwarding (`_with_auth` variants)
+
+> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_auth(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+
+When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
+
+For these cases, authed methods that need per-call forwarding ship a `_with_auth(auth_token)` sibling that injects the cookie just for that one call:
+
+```rust
+// Inside an axum / dioxus server function, after extracting the
+// auth_token cookie from the incoming request:
+let balances = client
+    .positions()
+    .deposit_token_balances_with_auth(&auth_token)
+    .await?;
+
+let positions = client
+    .positions()
+    .positions_with_auth(&auth_token)
+    .await?;
+```
+
+On WASM these methods are equivalent to their non-`_with_auth` counterparts because the browser is already attaching the cookie via credentials mode.
+
+If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: auth_token=<token>` header attachment differs.
+
 ## Environment Configuration
 
 The SDK defaults to the **production** environment. Use `LightconeEnv` to target a different deployment:
@@ -240,28 +273,39 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
+| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_auth` variant |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search |
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
+| [`market_deposit_assets`](examples/market_deposit_assets.rs) | List the deposit assets and conditional mints for a specific market |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+| [`metrics_all`](examples/metrics_all.rs) | Exercise every endpoint on `client.metrics()` — platform, markets, categories, orderbook, leaderboard, history |
+
+### Admin & Testnet
+
+| Example | Description |
+|---------|-------------|
+| [`faucet_claim`](examples/faucet_claim.rs) | Request testnet SOL + deposit tokens via `client.claim()` |
+
+Admin API methods (`client.admin()`) live in the SDK but are not exercised by an example because they require an admin keypair the CI runner doesn't have. See [`domain/admin/ADMIN.md`](src/domain/admin/ADMIN.md) for usage.
 
 ### Placing Orders
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | Limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking |
+| [`submit_order`](examples/submit_order.rs) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 
 | Example | Description |
 |---------|-------------|
-| [`cancel_order`](examples/cancel_order.rs) | Cancel a single order by hash and cancel all orders in an orderbook |
+| [`cancel_order`](examples/cancel_order.rs) | Cancel a single order by hash, cancel all orders in an orderbook, and withdraw the released collateral from the global pool |
 | [`user_orders`](examples/user_orders.rs) | Fetch open orders for an authenticated user |
 
 ### On-Chain Operations
@@ -270,7 +314,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, and withdraw from global |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 
 ### WebSocket Streaming
 

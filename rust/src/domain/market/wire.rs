@@ -15,7 +15,11 @@ pub struct OutcomeResponse {
     pub index: i16,
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
 }
 
 // ─── Token wire types (REST) ────────────────────────────────────────────────
@@ -37,7 +41,11 @@ pub struct DepositAssetResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,7 +71,11 @@ pub struct ConditionalTokenResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -92,9 +104,17 @@ pub struct MarketResponse {
     pub definition: Option<String>,
     pub outcomes: Vec<OutcomeResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub banner_image_url: Option<String>,
+    pub banner_image_url_low: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub banner_image_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub banner_image_url_high: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,8 +160,18 @@ pub struct SearchOrderbook {
     pub deposit_quote_asset: PubkeyStr,
     pub deposit_base_symbol: String,
     pub deposit_quote_symbol: String,
-    pub base_icon_url: String,
-    pub quote_icon_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_icon_url_high: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quote_icon_url_high: Option<String>,
     pub conditional_base_mint: PubkeyStr,
     pub conditional_quote_mint: PubkeyStr,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -160,8 +190,43 @@ pub struct MarketSearchResult {
     pub featured_rank: i16,
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon_url: Option<String>,
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
     pub orderbooks: Vec<SearchOrderbook>,
+}
+
+// ─── Global deposit asset wire types ────────────────────────────────────────
+
+/// REST response for a single globally whitelisted deposit asset.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GlobalDepositAssetResponse {
+    pub id: i32,
+    pub mint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
+    pub decimals: Option<i16>,
+    pub whitelist_index: i16,
+    pub active: bool,
+}
+
+/// REST response envelope for the global deposit asset whitelist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GlobalDepositAssetsListResponse {
+    pub assets: Vec<GlobalDepositAssetResponse>,
+    pub total: usize,
 }
 
 /// WS market lifecycle event.
