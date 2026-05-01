@@ -2,6 +2,7 @@
 //!
 //! Sub-entity of market. Wire types live in `super::wire`.
 
+use super::resolve_icon_urls;
 use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
@@ -348,12 +349,15 @@ impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
             errors.push(TokenValidationError::MissingSymbol(mint_str.clone()));
             String::new()
         });
-        let icon_url_low = source.icon_url_low.unwrap_or_else(|| {
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingIconUrl(mint_str.clone()));
-            String::new()
+            (String::new(), String::new(), String::new())
         });
-        let icon_url_medium = source.icon_url_medium.unwrap_or_default();
-        let icon_url_high = source.icon_url_high.unwrap_or_default();
         let decimals = source
             .decimals
             .map(|value| value as u16)
@@ -453,14 +457,17 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
         let mut conditionals: Vec<ConditionalToken> = Vec::new();
         let pubkey: PubkeyStr = source.deposit_asset.clone().into();
 
-        let icon_url_low = source.icon_url_low.unwrap_or_else(|| {
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low,
+            source.icon_url_medium,
+            source.icon_url_high,
+        )
+        .unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingIconUrl(
                 source.deposit_asset.clone(),
             ));
-            String::new()
+            (String::new(), String::new(), String::new())
         });
-        let icon_url_medium = source.icon_url_medium.unwrap_or_default();
-        let icon_url_high = source.icon_url_high.unwrap_or_default();
         let name = source.display_name.unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingDisplayName(
                 source.deposit_asset.clone(),
@@ -520,11 +527,17 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 continue;
             }
 
-            let ct_icon_url_low = ct.icon_url_low.unwrap_or_else(|| icon_url_low.clone());
-            let ct_icon_url_medium = ct
-                .icon_url_medium
-                .unwrap_or_else(|| icon_url_medium.clone());
-            let ct_icon_url_high = ct.icon_url_high.unwrap_or_else(|| icon_url_high.clone());
+            // First try cross-fallback among the conditional token's own URLs,
+            // then fall back to the parent deposit asset URLs.
+            let (ct_icon_url_low, ct_icon_url_medium, ct_icon_url_high) =
+                resolve_icon_urls(ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high)
+                    .unwrap_or_else(|| {
+                        (
+                            icon_url_low.clone(),
+                            icon_url_medium.clone(),
+                            icon_url_high.clone(),
+                        )
+                    });
 
             metadata.insert(
                 ct_pubkey.clone(),
@@ -641,9 +654,11 @@ mod tests {
     }
 
     #[test]
-    fn test_validated_tokens_missing_icon_fails() {
+    fn test_validated_tokens_missing_all_icons_fails() {
         let mut resp = minimal_deposit_asset_response();
         resp.icon_url_low = None;
+        resp.icon_url_medium = None;
+        resp.icon_url_high = None;
         let err = ValidatedTokens::try_from(resp).unwrap_err();
         assert!(format!("{err}").contains("icon") || format!("{err}").contains("Icon"));
     }

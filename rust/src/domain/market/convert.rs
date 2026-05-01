@@ -1,6 +1,7 @@
 //! Conversion: MarketResponse → Market (TryFrom + validation).
 
 use super::outcome;
+use super::resolve_icon_urls;
 use super::tokens;
 use super::tokens::sort_by_display_priority;
 use super::wire;
@@ -77,18 +78,25 @@ impl TryFrom<wire::MarketResponse> for Market {
             errors.push(ValidationError::MissingDefinition);
             String::new()
         });
-        let icon_url_low = source.icon_url_low.clone().unwrap_or_else(|| {
-            errors.push(ValidationError::MissingThumbnailImage);
-            String::new()
+        let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
+            source.icon_url_low.clone(),
+            source.icon_url_medium.clone(),
+            source.icon_url_high.clone(),
+        )
+        .unwrap_or_else(|| {
+            errors.push(ValidationError::MissingIconUrl);
+            (String::new(), String::new(), String::new())
         });
-        let icon_url_medium = source.icon_url_medium.clone().unwrap_or_default();
-        let icon_url_high = source.icon_url_high.clone().unwrap_or_default();
-        let banner_image_url_low = source.banner_image_url_low.clone().unwrap_or_else(|| {
-            errors.push(ValidationError::MissingBannerImage);
-            String::new()
-        });
-        let banner_image_url_medium = source.banner_image_url_medium.clone().unwrap_or_default();
-        let banner_image_url_high = source.banner_image_url_high.clone().unwrap_or_default();
+        let (banner_image_url_low, banner_image_url_medium, banner_image_url_high) =
+            resolve_icon_urls(
+                source.banner_image_url_low.clone(),
+                source.banner_image_url_medium.clone(),
+                source.banner_image_url_high.clone(),
+            )
+            .unwrap_or_else(|| {
+                errors.push(ValidationError::MissingBannerUrl);
+                (String::new(), String::new(), String::new())
+            });
 
         let deposit_asset_pairs = sort_by_display_priority(&derive_deposit_asset_pairs(
             &deposit_assets,
