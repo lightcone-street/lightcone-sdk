@@ -1,2 +1,6 @@
 cooldown_minutes = 10080
 mode = "deny"
+
+[[allow.package]]
+name = "wasm-bindgen-futures"
+minutes = 5760
