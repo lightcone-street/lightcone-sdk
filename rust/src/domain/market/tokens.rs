@@ -27,7 +27,7 @@ pub trait Token {
     /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
     /// alphabetical tail.
     fn display_priority(&self) -> u8 {
-        match self.symbol() {
+        match self.symbol().to_uppercase().as_str() {
             "BTC" | "WBTC" => 0,
             "ETH" | "WETH" => 1,
             "SOL" => 2,
