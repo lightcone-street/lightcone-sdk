@@ -34,12 +34,13 @@ async fn main() -> ExampleResult {
 
     if needs_init {
         // Init + extend in a single transaction.
-        // Use "processed" commitment for get_slot to minimize staleness — the
-        // on-chain CreateLookupTable instruction rejects slots that are too old.
+        // Use "finalized" commitment for get_slot — finalized slots are
+        // guaranteed to be in every validator's SlotHashes sysvar, avoiding
+        // "is not a recent slot" rejections from CreateLookupTable.
         let max_attempts = 5;
         for attempt in 1..=max_attempts {
             let recent_slot = rpc
-                .get_slot_with_commitment(CommitmentConfig::processed())
+                .get_slot_with_commitment(CommitmentConfig::finalized())
                 .await?;
             let (lookup_table, _) = get_position_alt_pda(&position_pda, recent_slot);
 

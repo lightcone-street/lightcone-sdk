@@ -31,12 +31,13 @@ async function main() {
 
   if (needsInit) {
     // Init + extend in a single transaction.
-    // Use "processed" commitment for getSlot to minimize staleness — the
-    // on-chain CreateLookupTable instruction rejects slots that are too old.
+    // Use "finalized" commitment for getSlot — finalized slots are
+    // guaranteed to be in every validator's SlotHashes sysvar, avoiding
+    // "is not a recent slot" rejections from CreateLookupTable.
     const maxAttempts = 5;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        const recentSlot = BigInt(await connection.getSlot("processed"));
+        const recentSlot = BigInt(await connection.getSlot("finalized"));
         const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
 
         const initIx = client.positions().initPositionTokens()

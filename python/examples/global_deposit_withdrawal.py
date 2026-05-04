@@ -38,14 +38,15 @@ async def main():
 
     if needs_init:
         # Init + extend in a single transaction.
-        # Use "processed" commitment for get_slot to minimize staleness — the
-        # on-chain CreateLookupTable instruction rejects slots that are too old.
-        from solana.rpc.commitment import Processed
+        # Use "finalized" commitment for get_slot — finalized slots are
+        # guaranteed to be in every validator's SlotHashes sysvar, avoiding
+        # "is not a recent slot" rejections from CreateLookupTable.
+        from solana.rpc.commitment import Finalized
 
         max_attempts = 5
         for attempt in range(1, max_attempts + 1):
             try:
-                recent_slot = (await connection.get_slot(Processed)).value
+                recent_slot = (await connection.get_slot(Finalized)).value
                 lookup_table, _ = get_position_alt_pda(position_pda, recent_slot)
 
                 init_ix = (client.positions().init_position_tokens()
