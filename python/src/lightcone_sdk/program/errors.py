@@ -225,6 +225,13 @@ class InvalidProgramIdError(LightconeError):
         super().__init__("Invalid program ID")
 
 
+class InvalidManagerError(LightconeError):
+    """Raised when a signer is not the exchange manager."""
+
+    def __init__(self):
+        super().__init__("Invalid manager")
+
+
 class InvalidOrderbookError(LightconeError):
     """Raised when an orderbook is invalid."""
 

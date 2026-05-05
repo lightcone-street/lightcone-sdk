@@ -1,9 +1,8 @@
 """Tests for types module."""
 
-import pytest
 from solders.pubkey import Pubkey
 
-from src import (
+from lightcone_sdk import (
     Exchange,
     FullOrder,
     Market,
@@ -52,10 +51,12 @@ class TestExchange:
     def test_create_exchange(self):
         authority = Pubkey.new_unique()
         operator = Pubkey.new_unique()
+        manager = Pubkey.new_unique()
 
         exchange = Exchange(
             authority=authority,
             operator=operator,
+            manager=manager,
             market_count=5,
             paused=False,
             bump=255,
@@ -63,6 +64,7 @@ class TestExchange:
 
         assert exchange.authority == authority
         assert exchange.operator == operator
+        assert exchange.manager == manager
         assert exchange.market_count == 5
         assert exchange.paused is False
         assert exchange.bump == 255
@@ -78,7 +80,8 @@ class TestMarket:
             market_id=42,
             num_outcomes=2,
             status=MarketStatus.ACTIVE,
-            winning_outcome=None,
+            winning_outcome=255,
+            has_winning_outcome=False,
             bump=254,
             oracle=oracle,
             question_id=question_id,
@@ -88,7 +91,8 @@ class TestMarket:
         assert market.market_id == 42
         assert market.num_outcomes == 2
         assert market.status == MarketStatus.ACTIVE
-        assert market.winning_outcome is None
+        assert market.winning_outcome == 255
+        assert market.has_winning_outcome is False
         assert market.bump == 254
         assert market.oracle == oracle
 
@@ -113,10 +117,12 @@ class TestOrderStatus:
     def test_create_order_status(self):
         status = OrderStatus(
             remaining=1000000,
+            base_remaining=750000,
             is_cancelled=False,
         )
 
         assert status.remaining == 1000000
+        assert status.base_remaining == 750000
         assert status.is_cancelled is False
 
 
@@ -140,8 +146,8 @@ class TestFullOrder:
             base_mint=base_mint,
             quote_mint=quote_mint,
             side=OrderSide.BID,
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
 
@@ -151,8 +157,8 @@ class TestFullOrder:
         assert order.base_mint == base_mint
         assert order.quote_mint == quote_mint
         assert order.side == OrderSide.BID
-        assert order.maker_amount == 1000000
-        assert order.taker_amount == 500000
+        assert order.amount_in == 1000000
+        assert order.amount_out == 500000
         assert order.expiration == 1700000000
         assert len(order.signature) == 64
         assert order.signature == bytes(64)

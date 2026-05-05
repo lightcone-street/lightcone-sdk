@@ -5,28 +5,17 @@ Created via factory methods on ``client.positions()``.
 
 from __future__ import annotations
 
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from ...error import SdkError, MissingMarketContext
-from ...shared.types import DepositSource
-from ...program.types import (
-    BuildDepositParams,
-    BuildMergeParams,
-    DepositToGlobalParams,
-    ExtendPositionTokensParams,
-    GlobalToMarketDepositParams,
-    InitPositionTokensParams,
-    RedeemWinningsParams,
-    WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
-)
+from ...error import MissingMarketContext, SdkError
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
+    build_deposit_to_global_instruction_with_alt,
     build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
@@ -35,6 +24,8 @@ from ...program.instructions import (
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
 )
+from ...program.types import DepositToGlobalAltContext
+from ...shared.types import DepositSource
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -543,16 +534,20 @@ class ExtendPositionTokensBuilder:
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
-        self._payer: Optional[Pubkey] = None
+        self._operator: Optional[Pubkey] = None
         self._user: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._lookup_table: Optional[Pubkey] = None
         self._deposit_mints: Optional[List[Pubkey]] = None
         self._num_outcomes: Optional[int] = None
 
-    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._payer = payer
+    def operator(self, operator: Pubkey) -> "ExtendPositionTokensBuilder":
+        self._operator = operator
         return self
+
+    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
+        """Deprecated alias for operator()."""
+        return self.operator(payer)
 
     def user(self, user: Pubkey) -> "ExtendPositionTokensBuilder":
         self._user = user
@@ -575,9 +570,9 @@ class ExtendPositionTokensBuilder:
         return self
 
     def build_ix(self) -> Instruction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
+        operator = self._operator
+        if operator is None:
+            raise SdkError("operator is required")
         user = self._user
         if user is None:
             raise SdkError("user is required")
@@ -594,15 +589,15 @@ class ExtendPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
-            payer, user, market, lookup_table,
+            operator, user, market, lookup_table,
             deposit_mints, num_outcomes, self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
-        return Transaction.new_with_payer([self.build_ix()], payer)
+        operator = self._operator
+        if operator is None:
+            raise SdkError("operator is required")
+        return Transaction.new_with_payer([self.build_ix()], operator)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the extend-position-tokens transaction."""
@@ -621,6 +616,7 @@ class DepositToGlobalBuilder:
         self._user: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
+        self._alt_context: Optional[DepositToGlobalAltContext] = None
 
     def user(self, user: Pubkey) -> "DepositToGlobalBuilder":
         self._user = user
@@ -634,6 +630,14 @@ class DepositToGlobalBuilder:
         self._amount = amount
         return self
 
+    def create_alt(self, recent_slot: int) -> "DepositToGlobalBuilder":
+        self._alt_context = DepositToGlobalAltContext.create(recent_slot)
+        return self
+
+    def extend_alt(self, lookup_table: Pubkey) -> "DepositToGlobalBuilder":
+        self._alt_context = DepositToGlobalAltContext.extend(lookup_table)
+        return self
+
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
@@ -644,8 +648,19 @@ class DepositToGlobalBuilder:
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
-        return build_deposit_to_global_instruction(
-            user=user, mint=mint, amount=amount, program_id=self._client.program_id,
+        if self._alt_context is None:
+            return build_deposit_to_global_instruction(
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=self._client.program_id,
+            )
+        return build_deposit_to_global_instruction_with_alt(
+            user=user,
+            mint=mint,
+            amount=amount,
+            alt_context=self._alt_context,
+            program_id=self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:

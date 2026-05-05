@@ -2,50 +2,35 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from . import (
-    SubmitOrderResponse,
-    CancelBody,
-    CancelSuccess,
-    CancelAllBody,
-    CancelAllSuccess,
-    CancelTriggerBody,
-    CancelTriggerSuccess,
-    TriggerOrderResponse,
-    UserOrdersResponse,
-    UserOrderFillsResponse,
-    UserSnapshotOrder,
-    UserSnapshotBalance,
-)
-from .convert import submit_response_from_dict
-from ...error import SdkError, SigningError
+from ...error import SigningError
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
-from ...program.errors import ArithmeticOverflowError
 from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
+from ...program.errors import ArithmeticOverflowError
 from ...program.instructions import (
     build_cancel_order_instruction,
     build_increment_nonce_instruction,
 )
 from ...program.orders import (
-    create_ask_order as _create_ask_order,
-    create_bid_order as _create_bid_order,
-    create_signed_ask_order as _create_signed_ask_order,
-    create_signed_bid_order as _create_signed_bid_order,
-    generate_cancel_all_salt as _generate_cancel_all_salt,
-    hash_order as _hash_order,
-    sign_order as _sign_order,
+    create_ask_order,
+    create_bid_order,
+    create_signed_ask_order,
+    create_signed_bid_order,
+    generate_cancel_all_salt,
+    hash_order,
+    sign_order,
 )
 from ...program.pda import get_order_status_pda, get_user_nonce_pda
 from ...program.types import (
     AskOrderParams,
     BidOrderParams,
-    OrderStatus as OnchainOrderStatus,
+    OrderStatus,
     SignedOrder,
 )
 from ...rpc import require_connection
@@ -53,6 +38,21 @@ from ...shared.types import (
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
 )
+from . import (
+    CancelAllBody,
+    CancelAllSuccess,
+    CancelBody,
+    CancelSuccess,
+    CancelTriggerBody,
+    CancelTriggerSuccess,
+    SubmitOrderResponse,
+    TriggerOrderResponse,
+    UserOrderFillsResponse,
+    UserOrdersResponse,
+    UserSnapshotBalance,
+    UserSnapshotOrder,
+)
+from .convert import submit_response_from_dict
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -80,35 +80,35 @@ class Orders:
 
     def create_bid_order(self, params: BidOrderParams) -> SignedOrder:
         """Create an unsigned bid order."""
-        return _create_bid_order(params)
+        return create_bid_order(params)
 
     def create_ask_order(self, params: AskOrderParams) -> SignedOrder:
         """Create an unsigned ask order."""
-        return _create_ask_order(params)
+        return create_ask_order(params)
 
     def create_signed_bid_order(
         self, params: BidOrderParams, keypair: Keypair
     ) -> SignedOrder:
         """Create and sign a bid order."""
-        return _create_signed_bid_order(params, keypair)
+        return create_signed_bid_order(params, keypair)
 
     def create_signed_ask_order(
         self, params: AskOrderParams, keypair: Keypair
     ) -> SignedOrder:
         """Create and sign an ask order."""
-        return _create_signed_ask_order(params, keypair)
+        return create_signed_ask_order(params, keypair)
 
     def hash_order(self, order: SignedOrder) -> bytes:
         """Compute the keccak256 hash of an order."""
-        return _hash_order(order)
+        return hash_order(order)
 
     def sign_order(self, order: SignedOrder, keypair: Keypair) -> bytes:
         """Sign an order with a keypair."""
-        return _sign_order(order, keypair)
+        return sign_order(order, keypair)
 
     def generate_cancel_all_salt(self) -> str:
         """Generate a random salt for cancel-all replay protection."""
-        return _generate_cancel_all_salt()
+        return generate_cancel_all_salt()
 
     # ── Envelope factories ────────────────────────────────────────────────
 
@@ -263,8 +263,8 @@ class Orders:
         maker: str,
     ) -> CancelSuccess:
         """Cancel an order using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_order_message, sign_cancel_order
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
 
@@ -282,7 +282,6 @@ class Orders:
                 sig_bytes = await strategy.signer.sign_message(message)
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
-            import bs58 as _bs58
 
             sig_hex = sig_bytes.hex()
             body = CancelBody(order_hash=order_hash, maker=maker, signature=sig_hex)
@@ -309,8 +308,8 @@ class Orders:
         orderbook_id: Optional[str] = None,
     ) -> CancelAllSuccess:
         """Cancel all orders using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_all_message, sign_cancel_all
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
         resolved_ob_id = orderbook_id or ""
@@ -367,8 +366,8 @@ class Orders:
         maker: str,
     ) -> CancelTriggerSuccess:
         """Cancel a trigger order using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_trigger_order_message
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
 
@@ -414,11 +413,11 @@ class Orders:
     # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, operator: Pubkey, market: Pubkey, order: SignedOrder
     ) -> Instruction:
         """Build CancelOrder instruction (on-chain cancellation)."""
         return build_cancel_order_instruction(
-            maker, market, order, self._client.program_id
+            operator, market, order, self._client.program_id
         )
 
     def increment_nonce_ix(self, user: Pubkey) -> Instruction:
@@ -428,11 +427,11 @@ class Orders:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, operator: Pubkey, market: Pubkey, order: SignedOrder
     ) -> Transaction:
         """Build CancelOrder transaction."""
-        ix = self.cancel_order_ix(maker, market, order)
-        return Transaction.new_with_payer([ix], maker)
+        ix = self.cancel_order_ix(operator, market, order)
+        return Transaction.new_with_payer([ix], operator)
 
     def increment_nonce_tx(self, user: Pubkey) -> Transaction:
         """Build IncrementNonce transaction."""
@@ -441,7 +440,7 @@ class Orders:
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_status(self, order_hash: bytes) -> Optional[OnchainOrderStatus]:
+    async def get_status(self, order_hash: bytes) -> Optional[OrderStatus]:
         """Fetch an OrderStatus account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.status_pda(order_hash)

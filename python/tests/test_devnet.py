@@ -31,7 +31,7 @@ from solders.transaction import Transaction
 from spl.token.async_client import AsyncToken
 from spl.token.constants import TOKEN_PROGRAM_ID as SPL_TOKEN_PROGRAM_ID
 
-from src import (
+from lightcone_sdk import (
     PROGRAM_ID,
     ActivateMarketParams,
     AskOrderParams,
@@ -55,7 +55,7 @@ from src import (
     verify_order_signature,
     to_order,
 )
-from src.program.utils import get_associated_token_address, get_associated_token_address_2022
+from lightcone_sdk.program.utils import get_associated_token_address, get_associated_token_address_2022
 
 # Test configuration
 DEVNET_RPC = os.environ.get("DEVNET_RPC", "https://api.devnet.solana.com")

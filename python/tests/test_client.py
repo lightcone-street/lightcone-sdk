@@ -4,7 +4,7 @@ import pytest
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-from src import (
+from lightcone_sdk import (
     PROGRAM_ID,
     AskOrderParams,
     BidOrderParams,

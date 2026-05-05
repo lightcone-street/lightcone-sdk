@@ -1,7 +1,5 @@
 """PDA (Program Derived Address) derivation functions for the Lightcone SDK."""
 
-from typing import Tuple
-
 from solders.pubkey import Pubkey
 
 from ..env import PROGRAM_ID
@@ -9,6 +7,7 @@ from .constants import (
     ALT_PROGRAM_ID,
     ORDERBOOK_SEED,
     SEED_CENTRAL_STATE,
+    SEED_CONDITION,
     SEED_CONDITIONAL_MINT,
     SEED_GLOBAL_DEPOSIT,
     SEED_MARKET,
@@ -18,10 +17,10 @@ from .constants import (
     SEED_USER_NONCE,
     SEED_VAULT,
 )
-from .utils import encode_u64, encode_u8
+from .utils import encode_u8, encode_u64
 
 
-def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> Tuple[Pubkey, int]:
+def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> tuple[Pubkey, int]:
     """Derive the exchange PDA.
 
     Seeds: ["central_state"]
@@ -32,7 +31,7 @@ def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> Tuple[Pubkey, int]:
 def get_market_pda(
     market_id: int,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the market PDA for a given market ID.
 
     Seeds: ["market", market_id (u64 LE)]
@@ -43,11 +42,25 @@ def get_market_pda(
     )
 
 
+def get_condition_tombstone_pda(
+    condition_id: bytes,
+    program_id: Pubkey = PROGRAM_ID,
+) -> tuple[Pubkey, int]:
+    """Derive the condition tombstone PDA for market uniqueness.
+
+    Seeds: ["condition", condition_id]
+    """
+    return Pubkey.find_program_address(
+        [SEED_CONDITION, condition_id],
+        program_id,
+    )
+
+
 def get_vault_pda(
     deposit_mint: Pubkey,
     market: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the vault PDA for a deposit mint in a market.
 
     Seeds: ["market_deposit_token_account", deposit_mint, market]
@@ -61,7 +74,7 @@ def get_vault_pda(
 def get_mint_authority_pda(
     market: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the mint authority PDA for a market.
 
     Seeds: ["market_mint_authority", market]
@@ -77,7 +90,7 @@ def get_conditional_mint_pda(
     deposit_mint: Pubkey,
     outcome_index: int,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the conditional mint PDA for a specific outcome.
 
     Seeds: ["conditional_mint", market, deposit_mint, outcome_index (u8)]
@@ -96,7 +109,7 @@ def get_conditional_mint_pda(
 def get_order_status_pda(
     order_hash: bytes,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the order status PDA for an order hash.
 
     Seeds: ["order_status", order_hash]
@@ -110,7 +123,7 @@ def get_order_status_pda(
 def get_user_nonce_pda(
     user: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the user nonce PDA.
 
     Seeds: ["user_nonce", user]
@@ -125,7 +138,7 @@ def get_position_pda(
     owner: Pubkey,
     market: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the position PDA for a user in a market.
 
     Seeds: ["position", owner, market]
@@ -136,17 +149,25 @@ def get_position_pda(
     )
 
 
+def canonical_mint_pair(mint_a: Pubkey, mint_b: Pubkey) -> tuple[Pubkey, Pubkey]:
+    """Return mints in the canonical byte order used by orderbook PDAs."""
+    if bytes(mint_a) <= bytes(mint_b):
+        return mint_a, mint_b
+    return mint_b, mint_a
+
+
 def get_orderbook_pda(
     mint_a: Pubkey,
     mint_b: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the orderbook PDA for a pair of mints.
 
-    Seeds: ["orderbook", mint_a, mint_b]
+    Seeds: ["orderbook", canonical_mint_a, canonical_mint_b]
     """
+    canonical_a, canonical_b = canonical_mint_pair(mint_a, mint_b)
     return Pubkey.find_program_address(
-        [ORDERBOOK_SEED, bytes(mint_a), bytes(mint_b)],
+        [ORDERBOOK_SEED, bytes(canonical_a), bytes(canonical_b)],
         program_id,
     )
 
@@ -154,7 +175,7 @@ def get_orderbook_pda(
 def get_global_deposit_pda(
     mint: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the global deposit token PDA.
 
     Seeds: ["global_deposit", mint]
@@ -165,17 +186,14 @@ def get_global_deposit_pda(
     )
 
 
-def get_alt_pda(
-    orderbook: Pubkey,
-    recent_slot: int,
-) -> Tuple[Pubkey, int]:
+def get_alt_pda(authority: Pubkey, recent_slot: int) -> tuple[Pubkey, int]:
     """Derive the Address Lookup Table PDA.
 
-    Seeds: [orderbook, recent_slot (u64 LE)]
+    Seeds: [authority, recent_slot (u64 LE)]
     Uses the ALT_PROGRAM_ID as the program.
     """
     return Pubkey.find_program_address(
-        [bytes(orderbook), encode_u64(recent_slot)],
+        [bytes(authority), encode_u64(recent_slot)],
         ALT_PROGRAM_ID,
     )
 
@@ -212,7 +230,7 @@ def get_user_global_deposit_pda(
     user: Pubkey,
     mint: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the user global deposit PDA (token account owned by PDA).
 
     Seeds: ["global_deposit", user, mint]
@@ -226,7 +244,7 @@ def get_user_global_deposit_pda(
 def get_position_alt_pda(
     position: Pubkey,
     recent_slot: int,
-) -> Tuple[Pubkey, int]:
+) -> tuple[Pubkey, int]:
     """Derive the Address Lookup Table PDA for a position.
 
     Seeds: [position, slot_le], program: ALT_PROGRAM_ID

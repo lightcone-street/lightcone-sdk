@@ -32,6 +32,7 @@ class Exchange:
 
     authority: Pubkey
     operator: Pubkey
+    manager: Pubkey
     market_count: int
     paused: bool
     bump: int
@@ -67,6 +68,7 @@ class OrderStatus:
     """Order status account data."""
 
     remaining: int
+    base_remaining: int
     is_cancelled: bool
 
 
@@ -168,7 +170,7 @@ class InitializeParams:
 class CreateMarketParams:
     """Parameters for creating a new market."""
 
-    authority: Pubkey
+    manager: Pubkey
     num_outcomes: int
     oracle: Pubkey
     question_id: bytes
@@ -178,7 +180,7 @@ class CreateMarketParams:
 class AddDepositMintParams:
     """Parameters for adding a deposit mint to a market."""
 
-    authority: Pubkey
+    manager: Pubkey
     deposit_mint: Pubkey
     outcome_metadata: list[OutcomeMetadata]
 
@@ -237,7 +239,7 @@ class WithdrawFromPositionParams:
 class ActivateMarketParams:
     """Parameters for activating a market."""
 
-    authority: Pubkey
+    manager: Pubkey
     market_id: int
 
 
@@ -260,12 +262,16 @@ class MatchOrdersMultiParams:
 class CreateOrderbookParams:
     """Parameters for creating an orderbook."""
 
-    authority: Pubkey
+    manager: Pubkey
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
+    mint_a_deposit_mint: Pubkey
+    mint_b_deposit_mint: Pubkey
     recent_slot: int
     base_index: int
+    mint_a_outcome_index: int
+    mint_b_outcome_index: int
 
 
 @dataclass
@@ -274,6 +280,14 @@ class SetAuthorityParams:
 
     current_authority: Pubkey
     new_authority: Pubkey
+
+
+@dataclass
+class SetManagerParams:
+    """Parameters for setting a new manager."""
+
+    authority: Pubkey
+    new_manager: Pubkey
 
 
 @dataclass
@@ -333,6 +347,23 @@ class DepositToGlobalParams:
     amount: int
 
 
+@dataclass(frozen=True)
+class DepositToGlobalAltContext:
+    """ALT context for adding user global-deposit accounts to a lookup table."""
+
+    kind: str
+    recent_slot: Optional[int] = None
+    lookup_table: Optional[Pubkey] = None
+
+    @classmethod
+    def create(cls, recent_slot: int) -> "DepositToGlobalAltContext":
+        return cls(kind="create", recent_slot=recent_slot)
+
+    @classmethod
+    def extend(cls, lookup_table: Pubkey) -> "DepositToGlobalAltContext":
+        return cls(kind="extend", lookup_table=lookup_table)
+
+
 @dataclass
 class GlobalToMarketDepositParams:
     """Parameters for transferring from global deposit to a market vault."""
@@ -374,7 +405,7 @@ class DepositAndSwapParams:
 class ExtendPositionTokensParams:
     """Parameters for extending a position ALT with new deposit mints."""
 
-    payer: Pubkey
+    operator: Pubkey
     user: Pubkey
     market: Pubkey
     lookup_table: Pubkey

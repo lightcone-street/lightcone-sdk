@@ -2,12 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from ...program.accounts import deserialize_position
+from ...program.instructions import (
+    build_deposit_to_global_instruction,
+    build_deposit_to_global_instruction_with_alt,
+    build_extend_position_tokens_instruction,
+    build_global_to_market_deposit_instruction,
+    build_init_position_tokens_instruction,
+    build_redeem_winnings_instruction,
+    build_withdraw_from_global_instruction,
+    build_withdraw_from_position_instruction,
+)
+from ...program.pda import get_position_pda
+from ...program.types import (
+    DepositToGlobalAltContext,
+    DepositToGlobalParams,
+    ExtendPositionTokensParams,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
+    Position,
+    RedeemWinningsParams,
+    WithdrawFromGlobalParams,
+    WithdrawFromPositionParams,
+)
+from ...rpc import require_connection
 from . import DepositTokenBalance
 from .builders import (
     DepositBuilder,
@@ -21,29 +45,7 @@ from .builders import (
     WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 )
-from .wire import PositionsResponseWire, MarketPositionsResponseWire
-from ...program.accounts import deserialize_position
-from ...program.instructions import (
-    build_deposit_to_global_instruction,
-    build_extend_position_tokens_instruction,
-    build_global_to_market_deposit_instruction,
-    build_init_position_tokens_instruction,
-    build_redeem_winnings_instruction,
-    build_withdraw_from_global_instruction,
-    build_withdraw_from_position_instruction,
-)
-from ...program.pda import get_position_pda
-from ...program.types import (
-    DepositToGlobalParams,
-    ExtendPositionTokensParams,
-    GlobalToMarketDepositParams,
-    InitPositionTokensParams,
-    Position as OnchainPosition,
-    RedeemWinningsParams,
-    WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
-)
-from ...rpc import require_connection
+from .wire import MarketPositionsResponseWire, PositionsResponseWire
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -200,7 +202,13 @@ class Positions:
     ) -> Instruction:
         """Build InitPositionTokens instruction."""
         return build_init_position_tokens_instruction(
-            params, num_outcomes, self._client.program_id
+            payer=params.payer,
+            user=params.user,
+            market=params.market,
+            deposit_mints=params.deposit_mints,
+            num_outcomes=num_outcomes,
+            recent_slot=params.recent_slot,
+            program_id=self._client.program_id,
         )
 
     def extend_position_tokens_ix(
@@ -208,7 +216,13 @@ class Positions:
     ) -> Instruction:
         """Build ExtendPositionTokens instruction."""
         return build_extend_position_tokens_instruction(
-            params, num_outcomes, self._client.program_id
+            operator=params.operator,
+            user=params.user,
+            market=params.market,
+            lookup_table=params.lookup_table,
+            deposit_mints=params.deposit_mints,
+            num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
         )
 
     def deposit_to_global_ix(self, params: DepositToGlobalParams) -> Instruction:
@@ -217,6 +231,20 @@ class Positions:
             user=params.user,
             mint=params.mint,
             amount=params.amount,
+            program_id=self._client.program_id,
+        )
+
+    def deposit_to_global_ix_with_alt(
+        self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Instruction:
+        """Build DepositToGlobal instruction with user-deposit ALT accounts."""
+        return build_deposit_to_global_instruction_with_alt(
+            user=params.user,
+            mint=params.mint,
+            amount=params.amount,
+            alt_context=alt_context,
             program_id=self._client.program_id,
         )
 
@@ -270,11 +298,20 @@ class Positions:
     ) -> Transaction:
         """Build ExtendPositionTokens transaction."""
         ix = self.extend_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.payer)
+        return Transaction.new_with_payer([ix], params.operator)
 
     def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
         """Build DepositToGlobal transaction."""
         ix = self.deposit_to_global_ix(params)
+        return Transaction.new_with_payer([ix], params.user)
+
+    def deposit_to_global_tx_with_alt(
+        self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Transaction:
+        """Build DepositToGlobal transaction with user-deposit ALT accounts."""
+        ix = self.deposit_to_global_ix_with_alt(params, alt_context)
         return Transaction.new_with_payer([ix], params.user)
 
     def global_to_market_deposit_tx(
@@ -341,7 +378,7 @@ class Positions:
 
     async def get_onchain(
         self, owner: Pubkey, market: Pubkey
-    ) -> Optional[OnchainPosition]:
+    ) -> Optional[Position]:
         """Fetch a Position account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.pda(owner, market)
