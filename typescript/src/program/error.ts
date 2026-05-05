@@ -14,6 +14,10 @@ export type ProgramErrorVariant =
   | "MissingField"
   | "Overflow"
   | "DivisionByZero"
+  | "InvalidPayoutNumerators"
+  | "PayoutVectorExceedsU32"
+  | "InvalidScalarRange"
+  | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
   | "UnsignedOrder";
 
@@ -119,6 +123,34 @@ export class ProgramSdkError extends Error {
 
   static divisionByZero(): ProgramSdkError {
     return new ProgramSdkError("DivisionByZero", "Division by zero");
+  }
+
+  static invalidPayoutNumerators(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidPayoutNumerators",
+      "Payout numerators must include at least one non-zero value",
+    );
+  }
+
+  static payoutVectorExceedsU32(): ProgramSdkError {
+    return new ProgramSdkError(
+      "PayoutVectorExceedsU32",
+      "Payout numerators and denominator must fit in u32",
+    );
+  }
+
+  static invalidScalarRange(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidScalarRange",
+      "Scalar maxValue must be greater than minValue",
+    );
+  }
+
+  static duplicateScalarOutcomes(): ProgramSdkError {
+    return new ProgramSdkError(
+      "DuplicateScalarOutcomes",
+      "Scalar lower and upper outcome indexes must be distinct",
+    );
   }
 
   static invalidPubkey(message: string): ProgramSdkError {

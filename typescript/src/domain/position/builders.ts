@@ -286,7 +286,7 @@ export class RedeemWinningsBuilder {
   private marketValue?: PublicKey;
   private mintValue?: PublicKey;
   private amountValue?: bigint;
-  private winningOutcomeValue?: number;
+  private outcomeIndexValue?: number;
 
   constructor(client: ClientContext) {
     this.client = client;
@@ -312,8 +312,8 @@ export class RedeemWinningsBuilder {
     return this;
   }
 
-  winningOutcome(outcome: number): this {
-    this.winningOutcomeValue = outcome;
+  outcomeIndex(index: number): this {
+    this.outcomeIndexValue = index;
     return this;
   }
 
@@ -322,11 +322,11 @@ export class RedeemWinningsBuilder {
     const market = requireField(this.marketValue, "market");
     const depositMint = requireField(this.mintValue, "mint");
     const amount = requireField(this.amountValue, "amount");
-    const winningOutcome = requireField(this.winningOutcomeValue, "winning_outcome");
+    const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
 
     return buildRedeemWinningsIx(
       { user, market, depositMint, amount },
-      winningOutcome,
+      outcomeIndex,
       this.client.programId,
     );
   }

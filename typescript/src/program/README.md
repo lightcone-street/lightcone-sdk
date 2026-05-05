@@ -103,12 +103,12 @@ import type {
 | `marketId` | bigint | Sequential market ID |
 | `numOutcomes` | number | Number of outcomes (2-6) |
 | `status` | MarketStatus | Current status |
-| `winningOutcome` | number | Winner (if settled) |
-| `hasWinningOutcome` | boolean | Is settled |
 | `bump` | number | PDA bump seed |
 | `oracle` | PublicKey | Oracle authority |
 | `questionId` | Buffer | Question identifier (32 bytes) |
 | `conditionId` | Buffer | Computed condition ID (32 bytes) |
+| `payoutNumerators` | [number, number, number, number, number, number] | Resolution vector; first `numOutcomes` entries are meaningful |
+| `payoutDenominator` | number | Sum of meaningful payout numerators |
 
 #### SignedOrder (225 bytes)
 
@@ -225,9 +225,16 @@ import {
   getExchangePda, getMarketPda, getOrderStatusPda,
   // Account deserialization
   deserializeExchange, deserializeMarket,
+  // Resolution helpers
+  winnerTakesAllPayoutNumerators, scalarToPayoutNumerators,
   // Order utilities
   hashOrder, signOrder, createBidOrder, createAskOrder,
   // Constants
   PROGRAM_ID, INSTRUCTION, DISCRIMINATOR,
 } from "@lightconexyz/lightcone-sdk";
 ```
+
+Settle instructions now submit payout numerators directly. Binary markets can use
+`winnerTakesAllPayoutNumerators(winningOutcome, numOutcomes)`, while scalar
+markets should use integer fixed-point `scalarToPayoutNumerators(...)` and pass
+the returned vector as `SettleMarketParams.payoutNumerators`.

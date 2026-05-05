@@ -95,7 +95,7 @@ export const DISCRIMINATOR = {
  */
 export const ACCOUNT_SIZE = {
   EXCHANGE: 120,
-  MARKET: 120,
+  MARKET: 148,
   ORDER_STATUS: 32,
   USER_NONCE: 16,
   POSITION: 80,

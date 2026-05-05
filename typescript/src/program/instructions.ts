@@ -12,6 +12,8 @@ import {
   ASSOCIATED_TOKEN_PROGRAM_ID,
   ALT_PROGRAM_ID,
   MAX_MAKERS,
+  MAX_OUTCOMES,
+  MIN_OUTCOMES,
 } from "./constants";
 import { PROGRAM_ID } from "../env";
 import {
@@ -45,6 +47,7 @@ import {
   getMarketPda,
   getVaultPda,
   getMintAuthorityPda,
+  getConditionalMintPda,
   getAllConditionalMintPdas,
   getOrderStatusPda,
   getUserNoncePda,
@@ -58,6 +61,7 @@ import {
 } from "./pda";
 import {
   toU8,
+  toU32Le,
   toU64Le,
   serializeString,
   getConditionalTokenAta,
@@ -74,6 +78,10 @@ import { ProgramSdkError } from "./error";
 
 function signerMut(pubkey: PublicKey): AccountMeta {
   return { pubkey, isSigner: true, isWritable: true };
+}
+
+function signer(pubkey: PublicKey): AccountMeta {
+  return { pubkey, isSigner: true, isWritable: false };
 }
 
 function writable(pubkey: PublicKey): AccountMeta {
@@ -128,6 +136,32 @@ function canonicalOrderbookMints(params: CreateOrderbookParams): CanonicalOrderb
     mintB,
     baseIndex: mintA.isBase ? 0 : 1,
   };
+}
+
+function validatePayoutNumerators(payoutNumerators: number[]): void {
+  const count = payoutNumerators.length;
+  if (count < MIN_OUTCOMES || count > MAX_OUTCOMES) {
+    throw ProgramSdkError.invalidOutcomeCount(count);
+  }
+
+  let denominator = 0n;
+  for (const numerator of payoutNumerators) {
+    if (
+      !Number.isInteger(numerator) ||
+      numerator < 0 ||
+      numerator > 0xffffffff
+    ) {
+      throw ProgramSdkError.payoutVectorExceedsU32();
+    }
+    denominator += BigInt(numerator);
+    if (denominator > 0xffffffffn) {
+      throw ProgramSdkError.overflow("Payout denominator overflow");
+    }
+  }
+
+  if (denominator === 0n) {
+    throw ProgramSdkError.invalidPayoutNumerators();
+  }
 }
 
 // ============================================================================
@@ -518,24 +552,26 @@ export function buildIncrementNonceIx(
  * 1. exchange (readonly)
  * 2. market (mut)
  *
- * Data: [discriminator, winning_outcome (u8)]
+ * Data: [discriminator, payout_numerator_0 (u32), ...]
  */
 export function buildSettleMarketIx(
   params: SettleMarketParams,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  validatePayoutNumerators(params.payoutNumerators);
+
   const [exchange] = getExchangePda(programId);
   const [market] = getMarketPda(params.marketId, programId);
 
   const keys: AccountMeta[] = [
-    signerMut(params.oracle),
+    signer(params.oracle),
     readonly(exchange),
     writable(market),
   ];
 
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.SETTLE_MARKET]),
-    toU8(params.winningOutcome),
+    ...params.payoutNumerators.map(toU32Le),
   ]);
 
   return new TransactionInstruction({
@@ -560,24 +596,30 @@ export function buildSettleMarketIx(
  * 8. mint_authority
  * 9. token_program
  * 10. token_2022_program
+ * 11. exchange
  *
- * Data: [discriminator, amount (u64)]
+ * Data: [discriminator, amount (u64), outcome_index (u8)]
  */
 export function buildRedeemWinningsIx(
   params: RedeemWinningsParams,
-  winningOutcome: number,
+  outcomeIndex: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  if (!Number.isInteger(outcomeIndex) || outcomeIndex < 0 || outcomeIndex > 0xff) {
+    throw ProgramSdkError.invalidOutcomeIndex(outcomeIndex, 0xff);
+  }
+
+  const [exchange] = getExchangePda(programId);
   const [vault] = getVaultPda(params.depositMint, params.market, programId);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
   const [position] = getPositionPda(params.user, params.market, programId);
-  const [winningMint] = getAllConditionalMintPdas(
+  const [conditionalMint] = getConditionalMintPda(
     params.market,
     params.depositMint,
-    winningOutcome + 1,
+    outcomeIndex,
     programId
-  )[winningOutcome];
-  const positionWinningAta = getConditionalTokenAta(winningMint, position);
+  );
+  const positionConditionalAta = getConditionalTokenAta(conditionalMint, position);
   const userDepositAta = getDepositTokenAta(params.depositMint, params.user);
 
   const keys: AccountMeta[] = [
@@ -585,18 +627,20 @@ export function buildRedeemWinningsIx(
     readonly(params.market),
     readonly(params.depositMint),
     writable(vault),
-    writable(winningMint),
-    writable(position),
-    writable(positionWinningAta),
+    writable(conditionalMint),
+    readonly(position),
+    writable(positionConditionalAta),
     writable(userDepositAta),
     readonly(mintAuthority),
     readonly(TOKEN_PROGRAM_ID),
     readonly(TOKEN_2022_PROGRAM_ID),
+    readonly(exchange),
   ];
 
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.REDEEM_WINNINGS]),
     toU64Le(params.amount),
+    toU8(outcomeIndex),
   ]);
 
   return new TransactionInstruction({
@@ -1655,10 +1699,10 @@ export function buildSettleMarketTx(
 
 export function buildRedeemWinningsTx(
   params: RedeemWinningsParams,
-  winningOutcome: number,
+  outcomeIndex: number,
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
-  const ix = buildRedeemWinningsIx(params, winningOutcome, programId);
+  const ix = buildRedeemWinningsIx(params, outcomeIndex, programId);
   return new Transaction({ feePayer: params.user }).add(ix);
 }
 

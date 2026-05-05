@@ -21,6 +21,7 @@ export type {
   Exchange,
   GlobalDepositToken,
   Market,
+  PayoutNumerators,
   Position,
   OrderStatus,
   UserNonce,
@@ -37,6 +38,7 @@ export type {
   CancelOrderParams,
   IncrementNonceParams,
   SettleMarketParams,
+  ScalarResolutionParams,
   RedeemWinningsParams,
   SetPausedParams,
   SetOperatorParams,
@@ -115,6 +117,8 @@ export {
   validateOutcomes,
   validateOutcomeIndex,
   validate32Bytes,
+  winnerTakesAllPayoutNumerators,
+  scalarToPayoutNumerators,
 } from "./utils";
 
 // ============================================================================

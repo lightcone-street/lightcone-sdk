@@ -47,20 +47,22 @@ export interface Exchange {
 /**
  * Market account
  * PDA: ["market", market_id (u64)]
- * Size: 120 bytes
+ * Size: 148 bytes
  */
 export interface Market {
   discriminator: Buffer; // 8 bytes
   marketId: bigint; // u64 - auto-assigned, sequential
   numOutcomes: number; // u8 - 2-6 outcomes supported
   status: MarketStatus; // u8
-  winningOutcome: number; // u8
-  hasWinningOutcome: boolean; // u8
   bump: number; // u8
   oracle: PublicKey; // 32 bytes - who can settle the market
   questionId: Buffer; // 32 bytes
   conditionId: Buffer; // 32 bytes - derived from oracle + questionId + numOutcomes
+  payoutNumerators: PayoutNumerators; // six u32 values; first numOutcomes are meaningful
+  payoutDenominator: number; // u32 sum of meaningful payout numerators
 }
+
+export type PayoutNumerators = [number, number, number, number, number, number];
 
 /**
  * Order status account - tracks partial fills and cancellations
@@ -245,7 +247,19 @@ export interface IncrementNonceParams {
 export interface SettleMarketParams {
   oracle: PublicKey;
   marketId: bigint;
-  winningOutcome: number;
+  payoutNumerators: number[];
+}
+
+/**
+ * Integer fixed-point metadata for two-sided scalar settlement.
+ */
+export interface ScalarResolutionParams {
+  minValue: bigint;
+  maxValue: bigint;
+  resolvedValue: bigint;
+  lowerOutcomeIndex: number;
+  upperOutcomeIndex: number;
+  numOutcomes: number;
 }
 
 /**

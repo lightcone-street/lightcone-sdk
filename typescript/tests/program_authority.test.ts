@@ -6,7 +6,9 @@ import {
   ALT_PROGRAM_ID,
   DISCRIMINATOR,
   INSTRUCTION,
+  MarketStatus,
   OrderSide,
+  ProgramSdkError,
   buildAddDepositMintIx,
   buildCancelOrderIx,
   buildCreateMarketIx,
@@ -16,19 +18,31 @@ import {
   buildDepositToGlobalIxWithAlt,
   buildExtendPositionTokensIx,
   buildMatchOrdersMultiIx,
+  buildRedeemWinningsIx,
   buildSetManagerIx,
+  buildSettleMarketIx,
   buildWithdrawFromGlobalIx,
   deriveConditionId,
   deserializeExchange,
+  deserializeMarket,
   deserializeOrderStatus,
+  getConditionalMintPda,
+  getConditionalTokenAta,
   getAltPda,
   getConditionTombstonePda,
+  getDepositTokenAta,
   getExchangePda,
   getGlobalDepositTokenPda,
+  getMarketPda,
+  getMintAuthorityPda,
   getOrderStatusPda,
   getOrderbookPda,
+  getPositionPda,
   getUserNoncePda,
+  getVaultPda,
   hashOrder,
+  scalarToPayoutNumerators,
+  winnerTakesAllPayoutNumerators,
   type MakerFill,
   type SignedOrder,
 } from "../src/program";
@@ -88,6 +102,36 @@ describe("program authority/account alignment", () => {
     assert.equal(status.remaining, 10n);
     assert.equal(status.baseRemaining, 20n);
     assert.equal(status.isCancelled, true);
+  });
+
+  it("deserializes the 148-byte Market payout-vector layout", () => {
+    const data = Buffer.alloc(ACCOUNT_SIZE.MARKET);
+    const questionId = Buffer.alloc(32, 4);
+    const conditionId = Buffer.alloc(32, 5);
+    DISCRIMINATOR.MARKET.copy(data, 0);
+    data.writeBigUInt64LE(42n, 8);
+    data[16] = 3;
+    data[17] = MarketStatus.Resolved;
+    data[18] = 9;
+    pubkey(6).toBuffer().copy(data, 24);
+    questionId.copy(data, 56);
+    conditionId.copy(data, 88);
+    [1, 2, 3, 0, 0, 0].forEach((value, index) => {
+      data.writeUInt32LE(value, 120 + index * 4);
+    });
+    data.writeUInt32LE(6, 144);
+
+    const market = deserializeMarket(data);
+
+    assert.equal(market.marketId, 42n);
+    assert.equal(market.numOutcomes, 3);
+    assert.equal(market.status, MarketStatus.Resolved);
+    assert.equal(market.bump, 9);
+    assert.equal(market.oracle.toBase58(), pubkey(6).toBase58());
+    assert.deepEqual(market.questionId, questionId);
+    assert.deepEqual(market.conditionId, conditionId);
+    assert.deepEqual(market.payoutNumerators, [1, 2, 3, 0, 0, 0]);
+    assert.equal(market.payoutDenominator, 6);
   });
 
   it("derives orderbook PDAs with canonical mint ordering", () => {
@@ -160,6 +204,102 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data.length, 33);
     assert.equal(ix.data[0], INSTRUCTION.SET_MANAGER);
     assert.deepEqual(ix.data.subarray(1), newManager.toBuffer());
+  });
+
+  it("builds settleMarket with readonly oracle signer and u32 payout vector", () => {
+    const programId = pubkey(101);
+    const oracle = pubkey(1);
+    const marketId = 7n;
+    const [exchange] = getExchangePda(programId);
+    const [market] = getMarketPda(marketId, programId);
+
+    const ix = buildSettleMarketIx(
+      { oracle, marketId, payoutNumerators: [7, 3] },
+      programId
+    );
+
+    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), oracle.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+    assert.equal(ix.keys[0]!.isWritable, false);
+    assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
+    assert.equal(ix.keys[2]!.isWritable, true);
+    assert.equal(ix.data.length, 9);
+    assert.equal(ix.data[0], INSTRUCTION.SETTLE_MARKET);
+    assert.equal(ix.data.readUInt32LE(1), 7);
+    assert.equal(ix.data.readUInt32LE(5), 3);
+  });
+
+  it("rejects invalid settle payout vectors before serialization", () => {
+    const params = { oracle: pubkey(1), marketId: 1n };
+
+    assert.throws(
+      () => buildSettleMarketIx({ ...params, payoutNumerators: [0, 0] }, pubkey(102)),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "InvalidPayoutNumerators"
+    );
+    assert.throws(
+      () => buildSettleMarketIx({ ...params, payoutNumerators: [1] }, pubkey(102)),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "InvalidOutcomeCount"
+    );
+    assert.throws(
+      () => buildSettleMarketIx({ ...params, payoutNumerators: [0xffffffff, 1] }, pubkey(102)),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "Overflow"
+    );
+  });
+
+  it("builds winner-takes-all and scalar payout vectors", () => {
+    assert.deepEqual(winnerTakesAllPayoutNumerators(2, 4), [0, 0, 1, 0]);
+    assert.deepEqual(
+      scalarToPayoutNumerators({
+        minValue: 0n,
+        maxValue: 100n,
+        resolvedValue: 25n,
+        lowerOutcomeIndex: 0,
+        upperOutcomeIndex: 1,
+        numOutcomes: 2,
+      }),
+      [3, 1]
+    );
+    assert.deepEqual(
+      scalarToPayoutNumerators({
+        minValue: 0n,
+        maxValue: 100n,
+        resolvedValue: -5n,
+        lowerOutcomeIndex: 0,
+        upperOutcomeIndex: 1,
+        numOutcomes: 2,
+      }),
+      [1, 0]
+    );
+    assert.deepEqual(
+      scalarToPayoutNumerators({
+        minValue: 0n,
+        maxValue: 100n,
+        resolvedValue: 120n,
+        lowerOutcomeIndex: 0,
+        upperOutcomeIndex: 1,
+        numOutcomes: 2,
+      }),
+      [0, 1]
+    );
+    assert.deepEqual(
+      scalarToPayoutNumerators({
+        minValue: -10_000n,
+        maxValue: 40_000n,
+        resolvedValue: 15_250n,
+        lowerOutcomeIndex: 0,
+        upperOutcomeIndex: 1,
+        numOutcomes: 2,
+      }),
+      [99, 101]
+    );
   });
 
   it("builds cancelOrder as operator-only without system program", () => {
@@ -276,6 +416,41 @@ describe("program authority/account alignment", () => {
 
     assert.equal(ix.keys.length, 7);
     assert.equal(ix.keys[6]!.pubkey.toBase58(), exchange.toBase58());
+  });
+
+  it("builds redeemWinnings with outcome index and exchange pause-validation account", () => {
+    const programId = pubkey(103);
+    const user = pubkey(1);
+    const market = pubkey(2);
+    const depositMint = pubkey(3);
+    const outcomeIndex = 2;
+    const [exchange] = getExchangePda(programId);
+    const [vault] = getVaultPda(depositMint, market, programId);
+    const [conditionalMint] = getConditionalMintPda(market, depositMint, outcomeIndex, programId);
+    const [position] = getPositionPda(user, market, programId);
+    const positionConditionalAta = getConditionalTokenAta(conditionalMint, position);
+    const userDepositAta = getDepositTokenAta(depositMint, user);
+    const [mintAuthority] = getMintAuthorityPda(market, programId);
+
+    const ix = buildRedeemWinningsIx(
+      { user, market, depositMint, amount: 123n },
+      outcomeIndex,
+      programId
+    );
+
+    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys[3]!.pubkey.toBase58(), vault.toBase58());
+    assert.equal(ix.keys[4]!.pubkey.toBase58(), conditionalMint.toBase58());
+    assert.equal(ix.keys[5]!.pubkey.toBase58(), position.toBase58());
+    assert.equal(ix.keys[5]!.isWritable, false);
+    assert.equal(ix.keys[6]!.pubkey.toBase58(), positionConditionalAta.toBase58());
+    assert.equal(ix.keys[7]!.pubkey.toBase58(), userDepositAta.toBase58());
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), mintAuthority.toBase58());
+    assert.equal(ix.keys[11]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.data.length, 10);
+    assert.equal(ix.data[0], INSTRUCTION.REDEEM_WINNINGS);
+    assert.equal(ix.data.readBigUInt64LE(1), 123n);
+    assert.equal(ix.data[9], outcomeIndex);
   });
 
   it("includes orderbook in depositAndSwap fixed accounts", () => {

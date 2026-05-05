@@ -159,18 +159,18 @@ export function deserializeExchange(data: Buffer): Exchange {
 /**
  * Deserialize Market account data
  *
- * Layout (120 bytes):
+ * Layout (148 bytes):
  * - discriminator: [u8; 8]
  * - market_id: u64 (8 bytes)
  * - num_outcomes: u8 (1 byte)
  * - status: u8 (1 byte)
- * - winning_outcome: u8 (1 byte)
- * - has_winning_outcome: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 3]
+ * - _padding: [u8; 5]
  * - oracle: Pubkey (32 bytes)
  * - question_id: [u8; 32]
  * - condition_id: [u8; 32]
+ * - payout_numerators: [u32; 6]
+ * - payout_denominator: u32
  */
 export function deserializeMarket(data: Buffer): Market {
   if (data.length < ACCOUNT_SIZE.MARKET) {
@@ -193,17 +193,11 @@ export function deserializeMarket(data: Buffer): Market {
   const statusByte = data[offset];
   offset += 1;
 
-  const winningOutcome = data[offset];
-  offset += 1;
-
-  const hasWinningOutcome = data[offset] !== 0;
-  offset += 1;
-
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 3 bytes
-  offset += 3;
+  // Skip padding: 5 bytes
+  offset += 5;
 
   const oracle = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
@@ -213,6 +207,15 @@ export function deserializeMarket(data: Buffer): Market {
 
   const conditionId = Buffer.from(data.subarray(offset, offset + 32));
   offset += 32;
+
+  const payoutNumerators: Market["payoutNumerators"] = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < payoutNumerators.length; i++) {
+    payoutNumerators[i] = data.readUInt32LE(offset);
+    offset += 4;
+  }
+
+  const payoutDenominator = data.readUInt32LE(offset);
+  offset += 4;
 
   // Map status byte to enum
   let status: MarketStatus;
@@ -238,12 +241,12 @@ export function deserializeMarket(data: Buffer): Market {
     marketId,
     numOutcomes,
     status,
-    winningOutcome,
-    hasWinningOutcome,
     bump,
     oracle,
     questionId,
     conditionId,
+    payoutNumerators,
+    payoutDenominator,
   };
 }
 

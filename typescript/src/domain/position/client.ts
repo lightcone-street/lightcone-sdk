@@ -163,9 +163,9 @@ export class Positions {
 
   redeemWinningsIx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): TransactionInstruction {
-    return buildRedeemWinningsIx(params, winningOutcome, this.client.programId);
+    return buildRedeemWinningsIx(params, outcomeIndex, this.client.programId);
   }
 
   withdrawFromPositionIx(
@@ -215,9 +215,9 @@ export class Positions {
 
   redeemWinningsTx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): Transaction {
-    const ix = this.redeemWinningsIx(params, winningOutcome);
+    const ix = this.redeemWinningsIx(params, outcomeIndex);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
