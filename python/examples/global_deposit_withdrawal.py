@@ -59,7 +59,7 @@ async def main():
                     .build_ix())
 
                 extend_ix = (client.positions().extend_position_tokens()
-                    .payer(keypair.pubkey())
+                    .operator(keypair.pubkey())
                     .user(keypair.pubkey())
                     .market(market_pubkey)
                     .lookup_table(lookup_table)

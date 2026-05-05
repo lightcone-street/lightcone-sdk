@@ -893,13 +893,6 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
         self
     }
 
-    /// Set the operator's public key (signer).
-    #[deprecated(note = "use operator()")]
-    pub fn payer(mut self, payer: Pubkey) -> Self {
-        self.operator = Some(payer);
-        self
-    }
-
     /// Set the position owner's public key.
     pub fn user(mut self, user: Pubkey) -> Self {
         self.user = Some(user);

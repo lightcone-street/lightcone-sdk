@@ -545,10 +545,6 @@ class ExtendPositionTokensBuilder:
         self._operator = operator
         return self
 
-    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
-        """Deprecated alias for operator()."""
-        return self.operator(payer)
-
     def user(self, user: Pubkey) -> "ExtendPositionTokensBuilder":
         self._user = user
         return self

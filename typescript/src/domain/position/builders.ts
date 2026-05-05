@@ -506,12 +506,6 @@ export class ExtendPositionTokensBuilder {
     return this;
   }
 
-  /** @deprecated Use operator() */
-  payer(payer: PublicKey): this {
-    this.operatorValue = payer;
-    return this;
-  }
-
   user(user: PublicKey): this {
     this.userValue = user;
     return this;
