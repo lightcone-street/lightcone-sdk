@@ -98,10 +98,11 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
 /**
  * Deserialize Exchange account data
  *
- * Layout (88 bytes):
+ * Layout (120 bytes):
  * - discriminator: [u8; 8]
  * - authority: Pubkey (32 bytes)
  * - operator: Pubkey (32 bytes)
+ * - manager: Pubkey (32 bytes)
  * - market_count: u64 (8 bytes)
  * - paused: u8 (1 byte)
  * - bump: u8 (1 byte)
@@ -126,6 +127,9 @@ export function deserializeExchange(data: Buffer): Exchange {
   const operator = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
+  const manager = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
   const marketCount = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
@@ -144,6 +148,7 @@ export function deserializeExchange(data: Buffer): Exchange {
     discriminator,
     authority,
     operator,
+    manager,
     marketCount,
     paused,
     bump,
@@ -245,9 +250,10 @@ export function deserializeMarket(data: Buffer): Market {
 /**
  * Deserialize OrderStatus account data
  *
- * Layout (24 bytes):
+ * Layout (32 bytes):
  * - discriminator: [u8; 8]
  * - remaining: u64 (8 bytes)
+ * - base_remaining: u64 (8 bytes)
  * - is_cancelled: u8 (1 byte)
  * - _padding: [u8; 7]
  */
@@ -266,6 +272,9 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
   const remaining = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
+  const baseRemaining = fromLeBytes(data.subarray(offset, offset + 8));
+  offset += 8;
+
   const isCancelled = data[offset] !== 0;
   offset += 1;
 
@@ -274,6 +283,7 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
   return {
     discriminator,
     remaining,
+    baseRemaining,
     isCancelled,
   };
 }

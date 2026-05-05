@@ -50,7 +50,7 @@ async function main() {
           .buildIx();
 
         const extendIx = client.positions().extendPositionTokens()
-          .payer(keypair.publicKey)
+          .operator(keypair.publicKey)
           .user(keypair.publicKey)
           .market(marketPubkey)
           .lookupTable(lookupTable)

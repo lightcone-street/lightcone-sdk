@@ -30,7 +30,7 @@ async function main() {
   const dMint = quoteDepositMint(orderbook);
 
   console.log(
-    `exchange: authority=${exchange.authority.toBase58()} operator=${exchange.operator.toBase58()} paused=${exchange.paused}`
+    `exchange: authority=${exchange.authority.toBase58()} operator=${exchange.operator.toBase58()} manager=${exchange.manager.toBase58()} paused=${exchange.paused}`
   );
   console.log(
     `market: id=${onchainMarket.marketId} outcomes=${onchainMarket.numOutcomes} status=${program.MarketStatus[onchainMarket.status]}`

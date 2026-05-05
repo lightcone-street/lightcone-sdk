@@ -9,6 +9,7 @@ export type ProgramErrorVariant =
   | "InvalidSignature"
   | "Serialization"
   | "InvalidSide"
+  | "InvalidMintOrder"
   | "InvalidMarketStatus"
   | "MissingField"
   | "Overflow"
@@ -89,6 +90,13 @@ export class ProgramSdkError extends Error {
 
   static invalidSide(value: number): ProgramSdkError {
     return new ProgramSdkError("InvalidSide", `Invalid side: ${value}`);
+  }
+
+  static invalidMintOrder(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidMintOrder",
+      "Invalid mint order: orderbook mints must be distinct",
+    );
   }
 
   static invalidMarketStatus(value: number): ProgramSdkError {

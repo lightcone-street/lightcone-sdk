@@ -8,6 +8,7 @@ import {
   buildInitPositionTokensIx,
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
+  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
 } from "../../program/instructions";
@@ -20,6 +21,7 @@ import type {
   InitPositionTokensParams,
   ExtendPositionTokensParams,
   DepositToGlobalParams,
+  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
 } from "../../program/types";
@@ -191,6 +193,13 @@ export class Positions {
     return buildDepositToGlobalIx(params, this.client.programId);
   }
 
+  depositToGlobalIxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): TransactionInstruction {
+    return buildDepositToGlobalIxWithAlt(params, altContext, this.client.programId);
+  }
+
   globalToMarketDepositIx(
     params: GlobalToMarketDepositParams,
     numOutcomes: number
@@ -233,11 +242,19 @@ export class Positions {
     numOutcomes: number
   ): Transaction {
     const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   depositToGlobalTx(params: DepositToGlobalParams): Transaction {
     const ix = this.depositToGlobalIx(params);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  depositToGlobalTxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): Transaction {
+    const ix = this.depositToGlobalIxWithAlt(params, altContext);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 

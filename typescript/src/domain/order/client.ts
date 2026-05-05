@@ -497,11 +497,11 @@ export class Orders {
   // ── On-chain transaction builders ────────────────────────────────────
 
   cancelOrderIx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): TransactionInstruction {
-    return buildCancelOrderIx(maker, market, order, this.client.programId);
+    return buildCancelOrderIx(operator, market, order, this.client.programId);
   }
 
   incrementNonceIx(user: PublicKey): TransactionInstruction {
@@ -511,12 +511,12 @@ export class Orders {
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   cancelOrderTx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): Transaction {
-    const ix = this.cancelOrderIx(maker, market, order);
-    return new Transaction({ feePayer: maker }).add(ix);
+    const ix = this.cancelOrderIx(operator, market, order);
+    return new Transaction({ feePayer: operator }).add(ix);
   }
 
   incrementNonceTx(user: PublicKey): Transaction {
