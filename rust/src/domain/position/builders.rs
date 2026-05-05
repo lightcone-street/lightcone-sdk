@@ -8,9 +8,9 @@ use crate::domain::market::Market;
 use crate::error::SdkError;
 use crate::program::instructions;
 use crate::program::types::{
-    BuildDepositParams, BuildMergeParams, DepositToGlobalParams, ExtendPositionTokensParams,
-    GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
-    WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    BuildDepositParams, BuildMergeParams, DepositToGlobalAltContext, DepositToGlobalParams,
+    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
+    RedeemWinningsParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::shared::DepositSource;
 use solana_instruction::Instruction;
@@ -855,7 +855,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
 ///
 /// ```rust,ignore
 /// let tx_signature = client.positions().extend_position_tokens()
-///     .payer(keypair.pubkey())
+///     .operator(keypair.pubkey())
 ///     .user(user_pubkey)
 ///     .market(market_pubkey)
 ///     .lookup_table(alt_pubkey)
@@ -866,7 +866,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
 /// ```
 pub struct ExtendPositionTokensBuilder<'a> {
     client: &'a LightconeClient,
-    payer: Option<Pubkey>,
+    operator: Option<Pubkey>,
     user: Option<Pubkey>,
     market: Option<Pubkey>,
     lookup_table: Option<Pubkey>,
@@ -878,7 +878,7 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
     pub(crate) fn new(client: &'a LightconeClient) -> Self {
         Self {
             client,
-            payer: None,
+            operator: None,
             user: None,
             market: None,
             lookup_table: None,
@@ -887,9 +887,16 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
         }
     }
 
-    /// Set the payer's public key (signer).
+    /// Set the operator's public key (signer).
+    pub fn operator(mut self, operator: Pubkey) -> Self {
+        self.operator = Some(operator);
+        self
+    }
+
+    /// Set the operator's public key (signer).
+    #[deprecated(note = "use operator()")]
     pub fn payer(mut self, payer: Pubkey) -> Self {
-        self.payer = Some(payer);
+        self.operator = Some(payer);
         self
     }
 
@@ -925,9 +932,9 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
     /// Build an extend-position-tokens instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
-        let payer = self
-            .payer
-            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
+        let operator = self
+            .operator
+            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
         let user = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
@@ -946,7 +953,7 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
         Ok(instructions::build_extend_position_tokens_ix(
             &ExtendPositionTokensParams {
-                payer,
+                operator,
                 user,
                 market,
                 lookup_table,
@@ -959,11 +966,11 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
     /// Build an extend-position-tokens transaction.
     pub fn build_tx(self) -> Result<Transaction, SdkError> {
-        let payer = self
-            .payer
-            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
+        let operator = self
+            .operator
+            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
+        Ok(Transaction::new_with_payer(&[instruction], Some(&operator)))
     }
 
     /// Build, sign, and submit the extend-position-tokens transaction.
@@ -995,6 +1002,7 @@ pub struct DepositToGlobalBuilder<'a> {
     user: Option<Pubkey>,
     mint: Option<Pubkey>,
     amount: Option<u64>,
+    alt_context: Option<DepositToGlobalAltContext>,
 }
 
 impl<'a> DepositToGlobalBuilder<'a> {
@@ -1004,6 +1012,7 @@ impl<'a> DepositToGlobalBuilder<'a> {
             user: None,
             mint: None,
             amount: None,
+            alt_context: None,
         }
     }
 
@@ -1025,6 +1034,18 @@ impl<'a> DepositToGlobalBuilder<'a> {
         self
     }
 
+    /// Create the user's deposit ALT while depositing.
+    pub fn create_alt(mut self, recent_slot: u64) -> Self {
+        self.alt_context = Some(DepositToGlobalAltContext::Create { recent_slot });
+        self
+    }
+
+    /// Extend an existing user deposit ALT while depositing.
+    pub fn extend_alt(mut self, lookup_table: Pubkey) -> Self {
+        self.alt_context = Some(DepositToGlobalAltContext::Extend { lookup_table });
+        self
+    }
+
     /// Build a deposit-to-global instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -1037,10 +1058,15 @@ impl<'a> DepositToGlobalBuilder<'a> {
             .amount
             .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
 
-        Ok(instructions::build_deposit_to_global_ix(
-            &DepositToGlobalParams { user, mint, amount },
-            &self.client.program_id,
-        ))
+        let params = DepositToGlobalParams { user, mint, amount };
+        Ok(match self.alt_context {
+            Some(alt_context) => instructions::build_deposit_to_global_ix_with_alt(
+                &params,
+                alt_context,
+                &self.client.program_id,
+            ),
+            None => instructions::build_deposit_to_global_ix(&params, &self.client.program_id),
+        })
     }
 
     /// Build a deposit-to-global transaction.

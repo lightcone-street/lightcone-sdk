@@ -59,6 +59,12 @@ pub mod instruction {
     pub const DEPOSIT_AND_SWAP: u8 = 20;
     pub const EXTEND_POSITION_TOKENS: u8 = 21;
     pub const WITHDRAW_FROM_GLOBAL: u8 = 22;
+    pub const CLOSE_POSITION_ALT: u8 = 23;
+    pub const CLOSE_ORDER_STATUS: u8 = 24;
+    pub const CLOSE_POSITION_TOKEN_ACCOUNTS: u8 = 25;
+    pub const CLOSE_ORDERBOOK_ALT: u8 = 26;
+    pub const CLOSE_ORDERBOOK: u8 = 27;
+    pub const SET_MANAGER: u8 = 28;
 }
 
 // ============================================================================
@@ -95,6 +101,8 @@ pub const VAULT_SEED: &[u8] = b"market_deposit_token_account";
 pub const MINT_AUTHORITY_SEED: &[u8] = b"market_mint_authority";
 /// Conditional mint PDA seed
 pub const CONDITIONAL_MINT_SEED: &[u8] = b"conditional_mint";
+/// Condition tombstone PDA seed
+pub const CONDITION_SEED: &[u8] = b"condition";
 /// Order status PDA seed
 pub const ORDER_STATUS_SEED: &[u8] = b"order_status";
 /// User nonce PDA seed
@@ -111,11 +119,11 @@ pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
 // ============================================================================
 
 /// Exchange account size in bytes
-pub const EXCHANGE_SIZE: usize = 88;
+pub const EXCHANGE_SIZE: usize = 120;
 /// Market account size in bytes
 pub const MARKET_SIZE: usize = 120;
 /// Order status account size in bytes
-pub const ORDER_STATUS_SIZE: usize = 24;
+pub const ORDER_STATUS_SIZE: usize = 32;
 /// User nonce account size in bytes
 pub const USER_NONCE_SIZE: usize = 16;
 /// Position account size in bytes

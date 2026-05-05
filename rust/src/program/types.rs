@@ -71,8 +71,8 @@ impl TryFrom<u8> for OrderSide {
 /// Parameters for creating a market
 #[derive(Debug, Clone)]
 pub struct CreateMarketParams {
-    /// Authority pubkey (must be exchange authority)
-    pub authority: Pubkey,
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
     /// Number of outcomes (2-6)
     pub num_outcomes: u8,
     /// Oracle pubkey that can settle the market
@@ -95,8 +95,8 @@ pub struct OutcomeMetadata {
 /// Parameters for adding a deposit mint to a market
 #[derive(Debug, Clone)]
 pub struct AddDepositMintParams {
-    /// Authority pubkey (must be exchange authority)
-    pub authority: Pubkey,
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
     /// Deposit mint pubkey
     pub deposit_mint: Pubkey,
     /// Metadata for each outcome token
@@ -171,8 +171,8 @@ pub struct WithdrawFromPositionParams {
 /// Parameters for activating a market
 #[derive(Debug, Clone)]
 pub struct ActivateMarketParams {
-    /// Authority pubkey (must be exchange authority)
-    pub authority: Pubkey,
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
     /// Market ID
     pub market_id: u64,
 }
@@ -249,18 +249,26 @@ pub struct MatchOrdersMultiParams {
 /// Parameters for creating an on-chain orderbook
 #[derive(Debug, Clone)]
 pub struct CreateOrderbookParams {
-    /// Authority pubkey (must be exchange authority, pays for account creation)
-    pub authority: Pubkey,
+    /// Manager pubkey (must be exchange manager, pays for account creation)
+    pub manager: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Mint A pubkey
+    /// First conditional mint pubkey. The builder canonicalizes account order.
     pub mint_a: Pubkey,
-    /// Mint B pubkey
+    /// Second conditional mint pubkey. The builder canonicalizes account order.
     pub mint_b: Pubkey,
+    /// Deposit mint used to derive `mint_a`
+    pub mint_a_deposit_mint: Pubkey,
+    /// Deposit mint used to derive `mint_b`
+    pub mint_b_deposit_mint: Pubkey,
     /// Recent slot for ALT creation
     pub recent_slot: u64,
-    /// Which mint is the base asset (0 = mint_a, 1 = mint_b)
+    /// Which supplied mint is the base asset (0 = mint_a, 1 = mint_b)
     pub base_index: u8,
+    /// Outcome index used to derive `mint_a`
+    pub mint_a_outcome_index: u8,
+    /// Outcome index used to derive `mint_b`
+    pub mint_b_outcome_index: u8,
 }
 
 /// Parameters for setting a new authority
@@ -270,6 +278,15 @@ pub struct SetAuthorityParams {
     pub current_authority: Pubkey,
     /// New authority pubkey
     pub new_authority: Pubkey,
+}
+
+/// Parameters for setting a new manager
+#[derive(Debug, Clone)]
+pub struct SetManagerParams {
+    /// Current authority pubkey
+    pub authority: Pubkey,
+    /// New manager pubkey
+    pub new_manager: Pubkey,
 }
 
 /// Parameters for whitelisting a deposit token for global deposits
@@ -290,6 +307,21 @@ pub struct DepositToGlobalParams {
     pub mint: Pubkey,
     /// Amount to deposit
     pub amount: u64,
+}
+
+/// Optional user deposit ALT behavior for `deposit_to_global`.
+#[derive(Debug, Clone, Copy)]
+pub enum DepositToGlobalAltContext {
+    /// Create the user's deposit ALT at PDA([user_nonce, recent_slot]).
+    Create {
+        /// Recent slot for ALT address derivation.
+        recent_slot: u64,
+    },
+    /// Extend an existing user deposit ALT.
+    Extend {
+        /// Existing lookup table address.
+        lookup_table: Pubkey,
+    },
 }
 
 /// Parameters for transferring from global deposit to a market vault
@@ -367,8 +399,8 @@ pub struct DepositAndSwapParams {
 /// Parameters for extending a position ALT with new deposit mints
 #[derive(Debug, Clone)]
 pub struct ExtendPositionTokensParams {
-    /// Payer for account creation (signer)
-    pub payer: Pubkey,
+    /// Operator for account creation (signer)
+    pub operator: Pubkey,
     /// Position owner (does not need to sign)
     pub user: Pubkey,
     /// Market pubkey

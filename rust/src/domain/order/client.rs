@@ -568,23 +568,23 @@ impl<'a> Orders<'a> {
     /// Build CancelOrder instruction (on-chain cancellation).
     pub fn cancel_order_ix(
         &self,
-        maker: &Pubkey,
+        operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
     ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_cancel_order_ix(maker, market, order, pid)
+        instructions::build_cancel_order_ix(operator, market, order, pid)
     }
 
     /// Build CancelOrder transaction (on-chain cancellation).
     pub fn cancel_order_tx(
         &self,
-        maker: &Pubkey,
+        operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.cancel_order_ix(maker, market, order);
-        Ok(Transaction::new_with_payer(&[ix], Some(maker)))
+        let ix = self.cancel_order_ix(operator, market, order);
+        Ok(Transaction::new_with_payer(&[ix], Some(operator)))
     }
 
     /// Build IncrementNonce instruction.

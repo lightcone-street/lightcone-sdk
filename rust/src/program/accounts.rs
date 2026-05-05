@@ -35,7 +35,7 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
 }
 
 // ============================================================================
-// Exchange Account (88 bytes)
+// Exchange Account (120 bytes)
 // ============================================================================
 
 /// Exchange account - singleton state for the exchange
@@ -44,19 +44,22 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
 /// - [0..8]   discriminator (8 bytes)
 /// - [8..40]  authority (32 bytes)
 /// - [40..72] operator (32 bytes)
-/// - [72..80] market_count (8 bytes)
-/// - [80]     paused (1 byte)
-/// - [81]     bump (1 byte)
-/// - [82..84] deposit_token_count (2 bytes)
-/// - [84..88] _padding (4 bytes)
+/// - [72..104] manager (32 bytes)
+/// - [104..112] market_count (8 bytes)
+/// - [112]    paused (1 byte)
+/// - [113]    bump (1 byte)
+/// - [114..116] deposit_token_count (2 bytes)
+/// - [116..120] _padding (4 bytes)
 #[derive(Debug, Clone)]
 pub struct Exchange {
     /// Account discriminator
     pub discriminator: [u8; 8],
-    /// Exchange authority (can pause, set operator, create markets)
+    /// Exchange authority (can pause and rotate privileged roles)
     pub authority: Pubkey,
-    /// Operator (can match orders)
+    /// Operator (can match orders and run operational cleanup)
     pub operator: Pubkey,
+    /// Manager (can create and activate markets/orderbooks)
+    pub manager: Pubkey,
     /// Number of markets created
     pub market_count: u64,
     /// Whether the exchange is paused
@@ -92,10 +95,11 @@ impl Exchange {
             discriminator,
             authority: read_pubkey(data, 8),
             operator: read_pubkey(data, 40),
-            market_count: read_u64(data, 72),
-            paused: data[80] != 0,
-            bump: data[81],
-            deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 82)),
+            manager: read_pubkey(data, 72),
+            market_count: read_u64(data, 104),
+            paused: data[112] != 0,
+            bump: data[113],
+            deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 114)),
         })
     }
 
@@ -248,7 +252,7 @@ impl Position {
 }
 
 // ============================================================================
-// OrderStatus Account (24 bytes)
+// OrderStatus Account (32 bytes)
 // ============================================================================
 
 /// Order status account - tracks partial fills and cancellations
@@ -256,14 +260,17 @@ impl Position {
 /// Layout:
 /// - [0..8]   discriminator (8 bytes)
 /// - [8..16]  remaining (8 bytes)
-/// - [16]     is_cancelled (1 byte)
-/// - [17..24] _padding (7 bytes)
+/// - [16..24] base_remaining (8 bytes)
+/// - [24]     is_cancelled (1 byte)
+/// - [25..32] _padding (7 bytes)
 #[derive(Debug, Clone)]
 pub struct OrderStatus {
     /// Account discriminator
     pub discriminator: [u8; 8],
     /// Remaining amount_in to be filled
     pub remaining: u64,
+    /// Remaining base amount to be filled
+    pub base_remaining: u64,
     /// Whether the order has been cancelled
     pub is_cancelled: bool,
 }
@@ -292,7 +299,8 @@ impl OrderStatus {
         Ok(Self {
             discriminator,
             remaining: read_u64(data, 8),
-            is_cancelled: data[16] != 0,
+            base_remaining: read_u64(data, 16),
+            is_cancelled: data[24] != 0,
         })
     }
 
@@ -498,18 +506,23 @@ mod tests {
         data[8..40].copy_from_slice(&[1u8; 32]);
         // operator at offset 40
         data[40..72].copy_from_slice(&[2u8; 32]);
-        // market_count at offset 72
-        data[72..80].copy_from_slice(&5u64.to_le_bytes());
-        // paused at offset 80
-        data[80] = 0;
-        // bump at offset 81
-        data[81] = 255;
+        // manager at offset 72
+        data[72..104].copy_from_slice(&[3u8; 32]);
+        // market_count at offset 104
+        data[104..112].copy_from_slice(&5u64.to_le_bytes());
+        // paused at offset 112
+        data[112] = 0;
+        // bump at offset 113
+        data[113] = 255;
+        // deposit_token_count at offset 114
+        data[114..116].copy_from_slice(&7u16.to_le_bytes());
 
         let exchange = Exchange::deserialize(&data).unwrap();
+        assert_eq!(exchange.manager, Pubkey::new_from_array([3u8; 32]));
         assert_eq!(exchange.market_count, 5);
         assert!(!exchange.paused);
         assert_eq!(exchange.bump, 255);
-        assert_eq!(exchange.deposit_token_count, 0);
+        assert_eq!(exchange.deposit_token_count, 7);
     }
 
     #[test]
@@ -558,11 +571,14 @@ mod tests {
         data[0..8].copy_from_slice(&ORDER_STATUS_DISCRIMINATOR);
         // remaining at offset 8
         data[8..16].copy_from_slice(&1000u64.to_le_bytes());
-        // is_cancelled at offset 16
-        data[16] = 0;
+        // base_remaining at offset 16
+        data[16..24].copy_from_slice(&750u64.to_le_bytes());
+        // is_cancelled at offset 24
+        data[24] = 0;
 
         let order_status = OrderStatus::deserialize(&data).unwrap();
         assert_eq!(order_status.remaining, 1000);
+        assert_eq!(order_status.base_remaining, 750);
         assert!(!order_status.is_cancelled);
     }
 
