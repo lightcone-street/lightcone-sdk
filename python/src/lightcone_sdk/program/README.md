@@ -76,11 +76,12 @@ from lightcone_sdk.program import (
 | `market_id` | int | Sequential market ID |
 | `num_outcomes` | int | Number of outcomes |
 | `status` | MarketStatus | Current status |
-| `winning_outcome` | Optional[int] | Winner (if settled) |
 | `bump` | int | PDA bump seed |
 | `oracle` | Pubkey | Oracle authority |
 | `question_id` | bytes | Question identifier |
 | `condition_id` | bytes | Computed condition ID |
+| `payout_numerators` | tuple[int, int, int, int, int, int] | Resolution vector; first `num_outcomes` entries are meaningful |
+| `payout_denominator` | int | Sum of meaningful payout numerators |
 
 #### Position
 
@@ -216,7 +217,7 @@ from lightcone_sdk.program import (
 from lightcone_sdk.program import (
     # Account sizes
     EXCHANGE_SIZE,      # 88 bytes
-    MARKET_SIZE,        # 120 bytes
+    MARKET_SIZE,        # 148 bytes
     ORDER_STATUS_SIZE,  # 24 bytes
     USER_NONCE_SIZE,    # 16 bytes
     POSITION_SIZE,      # 80 bytes
@@ -419,7 +420,9 @@ from lightcone_sdk.program import (
     ActivateMarketParams,
     AddDepositMintParams,
     OutcomeMetadata,
+    ScalarResolutionParams,
     SettleMarketParams,
+    scalar_to_payout_numerators,
 )
 
 # Create market
@@ -453,8 +456,18 @@ tx = await client.activate_market(ActivateMarketParams(
 # Settle market
 tx = await client.settle_market(SettleMarketParams(
     oracle=oracle_pubkey,
-    market=market_pubkey,
-    winning_outcome=0,
+    market_id=market_id,
+    payout_numerators=[1, 0],
+))
+
+# Scalar settlement uses integer fixed-point metadata off-chain.
+payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(
+    min_value=0,
+    max_value=100,
+    resolved_value=25,
+    lower_outcome_index=0,
+    upper_outcome_index=1,
+    num_outcomes=2,
 ))
 ```
 
@@ -498,7 +511,7 @@ tx = await client.redeem_winnings(
         deposit_mint=usdc_mint,
         amount=1_000_000,
     ),
-    winning_outcome=0,
+    outcome_index=0,
 )
 
 # Withdraw tokens from position account

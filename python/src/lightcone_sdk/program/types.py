@@ -8,6 +8,8 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ..shared.types import DepositSource
+from .constants import MAX_OUTCOMES, MIN_OUTCOMES
+from .errors import InvalidOutcomeCountError, InvalidOutcomeIndexError
 
 
 class MarketStatus(IntEnum):
@@ -46,12 +48,12 @@ class Market:
     market_id: int
     num_outcomes: int
     status: MarketStatus
-    winning_outcome: int  # u8 raw value (255 = no winner)
-    has_winning_outcome: bool
     bump: int
     oracle: Pubkey
     question_id: bytes
     condition_id: bytes
+    payout_numerators: tuple[int, int, int, int, int, int]
+    payout_denominator: int
 
 
 @dataclass
@@ -211,7 +213,41 @@ class SettleMarketParams:
 
     oracle: Pubkey
     market_id: int
-    winning_outcome: int
+    payout_numerators: list[int]
+
+    @classmethod
+    def winner_takes_all(
+        cls,
+        oracle: Pubkey,
+        market_id: int,
+        winning_outcome: int,
+        num_outcomes: int,
+    ) -> "SettleMarketParams":
+        """Construct settlement params for a winner-takes-all resolution."""
+
+        _validate_num_outcomes(num_outcomes)
+        if winning_outcome < 0 or winning_outcome >= num_outcomes:
+            raise InvalidOutcomeIndexError(winning_outcome, num_outcomes - 1)
+
+        payout_numerators = [0] * num_outcomes
+        payout_numerators[winning_outcome] = 1
+        return cls(
+            oracle=oracle,
+            market_id=market_id,
+            payout_numerators=payout_numerators,
+        )
+
+
+@dataclass(frozen=True)
+class ScalarResolutionParams:
+    """Integer fixed-point metadata for two-sided scalar settlement."""
+
+    min_value: int
+    max_value: int
+    resolved_value: int
+    lower_outcome_index: int
+    upper_outcome_index: int
+    num_outcomes: int
 
 
 @dataclass
@@ -222,6 +258,11 @@ class RedeemWinningsParams:
     market: Pubkey
     deposit_mint: Pubkey
     amount: int
+
+
+def _validate_num_outcomes(num_outcomes: int) -> None:
+    if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
+        raise InvalidOutcomeCountError(num_outcomes)
 
 
 @dataclass

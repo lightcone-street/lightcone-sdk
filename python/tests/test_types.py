@@ -11,7 +11,11 @@ from lightcone_sdk import (
     OrderStatus,
     OutcomeMetadata,
     Position,
+    ScalarResolutionParams,
+    SettleMarketParams,
     UserNonce,
+    scalar_to_payout_numerators,
+    winner_takes_all_payout_numerators,
 )
 
 
@@ -80,21 +84,81 @@ class TestMarket:
             market_id=42,
             num_outcomes=2,
             status=MarketStatus.ACTIVE,
-            winning_outcome=255,
-            has_winning_outcome=False,
             bump=254,
             oracle=oracle,
             question_id=question_id,
             condition_id=condition_id,
+            payout_numerators=(0, 0, 0, 0, 0, 0),
+            payout_denominator=0,
         )
 
         assert market.market_id == 42
         assert market.num_outcomes == 2
         assert market.status == MarketStatus.ACTIVE
-        assert market.winning_outcome == 255
-        assert market.has_winning_outcome is False
         assert market.bump == 254
         assert market.oracle == oracle
+        assert market.payout_numerators == (0, 0, 0, 0, 0, 0)
+        assert market.payout_denominator == 0
+
+
+class TestMarketResolution:
+    def test_winner_takes_all_payout_numerators(self):
+        assert winner_takes_all_payout_numerators(2, 4) == [0, 0, 1, 0]
+
+    def test_settle_market_params_winner_takes_all(self):
+        oracle = Pubkey.new_unique()
+        params = SettleMarketParams.winner_takes_all(
+            oracle=oracle,
+            market_id=7,
+            winning_outcome=1,
+            num_outcomes=3,
+        )
+
+        assert params.oracle == oracle
+        assert params.market_id == 7
+        assert params.payout_numerators == [0, 1, 0]
+
+    def test_scalar_to_payout_numerators(self):
+        assert scalar_to_payout_numerators(
+            ScalarResolutionParams(
+                min_value=0,
+                max_value=100,
+                resolved_value=25,
+                lower_outcome_index=0,
+                upper_outcome_index=1,
+                num_outcomes=2,
+            )
+        ) == [3, 1]
+        assert scalar_to_payout_numerators(
+            ScalarResolutionParams(
+                min_value=0,
+                max_value=100,
+                resolved_value=-5,
+                lower_outcome_index=0,
+                upper_outcome_index=1,
+                num_outcomes=2,
+            )
+        ) == [1, 0]
+        assert scalar_to_payout_numerators(
+            ScalarResolutionParams(
+                min_value=0,
+                max_value=100,
+                resolved_value=120,
+                lower_outcome_index=0,
+                upper_outcome_index=1,
+                num_outcomes=2,
+            )
+        ) == [0, 1]
+        assert scalar_to_payout_numerators(
+            ScalarResolutionParams(
+                min_value=-10_000,
+                max_value=40_000,
+                resolved_value=15_250,
+                lower_outcome_index=0,
+                upper_outcome_index=1,
+                num_outcomes=2,
+            )
+        ) == [99, 101]
 
 
 class TestPosition:

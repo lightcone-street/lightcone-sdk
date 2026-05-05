@@ -48,12 +48,12 @@ def build_market_data(
     market_id: int,
     num_outcomes: int,
     status: MarketStatus,
-    winning_outcome: int,
-    has_winning: bool,
     bump: int,
     oracle: Pubkey,
     question_id: bytes,
     condition_id: bytes,
+    payout_numerators: tuple[int, int, int, int, int, int] = (0, 0, 0, 0, 0, 0),
+    payout_denominator: int = 0,
 ) -> bytes:
     """Build Market account data for testing."""
     data = bytearray()
@@ -61,13 +61,14 @@ def build_market_data(
     data.extend(struct.pack("<Q", market_id))
     data.append(num_outcomes)
     data.append(status)
-    data.append(winning_outcome)
-    data.append(1 if has_winning else 0)
     data.append(bump)
-    data.extend(bytes(3))  # padding
+    data.extend(bytes(5))  # padding
     data.extend(bytes(oracle))
     data.extend(question_id)
     data.extend(condition_id)
+    for numerator in payout_numerators:
+        data.extend(struct.pack("<I", numerator))
+    data.extend(struct.pack("<I", payout_denominator))
     return bytes(data)
 
 
@@ -162,8 +163,6 @@ class TestDeserializeMarket:
             market_id=5,
             num_outcomes=2,
             status=MarketStatus.ACTIVE,
-            winning_outcome=255,
-            has_winning=False,
             bump=253,
             oracle=oracle,
             question_id=question_id,
@@ -175,30 +174,31 @@ class TestDeserializeMarket:
         assert market.market_id == 5
         assert market.num_outcomes == 2
         assert market.status == MarketStatus.ACTIVE
-        assert market.winning_outcome == 255
-        assert market.has_winning_outcome is False
         assert market.bump == 253
         assert market.oracle == oracle
         assert market.question_id == question_id
         assert market.condition_id == condition_id
+        assert market.payout_numerators == (0, 0, 0, 0, 0, 0)
+        assert market.payout_denominator == 0
 
     def test_deserialize_resolved_market(self):
         data = build_market_data(
             market_id=10,
             num_outcomes=3,
             status=MarketStatus.RESOLVED,
-            winning_outcome=1,
-            has_winning=True,
             bump=252,
             oracle=Pubkey.new_unique(),
             question_id=bytes(32),
             condition_id=bytes(32),
+            payout_numerators=(1, 2, 3, 0, 0, 0),
+            payout_denominator=6,
         )
 
         market = deserialize_market(data)
 
         assert market.status == MarketStatus.RESOLVED
-        assert market.winning_outcome == 1
+        assert market.payout_numerators == (1, 2, 3, 0, 0, 0)
+        assert market.payout_denominator == 6
 
     def test_invalid_discriminator(self):
         data = b"baddisc!" + bytes(112)

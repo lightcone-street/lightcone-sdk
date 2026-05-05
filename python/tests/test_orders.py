@@ -39,8 +39,8 @@ def sample_bid_params():
         market=Pubkey.new_unique(),
         base_mint=Pubkey.new_unique(),
         quote_mint=Pubkey.new_unique(),
-        maker_amount=1000000,
-        taker_amount=500000,
+        amount_in=1000000,
+        amount_out=500000,
         expiration=1700000000,
     )
 
@@ -53,8 +53,8 @@ def sample_ask_params():
         market=Pubkey.new_unique(),
         base_mint=Pubkey.new_unique(),
         quote_mint=Pubkey.new_unique(),
-        maker_amount=500000,
-        taker_amount=1000000,
+        amount_in=500000,
+        amount_out=1000000,
         expiration=1700000000,
     )
 
@@ -69,8 +69,8 @@ class TestCreateBidOrder:
         assert order.base_mint == sample_bid_params.base_mint
         assert order.quote_mint == sample_bid_params.quote_mint
         assert order.side == OrderSide.BID
-        assert order.maker_amount == sample_bid_params.maker_amount
-        assert order.taker_amount == sample_bid_params.taker_amount
+        assert order.amount_in == sample_bid_params.amount_in
+        assert order.amount_out == sample_bid_params.amount_out
         assert order.expiration == sample_bid_params.expiration
 
     def test_signature_is_empty(self, sample_bid_params):
@@ -83,8 +83,8 @@ class TestCreateAskOrder:
         order = create_ask_order(sample_ask_params)
 
         assert order.side == OrderSide.ASK
-        assert order.maker_amount == sample_ask_params.maker_amount
-        assert order.taker_amount == sample_ask_params.taker_amount
+        assert order.amount_in == sample_ask_params.amount_in
+        assert order.amount_out == sample_ask_params.amount_out
 
 
 class TestHashOrder:
@@ -109,8 +109,8 @@ class TestHashOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         params2 = BidOrderParams(
@@ -119,8 +119,8 @@ class TestHashOrder:
             market=params1.market,
             base_mint=params1.base_mint,
             quote_mint=params1.quote_mint,
-            maker_amount=params1.maker_amount,
-            taker_amount=params1.taker_amount,
+            amount_in=params1.amount_in,
+            amount_out=params1.amount_out,
             expiration=params1.expiration,
         )
 
@@ -148,8 +148,8 @@ class TestSignOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         order = create_bid_order(params)
@@ -168,8 +168,8 @@ class TestSignOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         order = create_bid_order(params)
@@ -187,8 +187,8 @@ class TestVerifyOrderSignature:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         order = create_signed_bid_order(params, keypair)
@@ -209,14 +209,14 @@ class TestVerifyOrderSignature:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         order = create_signed_bid_order(params, keypair)
 
         # Tamper with the order
-        order.maker_amount = 2000000
+        order.amount_in = 2000000
 
         assert verify_order_signature(order) is False
 
@@ -239,8 +239,8 @@ class TestSerializeFullOrder:
         assert restored.base_mint == order.base_mint
         assert restored.quote_mint == order.quote_mint
         assert restored.side == order.side
-        assert restored.maker_amount == order.maker_amount
-        assert restored.taker_amount == order.taker_amount
+        assert restored.amount_in == order.amount_in
+        assert restored.amount_out == order.amount_out
         assert restored.expiration == order.expiration
         assert restored.signature == order.signature
 
@@ -260,10 +260,9 @@ class TestSerializeCompactOrder:
         restored = deserialize_compact_order(data)
 
         assert restored.nonce == compact.nonce
-        assert restored.maker == compact.maker
         assert restored.side == compact.side
-        assert restored.maker_amount == compact.maker_amount
-        assert restored.taker_amount == compact.taker_amount
+        assert restored.amount_in == compact.amount_in
+        assert restored.amount_out == compact.amount_out
         assert restored.expiration == compact.expiration
 
 
@@ -273,10 +272,9 @@ class TestToCompactOrder:
         compact = to_compact_order(order)
 
         assert compact.nonce == order.nonce
-        assert compact.maker == order.maker
         assert compact.side == order.side
-        assert compact.maker_amount == order.maker_amount
-        assert compact.taker_amount == order.taker_amount
+        assert compact.amount_in == order.amount_in
+        assert compact.amount_out == order.amount_out
         assert compact.expiration == order.expiration
 
 
@@ -286,18 +284,18 @@ class TestValidateOrder:
         # Should not raise
         validate_order(order)
 
-    def test_zero_maker_amount_fails(self, sample_bid_params):
+    def test_zero_amount_in_fails(self, sample_bid_params):
         order = create_bid_order(sample_bid_params)
-        order.maker_amount = 0
+        order.amount_in = 0
 
-        with pytest.raises(InvalidOrderError, match="maker_amount"):
+        with pytest.raises(InvalidOrderError, match="amount_in"):
             validate_order(order)
 
-    def test_zero_taker_amount_fails(self, sample_bid_params):
+    def test_zero_amount_out_fails(self, sample_bid_params):
         order = create_bid_order(sample_bid_params)
-        order.taker_amount = 0
+        order.amount_out = 0
 
-        with pytest.raises(InvalidOrderError, match="taker_amount"):
+        with pytest.raises(InvalidOrderError, match="amount_out"):
             validate_order(order)
 
 
@@ -310,8 +308,8 @@ class TestValidateSignedOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
         order = create_signed_bid_order(params, keypair)
@@ -336,8 +334,8 @@ class TestCreateSignedBidOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=1000000,
-            taker_amount=500000,
+            amount_in=1000000,
+            amount_out=500000,
             expiration=1700000000,
         )
 
@@ -357,8 +355,8 @@ class TestCreateSignedAskOrder:
             market=Pubkey.new_unique(),
             base_mint=Pubkey.new_unique(),
             quote_mint=Pubkey.new_unique(),
-            maker_amount=500000,
-            taker_amount=1000000,
+            amount_in=500000,
+            amount_out=1000000,
             expiration=1700000000,
         )
 

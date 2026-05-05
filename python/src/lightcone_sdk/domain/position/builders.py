@@ -99,17 +99,26 @@ class DepositBuilder:
 
         if source == DepositSource.GLOBAL:
             return build_deposit_to_global_instruction(
-                user=user, mint=mint, amount=amount, program_id=program_id,
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=program_id,
             )
         else:  # Market -> deposit (mint complete set)
             market = self._market
             if market is None:
-                raise MissingMarketContext("market is required for Market deposit source")
+                raise MissingMarketContext(
+                    "market is required for Market deposit source"
+                )
             market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
             num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
             return build_deposit_instruction(
-                user=user, market=market_pubkey, deposit_mint=mint,
-                amount=amount, num_outcomes=num_outcomes, program_id=program_id,
+                user=user,
+                market=market_pubkey,
+                deposit_mint=mint,
+                amount=amount,
+                num_outcomes=num_outcomes,
+                program_id=program_id,
             )
 
     def build_tx(self) -> Transaction:
@@ -186,8 +195,11 @@ class MergeBuilder:
         market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
         num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
         return build_merge_instruction(
-            user=user, market=market_pubkey, deposit_mint=mint,
-            amount=amount, num_outcomes=num_outcomes,
+            user=user,
+            market=market_pubkey,
+            deposit_mint=mint,
+            amount=amount,
+            num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
 
@@ -281,7 +293,10 @@ class WithdrawBuilder:
 
         if source == DepositSource.GLOBAL:
             return build_withdraw_from_global_instruction(
-                user=user, mint=mint, amount=amount, program_id=program_id,
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=program_id,
             )
         else:  # Market -> withdraw_from_position
             market = self._market
@@ -292,8 +307,12 @@ class WithdrawBuilder:
             if outcome_index is None:
                 raise SdkError("outcome_index is required for Market withdrawal")
             return build_withdraw_from_position_instruction(
-                user=user, market=market_pubkey, mint=mint, amount=amount,
-                outcome_index=outcome_index, is_token_2022=self._is_token_2022,
+                user=user,
+                market=market_pubkey,
+                mint=mint,
+                amount=amount,
+                outcome_index=outcome_index,
+                is_token_2022=self._is_token_2022,
                 program_id=program_id,
             )
 
@@ -322,7 +341,7 @@ class RedeemWinningsBuilder:
         self._market: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
-        self._winning_outcome: Optional[int] = None
+        self._outcome_index: Optional[int] = None
 
     def user(self, user: Pubkey) -> "RedeemWinningsBuilder":
         self._user = user
@@ -340,8 +359,8 @@ class RedeemWinningsBuilder:
         self._amount = amount
         return self
 
-    def winning_outcome(self, winning_outcome: int) -> "RedeemWinningsBuilder":
-        self._winning_outcome = winning_outcome
+    def outcome_index(self, outcome_index: int) -> "RedeemWinningsBuilder":
+        self._outcome_index = outcome_index
         return self
 
     def build_ix(self) -> Instruction:
@@ -357,12 +376,15 @@ class RedeemWinningsBuilder:
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
-        winning_outcome = self._winning_outcome
-        if winning_outcome is None:
-            raise SdkError("winning_outcome is required")
+        outcome_index = self._outcome_index
+        if outcome_index is None:
+            raise SdkError("outcome_index is required")
         return build_redeem_winnings_instruction(
-            user=user, market=market, deposit_mint=mint,
-            winning_outcome=winning_outcome, amount=amount,
+            user=user,
+            market=market,
+            deposit_mint=mint,
+            outcome_index=outcome_index,
+            amount=amount,
             program_id=self._client.program_id,
         )
 
@@ -434,8 +456,12 @@ class WithdrawFromPositionBuilder:
         if outcome_index is None:
             raise SdkError("outcome_index is required")
         return build_withdraw_from_position_instruction(
-            user=user, market=market, mint=mint, amount=amount,
-            outcome_index=outcome_index, is_token_2022=self._is_token_2022,
+            user=user,
+            market=market,
+            mint=mint,
+            amount=amount,
+            outcome_index=outcome_index,
+            is_token_2022=self._is_token_2022,
             program_id=self._client.program_id,
         )
 
@@ -510,8 +536,13 @@ class InitPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_init_position_tokens_instruction(
-            payer, user, market, deposit_mints,
-            num_outcomes, recent_slot, self._client.program_id,
+            payer,
+            user,
+            market,
+            deposit_mints,
+            num_outcomes,
+            recent_slot,
+            self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -557,7 +588,9 @@ class ExtendPositionTokensBuilder:
         self._lookup_table = lookup_table
         return self
 
-    def deposit_mints(self, deposit_mints: List[Pubkey]) -> "ExtendPositionTokensBuilder":
+    def deposit_mints(
+        self, deposit_mints: List[Pubkey]
+    ) -> "ExtendPositionTokensBuilder":
         self._deposit_mints = deposit_mints
         return self
 
@@ -585,8 +618,13 @@ class ExtendPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
-            operator, user, market, lookup_table,
-            deposit_mints, num_outcomes, self._client.program_id,
+            operator,
+            user,
+            market,
+            lookup_table,
+            deposit_mints,
+            num_outcomes,
+            self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -706,7 +744,10 @@ class WithdrawFromGlobalBuilder:
         if amount is None:
             raise SdkError("amount is required")
         return build_withdraw_from_global_instruction(
-            user=user, mint=mint, amount=amount, program_id=self._client.program_id,
+            user=user,
+            mint=mint,
+            amount=amount,
+            program_id=self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -772,8 +813,11 @@ class GlobalToMarketDepositBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_global_to_market_deposit_instruction(
-            user=user, market=market, deposit_mint=mint,
-            amount=amount, num_outcomes=num_outcomes,
+            user=user,
+            market=market,
+            deposit_mint=mint,
+            amount=amount,
+            num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
 

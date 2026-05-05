@@ -113,9 +113,13 @@ class Admin:
 
     # ── Admin API methods ────────────────────────────────────────────────
 
-    async def upsert_metadata(self, request: UnifiedMetadataRequest) -> UnifiedMetadataResponse:
+    async def upsert_metadata(
+        self, request: UnifiedMetadataRequest
+    ) -> UnifiedMetadataResponse:
         """Upsert market/token metadata. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/metadata", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/metadata", request.to_dict()
+        )
         return UnifiedMetadataResponse.from_dict(data)
 
     async def upload_market_deployment_assets(
@@ -130,34 +134,52 @@ class Admin:
         )
         return UploadMarketDeploymentAssetsResponse.from_dict(data)
 
-    async def allocate_codes(self, request: AllocateCodesRequest) -> AllocateCodesResponse:
+    async def allocate_codes(
+        self, request: AllocateCodesRequest
+    ) -> AllocateCodesResponse:
         """Allocate referral codes. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/allocate", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/allocate", request.to_dict()
+        )
         return AllocateCodesResponse.from_dict(data)
 
     async def whitelist(self, request: WhitelistRequest) -> WhitelistResponse:
         """Whitelist wallet addresses. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/whitelist", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/whitelist", request.to_dict()
+        )
         return WhitelistResponse.from_dict(data)
 
     async def revoke(self, request: RevokeRequest) -> RevokeResponse:
         """Revoke access. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/revoke", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/revoke", request.to_dict()
+        )
         return RevokeResponse.from_dict(data)
 
     async def unrevoke(self, request: UnrevokeRequest) -> UnrevokeResponse:
         """Unrevoke access. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/unrevoke", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/unrevoke", request.to_dict()
+        )
         return UnrevokeResponse.from_dict(data)
 
-    async def create_notification(self, request: CreateNotificationRequest) -> CreateNotificationResponse:
+    async def create_notification(
+        self, request: CreateNotificationRequest
+    ) -> CreateNotificationResponse:
         """Create a notification. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/notifications", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/notifications", request.to_dict()
+        )
         return CreateNotificationResponse.from_dict(data)
 
-    async def dismiss_notification(self, request: DismissNotificationRequest) -> DismissNotificationResponse:
+    async def dismiss_notification(
+        self, request: DismissNotificationRequest
+    ) -> DismissNotificationResponse:
         """Dismiss a notification. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/notifications/dismiss", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/notifications/dismiss", request.to_dict()
+        )
         return DismissNotificationResponse.from_dict(data)
 
     # ── Referral config / codes ──────────────────────────────────────────
@@ -167,7 +189,9 @@ class Admin:
         data = await self._client._http.admin_post("/api/admin/referral/config/get", {})
         return ReferralConfig.from_dict(data)
 
-    async def update_referral_config(self, request: UpdateConfigRequest) -> ReferralConfig:
+    async def update_referral_config(
+        self, request: UpdateConfigRequest
+    ) -> ReferralConfig:
         """Update the platform-wide referral configuration. Requires prior admin_login()."""
         data = await self._client._http.admin_post(
             "/api/admin/referral/config/update", request.to_dict()
@@ -181,7 +205,9 @@ class Admin:
         )
         return ListCodesResponse.from_dict(data)
 
-    async def update_referral_code(self, request: UpdateCodeRequest) -> UpdateCodeResponse:
+    async def update_referral_code(
+        self, request: UpdateCodeRequest
+    ) -> UpdateCodeResponse:
         """Update the max_uses for a referral code. Requires prior admin_login()."""
         data = await self._client._http.admin_post(
             "/api/admin/referral/codes/update", request.to_dict()
@@ -208,9 +234,7 @@ class Admin:
         )
         return AdminLogEvent.from_dict(data)
 
-    async def log_metrics(
-        self, query: AdminLogMetricsQuery
-    ) -> AdminLogMetricsResponse:
+    async def log_metrics(self, query: AdminLogMetricsQuery) -> AdminLogMetricsResponse:
         """Fetch rolled-up log metrics broken down by window and scope. Requires prior admin_login()."""
         url = "/api/admin/logs/metrics"
         params = query.to_query()
@@ -283,7 +307,7 @@ class Admin:
         return build_settle_market_instruction(
             oracle=params.oracle,
             market_id=params.market_id,
-            winning_outcome=params.winning_outcome,
+            payout_numerators=params.payout_numerators,
             program_id=self._client.program_id,
         )
 
@@ -313,7 +337,9 @@ class Admin:
             program_id=self._client.program_id,
         )
 
-    def whitelist_deposit_token_ix(self, params: WhitelistDepositTokenParams) -> Instruction:
+    def whitelist_deposit_token_ix(
+        self, params: WhitelistDepositTokenParams
+    ) -> Instruction:
         """Build WhitelistDepositToken instruction."""
         return build_whitelist_deposit_token_instruction(
             authority=params.authority,
@@ -429,7 +455,9 @@ class Admin:
         ix = self.set_manager_ix(params)
         return Transaction.new_with_payer([ix], params.authority)
 
-    def whitelist_deposit_token_tx(self, params: WhitelistDepositTokenParams) -> Transaction:
+    def whitelist_deposit_token_tx(
+        self, params: WhitelistDepositTokenParams
+    ) -> Transaction:
         """Build WhitelistDepositToken transaction."""
         ix = self.whitelist_deposit_token_ix(params)
         return Transaction.new_with_payer([ix], params.authority)

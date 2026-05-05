@@ -189,6 +189,7 @@ from .program import (
     BuildDepositParams,
     BuildMergeParams,
     SettleMarketParams,
+    ScalarResolutionParams,
     RedeemWinningsParams,
     WithdrawFromPositionParams,
     ActivateMarketParams,
@@ -238,12 +239,18 @@ from .program import (
     InvalidOutcomeError,
     TooManyMakersError,
     OrdersDoNotCrossError,
+    InvalidPayoutNumeratorsError,
+    PayoutVectorExceedsU32Error,
+    InvalidScalarRangeError,
+    DuplicateScalarOutcomesError,
     # Utils
     keccak256,
     derive_condition_id,
     get_associated_token_address,
     get_associated_token_address_2022,
     orders_cross,
+    winner_takes_all_payout_numerators,
+    scalar_to_payout_numerators,
     # Account Deserialization
     deserialize_exchange,
     deserialize_market,
@@ -350,7 +357,6 @@ from . import http
 from . import ws
 from . import error
 from . import network
-
 
 __all__ = [
     # Version
@@ -494,6 +500,7 @@ __all__ = [
     "BuildDepositParams",
     "BuildMergeParams",
     "SettleMarketParams",
+    "ScalarResolutionParams",
     "RedeemWinningsParams",
     "WithdrawFromPositionParams",
     "ActivateMarketParams",
@@ -544,12 +551,18 @@ __all__ = [
     "InvalidOutcomeError",
     "TooManyMakersError",
     "OrdersDoNotCrossError",
+    "InvalidPayoutNumeratorsError",
+    "PayoutVectorExceedsU32Error",
+    "InvalidScalarRangeError",
+    "DuplicateScalarOutcomesError",
     # Program - Utils
     "keccak256",
     "derive_condition_id",
     "get_associated_token_address",
     "get_associated_token_address_2022",
     "orders_cross",
+    "winner_takes_all_payout_numerators",
+    "scalar_to_payout_numerators",
     # Program - Accounts
     "deserialize_exchange",
     "deserialize_market",

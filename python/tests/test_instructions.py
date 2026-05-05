@@ -4,6 +4,9 @@ from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
     DepositToGlobalAltContext,
+    InvalidOutcomeCountError,
+    InvalidPayoutNumeratorsError,
+    ArithmeticOverflowError,
     MakerFill,
     OrderSide,
     OutcomeMetadata,
@@ -16,18 +19,29 @@ from lightcone_sdk.program import (
     build_deposit_to_global_instruction,
     build_extend_position_tokens_instruction,
     build_match_orders_multi_instruction,
+    build_redeem_winnings_instruction,
     build_set_manager_instruction,
+    build_settle_market_instruction,
     build_withdraw_from_global_instruction,
     derive_condition_id,
+    get_associated_token_address,
+    get_associated_token_address_2022,
     get_alt_pda,
+    get_conditional_mint_pda,
     get_condition_tombstone_pda,
     get_exchange_pda,
     get_global_deposit_pda,
+    get_market_pda,
+    get_mint_authority_pda,
     get_order_status_pda,
     get_orderbook_pda,
+    get_position_pda,
     get_user_nonce_pda,
+    get_vault_pda,
     hash_order,
 )
+
+import pytest
 
 
 def fixed_pubkey(value: int) -> Pubkey:
@@ -155,6 +169,44 @@ def test_set_manager_instruction_layout():
     assert ix.data == bytes([28]) + bytes(new_manager)
 
 
+def test_settle_market_uses_payout_vector_layout():
+    oracle = Pubkey.new_unique()
+    market_id = 7
+    exchange, _ = get_exchange_pda()
+    market, _ = get_market_pda(market_id)
+
+    ix = build_settle_market_instruction(
+        oracle=oracle,
+        market_id=market_id,
+        payout_numerators=[7, 3],
+    )
+
+    assert len(ix.accounts) == 3
+    assert ix.accounts[0].pubkey == oracle
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[0].is_writable is False
+    assert ix.accounts[1].pubkey == exchange
+    assert ix.accounts[2].pubkey == market
+    assert ix.accounts[2].is_writable is True
+    assert len(ix.data) == 9
+    assert ix.data[0] == 7
+    assert int.from_bytes(ix.data[1:5], "little") == 7
+    assert int.from_bytes(ix.data[5:9], "little") == 3
+
+
+def test_settle_market_rejects_invalid_payout_vectors():
+    oracle = Pubkey.new_unique()
+
+    with pytest.raises(InvalidPayoutNumeratorsError):
+        build_settle_market_instruction(oracle, 1, [0, 0])
+
+    with pytest.raises(InvalidOutcomeCountError):
+        build_settle_market_instruction(oracle, 1, [1])
+
+    with pytest.raises(ArithmeticOverflowError):
+        build_settle_market_instruction(oracle, 1, [0xFFFFFFFF, 1])
+
+
 def test_cancel_order_uses_operator_exchange_market_status_layout():
     operator = Pubkey.new_unique()
     market = Pubkey.new_unique()
@@ -269,6 +321,44 @@ def test_withdraw_from_global_includes_exchange():
 
     assert len(ix.accounts) == 7
     assert ix.accounts[6].pubkey == exchange
+
+
+def test_redeem_winnings_uses_outcome_index_and_exchange():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+    outcome_index = 2
+    exchange, _ = get_exchange_pda()
+    vault, _ = get_vault_pda(deposit_mint, market)
+    conditional_mint, _ = get_conditional_mint_pda(market, deposit_mint, outcome_index)
+    position, _ = get_position_pda(user, market)
+    position_conditional_ata = get_associated_token_address_2022(
+        position, conditional_mint
+    )
+    user_deposit_ata = get_associated_token_address(user, deposit_mint)
+    mint_authority, _ = get_mint_authority_pda(market)
+
+    ix = build_redeem_winnings_instruction(
+        user=user,
+        market=market,
+        deposit_mint=deposit_mint,
+        outcome_index=outcome_index,
+        amount=123,
+    )
+
+    assert len(ix.accounts) == 12
+    assert ix.accounts[3].pubkey == vault
+    assert ix.accounts[4].pubkey == conditional_mint
+    assert ix.accounts[5].pubkey == position
+    assert ix.accounts[5].is_writable is False
+    assert ix.accounts[6].pubkey == position_conditional_ata
+    assert ix.accounts[7].pubkey == user_deposit_ata
+    assert ix.accounts[8].pubkey == mint_authority
+    assert ix.accounts[11].pubkey == exchange
+    assert len(ix.data) == 10
+    assert ix.data[0] == 8
+    assert int.from_bytes(ix.data[1:9], "little") == 123
+    assert ix.data[9] == outcome_index
 
 
 def test_extend_position_tokens_uses_operator_signer():

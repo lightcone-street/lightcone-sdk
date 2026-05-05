@@ -102,9 +102,7 @@ class TooManyMakersError(LightconeError):
     def __init__(self, count: int, max_count: int):
         self.count = count
         self.max_count = max_count
-        super().__init__(
-            f"Too many makers: {count} (maximum: {max_count})"
-        )
+        super().__init__(f"Too many makers: {count} (maximum: {max_count})")
 
 
 class OrdersDoNotCrossError(LightconeError):
@@ -188,6 +186,34 @@ class ArithmeticOverflowError(LightconeError):
 
     def __init__(self):
         super().__init__("Arithmetic overflow")
+
+
+class InvalidPayoutNumeratorsError(LightconeError):
+    """Raised when a payout vector contains no redeemable numerator."""
+
+    def __init__(self):
+        super().__init__("Payout numerators must include at least one non-zero value")
+
+
+class PayoutVectorExceedsU32Error(LightconeError):
+    """Raised when payout numerators or their denominator cannot fit u32."""
+
+    def __init__(self):
+        super().__init__("Payout numerators and denominator must fit in u32")
+
+
+class InvalidScalarRangeError(LightconeError):
+    """Raised when scalar settlement bounds are invalid."""
+
+    def __init__(self):
+        super().__init__("Scalar max_value must be greater than min_value")
+
+
+class DuplicateScalarOutcomesError(LightconeError):
+    """Raised when scalar lower and upper outcome indexes are the same."""
+
+    def __init__(self):
+        super().__init__("Scalar lower and upper outcome indexes must be distinct")
 
 
 class InvalidMintOrderError(LightconeError):

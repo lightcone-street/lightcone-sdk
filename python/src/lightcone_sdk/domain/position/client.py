@@ -93,9 +93,7 @@ class Positions:
         data = await self._client._http.get("/api/users/positions")
         return PositionsResponseWire.from_dict(data)
 
-    async def positions_with_auth(
-        self, auth_token: str
-    ) -> PositionsResponseWire:
+    async def positions_with_auth(self, auth_token: str) -> PositionsResponseWire:
         """Same as :meth:`positions`, with an explicit per-call ``auth_token``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
@@ -146,9 +144,7 @@ class Positions:
         the tracked balances — this is not an error.
         """
         data = await self._client._http.get("/api/users/deposit-token-balances")
-        return {
-            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
-        }
+        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 
     async def deposit_token_balances_with_auth(
         self, auth_token: str
@@ -164,21 +160,19 @@ class Positions:
             "/api/users/deposit-token-balances",
             auth_token=auth_token,
         )
-        return {
-            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
-        }
+        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 
     # ── On-chain instruction builders ────────────────────────────────────
 
     def redeem_winnings_ix(
-        self, params: RedeemWinningsParams, winning_outcome: int
+        self, params: RedeemWinningsParams, outcome_index: int
     ) -> Instruction:
         """Build RedeemWinnings instruction."""
         return build_redeem_winnings_instruction(
             user=params.user,
             market=params.market,
             deposit_mint=params.deposit_mint,
-            winning_outcome=winning_outcome,
+            outcome_index=outcome_index,
             amount=params.amount,
             program_id=self._client.program_id,
         )
@@ -273,10 +267,10 @@ class Positions:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def redeem_winnings_tx(
-        self, params: RedeemWinningsParams, winning_outcome: int
+        self, params: RedeemWinningsParams, outcome_index: int
     ) -> Transaction:
         """Build RedeemWinnings transaction."""
-        ix = self.redeem_winnings_ix(params, winning_outcome)
+        ix = self.redeem_winnings_ix(params, outcome_index)
         return Transaction.new_with_payer([ix], params.user)
 
     def withdraw_from_position_tx(
@@ -376,9 +370,7 @@ class Positions:
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_onchain(
-        self, owner: Pubkey, market: Pubkey
-    ) -> Optional[Position]:
+    async def get_onchain(self, owner: Pubkey, market: Pubkey) -> Optional[Position]:
         """Fetch a Position account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.pda(owner, market)
