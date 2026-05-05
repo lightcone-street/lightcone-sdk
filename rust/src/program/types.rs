@@ -6,7 +6,8 @@
 use solana_pubkey::Pubkey;
 
 use crate::domain::market::Market;
-use crate::program::error::SdkError;
+use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
+use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::OrderPayload;
 use crate::shared::DepositSource;
 
@@ -22,7 +23,7 @@ pub enum MarketStatus {
     Pending = 0,
     /// Market is active and trading is enabled
     Active = 1,
-    /// Market has been resolved with a winning outcome
+    /// Market has been resolved with payout numerators
     Resolved = 2,
     /// Market has been cancelled
     Cancelled = 3,
@@ -136,8 +137,156 @@ pub struct SettleMarketParams {
     pub oracle: Pubkey,
     /// Market ID
     pub market_id: u64,
-    /// Winning outcome index
-    pub winning_outcome: u8,
+    /// Payout numerators, one per market outcome.
+    ///
+    /// The program computes the denominator as the checked sum of these values.
+    /// The SDK sends exactly this vector as u32 little-endian values.
+    pub payout_numerators: Vec<u32>,
+}
+
+impl SettleMarketParams {
+    /// Construct settlement params from an explicit payout vector.
+    pub fn new(oracle: Pubkey, market_id: u64, payout_numerators: Vec<u32>) -> Self {
+        Self {
+            oracle,
+            market_id,
+            payout_numerators,
+        }
+    }
+
+    /// Construct a binary or multi-outcome winner-takes-all payout vector.
+    pub fn winner_takes_all(
+        oracle: Pubkey,
+        market_id: u64,
+        winning_outcome: u8,
+        num_outcomes: u8,
+    ) -> SdkResult<Self> {
+        let mut payout_numerators = vec![0; validate_num_outcomes(num_outcomes)? as usize];
+        let max_index = num_outcomes.saturating_sub(1);
+        if winning_outcome >= num_outcomes {
+            return Err(SdkError::InvalidOutcomeIndex {
+                index: winning_outcome,
+                max: max_index,
+            });
+        }
+        payout_numerators[winning_outcome as usize] = 1;
+        Ok(Self::new(oracle, market_id, payout_numerators))
+    }
+}
+
+/// Integer fixed-point scalar settlement metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ScalarResolutionParams {
+    /// Lower scalar bound, in caller-defined fixed-point units.
+    pub min_value: i128,
+    /// Upper scalar bound, in caller-defined fixed-point units.
+    pub max_value: i128,
+    /// Resolved scalar value, in the same fixed-point units.
+    pub resolved_value: i128,
+    /// Outcome index that receives value at or below `min_value`.
+    pub lower_outcome_index: u8,
+    /// Outcome index that receives value at or above `max_value`.
+    pub upper_outcome_index: u8,
+    /// Market outcome count.
+    pub num_outcomes: u8,
+}
+
+/// Convert a two-sided scalar resolution into payout numerators.
+///
+/// This uses only integer fixed-point arithmetic. The resolved value is clamped
+/// into `[min_value, max_value]`, the two non-zero candidate numerators are
+/// reduced by their greatest common divisor, and the result is checked against
+/// the program's u32 payout representation.
+pub fn scalar_to_payout_numerators(params: ScalarResolutionParams) -> SdkResult<Vec<u32>> {
+    validate_num_outcomes(params.num_outcomes)?;
+    validate_scalar_outcome_index(params.lower_outcome_index, params.num_outcomes)?;
+    validate_scalar_outcome_index(params.upper_outcome_index, params.num_outcomes)?;
+
+    if params.lower_outcome_index == params.upper_outcome_index {
+        return Err(SdkError::DuplicateScalarOutcomes);
+    }
+
+    let range = params
+        .max_value
+        .checked_sub(params.min_value)
+        .ok_or(SdkError::Overflow)?;
+    if range <= 0 {
+        return Err(SdkError::InvalidScalarRange);
+    }
+
+    let clamped = params
+        .resolved_value
+        .clamp(params.min_value, params.max_value);
+    let lower_numerator = params
+        .max_value
+        .checked_sub(clamped)
+        .ok_or(SdkError::Overflow)?;
+    let upper_numerator = clamped
+        .checked_sub(params.min_value)
+        .ok_or(SdkError::Overflow)?;
+
+    let mut numerators = vec![0u128; params.num_outcomes as usize];
+    numerators[params.lower_outcome_index as usize] = lower_numerator as u128;
+    numerators[params.upper_outcome_index as usize] = upper_numerator as u128;
+
+    reduce_and_fit_payout_numerators(&numerators)
+}
+
+fn validate_num_outcomes(num_outcomes: u8) -> SdkResult<u8> {
+    if !(MIN_OUTCOMES..=MAX_OUTCOMES).contains(&num_outcomes) {
+        return Err(SdkError::InvalidOutcomeCount {
+            count: num_outcomes,
+        });
+    }
+    Ok(num_outcomes)
+}
+
+fn validate_scalar_outcome_index(index: u8, num_outcomes: u8) -> SdkResult<()> {
+    if index >= num_outcomes {
+        return Err(SdkError::InvalidOutcomeIndex {
+            index,
+            max: num_outcomes.saturating_sub(1),
+        });
+    }
+    Ok(())
+}
+
+fn reduce_and_fit_payout_numerators(numerators: &[u128]) -> SdkResult<Vec<u32>> {
+    let gcd = numerators
+        .iter()
+        .copied()
+        .filter(|n| *n > 0)
+        .reduce(gcd_u128)
+        .ok_or(SdkError::InvalidPayoutNumerators)?;
+
+    let mut reduced = Vec::with_capacity(numerators.len());
+    let mut sum = 0u128;
+    for numerator in numerators {
+        let value = if *numerator == 0 { 0 } else { numerator / gcd };
+        if value > u32::MAX as u128 {
+            return Err(SdkError::PayoutVectorExceedsU32);
+        }
+        sum = sum.checked_add(value).ok_or(SdkError::Overflow)?;
+        reduced.push(value as u32);
+    }
+
+    if sum == 0 {
+        return Err(SdkError::InvalidPayoutNumerators);
+    }
+    if sum > u32::MAX as u128 {
+        return Err(SdkError::PayoutVectorExceedsU32);
+    }
+
+    Ok(reduced)
+}
+
+fn gcd_u128(mut a: u128, mut b: u128) -> u128 {
+    while b != 0 {
+        let remainder = a % b;
+        a = b;
+        b = remainder;
+    }
+    a
 }
 
 /// Parameters for redeeming winnings

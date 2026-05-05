@@ -405,14 +405,14 @@ impl<'a> Admin<'a> {
     }
 
     /// Build SettleMarket instruction.
-    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction {
+    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        instructions::build_settle_market_ix(params, pid)
+        Ok(instructions::build_settle_market_ix(params, pid)?)
     }
 
     /// Build SettleMarket transaction.
     pub fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError> {
-        let ix = self.settle_market_ix(&params);
+        let ix = self.settle_market_ix(&params)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.oracle)))
     }
 

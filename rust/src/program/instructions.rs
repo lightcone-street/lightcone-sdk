@@ -12,8 +12,8 @@ fn system_program_id() -> Pubkey {
 }
 
 use crate::program::constants::{
-    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, TOKEN_2022_PROGRAM_ID,
-    TOKEN_PROGRAM_ID,
+    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, MAX_OUTCOMES,
+    MIN_OUTCOMES, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::OrderPayload;
@@ -48,6 +48,11 @@ const MAKER_MATCH_SIZE: usize = ORDER_SIZE + SIGNATURE_SIZE + 16;
 /// Create an account meta for a signer+writable account.
 fn signer_mut(pubkey: Pubkey) -> AccountMeta {
     AccountMeta::new(pubkey, true)
+}
+
+/// Create an account meta for a read-only signer account.
+fn signer(pubkey: Pubkey) -> AccountMeta {
+    AccountMeta::new_readonly(pubkey, true)
 }
 
 /// Create an account meta for a writable account.
@@ -441,24 +446,52 @@ pub fn build_increment_nonce_ix(user: &Pubkey, program_id: &Pubkey) -> Instructi
 
 /// Build SettleMarket instruction.
 ///
-/// Oracle resolves the market with winning outcome.
-pub fn build_settle_market_ix(params: &SettleMarketParams, program_id: &Pubkey) -> Instruction {
+/// Oracle resolves the market with payout numerators. The program computes the
+/// denominator as the checked sum of the submitted numerators.
+pub fn build_settle_market_ix(
+    params: &SettleMarketParams,
+    program_id: &Pubkey,
+) -> SdkResult<Instruction> {
+    validate_payout_numerators(&params.payout_numerators)?;
+
     let (exchange, _) = get_exchange_pda(program_id);
     let (market, _) = get_market_pda(params.market_id, program_id);
 
-    let keys = vec![
-        signer_mut(params.oracle),
-        readonly(exchange),
-        writable(market),
-    ];
+    let keys = vec![signer(params.oracle), readonly(exchange), writable(market)];
 
-    let data = vec![instruction::SETTLE_MARKET, params.winning_outcome];
+    let mut data = Vec::with_capacity(1 + (params.payout_numerators.len() * 4));
+    data.push(instruction::SETTLE_MARKET);
+    for numerator in &params.payout_numerators {
+        data.extend_from_slice(&numerator.to_le_bytes());
+    }
 
-    Instruction {
+    Ok(Instruction {
         program_id: *program_id,
         accounts: keys,
         data,
+    })
+}
+
+fn validate_payout_numerators(payout_numerators: &[u32]) -> SdkResult<()> {
+    let count = payout_numerators.len();
+    if count < MIN_OUTCOMES as usize || count > MAX_OUTCOMES as usize {
+        return Err(SdkError::InvalidOutcomeCount {
+            count: u8::try_from(count).unwrap_or(u8::MAX),
+        });
     }
+
+    let mut denominator = 0u32;
+    for numerator in payout_numerators {
+        denominator = denominator
+            .checked_add(*numerator)
+            .ok_or(SdkError::Overflow)?;
+    }
+
+    if denominator == 0 {
+        return Err(SdkError::InvalidPayoutNumerators);
+    }
+
+    Ok(())
 }
 
 /// Build RedeemWinnings instruction.
@@ -466,19 +499,20 @@ pub fn build_settle_market_ix(params: &SettleMarketParams, program_id: &Pubkey) 
 /// Redeem winning outcome tokens from Position for collateral.
 pub fn build_redeem_winnings_ix(
     params: &RedeemWinningsParams,
-    winning_outcome: u8,
+    outcome_index: u8,
     program_id: &Pubkey,
 ) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
     let (vault, _) = get_vault_pda(&params.deposit_mint, &params.market, program_id);
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-    let (winning_mint, _) = get_conditional_mint_pda(
+    let (conditional_mint, _) = get_conditional_mint_pda(
         &params.market,
         &params.deposit_mint,
-        winning_outcome,
+        outcome_index,
         program_id,
     );
-    let position_winning_ata = get_conditional_token_ata(&position, &winning_mint);
+    let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
     let user_deposit_ata = get_deposit_token_ata(&params.user, &params.deposit_mint);
 
     let keys = vec![
@@ -486,18 +520,20 @@ pub fn build_redeem_winnings_ix(
         readonly(params.market),
         readonly(params.deposit_mint),
         writable(vault),
-        writable(winning_mint),
-        writable(position),
-        writable(position_winning_ata),
+        writable(conditional_mint),
+        readonly(position),
+        writable(position_conditional_ata),
         writable(user_deposit_ata),
         readonly(mint_authority),
         readonly(TOKEN_PROGRAM_ID),
         readonly(TOKEN_2022_PROGRAM_ID),
+        readonly(exchange),
     ];
 
-    let mut data = Vec::with_capacity(9);
+    let mut data = Vec::with_capacity(10);
     data.push(instruction::REDEEM_WINNINGS);
     data.extend_from_slice(&params.amount.to_le_bytes());
+    data.push(outcome_index);
 
     Instruction {
         program_id: *program_id,
@@ -1391,7 +1427,9 @@ pub fn build_withdraw_from_global_ix(
 mod tests {
     use super::*;
     use crate::env::LightconeEnv;
-    use crate::program::types::{MakerFill, OrderSide, OutcomeMetadata};
+    use crate::program::types::{
+        scalar_to_payout_numerators, MakerFill, OrderSide, OutcomeMetadata, ScalarResolutionParams,
+    };
 
     fn test_program_id() -> Pubkey {
         LightconeEnv::default().program_id()
@@ -1525,16 +1563,107 @@ mod tests {
         let params = SettleMarketParams {
             oracle: Pubkey::new_unique(),
             market_id: 1,
-            winning_outcome: 2,
+            payout_numerators: vec![7, 3],
         };
         let program_id = test_program_id();
 
-        let ix = build_settle_market_ix(&params, &program_id);
+        let ix = build_settle_market_ix(&params, &program_id).unwrap();
 
         assert_eq!(ix.accounts.len(), 3);
-        assert_eq!(ix.data.len(), 2);
+        assert!(ix.accounts[0].is_signer);
+        assert!(!ix.accounts[0].is_writable);
+        assert_eq!(ix.data.len(), 9);
         assert_eq!(ix.data[0], instruction::SETTLE_MARKET);
-        assert_eq!(ix.data[1], 2);
+        assert_eq!(&ix.data[1..5], &7u32.to_le_bytes());
+        assert_eq!(&ix.data[5..9], &3u32.to_le_bytes());
+    }
+
+    #[test]
+    fn test_build_settle_market_rejects_invalid_vectors() {
+        let program_id = test_program_id();
+        let oracle = Pubkey::new_unique();
+
+        for payout_numerators in [vec![], vec![0, 0], vec![1], vec![1; 7]] {
+            let params = SettleMarketParams {
+                oracle,
+                market_id: 1,
+                payout_numerators,
+            };
+            assert!(build_settle_market_ix(&params, &program_id).is_err());
+        }
+    }
+
+    #[test]
+    fn test_winner_takes_all_payout_numerators() {
+        let params = SettleMarketParams::winner_takes_all(Pubkey::new_unique(), 1, 2, 4).unwrap();
+        assert_eq!(params.payout_numerators, vec![0, 0, 1, 0]);
+    }
+
+    #[test]
+    fn test_scalar_to_payout_numerators() {
+        let params = ScalarResolutionParams {
+            min_value: 0,
+            max_value: 100,
+            resolved_value: 25,
+            lower_outcome_index: 0,
+            upper_outcome_index: 1,
+            num_outcomes: 2,
+        };
+        assert_eq!(scalar_to_payout_numerators(params).unwrap(), vec![3, 1]);
+
+        let clamped_low = ScalarResolutionParams {
+            resolved_value: -5,
+            ..params
+        };
+        assert_eq!(
+            scalar_to_payout_numerators(clamped_low).unwrap(),
+            vec![1, 0]
+        );
+
+        let clamped_high = ScalarResolutionParams {
+            resolved_value: 120,
+            ..params
+        };
+        assert_eq!(
+            scalar_to_payout_numerators(clamped_high).unwrap(),
+            vec![0, 1]
+        );
+    }
+
+    #[test]
+    fn test_signed_scalar_to_payout_numerators_reduces() {
+        let params = ScalarResolutionParams {
+            min_value: -10_000,
+            max_value: 40_000,
+            resolved_value: 15_250,
+            lower_outcome_index: 0,
+            upper_outcome_index: 1,
+            num_outcomes: 2,
+        };
+
+        assert_eq!(scalar_to_payout_numerators(params).unwrap(), vec![99, 101]);
+    }
+
+    #[test]
+    fn test_build_redeem_winnings_ix_includes_outcome_and_exchange() {
+        let program_id = test_program_id();
+        let params = RedeemWinningsParams {
+            user: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            deposit_mint: Pubkey::new_unique(),
+            amount: 1_000,
+        };
+        let (exchange, _) = get_exchange_pda(&program_id);
+
+        let ix = build_redeem_winnings_ix(&params, 1, &program_id);
+
+        assert_eq!(ix.accounts.len(), 12);
+        assert_eq!(ix.accounts[11].pubkey, exchange);
+        assert!(!ix.accounts[5].is_writable);
+        assert_eq!(ix.data.len(), 10);
+        assert_eq!(ix.data[0], instruction::REDEEM_WINNINGS);
+        assert_eq!(&ix.data[1..9], &1_000u64.to_le_bytes());
+        assert_eq!(ix.data[9], 1);
     }
 
     #[test]

@@ -121,7 +121,7 @@ pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
 /// Exchange account size in bytes
 pub const EXCHANGE_SIZE: usize = 120;
 /// Market account size in bytes
-pub const MARKET_SIZE: usize = 120;
+pub const MARKET_SIZE: usize = 148;
 /// Order status account size in bytes
 pub const ORDER_STATUS_SIZE: usize = 32;
 /// User nonce account size in bytes

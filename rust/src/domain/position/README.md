@@ -117,11 +117,11 @@ Each operation has an `_ix` method returning an `Instruction` (or `Result<Instru
 #### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
-fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, winning_outcome: u8) -> Instruction
-fn redeem_winnings_tx(&self, params: RedeemWinningsParams, winning_outcome: u8) -> Result<Transaction, SdkError>
+fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, outcome_index: u8) -> Instruction
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) -> Result<Transaction, SdkError>
 ```
 
-Build a RedeemWinnings instruction/transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
+Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
 
 #### `withdraw_from_position_ix` / `withdraw_from_position_tx`
 

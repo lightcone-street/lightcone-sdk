@@ -167,19 +167,19 @@ impl<'a> Positions<'a> {
     pub fn redeem_winnings_ix(
         &self,
         params: &RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_redeem_winnings_ix(params, winning_outcome, pid)
+        instructions::build_redeem_winnings_ix(params, outcome_index, pid)
     }
 
     /// Build RedeemWinnings transaction.
     pub fn redeem_winnings_tx(
         &self,
         params: RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.redeem_winnings_ix(&params, winning_outcome);
+        let ix = self.redeem_winnings_ix(&params, outcome_index);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 

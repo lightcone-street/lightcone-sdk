@@ -7,9 +7,9 @@ use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
-    GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, ORDERBOOK_DISCRIMINATOR,
-    ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR,
-    POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
+    GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, MAX_OUTCOMES,
+    ORDERBOOK_DISCRIMINATOR, ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE,
+    POSITION_DISCRIMINATOR, POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::MarketStatus;
@@ -32,6 +32,12 @@ fn read_pubkey(data: &[u8], offset: usize) -> Pubkey {
 #[inline]
 fn read_u64(data: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(read_bytes::<8>(data, offset))
+}
+
+/// Helper to read a u32 from data (little-endian)
+#[inline]
+fn read_u32(data: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(read_bytes::<4>(data, offset))
 }
 
 // ============================================================================
@@ -110,7 +116,7 @@ impl Exchange {
 }
 
 // ============================================================================
-// Market Account (120 bytes)
+// Market Account (148 bytes)
 // ============================================================================
 
 /// Market account - represents a market
@@ -120,13 +126,13 @@ impl Exchange {
 /// - [8..16]   market_id (8 bytes)
 /// - [16]       num_outcomes (1 byte)
 /// - [17]       status (1 byte)
-/// - [18]       winning_outcome (1 byte)
-/// - [19]       has_winning_outcome (1 byte)
-/// - [20]       bump (1 byte)
-/// - [21..24]   _padding (3 bytes)
+/// - [18]       bump (1 byte)
+/// - [19..24]   _padding (5 bytes)
 /// - [24..56]   oracle (32 bytes)
 /// - [56..88]   question_id (32 bytes)
 /// - [88..120]  condition_id (32 bytes)
+/// - [120..144] payout_numerators ([u32; 6])
+/// - [144..148] payout_denominator (u32)
 #[derive(Debug, Clone)]
 pub struct Market {
     /// Account discriminator
@@ -137,10 +143,6 @@ pub struct Market {
     pub num_outcomes: u8,
     /// Current market status
     pub status: MarketStatus,
-    /// Winning outcome index (255 if not resolved)
-    pub winning_outcome: u8,
-    /// Whether a winning outcome has been set
-    pub has_winning_outcome: bool,
     /// PDA bump seed
     pub bump: u8,
     /// Oracle pubkey that can settle this market
@@ -149,6 +151,11 @@ pub struct Market {
     pub question_id: [u8; 32],
     /// Condition ID derived from oracle + question_id + num_outcomes
     pub condition_id: [u8; 32],
+    /// Payout numerators for each possible outcome. Only the first
+    /// `num_outcomes` entries are meaningful.
+    pub payout_numerators: [u32; MAX_OUTCOMES as usize],
+    /// Payout denominator computed by the program as the numerator sum.
+    pub payout_denominator: u32,
 }
 
 impl Market {
@@ -172,17 +179,22 @@ impl Market {
             });
         }
 
+        let mut payout_numerators = [0u32; MAX_OUTCOMES as usize];
+        for (index, numerator) in payout_numerators.iter_mut().enumerate() {
+            *numerator = read_u32(data, 120 + (index * 4));
+        }
+
         Ok(Self {
             discriminator,
             market_id: read_u64(data, 8),
             num_outcomes: data[16],
             status: MarketStatus::try_from(data[17])?,
-            winning_outcome: data[18],
-            has_winning_outcome: data[19] != 0,
-            bump: data[20],
+            bump: data[18],
             oracle: read_pubkey(data, 24),
             question_id: read_bytes::<32>(data, 56),
             condition_id: read_bytes::<32>(data, 88),
+            payout_numerators,
+            payout_denominator: read_u32(data, 144),
         })
     }
 
@@ -535,19 +547,22 @@ mod tests {
         data[16] = 3;
         // status at offset 17
         data[17] = 1; // Active
-                      // winning_outcome at offset 18
-        data[18] = 255;
-        // has_winning_outcome at offset 19
-        data[19] = 0;
-        // bump at offset 20
-        data[20] = 254;
+                      // bump at offset 18
+        data[18] = 254;
+        // payout_numerators at offset 120
+        data[120..124].copy_from_slice(&7u32.to_le_bytes());
+        data[124..128].copy_from_slice(&3u32.to_le_bytes());
+        // payout_denominator at offset 144
+        data[144..148].copy_from_slice(&10u32.to_le_bytes());
 
         let market = Market::deserialize(&data).unwrap();
         assert_eq!(market.market_id, 42);
         assert_eq!(market.num_outcomes, 3);
         assert_eq!(market.status, MarketStatus::Active);
-        assert_eq!(market.winning_outcome, 255);
-        assert!(!market.has_winning_outcome);
+        assert_eq!(market.bump, 254);
+        assert_eq!(market.payout_numerators[0], 7);
+        assert_eq!(market.payout_numerators[1], 3);
+        assert_eq!(market.payout_denominator, 10);
     }
 
     #[test]

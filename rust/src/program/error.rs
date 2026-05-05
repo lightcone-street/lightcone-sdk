@@ -33,6 +33,22 @@ pub enum SdkError {
     #[error("Invalid outcome index: {index} (max {max})")]
     InvalidOutcomeIndex { index: u8, max: u8 },
 
+    /// Invalid payout numerators
+    #[error("Invalid payout numerators")]
+    InvalidPayoutNumerators,
+
+    /// Payout vector exceeds the on-chain u32 representation
+    #[error("Payout vector exceeds u32 bounds")]
+    PayoutVectorExceedsU32,
+
+    /// Invalid scalar range
+    #[error("Invalid scalar range")]
+    InvalidScalarRange,
+
+    /// Scalar outcomes must be distinct
+    #[error("Scalar outcome indexes must be distinct")]
+    DuplicateScalarOutcomes,
+
     /// Too many makers
     #[error("Too many makers: {count} (max {max})", max = crate::program::constants::MAX_MAKERS)]
     TooManyMakers { count: usize },

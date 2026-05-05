@@ -300,11 +300,11 @@ Build an ActivateMarket instruction/transaction — transition a market from Pen
 #### `settle_market_ix` / `settle_market_tx`
 
 ```rust
-fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction
+fn settle_market_ix(&self, params: &SettleMarketParams) -> Result<Instruction, SdkError>
 fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError>
 ```
 
-Build a SettleMarket instruction/transaction — resolve a market with the winning outcome.
+Build a SettleMarket instruction/transaction — resolve a market with payout numerators.
 
 #### `set_paused_ix` / `set_paused_tx`
 

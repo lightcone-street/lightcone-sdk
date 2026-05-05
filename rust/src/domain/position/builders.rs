@@ -489,7 +489,7 @@ impl<'a> WithdrawBuilder<'a> {
 ///     .market(market_pubkey)
 ///     .mint(mint_pubkey)
 ///     .amount(1_000_000)
-///     .winning_outcome(0)
+///     .outcome_index(0)
 ///     .sign_and_submit()
 ///     .await?;
 /// ```
@@ -499,7 +499,7 @@ pub struct RedeemWinningsBuilder<'a> {
     market: Option<Pubkey>,
     mint: Option<Pubkey>,
     amount: Option<u64>,
-    winning_outcome: Option<u8>,
+    outcome_index: Option<u8>,
 }
 
 impl<'a> RedeemWinningsBuilder<'a> {
@@ -510,7 +510,7 @@ impl<'a> RedeemWinningsBuilder<'a> {
             market: None,
             mint: None,
             amount: None,
-            winning_outcome: None,
+            outcome_index: None,
         }
     }
 
@@ -538,10 +538,15 @@ impl<'a> RedeemWinningsBuilder<'a> {
         self
     }
 
-    /// Set the winning outcome index.
-    pub fn winning_outcome(mut self, winning_outcome: u8) -> Self {
-        self.winning_outcome = Some(winning_outcome);
+    /// Set the outcome index to redeem.
+    pub fn outcome_index(mut self, outcome_index: u8) -> Self {
+        self.outcome_index = Some(outcome_index);
         self
+    }
+
+    /// Deprecated alias for `outcome_index`.
+    pub fn winning_outcome(self, winning_outcome: u8) -> Self {
+        self.outcome_index(winning_outcome)
     }
 
     /// Build a redeem winnings instruction.
@@ -558,9 +563,9 @@ impl<'a> RedeemWinningsBuilder<'a> {
         let amount = self
             .amount
             .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
-        let winning_outcome = self
-            .winning_outcome
-            .ok_or_else(|| SdkError::Validation("winning_outcome is required".into()))?;
+        let outcome_index = self
+            .outcome_index
+            .ok_or_else(|| SdkError::Validation("outcome_index is required".into()))?;
 
         Ok(instructions::build_redeem_winnings_ix(
             &RedeemWinningsParams {
@@ -569,7 +574,7 @@ impl<'a> RedeemWinningsBuilder<'a> {
                 deposit_mint: mint,
                 amount,
             },
-            winning_outcome,
+            outcome_index,
             &self.client.program_id,
         ))
     }

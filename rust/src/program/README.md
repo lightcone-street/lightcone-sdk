@@ -29,7 +29,7 @@ Singleton account storing global exchange state.
 | bump | 81 | 1 | `u8` | PDA bump seed |
 | _padding | 82 | 6 | - | Reserved |
 
-### Market (120 bytes)
+### Market (148 bytes)
 
 Individual market state.
 
@@ -39,13 +39,13 @@ Individual market state.
 | market_id | 8 | 8 | `u64` | Sequential market identifier |
 | num_outcomes | 16 | 1 | `u8` | Number of outcomes (2-6) |
 | status | 17 | 1 | `MarketStatus` | Pending=0, Active=1, Resolved=2, Cancelled=3 |
-| winning_outcome | 18 | 1 | `u8` | Winning outcome index (255 if unresolved) |
-| has_winning_outcome | 19 | 1 | `bool` | Whether market has resolved |
-| bump | 20 | 1 | `u8` | PDA bump seed |
-| _padding | 21 | 3 | - | Reserved |
+| bump | 18 | 1 | `u8` | PDA bump seed |
+| _padding | 19 | 5 | - | Reserved |
 | oracle | 24 | 32 | `Pubkey` | Resolution authority |
 | question_id | 56 | 32 | `[u8; 32]` | Unique question identifier |
 | condition_id | 88 | 32 | `[u8; 32]` | Keccak256(oracle \|\| question_id \|\| num_outcomes) |
+| payout_numerators | 120 | 24 | `[u32; 6]` | Payout numerators; only first `num_outcomes` entries are meaningful |
+| payout_denominator | 144 | 4 | `u32` | Sum of payout numerators |
 
 ### Position (80 bytes)
 
@@ -186,8 +186,8 @@ let ix = client.admin().activate_market_ix(&ActivateMarketParams {
 let ix = client.admin().settle_market_ix(&SettleMarketParams {
     oracle,
     market_id,
-    winning_outcome,
-});
+    payout_numerators: vec![7, 3],
+})?;
 ```
 
 **Admin — Operator (`client.admin()`):**
@@ -234,7 +234,7 @@ let ix = client.orders().increment_nonce_ix(&user);
 ```rust
 let ix = client.positions().redeem_winnings_ix(&RedeemWinningsParams {
     user, market, deposit_mint: usdc_mint, amount,
-}, winning_outcome);
+}, outcome_index);
 
 let ix = client.positions().withdraw_from_position_ix(&WithdrawFromPositionParams {
     user, market, mint: conditional_mint, amount, outcome_index,
@@ -561,7 +561,7 @@ pub struct ActivateMarketParams {
 pub struct SettleMarketParams {
     pub oracle: Pubkey,
     pub market_id: u64,
-    pub winning_outcome: u8,
+    pub payout_numerators: Vec<u32>,
 }
 
 pub struct BuildDepositParams {
