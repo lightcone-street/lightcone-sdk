@@ -184,7 +184,7 @@ def market_from_wire(wire: MarketWire) -> Market:
         created_at=wire.created_at,
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
-        winning_outcome=wire.winning_outcome,
+        resolution=wire.resolution,
         description=wire.description or "",
         definition=wire.definition or "",
         category=wire.category,

@@ -157,6 +157,12 @@ from .ws.client import WsClient
 from .client import LightconeClient, LightconeClientBuilder
 from .rpc import Rpc
 
+from .domain.market import (
+    MarketResolutionKind,
+    MarketResolutionPayout,
+    MarketResolutionResponse,
+)
+
 # ============================================================================
 # Program layer (on-chain interaction)
 # ============================================================================
@@ -385,6 +391,9 @@ __all__ = [
     "LightconeClient",
     "LightconeClientBuilder",
     "Rpc",
+    "MarketResolutionKind",
+    "MarketResolutionPayout",
+    "MarketResolutionResponse",
     # Shared types
     "OrderBookId",
     "PubkeyStr",
