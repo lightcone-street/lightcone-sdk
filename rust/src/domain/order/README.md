@@ -274,6 +274,15 @@ fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError>
 
 Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
 
+#### `close_order_status_ix` / `close_order_status_tx`
+
+```rust
+fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction
+fn close_order_status_tx(&self, params: CloseOrderStatusParams) -> Result<Transaction, SdkError>
+```
+
+Build a CloseOrderStatus instruction/transaction — close a fully-filled order status PDA.
+
 ### Order Helpers
 
 #### `create_bid_order` / `create_ask_order`

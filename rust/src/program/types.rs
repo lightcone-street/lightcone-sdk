@@ -87,7 +87,7 @@ pub struct CreateMarketParams {
 pub struct OutcomeMetadata {
     /// Token name (max 32 chars)
     pub name: String,
-    /// Token symbol (max 10 chars)
+    /// Token symbol (max 18 chars)
     pub symbol: String,
     /// Token URI (max 200 chars)
     pub uri: String,
@@ -569,6 +569,67 @@ pub struct WithdrawFromGlobalParams {
     pub mint: Pubkey,
     /// Amount to withdraw
     pub amount: u64,
+}
+
+/// Parameters for deactivating or closing a position ALT.
+#[derive(Debug, Clone)]
+pub struct ClosePositionAltParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Position PDA whose ALT authority controls the lookup table
+    pub position: Pubkey,
+    /// Resolved market pubkey
+    pub market: Pubkey,
+    /// Position lookup table pubkey
+    pub lookup_table: Pubkey,
+}
+
+/// Parameters for closing a fully-filled order status PDA.
+#[derive(Debug, Clone)]
+pub struct CloseOrderStatusParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Order hash used to derive the order status PDA
+    pub order_hash: [u8; 32],
+}
+
+/// Parameters for closing empty position-owned conditional token accounts.
+#[derive(Debug, Clone)]
+pub struct ClosePositionTokenAccountsParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Resolved market pubkey
+    pub market: Pubkey,
+    /// Position PDA
+    pub position: Pubkey,
+    /// Deposit mints whose conditional ATAs should be considered
+    pub deposit_mints: Vec<Pubkey>,
+}
+
+/// Parameters for deactivating or closing an orderbook ALT.
+#[derive(Debug, Clone)]
+pub struct CloseOrderbookAltParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Orderbook PDA
+    pub orderbook: Pubkey,
+    /// Resolved market pubkey
+    pub market: Pubkey,
+    /// Lookup table stored on the orderbook account
+    pub lookup_table: Pubkey,
+}
+
+/// Parameters for closing an orderbook PDA after its ALT has been closed.
+#[derive(Debug, Clone)]
+pub struct CloseOrderbookParams {
+    /// Operator pubkey (must be exchange operator)
+    pub operator: Pubkey,
+    /// Orderbook PDA
+    pub orderbook: Pubkey,
+    /// Resolved market pubkey
+    pub market: Pubkey,
+    /// Lookup table stored on the orderbook account; must already be closed
+    pub lookup_table: Pubkey,
 }
 
 // ============================================================================

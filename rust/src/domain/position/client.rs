@@ -12,9 +12,10 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{
-    DepositToGlobalAltContext, DepositToGlobalParams, ExtendPositionTokensParams,
-    GlobalToMarketDepositParams, InitPositionTokensParams, RedeemWinningsParams,
-    WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    ClosePositionAltParams, ClosePositionTokenAccountsParams, DepositToGlobalAltContext,
+    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
+    WithdrawFromPositionParams,
 };
 use crate::shared::PubkeyStr;
 use solana_instruction::Instruction;
@@ -244,6 +245,45 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionAlt instruction.
+    pub fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_position_alt_ix(params, pid)
+    }
+
+    /// Build ClosePositionAlt transaction.
+    pub fn close_position_alt_tx(
+        &self,
+        params: ClosePositionAltParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_alt_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionTokenAccounts instruction.
+    pub fn close_position_token_accounts_ix(
+        &self,
+        params: &ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_close_position_token_accounts_ix(
+            params,
+            num_outcomes,
+            pid,
+        )?)
+    }
+
+    /// Build ClosePositionTokenAccounts transaction.
+    pub fn close_position_token_accounts_tx(
+        &self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_token_accounts_ix(&params, num_outcomes)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 

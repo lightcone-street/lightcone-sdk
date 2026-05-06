@@ -115,6 +115,42 @@ pub enum SdkError {
     #[error("Deposit token not active")]
     DepositTokenNotActive,
 
+    /// User's global deposit balance is insufficient
+    #[error("Insufficient global deposit balance")]
+    InsufficientGlobalDeposit,
+
+    /// Deposit mints must be ordered by ascending GlobalDepositToken index
+    #[error("Invalid deposit mint order")]
+    InvalidDepositMintOrder,
+
+    /// Amount must be greater than zero
+    #[error("Amount must be greater than zero")]
+    ZeroAmount,
+
+    /// Invalid associated token account
+    #[error("Invalid associated token account")]
+    InvalidAta,
+
+    /// Order status is not fully filled
+    #[error("Order status is not fully filled")]
+    OrderNotFullyFilled,
+
+    /// Redeem amount is too small to produce a payout
+    #[error("Payout too small")]
+    PayoutTooSmall,
+
+    /// Token account is not empty
+    #[error("Token account is not empty")]
+    TokenAccountNotEmpty,
+
+    /// Lookup table must be closed first
+    #[error("Lookup table is not closed")]
+    LookupTableNotClosed,
+
+    /// Invalid manager
+    #[error("Invalid manager")]
+    InvalidManager,
+
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),

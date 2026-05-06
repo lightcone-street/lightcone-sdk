@@ -25,10 +25,12 @@ use crate::program::pda::{
 };
 use crate::program::types::{
     ActivateMarketParams, AddDepositMintParams, BuildDepositParams, BuildMergeParams,
-    CreateMarketParams, CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalAltContext,
-    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, MatchOrdersMultiParams, RedeemWinningsParams, SetAuthorityParams,
-    SetManagerParams, SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromGlobalParams,
+    CloseOrderStatusParams, CloseOrderbookAltParams, CloseOrderbookParams, ClosePositionAltParams,
+    ClosePositionTokenAccountsParams, CreateMarketParams, CreateOrderbookParams,
+    DepositAndSwapParams, DepositToGlobalAltContext, DepositToGlobalParams,
+    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
+    MatchOrdersMultiParams, RedeemWinningsParams, SetAuthorityParams, SetManagerParams,
+    SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 };
 use crate::program::utils::{
@@ -281,12 +283,11 @@ pub fn build_add_deposit_mint_ix(
 /// 4. vault
 /// 5. user_deposit_ata
 /// 6. position
-/// 7. position_collateral_ata
-/// 8. mint_authority
-/// 9. token_program
-/// 10. token_2022_program
-/// 11. associated_token_program
-/// 12. system_program
+/// 7. mint_authority
+/// 8. token_program
+/// 9. token_2022_program
+/// 10. associated_token_program
+/// 11. system_program
 /// + remaining accounts (conditional_mint, position_conditional_ata) pairs
 pub fn build_deposit_ix(
     params: &BuildDepositParams,
@@ -298,7 +299,6 @@ pub fn build_deposit_ix(
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
     let user_deposit_ata = get_deposit_token_ata(&params.user, &params.deposit_mint);
-    let position_collateral_ata = get_deposit_token_ata(&position, &params.deposit_mint);
 
     let mut keys = vec![
         signer_mut(params.user),
@@ -308,7 +308,6 @@ pub fn build_deposit_ix(
         writable(vault),
         writable(user_deposit_ata),
         writable(position),
-        writable(position_collateral_ata),
         readonly(mint_authority),
         readonly(TOKEN_PROGRAM_ID),
         readonly(TOKEN_2022_PROGRAM_ID),
@@ -428,11 +427,13 @@ pub fn build_cancel_order_ix(
 /// Increments user's nonce for replay protection / mass cancellation.
 pub fn build_increment_nonce_ix(user: &Pubkey, program_id: &Pubkey) -> Instruction {
     let (user_nonce, _) = get_user_nonce_pda(user, program_id);
+    let (exchange, _) = get_exchange_pda(program_id);
 
     let keys = vec![
         signer_mut(*user),
         writable(user_nonce),
         readonly(system_program_id()),
+        readonly(exchange),
     ];
 
     let data = vec![instruction::INCREMENT_NONCE];
@@ -586,7 +587,7 @@ pub fn build_set_operator_ix(
 ///
 /// Withdraw tokens from Position ATA to user's ATA.
 ///
-/// Accounts (7):
+/// Accounts (8):
 /// 0. user (signer)
 /// 1. market (readonly)
 /// 2. position (mut)
@@ -594,11 +595,13 @@ pub fn build_set_operator_ix(
 /// 4. position_ata (mut)
 /// 5. user_ata (mut)
 /// 6. token_program (readonly)
+/// 7. exchange (readonly)
 pub fn build_withdraw_from_position_ix(
     params: &WithdrawFromPositionParams,
     is_token_2022: bool,
     program_id: &Pubkey,
 ) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
     let position_ata = if is_token_2022 {
         get_conditional_token_ata(&position, &params.mint)
@@ -624,6 +627,7 @@ pub fn build_withdraw_from_position_ix(
         writable(position_ata),
         writable(user_ata),
         readonly(token_program),
+        readonly(exchange),
     ];
 
     // Data: [discriminator(1), amount(8), outcome_index(1)] = 10 bytes
@@ -1000,7 +1004,7 @@ fn build_deposit_to_global_ix_inner(
 ///
 /// Transfer from user's global deposit to market vault + mint conditional tokens.
 ///
-/// Accounts (14 + num_outcomes*2):
+/// Accounts (13 + num_outcomes*2):
 /// 0. user (signer, mut)
 /// 1. exchange (readonly)
 /// 2. market (readonly)
@@ -1009,12 +1013,11 @@ fn build_deposit_to_global_ix_inner(
 /// 5. global_deposit_token (readonly)
 /// 6. user_global_deposit (mut)
 /// 7. position (mut)
-/// 8. position_collateral_ata (mut)
-/// 9. mint_authority (readonly)
-/// 10. token_program (readonly)
-/// 11. token_2022_program (readonly)
-/// 12. ata_program (readonly)
-/// 13. system_program (readonly)
+/// 8. mint_authority (readonly)
+/// 9. token_program (readonly)
+/// 10. token_2022_program (readonly)
+/// 11. ata_program (readonly)
+/// 12. system_program (readonly)
 /// + per outcome: conditional_mint[i] (mut), position_conditional_ata[i] (mut)
 pub fn build_global_to_market_deposit_ix(
     params: &GlobalToMarketDepositParams,
@@ -1027,7 +1030,6 @@ pub fn build_global_to_market_deposit_ix(
     let (user_global_deposit, _) =
         get_user_global_deposit_pda(&params.user, &params.deposit_mint, program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-    let position_collateral_ata = get_deposit_token_ata(&position, &params.deposit_mint);
     let (mint_authority, _) = get_mint_authority_pda(&params.market, program_id);
 
     let mut keys = vec![
@@ -1039,7 +1041,6 @@ pub fn build_global_to_market_deposit_ix(
         readonly(global_deposit_token),
         writable(user_global_deposit),
         writable(position),
-        writable(position_collateral_ata),
         readonly(mint_authority),
         readonly(TOKEN_PROGRAM_ID),
         readonly(TOKEN_2022_PROGRAM_ID),
@@ -1423,6 +1424,147 @@ pub fn build_withdraw_from_global_ix(
     }
 }
 
+/// Build ClosePositionAlt instruction.
+///
+/// Deactivates an active position ALT, or closes an already-deactivated ALT.
+pub fn build_close_position_alt_ix(
+    params: &ClosePositionAltParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+
+    let keys = vec![
+        signer_mut(params.operator),
+        readonly(exchange),
+        readonly(params.position),
+        readonly(params.market),
+        writable(params.lookup_table),
+        readonly(*ALT_PROGRAM_ID),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![instruction::CLOSE_POSITION_ALT],
+    }
+}
+
+/// Build CloseOrderStatus instruction.
+///
+/// Closes a fully-filled, non-cancelled order status PDA and returns rent to
+/// the operator.
+pub fn build_close_order_status_ix(
+    params: &CloseOrderStatusParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+    let (order_status, _) = get_order_status_pda(&params.order_hash, program_id);
+
+    let keys = vec![
+        signer_mut(params.operator),
+        readonly(exchange),
+        writable(order_status),
+    ];
+
+    let mut data = Vec::with_capacity(33);
+    data.push(instruction::CLOSE_ORDER_STATUS);
+    data.extend_from_slice(&params.order_hash);
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    }
+}
+
+/// Build ClosePositionTokenAccounts instruction.
+///
+/// Attempts to close empty Token-2022 conditional ATAs owned by a position PDA
+/// after market resolution. Non-empty token accounts are skipped by the program.
+pub fn build_close_position_token_accounts_ix(
+    params: &ClosePositionTokenAccountsParams,
+    num_outcomes: u8,
+    program_id: &Pubkey,
+) -> SdkResult<Instruction> {
+    validate_outcome_count(num_outcomes)?;
+    if params.deposit_mints.is_empty() {
+        return Err(SdkError::MissingField("deposit_mints".to_string()));
+    }
+
+    let (exchange, _) = get_exchange_pda(program_id);
+    let mut keys = vec![
+        signer_mut(params.operator),
+        readonly(exchange),
+        readonly(params.market),
+        readonly(params.position),
+        readonly(TOKEN_2022_PROGRAM_ID),
+    ];
+
+    for deposit_mint in &params.deposit_mints {
+        keys.push(readonly(*deposit_mint));
+        for i in 0..num_outcomes {
+            let (conditional_mint, _) =
+                get_conditional_mint_pda(&params.market, deposit_mint, i, program_id);
+            keys.push(readonly(conditional_mint));
+            let position_ata = get_conditional_token_ata(&params.position, &conditional_mint);
+            keys.push(writable(position_ata));
+        }
+    }
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![instruction::CLOSE_POSITION_TOKEN_ACCOUNTS],
+    })
+}
+
+/// Build CloseOrderbookAlt instruction.
+///
+/// Deactivates an active orderbook ALT, or closes an already-deactivated ALT.
+pub fn build_close_orderbook_alt_ix(
+    params: &CloseOrderbookAltParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+
+    let keys = vec![
+        signer_mut(params.operator),
+        readonly(exchange),
+        readonly(params.orderbook),
+        readonly(params.market),
+        writable(params.lookup_table),
+        readonly(*ALT_PROGRAM_ID),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![instruction::CLOSE_ORDERBOOK_ALT],
+    }
+}
+
+/// Build CloseOrderbook instruction.
+///
+/// Closes an orderbook PDA after its recorded lookup table has already been
+/// closed by the ALT program.
+pub fn build_close_orderbook_ix(params: &CloseOrderbookParams, program_id: &Pubkey) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+
+    let keys = vec![
+        signer_mut(params.operator),
+        readonly(exchange),
+        writable(params.orderbook),
+        readonly(params.market),
+        readonly(params.lookup_table),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![instruction::CLOSE_ORDERBOOK],
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1455,7 +1597,7 @@ mod tests {
         let ix = build_increment_nonce_ix(&user, &program_id);
 
         assert_eq!(ix.program_id, program_id);
-        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts.len(), 4);
         assert_eq!(ix.data, vec![instruction::INCREMENT_NONCE]);
     }
 
@@ -1707,7 +1849,7 @@ mod tests {
 
         let ix = build_withdraw_from_position_ix(&params, true, &program_id);
 
-        assert_eq!(ix.accounts.len(), 7);
+        assert_eq!(ix.accounts.len(), 8);
         assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
         assert_eq!(ix.data[0], instruction::WITHDRAW_FROM_POSITION);
         assert_eq!(ix.data[9], 0); // outcome_index
@@ -1973,8 +2115,8 @@ mod tests {
 
         let ix = build_global_to_market_deposit_ix(&params, 3, &program_id);
 
-        // 14 fixed + 3*2 conditional = 20
-        assert_eq!(ix.accounts.len(), 20);
+        // 13 fixed + 3*2 conditional = 19
+        assert_eq!(ix.accounts.len(), 19);
         assert_eq!(ix.data.len(), 9);
         assert_eq!(ix.data[0], instruction::GLOBAL_TO_MARKET_DEPOSIT);
     }
@@ -2073,5 +2215,87 @@ mod tests {
         // Maker swap: 2 (receive_ata, give_ata)
         // Total: 6 + 1 + 8 + 10 + 1 + 2 + 10 + 2 = 40
         assert_eq!(ix.accounts.len(), 40);
+    }
+
+    #[test]
+    fn test_build_close_order_status_ix() {
+        let program_id = test_program_id();
+        let order_hash = [9u8; 32];
+        let params = CloseOrderStatusParams {
+            operator: Pubkey::new_unique(),
+            order_hash,
+        };
+
+        let ix = build_close_order_status_ix(&params, &program_id);
+
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.data.len(), 33);
+        assert_eq!(ix.data[0], instruction::CLOSE_ORDER_STATUS);
+        assert_eq!(&ix.data[1..33], &order_hash);
+    }
+
+    #[test]
+    fn test_build_close_position_token_accounts_ix() {
+        let program_id = test_program_id();
+        let market = Pubkey::new_unique();
+        let position = Pubkey::new_unique();
+        let deposit_mint = Pubkey::new_unique();
+        let params = ClosePositionTokenAccountsParams {
+            operator: Pubkey::new_unique(),
+            market,
+            position,
+            deposit_mints: vec![deposit_mint],
+        };
+
+        let ix = build_close_position_token_accounts_ix(&params, 3, &program_id).unwrap();
+
+        // 5 fixed + one group of deposit_mint + 3*(conditional_mint, ata)
+        assert_eq!(ix.accounts.len(), 12);
+        assert_eq!(ix.data, vec![instruction::CLOSE_POSITION_TOKEN_ACCOUNTS]);
+    }
+
+    #[test]
+    fn test_build_close_alt_and_orderbook_ixs() {
+        let program_id = test_program_id();
+        let operator = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let lookup_table = Pubkey::new_unique();
+
+        let position_alt = build_close_position_alt_ix(
+            &ClosePositionAltParams {
+                operator,
+                position: Pubkey::new_unique(),
+                market,
+                lookup_table,
+            },
+            &program_id,
+        );
+        assert_eq!(position_alt.accounts.len(), 6);
+        assert_eq!(position_alt.data, vec![instruction::CLOSE_POSITION_ALT]);
+
+        let orderbook = Pubkey::new_unique();
+        let orderbook_alt = build_close_orderbook_alt_ix(
+            &CloseOrderbookAltParams {
+                operator,
+                orderbook,
+                market,
+                lookup_table,
+            },
+            &program_id,
+        );
+        assert_eq!(orderbook_alt.accounts.len(), 6);
+        assert_eq!(orderbook_alt.data, vec![instruction::CLOSE_ORDERBOOK_ALT]);
+
+        let close_orderbook = build_close_orderbook_ix(
+            &CloseOrderbookParams {
+                operator,
+                orderbook,
+                market,
+                lookup_table,
+            },
+            &program_id,
+        );
+        assert_eq!(close_orderbook.accounts.len(), 5);
+        assert_eq!(close_orderbook.data, vec![instruction::CLOSE_ORDERBOOK]);
     }
 }

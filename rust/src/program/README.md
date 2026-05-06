@@ -8,26 +8,28 @@ On-chain Solana smart contract interaction for Lightcone markets.
 
 The program module provides:
 - Account type definitions with serialization/deserialization
-- Transaction builders for all 14 instructions
+- Transaction builders for all current on-chain instructions
 - PDA derivation utilities
 - Order creation, signing, and verification
-- Ed25519 signature verification strategies
+- Ed25519 order hashing and signature helpers
 
 ## Account Types
 
-### Exchange (88 bytes)
+### Exchange (120 bytes)
 
 Singleton account storing global exchange state.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `"exchange"` |
-| authority | 8 | 32 | `Pubkey` | Can pause exchange, set operator, create markets |
-| operator | 40 | 32 | `Pubkey` | Can match orders |
-| market_count | 72 | 8 | `u64` | Number of markets created |
-| paused | 80 | 1 | `bool` | Whether exchange is paused |
-| bump | 81 | 1 | `u8` | PDA bump seed |
-| _padding | 82 | 6 | - | Reserved |
+| discriminator | 0 | 8 | `[u8; 8]` | `EXCHANGE_DISCRIMINATOR` |
+| authority | 8 | 32 | `Pubkey` | Can pause exchange and rotate privileged roles |
+| operator | 40 | 32 | `Pubkey` | Can match orders and run operational cleanup |
+| manager | 72 | 32 | `Pubkey` | Can create and activate markets/orderbooks |
+| market_count | 104 | 8 | `u64` | Number of markets created |
+| paused | 112 | 1 | `bool` | Whether exchange is paused |
+| bump | 113 | 1 | `u8` | PDA bump seed |
+| deposit_token_count | 114 | 2 | `u16` | Number of whitelisted deposit tokens |
+| _padding | 116 | 4 | - | Reserved |
 
 ### Market (148 bytes)
 
@@ -35,7 +37,7 @@ Individual market state.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `"market\0\0"` |
+| discriminator | 0 | 8 | `[u8; 8]` | `MARKET_DISCRIMINATOR` |
 | market_id | 8 | 8 | `u64` | Sequential market identifier |
 | num_outcomes | 16 | 1 | `u8` | Number of outcomes (2-6) |
 | status | 17 | 1 | `MarketStatus` | Pending=0, Active=1, Resolved=2, Cancelled=3 |
@@ -53,22 +55,23 @@ User's custody account for a specific market.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `"position"` |
+| discriminator | 0 | 8 | `[u8; 8]` | `POSITION_DISCRIMINATOR` |
 | owner | 8 | 32 | `Pubkey` | Position owner |
 | market | 40 | 32 | `Pubkey` | Market this position belongs to |
 | bump | 72 | 1 | `u8` | PDA bump seed |
 | _padding | 73 | 7 | - | Reserved |
 
-### OrderStatus (24 bytes)
+### OrderStatus (32 bytes)
 
 Tracks order fill state and cancellation.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `"ordstat\0"` |
+| discriminator | 0 | 8 | `[u8; 8]` | `ORDER_STATUS_DISCRIMINATOR` |
 | remaining | 8 | 8 | `u64` | Remaining amount_in to be filled |
-| is_cancelled | 16 | 1 | `bool` | Whether order has been cancelled |
-| _padding | 17 | 7 | - | Reserved |
+| base_remaining | 16 | 8 | `u64` | Remaining base-side amount tracked for fills |
+| is_cancelled | 24 | 1 | `bool` | Whether order has been cancelled |
+| _padding | 25 | 7 | - | Reserved |
 
 ### UserNonce (16 bytes)
 
@@ -76,8 +79,36 @@ User's nonce for mass order cancellation.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
-| discriminator | 0 | 8 | `[u8; 8]` | `"usrnonce"` |
+| discriminator | 0 | 8 | `[u8; 8]` | `USER_NONCE_DISCRIMINATOR` |
 | nonce | 8 | 8 | `u64` | Current nonce value |
+
+### Orderbook (144 bytes)
+
+On-chain orderbook metadata and lookup table authority.
+
+| Field | Offset | Size | Type | Description |
+|-------|--------|------|------|-------------|
+| discriminator | 0 | 8 | `[u8; 8]` | `ORDERBOOK_DISCRIMINATOR` |
+| market | 8 | 32 | `Pubkey` | Market this orderbook belongs to |
+| mint_a | 40 | 32 | `Pubkey` | Canonical mint A |
+| mint_b | 72 | 32 | `Pubkey` | Canonical mint B |
+| lookup_table | 104 | 32 | `Pubkey` | Address lookup table controlled by the orderbook PDA |
+| base_index | 136 | 1 | `u8` | Base mint selector, 0 for mint_a and 1 for mint_b |
+| bump | 137 | 1 | `u8` | PDA bump seed |
+| _padding | 138 | 6 | - | Reserved |
+
+### GlobalDepositToken (48 bytes)
+
+Whitelisted deposit token metadata for global deposits.
+
+| Field | Offset | Size | Type | Description |
+|-------|--------|------|------|-------------|
+| discriminator | 0 | 8 | `[u8; 8]` | `GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR` |
+| mint | 8 | 32 | `Pubkey` | Whitelisted deposit mint |
+| active | 40 | 1 | `bool` | Whether global deposits are active for this mint |
+| bump | 41 | 1 | `u8` | PDA bump seed |
+| index | 42 | 2 | `u16` | Sequential whitelist index used for mint ordering |
+| _padding | 44 | 4 | - | Reserved |
 
 ## LightconeClient — On-Chain Operations
 
@@ -152,6 +183,7 @@ let ix = client.admin().initialize_ix(&authority);
 let ix = client.admin().set_paused_ix(&authority, true);
 let ix = client.admin().set_operator_ix(&authority, &new_operator);
 let ix = client.admin().set_authority_ix(&SetAuthorityParams { ... });
+let ix = client.admin().set_manager_ix(&SetManagerParams { ... });
 let ix = client.admin().whitelist_deposit_token_ix(&WhitelistDepositTokenParams { ... });
 
 // Transactions (ready to sign)
@@ -228,6 +260,7 @@ let ix = client.positions().withdraw().await
 ```rust
 let ix = client.orders().cancel_order_ix(&maker, &market, &order);
 let ix = client.orders().increment_nonce_ix(&user);
+let ix = client.orders().close_order_status_ix(&CloseOrderStatusParams { operator, order_hash });
 ```
 
 **Positions — Position Management (`client.positions()`):**
@@ -255,6 +288,26 @@ let ix = client.positions().deposit_to_global_ix(&DepositToGlobalParams {
 let ix = client.positions().global_to_market_deposit_ix(&GlobalToMarketDepositParams {
     user, market, deposit_mint, amount,
 }, num_outcomes);
+
+let ix = client.positions().close_position_alt_ix(&ClosePositionAltParams {
+    operator, position, market, lookup_table,
+});
+
+let ix = client.positions().close_position_token_accounts_ix(
+    &ClosePositionTokenAccountsParams { operator, market, position, deposit_mints },
+    num_outcomes,
+)?;
+```
+
+**Orderbooks — Cleanup (`client.orderbooks()`):**
+```rust
+let ix = client.orderbooks().close_orderbook_alt_ix(&CloseOrderbookAltParams {
+    operator, orderbook, market, lookup_table,
+});
+
+let ix = client.orderbooks().close_orderbook_ix(&CloseOrderbookParams {
+    operator, orderbook, market, lookup_table,
+});
 ```
 
 ### Order Helpers
@@ -295,12 +348,16 @@ All functions return `(Pubkey, u8)` (address, bump).
 |----------|-------|-------------|
 | `get_exchange_pda(program_id)` | `["central_state"]` | Exchange singleton |
 | `get_market_pda(market_id, program_id)` | `["market", market_id.to_le_bytes()]` | Market account |
+| `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Resolved condition tombstone |
 | `get_vault_pda(deposit_mint, market, program_id)` | `["market_deposit_token_account", deposit_mint, market]` | Deposit vault |
 | `get_mint_authority_pda(market, program_id)` | `["market_mint_authority", market]` | Conditional token mint authority |
 | `get_conditional_mint_pda(market, deposit_mint, outcome, program_id)` | `["conditional_mint", market, deposit_mint, [outcome]]` | Conditional token mint |
 | `get_order_status_pda(order_hash, program_id)` | `["order_status", order_hash]` | Order fill status |
 | `get_user_nonce_pda(user, program_id)` | `["user_nonce", user]` | User nonce account |
 | `get_position_pda(owner, market, program_id)` | `["position", owner, market]` | User position |
+| `get_orderbook_pda(mint_a, mint_b, program_id)` | `["orderbook", canonical_mint_a, canonical_mint_b]` | Canonical orderbook |
+| `get_global_deposit_token_pda(mint, program_id)` | `["global_deposit", mint]` | Whitelisted global deposit token |
+| `get_user_global_deposit_pda(user, mint, program_id)` | `["global_deposit", user, mint]` | User global deposit token account |
 
 ```rust
 use lightcone::program::*;
@@ -314,22 +371,23 @@ let (cond_mint, _) = get_conditional_mint_pda(&market, &deposit_mint, 0, &progra
 
 ## Order Types
 
-### OrderPayload (225 bytes)
+### OrderPayload (233 bytes)
 
 Complete order with signature for off-chain storage and API submission.
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
 | nonce | 0 | 8 | `u64` | Unique order identifier (must exceed user's on-chain nonce) |
-| maker | 8 | 32 | `Pubkey` | Order creator |
-| market | 40 | 32 | `Pubkey` | Market pubkey |
-| base_mint | 72 | 32 | `Pubkey` | Token being bought (bids) or sold (asks) |
-| quote_mint | 104 | 32 | `Pubkey` | Token being given (bids) or received (asks) |
-| side | 136 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| amount_in | 137 | 8 | `u64` | Amount maker gives (quote for bids, base for asks) |
-| amount_out | 145 | 8 | `u64` | Amount maker receives (base for bids, quote for asks) |
-| expiration | 153 | 8 | `i64` | Unix timestamp (0 = no expiration) |
-| signature | 161 | 64 | `[u8; 64]` | Ed25519 signature |
+| salt | 8 | 8 | `u64` | Random salt for order uniqueness |
+| maker | 16 | 32 | `Pubkey` | Order creator |
+| market | 48 | 32 | `Pubkey` | Market pubkey |
+| base_mint | 80 | 32 | `Pubkey` | Token being bought (bids) or sold (asks) |
+| quote_mint | 112 | 32 | `Pubkey` | Token being given (bids) or received (asks) |
+| side | 144 | 1 | `OrderSide` | Bid=0, Ask=1 |
+| amount_in | 145 | 8 | `u64` | Amount maker gives (quote for bids, base for asks) |
+| amount_out | 153 | 8 | `u64` | Amount maker receives (base for bids, quote for asks) |
+| expiration | 161 | 8 | `i64` | Unix timestamp (0 = no expiration) |
+| signature | 169 | 64 | `[u8; 64]` | Ed25519 signature |
 
 **Methods:**
 ```rust
@@ -352,17 +410,18 @@ OrderPayload::deserialize(data) -> Result<OrderPayload>
 order.to_order() -> Order
 ```
 
-### Order (29 bytes)
+### Order (37 bytes)
 
 On-chain transmission format. Excludes maker/market/base_mint/quote_mint (passed via accounts).
 
 | Field | Offset | Size | Type | Description |
 |-------|--------|------|------|-------------|
 | nonce | 0 | 4 | `u32` | Order nonce |
-| side | 4 | 1 | `OrderSide` | Bid=0, Ask=1 |
-| amount_in | 5 | 8 | `u64` | Amount maker gives |
-| amount_out | 13 | 8 | `u64` | Amount maker receives |
-| expiration | 21 | 8 | `i64` | Expiration timestamp |
+| salt | 4 | 8 | `u64` | Random salt for order uniqueness |
+| side | 12 | 1 | `OrderSide` | Bid=0, Ask=1 |
+| amount_in | 13 | 8 | `u64` | Amount maker gives |
+| amount_out | 21 | 8 | `u64` | Amount maker receives |
+| expiration | 29 | 8 | `i64` | Expiration timestamp |
 
 ```rust
 let compact = order.to_order();
@@ -389,42 +448,9 @@ let mints = client.markets().get_conditional_mints(&market, &deposit_mint, num_o
 
 ## Ed25519 Signature Verification
 
-Orders are signed off-chain with Ed25519 and verified on-chain. Three strategies available:
+Orders are signed off-chain with Ed25519 over `hex(keccak256(order_message))`, where `order_message` is the 169-byte signed field set without the signature. The SDK exposes this through `OrderPayload::hash()`, `OrderPayload::hash_hex()`, `OrderPayload::sign()`, and `OrderPayload::verify_signature()`.
 
-### Strategy 1: Individual Instructions (Simplest)
-
-Each order gets its own Ed25519 instruction. 144 bytes per instruction.
-
-```rust
-let ix = create_ed25519_verify_instruction(&Ed25519VerifyParams::from_order(&order));
-```
-
-### Strategy 2: Batch Verification (More Efficient)
-
-Single Ed25519 instruction verifies multiple signatures.
-
-```rust
-let ix = create_batch_ed25519_verify_instruction(&[
-    Ed25519VerifyParams::from_order(&order1),
-    Ed25519VerifyParams::from_order(&order2),
-]);
-```
-
-Size: `2 + (num_signatures * 14) + (num_signatures * 128)` bytes
-
-### Strategy 3: Cross-Instruction References (Most Efficient)
-
-Ed25519 instructions reference data embedded in the match instruction. Saves ~128 bytes per order.
-
-```rust
-let ixs = create_cross_ref_ed25519_instructions(num_makers, match_ix_index);
-```
-
-The match instruction embeds order data at known offsets:
-- Taker hash at offset 1
-- Taker pubkey at offset 41
-- Taker signature at offset 98
-- Each maker: hash, pubkey, signature at `162 + (i * 169)`
+For on-chain matching, the SDK embeds compact `Order` values plus raw signatures directly in `MatchOrdersMulti` and `DepositAndSwap` instruction data. The Pinocchio program verifies those signatures natively; no separate Ed25519 sysvar instruction builder is required in the SDK.
 
 ## Instruction Reference
 
@@ -446,6 +472,21 @@ All instructions use a single-byte discriminator.
 | WithdrawFromPosition | 11 | Withdraw tokens from position |
 | ActivateMarket | 12 | Activate pending market |
 | MatchOrdersMulti | 13 | Match taker against makers |
+| SetAuthority | 14 | Change exchange authority |
+| CreateOrderbook | 15 | Create an orderbook for a canonical mint pair |
+| WhitelistDepositToken | 16 | Whitelist a global deposit token |
+| DepositToGlobal | 17 | Deposit collateral to the global pool |
+| GlobalToMarketDeposit | 18 | Move global collateral into a market position |
+| InitPositionTokens | 19 | Initialize position token accounts and ALT |
+| DepositAndSwap | 20 | Deposit collateral and atomically swap |
+| ExtendPositionTokens | 21 | Extend a position ALT with more deposit mints |
+| WithdrawFromGlobal | 22 | Withdraw collateral from the global pool |
+| ClosePositionAlt | 23 | Deactivate or close a position ALT |
+| CloseOrderStatus | 24 | Close a fully-filled order status PDA |
+| ClosePositionTokenAccounts | 25 | Close empty position token accounts |
+| CloseOrderbookAlt | 26 | Deactivate or close an orderbook ALT |
+| CloseOrderbook | 27 | Close an orderbook PDA after its ALT is closed |
+| SetManager | 28 | Change exchange manager |
 
 ## Constants
 
@@ -464,11 +505,13 @@ RENT_SYSVAR_ID: Pubkey
 ### Discriminators
 
 ```rust
-EXCHANGE_DISCRIMINATOR: [u8; 8]       // b"exchange"
-MARKET_DISCRIMINATOR: [u8; 8]         // b"market\0\0"
-ORDER_STATUS_DISCRIMINATOR: [u8; 8]   // b"ordstat\0"
-USER_NONCE_DISCRIMINATOR: [u8; 8]     // b"usrnonce"
-POSITION_DISCRIMINATOR: [u8; 8]       // b"position"
+EXCHANGE_DISCRIMINATOR: [u8; 8]
+MARKET_DISCRIMINATOR: [u8; 8]
+ORDER_STATUS_DISCRIMINATOR: [u8; 8]
+USER_NONCE_DISCRIMINATOR: [u8; 8]
+POSITION_DISCRIMINATOR: [u8; 8]
+ORDERBOOK_DISCRIMINATOR: [u8; 8]
+GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR: [u8; 8]
 ```
 
 ### Seeds
@@ -479,21 +522,26 @@ MARKET_SEED: &[u8]                    // b"market"
 VAULT_SEED: &[u8]                     // b"market_deposit_token_account"
 MINT_AUTHORITY_SEED: &[u8]            // b"market_mint_authority"
 CONDITIONAL_MINT_SEED: &[u8]          // b"conditional_mint"
+CONDITION_SEED: &[u8]                 // b"condition"
 ORDER_STATUS_SEED: &[u8]              // b"order_status"
 USER_NONCE_SEED: &[u8]                // b"user_nonce"
 POSITION_SEED: &[u8]                  // b"position"
+ORDERBOOK_SEED: &[u8]                 // b"orderbook"
+GLOBAL_DEPOSIT_TOKEN_SEED: &[u8]      // b"global_deposit"
 ```
 
 ### Sizes
 
 ```rust
-EXCHANGE_SIZE: usize                  // 88
-MARKET_SIZE: usize                    // 120
+EXCHANGE_SIZE: usize                  // 120
+MARKET_SIZE: usize                    // 148
 POSITION_SIZE: usize                  // 80
-ORDER_STATUS_SIZE: usize              // 24
+ORDER_STATUS_SIZE: usize              // 32
 USER_NONCE_SIZE: usize                // 16
-SIGNED_ORDER_SIZE: usize             // 225
-ORDER_SIZE: usize                    // 29
+ORDERBOOK_SIZE: usize                 // 144
+GLOBAL_DEPOSIT_TOKEN_SIZE: usize      // 48
+SIGNED_ORDER_SIZE: usize              // 233
+ORDER_SIZE: usize                     // 37
 SIGNATURE_SIZE: usize                 // 64
 ```
 
@@ -535,26 +583,26 @@ All parameter structs use owned types (no lifetimes):
 
 ```rust
 pub struct CreateMarketParams {
-    pub authority: Pubkey,
+    pub manager: Pubkey,
     pub num_outcomes: u8,
     pub oracle: Pubkey,
     pub question_id: [u8; 32],
 }
 
 pub struct AddDepositMintParams {
-    pub authority: Pubkey,
+    pub manager: Pubkey,
     pub deposit_mint: Pubkey,
     pub outcome_metadata: Vec<OutcomeMetadata>,
 }
 
 pub struct OutcomeMetadata {
     pub name: String,    // max 32 chars
-    pub symbol: String,  // max 10 chars
+    pub symbol: String,  // max 18 chars
     pub uri: String,     // max 200 chars
 }
 
 pub struct ActivateMarketParams {
-    pub authority: Pubkey,
+    pub manager: Pubkey,
     pub market_id: u64,
 }
 
@@ -590,6 +638,7 @@ pub struct WithdrawFromPositionParams {
     pub market: Pubkey,
     pub mint: Pubkey,
     pub amount: u64,
+    pub outcome_index: u8,
 }
 
 pub struct MatchOrdersMultiParams {
@@ -631,25 +680,44 @@ pub struct AskOrderParams {
 
 ```rust
 pub enum SdkError {
-    Rpc(solana_client::client_error::ClientError),
     InvalidDiscriminator { expected: String, actual: String },
     AccountNotFound(String),
     InvalidDataLength { expected: usize, actual: usize },
-    InvalidOrderHash,
-    InvalidSignature,
-    OrderExpired,
     InvalidOutcomeCount { count: u8 },
     InvalidOutcomeIndex { index: u8, max: u8 },
+    InvalidPayoutNumerators,
+    PayoutVectorExceedsU32,
+    InvalidScalarRange,
+    DuplicateScalarOutcomes,
     TooManyMakers { count: usize },
+    SignatureVerificationFailed,
+    InvalidSignature,
     Serialization(String),
     InvalidSide(u8),
     InvalidMarketStatus(u8),
-    SignatureVerificationFailed,
     MissingField(String),
-    OrdersDoNotCross,
-    FillAmountExceedsRemaining { fill: u64, remaining: u64 },
     Overflow,
+    InvalidMintOrder,
+    OrderbookExists,
+    InvalidMarket,
+    MarketSettled,
+    InvalidProgramId,
+    InvalidOrderbook,
+    FullFillRequired,
+    DivisionByZero,
+    DepositTokenNotActive,
+    InsufficientGlobalDeposit,
+    InvalidDepositMintOrder,
+    ZeroAmount,
+    InvalidAta,
+    OrderNotFullyFilled,
+    PayoutTooSmall,
+    TokenAccountNotEmpty,
+    LookupTableNotClosed,
+    InvalidManager,
     InvalidPubkey(String),
+    Scaling(ScalingError),
+    UnsignedOrder,
 }
 
 pub type SdkResult<T> = Result<T, SdkError>;

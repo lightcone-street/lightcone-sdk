@@ -9,6 +9,7 @@ use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEn
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
+use crate::program::types::CloseOrderStatusParams;
 use crate::shared::{OrderBookId, PubkeyStr};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -597,6 +598,21 @@ impl<'a> Orders<'a> {
     pub fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
         let ix = self.increment_nonce_ix(user);
         Ok(Transaction::new_with_payer(&[ix], Some(user)))
+    }
+
+    /// Build CloseOrderStatus instruction.
+    pub fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_order_status_ix(params, pid)
+    }
+
+    /// Build CloseOrderStatus transaction.
+    pub fn close_order_status_tx(
+        &self,
+        params: CloseOrderStatusParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_order_status_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     // ── Order helpers ────────────────────────────────────────────────────

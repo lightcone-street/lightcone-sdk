@@ -333,6 +333,15 @@ fn set_authority_tx(&self, params: SetAuthorityParams) -> Result<Transaction, Sd
 
 Build a SetAuthority instruction/transaction — transfer exchange authority to a new key.
 
+#### `set_manager_ix` / `set_manager_tx`
+
+```rust
+fn set_manager_ix(&self, params: &SetManagerParams) -> Instruction
+fn set_manager_tx(&self, params: SetManagerParams) -> Result<Transaction, SdkError>
+```
+
+Build a SetManager instruction/transaction — rotate the exchange manager role.
+
 #### `whitelist_deposit_token_ix` / `whitelist_deposit_token_tx`
 
 ```rust
