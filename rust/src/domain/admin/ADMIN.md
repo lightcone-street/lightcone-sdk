@@ -96,7 +96,7 @@ async fn upload_market_deployment_assets(
 ) -> Result<UploadMarketDeploymentAssetsResponse, SdkError>
 ```
 
-Upload banner/icon/outcome/conditional-token images and metadata for a newly created market. Each image is passed as an `*_image_data_url` (data URL) plus `*_image_content_type`; the backend stores them and returns the resulting URLs. Requires prior `admin_login()`.
+Upload banner/icon/outcome/conditional-token images and metadata for a newly created market. Uploads are quality-specific WebP data URLs (`low`, `medium`, `high`) plus matching `image/webp` content-type fields; the backend stores them and returns the resulting URLs. Requires prior `admin_login()`.
 
 ### `allocate_codes`
 
@@ -423,13 +423,15 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 |-------|------|-------------|
 | `name` / `slug` | `String` | Required display name + URL slug |
 | `description` / `definition` | `Option<String>` | Long description and resolution definition |
-| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Existing banner URLs by quality (used when no matching data URL is supplied) |
-| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no matching data URL is supplied) |
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Existing hosted banner URLs by quality (used when no matching upload data URL is supplied) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing hosted icon URLs by quality (used when no matching upload data URL is supplied) |
 | `category` / `subcategory` | `Option<String>` | Categorization |
 | `tags` | `Vec<String>` | Free-form tags (default empty) |
 | `featured_rank` | `Option<i32>` | Rank on the featured list, if any |
-| `banner_image_data_url` / `banner_image_content_type` | `Option<String>` | New banner upload (data URL + MIME) |
-| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+| `banner_image_data_url_low` / `_medium` / `_high` | `Option<String>` | New banner WebP upload data URLs by quality |
+| `banner_image_content_type_low` / `_medium` / `_high` | `Option<String>` | Matching banner content types; must be `image/webp` when the matching data URL is supplied |
+| `icon_image_data_url_low` / `_medium` / `_high` | `Option<String>` | New market icon WebP upload data URLs by quality |
+| `icon_image_content_type_low` / `_medium` / `_high` | `Option<String>` | Matching market icon content types; must be `image/webp` when the matching data URL is supplied |
 
 #### `MarketDeploymentOutcome`
 
@@ -438,8 +440,9 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `index` | `i32` | Outcome index within the market |
 | `name` / `symbol` | `String` | Display name and short symbol |
 | `description` | `Option<String>` | Optional long description |
-| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing icon URLs by quality (used when no data URL is supplied) |
-| `icon_image_data_url` / `icon_image_content_type` | `Option<String>` | New icon upload (data URL + MIME) |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing hosted icon URLs by quality (used when no matching upload data URL is supplied) |
+| `icon_image_data_url_low` / `_medium` / `_high` | `Option<String>` | New outcome icon WebP upload data URLs by quality |
+| `icon_image_content_type_low` / `_medium` / `_high` | `Option<String>` | Matching outcome icon content types; must be `image/webp` when the matching data URL is supplied |
 
 #### `MarketDeploymentDepositAsset`
 
@@ -459,7 +462,11 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `deposit_mint` / `conditional_mint` | `String` | Underlying deposit mint and derived conditional mint |
 | `name` / `symbol` | `String` | Display name and ticker symbol for the conditional token |
 | `description` | `Option<String>` | Optional description |
-| `image_data_url` / `image_content_type` | `String` | Required image upload (data URL + MIME) |
+| `image_data_url_low` / `_medium` | `Option<String>` | Optional conditional token WebP upload data URLs |
+| `image_content_type_low` / `_medium` | `Option<String>` | Matching optional content types; required when the matching low/medium data URL is supplied |
+| `image_data_url_high` / `image_content_type_high` | `String` | Required conditional token WebP upload; content type must be `image/webp` |
+
+All upload data URLs must start with `data:image/webp;base64,`.
 
 ### `UploadMarketDeploymentAssetsResponse`
 
@@ -468,6 +475,7 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `market_metadata_uri` | `String` | URI of the uploaded market metadata JSON |
 | `market` | `UploadedMarketImages` | Resolved banner/icon URLs for the market |
 | `outcomes` | `Vec<UploadedOutcomeImages>` | Resolved icon URLs per outcome |
+| `deposit_assets` | `Vec<UploadedDepositAssetImages>` | Resolved icon URLs per deposit asset |
 | `tokens` | `Vec<UploadedConditionalToken>` | Resolved image + metadata URIs per conditional token |
 
 #### `UploadedMarketImages`
@@ -484,13 +492,20 @@ Each payload struct uses `Option<T>` fields — only non-`None` fields are updat
 | `index` | `i32` | Outcome index |
 | `icon_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded icon URLs by quality (or `None` if not supplied) |
 
+#### `UploadedDepositAssetImages`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | `String` | Deposit asset mint |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Resolved icon URLs by quality |
+
 #### `UploadedConditionalToken`
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `conditional_mint` | `String` | Conditional token mint |
-| `image_url` | `String` | Uploaded image URL |
 | `metadata_uri` | `String` | Uploaded metadata JSON URI |
+| `image_url_low` / `_medium` / `_high` | `Option<String>` | Uploaded conditional token image URLs by quality |
 
 ### `AllocateCodesRequest`
 

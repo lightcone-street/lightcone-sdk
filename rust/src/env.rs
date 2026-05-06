@@ -64,14 +64,10 @@ impl LightconeEnv {
     /// On-chain Lightcone program ID for this environment.
     pub fn program_id(&self) -> Pubkey {
         match self {
-            Self::Local => {
-                Pubkey::from_str("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq")
-                    .expect("valid program id")
-            }
-            Self::Staging => {
-                Pubkey::from_str("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT")
-                    .expect("valid program id")
-            }
+            Self::Local => Pubkey::from_str("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq")
+                .expect("valid program id"),
+            Self::Staging => Pubkey::from_str("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT")
+                .expect("valid program id"),
             Self::Prod => Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV")
                 .expect("valid program id"),
         }

@@ -780,9 +780,8 @@ class AdminLogMetricHistoryResponse:
 class MarketDeploymentMarket:
     """Market-level fields for a deployment asset upload.
 
-    When a ``*_image_data_url`` + ``*_image_content_type`` pair is provided the
-    backend uploads the image and ignores the matching ``*_image_url`` field;
-    otherwise the existing ``*_image_url`` is preserved.
+    Image uploads are quality-specific WebP data URLs. Hosted URL fields are
+    preserved separately and are used when no matching data URL is supplied.
     """
 
     name: str
@@ -799,10 +798,18 @@ class MarketDeploymentMarket:
     subcategory: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
-    banner_image_data_url: Optional[str] = None
-    banner_image_content_type: Optional[str] = None
-    icon_image_data_url: Optional[str] = None
-    icon_image_content_type: Optional[str] = None
+    banner_image_data_url_low: Optional[str] = None
+    banner_image_content_type_low: Optional[str] = None
+    banner_image_data_url_medium: Optional[str] = None
+    banner_image_content_type_medium: Optional[str] = None
+    banner_image_data_url_high: Optional[str] = None
+    banner_image_content_type_high: Optional[str] = None
+    icon_image_data_url_low: Optional[str] = None
+    icon_image_content_type_low: Optional[str] = None
+    icon_image_data_url_medium: Optional[str] = None
+    icon_image_content_type_medium: Optional[str] = None
+    icon_image_data_url_high: Optional[str] = None
+    icon_image_content_type_high: Optional[str] = None
 
     def to_dict(self) -> dict:
         payload = {
@@ -820,10 +827,18 @@ class MarketDeploymentMarket:
             "subcategory": self.subcategory,
             "tags": self.tags,
             "featured_rank": self.featured_rank,
-            "banner_image_data_url": self.banner_image_data_url,
-            "banner_image_content_type": self.banner_image_content_type,
-            "icon_image_data_url": self.icon_image_data_url,
-            "icon_image_content_type": self.icon_image_content_type,
+            "banner_image_data_url_low": self.banner_image_data_url_low,
+            "banner_image_content_type_low": self.banner_image_content_type_low,
+            "banner_image_data_url_medium": self.banner_image_data_url_medium,
+            "banner_image_content_type_medium": self.banner_image_content_type_medium,
+            "banner_image_data_url_high": self.banner_image_data_url_high,
+            "banner_image_content_type_high": self.banner_image_content_type_high,
+            "icon_image_data_url_low": self.icon_image_data_url_low,
+            "icon_image_content_type_low": self.icon_image_content_type_low,
+            "icon_image_data_url_medium": self.icon_image_data_url_medium,
+            "icon_image_content_type_medium": self.icon_image_content_type_medium,
+            "icon_image_data_url_high": self.icon_image_data_url_high,
+            "icon_image_content_type_high": self.icon_image_content_type_high,
         }
         return _compact_dict(payload)
 
@@ -837,8 +852,12 @@ class MarketDeploymentOutcome:
     icon_url_low: Optional[str] = None
     icon_url_medium: Optional[str] = None
     icon_url_high: Optional[str] = None
-    icon_image_data_url: Optional[str] = None
-    icon_image_content_type: Optional[str] = None
+    icon_image_data_url_low: Optional[str] = None
+    icon_image_content_type_low: Optional[str] = None
+    icon_image_data_url_medium: Optional[str] = None
+    icon_image_content_type_medium: Optional[str] = None
+    icon_image_data_url_high: Optional[str] = None
+    icon_image_content_type_high: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -866,9 +885,13 @@ class MarketDeploymentConditionalToken:
     conditional_mint: str
     name: str
     symbol: str
-    image_data_url: str
-    image_content_type: str
+    image_data_url_high: str
+    image_content_type_high: str
     description: Optional[str] = None
+    image_data_url_low: Optional[str] = None
+    image_content_type_low: Optional[str] = None
+    image_data_url_medium: Optional[str] = None
+    image_content_type_medium: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -937,17 +960,38 @@ class UploadedOutcomeImages:
 
 
 @dataclass(frozen=True)
+class UploadedDepositAssetImages:
+    mint: str
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "UploadedDepositAssetImages":
+        return UploadedDepositAssetImages(
+            mint=d.get("mint", ""),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
+        )
+
+
+@dataclass(frozen=True)
 class UploadedConditionalToken:
     conditional_mint: str
-    image_url: str
     metadata_uri: str
+    image_url_low: Optional[str] = None
+    image_url_medium: Optional[str] = None
+    image_url_high: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UploadedConditionalToken":
         return UploadedConditionalToken(
             conditional_mint=d.get("conditional_mint", ""),
-            image_url=d.get("image_url", ""),
             metadata_uri=d.get("metadata_uri", ""),
+            image_url_low=d.get("image_url_low"),
+            image_url_medium=d.get("image_url_medium"),
+            image_url_high=d.get("image_url_high"),
         )
 
 
@@ -958,6 +1002,7 @@ class UploadMarketDeploymentAssetsResponse:
     market_metadata_uri: str = ""
     market: UploadedMarketImages = field(default_factory=UploadedMarketImages)
     outcomes: list[UploadedOutcomeImages] = field(default_factory=list)
+    deposit_assets: list[UploadedDepositAssetImages] = field(default_factory=list)
     tokens: list[UploadedConditionalToken] = field(default_factory=list)
 
     @staticmethod
@@ -968,6 +1013,10 @@ class UploadMarketDeploymentAssetsResponse:
             outcomes=[
                 UploadedOutcomeImages.from_dict(outcome)
                 for outcome in d.get("outcomes", [])
+            ],
+            deposit_assets=[
+                UploadedDepositAssetImages.from_dict(asset)
+                for asset in d.get("deposit_assets", [])
             ],
             tokens=[
                 UploadedConditionalToken.from_dict(token)
@@ -1024,5 +1073,6 @@ __all__ = [
     "UploadMarketDeploymentAssetsResponse",
     "UploadedMarketImages",
     "UploadedOutcomeImages",
+    "UploadedDepositAssetImages",
     "UploadedConditionalToken",
 ]
