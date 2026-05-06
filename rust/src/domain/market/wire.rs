@@ -91,6 +91,32 @@ pub struct DepositMintsResponse {
     pub total: usize,
 }
 
+// ─── Market resolution wire types ───────────────────────────────────────────
+
+/// Canonical market resolution kind returned by the REST API.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MarketResolutionKind {
+    SingleWinner,
+    Scalar,
+}
+
+/// Payout numerator for a single outcome in a resolved market.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketResolutionPayout {
+    pub outcome_index: i16,
+    pub payout_numerator: i64,
+}
+
+/// Canonical payout-vector resolution returned by the REST API.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketResolutionResponse {
+    pub kind: MarketResolutionKind,
+    pub payout_denominator: i64,
+    pub payouts: Vec<MarketResolutionPayout>,
+    pub single_winning_outcome: Option<i16>,
+}
+
 /// REST response for a single market.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketResponse {
@@ -127,13 +153,29 @@ pub struct MarketResponse {
     pub question_id: String,
     pub condition_id: String,
     pub market_status: String,
-    pub winning_outcome: Option<i16>,
-    pub has_winning_outcome: bool,
+    #[serde(default)]
+    pub resolution: Option<MarketResolutionResponse>,
     pub created_at: DateTime<Utc>,
     pub activated_at: Option<DateTime<Utc>>,
     pub settled_at: Option<DateTime<Utc>>,
     pub deposit_assets: Vec<DepositAssetResponse>,
     pub orderbooks: Vec<OrderbookResponse>,
+}
+
+impl MarketResponse {
+    pub fn is_resolved(&self) -> bool {
+        self.resolution.is_some()
+    }
+
+    pub fn single_winning_outcome(&self) -> Option<i16> {
+        self.resolution
+            .as_ref()
+            .and_then(|resolution| resolution.single_winning_outcome)
+    }
+
+    pub fn has_single_winning_outcome(&self) -> bool {
+        self.single_winning_outcome().is_some()
+    }
 }
 
 /// REST response for paginated markets list.
@@ -246,4 +288,52 @@ pub enum MarketEvent {
         market_pubkey: String,
         orderbook_id: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn market_resolution_deserializes_single_winner() {
+        let resolution: MarketResolutionResponse = serde_json::from_str(
+            r#"{
+                "kind": "single_winner",
+                "payout_denominator": 1,
+                "payouts": [
+                    { "outcome_index": 0, "payout_numerator": 0 },
+                    { "outcome_index": 1, "payout_numerator": 1 }
+                ],
+                "single_winning_outcome": 1
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(resolution.kind, MarketResolutionKind::SingleWinner);
+        assert_eq!(resolution.payout_denominator, 1);
+        assert_eq!(resolution.single_winning_outcome, Some(1));
+        assert_eq!(resolution.payouts[1].payout_numerator, 1);
+    }
+
+    #[test]
+    fn market_resolution_deserializes_scalar() {
+        let resolution: MarketResolutionResponse = serde_json::from_str(
+            r#"{
+                "kind": "scalar",
+                "payout_denominator": 10,
+                "payouts": [
+                    { "outcome_index": 0, "payout_numerator": 7 },
+                    { "outcome_index": 1, "payout_numerator": 3 }
+                ],
+                "single_winning_outcome": null
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(resolution.kind, MarketResolutionKind::Scalar);
+        assert_eq!(resolution.payout_denominator, 10);
+        assert_eq!(resolution.single_winning_outcome, None);
+        assert_eq!(resolution.payouts[0].payout_numerator, 7);
+        assert_eq!(resolution.payouts[1].payout_numerator, 3);
+    }
 }
