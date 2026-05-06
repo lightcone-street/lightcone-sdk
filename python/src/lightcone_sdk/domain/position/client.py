@@ -10,6 +10,8 @@ from solders.transaction import Transaction
 
 from ...program.accounts import deserialize_position
 from ...program.instructions import (
+    build_close_position_alt_instruction,
+    build_close_position_token_accounts_instruction,
     build_deposit_to_global_instruction,
     build_deposit_to_global_instruction_with_alt,
     build_extend_position_tokens_instruction,
@@ -21,6 +23,8 @@ from ...program.instructions import (
 )
 from ...program.pda import get_position_pda
 from ...program.types import (
+    ClosePositionAltParams,
+    ClosePositionTokenAccountsParams,
     DepositToGlobalAltContext,
     DepositToGlobalParams,
     ExtendPositionTokensParams,
@@ -219,6 +223,22 @@ class Positions:
             program_id=self._client.program_id,
         )
 
+    def close_position_alt_ix(self, params: ClosePositionAltParams) -> Instruction:
+        """Build ClosePositionAlt instruction."""
+        return build_close_position_alt_instruction(params, self._client.program_id)
+
+    def close_position_token_accounts_ix(
+        self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: int,
+    ) -> Instruction:
+        """Build ClosePositionTokenAccounts instruction."""
+        return build_close_position_token_accounts_instruction(
+            params,
+            num_outcomes,
+            self._client.program_id,
+        )
+
     def deposit_to_global_ix(self, params: DepositToGlobalParams) -> Instruction:
         """Build DepositToGlobal instruction."""
         return build_deposit_to_global_instruction(
@@ -292,6 +312,20 @@ class Positions:
     ) -> Transaction:
         """Build ExtendPositionTokens transaction."""
         ix = self.extend_position_tokens_ix(params, num_outcomes)
+        return Transaction.new_with_payer([ix], params.operator)
+
+    def close_position_alt_tx(self, params: ClosePositionAltParams) -> Transaction:
+        """Build ClosePositionAlt transaction."""
+        ix = self.close_position_alt_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
+
+    def close_position_token_accounts_tx(
+        self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: int,
+    ) -> Transaction:
+        """Build ClosePositionTokenAccounts transaction."""
+        ix = self.close_position_token_accounts_ix(params, num_outcomes)
         return Transaction.new_with_payer([ix], params.operator)
 
     def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:

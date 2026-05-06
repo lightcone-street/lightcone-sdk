@@ -15,6 +15,7 @@ from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
 from ...program.errors import ArithmeticOverflowError
 from ...program.instructions import (
     build_cancel_order_instruction,
+    build_close_order_status_instruction,
     build_increment_nonce_instruction,
 )
 from ...program.orders import (
@@ -30,6 +31,7 @@ from ...program.pda import get_order_status_pda, get_user_nonce_pda
 from ...program.types import (
     AskOrderParams,
     BidOrderParams,
+    CloseOrderStatusParams,
     OrderStatus,
     SignedOrder,
 )
@@ -424,6 +426,13 @@ class Orders:
         """Build IncrementNonce instruction."""
         return build_increment_nonce_instruction(user, self._client.program_id)
 
+    def close_order_status_ix(
+        self,
+        params: CloseOrderStatusParams,
+    ) -> Instruction:
+        """Build CloseOrderStatus instruction."""
+        return build_close_order_status_instruction(params, self._client.program_id)
+
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
@@ -437,6 +446,14 @@ class Orders:
         """Build IncrementNonce transaction."""
         ix = self.increment_nonce_ix(user)
         return Transaction.new_with_payer([ix], user)
+
+    def close_order_status_tx(
+        self,
+        params: CloseOrderStatusParams,
+    ) -> Transaction:
+        """Build CloseOrderStatus transaction."""
+        ix = self.close_order_status_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
@@ -522,9 +539,7 @@ def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersRespon
     return UserOrdersResponse(
         user_pubkey=data.get("user_pubkey", wallet),
         orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
-        balances=[
-            UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])
-        ],
+        balances=[UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])],
         next_cursor=data.get("next_cursor"),
         has_more=data.get("has_more", False),
     )

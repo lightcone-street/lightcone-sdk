@@ -286,6 +286,62 @@ class DepositTokenNotActiveError(LightconeError):
         super().__init__("Deposit token not active")
 
 
+class InsufficientGlobalDepositError(LightconeError):
+    """Raised when a user global deposit balance is insufficient."""
+
+    def __init__(self):
+        super().__init__("Insufficient global deposit balance")
+
+
+class InvalidDepositMintOrderError(LightconeError):
+    """Raised when deposit mints are not in the expected order."""
+
+    def __init__(self):
+        super().__init__("Invalid deposit mint order")
+
+
+class ZeroAmountError(LightconeError):
+    """Raised when an amount must be greater than zero."""
+
+    def __init__(self):
+        super().__init__("Amount must be greater than zero")
+
+
+class InvalidAtaError(LightconeError):
+    """Raised when an associated token account is invalid."""
+
+    def __init__(self):
+        super().__init__("Invalid associated token account")
+
+
+class OrderNotFullyFilledError(LightconeError):
+    """Raised when an order status is not fully filled."""
+
+    def __init__(self):
+        super().__init__("Order status is not fully filled")
+
+
+class PayoutTooSmallError(LightconeError):
+    """Raised when a winning-token payout rounds to zero."""
+
+    def __init__(self):
+        super().__init__("Payout too small")
+
+
+class TokenAccountNotEmptyError(LightconeError):
+    """Raised when a token account cannot be closed because it is not empty."""
+
+    def __init__(self):
+        super().__init__("Token account is not empty")
+
+
+class LookupTableNotClosedError(LightconeError):
+    """Raised when an orderbook PDA is closed before its lookup table."""
+
+    def __init__(self):
+        super().__init__("Lookup table is not closed")
+
+
 class InvalidPubkeyError(LightconeError):
     """Raised when a public key is invalid."""
 

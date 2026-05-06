@@ -463,6 +463,54 @@ class WithdrawFromGlobalParams:
 
 
 @dataclass
+class ClosePositionAltParams:
+    """Parameters for deactivating or closing a position ALT."""
+
+    operator: Pubkey
+    position: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+
+
+@dataclass
+class CloseOrderStatusParams:
+    """Parameters for closing a fully-filled order status PDA."""
+
+    operator: Pubkey
+    order_hash: bytes
+
+
+@dataclass
+class ClosePositionTokenAccountsParams:
+    """Parameters for closing empty position-owned conditional token accounts."""
+
+    operator: Pubkey
+    market: Pubkey
+    position: Pubkey
+    deposit_mints: list[Pubkey]
+
+
+@dataclass
+class CloseOrderbookAltParams:
+    """Parameters for deactivating or closing an orderbook ALT."""
+
+    operator: Pubkey
+    orderbook: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+
+
+@dataclass
+class CloseOrderbookParams:
+    """Parameters for closing an orderbook PDA after its ALT has been closed."""
+
+    operator: Pubkey
+    orderbook: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+
+
+@dataclass
 class BuildResult:
     """Result of building a transaction."""
 

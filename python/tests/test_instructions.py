@@ -3,6 +3,12 @@
 from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
+    ALT_PROGRAM_ID,
+    CloseOrderStatusParams,
+    CloseOrderbookAltParams,
+    CloseOrderbookParams,
+    ClosePositionAltParams,
+    ClosePositionTokenAccountsParams,
     DepositToGlobalAltContext,
     InvalidOutcomeCountError,
     InvalidPayoutNumeratorsError,
@@ -11,17 +17,27 @@ from lightcone_sdk.program import (
     OrderSide,
     OutcomeMetadata,
     SignedOrder,
+    TOKEN_2022_PROGRAM_ID,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
+    build_close_order_status_instruction,
+    build_close_orderbook_alt_instruction,
+    build_close_orderbook_instruction,
+    build_close_position_alt_instruction,
+    build_close_position_token_accounts_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
     build_deposit_and_swap_instruction,
     build_deposit_to_global_instruction,
     build_extend_position_tokens_instruction,
+    build_global_to_market_deposit_instruction,
+    build_increment_nonce_instruction,
     build_match_orders_multi_instruction,
+    build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
     build_set_manager_instruction,
     build_settle_market_instruction,
+    build_withdraw_from_position_instruction,
     build_withdraw_from_global_instruction,
     derive_condition_id,
     get_associated_token_address,
@@ -37,6 +53,7 @@ from lightcone_sdk.program import (
     get_orderbook_pda,
     get_position_pda,
     get_user_nonce_pda,
+    get_user_global_deposit_pda,
     get_vault_pda,
     hash_order,
 )
@@ -119,6 +136,37 @@ def test_add_deposit_mint_uses_manager_and_global_deposit_token():
     assert ix.accounts[2].is_writable is False
     assert ix.accounts[9].pubkey == global_deposit_token
     assert ix.accounts[9].is_writable is False
+
+
+def test_mint_complete_set_matches_canonical_account_layout():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+    position, _ = get_position_pda(user, market)
+    mint_authority, _ = get_mint_authority_pda(market)
+
+    ix = build_mint_complete_set_instruction(
+        user=user,
+        market=market,
+        deposit_mint=deposit_mint,
+        amount=1_000,
+        num_outcomes=3,
+    )
+
+    assert len(ix.accounts) == 18
+    assert ix.accounts[6].pubkey == position
+    assert ix.accounts[7].pubkey == mint_authority
+    assert ix.accounts[7].is_writable is False
+    assert (
+        ix.accounts[12].pubkey
+        == get_conditional_mint_pda(
+            market,
+            deposit_mint,
+            0,
+        )[0]
+    )
+    assert len(ix.data) == 9
+    assert ix.data[0] == 3
 
 
 def test_create_orderbook_canonicalizes_mints_and_data():
@@ -230,6 +278,19 @@ def test_cancel_order_uses_operator_exchange_market_status_layout():
     assert ix.accounts[0].is_signer is True
 
 
+def test_increment_nonce_includes_exchange():
+    user = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+
+    ix = build_increment_nonce_instruction(user)
+
+    assert len(ix.accounts) == 4
+    assert ix.accounts[0].pubkey == user
+    assert ix.accounts[3].pubkey == exchange
+    assert ix.accounts[3].is_writable is False
+    assert ix.data == bytes([6])
+
+
 def test_match_orders_multi_includes_orderbook_at_fixed_index():
     operator = Pubkey.new_unique()
     market = Pubkey.new_unique()
@@ -323,6 +384,70 @@ def test_withdraw_from_global_includes_exchange():
     assert ix.accounts[6].pubkey == exchange
 
 
+def test_global_to_market_deposit_matches_canonical_account_layout():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+    vault, _ = get_vault_pda(deposit_mint, market)
+    global_deposit_token, _ = get_global_deposit_pda(deposit_mint)
+    user_global_deposit, _ = get_user_global_deposit_pda(user, deposit_mint)
+    position, _ = get_position_pda(user, market)
+    mint_authority, _ = get_mint_authority_pda(market)
+
+    ix = build_global_to_market_deposit_instruction(
+        user=user,
+        market=market,
+        deposit_mint=deposit_mint,
+        amount=1_000,
+        num_outcomes=3,
+    )
+
+    assert len(ix.accounts) == 19
+    assert [meta.pubkey for meta in ix.accounts[:9]] == [
+        user,
+        exchange,
+        market,
+        deposit_mint,
+        vault,
+        global_deposit_token,
+        user_global_deposit,
+        position,
+        mint_authority,
+    ]
+    assert (
+        ix.accounts[13].pubkey
+        == get_conditional_mint_pda(
+            market,
+            deposit_mint,
+            0,
+        )[0]
+    )
+    assert len(ix.data) == 9
+    assert ix.data[0] == 18
+
+
+def test_withdraw_from_position_includes_exchange():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    mint = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+
+    ix = build_withdraw_from_position_instruction(
+        user=user,
+        market=market,
+        mint=mint,
+        amount=1_000,
+        outcome_index=1,
+    )
+
+    assert len(ix.accounts) == 8
+    assert ix.accounts[7].pubkey == exchange
+    assert ix.accounts[7].is_writable is False
+    assert len(ix.data) == 10
+    assert ix.data[0] == 11
+
+
 def test_redeem_winnings_uses_outcome_index_and_exchange():
     user = Pubkey.new_unique()
     market = Pubkey.new_unique()
@@ -375,3 +500,142 @@ def test_extend_position_tokens_uses_operator_signer():
 
     assert ix.accounts[0].pubkey == operator
     assert ix.accounts[0].is_signer is True
+
+
+def test_close_order_status_instruction_layout():
+    operator = Pubkey.new_unique()
+    order_hash = bytes([7] * 32)
+    exchange, _ = get_exchange_pda()
+    order_status, _ = get_order_status_pda(order_hash)
+
+    ix = build_close_order_status_instruction(
+        CloseOrderStatusParams(operator=operator, order_hash=order_hash)
+    )
+
+    assert len(ix.accounts) == 3
+    assert [meta.pubkey for meta in ix.accounts] == [
+        operator,
+        exchange,
+        order_status,
+    ]
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[2].is_writable is True
+    assert ix.data == bytes([24]) + order_hash
+
+
+def test_close_position_token_accounts_instruction_layout():
+    operator = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    position = Pubkey.new_unique()
+    deposit_mints = [Pubkey.new_unique(), Pubkey.new_unique()]
+    exchange, _ = get_exchange_pda()
+
+    ix = build_close_position_token_accounts_instruction(
+        ClosePositionTokenAccountsParams(
+            operator=operator,
+            market=market,
+            position=position,
+            deposit_mints=deposit_mints,
+        ),
+        num_outcomes=2,
+    )
+
+    first_conditional_mint, _ = get_conditional_mint_pda(market, deposit_mints[0], 0)
+    first_position_ata = get_associated_token_address_2022(
+        position,
+        first_conditional_mint,
+    )
+
+    assert len(ix.accounts) == 15
+    assert [meta.pubkey for meta in ix.accounts[:6]] == [
+        operator,
+        exchange,
+        market,
+        position,
+        TOKEN_2022_PROGRAM_ID,
+        deposit_mints[0],
+    ]
+    assert ix.accounts[6].pubkey == first_conditional_mint
+    assert ix.accounts[6].is_writable is False
+    assert ix.accounts[7].pubkey == first_position_ata
+    assert ix.accounts[7].is_writable is True
+    assert ix.data == bytes([25])
+
+    with pytest.raises(InvalidOutcomeCountError):
+        build_close_position_token_accounts_instruction(
+            ClosePositionTokenAccountsParams(
+                operator=operator,
+                market=market,
+                position=position,
+                deposit_mints=deposit_mints,
+            ),
+            num_outcomes=1,
+        )
+
+
+def test_close_alt_and_orderbook_instruction_layouts():
+    operator = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    position = Pubkey.new_unique()
+    orderbook = Pubkey.new_unique()
+    lookup_table = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+
+    position_alt_ix = build_close_position_alt_instruction(
+        ClosePositionAltParams(
+            operator=operator,
+            position=position,
+            market=market,
+            lookup_table=lookup_table,
+        )
+    )
+    assert len(position_alt_ix.accounts) == 6
+    assert [meta.pubkey for meta in position_alt_ix.accounts] == [
+        operator,
+        exchange,
+        position,
+        market,
+        lookup_table,
+        ALT_PROGRAM_ID,
+    ]
+    assert position_alt_ix.accounts[4].is_writable is True
+    assert position_alt_ix.data == bytes([23])
+
+    orderbook_alt_ix = build_close_orderbook_alt_instruction(
+        CloseOrderbookAltParams(
+            operator=operator,
+            orderbook=orderbook,
+            market=market,
+            lookup_table=lookup_table,
+        )
+    )
+    assert len(orderbook_alt_ix.accounts) == 6
+    assert [meta.pubkey for meta in orderbook_alt_ix.accounts] == [
+        operator,
+        exchange,
+        orderbook,
+        market,
+        lookup_table,
+        ALT_PROGRAM_ID,
+    ]
+    assert orderbook_alt_ix.data == bytes([26])
+
+    close_orderbook_ix = build_close_orderbook_instruction(
+        CloseOrderbookParams(
+            operator=operator,
+            orderbook=orderbook,
+            market=market,
+            lookup_table=lookup_table,
+        )
+    )
+    assert len(close_orderbook_ix.accounts) == 5
+    assert [meta.pubkey for meta in close_orderbook_ix.accounts] == [
+        operator,
+        exchange,
+        orderbook,
+        market,
+        lookup_table,
+    ]
+    assert close_orderbook_ix.accounts[2].is_writable is True
+    assert close_orderbook_ix.accounts[4].is_writable is False
+    assert close_orderbook_ix.data == bytes([27])

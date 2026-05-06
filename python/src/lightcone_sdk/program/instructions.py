@@ -13,6 +13,11 @@ from .constants import (
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
     INSTRUCTION_CANCEL_ORDER,
+    INSTRUCTION_CLOSE_ORDER_STATUS,
+    INSTRUCTION_CLOSE_ORDERBOOK,
+    INSTRUCTION_CLOSE_ORDERBOOK_ALT,
+    INSTRUCTION_CLOSE_POSITION_ALT,
+    INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS,
     INSTRUCTION_CREATE_MARKET,
     INSTRUCTION_CREATE_ORDERBOOK,
     INSTRUCTION_DEPOSIT_AND_SWAP,
@@ -71,7 +76,16 @@ from .pda import (
     get_user_nonce_pda,
     get_vault_pda,
 )
-from .types import DepositToGlobalAltContext, OutcomeMetadata, SignedOrder
+from .types import (
+    CloseOrderStatusParams,
+    CloseOrderbookAltParams,
+    CloseOrderbookParams,
+    ClosePositionAltParams,
+    ClosePositionTokenAccountsParams,
+    DepositToGlobalAltContext,
+    OutcomeMetadata,
+    SignedOrder,
+)
 from .utils import (
     derive_condition_id,
     encode_u32,
@@ -228,12 +242,11 @@ def build_mint_complete_set_instruction(
     4. vault (writable)
     5. user_deposit_ata (writable)
     6. position (writable)
-    7. position_collateral_ata (writable)
-    8. mint_authority
-    9. token_program
-    10. token_2022_program
-    11. associated_token_program
-    12. system_program
+    7. mint_authority
+    8. token_program
+    9. token_2022_program
+    10. associated_token_program
+    11. system_program
     Remaining: [conditional_mint[i], position_conditional_ata[i]] pairs
     """
     exchange, _ = get_exchange_pda(program_id)
@@ -243,7 +256,6 @@ def build_mint_complete_set_instruction(
 
     # Deposit token uses SPL Token, conditional tokens use Token-2022
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
-    position_collateral_ata = get_associated_token_address(position, deposit_mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
@@ -253,7 +265,6 @@ def build_mint_complete_set_instruction(
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
         AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=position_collateral_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
@@ -359,7 +370,7 @@ def build_cancel_order_instruction(
     2. market (readonly)
     3. order_status (writable)
 
-    Data: [5, order_hash (32), full_order (225)]
+    Data: [5, order_hash (32), full_order (233)]
     """
     exchange, _ = get_exchange_pda(program_id)
     order_hash = hash_order(order)
@@ -390,13 +401,16 @@ def build_increment_nonce_instruction(
     0. user (signer, writable)
     1. user_nonce (writable)
     2. system_program
+    3. exchange
     """
     user_nonce, _ = get_user_nonce_pda(user, program_id)
+    exchange, _ = get_exchange_pda(program_id)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
         AccountMeta(pubkey=user_nonce, is_signer=False, is_writable=True),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
     ]
 
     data = bytes([INSTRUCTION_INCREMENT_NONCE])
@@ -601,7 +615,9 @@ def build_withdraw_from_position_instruction(
     4. position_ata (writable)
     5. user_ata (writable)
     6. token_program (SPL Token or Token-2022)
+    7. exchange (readonly)
     """
+    exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
     token_program = TOKEN_2022_PROGRAM_ID if is_token_2022 else TOKEN_PROGRAM_ID
 
@@ -620,6 +636,7 @@ def build_withdraw_from_position_instruction(
         AccountMeta(pubkey=position_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=user_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=token_program, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
     ]
 
     data = bytearray()
@@ -671,8 +688,8 @@ def build_match_orders_multi_instruction(
     """Build the match_orders_multi instruction.
 
     New data format:
-    - discriminator(1) + taker_order(29) + taker_sig(64) + num_makers(1) + bitmask(1)
-    - Per maker: order(29) + sig(64) + maker_fill(8) + taker_fill(8) = 109 bytes each
+    - discriminator(1) + taker_order(37) + taker_sig(64) + num_makers(1) + bitmask(1)
+    - Per maker: order(37) + sig(64) + maker_fill(8) + taker_fill(8) = 117 bytes each
 
     Accounts:
     0. operator (signer, writable)
@@ -794,7 +811,7 @@ def build_match_orders_multi_instruction(
     data = bytearray()
     data.append(INSTRUCTION_MATCH_ORDERS_MULTI)
 
-    # Taker data: order(29) + sig(64)
+    # Taker data: order(37) + sig(64)
     taker_compact = to_order(taker_order)
     data.extend(serialize_order(taker_compact))
     data.extend(taker_order.signature)
@@ -803,7 +820,7 @@ def build_match_orders_multi_instruction(
     data.append(num_makers)
     data.append(full_fill_bitmask & 0xFF)
 
-    # Maker data: order(29) + sig(64) + maker_fill(8) + taker_fill(8) per maker
+    # Maker data: order(37) + sig(64) + maker_fill(8) + taker_fill(8) per maker
     for i, maker_order in enumerate(maker_orders):
         maker_compact = to_order(maker_order)
         data.extend(serialize_order(maker_compact))
@@ -1079,7 +1096,7 @@ def build_global_to_market_deposit_instruction(
 ) -> Instruction:
     """Build the global_to_market_deposit instruction.
 
-    Accounts (14 + num_outcomes*2):
+    Accounts (13 + num_outcomes*2):
     0. user (signer, writable)
     1. exchange (readonly)
     2. market (readonly)
@@ -1088,12 +1105,11 @@ def build_global_to_market_deposit_instruction(
     5. global_deposit_token (readonly)
     6. user_global_deposit (writable)
     7. position (writable)
-    8. position_collateral_ata (writable)
-    9. mint_authority (readonly)
-    10. token_program (readonly)
-    11. token_2022_program (readonly)
-    12. ata_program (readonly)
-    13. system_program (readonly)
+    8. mint_authority (readonly)
+    9. token_program (readonly)
+    10. token_2022_program (readonly)
+    11. ata_program (readonly)
+    12. system_program (readonly)
     + per outcome: conditional_mint[i] (writable), position_conditional_ata[i] (writable)
     """
     exchange, _ = get_exchange_pda(program_id)
@@ -1101,7 +1117,6 @@ def build_global_to_market_deposit_instruction(
     global_deposit_token, _ = get_global_deposit_pda(deposit_mint, program_id)
     user_global_deposit, _ = get_user_global_deposit_pda(user, deposit_mint, program_id)
     position, _ = get_position_pda(user, market, program_id)
-    position_collateral_ata = get_associated_token_address(position, deposit_mint)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
     accounts = [
@@ -1113,7 +1128,6 @@ def build_global_to_market_deposit_instruction(
         AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False),
         AccountMeta(pubkey=user_global_deposit, is_signer=False, is_writable=True),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=position_collateral_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
@@ -1534,6 +1548,178 @@ def build_withdraw_from_global_instruction(
     data = bytearray([INSTRUCTION_WITHDRAW_FROM_GLOBAL])
     data.extend(encode_u64(amount))
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_close_position_alt_instruction(
+    params: ClosePositionAltParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the close_position_alt instruction.
+
+    Accounts:
+    0. operator (signer, writable)
+    1. exchange (readonly)
+    2. position (readonly)
+    3. market (readonly)
+    4. lookup_table (writable)
+    5. alt_program (readonly)
+    """
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.position, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytes([INSTRUCTION_CLOSE_POSITION_ALT])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_close_order_status_instruction(
+    params: CloseOrderStatusParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the close_order_status instruction.
+
+    Accounts:
+    0. operator (signer, writable)
+    1. exchange (readonly)
+    2. order_status (writable)
+
+    Data: [24, order_hash (32)]
+    """
+    exchange, _ = get_exchange_pda(program_id)
+    order_status, _ = get_order_status_pda(params.order_hash, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=order_status, is_signer=False, is_writable=True),
+    ]
+
+    data = bytearray([INSTRUCTION_CLOSE_ORDER_STATUS])
+    data.extend(params.order_hash)
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_close_position_token_accounts_instruction(
+    params: ClosePositionTokenAccountsParams,
+    num_outcomes: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the close_position_token_accounts instruction.
+
+    Accounts:
+    0. operator (signer, writable)
+    1. exchange (readonly)
+    2. market (readonly)
+    3. position (readonly)
+    4. token_2022_program (readonly)
+    + per deposit mint: deposit_mint, conditional_mint/position_ata pairs
+    """
+    if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
+        raise InvalidOutcomeCountError(num_outcomes)
+    if not params.deposit_mints:
+        raise MissingFieldError("deposit_mints")
+
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.position, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    for deposit_mint in params.deposit_mints:
+        accounts.append(
+            AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False)
+        )
+        for i in range(num_outcomes):
+            conditional_mint, _ = get_conditional_mint_pda(
+                params.market,
+                deposit_mint,
+                i,
+                program_id,
+            )
+            position_ata = get_associated_token_address_2022(
+                params.position,
+                conditional_mint,
+            )
+            accounts.append(
+                AccountMeta(
+                    pubkey=conditional_mint,
+                    is_signer=False,
+                    is_writable=False,
+                )
+            )
+            accounts.append(
+                AccountMeta(pubkey=position_ata, is_signer=False, is_writable=True)
+            )
+
+    data = bytes([INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_close_orderbook_alt_instruction(
+    params: CloseOrderbookAltParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the close_orderbook_alt instruction.
+
+    Accounts:
+    0. operator (signer, writable)
+    1. exchange (readonly)
+    2. orderbook (readonly)
+    3. market (readonly)
+    4. lookup_table (writable)
+    5. alt_program (readonly)
+    """
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    data = bytes([INSTRUCTION_CLOSE_ORDERBOOK_ALT])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_close_orderbook_instruction(
+    params: CloseOrderbookParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the close_orderbook instruction.
+
+    Accounts:
+    0. operator (signer, writable)
+    1. exchange (readonly)
+    2. orderbook (writable)
+    3. market (readonly)
+    4. lookup_table (readonly)
+    """
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=False),
+    ]
+
+    data = bytes([INSTRUCTION_CLOSE_ORDERBOOK])
+    return Instruction(program_id=program_id, accounts=accounts, data=data)
 
 
 # Aliases matching Rust SDK naming (PR #46)
