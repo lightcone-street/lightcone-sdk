@@ -46,6 +46,26 @@ export interface DepositAssetResponse {
   created_at: string;
 }
 
+export const MarketResolutionKind = {
+  SingleWinner: "single_winner",
+  Scalar: "scalar",
+} as const;
+
+export type MarketResolutionKind =
+  (typeof MarketResolutionKind)[keyof typeof MarketResolutionKind];
+
+export interface MarketResolutionPayout {
+  outcome_index: number;
+  payout_numerator: number;
+}
+
+export interface MarketResolutionResponse {
+  kind: MarketResolutionKind;
+  payout_denominator: number;
+  payouts: MarketResolutionPayout[];
+  single_winning_outcome: number | null;
+}
+
 export interface MarketResponse {
   market_name?: string;
   slug?: string;
@@ -67,8 +87,7 @@ export interface MarketResponse {
   question_id: string;
   condition_id: string;
   market_status: string;
-  winning_outcome?: number;
-  has_winning_outcome: boolean;
+  resolution?: MarketResolutionResponse;
   created_at: string;
   activated_at?: string;
   settled_at?: string;
