@@ -55,9 +55,13 @@ class LightconeEnv(Enum):
     @property
     def program_id(self) -> Pubkey:
         """On-chain Lightcone program ID for this environment."""
-        if self in (LightconeEnv.LOCAL, LightconeEnv.STAGING):
+        if self is LightconeEnv.LOCAL:
             return Pubkey.from_string(
                 "H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq"
+            )
+        if self is LightconeEnv.STAGING:
+            return Pubkey.from_string(
+                "AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT"
             )
         return Pubkey.from_string(
             "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
