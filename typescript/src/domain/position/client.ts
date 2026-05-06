@@ -11,6 +11,8 @@ import {
   buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
+  buildClosePositionAltIx,
+  buildClosePositionTokenAccountsIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
@@ -24,6 +26,8 @@ import type {
   DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
+  ClosePositionAltParams,
+  ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { PubkeyStr } from "../../shared";
 import type { DepositTokenBalance } from "./index";
@@ -211,6 +215,21 @@ export class Positions {
     return buildWithdrawFromGlobalIx(params, this.client.programId);
   }
 
+  closePositionAltIx(params: ClosePositionAltParams): TransactionInstruction {
+    return buildClosePositionAltIx(params, this.client.programId);
+  }
+
+  closePositionTokenAccountsIx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildClosePositionTokenAccountsIx(
+      params,
+      numOutcomes,
+      this.client.programId
+    );
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   redeemWinningsTx(
@@ -269,6 +288,19 @@ export class Positions {
   withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
     const ix = this.withdrawFromGlobalIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  closePositionAltTx(params: ClosePositionAltParams): Transaction {
+    const ix = this.closePositionAltIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
+  }
+
+  closePositionTokenAccountsTx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.closePositionTokenAccountsIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Builder factories ──────────────────────────────────────────────

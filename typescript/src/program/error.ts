@@ -13,9 +13,25 @@ export type ProgramErrorVariant =
   | "InvalidMarketStatus"
   | "MissingField"
   | "Overflow"
+  | "OrderbookExists"
+  | "InvalidMarket"
+  | "MarketSettled"
+  | "InvalidProgramId"
+  | "InvalidOrderbook"
+  | "FullFillRequired"
   | "DivisionByZero"
+  | "DepositTokenNotActive"
+  | "InsufficientGlobalDeposit"
+  | "InvalidDepositMintOrder"
+  | "ZeroAmount"
+  | "InvalidAta"
+  | "OrderNotFullyFilled"
   | "InvalidPayoutNumerators"
   | "PayoutVectorExceedsU32"
+  | "PayoutTooSmall"
+  | "TokenAccountNotEmpty"
+  | "LookupTableNotClosed"
+  | "InvalidManager"
   | "InvalidScalarRange"
   | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
@@ -121,8 +137,71 @@ export class ProgramSdkError extends Error {
     return new ProgramSdkError("Overflow", message);
   }
 
+  static orderbookExists(): ProgramSdkError {
+    return new ProgramSdkError("OrderbookExists", "Orderbook already exists");
+  }
+
+  static invalidMarket(): ProgramSdkError {
+    return new ProgramSdkError("InvalidMarket", "Invalid market");
+  }
+
+  static marketSettled(): ProgramSdkError {
+    return new ProgramSdkError("MarketSettled", "Market already settled");
+  }
+
+  static invalidProgramId(): ProgramSdkError {
+    return new ProgramSdkError("InvalidProgramId", "Invalid program ID");
+  }
+
+  static invalidOrderbook(): ProgramSdkError {
+    return new ProgramSdkError("InvalidOrderbook", "Invalid orderbook");
+  }
+
+  static fullFillRequired(): ProgramSdkError {
+    return new ProgramSdkError("FullFillRequired", "Full fill required");
+  }
+
   static divisionByZero(): ProgramSdkError {
     return new ProgramSdkError("DivisionByZero", "Division by zero");
+  }
+
+  static depositTokenNotActive(): ProgramSdkError {
+    return new ProgramSdkError(
+      "DepositTokenNotActive",
+      "Deposit token not active",
+    );
+  }
+
+  static insufficientGlobalDeposit(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InsufficientGlobalDeposit",
+      "Insufficient global deposit balance",
+    );
+  }
+
+  static invalidDepositMintOrder(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidDepositMintOrder",
+      "Invalid deposit mint order",
+    );
+  }
+
+  static zeroAmount(): ProgramSdkError {
+    return new ProgramSdkError("ZeroAmount", "Amount must be greater than zero");
+  }
+
+  static invalidAta(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidAta",
+      "Invalid associated token account",
+    );
+  }
+
+  static orderNotFullyFilled(): ProgramSdkError {
+    return new ProgramSdkError(
+      "OrderNotFullyFilled",
+      "Order status is not fully filled",
+    );
   }
 
   static invalidPayoutNumerators(): ProgramSdkError {
@@ -137,6 +216,28 @@ export class ProgramSdkError extends Error {
       "PayoutVectorExceedsU32",
       "Payout numerators and denominator must fit in u32",
     );
+  }
+
+  static payoutTooSmall(): ProgramSdkError {
+    return new ProgramSdkError("PayoutTooSmall", "Payout too small");
+  }
+
+  static tokenAccountNotEmpty(): ProgramSdkError {
+    return new ProgramSdkError(
+      "TokenAccountNotEmpty",
+      "Token account is not empty",
+    );
+  }
+
+  static lookupTableNotClosed(): ProgramSdkError {
+    return new ProgramSdkError(
+      "LookupTableNotClosed",
+      "Lookup table is not closed",
+    );
+  }
+
+  static invalidManager(): ProgramSdkError {
+    return new ProgramSdkError("InvalidManager", "Invalid manager");
   }
 
   static invalidScalarRange(): ProgramSdkError {

@@ -29,10 +29,10 @@ const client = LightconeClient.builder()
 | Sub-client | Access | On-chain capabilities |
 |------------|--------|----------------------|
 | `client.admin()` | Admin operations | initialize, createMarket, addDepositMint, activateMarket, settleMarket, setPaused, setOperator, setAuthority, whitelistDepositToken, createOrderbook, matchOrdersMulti, depositAndSwap |
-| `client.orders()` | Order management | cancelOrder, incrementNonce, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
+| `client.orders()` | Order management | cancelOrder, incrementNonce, closeOrderStatus, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
 | `client.markets()` | Market queries | mintCompleteSet, mergeCompleteSet, deriveConditionId, getConditionalMints, getOnchain |
-| `client.positions()` | Position management | redeemWinnings, withdrawFromPosition, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, getOnchain |
-| `client.orderbooks()` | Orderbook data | getOnchain |
+| `client.positions()` | Position management | redeemWinnings, withdrawFromPosition, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionAlt, closePositionTokenAccounts, getOnchain |
+| `client.orderbooks()` | Orderbook data | closeOrderbookAlt, closeOrderbook, getOnchain |
 | `client.rpc()` | RPC utilities | getExchange, getGlobalDepositToken, getLatestBlockhash |
 
 ### Transaction builders return `TransactionInstruction`
@@ -91,9 +91,11 @@ import type {
 | `discriminator` | Buffer | 8-byte discriminator |
 | `authority` | PublicKey | Admin authority |
 | `operator` | PublicKey | Order matching operator |
+| `manager` | PublicKey | Market and orderbook setup manager |
 | `marketCount` | bigint | Number of markets created |
 | `paused` | boolean | Trading paused |
 | `bump` | number | PDA bump seed |
+| `depositTokenCount` | number | Number of whitelisted deposit tokens |
 
 #### Market
 
@@ -110,11 +112,12 @@ import type {
 | `payoutNumerators` | [number, number, number, number, number, number] | Resolution vector; first `numOutcomes` entries are meaningful |
 | `payoutDenominator` | number | Sum of meaningful payout numerators |
 
-#### SignedOrder (225 bytes)
+#### SignedOrder (233 bytes)
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `nonce` | number | Order nonce |
+| `salt` | bigint | Random salt for order uniqueness |
 | `maker` | PublicKey | Maker public key |
 | `market` | PublicKey | Market address |
 | `baseMint` | PublicKey | Base token mint |
@@ -125,7 +128,7 @@ import type {
 | `expiration` | bigint | Expiration timestamp (0 = no expiration) |
 | `signature` | Buffer | Ed25519 signature (64 bytes) |
 
-#### Order (29 bytes)
+#### Order (37 bytes)
 
 Compact order payload without `maker`, `market`, `baseMint`, or `quoteMint`.
 

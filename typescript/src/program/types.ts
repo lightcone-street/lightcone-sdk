@@ -444,6 +444,54 @@ export interface WithdrawFromGlobalParams {
   amount: bigint;
 }
 
+/**
+ * Parameters for closePositionAlt instruction.
+ */
+export interface ClosePositionAltParams {
+  operator: PublicKey;
+  position: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
+/**
+ * Parameters for closeOrderStatus instruction.
+ */
+export interface CloseOrderStatusParams {
+  operator: PublicKey;
+  orderHash: Buffer;
+}
+
+/**
+ * Parameters for closePositionTokenAccounts instruction.
+ */
+export interface ClosePositionTokenAccountsParams {
+  operator: PublicKey;
+  market: PublicKey;
+  position: PublicKey;
+  depositMints: PublicKey[];
+}
+
+/**
+ * Parameters for closeOrderbookAlt instruction.
+ */
+export interface CloseOrderbookAltParams {
+  operator: PublicKey;
+  orderbook: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
+/**
+ * Parameters for closeOrderbook instruction.
+ */
+export interface CloseOrderbookParams {
+  operator: PublicKey;
+  orderbook: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
 // ============================================================================
 // BUILDER RESULT TYPES
 // ============================================================================

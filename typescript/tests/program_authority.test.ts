@@ -11,16 +11,25 @@ import {
   ProgramSdkError,
   buildAddDepositMintIx,
   buildCancelOrderIx,
+  buildCloseOrderStatusIx,
+  buildCloseOrderbookAltIx,
+  buildCloseOrderbookIx,
+  buildClosePositionAltIx,
+  buildClosePositionTokenAccountsIx,
   buildCreateMarketIx,
   buildCreateOrderbookIx,
+  buildDepositIx,
   buildDepositAndSwapIx,
   buildDepositToGlobalIx,
   buildDepositToGlobalIxWithAlt,
   buildExtendPositionTokensIx,
+  buildGlobalToMarketDepositIx,
+  buildIncrementNonceIx,
   buildMatchOrdersMultiIx,
   buildRedeemWinningsIx,
   buildSetManagerIx,
   buildSettleMarketIx,
+  buildWithdrawFromPositionIx,
   buildWithdrawFromGlobalIx,
   deriveConditionId,
   deserializeExchange,
@@ -187,6 +196,38 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
     assert.equal(ix.keys[2]!.isWritable, false);
     assert.equal(ix.keys[9]!.pubkey.toBase58(), globalDepositToken.toBase58());
+  });
+
+  it("builds mintCompleteSet without obsolete position collateral ATA", () => {
+    const programId = pubkey(104);
+    const user = pubkey(1);
+    const market = pubkey(2);
+    const depositMint = pubkey(3);
+    const [mintAuthority] = getMintAuthorityPda(market, programId);
+
+    const ix = buildDepositIx(
+      { user, market, depositMint, amount: 100n },
+      3,
+      programId
+    );
+
+    assert.equal(ix.keys.length, 18);
+    assert.equal(ix.keys[7]!.pubkey.toBase58(), mintAuthority.toBase58());
+    assert.equal(ix.keys[7]!.isWritable, false);
+    assert.equal(ix.data[0], INSTRUCTION.MINT_COMPLETE_SET);
+  });
+
+  it("builds incrementNonce with exchange pause-validation account", () => {
+    const programId = pubkey(105);
+    const user = pubkey(1);
+    const [exchange] = getExchangePda(programId);
+
+    const ix = buildIncrementNonceIx(user, programId);
+
+    assert.equal(ix.keys.length, 4);
+    assert.equal(ix.keys[3]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[3]!.isWritable, false);
+    assert.equal(ix.data[0], INSTRUCTION.INCREMENT_NONCE);
   });
 
   it("builds setManager as authority-only role rotation", () => {
@@ -453,6 +494,47 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data[9], outcomeIndex);
   });
 
+  it("builds withdrawFromPosition with exchange pause-validation account", () => {
+    const programId = pubkey(106);
+    const [exchange] = getExchangePda(programId);
+
+    const ix = buildWithdrawFromPositionIx(
+      {
+        user: pubkey(1),
+        market: pubkey(2),
+        mint: pubkey(3),
+        amount: 100n,
+        outcomeIndex: 1,
+      },
+      true,
+      programId
+    );
+
+    assert.equal(ix.keys.length, 8);
+    assert.equal(ix.keys[7]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[7]!.isWritable, false);
+    assert.equal(ix.data[0], INSTRUCTION.WITHDRAW_FROM_POSITION);
+  });
+
+  it("builds globalToMarketDeposit without obsolete position collateral ATA", () => {
+    const programId = pubkey(107);
+    const user = pubkey(1);
+    const market = pubkey(2);
+    const depositMint = pubkey(3);
+    const [mintAuthority] = getMintAuthorityPda(market, programId);
+
+    const ix = buildGlobalToMarketDepositIx(
+      { user, market, depositMint, amount: 100n },
+      3,
+      programId
+    );
+
+    assert.equal(ix.keys.length, 19);
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), mintAuthority.toBase58());
+    assert.equal(ix.keys[8]!.isWritable, false);
+    assert.equal(ix.data[0], INSTRUCTION.GLOBAL_TO_MARKET_DEPOSIT);
+  });
+
   it("includes orderbook in depositAndSwap fixed accounts", () => {
     const programId = pubkey(99);
     const market = pubkey(2);
@@ -506,5 +588,70 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[0]!.pubkey.toBase58(), operator.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.data[0], INSTRUCTION.EXTEND_POSITION_TOKENS);
+  });
+
+  it("builds closeOrderStatus with order hash payload", () => {
+    const programId = pubkey(108);
+    const operator = pubkey(1);
+    const orderHash = Buffer.alloc(32, 9);
+    const [orderStatus] = getOrderStatusPda(orderHash, programId);
+
+    const ix = buildCloseOrderStatusIx({ operator, orderHash }, programId);
+
+    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), operator.toBase58());
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), orderStatus.toBase58());
+    assert.equal(ix.data.length, 33);
+    assert.equal(ix.data[0], INSTRUCTION.CLOSE_ORDER_STATUS);
+    assert.deepEqual(ix.data.subarray(1), orderHash);
+  });
+
+  it("builds closePositionTokenAccounts with grouped conditional ATAs", () => {
+    const programId = pubkey(109);
+
+    const ix = buildClosePositionTokenAccountsIx(
+      {
+        operator: pubkey(1),
+        market: pubkey(2),
+        position: pubkey(3),
+        depositMints: [pubkey(4)],
+      },
+      3,
+      programId
+    );
+
+    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.data.length, 1);
+    assert.equal(ix.data[0], INSTRUCTION.CLOSE_POSITION_TOKEN_ACCOUNTS);
+  });
+
+  it("builds close ALT and orderbook cleanup instructions", () => {
+    const programId = pubkey(110);
+    const operator = pubkey(1);
+    const market = pubkey(2);
+    const lookupTable = pubkey(3);
+    const position = pubkey(4);
+    const orderbook = pubkey(5);
+
+    const positionAltIx = buildClosePositionAltIx(
+      { operator, position, market, lookupTable },
+      programId
+    );
+    assert.equal(positionAltIx.keys.length, 6);
+    assert.equal(positionAltIx.data[0], INSTRUCTION.CLOSE_POSITION_ALT);
+
+    const orderbookAltIx = buildCloseOrderbookAltIx(
+      { operator, orderbook, market, lookupTable },
+      programId
+    );
+    assert.equal(orderbookAltIx.keys.length, 6);
+    assert.equal(orderbookAltIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK_ALT);
+
+    const closeOrderbookIx = buildCloseOrderbookIx(
+      { operator, orderbook, market, lookupTable },
+      programId
+    );
+    assert.equal(closeOrderbookIx.keys.length, 5);
+    assert.equal(closeOrderbookIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK);
   });
 });

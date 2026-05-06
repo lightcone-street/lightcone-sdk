@@ -9,6 +9,7 @@ import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
 import {
   buildCancelOrderIx,
+  buildCloseOrderStatusIx,
   buildIncrementNonceIx,
 } from "../../program/instructions";
 import {
@@ -37,6 +38,7 @@ import {
 } from "../../program/accounts";
 import type {
   SignedOrder,
+  CloseOrderStatusParams,
   BidOrderParams,
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
@@ -508,6 +510,10 @@ export class Orders {
     return buildIncrementNonceIx(user, this.client.programId);
   }
 
+  closeOrderStatusIx(params: CloseOrderStatusParams): TransactionInstruction {
+    return buildCloseOrderStatusIx(params, this.client.programId);
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   cancelOrderTx(
@@ -522,6 +528,11 @@ export class Orders {
   incrementNonceTx(user: PublicKey): Transaction {
     const ix = this.incrementNonceIx(user);
     return new Transaction({ feePayer: user }).add(ix);
+  }
+
+  closeOrderStatusTx(params: CloseOrderStatusParams): Transaction {
+    const ix = this.closeOrderStatusIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────
