@@ -37,7 +37,7 @@ impl LightconeEnv {
     /// REST API base URL for this environment.
     pub fn api_url(&self) -> &'static str {
         match self {
-            Self::Local => "https://local-api.lightcone.xyz",
+            Self::Local => "http://localhost:8080/api",
             Self::Staging => "https://tapi2.lightcone.xyz",
             Self::Prod => "https://tapi.lightcone.xyz",
         }
@@ -46,7 +46,7 @@ impl LightconeEnv {
     /// WebSocket URL for this environment.
     pub fn ws_url(&self) -> &'static str {
         match self {
-            Self::Local => "wss://local-ws.lightcone.xyz/ws",
+            Self::Local => "ws://localhost:8081/ws",
             Self::Staging => "wss://tws2.lightcone.xyz/ws",
             Self::Prod => "wss://tws.lightcone.xyz/ws",
         }
@@ -64,7 +64,7 @@ impl LightconeEnv {
     /// On-chain Lightcone program ID for this environment.
     pub fn program_id(&self) -> Pubkey {
         match self {
-            Self::Local => Pubkey::from_str("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq")
+            Self::Local => Pubkey::from_str("AU4htPS3tSXA1JFrtA37oPGBLp2yCoi6VH4uF1jdouLK")
                 .expect("valid program id"),
             Self::Staging => Pubkey::from_str("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT")
                 .expect("valid program id"),
@@ -87,5 +87,33 @@ impl fmt::Display for LightconeEnv {
             Self::Staging => write!(formatter, "staging"),
             Self::Prod => write!(formatter, "prod"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn local_environment_targets_local_backend() {
+        let environment = LightconeEnv::Local;
+
+        assert_eq!(environment.api_url(), "http://localhost:8080/api");
+        assert_eq!(environment.ws_url(), "ws://localhost:8081/ws");
+    }
+
+    #[test]
+    fn local_environment_uses_deployed_program() {
+        let program_id = LightconeEnv::Local.program_id();
+        let (exchange_pda, _) = crate::program::pda::get_exchange_pda(&program_id);
+
+        assert_eq!(
+            program_id,
+            Pubkey::from_str("AU4htPS3tSXA1JFrtA37oPGBLp2yCoi6VH4uF1jdouLK").unwrap()
+        );
+        assert_eq!(
+            exchange_pda,
+            Pubkey::from_str("DWuNmXKorbQxZV7ifCyuVp9jhDNh7YjS2gQgvYSCciue").unwrap()
+        );
     }
 }
