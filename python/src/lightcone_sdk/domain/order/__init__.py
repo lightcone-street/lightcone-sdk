@@ -126,7 +126,7 @@ class CancelBody:
 @dataclass
 class CancelSuccess:
     order_hash: str
-    remaining: int = 0
+    remaining: str = "0"
 
 
 @dataclass

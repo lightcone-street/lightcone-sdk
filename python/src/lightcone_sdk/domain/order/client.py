@@ -142,7 +142,7 @@ class Orders:
         data = await self._client._http.post("/api/orders/cancel", body.to_dict())
         return CancelSuccess(
             order_hash=data.get("order_hash", body.order_hash),
-            remaining=data.get("remaining", 0),
+            remaining=data.get("remaining", "0"),
         )
 
     async def cancel_all(self, body: CancelAllBody) -> CancelAllSuccess:
@@ -297,7 +297,7 @@ class Orders:
             )
             return CancelSuccess(
                 order_hash=result.get("order_hash", order_hash),
-                remaining=result.get("remaining", 0),
+                remaining=result.get("remaining", "0"),
             )
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
