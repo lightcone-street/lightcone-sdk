@@ -131,7 +131,7 @@ impl<'a> Markets<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Get featured markets. Only returns Active and Resolved markets.
+    /// Get featured markets. Only returns Active markets.
     pub async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError> {
         let url = format!(
             "{}/api/markets/search/featured",
@@ -142,7 +142,7 @@ impl<'a> Markets<'a> {
 
         let (kept, skipped): (Vec<_>, Vec<_>) = results
             .into_iter()
-            .partition(|r| matches!(r.market_status, Status::Active | Status::Resolved));
+            .partition(|r| matches!(r.market_status, Status::Active));
 
         for r in &skipped {
             tracing::debug!(

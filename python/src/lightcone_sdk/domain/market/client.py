@@ -149,7 +149,7 @@ class Markets:
         results = [MarketSearchResult.from_dict(m) for m in markets_data]
         return [
             result for result in results
-            if result.market_status in {"Active", "Resolved"}
+            if result.market_status in {"Active"}
         ]
 
     async def deposit_assets(self, market_pubkey: str) -> DepositMintsResponse:
