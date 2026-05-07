@@ -86,7 +86,7 @@ export type SignAndSendOrderResponse = LimitOrderResponse | TriggerOrderResponse
 
 export interface LimitCancelResponse {
   order_hash: string;
-  remaining: number;
+  remaining: string;
 }
 
 export interface TriggerCancelResponse {
