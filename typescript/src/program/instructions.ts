@@ -1335,7 +1335,8 @@ export function buildInitPositionTokensIx(
 /**
  * Build ExtendPositionTokens instruction
  *
- * Extends an existing position's lookup table with new deposit mints.
+ * Operator-only. Extends an existing position's lookup table after a market
+ * adds new deposit mints.
  *
  * Accounts:
  * 0. operator (signer, mut)

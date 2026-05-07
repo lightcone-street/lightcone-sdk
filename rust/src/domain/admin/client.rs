@@ -15,10 +15,12 @@ use crate::domain::admin::{
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
+#[cfg(feature = "solana-rpc")]
+use crate::program::types::CreateMarketParams;
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
-    DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SetManagerParams,
-    SettleMarketParams, WhitelistDepositTokenParams,
+    ActivateMarketParams, AddDepositMintParams, CreateOrderbookParams, DepositAndSwapParams,
+    MatchOrdersMultiParams, SetAuthorityParams, SetManagerParams, SettleMarketParams,
+    WhitelistDepositTokenParams,
 };
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;

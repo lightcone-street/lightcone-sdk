@@ -1449,6 +1449,9 @@ def build_extend_position_tokens_instruction(
 ) -> Instruction:
     """Build the extend_position_tokens instruction.
 
+    Operator-only. Use this after a market adds new deposit mints to extend an
+    existing position ALT with those new mint accounts.
+
     Accounts (10 + per deposit_mint: 3 + num_outcomes*2):
     0. operator (signer, writable)
     1. user (readonly)

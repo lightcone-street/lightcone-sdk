@@ -291,7 +291,20 @@ async fn run_task(mut state: TaskState) {
                 state.emit(WsEvent::MaxReconnectReached);
                 return;
             }
-            DisconnectReason::PongTimeout | DisconnectReason::Error(_) => {
+            DisconnectReason::PongTimeout => {
+                if state.should_reconnect() {
+                    state
+                        .ready_state
+                        .store(ReadyState::Connecting as u16, Ordering::SeqCst);
+                    backoff_sleep(&mut state, false).await;
+                    drain_commands_to_pending(&mut state);
+                    continue;
+                }
+                state.emit(WsEvent::MaxReconnectReached);
+                return;
+            }
+            DisconnectReason::Error(reason) => {
+                tracing::debug!("WebSocket reconnecting after error: {}", reason);
                 if state.should_reconnect() {
                     state
                         .ready_state

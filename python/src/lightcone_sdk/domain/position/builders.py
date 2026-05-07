@@ -481,7 +481,12 @@ class WithdrawFromPositionBuilder:
 
 
 class InitPositionTokensBuilder:
-    """Fluent builder for init-position-tokens operations."""
+    """Fluent builder for init-position-tokens operations.
+
+    Creates the Position PDA, conditional token ATAs, and position ALT entries
+    for the supplied deposit mints. Permissionless: any payer can initialize
+    these accounts for a user.
+    """
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
@@ -561,7 +566,11 @@ class InitPositionTokensBuilder:
 
 
 class ExtendPositionTokensBuilder:
-    """Fluent builder for extend-position-tokens operations."""
+    """Fluent builder for extend-position-tokens operations.
+
+    Operator-only. Use this after a market adds new deposit mints to extend an
+    existing position ALT with those new mint accounts.
+    """
 
     def __init__(self, client: "LightconeClient"):
         self._client = client

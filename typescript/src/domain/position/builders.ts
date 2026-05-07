@@ -488,6 +488,10 @@ export class InitPositionTokensBuilder {
 
 // ─── ExtendPositionTokensBuilder ────────────────────────────────────────────
 
+/**
+ * Operator-only builder for extending an existing position ALT after a market
+ * adds new deposit mints.
+ */
 export class ExtendPositionTokensBuilder {
   private readonly client: ClientContext;
   private operatorValue?: PublicKey;

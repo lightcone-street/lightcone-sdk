@@ -332,7 +332,6 @@ impl LightconeClient {
         match strategy {
             #[cfg(feature = "native-auth")]
             SigningStrategy::Native(keypair) => {
-                use solana_signer::Signer;
                 tx.try_sign(&[keypair.as_ref()], blockhash)
                     .map_err(|error| SdkError::Signing(error.to_string()))?;
                 self.send_transaction_rpc(&tx).await
@@ -368,6 +367,7 @@ impl LightconeClient {
     }
 
     /// Submit a signed transaction via JSON-RPC `sendTransaction`.
+    #[cfg(feature = "native-auth")]
     async fn send_transaction_rpc(
         &self,
         tx: &solana_transaction::Transaction,
