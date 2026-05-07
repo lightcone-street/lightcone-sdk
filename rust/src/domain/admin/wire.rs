@@ -646,9 +646,8 @@ pub struct UploadMarketDeploymentAssetsRequest {
 
 /// Market-level fields for a deployment asset upload.
 ///
-/// When a `*_image_data_url` + `*_image_content_type` pair is provided the
-/// backend uploads the image and ignores the matching `*_image_url` field;
-/// otherwise the existing `*_image_url` is preserved.
+/// Image uploads are quality-specific WebP data URLs. Hosted URL fields are
+/// preserved separately and are used when no matching data URL is supplied.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketDeploymentMarket {
     pub name: String,
@@ -678,13 +677,29 @@ pub struct MarketDeploymentMarket {
     #[serde(default)]
     pub featured_rank: Option<i32>,
     #[serde(default)]
-    pub banner_image_data_url: Option<String>,
+    pub banner_image_data_url_low: Option<String>,
     #[serde(default)]
-    pub banner_image_content_type: Option<String>,
+    pub banner_image_content_type_low: Option<String>,
     #[serde(default)]
-    pub icon_image_data_url: Option<String>,
+    pub banner_image_data_url_medium: Option<String>,
     #[serde(default)]
-    pub icon_image_content_type: Option<String>,
+    pub banner_image_content_type_medium: Option<String>,
+    #[serde(default)]
+    pub banner_image_data_url_high: Option<String>,
+    #[serde(default)]
+    pub banner_image_content_type_high: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type_low: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type_medium: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url_high: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type_high: Option<String>,
 }
 
 /// A single outcome within an upload deployment asset request.
@@ -702,9 +717,17 @@ pub struct MarketDeploymentOutcome {
     #[serde(default)]
     pub icon_url_high: Option<String>,
     #[serde(default)]
-    pub icon_image_data_url: Option<String>,
+    pub icon_image_data_url_low: Option<String>,
     #[serde(default)]
-    pub icon_image_content_type: Option<String>,
+    pub icon_image_content_type_low: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type_medium: Option<String>,
+    #[serde(default)]
+    pub icon_image_data_url_high: Option<String>,
+    #[serde(default)]
+    pub icon_image_content_type_high: Option<String>,
 }
 
 /// A deposit asset referenced by the market being deployed.
@@ -734,8 +757,16 @@ pub struct MarketDeploymentConditionalToken {
     pub symbol: String,
     #[serde(default)]
     pub description: Option<String>,
-    pub image_data_url: String,
-    pub image_content_type: String,
+    #[serde(default)]
+    pub image_data_url_low: Option<String>,
+    #[serde(default)]
+    pub image_content_type_low: Option<String>,
+    #[serde(default)]
+    pub image_data_url_medium: Option<String>,
+    #[serde(default)]
+    pub image_content_type_medium: Option<String>,
+    pub image_data_url_high: String,
+    pub image_content_type_high: String,
 }
 
 /// Response from `POST /api/admin/metadata/upload-market-deployment-assets`.
@@ -745,6 +776,8 @@ pub struct UploadMarketDeploymentAssetsResponse {
     pub market: UploadedMarketImages,
     #[serde(default)]
     pub outcomes: Vec<UploadedOutcomeImages>,
+    #[serde(default)]
+    pub deposit_assets: Vec<UploadedDepositAssetImages>,
     #[serde(default)]
     pub tokens: Vec<UploadedConditionalToken>,
 }
@@ -778,10 +811,141 @@ pub struct UploadedOutcomeImages {
     pub icon_url_high: Option<String>,
 }
 
+/// Uploaded icon URLs for a single deposit asset.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UploadedDepositAssetImages {
+    pub mint: String,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+}
+
 /// Uploaded conditional token image + metadata URIs.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UploadedConditionalToken {
     pub conditional_mint: String,
-    pub image_url: String,
     pub metadata_uri: String,
+    #[serde(default)]
+    pub image_url_low: Option<String>,
+    #[serde(default)]
+    pub image_url_medium: Option<String>,
+    #[serde(default)]
+    pub image_url_high: Option<String>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn upload_market_deployment_assets_request_uses_quality_specific_upload_fields() {
+        let request: UploadMarketDeploymentAssetsRequest = serde_json::from_value(json!({
+            "market_id": 7,
+            "market_pubkey": "market-pubkey",
+            "market": {
+                "name": "Market",
+                "slug": "market",
+                "banner_image_data_url_high": "data:image/webp;base64,banner-high",
+                "banner_image_content_type_high": "image/webp",
+                "icon_image_data_url_low": "data:image/webp;base64,icon-low",
+                "icon_image_content_type_low": "image/webp",
+                "icon_image_data_url_high": "data:image/webp;base64,icon-high",
+                "icon_image_content_type_high": "image/webp"
+            },
+            "outcomes": [{
+                "index": 0,
+                "name": "Yes",
+                "symbol": "YES",
+                "icon_image_data_url_high": "data:image/webp;base64,outcome-high",
+                "icon_image_content_type_high": "image/webp"
+            }],
+            "conditional_tokens": [{
+                "outcome_index": 0,
+                "deposit_mint": "deposit-mint",
+                "conditional_mint": "conditional-mint",
+                "name": "Yes USDC",
+                "symbol": "YES-USDC",
+                "image_data_url_low": "data:image/webp;base64,token-low",
+                "image_content_type_low": "image/webp",
+                "image_data_url_high": "data:image/webp;base64,token-high",
+                "image_content_type_high": "image/webp"
+            }]
+        }))
+        .unwrap();
+
+        let value = serde_json::to_value(request).unwrap();
+        let market = value["market"].as_object().unwrap();
+        assert_eq!(
+            market
+                .get("banner_image_data_url_high")
+                .and_then(Value::as_str),
+            Some("data:image/webp;base64,banner-high")
+        );
+        assert_eq!(
+            market
+                .get("icon_image_data_url_low")
+                .and_then(Value::as_str),
+            Some("data:image/webp;base64,icon-low")
+        );
+        assert!(!market.contains_key("banner_image_data_url"));
+        assert!(!market.contains_key("icon_image_data_url"));
+
+        let outcome = value["outcomes"][0].as_object().unwrap();
+        assert_eq!(
+            outcome
+                .get("icon_image_content_type_high")
+                .and_then(Value::as_str),
+            Some("image/webp")
+        );
+        assert!(!outcome.contains_key("icon_image_content_type"));
+
+        let token = value["conditional_tokens"][0].as_object().unwrap();
+        assert_eq!(
+            token.get("image_data_url_high").and_then(Value::as_str),
+            Some("data:image/webp;base64,token-high")
+        );
+        assert!(!token.contains_key("image_data_url"));
+        assert!(!token.contains_key("image_content_type"));
+    }
+
+    #[test]
+    fn upload_market_deployment_assets_response_reads_variant_token_urls() {
+        let response: UploadMarketDeploymentAssetsResponse = serde_json::from_value(json!({
+            "market_metadata_uri": "s3://metadata/market.json",
+            "market": {
+                "banner_image_url_low": "https://cdn/banner-low.webp",
+                "banner_image_url_medium": "https://cdn/banner-medium.webp",
+                "banner_image_url_high": "https://cdn/banner-high.webp"
+            },
+            "outcomes": [{
+                "index": 0,
+                "icon_url_high": "https://cdn/outcome-high.webp"
+            }],
+            "deposit_assets": [{
+                "mint": "deposit-mint",
+                "icon_url_high": "https://cdn/deposit-high.webp"
+            }],
+            "tokens": [{
+                "conditional_mint": "conditional-mint",
+                "metadata_uri": "s3://metadata/token.json",
+                "image_url_low": "https://cdn/token-low.webp",
+                "image_url_medium": "https://cdn/token-medium.webp",
+                "image_url_high": "https://cdn/token-high.webp"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.deposit_assets[0].mint, "deposit-mint");
+        assert_eq!(
+            response.tokens[0].image_url_high.as_deref(),
+            Some("https://cdn/token-high.webp")
+        );
+
+        let token = serde_json::to_value(&response.tokens[0]).unwrap();
+        assert!(token.get("image_url").is_none());
+    }
 }

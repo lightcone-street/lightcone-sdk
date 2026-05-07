@@ -4,13 +4,23 @@ from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
+from solders.instruction import Instruction
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from .wire import OrderbookDepthResponse
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
+from ...program.instructions import (
+    build_close_orderbook_alt_instruction,
+    build_close_orderbook_instruction,
+)
 from ...program.pda import get_orderbook_pda
-from ...program.types import Orderbook as OnchainOrderbook
+from ...program.types import (
+    CloseOrderbookAltParams,
+    CloseOrderbookParams,
+    Orderbook as OnchainOrderbook,
+)
 from ...rpc import require_connection
 
 if TYPE_CHECKING:
@@ -30,9 +40,39 @@ class Orderbooks:
         addr, _ = get_orderbook_pda(mint_a, mint_b, self._client.program_id)
         return addr
 
+    # ── On-chain instruction builders ────────────────────────────────────
+
+    def close_orderbook_alt_ix(
+        self,
+        params: CloseOrderbookAltParams,
+    ) -> Instruction:
+        """Build CloseOrderbookAlt instruction."""
+        return build_close_orderbook_alt_instruction(params, self._client.program_id)
+
+    def close_orderbook_ix(self, params: CloseOrderbookParams) -> Instruction:
+        """Build CloseOrderbook instruction."""
+        return build_close_orderbook_instruction(params, self._client.program_id)
+
+    # ── On-chain transaction builders ────────────────────────────────────
+
+    def close_orderbook_alt_tx(
+        self,
+        params: CloseOrderbookAltParams,
+    ) -> Transaction:
+        """Build CloseOrderbookAlt transaction."""
+        ix = self.close_orderbook_alt_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
+
+    def close_orderbook_tx(self, params: CloseOrderbookParams) -> Transaction:
+        """Build CloseOrderbook transaction."""
+        ix = self.close_orderbook_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
+
     # ── HTTP methods ─────────────────────────────────────────────────────
 
-    async def get(self, orderbook_id: str, depth: Optional[int] = None) -> OrderbookDepthResponse:
+    async def get(
+        self, orderbook_id: str, depth: Optional[int] = None
+    ) -> OrderbookDepthResponse:
         """Get orderbook depth."""
         url = f"/api/orderbook/{orderbook_id}"
         if depth is not None:

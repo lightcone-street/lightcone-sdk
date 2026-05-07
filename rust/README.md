@@ -25,14 +25,14 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.4.1", features = ["native"] }
+lightcone = { version = "0.6.2", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.4.1", features = ["wasm"] }
+lightcone = { version = "0.6.2", features = ["wasm"] }
 ```
 
 ## Feature Flags
@@ -264,6 +264,8 @@ let client = LightconeClient::builder()
 ```
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.base_url()`, `.ws_url()`, `.rpc_url()`) take precedence when called after `.env()`.
+
+`LightconeEnv::Local` targets `http://localhost:8080/api` for REST and `ws://localhost:8081/ws` for WebSocket connections. The corresponding local health checks are `http://localhost:8080/health` and `http://localhost:8081/health`.
 
 ## Examples
 All examples are runnable with `cargo run --example <name> --features native`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.

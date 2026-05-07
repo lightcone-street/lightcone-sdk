@@ -9,6 +9,7 @@ import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
 import {
   buildCancelOrderIx,
+  buildCloseOrderStatusIx,
   buildIncrementNonceIx,
 } from "../../program/instructions";
 import {
@@ -37,6 +38,7 @@ import {
 } from "../../program/accounts";
 import type {
   SignedOrder,
+  CloseOrderStatusParams,
   BidOrderParams,
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
@@ -497,31 +499,40 @@ export class Orders {
   // ── On-chain transaction builders ────────────────────────────────────
 
   cancelOrderIx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): TransactionInstruction {
-    return buildCancelOrderIx(maker, market, order, this.client.programId);
+    return buildCancelOrderIx(operator, market, order, this.client.programId);
   }
 
   incrementNonceIx(user: PublicKey): TransactionInstruction {
     return buildIncrementNonceIx(user, this.client.programId);
   }
 
+  closeOrderStatusIx(params: CloseOrderStatusParams): TransactionInstruction {
+    return buildCloseOrderStatusIx(params, this.client.programId);
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   cancelOrderTx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): Transaction {
-    const ix = this.cancelOrderIx(maker, market, order);
-    return new Transaction({ feePayer: maker }).add(ix);
+    const ix = this.cancelOrderIx(operator, market, order);
+    return new Transaction({ feePayer: operator }).add(ix);
   }
 
   incrementNonceTx(user: PublicKey): Transaction {
     const ix = this.incrementNonceIx(user);
     return new Transaction({ feePayer: user }).add(ix);
+  }
+
+  closeOrderStatusTx(params: CloseOrderStatusParams): Transaction {
+    const ix = this.closeOrderStatusIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────

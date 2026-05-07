@@ -31,12 +31,13 @@ export enum OrderSide {
 /**
  * Exchange account - singleton central state
  * PDA: ["central_state"]
- * Size: 88 bytes
+ * Size: 120 bytes
  */
 export interface Exchange {
   discriminator: Buffer; // 8 bytes
   authority: PublicKey; // 32 bytes - initial admin
   operator: PublicKey; // 32 bytes - can perform operational tasks
+  manager: PublicKey; // 32 bytes - can manage market setup
   marketCount: bigint; // u64 - incremented for each market
   paused: boolean; // u8 - 0 = active, 1 = paused
   bump: number; // u8
@@ -46,29 +47,32 @@ export interface Exchange {
 /**
  * Market account
  * PDA: ["market", market_id (u64)]
- * Size: 120 bytes
+ * Size: 148 bytes
  */
 export interface Market {
   discriminator: Buffer; // 8 bytes
   marketId: bigint; // u64 - auto-assigned, sequential
   numOutcomes: number; // u8 - 2-6 outcomes supported
   status: MarketStatus; // u8
-  winningOutcome: number; // u8
-  hasWinningOutcome: boolean; // u8
   bump: number; // u8
   oracle: PublicKey; // 32 bytes - who can settle the market
   questionId: Buffer; // 32 bytes
   conditionId: Buffer; // 32 bytes - derived from oracle + questionId + numOutcomes
+  payoutNumerators: PayoutNumerators; // six u32 values; first numOutcomes are meaningful
+  payoutDenominator: number; // u32 sum of meaningful payout numerators
 }
+
+export type PayoutNumerators = [number, number, number, number, number, number];
 
 /**
  * Order status account - tracks partial fills and cancellations
  * PDA: ["order_status", order_hash (32 bytes)]
- * Size: 24 bytes
+ * Size: 32 bytes
  */
 export interface OrderStatus {
   discriminator: Buffer; // 8 bytes
   remaining: bigint; // u64 - maker_amount not yet filled
+  baseRemaining: bigint; // u64 - base-side amount not yet filled
   isCancelled: boolean; // u8
 }
 
@@ -177,7 +181,7 @@ export interface InitializeParams {
  * Parameters for createMarket instruction
  */
 export interface CreateMarketParams {
-  authority: PublicKey;
+  manager: PublicKey;
   numOutcomes: number; // 2-6
   oracle: PublicKey;
   questionId: Buffer; // 32 bytes
@@ -196,7 +200,7 @@ export interface OutcomeMetadata {
  * Parameters for addDepositMint instruction
  */
 export interface AddDepositMintParams {
-  authority: PublicKey;
+  manager: PublicKey;
   depositMint: PublicKey;
   outcomeMetadata: OutcomeMetadata[];
 }
@@ -225,7 +229,8 @@ export interface BuildMergeParams {
  * Parameters for cancelOrder instruction
  */
 export interface CancelOrderParams {
-  maker: PublicKey;
+  operator: PublicKey;
+  market: PublicKey;
   order: SignedOrder;
 }
 
@@ -242,7 +247,19 @@ export interface IncrementNonceParams {
 export interface SettleMarketParams {
   oracle: PublicKey;
   marketId: bigint;
-  winningOutcome: number;
+  payoutNumerators: number[];
+}
+
+/**
+ * Integer fixed-point metadata for two-sided scalar settlement.
+ */
+export interface ScalarResolutionParams {
+  minValue: bigint;
+  maxValue: bigint;
+  resolvedValue: bigint;
+  lowerOutcomeIndex: number;
+  upperOutcomeIndex: number;
+  numOutcomes: number;
 }
 
 /**
@@ -286,7 +303,7 @@ export interface WithdrawFromPositionParams {
  * Parameters for activateMarket instruction
  */
 export interface ActivateMarketParams {
-  authority: PublicKey;
+  manager: PublicKey;
   marketId: bigint;
 }
 
@@ -317,12 +334,24 @@ export interface SetAuthorityParams {
  * Parameters for createOrderbook instruction
  */
 export interface CreateOrderbookParams {
-  authority: PublicKey;
+  manager: PublicKey;
   market: PublicKey;
   mintA: PublicKey;
   mintB: PublicKey;
+  mintADepositMint: PublicKey;
+  mintBDepositMint: PublicKey;
   recentSlot: bigint;
-  baseIndex: number;
+  baseIndex: number; // Which supplied mint is base: 0 = mintA, 1 = mintB
+  mintAOutcomeIndex: number;
+  mintBOutcomeIndex: number;
+}
+
+/**
+ * Parameters for setManager instruction
+ */
+export interface SetManagerParams {
+  authority: PublicKey;
+  newManager: PublicKey;
 }
 
 /**
@@ -341,6 +370,13 @@ export interface DepositToGlobalParams {
   mint: PublicKey;
   amount: bigint;
 }
+
+/**
+ * Optional ALT behavior for depositToGlobal.
+ */
+export type DepositToGlobalAltContext =
+  | { kind: "create"; recentSlot: bigint }
+  | { kind: "extend"; lookupTable: PublicKey };
 
 /**
  * Parameters for globalToMarketDeposit instruction
@@ -370,7 +406,7 @@ export interface InitPositionTokensParams {
  * Parameters for extendPositionTokens instruction
  */
 export interface ExtendPositionTokensParams {
-  payer: PublicKey;
+  operator: PublicKey;
   user: PublicKey;
   market: PublicKey;
   lookupTable: PublicKey;
@@ -408,6 +444,54 @@ export interface WithdrawFromGlobalParams {
   amount: bigint;
 }
 
+/**
+ * Parameters for closePositionAlt instruction.
+ */
+export interface ClosePositionAltParams {
+  operator: PublicKey;
+  position: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
+/**
+ * Parameters for closeOrderStatus instruction.
+ */
+export interface CloseOrderStatusParams {
+  operator: PublicKey;
+  orderHash: Buffer;
+}
+
+/**
+ * Parameters for closePositionTokenAccounts instruction.
+ */
+export interface ClosePositionTokenAccountsParams {
+  operator: PublicKey;
+  market: PublicKey;
+  position: PublicKey;
+  depositMints: PublicKey[];
+}
+
+/**
+ * Parameters for closeOrderbookAlt instruction.
+ */
+export interface CloseOrderbookAltParams {
+  operator: PublicKey;
+  orderbook: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
+/**
+ * Parameters for closeOrderbook instruction.
+ */
+export interface CloseOrderbookParams {
+  operator: PublicKey;
+  orderbook: PublicKey;
+  market: PublicKey;
+  lookupTable: PublicKey;
+}
+
 // ============================================================================
 // BUILDER RESULT TYPES
 // ============================================================================
@@ -437,15 +521,18 @@ export interface InitializeAccounts {
 export interface CreateMarketAccounts {
   exchange: PublicKey;
   market: PublicKey;
+  conditionTombstone: PublicKey;
 }
 
 /**
  * Accounts returned from addDepositMint
  */
 export interface AddDepositMintAccounts {
+  exchange: PublicKey;
   market: PublicKey;
   vault: PublicKey;
   mintAuthority: PublicKey;
+  globalDepositToken: PublicKey;
   conditionalMints: PublicKey[];
 }
 
@@ -471,6 +558,8 @@ export interface MergeCompleteSetAccounts {
  * Accounts returned from cancelOrder
  */
 export interface CancelOrderAccounts {
+  exchange: PublicKey;
+  market: PublicKey;
   orderStatus: PublicKey;
 }
 
@@ -510,6 +599,7 @@ export interface ActivateMarketAccounts {
  * Accounts returned from matchOrdersMulti
  */
 export interface MatchOrdersMultiAccounts {
+  orderbook: PublicKey;
   takerOrderStatus: PublicKey;
   takerPosition: PublicKey;
   makerOrderStatuses: PublicKey[];

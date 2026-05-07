@@ -117,11 +117,11 @@ Each operation has an `_ix` method returning an `Instruction` (or `Result<Instru
 #### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
-fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, winning_outcome: u8) -> Instruction
-fn redeem_winnings_tx(&self, params: RedeemWinningsParams, winning_outcome: u8) -> Result<Transaction, SdkError>
+fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, outcome_index: u8) -> Instruction
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) -> Result<Transaction, SdkError>
 ```
 
-Build a RedeemWinnings instruction/transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
+Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
 
 #### `withdraw_from_position_ix` / `withdraw_from_position_tx`
 
@@ -167,6 +167,24 @@ fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_o
 ```
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
+
+#### `close_position_alt_ix` / `close_position_alt_tx`
+
+```rust
+fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction
+fn close_position_alt_tx(&self, params: ClosePositionAltParams) -> Result<Transaction, SdkError>
+```
+
+Build a ClosePositionAlt instruction/transaction — deactivate or close a resolved position lookup table.
+
+#### `close_position_token_accounts_ix` / `close_position_token_accounts_tx`
+
+```rust
+fn close_position_token_accounts_ix(&self, params: &ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Instruction, SdkError>
+fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+```
+
+Build a ClosePositionTokenAccounts instruction/transaction — close empty position-owned conditional token accounts.
 
 ### Deposit / Withdraw / Merge Builders
 

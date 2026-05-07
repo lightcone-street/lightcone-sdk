@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
+from ..market import MarketResolutionResponse
+
 
 class NotificationKind(str, Enum):
     MARKET_RESOLVED = "market_resolved"
@@ -25,7 +27,7 @@ class MarketResolvedData:
     market_pubkey: str
     market_slug: Optional[str] = None
     market_name: Optional[str] = None
-    winning_outcome: Optional[int] = None
+    resolution: Optional[MarketResolutionResponse] = None
 
 
 @dataclass
@@ -71,7 +73,7 @@ class Notification:
 
     @staticmethod
     def from_dict(d: dict) -> "Notification":
-        kind_raw = d.get("kind", d.get("type", "global"))
+        kind_raw = d.get("notification_type", d.get("kind", d.get("type", "global")))
         try:
             kind = NotificationKind(kind_raw)
         except ValueError:
@@ -85,11 +87,16 @@ class Notification:
         data = d.get("data", {})
         if isinstance(data, dict):
             if kind == NotificationKind.MARKET_RESOLVED:
+                resolution_raw = data.get("resolution")
                 market_resolved_data = MarketResolvedData(
                     market_pubkey=data.get("market_pubkey", ""),
                     market_slug=data.get("market_slug"),
                     market_name=data.get("market_name"),
-                    winning_outcome=data.get("winning_outcome"),
+                    resolution=(
+                        MarketResolutionResponse.from_dict(resolution_raw)
+                        if isinstance(resolution_raw, dict)
+                        else None
+                    ),
                 )
             elif kind == NotificationKind.ORDER_FILLED:
                 order_filled_data = OrderFilledData(

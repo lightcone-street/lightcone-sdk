@@ -392,9 +392,8 @@ export interface UploadMarketDeploymentAssetsRequest {
 /**
  * Market-level fields for a deployment asset upload.
  *
- * When a `*_image_data_url` + `*_image_content_type` pair is provided the
- * backend uploads the image and ignores the matching `*_image_url` field;
- * otherwise the existing `*_image_url` is preserved.
+ * Image uploads are quality-specific WebP data URLs. Hosted URL fields are
+ * preserved separately and are used when no matching data URL is supplied.
  */
 export interface MarketDeploymentMarket {
   name: string;
@@ -411,10 +410,18 @@ export interface MarketDeploymentMarket {
   subcategory?: string;
   tags?: string[];
   featured_rank?: number;
-  banner_image_data_url?: string;
-  banner_image_content_type?: string;
-  icon_image_data_url?: string;
-  icon_image_content_type?: string;
+  banner_image_data_url_low?: string;
+  banner_image_content_type_low?: string;
+  banner_image_data_url_medium?: string;
+  banner_image_content_type_medium?: string;
+  banner_image_data_url_high?: string;
+  banner_image_content_type_high?: string;
+  icon_image_data_url_low?: string;
+  icon_image_content_type_low?: string;
+  icon_image_data_url_medium?: string;
+  icon_image_content_type_medium?: string;
+  icon_image_data_url_high?: string;
+  icon_image_content_type_high?: string;
 }
 
 export interface MarketDeploymentOutcome {
@@ -425,8 +432,12 @@ export interface MarketDeploymentOutcome {
   icon_url_low?: string;
   icon_url_medium?: string;
   icon_url_high?: string;
-  icon_image_data_url?: string;
-  icon_image_content_type?: string;
+  icon_image_data_url_low?: string;
+  icon_image_content_type_low?: string;
+  icon_image_data_url_medium?: string;
+  icon_image_content_type_medium?: string;
+  icon_image_data_url_high?: string;
+  icon_image_content_type_high?: string;
 }
 
 export interface MarketDeploymentDepositAsset {
@@ -447,14 +458,19 @@ export interface MarketDeploymentConditionalToken {
   name: string;
   symbol: string;
   description?: string;
-  image_data_url: string;
-  image_content_type: string;
+  image_data_url_low?: string;
+  image_content_type_low?: string;
+  image_data_url_medium?: string;
+  image_content_type_medium?: string;
+  image_data_url_high: string;
+  image_content_type_high: string;
 }
 
 export interface UploadMarketDeploymentAssetsResponse {
   market_metadata_uri: string;
   market: UploadedMarketImages;
   outcomes: UploadedOutcomeImages[];
+  deposit_assets: UploadedDepositAssetImages[];
   tokens: UploadedConditionalToken[];
 }
 
@@ -474,8 +490,17 @@ export interface UploadedOutcomeImages {
   icon_url_high?: string;
 }
 
+export interface UploadedDepositAssetImages {
+  mint: string;
+  icon_url_low?: string;
+  icon_url_medium?: string;
+  icon_url_high?: string;
+}
+
 export interface UploadedConditionalToken {
   conditional_mint: string;
-  image_url: string;
   metadata_uri: string;
+  image_url_low?: string;
+  image_url_medium?: string;
+  image_url_high?: string;
 }

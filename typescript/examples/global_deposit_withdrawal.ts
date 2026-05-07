@@ -1,8 +1,6 @@
 import { PublicKey, Transaction } from "@solana/web3.js";
-import { getPositionAltPda, getPositionPda } from "../src/program";
 import {
   confirmTransactionOrThrow,
-  formatError,
   login,
   marketAndOrderbook,
   quoteDepositMint,
@@ -23,74 +21,9 @@ async function main() {
   const amount = 1_000_000n;
   const depositAmount = amount * 2n; // deposit extra so global has funds after market transfer
 
-  const [positionPda] = getPositionPda(keypair.publicKey, marketPubkey, client.programId);
-
-  // Check if position already exists (init_position_tokens is one-time)
-  const positionAccount = await connection.getAccountInfo(positionPda);
-  const needsInit = positionAccount === null;
-
-  if (needsInit) {
-    // Init + extend in a single transaction.
-    // Use "processed" commitment for getSlot to minimize staleness — the
-    // on-chain CreateLookupTable instruction rejects slots that are too old.
-    const maxAttempts = 5;
-    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-      try {
-        const recentSlot = BigInt(await connection.getSlot("processed"));
-        const [lookupTable] = getPositionAltPda(positionPda, recentSlot);
-
-        const initIx = client.positions().initPositionTokens()
-          .payer(keypair.publicKey)
-          .user(keypair.publicKey)
-          .market(marketPubkey)
-          .depositMints([dMint])
-          .recentSlot(recentSlot)
-          .numOutcomes(m.outcomes.length)
-          .buildIx();
-
-        const extendIx = client.positions().extendPositionTokens()
-          .payer(keypair.publicKey)
-          .user(keypair.publicKey)
-          .market(marketPubkey)
-          .lookupTable(lookupTable)
-          .depositMints([dMint])
-          .numOutcomes(m.outcomes.length)
-          .buildIx();
-
-        const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-        const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight })
-          .add(initIx)
-          .add(extendIx);
-        tx.sign(keypair);
-        const signature = await connection.sendRawTransaction(tx.serialize(), {
-          skipPreflight: true,
-        });
-        await confirmTransactionOrThrow(connection, signature, {
-          blockhash,
-          lastValidBlockHeight,
-        });
-        console.log(`init_position_tokens: confirmed ${signature}`);
-        break;
-      } catch (error: unknown) {
-        const message = formatError(error);
-        const retryable = message.includes("is not a recent slot")
-          || message.includes("UninitializedAccount")
-          || message.includes("already in use");
-        if (attempt < maxAttempts && retryable) {
-          console.log(`init_position_tokens: retrying (${attempt}/${maxAttempts}): ${message.slice(0, 80)}`);
-          await new Promise((resolve) => setTimeout(resolve, 2000));
-          continue;
-        }
-        throw error;
-      }
-    }
-  } else {
-    console.log("position already initialized, skipping init_position_tokens + extend");
-  }
-
   const instructions: Array<[string, import("@solana/web3.js").TransactionInstruction]> = [];
 
-  // 3. Deposit to global — fund the global pool with collateral
+  // 1. Deposit to global — fund the global pool with collateral
   instructions.push([
     "deposit_to_global",
     client.positions().depositToGlobal()
@@ -100,7 +33,7 @@ async function main() {
       .buildIx(),
   ]);
 
-  // 4. Global to market deposit — move capital into a specific market
+  // 2. Global to market deposit — move capital into a specific market
   instructions.push([
     "global_to_market_deposit",
     client.positions().globalToMarketDeposit()
@@ -112,7 +45,7 @@ async function main() {
       .buildIx(),
   ]);
 
-  // 5. Withdraw from global — pull remaining tokens back out
+  // 3. Withdraw from global — pull remaining tokens back out
   instructions.push([
     "withdraw_from_global",
     client.positions().withdrawFromGlobal()
@@ -122,7 +55,7 @@ async function main() {
       .buildIx(),
   ]);
 
-  // 6. Merge — burn the complete set of conditional tokens minted in step 4
+  // 4. Merge — burn the complete set of conditional tokens minted in step 2
   //    back to the deposit asset, returning the collateral to the user's
   //    token account. Closes out the market position so the full example is
   //    net-neutral on the wallet's balance, the global pool, and the market

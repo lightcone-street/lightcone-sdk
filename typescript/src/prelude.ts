@@ -93,11 +93,21 @@ export type {
   ConditionalTokenResponse,
   DepositAssetResponse,
   DepositMintsResponse,
+  MarketResolutionPayout,
+  MarketResolutionResponse,
 } from "./domain/market/wire";
+
+export {
+  Status,
+  MarketResolutionKind,
+  hasSingleWinningOutcome,
+  isMarketResolved,
+  singleWinningOutcome,
+} from "./domain/market";
 
 export type {
   Market,
-  Status,
+  MarketResolutionContainer,
   Outcome,
   ConditionalToken,
   DepositAsset,

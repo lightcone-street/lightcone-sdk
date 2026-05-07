@@ -1,6 +1,7 @@
 //! RPC sub-client — exchange-level on-chain fetchers, global deposit helpers, and blockhash access.
 
 use crate::client::LightconeClient;
+#[cfg(feature = "solana-rpc")]
 use crate::error::SdkError;
 use solana_pubkey::Pubkey;
 

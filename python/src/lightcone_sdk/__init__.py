@@ -1,6 +1,6 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.3.21"
+__version__ = "0.6.2"
 
 # ============================================================================
 # Layer 1: Core
@@ -157,6 +157,12 @@ from .ws.client import WsClient
 from .client import LightconeClient, LightconeClientBuilder
 from .rpc import Rpc
 
+from .domain.market import (
+    MarketResolutionKind,
+    MarketResolutionPayout,
+    MarketResolutionResponse,
+)
+
 # ============================================================================
 # Program layer (on-chain interaction)
 # ============================================================================
@@ -189,21 +195,30 @@ from .program import (
     BuildDepositParams,
     BuildMergeParams,
     SettleMarketParams,
+    ScalarResolutionParams,
     RedeemWinningsParams,
     WithdrawFromPositionParams,
     ActivateMarketParams,
     MatchOrdersMultiParams,
     CreateOrderbookParams,
     SetAuthorityParams,
+    SetManagerParams,
     BidOrderParams,
     AskOrderParams,
     BuildResult,
     WhitelistDepositTokenParams,
     DepositToGlobalParams,
+    DepositToGlobalAltContext,
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
     DepositAndSwapParams,
     ExtendPositionTokensParams,
+    WithdrawFromGlobalParams,
+    ClosePositionAltParams,
+    CloseOrderStatusParams,
+    ClosePositionTokenAccountsParams,
+    CloseOrderbookAltParams,
+    CloseOrderbookParams,
     # Constants
     ALT_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
@@ -219,6 +234,7 @@ from .program import (
     MIN_OUTCOMES,
     MAX_MAKERS,
     SEED_GLOBAL_DEPOSIT,
+    SEED_CONDITION,
     GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
     GLOBAL_DEPOSIT_TOKEN_SIZE,
     # Errors
@@ -235,12 +251,26 @@ from .program import (
     InvalidOutcomeError,
     TooManyMakersError,
     OrdersDoNotCrossError,
+    InvalidPayoutNumeratorsError,
+    PayoutVectorExceedsU32Error,
+    InvalidScalarRangeError,
+    DuplicateScalarOutcomesError,
+    InsufficientGlobalDepositError,
+    InvalidDepositMintOrderError,
+    ZeroAmountError,
+    InvalidAtaError,
+    OrderNotFullyFilledError,
+    PayoutTooSmallError,
+    TokenAccountNotEmptyError,
+    LookupTableNotClosedError,
     # Utils
     keccak256,
     derive_condition_id,
     get_associated_token_address,
     get_associated_token_address_2022,
     orders_cross,
+    winner_takes_all_payout_numerators,
+    scalar_to_payout_numerators,
     # Account Deserialization
     deserialize_exchange,
     deserialize_market,
@@ -260,6 +290,8 @@ from .program import (
     get_user_nonce_pda,
     get_position_pda,
     get_orderbook_pda,
+    get_condition_tombstone_pda,
+    canonical_mint_pair,
     get_alt_pda,
     get_all_conditional_mint_pdas,
     get_all_conditional_mints,
@@ -313,6 +345,7 @@ from .program import (
     build_redeem_winnings_instruction,
     build_set_paused_instruction,
     build_set_operator_instruction,
+    build_set_manager_instruction,
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
@@ -320,10 +353,17 @@ from .program import (
     build_set_authority_instruction,
     build_whitelist_deposit_token_instruction,
     build_deposit_to_global_instruction,
+    build_deposit_to_global_instruction_with_alt,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
     build_extend_position_tokens_instruction,
+    build_withdraw_from_global_instruction,
+    build_close_position_alt_instruction,
+    build_close_order_status_instruction,
+    build_close_position_token_accounts_instruction,
+    build_close_orderbook_alt_instruction,
+    build_close_orderbook_instruction,
     # Envelope & Builder
     LimitOrderEnvelope,
     TriggerOrderEnvelope,
@@ -344,7 +384,6 @@ from . import ws
 from . import error
 from . import network
 
-
 __all__ = [
     # Version
     "__version__",
@@ -352,6 +391,9 @@ __all__ = [
     "LightconeClient",
     "LightconeClientBuilder",
     "Rpc",
+    "MarketResolutionKind",
+    "MarketResolutionPayout",
+    "MarketResolutionResponse",
     # Shared types
     "OrderBookId",
     "PubkeyStr",
@@ -487,21 +529,30 @@ __all__ = [
     "BuildDepositParams",
     "BuildMergeParams",
     "SettleMarketParams",
+    "ScalarResolutionParams",
     "RedeemWinningsParams",
     "WithdrawFromPositionParams",
     "ActivateMarketParams",
     "MatchOrdersMultiParams",
     "CreateOrderbookParams",
     "SetAuthorityParams",
+    "SetManagerParams",
     "BidOrderParams",
     "AskOrderParams",
     "BuildResult",
     "WhitelistDepositTokenParams",
     "DepositToGlobalParams",
+    "DepositToGlobalAltContext",
     "GlobalToMarketDepositParams",
     "InitPositionTokensParams",
     "DepositAndSwapParams",
     "ExtendPositionTokensParams",
+    "WithdrawFromGlobalParams",
+    "ClosePositionAltParams",
+    "CloseOrderStatusParams",
+    "ClosePositionTokenAccountsParams",
+    "CloseOrderbookAltParams",
+    "CloseOrderbookParams",
     # Program - Constants
     "PROGRAM_ID",
     "ALT_PROGRAM_ID",
@@ -518,6 +569,7 @@ __all__ = [
     "MIN_OUTCOMES",
     "MAX_MAKERS",
     "SEED_GLOBAL_DEPOSIT",
+    "SEED_CONDITION",
     "GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR",
     "GLOBAL_DEPOSIT_TOKEN_SIZE",
     # Program - Errors
@@ -534,12 +586,26 @@ __all__ = [
     "InvalidOutcomeError",
     "TooManyMakersError",
     "OrdersDoNotCrossError",
+    "InvalidPayoutNumeratorsError",
+    "PayoutVectorExceedsU32Error",
+    "InvalidScalarRangeError",
+    "DuplicateScalarOutcomesError",
+    "InsufficientGlobalDepositError",
+    "InvalidDepositMintOrderError",
+    "ZeroAmountError",
+    "InvalidAtaError",
+    "OrderNotFullyFilledError",
+    "PayoutTooSmallError",
+    "TokenAccountNotEmptyError",
+    "LookupTableNotClosedError",
     # Program - Utils
     "keccak256",
     "derive_condition_id",
     "get_associated_token_address",
     "get_associated_token_address_2022",
     "orders_cross",
+    "winner_takes_all_payout_numerators",
+    "scalar_to_payout_numerators",
     # Program - Accounts
     "deserialize_exchange",
     "deserialize_market",
@@ -559,6 +625,8 @@ __all__ = [
     "get_user_nonce_pda",
     "get_position_pda",
     "get_orderbook_pda",
+    "get_condition_tombstone_pda",
+    "canonical_mint_pair",
     "get_alt_pda",
     "get_all_conditional_mint_pdas",
     "get_all_conditional_mints",
@@ -598,7 +666,7 @@ __all__ = [
     "orders_can_cross",
     "derive_orderbook_id",
     "apply_signature",
-    # Program - Instructions (all 23)
+    # Program - Instructions
     "build_initialize_instruction",
     "build_create_market_instruction",
     "build_add_deposit_mint_instruction",
@@ -617,12 +685,20 @@ __all__ = [
     "build_match_orders_multi_instruction",
     "build_create_orderbook_instruction",
     "build_set_authority_instruction",
+    "build_set_manager_instruction",
     "build_whitelist_deposit_token_instruction",
     "build_deposit_to_global_instruction",
+    "build_deposit_to_global_instruction_with_alt",
     "build_global_to_market_deposit_instruction",
     "build_init_position_tokens_instruction",
     "build_deposit_and_swap_instruction",
     "build_extend_position_tokens_instruction",
+    "build_withdraw_from_global_instruction",
+    "build_close_position_alt_instruction",
+    "build_close_order_status_instruction",
+    "build_close_position_token_accounts_instruction",
+    "build_close_orderbook_alt_instruction",
+    "build_close_orderbook_instruction",
     # Program - Envelope & Builder
     "LimitOrderEnvelope",
     "TriggerOrderEnvelope",

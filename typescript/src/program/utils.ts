@@ -2,10 +2,15 @@ import { PublicKey } from "@solana/web3.js";
 import { keccak_256 } from "js-sha3";
 import { ProgramSdkError } from "./error";
 import {
+  MAX_OUTCOMES,
+  MIN_OUTCOMES,
   TOKEN_PROGRAM_ID,
   TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "./constants";
+import type { ScalarResolutionParams } from "./types";
+
+const U32_MAX = 0xffffffffn;
 
 // ============================================================================
 // BUFFER UTILITIES - Little Endian
@@ -224,7 +229,7 @@ export function deserializeString(
  * Validate that a number is within the valid outcomes range
  */
 export function validateOutcomes(numOutcomes: number): void {
-  if (numOutcomes < 2 || numOutcomes > 6) {
+  if (!Number.isInteger(numOutcomes) || numOutcomes < MIN_OUTCOMES || numOutcomes > MAX_OUTCOMES) {
     throw ProgramSdkError.invalidOutcomeCount(numOutcomes);
   }
 }
@@ -248,4 +253,94 @@ export function validate32Bytes(buffer: Buffer, name: string): void {
   if (buffer.length !== 32) {
     throw ProgramSdkError.invalidDataLength(name, 32, buffer.length);
   }
+}
+
+/**
+ * Build a winner-takes-all payout vector for a binary or multi-outcome market.
+ */
+export function winnerTakesAllPayoutNumerators(
+  winningOutcome: number,
+  numOutcomes: number
+): number[] {
+  validateOutcomes(numOutcomes);
+  validateOutcomeIndex(winningOutcome, numOutcomes);
+
+  const payoutNumerators = Array<number>(numOutcomes).fill(0);
+  payoutNumerators[winningOutcome] = 1;
+  return payoutNumerators;
+}
+
+/**
+ * Convert a two-sided scalar resolution into program payout numerators.
+ *
+ * All values are integer fixed-point BigInts. The resolved value is clamped to
+ * [minValue, maxValue], reduced by GCD, and checked against the program's u32
+ * payout representation.
+ */
+export function scalarToPayoutNumerators(
+  params: ScalarResolutionParams
+): number[] {
+  validateOutcomes(params.numOutcomes);
+  validateOutcomeIndex(params.lowerOutcomeIndex, params.numOutcomes);
+  validateOutcomeIndex(params.upperOutcomeIndex, params.numOutcomes);
+
+  if (params.lowerOutcomeIndex === params.upperOutcomeIndex) {
+    throw ProgramSdkError.duplicateScalarOutcomes();
+  }
+
+  const range = params.maxValue - params.minValue;
+  if (range <= 0n) {
+    throw ProgramSdkError.invalidScalarRange();
+  }
+
+  const clamped =
+    params.resolvedValue < params.minValue
+      ? params.minValue
+      : params.resolvedValue > params.maxValue
+        ? params.maxValue
+        : params.resolvedValue;
+
+  const numerators = Array<bigint>(params.numOutcomes).fill(0n);
+  numerators[params.lowerOutcomeIndex] = params.maxValue - clamped;
+  numerators[params.upperOutcomeIndex] = clamped - params.minValue;
+
+  return reduceAndFitPayoutNumerators(numerators);
+}
+
+function reduceAndFitPayoutNumerators(numerators: bigint[]): number[] {
+  const nonZero = numerators.filter((n) => n > 0n);
+  if (nonZero.length === 0) {
+    throw ProgramSdkError.invalidPayoutNumerators();
+  }
+
+  const gcd = nonZero.reduce((acc, value) => gcdBigInt(acc, value));
+  let sum = 0n;
+  const reduced = numerators.map((numerator) => {
+    const value = numerator === 0n ? 0n : numerator / gcd;
+    if (value > U32_MAX) {
+      throw ProgramSdkError.payoutVectorExceedsU32();
+    }
+    sum += value;
+    return Number(value);
+  });
+
+  if (sum === 0n) {
+    throw ProgramSdkError.invalidPayoutNumerators();
+  }
+  if (sum > U32_MAX) {
+    throw ProgramSdkError.payoutVectorExceedsU32();
+  }
+
+  return reduced;
+}
+
+function gcdBigInt(a: bigint, b: bigint): bigint {
+  let left = a;
+  let right = b;
+  while (right !== 0n) {
+    const remainder = left % right;
+    left = right;
+    right = remainder;
+  }
+  return left;
 }
