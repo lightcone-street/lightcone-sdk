@@ -1,7 +1,7 @@
-#![cfg(feature = "ws-native")]
+#![cfg(all(feature = "ws-native", feature = "http"))]
 //! Integration tests for the native WebSocket client.
 //!
-//! These tests connect to the staging WS server and exercise the full
+//! These tests connect to the staging API/WS servers and exercise the full
 //! connect → subscribe → receive → unsubscribe → disconnect lifecycle.
 //!
 //! All tests are `#[ignore]` because they require network access.
@@ -16,22 +16,41 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
+use lightcone::prelude::{LightconeClient, LightconeEnv};
 use lightcone::shared::OrderBookId;
 use lightcone::ws::native::WsClient;
 use lightcone::ws::{Kind, MessageOut, WsConfig, WsEvent};
 
-const WS_URL: &str = "wss://tws.lightcone.xyz/ws";
+const TEST_ENV: LightconeEnv = LightconeEnv::Staging;
 const TEST_TIMEOUT: Duration = Duration::from_secs(15);
-
-/// Known orderbook ID on staging (BTC-USD Yes).
-const TEST_ORDERBOOK_ID: &str = "2cXSqCoN";
 
 fn test_config() -> WsConfig {
     WsConfig {
-        url: WS_URL.into(),
+        url: TEST_ENV.ws_url().into(),
         reconnect: false,
         ..Default::default()
     }
+}
+
+async fn test_orderbook_id() -> OrderBookId {
+    let client = LightconeClient::builder()
+        .env(TEST_ENV)
+        .build()
+        .expect("build staging client");
+
+    let result = client
+        .markets()
+        .get(None, Some(10))
+        .await
+        .expect("fetch staging markets");
+
+    for market in result.markets {
+        if let Some(orderbook) = market.orderbook_pairs.into_iter().find(|pair| pair.active) {
+            return orderbook.orderbook_id;
+        }
+    }
+
+    panic!("staging API returned no active orderbooks");
 }
 
 /// Connect and wait for the `Connected` event.
@@ -65,6 +84,15 @@ async fn next_matching(client: &WsClient, predicate: impl Fn(&WsEvent) -> bool) 
 
     timeout(TEST_TIMEOUT, async {
         while let Some(ev) = events.next().await {
+            match &ev {
+                WsEvent::Message(Kind::Error(error)) => {
+                    panic!("server websocket error: {error}");
+                }
+                WsEvent::Error(error) => {
+                    panic!("client websocket error: {error}");
+                }
+                _ => {}
+            }
             if predicate(&ev) {
                 return ev;
             }
@@ -105,7 +133,7 @@ async fn ping_pong() {
 async fn subscribe_books_receives_snapshot() {
     let mut client = connected_client().await;
 
-    let ob_id = OrderBookId::new(TEST_ORDERBOOK_ID);
+    let ob_id = test_orderbook_id().await;
     client
         .send(MessageOut::subscribe_books(vec![ob_id]))
         .expect("subscribe books");
@@ -130,7 +158,7 @@ async fn subscribe_books_receives_snapshot() {
 async fn subscribe_ticker_receives_data() {
     let mut client = connected_client().await;
 
-    let ob_id = OrderBookId::new(TEST_ORDERBOOK_ID);
+    let ob_id = test_orderbook_id().await;
     client
         .send(MessageOut::subscribe_ticker(vec![ob_id]))
         .expect("subscribe ticker");
@@ -150,7 +178,7 @@ async fn subscribe_ticker_receives_data() {
 async fn subscribe_and_unsubscribe_books() {
     let mut client = connected_client().await;
 
-    let ob_id = OrderBookId::new(TEST_ORDERBOOK_ID);
+    let ob_id = test_orderbook_id().await;
     client
         .send(MessageOut::subscribe_books(vec![ob_id.clone()]))
         .expect("subscribe books");
@@ -204,7 +232,7 @@ async fn graceful_disconnect() {
 async fn multiple_subscriptions() {
     let mut client = connected_client().await;
 
-    let ob_id = OrderBookId::new(TEST_ORDERBOOK_ID);
+    let ob_id = test_orderbook_id().await;
 
     client
         .send(MessageOut::subscribe_books(vec![ob_id.clone()]))
