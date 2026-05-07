@@ -128,7 +128,7 @@ export class Markets {
     const url = `${this.client.http.baseUrl()}/api/markets/search/featured`;
     const result = await this.client.http.get<MarketSearchResult[]>(url, RetryPolicy.Idempotent);
     return result.filter(
-      (item) => item.market_status === Status.Active || item.market_status === Status.Resolved
+      (item) => item.market_status === Status.Active
     );
   }
 

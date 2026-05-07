@@ -121,6 +121,11 @@ export interface SearchOrderbook {
   quote_icon_url_high?: string;
   conditional_base_mint: PubkeyStr;
   conditional_quote_mint: PubkeyStr;
+  outcome_icon_url_low?: string;
+  outcome_icon_url_medium?: string;
+  outcome_icon_url_high?: string;
+  conditional_base_symbol?: string;
+  conditional_quote_symbol?: string;
   latest_mid_price?: string;
 }
 

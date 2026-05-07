@@ -180,7 +180,7 @@ pub struct SubmitOrderResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelSuccess {
     pub order_hash: String,
-    pub remaining: u64,
+    pub remaining: Decimal,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
