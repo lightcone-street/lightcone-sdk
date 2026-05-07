@@ -149,6 +149,11 @@ class SearchOrderbook:
     quote_icon_url_high: str = ""
     conditional_base_mint: str = ""
     conditional_quote_mint: str = ""
+    outcome_icon_url_low: Optional[str] = None
+    outcome_icon_url_medium: Optional[str] = None
+    outcome_icon_url_high: Optional[str] = None
+    conditional_base_symbol: Optional[str] = None
+    conditional_quote_symbol: Optional[str] = None
     latest_mid_price: Optional[str] = None
 
     @staticmethod
@@ -169,6 +174,11 @@ class SearchOrderbook:
             quote_icon_url_high=d.get("quote_icon_url_high", ""),
             conditional_base_mint=d.get("conditional_base_mint", ""),
             conditional_quote_mint=d.get("conditional_quote_mint", ""),
+            outcome_icon_url_low=d.get("outcome_icon_url_low"),
+            outcome_icon_url_medium=d.get("outcome_icon_url_medium"),
+            outcome_icon_url_high=d.get("outcome_icon_url_high"),
+            conditional_base_symbol=d.get("conditional_base_symbol"),
+            conditional_quote_symbol=d.get("conditional_quote_symbol"),
             latest_mid_price=d.get("latest_mid_price"),
         )
 
