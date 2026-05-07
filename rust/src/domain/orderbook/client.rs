@@ -4,7 +4,11 @@ use crate::client::LightconeClient;
 use crate::domain::orderbook::wire::OrderbookDepthResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
+use crate::program::instructions;
+use crate::program::types::{CloseOrderbookAltParams, CloseOrderbookParams};
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
+use solana_transaction::Transaction;
 
 pub struct Orderbooks<'a> {
     pub(crate) client: &'a LightconeClient,
@@ -35,6 +39,36 @@ impl<'a> Orderbooks<'a> {
             url = format!("{}?depth={}", url, d);
         }
         self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Build CloseOrderbookAlt instruction.
+    pub fn close_orderbook_alt_ix(&self, params: &CloseOrderbookAltParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_orderbook_alt_ix(params, pid)
+    }
+
+    /// Build CloseOrderbookAlt transaction.
+    pub fn close_orderbook_alt_tx(
+        &self,
+        params: CloseOrderbookAltParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_orderbook_alt_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build CloseOrderbook instruction.
+    pub fn close_orderbook_ix(&self, params: &CloseOrderbookParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_orderbook_ix(params, pid)
+    }
+
+    /// Build CloseOrderbook transaction.
+    pub fn close_orderbook_tx(
+        &self,
+        params: CloseOrderbookParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_orderbook_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 }
 

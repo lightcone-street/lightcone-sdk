@@ -7,18 +7,34 @@ from .constants import (
     GLOBAL_DEPOSIT_TOKEN_SIZE,
     MARKET_DISCRIMINATOR,
     MARKET_SIZE,
-    ORDERBOOK_DISCRIMINATOR,
-    ORDERBOOK_SIZE,
     ORDER_STATUS_DISCRIMINATOR,
     ORDER_STATUS_SIZE,
+    ORDERBOOK_DISCRIMINATOR,
+    ORDERBOOK_SIZE,
     POSITION_DISCRIMINATOR,
     POSITION_SIZE,
     USER_NONCE_DISCRIMINATOR,
     USER_NONCE_SIZE,
 )
 from .errors import InvalidAccountDataError, InvalidDiscriminatorError
-from .types import Exchange, GlobalDepositToken, Market, MarketStatus, Orderbook, OrderStatus, Position, UserNonce
-from .utils import decode_bool, decode_pubkey, decode_u16, decode_u64, decode_u8
+from .types import (
+    Exchange,
+    GlobalDepositToken,
+    Market,
+    MarketStatus,
+    Orderbook,
+    OrderStatus,
+    Position,
+    UserNonce,
+)
+from .utils import (
+    decode_bool,
+    decode_pubkey,
+    decode_u8,
+    decode_u16,
+    decode_u32,
+    decode_u64,
+)
 
 
 def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:
@@ -33,15 +49,16 @@ def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:
 def deserialize_exchange(data: bytes) -> Exchange:
     """Deserialize an Exchange account.
 
-    Layout (88 bytes):
+    Layout (120 bytes):
     - [0..8]: discriminator
     - [8..40]: authority (Pubkey)
     - [40..72]: operator (Pubkey)
-    - [72..80]: market_count (u64 LE)
-    - [80]: paused (bool)
-    - [81]: bump (u8)
-    - [82..84]: deposit_token_count (u16 LE)
-    - [84..88]: padding
+    - [72..104]: manager (Pubkey)
+    - [104..112]: market_count (u64 LE)
+    - [112]: paused (bool)
+    - [113]: bump (u8)
+    - [114..116]: deposit_token_count (u16 LE)
+    - [116..120]: padding
     """
     _validate_discriminator(data, EXCHANGE_DISCRIMINATOR, "Exchange")
 
@@ -53,28 +70,29 @@ def deserialize_exchange(data: bytes) -> Exchange:
     return Exchange(
         authority=decode_pubkey(data, 8),
         operator=decode_pubkey(data, 40),
-        market_count=decode_u64(data, 72),
-        paused=decode_bool(data, 80),
-        bump=decode_u8(data, 81),
-        deposit_token_count=decode_u16(data, 82),
+        manager=decode_pubkey(data, 72),
+        market_count=decode_u64(data, 104),
+        paused=decode_bool(data, 112),
+        bump=decode_u8(data, 113),
+        deposit_token_count=decode_u16(data, 114),
     )
 
 
 def deserialize_market(data: bytes) -> Market:
     """Deserialize a Market account.
 
-    Layout (120 bytes):
+    Layout (148 bytes):
     - [0..8]: discriminator
     - [8..16]: market_id (u64 LE)
     - [16]: num_outcomes (u8)
     - [17]: status (u8: 0=Pending, 1=Active, 2=Resolved, 3=Cancelled)
-    - [18]: winning_outcome (u8, 255 if not resolved)
-    - [19]: has_winning_outcome (bool)
-    - [20]: bump (u8)
-    - [21..24]: padding (3 bytes)
+    - [18]: bump (u8)
+    - [19..24]: padding (5 bytes)
     - [24..56]: oracle (Pubkey)
     - [56..88]: question_id (32 bytes)
     - [88..120]: condition_id (32 bytes)
+    - [120..144]: payout_numerators ([u32; 6])
+    - [144..148]: payout_denominator (u32)
     """
     _validate_discriminator(data, MARKET_DISCRIMINATOR, "Market")
 
@@ -87,12 +105,19 @@ def deserialize_market(data: bytes) -> Market:
         market_id=decode_u64(data, 8),
         num_outcomes=decode_u8(data, 16),
         status=MarketStatus(decode_u8(data, 17)),
-        winning_outcome=decode_u8(data, 18),
-        has_winning_outcome=decode_bool(data, 19),
-        bump=decode_u8(data, 20),
+        bump=decode_u8(data, 18),
         oracle=decode_pubkey(data, 24),
         question_id=data[56:88],
         condition_id=data[88:120],
+        payout_numerators=(
+            decode_u32(data, 120),
+            decode_u32(data, 124),
+            decode_u32(data, 128),
+            decode_u32(data, 132),
+            decode_u32(data, 136),
+            decode_u32(data, 140),
+        ),
+        payout_denominator=decode_u32(data, 144),
     )
 
 
@@ -123,11 +148,12 @@ def deserialize_position(data: bytes) -> Position:
 def deserialize_order_status(data: bytes) -> OrderStatus:
     """Deserialize an OrderStatus account.
 
-    Layout (24 bytes):
+    Layout (32 bytes):
     - [0..8]: discriminator
     - [8..16]: remaining (u64 LE)
-    - [16]: is_cancelled (bool)
-    - [17..24]: padding (7 bytes)
+    - [16..24]: base_remaining (u64 LE)
+    - [24]: is_cancelled (bool)
+    - [25..32]: padding (7 bytes)
     """
     _validate_discriminator(data, ORDER_STATUS_DISCRIMINATOR, "OrderStatus")
 
@@ -138,7 +164,8 @@ def deserialize_order_status(data: bytes) -> OrderStatus:
 
     return OrderStatus(
         remaining=decode_u64(data, 8),
-        is_cancelled=decode_bool(data, 16),
+        base_remaining=decode_u64(data, 16),
+        is_cancelled=decode_bool(data, 24),
     )
 
 
@@ -237,7 +264,9 @@ def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
     - [42..44]: index (u16 LE)
     - [44..48]: padding
     """
-    _validate_discriminator(data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken")
+    _validate_discriminator(
+        data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken"
+    )
 
     if len(data) < GLOBAL_DEPOSIT_TOKEN_SIZE:
         raise InvalidAccountDataError(

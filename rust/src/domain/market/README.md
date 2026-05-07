@@ -45,7 +45,22 @@ A fully validated market with all nested domain types.
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `activated_at` | `Option<DateTime<Utc>>` | When market became active |
 | `settled_at` | `Option<DateTime<Utc>>` | When market was resolved |
-| `winning_outcome` | `Option<i16>` | Winning outcome index (after resolution) |
+| `resolution` | `Option<MarketResolutionResponse>` | Canonical payout-vector settlement data |
+
+Resolution semantics:
+
+- `resolution == None` means the market has not settled yet.
+- `MarketResolutionKind::SingleWinner` preserves winner-takes-all behavior, but payouts are still canonical.
+- `MarketResolutionKind::Scalar` has no single winner; use each payout entry.
+- `single_winning_outcome() == None` does not necessarily mean unresolved. It can also mean a scalar/split resolution. Use `is_resolved()` for settlement state.
+
+Convenience helpers:
+
+```rust
+market.is_resolved();
+market.single_winning_outcome();
+market.has_single_winning_outcome();
+```
 
 ### `Status`
 

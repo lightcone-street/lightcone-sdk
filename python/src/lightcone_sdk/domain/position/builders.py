@@ -5,28 +5,17 @@ Created via factory methods on ``client.positions()``.
 
 from __future__ import annotations
 
-from typing import Optional, List, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Optional
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from ...error import SdkError, MissingMarketContext
-from ...shared.types import DepositSource
-from ...program.types import (
-    BuildDepositParams,
-    BuildMergeParams,
-    DepositToGlobalParams,
-    ExtendPositionTokensParams,
-    GlobalToMarketDepositParams,
-    InitPositionTokensParams,
-    RedeemWinningsParams,
-    WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
-)
+from ...error import MissingMarketContext, SdkError
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
+    build_deposit_to_global_instruction_with_alt,
     build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
@@ -35,6 +24,8 @@ from ...program.instructions import (
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
 )
+from ...program.types import DepositToGlobalAltContext
+from ...shared.types import DepositSource
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -108,17 +99,26 @@ class DepositBuilder:
 
         if source == DepositSource.GLOBAL:
             return build_deposit_to_global_instruction(
-                user=user, mint=mint, amount=amount, program_id=program_id,
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=program_id,
             )
         else:  # Market -> deposit (mint complete set)
             market = self._market
             if market is None:
-                raise MissingMarketContext("market is required for Market deposit source")
+                raise MissingMarketContext(
+                    "market is required for Market deposit source"
+                )
             market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
             num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
             return build_deposit_instruction(
-                user=user, market=market_pubkey, deposit_mint=mint,
-                amount=amount, num_outcomes=num_outcomes, program_id=program_id,
+                user=user,
+                market=market_pubkey,
+                deposit_mint=mint,
+                amount=amount,
+                num_outcomes=num_outcomes,
+                program_id=program_id,
             )
 
     def build_tx(self) -> Transaction:
@@ -195,8 +195,11 @@ class MergeBuilder:
         market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
         num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
         return build_merge_instruction(
-            user=user, market=market_pubkey, deposit_mint=mint,
-            amount=amount, num_outcomes=num_outcomes,
+            user=user,
+            market=market_pubkey,
+            deposit_mint=mint,
+            amount=amount,
+            num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
 
@@ -290,7 +293,10 @@ class WithdrawBuilder:
 
         if source == DepositSource.GLOBAL:
             return build_withdraw_from_global_instruction(
-                user=user, mint=mint, amount=amount, program_id=program_id,
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=program_id,
             )
         else:  # Market -> withdraw_from_position
             market = self._market
@@ -301,8 +307,12 @@ class WithdrawBuilder:
             if outcome_index is None:
                 raise SdkError("outcome_index is required for Market withdrawal")
             return build_withdraw_from_position_instruction(
-                user=user, market=market_pubkey, mint=mint, amount=amount,
-                outcome_index=outcome_index, is_token_2022=self._is_token_2022,
+                user=user,
+                market=market_pubkey,
+                mint=mint,
+                amount=amount,
+                outcome_index=outcome_index,
+                is_token_2022=self._is_token_2022,
                 program_id=program_id,
             )
 
@@ -331,7 +341,7 @@ class RedeemWinningsBuilder:
         self._market: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
-        self._winning_outcome: Optional[int] = None
+        self._outcome_index: Optional[int] = None
 
     def user(self, user: Pubkey) -> "RedeemWinningsBuilder":
         self._user = user
@@ -349,8 +359,8 @@ class RedeemWinningsBuilder:
         self._amount = amount
         return self
 
-    def winning_outcome(self, winning_outcome: int) -> "RedeemWinningsBuilder":
-        self._winning_outcome = winning_outcome
+    def outcome_index(self, outcome_index: int) -> "RedeemWinningsBuilder":
+        self._outcome_index = outcome_index
         return self
 
     def build_ix(self) -> Instruction:
@@ -366,12 +376,15 @@ class RedeemWinningsBuilder:
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
-        winning_outcome = self._winning_outcome
-        if winning_outcome is None:
-            raise SdkError("winning_outcome is required")
+        outcome_index = self._outcome_index
+        if outcome_index is None:
+            raise SdkError("outcome_index is required")
         return build_redeem_winnings_instruction(
-            user=user, market=market, deposit_mint=mint,
-            winning_outcome=winning_outcome, amount=amount,
+            user=user,
+            market=market,
+            deposit_mint=mint,
+            outcome_index=outcome_index,
+            amount=amount,
             program_id=self._client.program_id,
         )
 
@@ -443,8 +456,12 @@ class WithdrawFromPositionBuilder:
         if outcome_index is None:
             raise SdkError("outcome_index is required")
         return build_withdraw_from_position_instruction(
-            user=user, market=market, mint=mint, amount=amount,
-            outcome_index=outcome_index, is_token_2022=self._is_token_2022,
+            user=user,
+            market=market,
+            mint=mint,
+            amount=amount,
+            outcome_index=outcome_index,
+            is_token_2022=self._is_token_2022,
             program_id=self._client.program_id,
         )
 
@@ -464,7 +481,12 @@ class WithdrawFromPositionBuilder:
 
 
 class InitPositionTokensBuilder:
-    """Fluent builder for init-position-tokens operations."""
+    """Fluent builder for init-position-tokens operations.
+
+    Creates the Position PDA, conditional token ATAs, and position ALT entries
+    for the supplied deposit mints. Permissionless: any payer can initialize
+    these accounts for a user.
+    """
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
@@ -519,8 +541,13 @@ class InitPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_init_position_tokens_instruction(
-            payer, user, market, deposit_mints,
-            num_outcomes, recent_slot, self._client.program_id,
+            payer,
+            user,
+            market,
+            deposit_mints,
+            num_outcomes,
+            recent_slot,
+            self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -539,19 +566,23 @@ class InitPositionTokensBuilder:
 
 
 class ExtendPositionTokensBuilder:
-    """Fluent builder for extend-position-tokens operations."""
+    """Fluent builder for extend-position-tokens operations.
+
+    Operator-only. Use this after a market adds new deposit mints to extend an
+    existing position ALT with those new mint accounts.
+    """
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
-        self._payer: Optional[Pubkey] = None
+        self._operator: Optional[Pubkey] = None
         self._user: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._lookup_table: Optional[Pubkey] = None
         self._deposit_mints: Optional[List[Pubkey]] = None
         self._num_outcomes: Optional[int] = None
 
-    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._payer = payer
+    def operator(self, operator: Pubkey) -> "ExtendPositionTokensBuilder":
+        self._operator = operator
         return self
 
     def user(self, user: Pubkey) -> "ExtendPositionTokensBuilder":
@@ -566,7 +597,9 @@ class ExtendPositionTokensBuilder:
         self._lookup_table = lookup_table
         return self
 
-    def deposit_mints(self, deposit_mints: List[Pubkey]) -> "ExtendPositionTokensBuilder":
+    def deposit_mints(
+        self, deposit_mints: List[Pubkey]
+    ) -> "ExtendPositionTokensBuilder":
         self._deposit_mints = deposit_mints
         return self
 
@@ -575,9 +608,9 @@ class ExtendPositionTokensBuilder:
         return self
 
     def build_ix(self) -> Instruction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
+        operator = self._operator
+        if operator is None:
+            raise SdkError("operator is required")
         user = self._user
         if user is None:
             raise SdkError("user is required")
@@ -594,15 +627,20 @@ class ExtendPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
-            payer, user, market, lookup_table,
-            deposit_mints, num_outcomes, self._client.program_id,
+            operator,
+            user,
+            market,
+            lookup_table,
+            deposit_mints,
+            num_outcomes,
+            self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
-        return Transaction.new_with_payer([self.build_ix()], payer)
+        operator = self._operator
+        if operator is None:
+            raise SdkError("operator is required")
+        return Transaction.new_with_payer([self.build_ix()], operator)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the extend-position-tokens transaction."""
@@ -621,6 +659,7 @@ class DepositToGlobalBuilder:
         self._user: Optional[Pubkey] = None
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
+        self._alt_context: Optional[DepositToGlobalAltContext] = None
 
     def user(self, user: Pubkey) -> "DepositToGlobalBuilder":
         self._user = user
@@ -634,6 +673,14 @@ class DepositToGlobalBuilder:
         self._amount = amount
         return self
 
+    def create_alt(self, recent_slot: int) -> "DepositToGlobalBuilder":
+        self._alt_context = DepositToGlobalAltContext.create(recent_slot)
+        return self
+
+    def extend_alt(self, lookup_table: Pubkey) -> "DepositToGlobalBuilder":
+        self._alt_context = DepositToGlobalAltContext.extend(lookup_table)
+        return self
+
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
@@ -644,8 +691,19 @@ class DepositToGlobalBuilder:
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
-        return build_deposit_to_global_instruction(
-            user=user, mint=mint, amount=amount, program_id=self._client.program_id,
+        if self._alt_context is None:
+            return build_deposit_to_global_instruction(
+                user=user,
+                mint=mint,
+                amount=amount,
+                program_id=self._client.program_id,
+            )
+        return build_deposit_to_global_instruction_with_alt(
+            user=user,
+            mint=mint,
+            amount=amount,
+            alt_context=self._alt_context,
+            program_id=self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -695,7 +753,10 @@ class WithdrawFromGlobalBuilder:
         if amount is None:
             raise SdkError("amount is required")
         return build_withdraw_from_global_instruction(
-            user=user, mint=mint, amount=amount, program_id=self._client.program_id,
+            user=user,
+            mint=mint,
+            amount=amount,
+            program_id=self._client.program_id,
         )
 
     def build_tx(self) -> Transaction:
@@ -761,8 +822,11 @@ class GlobalToMarketDepositBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_global_to_market_deposit_instruction(
-            user=user, market=market, deposit_mint=mint,
-            amount=amount, num_outcomes=num_outcomes,
+            user=user,
+            market=market,
+            deposit_mint=mint,
+            amount=amount,
+            num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
 

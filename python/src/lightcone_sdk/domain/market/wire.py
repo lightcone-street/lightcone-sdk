@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ...error import _require
+from . import MarketResolutionResponse
 
 
 @dataclass
@@ -192,8 +193,7 @@ class MarketWire:
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
-    winning_outcome: Optional[int] = None
-    has_winning_outcome: bool = False
+    resolution: Optional[MarketResolutionResponse] = None
     volume: Optional[str] = None
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
@@ -206,8 +206,20 @@ class MarketWire:
     question_id: Optional[str] = None
     condition_id: Optional[str] = None
 
+    def is_resolved(self) -> bool:
+        return self.resolution is not None
+
+    def single_winning_outcome(self) -> Optional[int]:
+        if self.resolution is None:
+            return None
+        return self.resolution.single_winning_outcome
+
+    def has_single_winning_outcome(self) -> bool:
+        return self.single_winning_outcome() is not None
+
     @staticmethod
     def from_dict(d: dict) -> "MarketWire":
+        resolution_raw = d.get("resolution")
         return MarketWire(
             market_id=d.get("market_id", 0),
             market_pubkey=_require(d, "market_pubkey", "MarketWire"),
@@ -225,8 +237,11 @@ class MarketWire:
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
             market_status=d.get("market_status"),
-            winning_outcome=d.get("winning_outcome"),
-            has_winning_outcome=d.get("has_winning_outcome", False),
+            resolution=(
+                MarketResolutionResponse.from_dict(resolution_raw)
+                if isinstance(resolution_raw, dict)
+                else None
+            ),
             volume=d.get("volume"),
             created_at=d.get("created_at"),
             activated_at=d.get("activated_at"),
@@ -306,7 +321,6 @@ class MarketEvent:
     event_type: str = ""
     market_pubkey: str = ""
     status: Optional[str] = None
-    winning_outcome: Optional[int] = None
     orderbook_id: Optional[str] = None
 
     @staticmethod
@@ -315,7 +329,6 @@ class MarketEvent:
             event_type=d.get("event_type", ""),
             market_pubkey=d.get("market_pubkey", ""),
             status=d.get("status"),
-            winning_outcome=d.get("winning_outcome"),
             orderbook_id=d.get("orderbook_id"),
         )
 

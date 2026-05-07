@@ -63,7 +63,9 @@ pub mod prelude {
         sort_by_display_priority, ConditionalToken, DepositAsset, GlobalDepositAsset,
         HasDisplayToken, Token, TokenMetadata, ValidatedTokens,
     };
-    pub use crate::domain::market::{Market, Status};
+    pub use crate::domain::market::{
+        Market, MarketResolutionKind, MarketResolutionPayout, MarketResolutionResponse, Status,
+    };
 
     // Domain types — orderbook
     pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};

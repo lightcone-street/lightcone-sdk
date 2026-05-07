@@ -3,23 +3,49 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+from urllib.parse import quote as url_quote
+from urllib.parse import urlencode
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from urllib.parse import quote as url_quote, urlencode
-
+from ...program.instructions import (
+    build_activate_market_instruction,
+    build_add_deposit_mint_instruction,
+    build_create_market_instruction,
+    build_create_orderbook_instruction,
+    build_deposit_and_swap_instruction,
+    build_initialize_instruction,
+    build_match_orders_multi_instruction,
+    build_set_authority_instruction,
+    build_set_manager_instruction,
+    build_set_operator_instruction,
+    build_set_paused_instruction,
+    build_settle_market_instruction,
+    build_whitelist_deposit_token_instruction,
+)
+from ...program.types import (
+    ActivateMarketParams,
+    AddDepositMintParams,
+    CreateOrderbookParams,
+    DepositAndSwapParams,
+    MatchOrdersMultiParams,
+    SetAuthorityParams,
+    SetManagerParams,
+    SettleMarketParams,
+    WhitelistDepositTokenParams,
+)
 from . import (
     AdminLogEvent,
     AdminLogEventsQuery,
     AdminLogEventsResponse,
+    AdminLoginRequest,
+    AdminLoginResponse,
     AdminLogMetricHistoryQuery,
     AdminLogMetricHistoryResponse,
     AdminLogMetricsQuery,
     AdminLogMetricsResponse,
-    AdminLoginRequest,
-    AdminLoginResponse,
     AdminNonceResponse,
     AllocateCodesRequest,
     AllocateCodesResponse,
@@ -43,30 +69,6 @@ from . import (
     UploadMarketDeploymentAssetsResponse,
     WhitelistRequest,
     WhitelistResponse,
-)
-from ...program.instructions import (
-    build_activate_market_instruction,
-    build_add_deposit_mint_instruction,
-    build_create_market_instruction,
-    build_create_orderbook_instruction,
-    build_deposit_and_swap_instruction,
-    build_initialize_instruction,
-    build_match_orders_multi_instruction,
-    build_set_authority_instruction,
-    build_set_operator_instruction,
-    build_set_paused_instruction,
-    build_settle_market_instruction,
-    build_whitelist_deposit_token_instruction,
-)
-from ...program.types import (
-    ActivateMarketParams,
-    AddDepositMintParams,
-    CreateOrderbookParams,
-    DepositAndSwapParams,
-    MatchOrdersMultiParams,
-    SetAuthorityParams,
-    SettleMarketParams,
-    WhitelistDepositTokenParams,
 )
 
 if TYPE_CHECKING:
@@ -111,9 +113,13 @@ class Admin:
 
     # ── Admin API methods ────────────────────────────────────────────────
 
-    async def upsert_metadata(self, request: UnifiedMetadataRequest) -> UnifiedMetadataResponse:
+    async def upsert_metadata(
+        self, request: UnifiedMetadataRequest
+    ) -> UnifiedMetadataResponse:
         """Upsert market/token metadata. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/metadata", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/metadata", request.to_dict()
+        )
         return UnifiedMetadataResponse.from_dict(data)
 
     async def upload_market_deployment_assets(
@@ -128,34 +134,52 @@ class Admin:
         )
         return UploadMarketDeploymentAssetsResponse.from_dict(data)
 
-    async def allocate_codes(self, request: AllocateCodesRequest) -> AllocateCodesResponse:
+    async def allocate_codes(
+        self, request: AllocateCodesRequest
+    ) -> AllocateCodesResponse:
         """Allocate referral codes. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/allocate", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/allocate", request.to_dict()
+        )
         return AllocateCodesResponse.from_dict(data)
 
     async def whitelist(self, request: WhitelistRequest) -> WhitelistResponse:
         """Whitelist wallet addresses. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/whitelist", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/whitelist", request.to_dict()
+        )
         return WhitelistResponse.from_dict(data)
 
     async def revoke(self, request: RevokeRequest) -> RevokeResponse:
         """Revoke access. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/revoke", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/revoke", request.to_dict()
+        )
         return RevokeResponse.from_dict(data)
 
     async def unrevoke(self, request: UnrevokeRequest) -> UnrevokeResponse:
         """Unrevoke access. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/referral/unrevoke", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/referral/unrevoke", request.to_dict()
+        )
         return UnrevokeResponse.from_dict(data)
 
-    async def create_notification(self, request: CreateNotificationRequest) -> CreateNotificationResponse:
+    async def create_notification(
+        self, request: CreateNotificationRequest
+    ) -> CreateNotificationResponse:
         """Create a notification. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/notifications", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/notifications", request.to_dict()
+        )
         return CreateNotificationResponse.from_dict(data)
 
-    async def dismiss_notification(self, request: DismissNotificationRequest) -> DismissNotificationResponse:
+    async def dismiss_notification(
+        self, request: DismissNotificationRequest
+    ) -> DismissNotificationResponse:
         """Dismiss a notification. Requires prior admin_login()."""
-        data = await self._client._http.admin_post("/api/admin/notifications/dismiss", request.to_dict())
+        data = await self._client._http.admin_post(
+            "/api/admin/notifications/dismiss", request.to_dict()
+        )
         return DismissNotificationResponse.from_dict(data)
 
     # ── Referral config / codes ──────────────────────────────────────────
@@ -165,7 +189,9 @@ class Admin:
         data = await self._client._http.admin_post("/api/admin/referral/config/get", {})
         return ReferralConfig.from_dict(data)
 
-    async def update_referral_config(self, request: UpdateConfigRequest) -> ReferralConfig:
+    async def update_referral_config(
+        self, request: UpdateConfigRequest
+    ) -> ReferralConfig:
         """Update the platform-wide referral configuration. Requires prior admin_login()."""
         data = await self._client._http.admin_post(
             "/api/admin/referral/config/update", request.to_dict()
@@ -179,7 +205,9 @@ class Admin:
         )
         return ListCodesResponse.from_dict(data)
 
-    async def update_referral_code(self, request: UpdateCodeRequest) -> UpdateCodeResponse:
+    async def update_referral_code(
+        self, request: UpdateCodeRequest
+    ) -> UpdateCodeResponse:
         """Update the max_uses for a referral code. Requires prior admin_login()."""
         data = await self._client._http.admin_post(
             "/api/admin/referral/codes/update", request.to_dict()
@@ -206,9 +234,7 @@ class Admin:
         )
         return AdminLogEvent.from_dict(data)
 
-    async def log_metrics(
-        self, query: AdminLogMetricsQuery
-    ) -> AdminLogMetricsResponse:
+    async def log_metrics(self, query: AdminLogMetricsQuery) -> AdminLogMetricsResponse:
         """Fetch rolled-up log metrics broken down by window and scope. Requires prior admin_login()."""
         url = "/api/admin/logs/metrics"
         params = query.to_query()
@@ -233,7 +259,7 @@ class Admin:
 
     async def create_market_ix(
         self,
-        authority: Pubkey,
+        manager: Pubkey,
         num_outcomes: int,
         oracle: Pubkey,
         question_id: bytes,
@@ -244,7 +270,7 @@ class Admin:
         """
         market_id = await self._client.markets().next_id()
         return build_create_market_instruction(
-            authority=authority,
+            manager=manager,
             market_id=market_id,
             num_outcomes=num_outcomes,
             oracle=oracle,
@@ -260,7 +286,7 @@ class Admin:
     ) -> Instruction:
         """Build AddDepositMint instruction."""
         return build_add_deposit_mint_instruction(
-            authority=params.authority,
+            manager=params.manager,
             market=market,
             deposit_mint=params.deposit_mint,
             outcome_metadata=params.outcome_metadata,
@@ -271,7 +297,7 @@ class Admin:
     def activate_market_ix(self, params: ActivateMarketParams) -> Instruction:
         """Build ActivateMarket instruction."""
         return build_activate_market_instruction(
-            authority=params.authority,
+            manager=params.manager,
             market_id=params.market_id,
             program_id=self._client.program_id,
         )
@@ -281,7 +307,7 @@ class Admin:
         return build_settle_market_instruction(
             oracle=params.oracle,
             market_id=params.market_id,
-            winning_outcome=params.winning_outcome,
+            payout_numerators=params.payout_numerators,
             program_id=self._client.program_id,
         )
 
@@ -303,7 +329,17 @@ class Admin:
             program_id=self._client.program_id,
         )
 
-    def whitelist_deposit_token_ix(self, params: WhitelistDepositTokenParams) -> Instruction:
+    def set_manager_ix(self, params: SetManagerParams) -> Instruction:
+        """Build SetManager instruction."""
+        return build_set_manager_instruction(
+            authority=params.authority,
+            new_manager=params.new_manager,
+            program_id=self._client.program_id,
+        )
+
+    def whitelist_deposit_token_ix(
+        self, params: WhitelistDepositTokenParams
+    ) -> Instruction:
         """Build WhitelistDepositToken instruction."""
         return build_whitelist_deposit_token_instruction(
             authority=params.authority,
@@ -314,12 +350,16 @@ class Admin:
     def create_orderbook_ix(self, params: CreateOrderbookParams) -> Instruction:
         """Build CreateOrderbook instruction."""
         return build_create_orderbook_instruction(
-            payer=params.authority,
+            manager=params.manager,
             market=params.market,
             mint_a=params.mint_a,
             mint_b=params.mint_b,
+            mint_a_deposit_mint=params.mint_a_deposit_mint,
+            mint_b_deposit_mint=params.mint_b_deposit_mint,
             recent_slot=params.recent_slot,
             base_index=params.base_index,
+            mint_a_outcome_index=params.mint_a_outcome_index,
+            mint_b_outcome_index=params.mint_b_outcome_index,
             program_id=self._client.program_id,
         )
 
@@ -363,7 +403,7 @@ class Admin:
 
     async def create_market_tx(
         self,
-        authority: Pubkey,
+        manager: Pubkey,
         num_outcomes: int,
         oracle: Pubkey,
         question_id: bytes,
@@ -372,8 +412,8 @@ class Admin:
 
         Async because it fetches the next market ID from on-chain state.
         """
-        ix = await self.create_market_ix(authority, num_outcomes, oracle, question_id)
-        return Transaction.new_with_payer([ix], authority)
+        ix = await self.create_market_ix(manager, num_outcomes, oracle, question_id)
+        return Transaction.new_with_payer([ix], manager)
 
     def add_deposit_mint_tx(
         self,
@@ -383,12 +423,12 @@ class Admin:
     ) -> Transaction:
         """Build AddDepositMint transaction."""
         ix = self.add_deposit_mint_ix(params, market, num_outcomes)
-        return Transaction.new_with_payer([ix], params.authority)
+        return Transaction.new_with_payer([ix], params.manager)
 
     def activate_market_tx(self, params: ActivateMarketParams) -> Transaction:
         """Build ActivateMarket transaction."""
         ix = self.activate_market_ix(params)
-        return Transaction.new_with_payer([ix], params.authority)
+        return Transaction.new_with_payer([ix], params.manager)
 
     def settle_market_tx(self, params: SettleMarketParams) -> Transaction:
         """Build SettleMarket transaction."""
@@ -410,7 +450,14 @@ class Admin:
         ix = self.set_authority_ix(params)
         return Transaction.new_with_payer([ix], params.current_authority)
 
-    def whitelist_deposit_token_tx(self, params: WhitelistDepositTokenParams) -> Transaction:
+    def set_manager_tx(self, params: SetManagerParams) -> Transaction:
+        """Build SetManager transaction."""
+        ix = self.set_manager_ix(params)
+        return Transaction.new_with_payer([ix], params.authority)
+
+    def whitelist_deposit_token_tx(
+        self, params: WhitelistDepositTokenParams
+    ) -> Transaction:
         """Build WhitelistDepositToken transaction."""
         ix = self.whitelist_deposit_token_ix(params)
         return Transaction.new_with_payer([ix], params.authority)
@@ -418,7 +465,7 @@ class Admin:
     def create_orderbook_tx(self, params: CreateOrderbookParams) -> Transaction:
         """Build CreateOrderbook transaction."""
         ix = self.create_orderbook_ix(params)
-        return Transaction.new_with_payer([ix], params.authority)
+        return Transaction.new_with_payer([ix], params.manager)
 
     def match_orders_multi_tx(self, params: MatchOrdersMultiParams) -> Transaction:
         """Build MatchOrdersMulti transaction."""

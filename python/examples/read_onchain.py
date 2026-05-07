@@ -19,7 +19,13 @@ async def main():
 
     # 1. Exchange state
     exchange = await client.rpc().get_exchange()
-    print(f"exchange: authority={exchange.authority} operator={exchange.operator} paused={exchange.paused}")
+    print(
+        "exchange: "
+        f"authority={exchange.authority} "
+        f"operator={exchange.operator} "
+        f"manager={exchange.manager} "
+        f"paused={exchange.paused}"
+    )
 
     # 2. Market state
     onchain_market = await client.markets().get_onchain(market_pubkey)

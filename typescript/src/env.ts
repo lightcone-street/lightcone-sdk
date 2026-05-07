@@ -59,8 +59,9 @@ export function rpcUrl(environment: LightconeEnv): string {
 export function programId(environment: LightconeEnv): PublicKey {
   switch (environment) {
     case LightconeEnv.Local:
-    case LightconeEnv.Staging:
       return new PublicKey("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq");
+    case LightconeEnv.Staging:
+      return new PublicKey("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT");
     case LightconeEnv.Prod:
       return new PublicKey("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV");
   }

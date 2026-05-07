@@ -15,9 +15,11 @@ use crate::domain::admin::{
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
+#[cfg(feature = "solana-rpc")]
+use crate::program::types::CreateMarketParams;
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
-    DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SettleMarketParams,
+    ActivateMarketParams, AddDepositMintParams, CreateOrderbookParams, DepositAndSwapParams,
+    MatchOrdersMultiParams, SetAuthorityParams, SetManagerParams, SettleMarketParams,
     WhitelistDepositTokenParams,
 };
 use solana_instruction::Instruction;
@@ -357,9 +359,9 @@ impl<'a> Admin<'a> {
         &self,
         params: CreateMarketParams,
     ) -> Result<Transaction, SdkError> {
-        let authority = params.authority;
+        let manager = params.manager;
         let ix = self.create_market_ix(params).await?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&manager)))
     }
 
     /// Build AddDepositMint instruction.
@@ -386,7 +388,7 @@ impl<'a> Admin<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.add_deposit_mint_ix(&params, market, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build ActivateMarket instruction.
@@ -401,18 +403,18 @@ impl<'a> Admin<'a> {
         params: ActivateMarketParams,
     ) -> Result<Transaction, SdkError> {
         let ix = self.activate_market_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build SettleMarket instruction.
-    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction {
+    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        instructions::build_settle_market_ix(params, pid)
+        Ok(instructions::build_settle_market_ix(params, pid)?)
     }
 
     /// Build SettleMarket transaction.
     pub fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError> {
-        let ix = self.settle_market_ix(&params);
+        let ix = self.settle_market_ix(&params)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.oracle)))
     }
 
@@ -459,6 +461,18 @@ impl<'a> Admin<'a> {
         ))
     }
 
+    /// Build SetManager instruction.
+    pub fn set_manager_ix(&self, params: &SetManagerParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_set_manager_ix(params, pid)
+    }
+
+    /// Build SetManager transaction.
+    pub fn set_manager_tx(&self, params: SetManagerParams) -> Result<Transaction, SdkError> {
+        let ix = self.set_manager_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
     /// Build WhitelistDepositToken instruction.
     pub fn whitelist_deposit_token_ix(&self, params: &WhitelistDepositTokenParams) -> Instruction {
         let pid = &self.client.program_id;
@@ -475,9 +489,12 @@ impl<'a> Admin<'a> {
     }
 
     /// Build CreateOrderbook instruction.
-    pub fn create_orderbook_ix(&self, params: &CreateOrderbookParams) -> Instruction {
+    pub fn create_orderbook_ix(
+        &self,
+        params: &CreateOrderbookParams,
+    ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        instructions::build_create_orderbook_ix(params, pid)
+        Ok(instructions::build_create_orderbook_ix(params, pid)?)
     }
 
     /// Build CreateOrderbook transaction.
@@ -485,8 +502,8 @@ impl<'a> Admin<'a> {
         &self,
         params: CreateOrderbookParams,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.create_orderbook_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        let ix = self.create_orderbook_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build MatchOrdersMulti instruction.

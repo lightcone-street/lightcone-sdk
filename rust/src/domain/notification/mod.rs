@@ -2,6 +2,7 @@
 
 pub mod client;
 
+use crate::domain::market::MarketResolutionResponse;
 use crate::shared::PubkeyStr;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -25,7 +26,7 @@ pub struct MarketResolvedData {
     #[serde(default)]
     pub market_name: Option<String>,
     #[serde(default)]
-    pub winning_outcome: Option<i16>,
+    pub resolution: Option<MarketResolutionResponse>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -84,6 +85,53 @@ impl Notification {
                 d.market_slug.as_deref()
             }
             NotificationKind::Global => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::market::MarketResolutionKind;
+
+    #[test]
+    fn market_resolved_notification_deserializes_resolution() {
+        let notification: Notification = serde_json::from_str(
+            r#"{
+                "id": "notif_1",
+                "notification_type": "market_resolved",
+                "data": {
+                    "market_pubkey": "market_1",
+                    "market_slug": "test-market",
+                    "market_name": "Test Market",
+                    "resolution": {
+                        "kind": "scalar",
+                        "payout_denominator": 10,
+                        "payouts": [
+                            { "outcome_index": 0, "payout_numerator": 7 },
+                            { "outcome_index": 1, "payout_numerator": 3 }
+                        ],
+                        "single_winning_outcome": null
+                    }
+                },
+                "title": "Market resolved",
+                "message": "The market has resolved.",
+                "created_at": "2026-05-06T13:00:00Z"
+            }"#,
+        )
+        .unwrap();
+
+        match notification.kind {
+            NotificationKind::MarketResolved(data) => {
+                assert_eq!(data.market_pubkey.as_str(), "market_1");
+                assert_eq!(data.market_slug.as_deref(), Some("test-market"));
+                let resolution = data.resolution.unwrap();
+                assert_eq!(resolution.kind, MarketResolutionKind::Scalar);
+                assert_eq!(resolution.payout_denominator, 10);
+                assert_eq!(resolution.single_winning_outcome, None);
+                assert_eq!(resolution.payouts.len(), 2);
+            }
+            other => panic!("expected market_resolved notification, got {other:?}"),
         }
     }
 }

@@ -100,6 +100,18 @@ async fn clear_cache(&self)
 
 Clear the internal decimals cache. Rarely needed.
 
+### On-Chain Cleanup Builders
+
+```rust
+fn close_orderbook_alt_ix(&self, params: &CloseOrderbookAltParams) -> Instruction
+fn close_orderbook_alt_tx(&self, params: CloseOrderbookAltParams) -> Result<Transaction, SdkError>
+
+fn close_orderbook_ix(&self, params: &CloseOrderbookParams) -> Instruction
+fn close_orderbook_tx(&self, params: CloseOrderbookParams) -> Result<Transaction, SdkError>
+```
+
+Build cleanup instructions for resolved orderbooks. `CloseOrderbookAlt` deactivates or closes the orderbook lookup table; `CloseOrderbook` closes the orderbook PDA after the lookup table is closed.
+
 ## State Container: OrderbookState
 
 `OrderbookState` is an app-owned state container for maintaining a live orderbook from WebSocket updates.

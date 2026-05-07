@@ -1,6 +1,7 @@
 """Utility functions for the Lightcone program module."""
 
 import struct
+from math import gcd
 from typing import Union
 
 from Crypto.Hash import keccak
@@ -8,16 +9,24 @@ from solders.pubkey import Pubkey
 
 from .constants import (
     ASSOCIATED_TOKEN_PROGRAM_ID,
+    MAX_OUTCOMES,
+    MIN_OUTCOMES,
     TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
-    MAX_OUTCOMES,
-    MIN_OUTCOMES
 )
 from .errors import (
+    DuplicateScalarOutcomesError,
     InvalidDataLengthError,
     InvalidOutcomeCountError,
+    InvalidOutcomeIndexError,
+    InvalidPayoutNumeratorsError,
+    InvalidScalarRangeError,
+    PayoutVectorExceedsU32Error,
     SerializationError,
 )
+from .types import ScalarResolutionParams
+
+U32_MAX = 0xFFFFFFFF
 
 
 def keccak256(data: bytes) -> bytes:
@@ -56,7 +65,9 @@ def encode_u32(value: int) -> bytes:
         ValueError: If value is out of range [0, 4294967295]
     """
     if not 0 <= value <= 4294967295:
-        raise SerializationError(f"u32 value out of range: {value} (must be 0-4294967295)")
+        raise SerializationError(
+            f"u32 value out of range: {value} (must be 0-4294967295)"
+        )
     return struct.pack("<I", value)
 
 
@@ -67,7 +78,9 @@ def encode_u64(value: int) -> bytes:
         ValueError: If value is out of range [0, 2^64-1]
     """
     if not 0 <= value <= 18446744073709551615:
-        raise SerializationError(f"u64 value out of range: {value} (must be 0-18446744073709551615)")
+        raise SerializationError(
+            f"u64 value out of range: {value} (must be 0-18446744073709551615)"
+        )
     return struct.pack("<Q", value)
 
 
@@ -195,17 +208,100 @@ def encode_string_fixed(s: str, max_len: int) -> bytes:
 def validate_outcome_count(num_outcomes: int) -> None:
     """Validate that the outcome count is within bounds."""
 
-    if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
-        raise InvalidOutcomeCountError(
-            f"Invalid outcome count: {num_outcomes} "
-            f"(must be between {MIN_OUTCOMES} and {MAX_OUTCOMES})"
-        )
+    if (
+        not isinstance(num_outcomes, int)
+        or isinstance(num_outcomes, bool)
+        or num_outcomes < MIN_OUTCOMES
+        or num_outcomes > MAX_OUTCOMES
+    ):
+        raise InvalidOutcomeCountError(num_outcomes)
+
+
+def validate_outcome_index(outcome_index: int, num_outcomes: int) -> None:
+    """Validate that an outcome index is valid for the given outcome count."""
+
+    if (
+        not isinstance(outcome_index, int)
+        or isinstance(outcome_index, bool)
+        or outcome_index < 0
+        or outcome_index >= num_outcomes
+    ):
+        raise InvalidOutcomeIndexError(outcome_index, num_outcomes - 1)
+
+
+def winner_takes_all_payout_numerators(
+    winning_outcome: int,
+    num_outcomes: int,
+) -> list[int]:
+    """Build a winner-takes-all payout vector."""
+
+    validate_outcome_count(num_outcomes)
+    validate_outcome_index(winning_outcome, num_outcomes)
+
+    payout_numerators = [0] * num_outcomes
+    payout_numerators[winning_outcome] = 1
+    return payout_numerators
+
+
+def scalar_to_payout_numerators(params: ScalarResolutionParams) -> list[int]:
+    """Convert two-sided scalar settlement metadata into payout numerators.
+
+    All scalar values are caller-defined integer fixed-point values. The
+    resolved value is clamped to ``[min_value, max_value]``, the vector is
+    reduced by GCD, and the result is checked against the program's u32 payout
+    representation.
+    """
+
+    validate_outcome_count(params.num_outcomes)
+    validate_outcome_index(params.lower_outcome_index, params.num_outcomes)
+    validate_outcome_index(params.upper_outcome_index, params.num_outcomes)
+
+    if params.lower_outcome_index == params.upper_outcome_index:
+        raise DuplicateScalarOutcomesError()
+
+    if params.max_value <= params.min_value:
+        raise InvalidScalarRangeError()
+
+    clamped = min(max(params.resolved_value, params.min_value), params.max_value)
+    numerators = [0] * params.num_outcomes
+    numerators[params.lower_outcome_index] = params.max_value - clamped
+    numerators[params.upper_outcome_index] = clamped - params.min_value
+
+    return _reduce_and_fit_payout_numerators(numerators)
+
+
+def _reduce_and_fit_payout_numerators(numerators: list[int]) -> list[int]:
+    non_zero = [n for n in numerators if n > 0]
+    if not non_zero:
+        raise InvalidPayoutNumeratorsError()
+
+    divisor = non_zero[0]
+    for value in non_zero[1:]:
+        divisor = gcd(divisor, value)
+
+    reduced = []
+    denominator = 0
+    for numerator in numerators:
+        value = 0 if numerator == 0 else numerator // divisor
+        if value > U32_MAX:
+            raise PayoutVectorExceedsU32Error()
+        denominator += value
+        reduced.append(value)
+
+    if denominator == 0:
+        raise InvalidPayoutNumeratorsError()
+    if denominator > U32_MAX:
+        raise PayoutVectorExceedsU32Error()
+
+    return reduced
 
 
 def validate_order_hash(order_hash: bytes) -> None:
     """Validate that an order hash is 32 bytes."""
     if len(order_hash) != 32:
-        raise InvalidDataLengthError(f"Invalid order hash length: {len(order_hash)} (expected 32)")
+        raise InvalidDataLengthError(
+            f"Invalid order hash length: {len(order_hash)} (expected 32)"
+        )
 
 
 def orders_cross(

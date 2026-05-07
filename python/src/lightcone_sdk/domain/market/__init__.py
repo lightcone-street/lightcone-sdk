@@ -55,6 +55,54 @@ class Status(str, Enum):
             return Status.PENDING
 
 
+class MarketResolutionKind(str, Enum):
+    """Canonical market resolution kind returned by the REST API."""
+
+    SINGLE_WINNER = "single_winner"
+    SCALAR = "scalar"
+
+    @staticmethod
+    def from_str(s: str) -> "MarketResolutionKind":
+        return MarketResolutionKind(s)
+
+
+@dataclass
+class MarketResolutionPayout:
+    """Payout numerator for a single outcome in a resolved market."""
+
+    outcome_index: int
+    payout_numerator: int
+
+    @staticmethod
+    def from_dict(d: dict) -> "MarketResolutionPayout":
+        return MarketResolutionPayout(
+            outcome_index=d["outcome_index"],
+            payout_numerator=d["payout_numerator"],
+        )
+
+
+@dataclass
+class MarketResolutionResponse:
+    """Canonical payout-vector resolution returned by the REST API."""
+
+    kind: MarketResolutionKind
+    payout_denominator: int
+    payouts: list[MarketResolutionPayout] = field(default_factory=list)
+    single_winning_outcome: Optional[int] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "MarketResolutionResponse":
+        return MarketResolutionResponse(
+            kind=MarketResolutionKind.from_str(d["kind"]),
+            payout_denominator=d["payout_denominator"],
+            payouts=[
+                MarketResolutionPayout.from_dict(payout)
+                for payout in d.get("payouts", [])
+            ],
+            single_winning_outcome=d.get("single_winning_outcome"),
+        )
+
+
 @dataclass
 class Outcome:
     index: int
@@ -171,7 +219,7 @@ class Market:
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
-    winning_outcome: Optional[int] = None
+    resolution: Optional[MarketResolutionResponse] = None
     description: str = ""
     definition: str = ""
     category: Optional[str] = None
@@ -183,6 +231,17 @@ class Market:
     orderbook_pairs: list[OrderBookPair] = field(default_factory=list)
     orderbook_ids: list[str] = field(default_factory=list)
     token_metadata: dict[str, TokenMetadata] = field(default_factory=dict)
+
+    def is_resolved(self) -> bool:
+        return self.resolution is not None
+
+    def single_winning_outcome(self) -> Optional[int]:
+        if self.resolution is None:
+            return None
+        return self.resolution.single_winning_outcome
+
+    def has_single_winning_outcome(self) -> bool:
+        return self.single_winning_outcome() is not None
 
 
 @dataclass
@@ -210,6 +269,9 @@ class MarketValidationError(Exception):
 
 __all__ = [
     "Status",
+    "MarketResolutionKind",
+    "MarketResolutionPayout",
+    "MarketResolutionResponse",
     "Outcome",
     "ConditionalToken",
     "DepositAsset",

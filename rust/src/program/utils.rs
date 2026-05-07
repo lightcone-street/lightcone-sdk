@@ -125,7 +125,7 @@ pub fn deserialize_string(data: &[u8]) -> SdkResult<(String, usize)> {
 pub struct OutcomeMetadataInput {
     /// Token name (max 32 chars)
     pub name: String,
-    /// Token symbol (max 10 chars)
+    /// Token symbol (max 18 chars)
     pub symbol: String,
     /// Token URI (max 200 chars)
     pub uri: String,

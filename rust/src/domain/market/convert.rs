@@ -122,7 +122,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             created_at: source.created_at,
             activated_at: source.activated_at,
             settled_at: source.settled_at,
-            winning_outcome: source.winning_outcome,
+            resolution: source.resolution,
             description,
             definition,
             tags: source.tags.unwrap_or_default(),
@@ -210,14 +210,170 @@ mod tests {
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
             market_status: "Active".to_string(),
-            winning_outcome: None,
-            has_winning_outcome: false,
+            resolution: None,
             created_at: Utc::now(),
             activated_at: None,
             settled_at: None,
             deposit_assets: vec![],
             orderbooks: vec![],
         }
+    }
+
+    fn valid_market_response(
+        resolution: Option<wire::MarketResolutionResponse>,
+    ) -> wire::MarketResponse {
+        let mut response = minimal_market_response();
+        response.market_status = "Resolved".to_string();
+        response.resolution = resolution;
+        response.deposit_assets = vec![deposit_asset_response()];
+        response.orderbooks = vec![orderbook_response()];
+        response
+    }
+
+    fn deposit_asset_response() -> wire::DepositAssetResponse {
+        wire::DepositAssetResponse {
+            display_name: Some("USD Coin".to_string()),
+            token_symbol: Some("USDC".to_string()),
+            symbol: Some("USDC".to_string()),
+            deposit_asset: "USDC".to_string(),
+            id: 1,
+            market_pubkey: "mkt123".to_string(),
+            vault: "vault".to_string(),
+            num_outcomes: 2,
+            description: None,
+            icon_url_low: Some("https://example.com/usdc_low.png".to_string()),
+            icon_url_medium: Some("https://example.com/usdc_medium.png".to_string()),
+            icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
+            metadata_uri: None,
+            decimals: Some(6),
+            conditional_mints: vec![
+                conditional_token_response(10, 0, "yes_mint", "Yes", "YES"),
+                conditional_token_response(11, 1, "no_mint", "No", "NO"),
+            ],
+            created_at: Utc::now(),
+        }
+    }
+
+    fn conditional_token_response(
+        id: i32,
+        outcome_index: i16,
+        token_address: &str,
+        outcome: &str,
+        short_symbol: &str,
+    ) -> wire::ConditionalTokenResponse {
+        wire::ConditionalTokenResponse {
+            id,
+            outcome_index,
+            token_address: token_address.to_string(),
+            symbol: Some(short_symbol.to_string()),
+            uri: None,
+            outcome: Some(outcome.to_string()),
+            deposit_symbol: Some("USDC".to_string()),
+            short_symbol: Some(short_symbol.to_string()),
+            description: None,
+            icon_url_low: Some(format!("https://example.com/{short_symbol}_low.png")),
+            icon_url_medium: Some(format!("https://example.com/{short_symbol}_medium.png")),
+            icon_url_high: Some(format!("https://example.com/{short_symbol}_high.png")),
+            metadata_uri: None,
+            decimals: Some(6),
+            created_at: Utc::now(),
+        }
+    }
+
+    fn orderbook_response() -> orderbook::wire::OrderbookResponse {
+        orderbook::wire::OrderbookResponse {
+            id: 1,
+            market_pubkey: "mkt123".to_string(),
+            orderbook_id: "ob_yes_no".to_string(),
+            base_token: "yes_mint".to_string(),
+            quote_token: "no_mint".to_string(),
+            outcome_index: Some(0),
+            tick_size: 1,
+            total_bids: 0,
+            total_asks: 0,
+            last_trade_price: None,
+            last_trade_time: None,
+            active: true,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn single_winner_resolution() -> wire::MarketResolutionResponse {
+        wire::MarketResolutionResponse {
+            kind: wire::MarketResolutionKind::SingleWinner,
+            payout_denominator: 1,
+            payouts: vec![
+                wire::MarketResolutionPayout {
+                    outcome_index: 0,
+                    payout_numerator: 0,
+                },
+                wire::MarketResolutionPayout {
+                    outcome_index: 1,
+                    payout_numerator: 1,
+                },
+            ],
+            single_winning_outcome: Some(1),
+        }
+    }
+
+    fn scalar_resolution() -> wire::MarketResolutionResponse {
+        wire::MarketResolutionResponse {
+            kind: wire::MarketResolutionKind::Scalar,
+            payout_denominator: 10,
+            payouts: vec![
+                wire::MarketResolutionPayout {
+                    outcome_index: 0,
+                    payout_numerator: 7,
+                },
+                wire::MarketResolutionPayout {
+                    outcome_index: 1,
+                    payout_numerator: 3,
+                },
+            ],
+            single_winning_outcome: None,
+        }
+    }
+
+    #[test]
+    fn market_response_resolution_helpers_handle_unresolved_scalar_and_winner() {
+        let mut response = minimal_market_response();
+        assert!(!response.is_resolved());
+        assert_eq!(response.single_winning_outcome(), None);
+        assert!(!response.has_single_winning_outcome());
+
+        response.resolution = Some(scalar_resolution());
+        assert!(response.is_resolved());
+        assert_eq!(response.single_winning_outcome(), None);
+        assert!(!response.has_single_winning_outcome());
+
+        response.resolution = Some(single_winner_resolution());
+        assert!(response.is_resolved());
+        assert_eq!(response.single_winning_outcome(), Some(1));
+        assert!(response.has_single_winning_outcome());
+    }
+
+    #[test]
+    fn market_conversion_preserves_scalar_resolution() {
+        let market = Market::try_from(valid_market_response(Some(scalar_resolution()))).unwrap();
+
+        assert!(market.is_resolved());
+        assert_eq!(market.single_winning_outcome(), None);
+        assert!(!market.has_single_winning_outcome());
+        let resolution = market.resolution.unwrap();
+        assert_eq!(resolution.kind, wire::MarketResolutionKind::Scalar);
+        assert_eq!(resolution.payout_denominator, 10);
+        assert_eq!(resolution.payouts.len(), 2);
+    }
+
+    #[test]
+    fn market_conversion_preserves_single_winner_resolution() {
+        let market =
+            Market::try_from(valid_market_response(Some(single_winner_resolution()))).unwrap();
+
+        assert!(market.is_resolved());
+        assert_eq!(market.single_winning_outcome(), Some(1));
+        assert!(market.has_single_winning_outcome());
     }
 
     #[test]

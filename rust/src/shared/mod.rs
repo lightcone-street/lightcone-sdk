@@ -18,7 +18,7 @@ pub use rejection::RejectionCode;
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{path::Display, str::FromStr};
+use std::str::FromStr;
 
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 

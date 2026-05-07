@@ -32,6 +32,23 @@ export function getMarketPda(
 }
 
 /**
+ * Derive Condition Tombstone PDA
+ * Seeds: ["condition", condition_id (32 bytes)]
+ */
+export function getConditionTombstonePda(
+  conditionId: Buffer,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  if (conditionId.length !== 32) {
+    throw ProgramSdkError.invalidDataLength("conditionId", 32, conditionId.length);
+  }
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.CONDITION), conditionId],
+    programId
+  );
+}
+
+/**
  * Derive Vault PDA (deposit token storage)
  * Seeds: ["market_deposit_token_account", deposit_mint, market]
  */
@@ -148,19 +165,32 @@ export function getPositionPda(
 }
 
 /**
+ * Return mints in the canonical order used by orderbook PDAs.
+ */
+export function canonicalMintPair(
+  mintA: PublicKey,
+  mintB: PublicKey
+): [PublicKey, PublicKey] {
+  return Buffer.compare(mintA.toBuffer(), mintB.toBuffer()) <= 0
+    ? [mintA, mintB]
+    : [mintB, mintA];
+}
+
+/**
  * Derive Orderbook PDA
- * Seeds: ["orderbook", mint_a (32 bytes), mint_b (32 bytes)]
+ * Seeds: ["orderbook", canonical_mint_a (32 bytes), canonical_mint_b (32 bytes)]
  */
 export function getOrderbookPda(
   mintA: PublicKey,
   mintB: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): [PublicKey, number] {
+  const [canonicalMintA, canonicalMintB] = canonicalMintPair(mintA, mintB);
   return PublicKey.findProgramAddressSync(
     [
       Buffer.from(SEEDS.ORDERBOOK),
-      mintA.toBuffer(),
-      mintB.toBuffer(),
+      canonicalMintA.toBuffer(),
+      canonicalMintB.toBuffer(),
     ],
     programId
   );
@@ -168,15 +198,15 @@ export function getOrderbookPda(
 
 /**
  * Derive Address Lookup Table PDA
- * Seeds: [orderbook (32 bytes), recent_slot (u64 little-endian)]
+ * Seeds: [authority (32 bytes), recent_slot (u64 little-endian)]
  * Program: ALT_PROGRAM_ID
  */
 export function getAltPda(
-  orderbook: PublicKey,
+  authority: PublicKey,
   recentSlot: bigint
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [orderbook.toBuffer(), toU64Le(recentSlot)],
+    [authority.toBuffer(), toU64Le(recentSlot)],
     ALT_PROGRAM_ID
   );
 }
@@ -231,6 +261,7 @@ export function getPositionAltPda(
 export const pda = {
   getExchangePda,
   getMarketPda,
+  getConditionTombstonePda,
   getVaultPda,
   getMintAuthorityPda,
   getConditionalMintPda,
@@ -238,6 +269,7 @@ export const pda = {
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
+  canonicalMintPair,
   getOrderbookPda,
   getAltPda,
   getGlobalDepositTokenPda,

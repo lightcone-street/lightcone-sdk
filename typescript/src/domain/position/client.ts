@@ -8,8 +8,11 @@ import {
   buildInitPositionTokensIx,
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
+  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
+  buildClosePositionAltIx,
+  buildClosePositionTokenAccountsIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
@@ -20,8 +23,11 @@ import type {
   InitPositionTokensParams,
   ExtendPositionTokensParams,
   DepositToGlobalParams,
+  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
+  ClosePositionAltParams,
+  ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { PubkeyStr } from "../../shared";
 import type { DepositTokenBalance } from "./index";
@@ -161,9 +167,9 @@ export class Positions {
 
   redeemWinningsIx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): TransactionInstruction {
-    return buildRedeemWinningsIx(params, winningOutcome, this.client.programId);
+    return buildRedeemWinningsIx(params, outcomeIndex, this.client.programId);
   }
 
   withdrawFromPositionIx(
@@ -191,6 +197,13 @@ export class Positions {
     return buildDepositToGlobalIx(params, this.client.programId);
   }
 
+  depositToGlobalIxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): TransactionInstruction {
+    return buildDepositToGlobalIxWithAlt(params, altContext, this.client.programId);
+  }
+
   globalToMarketDepositIx(
     params: GlobalToMarketDepositParams,
     numOutcomes: number
@@ -202,13 +215,28 @@ export class Positions {
     return buildWithdrawFromGlobalIx(params, this.client.programId);
   }
 
+  closePositionAltIx(params: ClosePositionAltParams): TransactionInstruction {
+    return buildClosePositionAltIx(params, this.client.programId);
+  }
+
+  closePositionTokenAccountsIx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildClosePositionTokenAccountsIx(
+      params,
+      numOutcomes,
+      this.client.programId
+    );
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   redeemWinningsTx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): Transaction {
-    const ix = this.redeemWinningsIx(params, winningOutcome);
+    const ix = this.redeemWinningsIx(params, outcomeIndex);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
@@ -233,11 +261,19 @@ export class Positions {
     numOutcomes: number
   ): Transaction {
     const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   depositToGlobalTx(params: DepositToGlobalParams): Transaction {
     const ix = this.depositToGlobalIx(params);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  depositToGlobalTxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): Transaction {
+    const ix = this.depositToGlobalIxWithAlt(params, altContext);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
@@ -252,6 +288,19 @@ export class Positions {
   withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
     const ix = this.withdrawFromGlobalIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  closePositionAltTx(params: ClosePositionAltParams): Transaction {
+    const ix = this.closePositionAltIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
+  }
+
+  closePositionTokenAccountsTx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.closePositionTokenAccountsIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Builder factories ──────────────────────────────────────────────

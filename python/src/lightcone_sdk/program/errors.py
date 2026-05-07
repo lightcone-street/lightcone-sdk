@@ -102,9 +102,7 @@ class TooManyMakersError(LightconeError):
     def __init__(self, count: int, max_count: int):
         self.count = count
         self.max_count = max_count
-        super().__init__(
-            f"Too many makers: {count} (maximum: {max_count})"
-        )
+        super().__init__(f"Too many makers: {count} (maximum: {max_count})")
 
 
 class OrdersDoNotCrossError(LightconeError):
@@ -190,6 +188,34 @@ class ArithmeticOverflowError(LightconeError):
         super().__init__("Arithmetic overflow")
 
 
+class InvalidPayoutNumeratorsError(LightconeError):
+    """Raised when a payout vector contains no redeemable numerator."""
+
+    def __init__(self):
+        super().__init__("Payout numerators must include at least one non-zero value")
+
+
+class PayoutVectorExceedsU32Error(LightconeError):
+    """Raised when payout numerators or their denominator cannot fit u32."""
+
+    def __init__(self):
+        super().__init__("Payout numerators and denominator must fit in u32")
+
+
+class InvalidScalarRangeError(LightconeError):
+    """Raised when scalar settlement bounds are invalid."""
+
+    def __init__(self):
+        super().__init__("Scalar max_value must be greater than min_value")
+
+
+class DuplicateScalarOutcomesError(LightconeError):
+    """Raised when scalar lower and upper outcome indexes are the same."""
+
+    def __init__(self):
+        super().__init__("Scalar lower and upper outcome indexes must be distinct")
+
+
 class InvalidMintOrderError(LightconeError):
     """Raised when mints are in invalid order."""
 
@@ -225,6 +251,13 @@ class InvalidProgramIdError(LightconeError):
         super().__init__("Invalid program ID")
 
 
+class InvalidManagerError(LightconeError):
+    """Raised when a signer is not the exchange manager."""
+
+    def __init__(self):
+        super().__init__("Invalid manager")
+
+
 class InvalidOrderbookError(LightconeError):
     """Raised when an orderbook is invalid."""
 
@@ -251,6 +284,62 @@ class DepositTokenNotActiveError(LightconeError):
 
     def __init__(self):
         super().__init__("Deposit token not active")
+
+
+class InsufficientGlobalDepositError(LightconeError):
+    """Raised when a user global deposit balance is insufficient."""
+
+    def __init__(self):
+        super().__init__("Insufficient global deposit balance")
+
+
+class InvalidDepositMintOrderError(LightconeError):
+    """Raised when deposit mints are not in the expected order."""
+
+    def __init__(self):
+        super().__init__("Invalid deposit mint order")
+
+
+class ZeroAmountError(LightconeError):
+    """Raised when an amount must be greater than zero."""
+
+    def __init__(self):
+        super().__init__("Amount must be greater than zero")
+
+
+class InvalidAtaError(LightconeError):
+    """Raised when an associated token account is invalid."""
+
+    def __init__(self):
+        super().__init__("Invalid associated token account")
+
+
+class OrderNotFullyFilledError(LightconeError):
+    """Raised when an order status is not fully filled."""
+
+    def __init__(self):
+        super().__init__("Order status is not fully filled")
+
+
+class PayoutTooSmallError(LightconeError):
+    """Raised when a winning-token payout rounds to zero."""
+
+    def __init__(self):
+        super().__init__("Payout too small")
+
+
+class TokenAccountNotEmptyError(LightconeError):
+    """Raised when a token account cannot be closed because it is not empty."""
+
+    def __init__(self):
+        super().__init__("Token account is not empty")
+
+
+class LookupTableNotClosedError(LightconeError):
+    """Raised when an orderbook PDA is closed before its lookup table."""
+
+    def __init__(self):
+        super().__init__("Lookup table is not closed")
 
 
 class InvalidPubkeyError(LightconeError):

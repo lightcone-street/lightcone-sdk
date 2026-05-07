@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..market import MarketResolutionResponse
 from . import Notification, NotificationKind, MarketData, MarketResolvedData, OrderFilledData
 
 if TYPE_CHECKING:
@@ -65,11 +66,16 @@ def _parse_notification(d: dict) -> Notification:
 
     data = d.get("data", {})
     if kind == NotificationKind.MARKET_RESOLVED and data:
+        resolution_raw = data.get("resolution")
         notification.market_resolved_data = MarketResolvedData(
             market_pubkey=data.get("market_pubkey", ""),
             market_slug=data.get("market_slug"),
             market_name=data.get("market_name"),
-            winning_outcome=data.get("winning_outcome"),
+            resolution=(
+                MarketResolutionResponse.from_dict(resolution_raw)
+                if isinstance(resolution_raw, dict)
+                else None
+            ),
         )
     elif kind == NotificationKind.ORDER_FILLED and data:
         notification.order_filled_data = OrderFilledData(

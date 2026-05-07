@@ -33,6 +33,22 @@ pub enum SdkError {
     #[error("Invalid outcome index: {index} (max {max})")]
     InvalidOutcomeIndex { index: u8, max: u8 },
 
+    /// Invalid payout numerators
+    #[error("Invalid payout numerators")]
+    InvalidPayoutNumerators,
+
+    /// Payout vector exceeds the on-chain u32 representation
+    #[error("Payout vector exceeds u32 bounds")]
+    PayoutVectorExceedsU32,
+
+    /// Invalid scalar range
+    #[error("Invalid scalar range")]
+    InvalidScalarRange,
+
+    /// Scalar outcomes must be distinct
+    #[error("Scalar outcome indexes must be distinct")]
+    DuplicateScalarOutcomes,
+
     /// Too many makers
     #[error("Too many makers: {count} (max {max})", max = crate::program::constants::MAX_MAKERS)]
     TooManyMakers { count: usize },
@@ -98,6 +114,42 @@ pub enum SdkError {
     /// Deposit token not active
     #[error("Deposit token not active")]
     DepositTokenNotActive,
+
+    /// User's global deposit balance is insufficient
+    #[error("Insufficient global deposit balance")]
+    InsufficientGlobalDeposit,
+
+    /// Deposit mints must be ordered by ascending GlobalDepositToken index
+    #[error("Invalid deposit mint order")]
+    InvalidDepositMintOrder,
+
+    /// Amount must be greater than zero
+    #[error("Amount must be greater than zero")]
+    ZeroAmount,
+
+    /// Invalid associated token account
+    #[error("Invalid associated token account")]
+    InvalidAta,
+
+    /// Order status is not fully filled
+    #[error("Order status is not fully filled")]
+    OrderNotFullyFilled,
+
+    /// Redeem amount is too small to produce a payout
+    #[error("Payout too small")]
+    PayoutTooSmall,
+
+    /// Token account is not empty
+    #[error("Token account is not empty")]
+    TokenAccountNotEmpty,
+
+    /// Lookup table must be closed first
+    #[error("Lookup table is not closed")]
+    LookupTableNotClosed,
+
+    /// Invalid manager
+    #[error("Invalid manager")]
+    InvalidManager,
 
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]

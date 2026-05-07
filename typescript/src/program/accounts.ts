@@ -98,10 +98,11 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
 /**
  * Deserialize Exchange account data
  *
- * Layout (88 bytes):
+ * Layout (120 bytes):
  * - discriminator: [u8; 8]
  * - authority: Pubkey (32 bytes)
  * - operator: Pubkey (32 bytes)
+ * - manager: Pubkey (32 bytes)
  * - market_count: u64 (8 bytes)
  * - paused: u8 (1 byte)
  * - bump: u8 (1 byte)
@@ -126,6 +127,9 @@ export function deserializeExchange(data: Buffer): Exchange {
   const operator = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
+  const manager = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
   const marketCount = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
@@ -144,6 +148,7 @@ export function deserializeExchange(data: Buffer): Exchange {
     discriminator,
     authority,
     operator,
+    manager,
     marketCount,
     paused,
     bump,
@@ -154,18 +159,18 @@ export function deserializeExchange(data: Buffer): Exchange {
 /**
  * Deserialize Market account data
  *
- * Layout (120 bytes):
+ * Layout (148 bytes):
  * - discriminator: [u8; 8]
  * - market_id: u64 (8 bytes)
  * - num_outcomes: u8 (1 byte)
  * - status: u8 (1 byte)
- * - winning_outcome: u8 (1 byte)
- * - has_winning_outcome: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 3]
+ * - _padding: [u8; 5]
  * - oracle: Pubkey (32 bytes)
  * - question_id: [u8; 32]
  * - condition_id: [u8; 32]
+ * - payout_numerators: [u32; 6]
+ * - payout_denominator: u32
  */
 export function deserializeMarket(data: Buffer): Market {
   if (data.length < ACCOUNT_SIZE.MARKET) {
@@ -188,17 +193,11 @@ export function deserializeMarket(data: Buffer): Market {
   const statusByte = data[offset];
   offset += 1;
 
-  const winningOutcome = data[offset];
-  offset += 1;
-
-  const hasWinningOutcome = data[offset] !== 0;
-  offset += 1;
-
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 3 bytes
-  offset += 3;
+  // Skip padding: 5 bytes
+  offset += 5;
 
   const oracle = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
@@ -208,6 +207,15 @@ export function deserializeMarket(data: Buffer): Market {
 
   const conditionId = Buffer.from(data.subarray(offset, offset + 32));
   offset += 32;
+
+  const payoutNumerators: Market["payoutNumerators"] = [0, 0, 0, 0, 0, 0];
+  for (let i = 0; i < payoutNumerators.length; i++) {
+    payoutNumerators[i] = data.readUInt32LE(offset);
+    offset += 4;
+  }
+
+  const payoutDenominator = data.readUInt32LE(offset);
+  offset += 4;
 
   // Map status byte to enum
   let status: MarketStatus;
@@ -233,21 +241,22 @@ export function deserializeMarket(data: Buffer): Market {
     marketId,
     numOutcomes,
     status,
-    winningOutcome,
-    hasWinningOutcome,
     bump,
     oracle,
     questionId,
     conditionId,
+    payoutNumerators,
+    payoutDenominator,
   };
 }
 
 /**
  * Deserialize OrderStatus account data
  *
- * Layout (24 bytes):
+ * Layout (32 bytes):
  * - discriminator: [u8; 8]
  * - remaining: u64 (8 bytes)
+ * - base_remaining: u64 (8 bytes)
  * - is_cancelled: u8 (1 byte)
  * - _padding: [u8; 7]
  */
@@ -266,6 +275,9 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
   const remaining = fromLeBytes(data.subarray(offset, offset + 8));
   offset += 8;
 
+  const baseRemaining = fromLeBytes(data.subarray(offset, offset + 8));
+  offset += 8;
+
   const isCancelled = data[offset] !== 0;
   offset += 1;
 
@@ -274,6 +286,7 @@ export function deserializeOrderStatus(data: Buffer): OrderStatus {
   return {
     discriminator,
     remaining,
+    baseRemaining,
     isCancelled,
   };
 }

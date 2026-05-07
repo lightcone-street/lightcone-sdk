@@ -12,6 +12,7 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{
+    ClosePositionAltParams, ClosePositionTokenAccountsParams, DepositToGlobalAltContext,
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
@@ -167,19 +168,19 @@ impl<'a> Positions<'a> {
     pub fn redeem_winnings_ix(
         &self,
         params: &RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_redeem_winnings_ix(params, winning_outcome, pid)
+        instructions::build_redeem_winnings_ix(params, outcome_index, pid)
     }
 
     /// Build RedeemWinnings transaction.
     pub fn redeem_winnings_tx(
         &self,
         params: RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.redeem_winnings_ix(&params, winning_outcome);
+        let ix = self.redeem_winnings_ix(&params, outcome_index);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
@@ -244,7 +245,46 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionAlt instruction.
+    pub fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_position_alt_ix(params, pid)
+    }
+
+    /// Build ClosePositionAlt transaction.
+    pub fn close_position_alt_tx(
+        &self,
+        params: ClosePositionAltParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_alt_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionTokenAccounts instruction.
+    pub fn close_position_token_accounts_ix(
+        &self,
+        params: &ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_close_position_token_accounts_ix(
+            params,
+            num_outcomes,
+            pid,
+        )?)
+    }
+
+    /// Build ClosePositionTokenAccounts transaction.
+    pub fn close_position_token_accounts_tx(
+        &self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_token_accounts_ix(&params, num_outcomes)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     /// Build DepositToGlobal instruction.
@@ -253,12 +293,32 @@ impl<'a> Positions<'a> {
         instructions::build_deposit_to_global_ix(params, pid)
     }
 
+    /// Build DepositToGlobal instruction with user deposit ALT create/extend accounts.
+    pub fn deposit_to_global_ix_with_alt(
+        &self,
+        params: &DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_deposit_to_global_ix_with_alt(params, alt_context, pid)
+    }
+
     /// Build DepositToGlobal transaction.
     pub fn deposit_to_global_tx(
         &self,
         params: DepositToGlobalParams,
     ) -> Result<Transaction, SdkError> {
         let ix = self.deposit_to_global_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build DepositToGlobal transaction with user deposit ALT create/extend accounts.
+    pub fn deposit_to_global_tx_with_alt(
+        &self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.deposit_to_global_ix_with_alt(&params, alt_context);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
