@@ -271,7 +271,7 @@ Raw response types are available in `lightcone::domain::position::wire`, includi
 pub struct GlobalDeposit {
     pub deposit_mint: String,
     pub symbol: String,
-    pub balance: String,
+    pub balance: Decimal,
 }
 ```
 

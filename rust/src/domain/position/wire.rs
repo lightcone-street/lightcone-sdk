@@ -1,5 +1,6 @@
 //! Wire types for position responses (REST).
 
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -26,7 +27,7 @@ pub struct VaultBalance {
 pub struct GlobalDeposit {
     pub deposit_mint: String,
     pub symbol: String,
-    pub balance: String,
+    pub balance: Decimal,
 }
 
 /// A user's position in a market.
