@@ -107,6 +107,7 @@ class MarketResolutionResponse:
 class Outcome:
     index: int
     name: str
+    name_long: str = ""
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""

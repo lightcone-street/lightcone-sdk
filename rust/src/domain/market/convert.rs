@@ -191,6 +191,7 @@ mod tests {
             outcomes: vec![wire::OutcomeResponse {
                 index: 0,
                 name: "Yes".to_string(),
+                name_long: None,
                 icon_url_low: Some("https://example.com/yes_low.png".to_string()),
                 icon_url_medium: Some("https://example.com/yes_medium.png".to_string()),
                 icon_url_high: Some("https://example.com/yes_high.png".to_string()),

@@ -14,6 +14,7 @@ export interface OrderbookTickerEntry {
   market_pubkey: string;
   outcome_index?: number;
   outcome_name?: string;
+  outcome_name_long?: string;
   base_deposit_asset: string;
   quote_deposit_asset: string;
   best_bid?: string;
@@ -94,6 +95,7 @@ export interface MarketsMetrics {
 export interface OutcomeVolumeMetrics {
   outcome_index: number | null;
   outcome_name?: string;
+  outcome_name_long?: string;
   volume_24h_usd: string;
   volume_7d_usd: string;
   volume_30d_usd: string;
@@ -120,6 +122,7 @@ export interface MarketOrderbookVolumeMetrics {
   orderbook_id: OrderBookId;
   outcome_index: number | null;
   outcome_name?: string;
+  outcome_name_long?: string;
   base_deposit_asset: PubkeyStr;
   base_deposit_symbol?: string;
   quote_deposit_asset: PubkeyStr;
@@ -207,6 +210,7 @@ export interface OrderbookVolumeMetrics {
   market_pubkey: PubkeyStr;
   outcome_index: number | null;
   outcome_name?: string;
+  outcome_name_long?: string;
   base_deposit_asset: PubkeyStr;
   base_deposit_symbol?: string;
   quote_deposit_asset: PubkeyStr;

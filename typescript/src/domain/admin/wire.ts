@@ -31,6 +31,7 @@ export interface OutcomeMetadataPayload {
   market_id: number;
   outcome_index: number;
   name?: string;
+  name_long?: string;
   icon_url_low?: string;
   icon_url_medium?: string;
   icon_url_high?: string;

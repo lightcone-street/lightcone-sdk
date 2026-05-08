@@ -88,6 +88,7 @@ def _parse_notification(d: dict) -> Notification:
             market_slug=data.get("market_slug"),
             market_name=data.get("market_name"),
             outcome_name=data.get("outcome_name"),
+            outcome_name_long=data.get("outcome_name_long"),
             outcome_icon_url_low=data.get("outcome_icon_url_low"),
             outcome_icon_url_medium=data.get("outcome_icon_url_medium"),
             outcome_icon_url_high=data.get("outcome_icon_url_high"),

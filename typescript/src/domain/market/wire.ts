@@ -4,6 +4,7 @@ import type { Status } from "./index";
 export interface OutcomeResponse {
   index: number;
   name: string;
+  name_long?: string;
   icon_url_low?: string;
   icon_url_medium?: string;
   icon_url_high?: string;
@@ -108,6 +109,7 @@ export interface SingleMarketResponse {
 export interface SearchOrderbook {
   orderbook_id: OrderBookId;
   outcome_name: string;
+  outcome_name_long?: string;
   outcome_index: number;
   deposit_base_asset: PubkeyStr;
   deposit_quote_asset: PubkeyStr;
