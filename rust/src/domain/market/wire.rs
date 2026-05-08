@@ -217,6 +217,16 @@ pub struct SearchOrderbook {
     pub conditional_base_mint: PubkeyStr,
     pub conditional_quote_mint: PubkeyStr,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome_icon_url_low: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome_icon_url_medium: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outcome_icon_url_high: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditional_base_symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conditional_quote_symbol: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_mid_price: Option<Decimal>,
 }
 
@@ -238,6 +248,22 @@ pub struct MarketSearchResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_url_high: Option<String>,
     pub orderbooks: Vec<SearchOrderbook>,
+}
+
+/// Orderbooks for a single outcome within a market search result.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SearchOutcomeGroup {
+    pub outcome_index: i16,
+    pub outcome_name: String,
+    pub outcome_icon_url_low: Option<String>,
+    pub outcome_icon_url_medium: Option<String>,
+    pub outcome_icon_url_high: Option<String>,
+    pub orderbooks: Vec<SearchOrderbook>,
+    pub market_name: String,
+    pub market_slug: String,
+    pub market_icon_url_low: Option<String>,
+    pub market_icon_url_medium: Option<String>,
+    pub market_icon_url_high: Option<String>,
 }
 
 // ─── Global deposit asset wire types ────────────────────────────────────────

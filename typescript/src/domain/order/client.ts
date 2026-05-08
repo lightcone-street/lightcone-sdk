@@ -162,7 +162,7 @@ export interface SubmitOrderResponse {
 
 export interface CancelSuccess {
   order_hash: string;
-  remaining: number;
+  remaining: string;
 }
 
 export interface CancelAllSuccess {
