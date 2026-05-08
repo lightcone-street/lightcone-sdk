@@ -1,7 +1,5 @@
 //! Wire types for market responses (REST).
 
-use std::collections::BTreeMap;
-
 use crate::domain::market::Status;
 use crate::domain::orderbook::wire::OrderbookResponse;
 use crate::shared::{OrderBookId, PubkeyStr};
@@ -266,32 +264,6 @@ pub struct SearchOutcomeGroup {
     pub market_icon_url_low: Option<String>,
     pub market_icon_url_medium: Option<String>,
     pub market_icon_url_high: Option<String>,
-}
-
-impl MarketSearchResult {
-    pub fn orderbooks_by_outcome(&self) -> Vec<SearchOutcomeGroup> {
-        let mut groups: BTreeMap<i16, SearchOutcomeGroup> = BTreeMap::new();
-        for orderbook in &self.orderbooks {
-            groups
-                .entry(orderbook.outcome_index)
-                .or_insert_with(|| SearchOutcomeGroup {
-                    market_name: self.market_name.clone(),
-                    market_slug: self.slug.clone(),
-                    market_icon_url_low: self.icon_url_low.clone(),
-                    market_icon_url_medium: self.icon_url_medium.clone(),
-                    market_icon_url_high: self.icon_url_high.clone(),
-                    outcome_index: orderbook.outcome_index,
-                    outcome_name: orderbook.outcome_name.clone(),
-                    outcome_icon_url_low: orderbook.outcome_icon_url_low.clone(),
-                    outcome_icon_url_medium: orderbook.outcome_icon_url_medium.clone(),
-                    outcome_icon_url_high: orderbook.outcome_icon_url_high.clone(),
-                    orderbooks: Vec::new(),
-                })
-                .orderbooks
-                .push(orderbook.clone());
-        }
-        groups.into_values().collect()
-    }
 }
 
 // ─── Global deposit asset wire types ────────────────────────────────────────
