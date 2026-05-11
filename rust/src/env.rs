@@ -62,12 +62,18 @@ impl LightconeEnv {
     }
 
     /// On-chain Lightcone program ID for this environment.
+    ///
+    /// If the `SDK_PROGRAM_ID` environment variable is set, its value is used
+    /// regardless of the selected environment.
     pub fn program_id(&self) -> Pubkey {
+        if let Ok(override_id) = std::env::var("SDK_PROGRAM_ID") {
+            return Pubkey::from_str(&override_id).expect("SDK_PROGRAM_ID must be a valid pubkey");
+        }
         match self {
-            Self::Local => Pubkey::from_str("AU4htPS3tSXA1JFrtA37oPGBLp2yCoi6VH4uF1jdouLK")
-                .expect("valid program id"),
-            Self::Staging => Pubkey::from_str("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT")
-                .expect("valid program id"),
+            Self::Local | Self::Staging => {
+                Pubkey::from_str("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT")
+                    .expect("valid program id")
+            }
             Self::Prod => Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV")
                 .expect("valid program id"),
         }
