@@ -24,6 +24,7 @@ def test_display_preserves_selected_decimal_places():
     assert display(0.004) == "0.004"
     assert display(0.0000005) == "0.0000005"
     assert display(0.000000001) == "0.0(8)1"
+    assert display(0.0000000012345) == "0.0(8)1234"
     assert display_with_decimals(2.0, 3) == "2.000"
 
 
@@ -37,3 +38,4 @@ def test_decimal_display_preserves_selected_decimal_places():
     assert display_decimal(Decimal("0.004")) == "0.004"
     assert display_decimal(Decimal("0.0000005")) == "0.0000005"
     assert display_decimal(Decimal("0.000000001")) == "0.0(8)1"
+    assert display_decimal(Decimal("0.0000000012345")) == "0.0(8)1234"

@@ -18,6 +18,7 @@ describe("shared fmt", () => {
     assert.equal(num.display(0.004), "0.004");
     assert.equal(num.display(0.0000005), "0.0000005");
     assert.equal(num.display(0.000000001), "0.0(8)1");
+    assert.equal(num.display(0.0000000012345), "0.0(8)1234");
     assert.equal(num.displayWithDecimals(2, 3), "2.000");
   });
 
@@ -31,6 +32,7 @@ describe("shared fmt", () => {
     assert.equal(decimalFmt.display(new Decimal("0.004")), "0.004");
     assert.equal(decimalFmt.display(new Decimal("0.0000005")), "0.0000005");
     assert.equal(decimalFmt.display(new Decimal("0.000000001")), "0.0(8)1");
+    assert.equal(decimalFmt.display(new Decimal("0.0000000012345")), "0.0(8)1234");
   });
 
   it("preserves abbreviation precision", () => {

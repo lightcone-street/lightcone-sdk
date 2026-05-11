@@ -6,9 +6,9 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from .constants import (
     DEFAULT_DECIMALS,
-    MAX_STANDARD_DECIMALS,
     SUBSCRIPT_SIGNIFICANT_DIGITS,
-    TINY_SIGNIFICANT_DIGITS,
+    display_format,
+    trim_trailing_fraction_zeros,
 )
 from .num import display_formatted_string
 
@@ -16,6 +16,7 @@ _THOUSAND = Decimal("1000")
 _MILLION = Decimal("1000000")
 _BILLION = Decimal("1000000000")
 _TRILLION = Decimal("1000000000000")
+
 
 def _leading_zero_count(value: Decimal) -> int:
     normalized = format(value.normalize(), "f")
@@ -31,17 +32,17 @@ def _leading_zero_count(value: Decimal) -> int:
 
 def display(value: Decimal) -> str:
     """Format a Decimal using the Rust display rules."""
-    if value == 0:
-        return "0.00"
-
     abs_value = abs(value)
     default_quantizer = Decimal(1).scaleb(-DEFAULT_DECIMALS)
-    if abs_value.quantize(default_quantizer, rounding=ROUND_HALF_UP) != 0:
-        rounded = value.quantize(default_quantizer, rounding=ROUND_HALF_UP)
-        return display_formatted_string(format(rounded, "f"))
+    leading_zeros = 0 if value == 0 else _leading_zero_count(abs_value)
+    policy = display_format(
+        is_zero=value == 0,
+        rounds_to_default_nonzero=abs_value.quantize(default_quantizer, rounding=ROUND_HALF_UP)
+        != 0,
+        leading_zeros=leading_zeros,
+    )
 
-    leading_zeros = _leading_zero_count(abs_value)
-    if leading_zeros + 1 > MAX_STANDARD_DECIMALS:
+    if policy is None:
         digits = abs_value.scaleb(leading_zeros + 1)
         significant = (
             format(digits.normalize(), "f")
@@ -52,10 +53,13 @@ def display(value: Decimal) -> str:
         prefix = "-" if value.is_signed() else ""
         return f"{prefix}0.0({leading_zeros}){significant}"
 
-    decimals = min(leading_zeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS)
+    decimals, trim_tiny_zeros = policy
     quantizer = Decimal(1).scaleb(-decimals)
     rounded = value.quantize(quantizer, rounding=ROUND_HALF_UP)
-    return display_formatted_string(format(rounded, "f").rstrip("0").rstrip("."))
+    formatted = format(rounded, "f")
+    if trim_tiny_zeros:
+        formatted = trim_trailing_fraction_zeros(formatted)
+    return display_formatted_string(formatted)
 
 
 def abbr_number(amount: Decimal, digits: int | None = None, show_sign: bool | None = None) -> str:

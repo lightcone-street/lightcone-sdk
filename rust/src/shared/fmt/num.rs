@@ -3,47 +3,38 @@
 //! Handles f64 values with automatic decimal-place detection and comma separators.
 //! For `Decimal` formatting, use the `decimal` sibling module.
 
-use super::{DEFAULT_DECIMALS, MAX_STANDARD_DECIMALS, TINY_SIGNIFICANT_DIGITS};
+use super::{
+    display_format, trim_trailing_fraction_zeros, DisplayFormat, SUBSCRIPT_SIGNIFICANT_DIGITS,
+};
 
 /// Adds thousands separators while preserving fractional digits.
 pub fn display_formatted_string(formatted: String) -> String {
-    let parts = formatted.split(".").collect::<Vec<_>>();
-
-    let integer_part = parts[0]
-        .chars()
-        .rev()
-        .collect::<String>()
-        .as_bytes()
-        .chunks(3)
-        .map(|c| std::str::from_utf8(c).unwrap_or_default())
-        .collect::<Vec<_>>()
-        .join(",")
-        .chars()
-        .rev()
-        .collect::<String>();
-
-    let integer_part = integer_part
-        .strip_prefix("-,")
-        .or_else(|| integer_part.strip_prefix(","))
-        .unwrap_or(&integer_part)
-        .to_string();
-
-    if parts.len() > 1 {
-        format!("{}.{}", integer_part, parts[1])
+    let (integer, fraction) = if let Some((integer, fraction)) = formatted.split_once('.') {
+        (integer, Some(fraction))
     } else {
-        integer_part
-    }
-}
+        (formatted.as_str(), None)
+    };
 
-fn trim_trailing_fraction_zeros(formatted: String) -> String {
-    if !formatted.contains('.') {
-        return formatted;
-    }
+    let (sign, digits) = if let Some(digits) = integer.strip_prefix('-') {
+        ("-", digits)
+    } else {
+        ("", integer)
+    };
 
-    formatted
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, ch) in digits.chars().rev().enumerate() {
+        if index > 0 && index % 3 == 0 {
+            grouped.push(',');
+        }
+        grouped.push(ch);
+    }
+    let integer_part = grouped.chars().rev().collect::<String>();
+
+    if let Some(fraction) = fraction {
+        format!("{}{}.{}", sign, integer_part, fraction)
+    } else {
+        format!("{}{}", sign, integer_part)
+    }
 }
 
 fn leading_zero_count(value: f64) -> usize {
@@ -51,43 +42,41 @@ fn leading_zero_count(value: f64) -> usize {
     (-exponent - 1).max(0) as usize
 }
 
-fn get_decimal_places(value: f64) -> (usize, bool) {
-    let abs_value = value.abs();
-
-    if abs_value == 0.0 || abs_value >= 0.005 {
-        return (DEFAULT_DECIMALS, false);
-    }
-
-    let decimals =
-        (leading_zero_count(abs_value) + TINY_SIGNIFICANT_DIGITS).min(MAX_STANDARD_DECIMALS);
-    (decimals, true)
-}
-
 fn display_subscript(value: f64, leading_zeros: usize) -> String {
     let sign = if value.is_sign_negative() { "-" } else { "" };
     let scaled = value.abs() * 10f64.powi(leading_zeros as i32 + 1);
-    let significant = trim_trailing_fraction_zeros(format!("{:.3}", scaled)).replace('.', "");
+    let factor = 10f64.powi(SUBSCRIPT_SIGNIFICANT_DIGITS.saturating_sub(1) as i32);
+    let mut significant = (scaled * factor).floor() as u64;
+    while significant > 0 && significant % 10 == 0 {
+        significant /= 10;
+    }
     format!("{}0.0({}){}", sign, leading_zeros, significant)
 }
 
 /// Format an f64 for display with auto-detected decimal places.
 pub fn display(amount: &f64) -> String {
     let abs_value = amount.abs();
-    if abs_value != 0.0 && abs_value < 0.005 {
-        let leading_zeros = leading_zero_count(abs_value);
-        if leading_zeros + 1 > MAX_STANDARD_DECIMALS {
-            return display_subscript(*amount, leading_zeros);
-        }
-    }
-
-    let (decimals, trim_tiny_zeros) = get_decimal_places(*amount);
-    let formatted = format!("{:.1$}", amount, decimals);
-    let formatted = if trim_tiny_zeros {
-        trim_trailing_fraction_zeros(formatted)
+    let leading_zeros = if abs_value == 0.0 {
+        0
     } else {
-        formatted
+        leading_zero_count(abs_value)
     };
-    display_formatted_string(formatted)
+
+    match display_format(abs_value == 0.0, abs_value >= 0.005, leading_zeros) {
+        DisplayFormat::Standard {
+            decimals,
+            trim_trailing_zeros,
+        } => {
+            let formatted = format!("{:.1$}", amount, decimals);
+            let formatted = if trim_trailing_zeros {
+                trim_trailing_fraction_zeros(formatted)
+            } else {
+                formatted
+            };
+            display_formatted_string(formatted)
+        }
+        DisplayFormat::Subscript => display_subscript(*amount, leading_zeros),
+    }
 }
 
 /// Format an f64 for display with explicit decimal places.
@@ -186,6 +175,7 @@ mod tests {
         assert_eq!(display(&0.004), "0.004");
         assert_eq!(display(&0.0000005), "0.0000005");
         assert_eq!(display(&0.000000001), "0.0(8)1");
+        assert_eq!(display(&0.0000000012345), "0.0(8)1234");
     }
 
     #[test]

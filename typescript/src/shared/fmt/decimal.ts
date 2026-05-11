@@ -1,47 +1,39 @@
 import Decimal from "decimal.js";
 import {
   DEFAULT_DECIMALS,
-  MAX_STANDARD_DECIMALS,
   SUBSCRIPT_SIGNIFICANT_DIGITS,
-  TINY_SIGNIFICANT_DIGITS,
+  displayFormat,
+  trimTrailingFractionZeros,
 } from "./constants";
 import { displayFormattedString } from "./num";
 
-function trimTrailingFractionZeros(input: string): string {
-  if (!input.includes(".")) {
-    return input;
-  }
-  return input.replace(/0+$/, "").replace(/\.$/, "");
-}
-
 function tinyParts(value: Decimal): { leadingZeros: number; significant: string } {
-  const [coefficient, exponentText] = value
-    .toExponential(SUBSCRIPT_SIGNIFICANT_DIGITS - 1)
-    .split("e");
-  const exponent = Number(exponentText);
-  const leadingZeros = Math.max(-exponent - 1, 0);
-  const significant = coefficient.replace(".", "").replace(/0+$/, "") || "0";
+  const [, fraction = ""] = value.toFixed().split(".");
+  const leadingZeros = /^0*/.exec(fraction)?.[0].length ?? 0;
+  const significant =
+    fraction.slice(leadingZeros, leadingZeros + SUBSCRIPT_SIGNIFICANT_DIGITS).replace(/0+$/, "") ||
+    "0";
   return { leadingZeros, significant };
 }
 
 export function display(value: Decimal): string {
-  if (value.isZero()) {
-    return displayFormattedString(value.toFixed(DEFAULT_DECIMALS));
-  }
-
   const abs = value.abs();
-  if (!abs.toDecimalPlaces(DEFAULT_DECIMALS).isZero()) {
-    return displayFormattedString(value.toFixed(DEFAULT_DECIMALS));
-  }
-
   const { leadingZeros, significant } = tinyParts(abs);
-  if (leadingZeros + 1 > MAX_STANDARD_DECIMALS) {
+  const format = displayFormat({
+    isZero: value.isZero(),
+    roundsToDefaultNonzero: !abs.toDecimalPlaces(DEFAULT_DECIMALS).isZero(),
+    leadingZeros,
+  });
+
+  if (format.kind === "subscript") {
     const sign = value.isNegative() ? "-" : "";
     return `${sign}0.0(${leadingZeros})${significant}`;
   }
 
-  const decimals = Math.min(leadingZeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS);
-  return displayFormattedString(trimTrailingFractionZeros(value.toFixed(decimals)));
+  const formatted = value.toFixed(format.decimals);
+  return displayFormattedString(
+    format.trimTrailingZeros ? trimTrailingFractionZeros(formatted) : formatted,
+  );
 }
 
 export function abbrNumber(value: Decimal, digits = 2, showSign = true): string {

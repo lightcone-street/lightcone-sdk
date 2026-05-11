@@ -5,7 +5,8 @@
 //! and conversion to on-chain base units.
 
 use super::{
-    DEFAULT_DECIMALS, MAX_STANDARD_DECIMALS, SUBSCRIPT_SIGNIFICANT_DIGITS, TINY_SIGNIFICANT_DIGITS,
+    display_format, trim_trailing_fraction_zeros, DisplayFormat, DEFAULT_DECIMALS,
+    SUBSCRIPT_SIGNIFICANT_DIGITS,
 };
 use rust_decimal::prelude::*;
 use std::sync::OnceLock;
@@ -31,17 +32,6 @@ fn get_thousand() -> &'static Decimal {
     THOUSAND.get_or_init(|| Decimal::from_str("1000").unwrap())
 }
 
-enum DecimalFormat {
-    Standard {
-        decimals: u32,
-        trim_trailing_zeros: bool,
-    },
-    Subscript {
-        zeros: u32,
-        significant: String,
-    },
-}
-
 #[inline]
 fn count_digits_u128(n: u128) -> u32 {
     if n == 0 {
@@ -59,75 +49,49 @@ fn extract_significant_digits(mantissa: u128, total_digits: u32, want_digits: u3
     mantissa / divisor
 }
 
-fn get_decimal_format(value: &Decimal) -> DecimalFormat {
-    if value.is_zero() {
-        return DecimalFormat::Standard {
-            decimals: DEFAULT_DECIMALS as u32,
-            trim_trailing_zeros: false,
-        };
-    }
-
-    let abs_value = value.abs();
-
-    if !abs_value.round_dp(DEFAULT_DECIMALS as u32).is_zero() {
-        return DecimalFormat::Standard {
-            decimals: DEFAULT_DECIMALS as u32,
-            trim_trailing_zeros: false,
-        };
-    }
-
-    let scale = abs_value.scale();
-    let mantissa = abs_value.mantissa().unsigned_abs();
-
-    let mantissa_digits = count_digits_u128(mantissa);
-    let leading_zeros = (scale as u32).saturating_sub(mantissa_digits);
-
-    if leading_zeros + 1 > MAX_STANDARD_DECIMALS as u32 {
-        let sig_digits = mantissa_digits.min(SUBSCRIPT_SIGNIFICANT_DIGITS as u32);
-        let significant = extract_significant_digits(mantissa, mantissa_digits, sig_digits);
-
-        let mut sig = significant;
-        while sig > 0 && sig % 10 == 0 {
-            sig /= 10;
-        }
-
-        DecimalFormat::Subscript {
-            zeros: leading_zeros,
-            significant: if sig == 0 {
-                "0".to_string()
-            } else {
-                sig.to_string()
-            },
-        }
-    } else {
-        DecimalFormat::Standard {
-            decimals: (leading_zeros + TINY_SIGNIFICANT_DIGITS as u32)
-                .min(MAX_STANDARD_DECIMALS as u32),
-            trim_trailing_zeros: true,
-        }
-    }
+fn leading_zero_count(value: &Decimal) -> u32 {
+    let scale = value.scale();
+    let mantissa_digits = count_digits_u128(value.mantissa().unsigned_abs());
+    (scale as u32).saturating_sub(mantissa_digits)
 }
 
-fn trim_trailing_fraction_zeros(formatted: String) -> String {
-    if !formatted.contains('.') {
-        return formatted;
+fn significant_digits(value: &Decimal) -> String {
+    let mantissa = value.mantissa().unsigned_abs();
+    let mantissa_digits = count_digits_u128(mantissa);
+    let sig_digits = mantissa_digits.min(SUBSCRIPT_SIGNIFICANT_DIGITS as u32);
+    let mut significant = extract_significant_digits(mantissa, mantissa_digits, sig_digits);
+
+    while significant > 0 && significant % 10 == 0 {
+        significant /= 10;
     }
 
-    formatted
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
+    if significant == 0 {
+        "0".to_string()
+    } else {
+        significant.to_string()
+    }
 }
 
 /// Format a `Decimal` for display, handling subscript notation for very small values.
 pub fn display(value: &Decimal) -> String {
-    match get_decimal_format(value) {
-        DecimalFormat::Standard {
+    let abs_value = value.abs();
+    let leading_zeros = if abs_value.is_zero() {
+        0
+    } else {
+        leading_zero_count(&abs_value) as usize
+    };
+
+    match display_format(
+        value.is_zero(),
+        !abs_value.round_dp(DEFAULT_DECIMALS as u32).is_zero(),
+        leading_zeros,
+    ) {
+        DisplayFormat::Standard {
             decimals,
             trim_trailing_zeros,
         } => {
-            let rounded = value.round_dp(decimals);
-            let formatted = format!("{:.1$}", rounded, decimals as usize);
+            let rounded = value.round_dp(decimals as u32);
+            let formatted = format!("{:.1$}", rounded, decimals);
             let formatted = if trim_trailing_zeros {
                 trim_trailing_fraction_zeros(formatted)
             } else {
@@ -135,11 +99,12 @@ pub fn display(value: &Decimal) -> String {
             };
             super::num::display_formatted_string(formatted)
         }
-        DecimalFormat::Subscript { zeros, significant } => {
+        DisplayFormat::Subscript => {
+            let significant = significant_digits(&abs_value);
             if value.is_sign_negative() {
-                format!("-0.0({}){}", zeros, significant)
+                format!("-0.0({}){}", leading_zeros, significant)
             } else {
-                format!("0.0({}){}", zeros, significant)
+                format!("0.0({}){}", leading_zeros, significant)
             }
         }
     }
@@ -266,6 +231,7 @@ mod tests {
     fn test_display_very_small_values_subscript() {
         assert_eq!(display(&dec("0.000000001")), "0.0(8)1");
         assert_eq!(display(&dec("0.0000000015")), "0.0(8)15");
+        assert_eq!(display(&dec("0.0000000012345")), "0.0(8)1234");
         assert_eq!(display(&dec("0.000000000000000000015")), "0.0(19)15");
     }
 

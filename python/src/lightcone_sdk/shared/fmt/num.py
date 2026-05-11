@@ -4,9 +4,9 @@ from decimal import Decimal
 import math
 
 from .constants import (
-    DEFAULT_DECIMALS,
-    MAX_STANDARD_DECIMALS,
-    TINY_SIGNIFICANT_DIGITS,
+    SUBSCRIPT_SIGNIFICANT_DIGITS,
+    display_format,
+    trim_trailing_fraction_zeros,
 )
 
 
@@ -31,23 +31,6 @@ def display_formatted_string(formatted: str) -> str:
     return f"{sign}{integer_formatted}"
 
 
-def _get_decimal_places(value: float) -> int:
-    abs_value = abs(value)
-
-    if abs_value == 0.0 or abs_value >= 0.005:
-        return DEFAULT_DECIMALS
-
-    exponent = math.floor(math.log10(abs_value))
-    leading_zeros = max(-exponent - 1, 0)
-    return min(leading_zeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS)
-
-
-def _trim_trailing_fraction_zeros(formatted: str) -> str:
-    if "." not in formatted:
-        return formatted
-    return formatted.rstrip("0").rstrip(".")
-
-
 def _leading_zero_count(value: float) -> int:
     exponent = math.floor(math.log10(abs(value)))
     return max(-exponent - 1, 0)
@@ -56,22 +39,30 @@ def _leading_zero_count(value: float) -> int:
 def _display_subscript(value: float, leading_zeros: int) -> str:
     sign = "-" if value < 0 else ""
     scaled = abs(value) * (10 ** (leading_zeros + 1))
-    significant = _trim_trailing_fraction_zeros(f"{scaled:.3f}").replace(".", "")
+    factor = 10 ** (SUBSCRIPT_SIGNIFICANT_DIGITS - 1)
+    significant = int(scaled * factor)
+    while significant > 0 and significant % 10 == 0:
+        significant //= 10
     return f"{sign}0.0({leading_zeros}){significant}"
 
 
 def display(amount: float) -> str:
     """Format a float for display with Rust-style decimal selection."""
     abs_value = abs(amount)
-    if abs_value != 0.0 and abs_value < 0.005:
-        leading_zeros = _leading_zero_count(abs_value)
-        if leading_zeros + 1 > MAX_STANDARD_DECIMALS:
-            return _display_subscript(amount, leading_zeros)
+    leading_zeros = 0 if abs_value == 0.0 else _leading_zero_count(abs_value)
+    policy = display_format(
+        is_zero=abs_value == 0.0,
+        rounds_to_default_nonzero=abs_value >= 0.005,
+        leading_zeros=leading_zeros,
+    )
 
-    decimals = _get_decimal_places(amount)
+    if policy is None:
+        return _display_subscript(amount, leading_zeros)
+
+    decimals, trim_tiny_zeros = policy
     formatted = f"{amount:.{decimals}f}"
-    if abs_value != 0.0 and abs_value < 0.005:
-        formatted = _trim_trailing_fraction_zeros(formatted)
+    if trim_tiny_zeros:
+        formatted = trim_trailing_fraction_zeros(formatted)
     return display_formatted_string(formatted)
 
 

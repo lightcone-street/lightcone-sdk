@@ -1,4 +1,8 @@
-import { DEFAULT_DECIMALS, MAX_STANDARD_DECIMALS, TINY_SIGNIFICANT_DIGITS } from "./constants";
+import {
+  SUBSCRIPT_SIGNIFICANT_DIGITS,
+  displayFormat,
+  trimTrailingFractionZeros,
+} from "./constants";
 
 export function displayFormattedString(input: string): string {
   const [rawInteger, rawFraction] = input.split(".");
@@ -19,13 +23,6 @@ export function displayWithDecimals(value: number, decimals: number): string {
   return displayFormattedString(value.toFixed(decimals));
 }
 
-function trimTrailingFractionZeros(input: string): string {
-  if (!input.includes(".")) {
-    return input;
-  }
-  return input.replace(/0+$/, "").replace(/\.$/, "");
-}
-
 function leadingZeroCount(value: number): number {
   const exponent = Math.floor(Math.log10(Math.abs(value)));
   return Math.max(-exponent - 1, 0);
@@ -34,23 +31,30 @@ function leadingZeroCount(value: number): number {
 function displaySubscript(value: number, leadingZeros: number): string {
   const sign = value < 0 ? "-" : "";
   const scaled = Math.abs(value) * 10 ** (leadingZeros + 1);
-  const significant = trimTrailingFractionZeros(scaled.toFixed(3)).replace(".", "");
+  let significant = Math.trunc(scaled * 10 ** (SUBSCRIPT_SIGNIFICANT_DIGITS - 1));
+  while (significant > 0 && significant % 10 === 0) {
+    significant = Math.trunc(significant / 10);
+  }
   return `${sign}0.0(${leadingZeros})${significant}`;
 }
 
 export function display(value: number): string {
   const abs = Math.abs(value);
-  if (abs !== 0 && abs < 0.005) {
-    const leadingZeros = leadingZeroCount(abs);
-    if (leadingZeros + 1 > MAX_STANDARD_DECIMALS) {
-      return displaySubscript(value, leadingZeros);
-    }
+  const leadingZeros = abs === 0 ? 0 : leadingZeroCount(abs);
+  const format = displayFormat({
+    isZero: abs === 0,
+    roundsToDefaultNonzero: abs >= 0.005,
+    leadingZeros,
+  });
 
-    const decimals = Math.min(leadingZeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS);
-    return displayFormattedString(trimTrailingFractionZeros(value.toFixed(decimals)));
+  if (format.kind === "subscript") {
+    return displaySubscript(value, leadingZeros);
   }
 
-  return displayWithDecimals(value, DEFAULT_DECIMALS);
+  const formatted = value.toFixed(format.decimals);
+  return displayFormattedString(
+    format.trimTrailingZeros ? trimTrailingFractionZeros(formatted) : formatted,
+  );
 }
 
 export function toDecimalValue(value: bigint, decimals: number): number {
