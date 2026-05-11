@@ -1,12 +1,14 @@
+import { DEFAULT_DECIMALS, MAX_STANDARD_DECIMALS, TINY_SIGNIFICANT_DIGITS } from "./constants";
+
 export function displayFormattedString(input: string): string {
   const [rawInteger, rawFraction] = input.split(".");
   const negative = rawInteger.startsWith("-");
   const integer = negative ? rawInteger.slice(1) : rawInteger;
   const withCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const fraction = rawFraction?.replace(/0+$/, "");
+  const fraction = rawFraction;
   const prefix = negative ? "-" : "";
 
-  if (!fraction) {
+  if (fraction === undefined) {
     return `${prefix}${withCommas}`;
   }
 
@@ -17,21 +19,38 @@ export function displayWithDecimals(value: number, decimals: number): string {
   return displayFormattedString(value.toFixed(decimals));
 }
 
+function trimTrailingFractionZeros(input: string): string {
+  if (!input.includes(".")) {
+    return input;
+  }
+  return input.replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function leadingZeroCount(value: number): number {
+  const exponent = Math.floor(Math.log10(Math.abs(value)));
+  return Math.max(-exponent - 1, 0);
+}
+
+function displaySubscript(value: number, leadingZeros: number): string {
+  const sign = value < 0 ? "-" : "";
+  const scaled = Math.abs(value) * 10 ** (leadingZeros + 1);
+  const significant = trimTrailingFractionZeros(scaled.toFixed(3)).replace(".", "");
+  return `${sign}0.0(${leadingZeros})${significant}`;
+}
+
 export function display(value: number): string {
-  if (Math.abs(value) >= 100) {
-    return displayWithDecimals(value, 0);
-  }
-  if (Math.abs(value) >= 1) {
-    return displayWithDecimals(value, 2);
-  }
-  if (value === 0) {
-    return "0";
+  const abs = Math.abs(value);
+  if (abs !== 0 && abs < 0.005) {
+    const leadingZeros = leadingZeroCount(abs);
+    if (leadingZeros + 1 > MAX_STANDARD_DECIMALS) {
+      return displaySubscript(value, leadingZeros);
+    }
+
+    const decimals = Math.min(leadingZeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS);
+    return displayFormattedString(trimTrailingFractionZeros(value.toFixed(decimals)));
   }
 
-  const abs = Math.abs(value);
-  const exponent = Math.floor(Math.log10(abs));
-  const decimals = Math.min(Math.max(Math.abs(exponent) + 2, 2), 8);
-  return displayWithDecimals(value, decimals);
+  return displayWithDecimals(value, DEFAULT_DECIMALS);
 }
 
 export function toDecimalValue(value: bigint, decimals: number): number {

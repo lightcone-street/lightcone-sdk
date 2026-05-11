@@ -3,18 +3,11 @@
 //! Handles f64 values with automatic decimal-place detection and comma separators.
 //! For `Decimal` formatting, use the `decimal` sibling module.
 
-/// Trims trailing zeros, adds thousands separators.
-pub fn display_formatted_string(formatted: String) -> String {
-    let trimmed = if formatted.contains('.') {
-        formatted
-            .trim_end_matches('0')
-            .trim_end_matches('.')
-            .to_string()
-    } else {
-        formatted
-    };
+use super::{DEFAULT_DECIMALS, MAX_STANDARD_DECIMALS, TINY_SIGNIFICANT_DIGITS};
 
-    let parts = trimmed.split(".").collect::<Vec<_>>();
+/// Adds thousands separators while preserving fractional digits.
+pub fn display_formatted_string(formatted: String) -> String {
+    let parts = formatted.split(".").collect::<Vec<_>>();
 
     let integer_part = parts[0]
         .chars()
@@ -42,28 +35,59 @@ pub fn display_formatted_string(formatted: String) -> String {
     }
 }
 
-fn get_decimal_places(value: f64) -> usize {
+fn trim_trailing_fraction_zeros(formatted: String) -> String {
+    if !formatted.contains('.') {
+        return formatted;
+    }
+
+    formatted
+        .trim_end_matches('0')
+        .trim_end_matches('.')
+        .to_string()
+}
+
+fn leading_zero_count(value: f64) -> usize {
+    let exponent = value.abs().log10().floor() as isize;
+    (-exponent - 1).max(0) as usize
+}
+
+fn get_decimal_places(value: f64) -> (usize, bool) {
     let abs_value = value.abs();
 
-    if abs_value >= 100.0 {
-        return 0;
+    if abs_value == 0.0 || abs_value >= 0.005 {
+        return (DEFAULT_DECIMALS, false);
     }
 
-    if abs_value >= 1.0 {
-        return 2;
-    }
+    let decimals =
+        (leading_zero_count(abs_value) + TINY_SIGNIFICANT_DIGITS).min(MAX_STANDARD_DECIMALS);
+    (decimals, true)
+}
 
-    if abs_value == 0.0 {
-        return 2;
-    }
-
-    let exponent = abs_value.log10().floor().abs() as usize;
-    (exponent + 2).min(8)
+fn display_subscript(value: f64, leading_zeros: usize) -> String {
+    let sign = if value.is_sign_negative() { "-" } else { "" };
+    let scaled = value.abs() * 10f64.powi(leading_zeros as i32 + 1);
+    let significant = trim_trailing_fraction_zeros(format!("{:.3}", scaled)).replace('.', "");
+    format!("{}0.0({}){}", sign, leading_zeros, significant)
 }
 
 /// Format an f64 for display with auto-detected decimal places.
 pub fn display(amount: &f64) -> String {
-    display_with_decimals(amount, get_decimal_places(*amount))
+    let abs_value = amount.abs();
+    if abs_value != 0.0 && abs_value < 0.005 {
+        let leading_zeros = leading_zero_count(abs_value);
+        if leading_zeros + 1 > MAX_STANDARD_DECIMALS {
+            return display_subscript(*amount, leading_zeros);
+        }
+    }
+
+    let (decimals, trim_tiny_zeros) = get_decimal_places(*amount);
+    let formatted = format!("{:.1$}", amount, decimals);
+    let formatted = if trim_tiny_zeros {
+        trim_trailing_fraction_zeros(formatted)
+    } else {
+        formatted
+    };
+    display_formatted_string(formatted)
 }
 
 /// Format an f64 for display with explicit decimal places.
@@ -112,18 +136,18 @@ mod tests {
     #[test]
     fn test_display_formatted_string_decimals() {
         assert_eq!(display_formatted_string("1.5".to_string()), "1.5");
-        assert_eq!(display_formatted_string("1.50".to_string()), "1.5");
-        assert_eq!(display_formatted_string("1.500".to_string()), "1.5");
+        assert_eq!(display_formatted_string("1.50".to_string()), "1.50");
+        assert_eq!(display_formatted_string("1.500".to_string()), "1.500");
         assert_eq!(display_formatted_string("1.23".to_string()), "1.23");
-        assert_eq!(display_formatted_string("1.230".to_string()), "1.23");
+        assert_eq!(display_formatted_string("1.230".to_string()), "1.230");
     }
 
     #[test]
-    fn test_display_formatted_string_trailing_zeros_trimmed() {
-        assert_eq!(display_formatted_string("1.00".to_string()), "1");
-        assert_eq!(display_formatted_string("1.000".to_string()), "1");
-        assert_eq!(display_formatted_string("100.00".to_string()), "100");
-        assert_eq!(display_formatted_string("1000.00".to_string()), "1,000");
+    fn test_display_formatted_string_trailing_zeros_preserved() {
+        assert_eq!(display_formatted_string("1.00".to_string()), "1.00");
+        assert_eq!(display_formatted_string("1.000".to_string()), "1.000");
+        assert_eq!(display_formatted_string("100.00".to_string()), "100.00");
+        assert_eq!(display_formatted_string("1000.00".to_string()), "1,000.00");
     }
 
     #[test]
@@ -137,39 +161,43 @@ mod tests {
     }
 
     #[test]
-    fn test_display_f64_large() {
-        assert_eq!(display(&100.0), "100");
-        assert_eq!(display(&1234.56), "1,235");
-        assert_eq!(display(&999999.0), "999,999");
+    fn test_display_f64_default_two_decimals() {
+        assert_eq!(display(&100.0), "100.00");
+        assert_eq!(display(&1234.56), "1,234.56");
+        assert_eq!(display(&999999.0), "999,999.00");
     }
 
     #[test]
     fn test_display_f64_medium() {
-        assert_eq!(display(&1.0), "1");
-        assert_eq!(display(&1.5), "1.5");
+        assert_eq!(display(&1.0), "1.00");
+        assert_eq!(display(&1.5), "1.50");
         assert_eq!(display(&1.23), "1.23");
         assert_eq!(display(&15.456), "15.46");
-        assert_eq!(display(&99.999), "100");
+        assert_eq!(display(&99.999), "100.00");
     }
 
     #[test]
-    fn test_display_f64_small() {
-        assert_eq!(display(&0.1), "0.1");
-        assert_eq!(display(&0.123), "0.123");
+    fn test_display_f64_small_non_zero_values() {
+        assert_eq!(display(&0.1), "0.10");
+        assert_eq!(display(&0.123), "0.12");
         assert_eq!(display(&0.01), "0.01");
-        assert_eq!(display(&0.0123), "0.0123");
+        assert_eq!(display(&0.0123), "0.01");
+        assert_eq!(display(&0.009), "0.01");
+        assert_eq!(display(&0.004), "0.004");
+        assert_eq!(display(&0.0000005), "0.0000005");
+        assert_eq!(display(&0.000000001), "0.0(8)1");
     }
 
     #[test]
     fn test_display_f64_zero() {
-        assert_eq!(display(&0.0), "0");
+        assert_eq!(display(&0.0), "0.00");
     }
 
     #[test]
     fn test_display_with_decimals_explicit() {
         assert_eq!(display_with_decimals(&1.0, 0), "1");
-        assert_eq!(display_with_decimals(&1.0, 2), "1");
-        assert_eq!(display_with_decimals(&1.5, 2), "1.5");
+        assert_eq!(display_with_decimals(&1.0, 2), "1.00");
+        assert_eq!(display_with_decimals(&1.5, 2), "1.50");
         assert_eq!(display_with_decimals(&1.234, 2), "1.23");
         assert_eq!(display_with_decimals(&1.235, 2), "1.24");
     }

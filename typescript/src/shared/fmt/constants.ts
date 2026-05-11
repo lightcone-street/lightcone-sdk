@@ -1,0 +1,4 @@
+export const DEFAULT_DECIMALS = 2;
+export const TINY_SIGNIFICANT_DIGITS = 3;
+export const MAX_STANDARD_DECIMALS = 8;
+export const SUBSCRIPT_SIGNIFICANT_DIGITS = 4;
