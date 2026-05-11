@@ -55,11 +55,19 @@ export function rpcUrl(environment: LightconeEnv): string {
   }
 }
 
-/** On-chain Lightcone program ID for the given environment. */
+/**
+ * On-chain Lightcone program ID for the given environment.
+ *
+ * If the `SDK_PROGRAM_ID` environment variable is set, its value is used
+ * regardless of the selected environment.
+ */
 export function programId(environment: LightconeEnv): PublicKey {
+  const override_id = typeof process !== "undefined" ? process.env.SDK_PROGRAM_ID : undefined;
+  if (override_id) {
+    return new PublicKey(override_id);
+  }
   switch (environment) {
     case LightconeEnv.Local:
-      return new PublicKey("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq");
     case LightconeEnv.Staging:
       return new PublicKey("AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT");
     case LightconeEnv.Prod:

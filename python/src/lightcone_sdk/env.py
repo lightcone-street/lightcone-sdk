@@ -5,6 +5,7 @@ connects to. Each variant maps to a specific API URL, WebSocket URL,
 Solana RPC URL, and on-chain program ID.
 """
 
+import os
 from enum import Enum
 
 from solders.pubkey import Pubkey
@@ -54,12 +55,15 @@ class LightconeEnv(Enum):
 
     @property
     def program_id(self) -> Pubkey:
-        """On-chain Lightcone program ID for this environment."""
-        if self is LightconeEnv.LOCAL:
-            return Pubkey.from_string(
-                "H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq"
-            )
-        if self is LightconeEnv.STAGING:
+        """On-chain Lightcone program ID for this environment.
+
+        If the ``SDK_PROGRAM_ID`` environment variable is set, its value is
+        used regardless of the selected environment.
+        """
+        override_id = os.environ.get("SDK_PROGRAM_ID")
+        if override_id:
+            return Pubkey.from_string(override_id)
+        if self in (LightconeEnv.LOCAL, LightconeEnv.STAGING):
             return Pubkey.from_string(
                 "AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT"
             )
