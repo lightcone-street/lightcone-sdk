@@ -30,7 +30,8 @@ fn get_thousand() -> &'static Decimal {
 /// Format a `Decimal` for display with magnitude-based decimal places.
 pub fn display(value: &Decimal) -> String {
     let decimals = super::display_decimals_decimal(&value.abs());
-    let rounded = value.round_dp(decimals as u32);
+    let rounded =
+        value.round_dp_with_strategy(decimals as u32, RoundingStrategy::MidpointAwayFromZero);
     super::num::display_formatted_string(format!("{:.1$}", rounded, decimals))
 }
 
