@@ -1,13 +1,8 @@
 //! Decimal formatting utilities for human-readable display.
 //!
-//! Handles `rust_decimal::Decimal` values with subscript notation for very small
-//! numbers, automatic decimal-place detection, abbreviated suffixes (K/M/B/T),
-//! and conversion to on-chain base units.
+//! Handles `rust_decimal::Decimal` values with automatic decimal-place detection,
+//! abbreviated suffixes (K/M/B/T), and conversion to on-chain base units.
 
-use super::{
-    display_format, trim_trailing_fraction_zeros, DisplayFormat, DEFAULT_DECIMALS,
-    SUBSCRIPT_SIGNIFICANT_DIGITS,
-};
 use rust_decimal::prelude::*;
 use std::sync::OnceLock;
 
@@ -32,82 +27,11 @@ fn get_thousand() -> &'static Decimal {
     THOUSAND.get_or_init(|| Decimal::from_str("1000").unwrap())
 }
 
-#[inline]
-fn count_digits_u128(n: u128) -> u32 {
-    if n == 0 {
-        return 1;
-    }
-    n.ilog10() + 1
-}
-
-#[inline]
-fn extract_significant_digits(mantissa: u128, total_digits: u32, want_digits: u32) -> u128 {
-    if total_digits <= want_digits {
-        return mantissa;
-    }
-    let divisor = 10u128.pow(total_digits - want_digits);
-    mantissa / divisor
-}
-
-fn leading_zero_count(value: &Decimal) -> u32 {
-    let scale = value.scale();
-    let mantissa_digits = count_digits_u128(value.mantissa().unsigned_abs());
-    (scale as u32).saturating_sub(mantissa_digits)
-}
-
-fn significant_digits(value: &Decimal) -> String {
-    let mantissa = value.mantissa().unsigned_abs();
-    let mantissa_digits = count_digits_u128(mantissa);
-    let sig_digits = mantissa_digits.min(SUBSCRIPT_SIGNIFICANT_DIGITS as u32);
-    let mut significant = extract_significant_digits(mantissa, mantissa_digits, sig_digits);
-
-    while significant > 0 && significant % 10 == 0 {
-        significant /= 10;
-    }
-
-    if significant == 0 {
-        "0".to_string()
-    } else {
-        significant.to_string()
-    }
-}
-
-/// Format a `Decimal` for display, handling subscript notation for very small values.
+/// Format a `Decimal` for display with magnitude-based decimal places.
 pub fn display(value: &Decimal) -> String {
-    let abs_value = value.abs();
-    let leading_zeros = if abs_value.is_zero() {
-        0
-    } else {
-        leading_zero_count(&abs_value) as usize
-    };
-
-    match display_format(
-        value.is_zero(),
-        !abs_value.round_dp(DEFAULT_DECIMALS as u32).is_zero(),
-        leading_zeros,
-    ) {
-        DisplayFormat::Standard {
-            decimals,
-            trim_trailing_zeros,
-        } => {
-            let rounded = value.round_dp(decimals as u32);
-            let formatted = format!("{:.1$}", rounded, decimals);
-            let formatted = if trim_trailing_zeros {
-                trim_trailing_fraction_zeros(formatted)
-            } else {
-                formatted
-            };
-            super::num::display_formatted_string(formatted)
-        }
-        DisplayFormat::Subscript => {
-            let significant = significant_digits(&abs_value);
-            if value.is_sign_negative() {
-                format!("-0.0({}){}", leading_zeros, significant)
-            } else {
-                format!("0.0({}){}", leading_zeros, significant)
-            }
-        }
-    }
+    let decimals = super::display_decimals_decimal(&value.abs());
+    let rounded = value.round_dp(decimals as u32);
+    super::num::display_formatted_string(format!("{:.1$}", rounded, decimals))
 }
 
 /// Abbreviate a `Decimal` with k/m/b/t suffixes.
@@ -192,63 +116,49 @@ mod tests {
 
     #[test]
     fn test_display_zero() {
-        assert_eq!(display(&Decimal::ZERO), "0.00");
+        assert_eq!(display(&Decimal::ZERO), "0.00000");
     }
 
     #[test]
-    fn test_display_default_two_decimals() {
+    fn test_display_tiered_decimals() {
+        assert_eq!(display(&dec("12345.67")), "12,346");
+        assert_eq!(display(&dec("1234.56")), "1,234.6");
+        assert_eq!(display(&dec("123.456")), "123.46");
+        assert_eq!(display(&dec("15.4567")), "15.457");
+        assert_eq!(display(&dec("1.23456")), "1.2346");
+        assert_eq!(display(&dec("0.123456")), "0.1235");
+        assert_eq!(display(&dec("0.012345")), "0.01235");
+    }
+
+    #[test]
+    fn test_display_tier_boundaries() {
+        assert_eq!(display(&dec("10000")), "10,000");
+        assert_eq!(display(&dec("9999.99")), "10,000.0");
+        assert_eq!(display(&dec("1000")), "1,000.0");
+        assert_eq!(display(&dec("999.999")), "1,000.00");
         assert_eq!(display(&dec("100")), "100.00");
-        assert_eq!(display(&dec("100.99")), "100.99");
-        assert_eq!(display(&dec("1234.567")), "1,234.57");
-        assert_eq!(display(&dec("999999")), "999,999.00");
+        assert_eq!(display(&dec("99.9999")), "100.000");
+        assert_eq!(display(&dec("10")), "10.000");
+        assert_eq!(display(&dec("9.87654")), "9.8765");
+        assert_eq!(display(&dec("1")), "1.0000");
+        assert_eq!(display(&dec("0.999999")), "1.0000");
+        assert_eq!(display(&dec("0.1")), "0.1000");
+        assert_eq!(display(&dec("0.099999")), "0.10000");
     }
 
     #[test]
-    fn test_display_medium_values_two_decimals() {
-        assert_eq!(display(&dec("1.00")), "1.00");
-        assert_eq!(display(&dec("1.50")), "1.50");
-        assert_eq!(display(&dec("1.505058")), "1.51");
-        assert_eq!(display(&dec("15.456")), "15.46");
-        assert_eq!(display(&dec("99.999")), "100.00");
-    }
-
-    #[test]
-    fn test_display_small_non_zero_values() {
-        assert_eq!(display(&dec("0.1")), "0.10");
-        assert_eq!(display(&dec("0.12")), "0.12");
-        assert_eq!(display(&dec("0.123")), "0.12");
-        assert_eq!(display(&dec("0.01")), "0.01");
-        assert_eq!(display(&dec("0.009")), "0.01");
-        assert_eq!(display(&dec("0.004")), "0.004");
-        assert_eq!(display(&dec("0.00123")), "0.00123");
-        assert_eq!(display(&dec("0.000123")), "0.000123");
-        assert_eq!(display(&dec("0.0000123")), "0.0000123");
-        assert_eq!(display(&dec("0.0000005")), "0.0000005");
-        assert_eq!(display(&dec("0.00000056789")), "0.00000057");
-    }
-
-    #[test]
-    fn test_display_very_small_values_subscript() {
-        assert_eq!(display(&dec("0.000000001")), "0.0(8)1");
-        assert_eq!(display(&dec("0.0000000015")), "0.0(8)15");
-        assert_eq!(display(&dec("0.0000000012345")), "0.0(8)1234");
-        assert_eq!(display(&dec("0.000000000000000000015")), "0.0(19)15");
+    fn test_display_small_values_cap_at_five_decimals() {
+        assert_eq!(display(&dec("0.01")), "0.01000");
+        assert_eq!(display(&dec("0.00003")), "0.00003");
+        assert_eq!(display(&dec("0.000004")), "0.00000");
+        assert_eq!(display(&dec("0.000000001")), "0.00000");
     }
 
     #[test]
     fn test_display_negative_values() {
-        assert_eq!(display(&dec("-1234.56")), "-1,234.56");
-        assert_eq!(display(&dec("-15.456")), "-15.46");
-        assert_eq!(display(&dec("-0.00123")), "-0.00123");
-        assert_eq!(display(&dec("-0.0000005")), "-0.0000005");
-        assert_eq!(display(&dec("-0.000000001")), "-0.0(8)1");
-    }
-
-    #[test]
-    fn test_display_very_small_values_subscript_significant_digits() {
-        assert_eq!(display(&dec("0.00000010")), "0.0000001");
-        assert_eq!(display(&dec("0.000000100")), "0.0000001");
-        assert_eq!(display(&dec("0.0000001200")), "0.00000012");
+        assert_eq!(display(&dec("-1234.56")), "-1,234.6");
+        assert_eq!(display(&dec("-15.4567")), "-15.457");
+        assert_eq!(display(&dec("-0.00003")), "-0.00003");
     }
 
     #[test]

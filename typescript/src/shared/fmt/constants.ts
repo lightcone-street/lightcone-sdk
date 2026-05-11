@@ -1,39 +1,19 @@
-export const DEFAULT_DECIMALS = 2;
-export const TINY_SIGNIFICANT_DIGITS = 3;
-export const MAX_STANDARD_DECIMALS = 8;
-export const SUBSCRIPT_SIGNIFICANT_DIGITS = 4;
+export const DISPLAY_DECIMAL_TIERS = [
+  [10_000, 0],
+  [1_000, 1],
+  [100, 2],
+  [10, 3],
+  [0.1, 4],
+] as const;
 
-export type DisplayFormat =
-  | { kind: "standard"; decimals: number; trimTrailingZeros: boolean }
-  | { kind: "subscript" };
+export const SMALL_VALUE_DECIMALS = 5;
 
-export function displayFormat({
-  isZero,
-  roundsToDefaultNonzero,
-  leadingZeros,
-}: {
-  isZero: boolean;
-  roundsToDefaultNonzero: boolean;
-  leadingZeros: number;
-}): DisplayFormat {
-  if (isZero || roundsToDefaultNonzero) {
-    return { kind: "standard", decimals: DEFAULT_DECIMALS, trimTrailingZeros: false };
+export function displayDecimals(absValue: number): number {
+  for (const [threshold, decimals] of DISPLAY_DECIMAL_TIERS) {
+    if (absValue >= threshold) {
+      return decimals;
+    }
   }
 
-  if (leadingZeros + 1 > MAX_STANDARD_DECIMALS) {
-    return { kind: "subscript" };
-  }
-
-  return {
-    kind: "standard",
-    decimals: Math.min(leadingZeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS),
-    trimTrailingZeros: true,
-  };
-}
-
-export function trimTrailingFractionZeros(input: string): string {
-  if (!input.includes(".")) {
-    return input;
-  }
-  return input.replace(/0+$/, "").replace(/\.$/, "");
+  return SMALL_VALUE_DECIMALS;
 }

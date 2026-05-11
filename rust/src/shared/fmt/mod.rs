@@ -1,49 +1,37 @@
 //! Formatting utilities for human-readable number display.
 
-const DEFAULT_DECIMALS: usize = 2;
-const TINY_SIGNIFICANT_DIGITS: usize = 3;
-const MAX_STANDARD_DECIMALS: usize = 8;
-const SUBSCRIPT_SIGNIFICANT_DIGITS: usize = 4;
+use rust_decimal::Decimal;
 
-enum DisplayFormat {
-    Standard {
-        decimals: usize,
-        trim_trailing_zeros: bool,
-    },
-    Subscript,
-}
-
-fn display_format(
-    is_zero: bool,
-    rounds_to_default_nonzero: bool,
-    leading_zeros: usize,
-) -> DisplayFormat {
-    if is_zero || rounds_to_default_nonzero {
-        return DisplayFormat::Standard {
-            decimals: DEFAULT_DECIMALS,
-            trim_trailing_zeros: false,
-        };
-    }
-
-    if leading_zeros + 1 > MAX_STANDARD_DECIMALS {
-        return DisplayFormat::Subscript;
-    }
-
-    DisplayFormat::Standard {
-        decimals: (leading_zeros + TINY_SIGNIFICANT_DIGITS).min(MAX_STANDARD_DECIMALS),
-        trim_trailing_zeros: true,
+fn display_decimals_f64(abs_value: f64) -> usize {
+    if abs_value >= 10_000.0 {
+        0
+    } else if abs_value >= 1_000.0 {
+        1
+    } else if abs_value >= 100.0 {
+        2
+    } else if abs_value >= 10.0 {
+        3
+    } else if abs_value >= 0.1 {
+        4
+    } else {
+        5
     }
 }
 
-fn trim_trailing_fraction_zeros(formatted: String) -> String {
-    if !formatted.contains('.') {
-        return formatted;
+fn display_decimals_decimal(abs_value: &Decimal) -> usize {
+    if abs_value >= &Decimal::from(10_000) {
+        0
+    } else if abs_value >= &Decimal::from(1_000) {
+        1
+    } else if abs_value >= &Decimal::from(100) {
+        2
+    } else if abs_value >= &Decimal::from(10) {
+        3
+    } else if abs_value >= &Decimal::new(1, 1) {
+        4
+    } else {
+        5
     }
-
-    formatted
-        .trim_end_matches('0')
-        .trim_end_matches('.')
-        .to_string()
 }
 
 pub mod decimal;

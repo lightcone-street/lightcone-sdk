@@ -1,39 +1,20 @@
 import Decimal from "decimal.js";
-import {
-  DEFAULT_DECIMALS,
-  SUBSCRIPT_SIGNIFICANT_DIGITS,
-  displayFormat,
-  trimTrailingFractionZeros,
-} from "./constants";
+import { DISPLAY_DECIMAL_TIERS, SMALL_VALUE_DECIMALS } from "./constants";
 import { displayFormattedString } from "./num";
 
-function tinyParts(value: Decimal): { leadingZeros: number; significant: string } {
-  const [, fraction = ""] = value.toFixed().split(".");
-  const leadingZeros = /^0*/.exec(fraction)?.[0].length ?? 0;
-  const significant =
-    fraction.slice(leadingZeros, leadingZeros + SUBSCRIPT_SIGNIFICANT_DIGITS).replace(/0+$/, "") ||
-    "0";
-  return { leadingZeros, significant };
+function displayDecimals(value: Decimal): number {
+  for (const [threshold, decimals] of DISPLAY_DECIMAL_TIERS) {
+    if (value.greaterThanOrEqualTo(threshold)) {
+      return decimals;
+    }
+  }
+
+  return SMALL_VALUE_DECIMALS;
 }
 
 export function display(value: Decimal): string {
-  const abs = value.abs();
-  const { leadingZeros, significant } = tinyParts(abs);
-  const format = displayFormat({
-    isZero: value.isZero(),
-    roundsToDefaultNonzero: !abs.toDecimalPlaces(DEFAULT_DECIMALS).isZero(),
-    leadingZeros,
-  });
-
-  if (format.kind === "subscript") {
-    const sign = value.isNegative() ? "-" : "";
-    return `${sign}0.0(${leadingZeros})${significant}`;
-  }
-
-  const formatted = value.toFixed(format.decimals);
-  return displayFormattedString(
-    format.trimTrailingZeros ? trimTrailingFractionZeros(formatted) : formatted,
-  );
+  const decimals = displayDecimals(value.abs());
+  return displayFormattedString(value.toFixed(decimals));
 }
 
 export function abbrNumber(value: Decimal, digits = 2, showSign = true): string {

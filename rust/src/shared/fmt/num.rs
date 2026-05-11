@@ -3,10 +3,6 @@
 //! Handles f64 values with automatic decimal-place detection and comma separators.
 //! For `Decimal` formatting, use the `decimal` sibling module.
 
-use super::{
-    display_format, trim_trailing_fraction_zeros, DisplayFormat, SUBSCRIPT_SIGNIFICANT_DIGITS,
-};
-
 /// Adds thousands separators while preserving fractional digits.
 pub fn display_formatted_string(formatted: String) -> String {
     let (integer, fraction) = if let Some((integer, fraction)) = formatted.split_once('.') {
@@ -37,46 +33,9 @@ pub fn display_formatted_string(formatted: String) -> String {
     }
 }
 
-fn leading_zero_count(value: f64) -> usize {
-    let exponent = value.abs().log10().floor() as isize;
-    (-exponent - 1).max(0) as usize
-}
-
-fn display_subscript(value: f64, leading_zeros: usize) -> String {
-    let sign = if value.is_sign_negative() { "-" } else { "" };
-    let scaled = value.abs() * 10f64.powi(leading_zeros as i32 + 1);
-    let factor = 10f64.powi(SUBSCRIPT_SIGNIFICANT_DIGITS.saturating_sub(1) as i32);
-    let mut significant = (scaled * factor).floor() as u64;
-    while significant > 0 && significant % 10 == 0 {
-        significant /= 10;
-    }
-    format!("{}0.0({}){}", sign, leading_zeros, significant)
-}
-
 /// Format an f64 for display with auto-detected decimal places.
 pub fn display(amount: &f64) -> String {
-    let abs_value = amount.abs();
-    let leading_zeros = if abs_value == 0.0 {
-        0
-    } else {
-        leading_zero_count(abs_value)
-    };
-
-    match display_format(abs_value == 0.0, abs_value >= 0.005, leading_zeros) {
-        DisplayFormat::Standard {
-            decimals,
-            trim_trailing_zeros,
-        } => {
-            let formatted = format!("{:.1$}", amount, decimals);
-            let formatted = if trim_trailing_zeros {
-                trim_trailing_fraction_zeros(formatted)
-            } else {
-                formatted
-            };
-            display_formatted_string(formatted)
-        }
-        DisplayFormat::Subscript => display_subscript(*amount, leading_zeros),
-    }
+    display_with_decimals(amount, super::display_decimals_f64(amount.abs()))
 }
 
 /// Format an f64 for display with explicit decimal places.
@@ -150,37 +109,50 @@ mod tests {
     }
 
     #[test]
-    fn test_display_f64_default_two_decimals() {
+    fn test_display_f64_tiered_decimals() {
+        assert_eq!(display(&12345.67), "12,346");
+        assert_eq!(display(&1234.56), "1,234.6");
+        assert_eq!(display(&123.456), "123.46");
+        assert_eq!(display(&15.4567), "15.457");
+        assert_eq!(display(&1.23456), "1.2346");
+        assert_eq!(display(&0.123456), "0.1235");
+        assert_eq!(display(&0.012345), "0.01235");
+    }
+
+    #[test]
+    fn test_display_f64_tier_boundaries() {
+        assert_eq!(display(&10000.0), "10,000");
+        assert_eq!(display(&9999.99), "10,000.0");
+        assert_eq!(display(&1000.0), "1,000.0");
+        assert_eq!(display(&999.999), "1,000.00");
         assert_eq!(display(&100.0), "100.00");
-        assert_eq!(display(&1234.56), "1,234.56");
-        assert_eq!(display(&999999.0), "999,999.00");
+        assert_eq!(display(&99.9999), "100.000");
+        assert_eq!(display(&10.0), "10.000");
+        assert_eq!(display(&9.87654), "9.8765");
+        assert_eq!(display(&1.0), "1.0000");
+        assert_eq!(display(&0.999999), "1.0000");
+        assert_eq!(display(&0.1), "0.1000");
+        assert_eq!(display(&0.099999), "0.10000");
     }
 
     #[test]
-    fn test_display_f64_medium() {
-        assert_eq!(display(&1.0), "1.00");
-        assert_eq!(display(&1.5), "1.50");
-        assert_eq!(display(&1.23), "1.23");
-        assert_eq!(display(&15.456), "15.46");
-        assert_eq!(display(&99.999), "100.00");
-    }
-
-    #[test]
-    fn test_display_f64_small_non_zero_values() {
-        assert_eq!(display(&0.1), "0.10");
-        assert_eq!(display(&0.123), "0.12");
-        assert_eq!(display(&0.01), "0.01");
-        assert_eq!(display(&0.0123), "0.01");
-        assert_eq!(display(&0.009), "0.01");
-        assert_eq!(display(&0.004), "0.004");
-        assert_eq!(display(&0.0000005), "0.0000005");
-        assert_eq!(display(&0.000000001), "0.0(8)1");
-        assert_eq!(display(&0.0000000012345), "0.0(8)1234");
+    fn test_display_f64_small_values_cap_at_five_decimals() {
+        assert_eq!(display(&0.01), "0.01000");
+        assert_eq!(display(&0.00003), "0.00003");
+        assert_eq!(display(&0.000004), "0.00000");
+        assert_eq!(display(&0.000000001), "0.00000");
     }
 
     #[test]
     fn test_display_f64_zero() {
-        assert_eq!(display(&0.0), "0.00");
+        assert_eq!(display(&0.0), "0.00000");
+    }
+
+    #[test]
+    fn test_display_f64_negative_values() {
+        assert_eq!(display(&-1234.56), "-1,234.6");
+        assert_eq!(display(&-15.4567), "-15.457");
+        assert_eq!(display(&-0.00003), "-0.00003");
     }
 
     #[test]

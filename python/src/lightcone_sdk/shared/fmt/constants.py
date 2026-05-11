@@ -1,27 +1,21 @@
 """Shared formatter precision constants."""
 
-DEFAULT_DECIMALS = 2
-TINY_SIGNIFICANT_DIGITS = 3
-MAX_STANDARD_DECIMALS = 8
-SUBSCRIPT_SIGNIFICANT_DIGITS = 4
+from decimal import Decimal
+
+DISPLAY_DECIMAL_TIERS: tuple[tuple[Decimal, int], ...] = (
+    (Decimal("10000"), 0),
+    (Decimal("1000"), 1),
+    (Decimal("100"), 2),
+    (Decimal("10"), 3),
+    (Decimal("0.1"), 4),
+)
+SMALL_VALUE_DECIMALS = 5
 
 
-def display_format(
-    *,
-    is_zero: bool,
-    rounds_to_default_nonzero: bool,
-    leading_zeros: int,
-) -> tuple[int, bool] | None:
-    if is_zero or rounds_to_default_nonzero:
-        return DEFAULT_DECIMALS, False
+def display_decimals(abs_value: Decimal | float) -> int:
+    value = abs_value if isinstance(abs_value, Decimal) else Decimal(str(abs_value))
+    for threshold, decimals in DISPLAY_DECIMAL_TIERS:
+        if value >= threshold:
+            return decimals
 
-    if leading_zeros + 1 > MAX_STANDARD_DECIMALS:
-        return None
-
-    return min(leading_zeros + TINY_SIGNIFICANT_DIGITS, MAX_STANDARD_DECIMALS), True
-
-
-def trim_trailing_fraction_zeros(formatted: str) -> str:
-    if "." not in formatted:
-        return formatted
-    return formatted.rstrip("0").rstrip(".")
+    return SMALL_VALUE_DECIMALS
