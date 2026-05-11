@@ -36,11 +36,12 @@ describe("shared fmt", () => {
   });
 
   it("caps small numbers at five decimals", () => {
-    assert.equal(num.display(0), "0.00000");
+    assert.equal(num.display(0), "0");
     assert.equal(num.display(0.01), "0.01000");
     assert.equal(num.display(0.00003), "0.00003");
-    assert.equal(num.display(0.000004), "0.00000");
-    assert.equal(num.display(0.000000001), "0.00000");
+    assert.equal(num.display(0.000004), "0");
+    assert.equal(num.display(-0.000004), "0");
+    assert.equal(num.display(0.000000001), "0");
   });
 
   it("formats decimals with magnitude-based decimal places", () => {
@@ -69,11 +70,12 @@ describe("shared fmt", () => {
   });
 
   it("caps small decimals at five decimals", () => {
-    assert.equal(decimalFmt.display(new Decimal("0")), "0.00000");
+    assert.equal(decimalFmt.display(new Decimal("0")), "0");
     assert.equal(decimalFmt.display(new Decimal("0.01")), "0.01000");
     assert.equal(decimalFmt.display(new Decimal("0.00003")), "0.00003");
-    assert.equal(decimalFmt.display(new Decimal("0.000004")), "0.00000");
-    assert.equal(decimalFmt.display(new Decimal("0.000000001")), "0.00000");
+    assert.equal(decimalFmt.display(new Decimal("0.000004")), "0");
+    assert.equal(decimalFmt.display(new Decimal("-0.000004")), "0");
+    assert.equal(decimalFmt.display(new Decimal("0.000000001")), "0");
   });
 
   it("preserves abbreviation precision", () => {

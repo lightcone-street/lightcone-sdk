@@ -42,11 +42,12 @@ def test_display_tier_boundaries():
 
 
 def test_display_caps_small_values_at_five_decimals():
-    assert display(0.0) == "0.00000"
+    assert display(0.0) == "0"
     assert display(0.01) == "0.01000"
     assert display(0.00003) == "0.00003"
-    assert display(0.000004) == "0.00000"
-    assert display(0.000000001) == "0.00000"
+    assert display(0.000004) == "0"
+    assert display(-0.000004) == "0"
+    assert display(0.000000001) == "0"
 
 
 def test_decimal_display_uses_magnitude_based_decimal_places():
@@ -75,8 +76,9 @@ def test_decimal_display_tier_boundaries():
 
 
 def test_decimal_display_caps_small_values_at_five_decimals():
-    assert display_decimal(Decimal("0")) == "0.00000"
+    assert display_decimal(Decimal("0")) == "0"
     assert display_decimal(Decimal("0.01")) == "0.01000"
     assert display_decimal(Decimal("0.00003")) == "0.00003"
-    assert display_decimal(Decimal("0.000004")) == "0.00000"
-    assert display_decimal(Decimal("0.000000001")) == "0.00000"
+    assert display_decimal(Decimal("0.000004")) == "0"
+    assert display_decimal(Decimal("-0.000004")) == "0"
+    assert display_decimal(Decimal("0.000000001")) == "0"

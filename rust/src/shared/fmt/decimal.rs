@@ -32,7 +32,7 @@ pub fn display(value: &Decimal) -> String {
     let decimals = super::display_decimals_decimal(&value.abs());
     let rounded =
         value.round_dp_with_strategy(decimals as u32, RoundingStrategy::MidpointAwayFromZero);
-    super::num::display_formatted_string(format!("{:.1$}", rounded, decimals))
+    super::num::display_default_formatted_string(format!("{:.1$}", rounded, decimals))
 }
 
 /// Abbreviate a `Decimal` with k/m/b/t suffixes.
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_display_zero() {
-        assert_eq!(display(&Decimal::ZERO), "0.00000");
+        assert_eq!(display(&Decimal::ZERO), "0");
     }
 
     #[test]
@@ -151,8 +151,8 @@ mod tests {
     fn test_display_small_values_cap_at_five_decimals() {
         assert_eq!(display(&dec("0.01")), "0.01000");
         assert_eq!(display(&dec("0.00003")), "0.00003");
-        assert_eq!(display(&dec("0.000004")), "0.00000");
-        assert_eq!(display(&dec("0.000000001")), "0.00000");
+        assert_eq!(display(&dec("0.000004")), "0");
+        assert_eq!(display(&dec("0.000000001")), "0");
     }
 
     #[test]
@@ -160,6 +160,7 @@ mod tests {
         assert_eq!(display(&dec("-1234.56")), "-1,234.6");
         assert_eq!(display(&dec("-15.4567")), "-15.457");
         assert_eq!(display(&dec("-0.00003")), "-0.00003");
+        assert_eq!(display(&dec("-0.000004")), "0");
     }
 
     #[test]

@@ -17,3 +17,7 @@ export function displayDecimals(absValue: number): number {
 
   return SMALL_VALUE_DECIMALS;
 }
+
+export function isFormattedZero(input: string): boolean {
+  return /^-?0(?:\.0+)?$/.test(input);
+}

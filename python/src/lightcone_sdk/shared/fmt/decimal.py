@@ -5,7 +5,7 @@ from __future__ import annotations
 from decimal import Decimal, ROUND_HALF_UP
 
 from .constants import display_decimals
-from .num import display_formatted_string
+from .num import display_default_formatted_string
 
 _THOUSAND = Decimal("1000")
 _MILLION = Decimal("1000000")
@@ -18,7 +18,7 @@ def display(value: Decimal) -> str:
     decimals = display_decimals(abs(value))
     quantizer = Decimal(1).scaleb(-decimals)
     rounded = value.quantize(quantizer, rounding=ROUND_HALF_UP)
-    return display_formatted_string(format(rounded, "f"))
+    return display_default_formatted_string(format(rounded, "f"))
 
 
 def abbr_number(amount: Decimal, digits: int | None = None, show_sign: bool | None = None) -> str:

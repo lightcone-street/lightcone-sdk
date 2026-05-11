@@ -26,9 +26,26 @@ def display_formatted_string(formatted: str) -> str:
     return f"{sign}{integer_formatted}"
 
 
+def _is_formatted_zero(formatted: str) -> bool:
+    value = formatted[1:] if formatted.startswith("-") else formatted
+    integer_part, dot, fraction_part = value.partition(".")
+    return (
+        bool(integer_part)
+        and all(char == "0" for char in integer_part)
+        and (not dot or all(char == "0" for char in fraction_part))
+    )
+
+
+def display_default_formatted_string(formatted: str) -> str:
+    if _is_formatted_zero(formatted):
+        return "0"
+    return display_formatted_string(formatted)
+
+
 def display(amount: float) -> str:
     """Format a float for display with Rust-style decimal selection."""
-    return display_with_decimals(amount, display_decimals(abs(amount)))
+    decimals = display_decimals(abs(amount))
+    return display_default_formatted_string(f"{amount:.{decimals}f}")
 
 
 def display_with_decimals(amount: float, decimals: int) -> str:

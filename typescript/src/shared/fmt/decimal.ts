@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { DISPLAY_DECIMAL_TIERS, SMALL_VALUE_DECIMALS } from "./constants";
+import { DISPLAY_DECIMAL_TIERS, SMALL_VALUE_DECIMALS, isFormattedZero } from "./constants";
 import { displayFormattedString } from "./num";
 
 function displayDecimals(value: Decimal): number {
@@ -14,7 +14,8 @@ function displayDecimals(value: Decimal): number {
 
 export function display(value: Decimal): string {
   const decimals = displayDecimals(value.abs());
-  return displayFormattedString(value.toFixed(decimals));
+  const formatted = value.toFixed(decimals);
+  return isFormattedZero(formatted) ? "0" : displayFormattedString(formatted);
 }
 
 export function abbrNumber(value: Decimal, digits = 2, showSign = true): string {

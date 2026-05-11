@@ -33,9 +33,27 @@ pub fn display_formatted_string(formatted: String) -> String {
     }
 }
 
+fn is_formatted_zero(formatted: &str) -> bool {
+    let value = formatted.strip_prefix('-').unwrap_or(formatted);
+    let Some((integer, fraction)) = value.split_once('.') else {
+        return value.chars().all(|ch| ch == '0');
+    };
+
+    integer.chars().all(|ch| ch == '0') && fraction.chars().all(|ch| ch == '0')
+}
+
+pub(super) fn display_default_formatted_string(formatted: String) -> String {
+    if is_formatted_zero(&formatted) {
+        "0".to_string()
+    } else {
+        display_formatted_string(formatted)
+    }
+}
+
 /// Format an f64 for display with auto-detected decimal places.
 pub fn display(amount: &f64) -> String {
-    display_with_decimals(amount, super::display_decimals_f64(amount.abs()))
+    let decimals = super::display_decimals_f64(amount.abs());
+    display_default_formatted_string(format!("{:.1$}", amount, decimals))
 }
 
 /// Format an f64 for display with explicit decimal places.
@@ -139,13 +157,13 @@ mod tests {
     fn test_display_f64_small_values_cap_at_five_decimals() {
         assert_eq!(display(&0.01), "0.01000");
         assert_eq!(display(&0.00003), "0.00003");
-        assert_eq!(display(&0.000004), "0.00000");
-        assert_eq!(display(&0.000000001), "0.00000");
+        assert_eq!(display(&0.000004), "0");
+        assert_eq!(display(&0.000000001), "0");
     }
 
     #[test]
     fn test_display_f64_zero() {
-        assert_eq!(display(&0.0), "0.00000");
+        assert_eq!(display(&0.0), "0");
     }
 
     #[test]
@@ -153,6 +171,7 @@ mod tests {
         assert_eq!(display(&-1234.56), "-1,234.6");
         assert_eq!(display(&-15.4567), "-15.457");
         assert_eq!(display(&-0.00003), "-0.00003");
+        assert_eq!(display(&-0.000004), "0");
     }
 
     #[test]

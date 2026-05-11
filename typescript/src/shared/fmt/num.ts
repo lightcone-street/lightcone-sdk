@@ -1,4 +1,4 @@
-import { displayDecimals } from "./constants";
+import { displayDecimals, isFormattedZero } from "./constants";
 
 export function displayFormattedString(input: string): string {
   const [rawInteger, rawFraction] = input.split(".");
@@ -20,7 +20,8 @@ export function displayWithDecimals(value: number, decimals: number): string {
 }
 
 export function display(value: number): string {
-  return displayWithDecimals(value, displayDecimals(Math.abs(value)));
+  const formatted = value.toFixed(displayDecimals(Math.abs(value)));
+  return isFormattedZero(formatted) ? "0" : displayFormattedString(formatted);
 }
 
 export function toDecimalValue(value: bigint, decimals: number): number {
