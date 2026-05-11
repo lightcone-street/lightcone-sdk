@@ -13,6 +13,7 @@ pub struct Outcome {
     pub icon_url_medium: String,
     pub icon_url_high: String,
     pub name: String,
+    pub name_long: Option<String>,
 }
 
 /// Errors when validating an outcome response.
@@ -63,6 +64,7 @@ impl TryFrom<OutcomeResponse> for Outcome {
             icon_url_medium,
             icon_url_high,
             name: source.name,
+            name_long: source.name_long,
         })
     }
 }
@@ -76,6 +78,7 @@ mod tests {
         let wire = OutcomeResponse {
             index: 0,
             name: "Yes".to_string(),
+            name_long: None,
             icon_url_low: Some("https://example.com/yes_low.png".to_string()),
             icon_url_medium: Some("https://example.com/yes_medium.png".to_string()),
             icon_url_high: Some("https://example.com/yes_high.png".to_string()),
@@ -96,6 +99,7 @@ mod tests {
         let wire = OutcomeResponse {
             index: 1,
             name: "No".to_string(),
+            name_long: None,
             icon_url_low: None,
             icon_url_medium: None,
             icon_url_high: None,

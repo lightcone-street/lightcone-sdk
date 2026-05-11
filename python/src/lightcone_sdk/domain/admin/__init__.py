@@ -140,6 +140,7 @@ class OutcomeMetadataPayload:
     market_id: int
     outcome_index: int
     name: Optional[str] = None
+    name_long: Optional[str] = None
     icon_url_low: Optional[str] = None
     icon_url_medium: Optional[str] = None
     icon_url_high: Optional[str] = None

@@ -22,6 +22,8 @@ pub struct OrderbookTickerEntry {
     pub outcome_index: Option<i16>,
     #[serde(default)]
     pub outcome_name: Option<String>,
+    #[serde(default)]
+    pub outcome_name_long: Option<String>,
     pub base_deposit_asset: PubkeyStr,
     pub quote_deposit_asset: PubkeyStr,
     #[serde(default)]
@@ -128,6 +130,8 @@ pub struct OutcomeVolumeMetrics {
     pub outcome_index: Option<i16>,
     #[serde(default)]
     pub outcome_name: Option<String>,
+    #[serde(default)]
+    pub outcome_name_long: Option<String>,
     pub volume_24h_usd: Decimal,
     pub volume_7d_usd: Decimal,
     pub volume_30d_usd: Decimal,
@@ -157,6 +161,8 @@ pub struct MarketOrderbookVolumeMetrics {
     pub outcome_index: Option<i16>,
     #[serde(default)]
     pub outcome_name: Option<String>,
+    #[serde(default)]
+    pub outcome_name_long: Option<String>,
     pub base_deposit_asset: PubkeyStr,
     #[serde(default)]
     pub base_deposit_symbol: Option<String>,
@@ -252,6 +258,8 @@ pub struct OrderbookVolumeMetrics {
     pub outcome_index: Option<i16>,
     #[serde(default)]
     pub outcome_name: Option<String>,
+    #[serde(default)]
+    pub outcome_name_long: Option<String>,
     pub base_deposit_asset: PubkeyStr,
     #[serde(default)]
     pub base_deposit_symbol: Option<String>,

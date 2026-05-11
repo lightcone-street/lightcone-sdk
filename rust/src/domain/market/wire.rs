@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 pub struct OutcomeResponse {
     pub index: i16,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_long: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_url_low: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -197,6 +199,8 @@ pub(crate) struct SingleMarketResponse {
 pub struct SearchOrderbook {
     pub orderbook_id: OrderBookId,
     pub outcome_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome_name_long: Option<String>,
     pub outcome_index: i16,
     pub deposit_base_asset: PubkeyStr,
     pub deposit_quote_asset: PubkeyStr,
@@ -255,6 +259,7 @@ pub struct MarketSearchResult {
 pub struct SearchOutcomeGroup {
     pub outcome_index: i16,
     pub outcome_name: String,
+    pub outcome_name_long: Option<String>,
     pub outcome_icon_url_low: Option<String>,
     pub outcome_icon_url_medium: Option<String>,
     pub outcome_icon_url_high: Option<String>,

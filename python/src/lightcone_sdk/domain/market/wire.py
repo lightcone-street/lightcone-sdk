@@ -12,6 +12,7 @@ class OutcomeWire:
     """Raw outcome from the API."""
     index: int = 0
     name: str = ""
+    name_long: str = ""
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""
@@ -21,6 +22,7 @@ class OutcomeWire:
         return OutcomeWire(
             index=d.get("index", fallback_index),
             name=d.get("name", ""),
+            name_long=d.get("name_long", ""),
             icon_url_low=d.get("icon_url_low", ""),
             icon_url_medium=d.get("icon_url_medium", ""),
             icon_url_high=d.get("icon_url_high", ""),
@@ -137,6 +139,7 @@ class SearchOrderbook:
     """Minimal orderbook info returned from search endpoints."""
     orderbook_id: str = ""
     outcome_name: str = ""
+    outcome_name_long: str = ""
     outcome_index: int = 0
     deposit_base_asset: str = ""
     deposit_quote_asset: str = ""
@@ -162,6 +165,7 @@ class SearchOrderbook:
         return SearchOrderbook(
             orderbook_id=d.get("orderbook_id", ""),
             outcome_name=d.get("outcome_name", ""),
+            outcome_name_long=d.get("outcome_name_long", ""),
             outcome_index=d.get("outcome_index", 0),
             deposit_base_asset=d.get("deposit_base_asset", ""),
             deposit_quote_asset=d.get("deposit_quote_asset", ""),

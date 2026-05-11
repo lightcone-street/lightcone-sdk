@@ -20,6 +20,7 @@ export interface OrderFilledData {
   market_slug?: string;
   market_name?: string;
   outcome_name?: string;
+  outcome_name_long?: string;
   outcome_icon_url_low?: string;
   outcome_icon_url_medium?: string;
   outcome_icon_url_high?: string;
