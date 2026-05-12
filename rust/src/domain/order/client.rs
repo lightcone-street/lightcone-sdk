@@ -307,8 +307,18 @@ impl<'a> Orders<'a> {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Same as [`Self::get_user_orders`], but uses the supplied `auth_token`
@@ -320,10 +330,17 @@ impl<'a> Orders<'a> {
         cursor: Option<&str>,
         auth_token: &str,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
+        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_auth_and_query(&url, &query, RetryPolicy::Idempotent, auth_token)
             .await
     }
 
@@ -338,13 +355,21 @@ impl<'a> Orders<'a> {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_authenticated_url(
-            self.client.http.base_url(),
-            market_pubkey,
-            limit,
-            cursor,
-        );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Same as [`Self::get_user_order_fills`], but uses the supplied
@@ -357,15 +382,20 @@ impl<'a> Orders<'a> {
         cursor: Option<&str>,
         auth_token: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_authenticated_url(
-            self.client.http.base_url(),
-            market_pubkey,
-            limit,
-            cursor,
-        );
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_auth_and_query(&url, &query, RetryPolicy::Idempotent, auth_token)
             .await
     }
 
@@ -379,14 +409,25 @@ impl<'a> Orders<'a> {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_by_wallet_url(
+        let url = format!(
+            "{}/api/users/{}/order-fills",
             self.client.http.base_url(),
-            wallet_address,
-            market_pubkey,
-            limit,
-            cursor,
+            wallet_address
         );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     // ── Unified cancel (dispatches based on client signing strategy) ────
@@ -699,66 +740,4 @@ impl<'a> Orders<'a> {
         u32::try_from(nonce)
             .map_err(|_| SdkError::Program(crate::program::error::SdkError::Overflow))
     }
-}
-
-fn build_user_orders_authenticated_url(
-    base_url: &str,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/orders", base_url);
-    let mut separator = '?';
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
-}
-
-fn build_user_order_fills_authenticated_url(
-    base_url: &str,
-    market_pubkey: Option<&str>,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/order-fills", base_url);
-    let mut separator = '?';
-    if let Some(market_pubkey) = market_pubkey {
-        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
-        separator = '&';
-    }
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
-}
-
-fn build_user_order_fills_by_wallet_url(
-    base_url: &str,
-    wallet_address: &str,
-    market_pubkey: Option<&str>,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/{}/order-fills", base_url, wallet_address);
-    let mut separator = '?';
-    if let Some(market_pubkey) = market_pubkey {
-        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
-        separator = '&';
-    }
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
 }

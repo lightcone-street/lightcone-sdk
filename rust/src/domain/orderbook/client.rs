@@ -30,15 +30,19 @@ impl<'a> Orderbooks<'a> {
         orderbook_id: &str,
         depth: Option<u32>,
     ) -> Result<OrderbookDepthResponse, SdkError> {
-        let mut url = format!(
+        let url = format!(
             "{}/api/orderbook/{}",
             self.client.http.base_url(),
             orderbook_id
         );
-        if let Some(d) = depth {
-            url = format!("{}?depth={}", url, d);
+        let mut query = Vec::new();
+        if let Some(depth) = depth {
+            query.push(("depth", depth.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Build CloseOrderbookAlt instruction.

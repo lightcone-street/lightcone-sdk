@@ -21,19 +21,20 @@ impl<'a> Trades<'a> {
         limit: Option<u32>,
         cursor: Option<i64>,
     ) -> Result<TradesPage, SdkError> {
-        let mut url = format!(
-            "{}/api/trades?orderbook_id={}",
-            self.client.http.base_url(),
-            orderbook_id
-        );
-        if let Some(l) = limit {
-            url = format!("{}&limit={}", url, l);
+        let url = format!("{}/api/trades", self.client.http.base_url());
+        let mut query = vec![("orderbook_id", orderbook_id.to_string())];
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
         }
-        if let Some(c) = cursor {
-            url = format!("{}&cursor={}", url, c);
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
         }
 
-        let resp: TradesResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+        let resp: TradesResponse = self
+            .client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await?;
 
         Ok(TradesPage {
             trades: resp.trades.into_iter().map(Trade::from).collect(),
@@ -53,20 +54,20 @@ impl<'a> Trades<'a> {
         limit: Option<u32>,
         cursor: Option<i64>,
     ) -> Result<TradesPage, SdkError> {
-        let mut url = format!(
-            "{}/api/trades/market?market_pubkey={}",
-            self.client.http.base_url(),
-            market_pubkey
-        );
-        if let Some(l) = limit {
-            url = format!("{}&limit={}", url, l);
+        let url = format!("{}/api/trades/market", self.client.http.base_url());
+        let mut query = vec![("market_pubkey", market_pubkey.to_string())];
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
         }
-        if let Some(c) = cursor {
-            url = format!("{}&cursor={}", url, c);
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
         }
 
-        let resp: MarketTradesResponse =
-            self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+        let resp: MarketTradesResponse = self
+            .client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await?;
 
         Ok(TradesPage {
             trades: resp.trades.into_iter().map(Trade::from).collect(),

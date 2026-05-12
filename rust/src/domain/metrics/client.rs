@@ -75,17 +75,18 @@ impl<'a> Metrics<'a> {
         &self,
         deposit_asset: Option<&str>,
     ) -> Result<OrderbookTickersResponse, SdkError> {
-        let mut url = format!(
+        let url = format!(
             "{}/api/metrics/orderbooks/tickers",
             self.client.http.base_url()
         );
+        let mut query = Vec::new();
         if let Some(mint) = deposit_asset.map(str::trim).filter(|s| !s.is_empty()) {
-            append_query(
-                &mut url,
-                &format!("deposit_asset={}", urlencoding::encode(mint)),
-            );
+            query.push(("deposit_asset", mint.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Fetch metrics for a single orderbook, broken down by base/quote/USD volume.
@@ -146,14 +147,18 @@ impl<'a> Metrics<'a> {
     ///
     /// `GET /api/metrics/leaderboard/markets`
     pub async fn leaderboard(&self, limit: Option<u32>) -> Result<Leaderboard, SdkError> {
-        let mut url = format!(
+        let url = format!(
             "{}/api/metrics/leaderboard/markets",
             self.client.http.base_url()
         );
+        let mut query = Vec::new();
         if let Some(limit) = limit {
-            append_query(&mut url, &format!("limit={limit}"));
+            query.push(("limit", limit.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Fetch a time-series of volume buckets for the given scope and scope key.

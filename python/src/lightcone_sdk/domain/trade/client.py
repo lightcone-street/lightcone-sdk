@@ -25,13 +25,13 @@ class Trades:
         cursor: Optional[int] = None,
     ) -> TradesPage:
         """Get trades for an orderbook."""
-        url = f"/api/trades?orderbook_id={orderbook_id}"
+        params: dict[str, str] = {"orderbook_id": orderbook_id}
         if limit is not None:
-            url += f"&limit={limit}"
+            params["limit"] = str(limit)
         if cursor is not None:
-            url += f"&cursor={cursor}"
+            params["cursor"] = str(cursor)
 
-        data = await self._client._http.get(url)
+        data = await self._client._http.get("/api/trades", params=params)
         resp = TradesResponseWire.from_dict(data)
         trades = [trade_from_wire(t) for t in resp.trades]
         return TradesPage(
@@ -47,13 +47,13 @@ class Trades:
         cursor: Optional[int] = None,
     ) -> TradesPage:
         """Get trades for all orderbooks in a market, interleaved by time."""
-        url = f"/api/trades/market?market_pubkey={market_pubkey}"
+        params: dict[str, str] = {"market_pubkey": market_pubkey}
         if limit is not None:
-            url += f"&limit={limit}"
+            params["limit"] = str(limit)
         if cursor is not None:
-            url += f"&cursor={cursor}"
+            params["cursor"] = str(cursor)
 
-        data = await self._client._http.get(url)
+        data = await self._client._http.get("/api/trades/market", params=params)
         resp = MarketTradesResponseWire.from_dict(data)
         trades = [trade_from_wire(t) for t in resp.trades]
         return TradesPage(
