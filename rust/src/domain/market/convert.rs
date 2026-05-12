@@ -247,6 +247,7 @@ mod tests {
             icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
+            min_order_size: Some(1_000_000),
             conditional_mints: vec![
                 conditional_token_response(10, 0, "yes_mint", "Yes", "YES"),
                 conditional_token_response(11, 1, "no_mint", "No", "NO"),
@@ -474,6 +475,7 @@ mod tests {
             symbol: mint.to_string(),
             description: None,
             decimals: 6,
+            min_order_size: None,
             icon_url_low: String::new(),
             icon_url_medium: String::new(),
             icon_url_high: String::new(),

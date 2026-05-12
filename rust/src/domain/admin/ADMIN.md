@@ -8,6 +8,7 @@ Internal admin operations for the Lightcone team. These endpoints require cookie
 
 - [Authentication](#authentication)
 - [Client Methods](#client-methods)
+- [Metadata Categories](#metadata-categories)
 - [Wire Types](#wire-types)
 - [TargetSpec](#targetspec)
 
@@ -86,6 +87,29 @@ async fn upsert_metadata(
 ```
 
 Upsert metadata for markets, outcomes, conditional tokens, and deposit tokens in a single batch operation. Requires prior `admin_login()`.
+
+Market `category` values are validated by the backend. For new market metadata rows, `category` is required and must already exist in the category whitelist. For existing market metadata rows, `category` may be omitted in partial updates and the existing database value is preserved. When a category is provided, the backend matches it against the whitelist case-insensitively and stores the canonical whitelist casing.
+
+Potential category validation error codes include `MARKET_CATEGORY_REQUIRED`, `MARKET_CATEGORY_INVALID`, `MARKET_CATEGORY_NOT_WHITELISTED`, and `MARKET_CATEGORY_LOOKUP_FAILED`.
+
+### `list_metadata_categories`
+
+```rust
+async fn list_metadata_categories(&self) -> Result<MetadataCategoriesResponse, SdkError>
+```
+
+List all whitelisted market metadata categories. Requires prior `admin_login()`.
+
+### `add_metadata_category`
+
+```rust
+async fn add_metadata_category(
+    &self,
+    request: &AddMetadataCategoryRequest,
+) -> Result<AddMetadataCategoryResponse, SdkError>
+```
+
+Add a category to the whitelist. Requires prior `admin_login()`. The operation is idempotent and case-insensitive: if `Politics` already exists, posting `politics` returns the canonical `Politics`.
 
 ### `upload_market_deployment_assets`
 
@@ -378,6 +402,36 @@ fn deposit_and_swap_tx(&self, params: DepositAndSwapParams) -> Result<Transactio
 
 Build a DepositAndSwap instruction/transaction — deposit collateral and atomically swap into a conditional token position.
 
+## Metadata Categories
+
+Category whitelist endpoints live under `/api/admin/metadata/categories` and use the same admin cookie auth as the rest of the admin API. They do not require a per-call signature.
+
+`GET /api/admin/metadata/categories` returns the current whitelist:
+
+```json
+{
+  "categories": ["Politics", "Crypto", "Sports"]
+}
+```
+
+`POST /api/admin/metadata/categories` accepts the category directly:
+
+```json
+{
+  "category": "Crypto"
+}
+```
+
+The response contains the canonical stored category:
+
+```json
+{
+  "category": "Crypto"
+}
+```
+
+Validation is performed by the backend: `category` is required, whitespace is trimmed, empty categories are rejected, the maximum length is 100 characters, and duplicates are matched case-insensitively.
+
 ## Wire Types
 
 ### `AdminNonceResponse`
@@ -404,7 +458,7 @@ Build a DepositAndSwap instruction/transaction — deposit collateral and atomic
 
 ### `UnifiedMetadataRequest`
 
-Batch metadata upsert payload. All arrays are optional — only include the entities you want to update.
+Batch metadata upsert payload. All arrays are optional, but at least one section must be non-empty. Only include the entities you want to update.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -414,6 +468,59 @@ Batch metadata upsert payload. All arrays are optional — only include the enti
 | `deposit_tokens` | `Vec<DepositTokenMetadataPayload>` | Deposit token metadata updates |
 
 Each payload struct uses `Option<T>` fields — only non-`None` fields are updated, leaving other fields unchanged.
+
+### `DepositTokenMetadataPayload`
+
+Deposit token metadata is global per `deposit_asset`, not per market. `min_order_size` is raw integer token units, not user-scaled decimal units. For a 6-decimal token such as USDC, `1 USDC` is sent as `1_000_000`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deposit_asset` | `String` | Required mint/address identifier |
+| `display_name` / `symbol` / `token_symbol` | `Option<String>` | Display and token symbols |
+| `description` | `Option<String>` | Optional token description |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Icon URLs by quality |
+| `metadata_uri` | `Option<String>` | Optional token metadata URI |
+| `decimals` | `Option<i16>` | Token decimals; backend validates `0..=18` when present |
+| `min_order_size` | `Option<i64>` | Raw integer token units. `0` means no minimum. Omitted preserves existing value on update and defaults to `0` on insert |
+| `binance_symbol` | `Option<String>` | Uppercase ASCII alphanumeric symbol such as `BTCUSDT` |
+| `binance_enabled` | `Option<bool>` | Enables Binance integration. If `true`, a Binance symbol must exist in this request or already in the DB |
+| `okx_inst_id` | `Option<String>` | Uppercase instrument id with dash, such as `BTC-USDT` |
+
+Negative `min_order_size` values are not currently rejected by the backend; SDK callers should avoid sending them.
+
+### `DepositTokenMetadataResponse`
+
+Returned in `UnifiedMetadataResponse.deposit_tokens` after `upsert_metadata`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `i64` | Metadata row ID |
+| `deposit_asset` | `String` | Mint/address identifier |
+| `display_name` / `symbol` | `String` | Non-null display fields |
+| `token_symbol` / `binance_symbol` / `okx_inst_id` | `Option<String>` | Optional symbol fields |
+| `binance_enabled` | `bool` | Binance integration flag |
+| `description`, icon URLs, `metadata_uri` | `Option<String>` | Optional metadata fields |
+| `decimals` | `Option<i16>` | Token decimals |
+| `min_order_size` | `i64` | Raw integer token units; non-null in responses |
+| `created_at` / `updated_at` | `DateTime<Utc>` | Backend timestamps |
+
+### `MetadataCategoriesResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `categories` | `Vec<String>` | Whitelisted market categories |
+
+### `AddMetadataCategoryRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `category` | `String` | Category to add to the whitelist |
+
+### `AddMetadataCategoryResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `category` | `String` | Canonical category stored by the backend |
 
 ### `UploadMarketDeploymentAssetsRequest`
 

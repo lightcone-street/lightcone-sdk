@@ -52,6 +52,8 @@ pub struct DepositAssetResponse {
     pub metadata_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub decimals: Option<i16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_order_size: Option<i64>,
     pub conditional_mints: Vec<ConditionalTokenResponse>,
     pub created_at: DateTime<Utc>,
 }
@@ -366,5 +368,28 @@ mod tests {
         assert_eq!(resolution.single_winning_outcome, None);
         assert_eq!(resolution.payouts[0].payout_numerator, 7);
         assert_eq!(resolution.payouts[1].payout_numerator, 3);
+    }
+
+    #[test]
+    fn deposit_asset_response_deserializes_min_order_size() {
+        let response: DepositAssetResponse = serde_json::from_str(
+            r#"{
+                "display_name": "USD Coin",
+                "token_symbol": "USDC",
+                "symbol": "USDC",
+                "deposit_asset": "TOKEN_MINT",
+                "id": 1,
+                "market_pubkey": "MARKET",
+                "vault": "VAULT",
+                "num_outcomes": 2,
+                "decimals": 6,
+                "min_order_size": 1000000,
+                "conditional_mints": [],
+                "created_at": "2026-05-12T00:00:00Z"
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(response.min_order_size, Some(1_000_000));
     }
 }

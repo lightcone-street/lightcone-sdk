@@ -131,6 +131,7 @@ pub struct DepositAsset {
     pub symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
+    pub min_order_size: Option<i64>,
     pub icon_url_low: String,
     pub icon_url_medium: String,
     pub icon_url_high: String,
@@ -591,6 +592,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 symbol,
                 description: source.description,
                 decimals,
+                min_order_size: source.min_order_size,
                 icon_url_low,
                 icon_url_medium,
                 icon_url_high,
@@ -623,6 +625,7 @@ mod tests {
             icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
+            min_order_size: Some(1_000_000),
             conditional_mints: vec![ConditionalTokenResponse {
                 id: 10,
                 outcome_index: 0,
@@ -649,6 +652,7 @@ mod tests {
         let resp = minimal_deposit_asset_response();
         let validated = ValidatedTokens::try_from(resp).unwrap();
         assert_eq!(validated.token.symbol, "USDC");
+        assert_eq!(validated.token.min_order_size, Some(1_000_000));
         assert_eq!(validated.conditionals.len(), 1);
         assert_eq!(validated.conditionals[0].symbol(), "YES");
     }

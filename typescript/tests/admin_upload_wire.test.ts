@@ -1,11 +1,72 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type {
+  AddMetadataCategoryRequest,
+  AddMetadataCategoryResponse,
+  DepositTokenMetadataPayload,
+  UnifiedMetadataResponse,
   UploadMarketDeploymentAssetsRequest,
   UploadMarketDeploymentAssetsResponse,
 } from "../src/domain/admin";
 
 describe("admin upload wire types", () => {
+  it("serializes deposit token metadata without legacy s3 fields", () => {
+    const request: DepositTokenMetadataPayload = {
+      deposit_asset: "TOKEN_MINT",
+      min_order_size: 1_000_000,
+      binance_symbol: "BTCUSDT",
+      binance_enabled: true,
+      okx_inst_id: "BTC-USDT",
+    };
+
+    const payload = JSON.parse(JSON.stringify(request)) as Record<string, any>;
+    assert.deepEqual(payload, {
+      deposit_asset: "TOKEN_MINT",
+      min_order_size: 1_000_000,
+      binance_symbol: "BTCUSDT",
+      binance_enabled: true,
+      okx_inst_id: "BTC-USDT",
+    });
+    assert.equal("s3_synced" in payload, false);
+    assert.equal("s3_synced_at" in payload, false);
+    assert.equal("s3_error" in payload, false);
+  });
+
+  it("reads deposit token metadata response fields", () => {
+    const response: UnifiedMetadataResponse = {
+      deposit_tokens: [{
+        id: 1,
+        deposit_asset: "TOKEN_MINT",
+        display_name: "Bitcoin",
+        symbol: "BTC",
+        token_symbol: null,
+        binance_symbol: "BTCUSDT",
+        binance_enabled: true,
+        okx_inst_id: "BTC-USDT",
+        description: null,
+        icon_url_low: null,
+        icon_url_medium: null,
+        icon_url_high: null,
+        metadata_uri: null,
+        decimals: 8,
+        min_order_size: 100_000,
+        created_at: "2026-05-12T00:00:00Z",
+        updated_at: "2026-05-12T00:00:00Z",
+      }],
+    };
+
+    assert.equal(response.deposit_tokens?.[0]?.min_order_size, 100_000);
+    assert.equal(response.deposit_tokens?.[0]?.okx_inst_id, "BTC-USDT");
+  });
+
+  it("uses direct category admin request and response bodies", () => {
+    const request: AddMetadataCategoryRequest = { category: "Crypto" };
+    const response: AddMetadataCategoryResponse = { category: "Crypto" };
+
+    assert.deepEqual(JSON.parse(JSON.stringify(request)), { category: "Crypto" });
+    assert.equal(response.category, "Crypto");
+  });
+
   it("uses quality-specific upload fields", () => {
     const request: UploadMarketDeploymentAssetsRequest = {
       market_id: 7,

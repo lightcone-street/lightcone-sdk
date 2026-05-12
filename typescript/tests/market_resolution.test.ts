@@ -80,6 +80,7 @@ function marketResponse(
         num_outcomes: 2,
         icon_url_low: "https://example.com/usdc-low.png",
         decimals: 6,
+        min_order_size: 1_000_000,
         conditional_mints: [
           {
             id: 10,
@@ -135,6 +136,7 @@ describe("market resolution", () => {
       market.resolution?.payouts.map((payout) => payout.payout_numerator),
       [7, 3],
     );
+    assert.equal(market.depositAssets[0]?.minOrderSize, 1_000_000);
   });
 
   it("derives the single winner from single-winner resolution", () => {

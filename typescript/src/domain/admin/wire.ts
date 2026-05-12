@@ -22,9 +22,6 @@ export interface MarketMetadataPayload {
   tags?: string[];
   featured_rank?: number;
   metadata_uri?: string;
-  s3_synced?: boolean;
-  s3_synced_at?: string;
-  s3_error?: string;
 }
 
 export interface OutcomeMetadataPayload {
@@ -37,9 +34,6 @@ export interface OutcomeMetadataPayload {
   icon_url_high?: string;
   description?: string;
   metadata_uri?: string;
-  s3_synced?: boolean;
-  s3_synced_at?: string;
-  s3_error?: string;
 }
 
 export interface ConditionalTokenMetadataPayload {
@@ -54,9 +48,6 @@ export interface ConditionalTokenMetadataPayload {
   icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
-  s3_synced?: boolean;
-  s3_synced_at?: string;
-  s3_error?: string;
 }
 
 export interface DepositTokenMetadataPayload {
@@ -70,11 +61,10 @@ export interface DepositTokenMetadataPayload {
   icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
-  s3_synced?: boolean;
-  s3_synced_at?: string;
-  s3_error?: string;
+  min_order_size?: number;
   binance_symbol?: string;
   binance_enabled?: boolean;
+  okx_inst_id?: string;
 }
 
 export interface MarketMetadataResponse extends MarketMetadataPayload {
@@ -103,15 +93,14 @@ export interface DepositTokenMetadataResponse {
   token_symbol: string | null;
   binance_symbol: string | null;
   binance_enabled: boolean;
+  okx_inst_id: string | null;
   description: string | null;
   icon_url_low: string | null;
   icon_url_medium: string | null;
   icon_url_high: string | null;
   metadata_uri: string | null;
   decimals: number | null;
-  s3_synced: boolean;
-  s3_synced_at: string | null;
-  s3_error: string | null;
+  min_order_size: number;
   created_at: string;
   updated_at: string;
 }
@@ -121,6 +110,18 @@ export interface UnifiedMetadataResponse {
   outcomes?: OutcomeMetadataResponse[];
   conditional_tokens?: ConditionalTokenMetadataResponse[];
   deposit_tokens?: DepositTokenMetadataResponse[];
+}
+
+export interface MetadataCategoriesResponse {
+  categories: string[];
+}
+
+export interface AddMetadataCategoryRequest {
+  category: string;
+}
+
+export interface AddMetadataCategoryResponse {
+  category: string;
 }
 
 export type TargetSpec =

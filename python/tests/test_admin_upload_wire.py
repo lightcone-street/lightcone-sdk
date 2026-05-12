@@ -1,10 +1,75 @@
 from lightcone_sdk.domain.admin import (
+    AddMetadataCategoryRequest,
+    AddMetadataCategoryResponse,
+    DepositTokenMetadataPayload,
     MarketDeploymentConditionalToken,
     MarketDeploymentMarket,
     MarketDeploymentOutcome,
+    UnifiedMetadataResponse,
     UploadMarketDeploymentAssetsResponse,
     UploadedConditionalToken,
 )
+
+
+def test_deposit_token_metadata_serializes_without_legacy_s3_fields():
+    request = DepositTokenMetadataPayload(
+        deposit_asset="TOKEN_MINT",
+        min_order_size=1_000_000,
+        binance_symbol="BTCUSDT",
+        binance_enabled=True,
+        okx_inst_id="BTC-USDT",
+    )
+
+    payload = request.to_dict()
+    assert payload == {
+        "deposit_asset": "TOKEN_MINT",
+        "min_order_size": 1_000_000,
+        "binance_symbol": "BTCUSDT",
+        "binance_enabled": True,
+        "okx_inst_id": "BTC-USDT",
+    }
+    assert "s3_synced" not in payload
+    assert "s3_synced_at" not in payload
+    assert "s3_error" not in payload
+
+
+def test_unified_metadata_response_reads_deposit_token_fields():
+    response = UnifiedMetadataResponse.from_dict({
+        "deposit_tokens": [{
+            "id": 1,
+            "deposit_asset": "TOKEN_MINT",
+            "display_name": "Bitcoin",
+            "symbol": "BTC",
+            "token_symbol": None,
+            "binance_symbol": "BTCUSDT",
+            "binance_enabled": True,
+            "okx_inst_id": "BTC-USDT",
+            "description": None,
+            "icon_url_low": None,
+            "icon_url_medium": None,
+            "icon_url_high": None,
+            "metadata_uri": None,
+            "decimals": 8,
+            "min_order_size": 100_000,
+            "created_at": "2026-05-12T00:00:00Z",
+            "updated_at": "2026-05-12T00:00:00Z",
+        }],
+    })
+
+    token = response.deposit_tokens[0]
+    assert token.deposit_asset == "TOKEN_MINT"
+    assert token.binance_symbol == "BTCUSDT"
+    assert token.binance_enabled is True
+    assert token.okx_inst_id == "BTC-USDT"
+    assert token.min_order_size == 100_000
+
+
+def test_metadata_category_request_and_response_shapes():
+    request = AddMetadataCategoryRequest(category="Crypto")
+    response = AddMetadataCategoryResponse.from_dict({"category": "Crypto"})
+
+    assert request.to_dict() == {"category": "Crypto"}
+    assert response.category == "Crypto"
 
 
 def test_upload_request_uses_quality_specific_image_fields():

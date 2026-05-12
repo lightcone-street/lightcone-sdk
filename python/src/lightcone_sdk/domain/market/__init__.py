@@ -125,6 +125,7 @@ class ConditionalToken:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
+    min_order_size: Optional[int] = None
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""

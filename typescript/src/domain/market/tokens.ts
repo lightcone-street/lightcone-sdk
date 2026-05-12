@@ -84,6 +84,7 @@ export interface DepositAsset extends Token {
   marketPda: PubkeyStr;
   depositAsset: PubkeyStr;
   numOutcomes: number;
+  minOrderSize?: number;
 }
 
 /**
@@ -205,6 +206,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       symbol: symbol ?? "",
       description: source.description,
       decimals: decimals ?? 0,
+      minOrderSize: source.min_order_size,
       iconUrlLow: iconUrls?.low ?? "",
       iconUrlMedium: iconUrls?.medium ?? "",
       iconUrlHigh: iconUrls?.high ?? "",
