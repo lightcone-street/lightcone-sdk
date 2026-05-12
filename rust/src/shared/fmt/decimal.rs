@@ -28,7 +28,11 @@ fn get_thousand() -> &'static Decimal {
 }
 
 fn display_decimals(abs_value: &Decimal) -> usize {
-    super::constants::display_decimals_by(|tier| abs_value >= &tier.threshold_decimal())
+    super::constants::display_decimals_by(|threshold| {
+        let threshold =
+            Decimal::from_str(threshold).expect("display decimal threshold must parse as Decimal");
+        abs_value >= &threshold
+    })
 }
 
 /// Format a `Decimal` for display with magnitude-based decimal places.

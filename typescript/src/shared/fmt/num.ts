@@ -20,7 +20,7 @@ export function displayWithDecimals(value: number, decimals: number): string {
 }
 
 function displayDecimals(absValue: number): number {
-  return displayDecimalsBy((threshold) => absValue >= threshold);
+  return displayDecimalsBy((threshold) => absValue >= Number(threshold));
 }
 
 export function display(value: number): string {

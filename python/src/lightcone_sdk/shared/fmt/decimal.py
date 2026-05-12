@@ -14,7 +14,7 @@ _TRILLION = Decimal("1000000000000")
 
 
 def _display_decimals(abs_value: Decimal) -> int:
-    return display_decimals_by(lambda threshold: abs_value >= threshold)
+    return display_decimals_by(lambda threshold: abs_value >= Decimal(threshold))
 
 
 def display(value: Decimal) -> str:

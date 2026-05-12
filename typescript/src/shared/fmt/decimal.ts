@@ -3,7 +3,7 @@ import { displayDecimalsBy, isFormattedZero } from "./constants";
 import { displayFormattedString } from "./num";
 
 function displayDecimals(value: Decimal): number {
-  return displayDecimalsBy((threshold) => value.greaterThanOrEqualTo(threshold));
+  return displayDecimalsBy((threshold) => value.greaterThanOrEqualTo(new Decimal(threshold)));
 }
 
 export function display(value: Decimal): string {

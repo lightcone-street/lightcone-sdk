@@ -51,7 +51,12 @@ pub(super) fn display_default_formatted_string(formatted: String) -> String {
 }
 
 fn display_decimals(abs_value: f64) -> usize {
-    super::constants::display_decimals_by(|tier| abs_value >= tier.threshold_f64())
+    super::constants::display_decimals_by(|threshold| {
+        let threshold = threshold
+            .parse::<f64>()
+            .expect("display decimal threshold must parse as f64");
+        abs_value >= threshold
+    })
 }
 
 /// Format an f64 for display with auto-detected decimal places.
