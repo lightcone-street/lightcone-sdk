@@ -1,15 +1,9 @@
 import Decimal from "decimal.js";
-import { DISPLAY_DECIMAL_TIERS, SMALL_VALUE_DECIMALS, isFormattedZero } from "./constants";
+import { displayDecimalsBy, isFormattedZero } from "./constants";
 import { displayFormattedString } from "./num";
 
 function displayDecimals(value: Decimal): number {
-  for (const [threshold, decimals] of DISPLAY_DECIMAL_TIERS) {
-    if (value.greaterThanOrEqualTo(threshold)) {
-      return decimals;
-    }
-  }
-
-  return SMALL_VALUE_DECIMALS;
+  return displayDecimalsBy((threshold) => value.greaterThanOrEqualTo(threshold));
 }
 
 export function display(value: Decimal): string {

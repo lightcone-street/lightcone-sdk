@@ -2,7 +2,7 @@
 
 from decimal import Decimal
 
-from .constants import display_decimals
+from .constants import display_decimals_by
 
 
 def display_formatted_string(formatted: str) -> str:
@@ -42,9 +42,13 @@ def display_default_formatted_string(formatted: str) -> str:
     return display_formatted_string(formatted)
 
 
+def _display_decimals(abs_value: float) -> int:
+    return display_decimals_by(lambda threshold: abs_value >= float(threshold))
+
+
 def display(amount: float) -> str:
     """Format a float for display with Rust-style decimal selection."""
-    decimals = display_decimals(abs(amount))
+    decimals = _display_decimals(abs(amount))
     return display_default_formatted_string(f"{amount:.{decimals}f}")
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_UP
 
-from .constants import display_decimals
+from .constants import display_decimals_by
 from .num import display_default_formatted_string
 
 _THOUSAND = Decimal("1000")
@@ -13,9 +13,13 @@ _BILLION = Decimal("1000000000")
 _TRILLION = Decimal("1000000000000")
 
 
+def _display_decimals(abs_value: Decimal) -> int:
+    return display_decimals_by(lambda threshold: abs_value >= threshold)
+
+
 def display(value: Decimal) -> str:
     """Format a Decimal using the Rust display rules."""
-    decimals = display_decimals(abs(value))
+    decimals = _display_decimals(abs(value))
     quantizer = Decimal(1).scaleb(-decimals)
     rounded = value.quantize(quantizer, rounding=ROUND_HALF_UP)
     return display_default_formatted_string(format(rounded, "f"))

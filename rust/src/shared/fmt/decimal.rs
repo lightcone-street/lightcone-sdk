@@ -27,9 +27,13 @@ fn get_thousand() -> &'static Decimal {
     THOUSAND.get_or_init(|| Decimal::from_str("1000").unwrap())
 }
 
+fn display_decimals(abs_value: &Decimal) -> usize {
+    super::constants::display_decimals_by(|tier| abs_value >= &tier.threshold_decimal())
+}
+
 /// Format a `Decimal` for display with magnitude-based decimal places.
 pub fn display(value: &Decimal) -> String {
-    let decimals = super::display_decimals_decimal(&value.abs());
+    let decimals = display_decimals(&value.abs());
     let rounded =
         value.round_dp_with_strategy(decimals as u32, RoundingStrategy::MidpointAwayFromZero);
     super::num::display_default_formatted_string(format!("{:.1$}", rounded, decimals))

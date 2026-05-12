@@ -1,4 +1,4 @@
-import { displayDecimals, isFormattedZero } from "./constants";
+import { displayDecimalsBy, isFormattedZero } from "./constants";
 
 export function displayFormattedString(input: string): string {
   const [rawInteger, rawFraction] = input.split(".");
@@ -17,6 +17,10 @@ export function displayFormattedString(input: string): string {
 
 export function displayWithDecimals(value: number, decimals: number): string {
   return displayFormattedString(value.toFixed(decimals));
+}
+
+function displayDecimals(absValue: number): number {
+  return displayDecimalsBy((threshold) => absValue >= threshold);
 }
 
 export function display(value: number): string {

@@ -50,9 +50,13 @@ pub(super) fn display_default_formatted_string(formatted: String) -> String {
     }
 }
 
+fn display_decimals(abs_value: f64) -> usize {
+    super::constants::display_decimals_by(|tier| abs_value >= tier.threshold_f64())
+}
+
 /// Format an f64 for display with auto-detected decimal places.
 pub fn display(amount: &f64) -> String {
-    let decimals = super::display_decimals_f64(amount.abs());
+    let decimals = display_decimals(amount.abs());
     display_default_formatted_string(format!("{:.1$}", amount, decimals))
 }
 

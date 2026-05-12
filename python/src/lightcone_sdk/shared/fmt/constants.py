@@ -1,5 +1,6 @@
 """Shared formatter precision constants."""
 
+from collections.abc import Callable
 from decimal import Decimal
 
 DISPLAY_DECIMAL_TIERS: tuple[tuple[Decimal, int], ...] = (
@@ -12,10 +13,9 @@ DISPLAY_DECIMAL_TIERS: tuple[tuple[Decimal, int], ...] = (
 SMALL_VALUE_DECIMALS = 5
 
 
-def display_decimals(abs_value: Decimal | float) -> int:
-    value = abs_value if isinstance(abs_value, Decimal) else Decimal(str(abs_value))
+def display_decimals_by(matches_tier: Callable[[Decimal], bool]) -> int:
     for threshold, decimals in DISPLAY_DECIMAL_TIERS:
-        if value >= threshold:
+        if matches_tier(threshold):
             return decimals
 
     return SMALL_VALUE_DECIMALS

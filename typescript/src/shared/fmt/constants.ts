@@ -8,9 +8,9 @@ export const DISPLAY_DECIMAL_TIERS = [
 
 export const SMALL_VALUE_DECIMALS = 5;
 
-export function displayDecimals(absValue: number): number {
+export function displayDecimalsBy(matchesTier: (threshold: number) => boolean): number {
   for (const [threshold, decimals] of DISPLAY_DECIMAL_TIERS) {
-    if (absValue >= threshold) {
+    if (matchesTier(threshold)) {
       return decimals;
     }
   }
