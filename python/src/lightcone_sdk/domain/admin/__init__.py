@@ -127,9 +127,6 @@ class MarketMetadataPayload:
     tags: Optional[list[str]] = None
     featured_rank: Optional[int] = None
     metadata_uri: Optional[str] = None
-    s3_synced: Optional[bool] = None
-    s3_synced_at: Optional[str] = None
-    s3_error: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -146,9 +143,6 @@ class OutcomeMetadataPayload:
     icon_url_high: Optional[str] = None
     description: Optional[str] = None
     metadata_uri: Optional[str] = None
-    s3_synced: Optional[bool] = None
-    s3_synced_at: Optional[str] = None
-    s3_error: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -167,9 +161,6 @@ class ConditionalTokenMetadataPayload:
     icon_url_high: Optional[str] = None
     metadata_uri: Optional[str] = None
     decimals: Optional[int] = None
-    s3_synced: Optional[bool] = None
-    s3_synced_at: Optional[str] = None
-    s3_error: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
@@ -187,12 +178,56 @@ class DepositTokenMetadataPayload:
     icon_url_high: Optional[str] = None
     metadata_uri: Optional[str] = None
     decimals: Optional[int] = None
-    s3_synced: Optional[bool] = None
-    s3_synced_at: Optional[str] = None
-    s3_error: Optional[str] = None
+    min_order_size: Optional[int] = None
+    binance_symbol: Optional[str] = None
+    binance_enabled: Optional[bool] = None
+    okx_inst_id: Optional[str] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)
+
+
+@dataclass
+class DepositTokenMetadataResponse:
+    id: int = 0
+    deposit_asset: str = ""
+    display_name: str = ""
+    symbol: str = ""
+    token_symbol: Optional[str] = None
+    binance_symbol: Optional[str] = None
+    binance_enabled: bool = False
+    okx_inst_id: Optional[str] = None
+    description: Optional[str] = None
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
+    metadata_uri: Optional[str] = None
+    decimals: Optional[int] = None
+    min_order_size: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenMetadataResponse":
+        return DepositTokenMetadataResponse(
+            id=d.get("id", 0),
+            deposit_asset=d.get("deposit_asset", ""),
+            display_name=d.get("display_name", ""),
+            symbol=d.get("symbol", ""),
+            token_symbol=d.get("token_symbol"),
+            binance_symbol=d.get("binance_symbol"),
+            binance_enabled=d.get("binance_enabled", False),
+            okx_inst_id=d.get("okx_inst_id"),
+            description=d.get("description"),
+            icon_url_low=d.get("icon_url_low"),
+            icon_url_medium=d.get("icon_url_medium"),
+            icon_url_high=d.get("icon_url_high"),
+            metadata_uri=d.get("metadata_uri"),
+            decimals=d.get("decimals"),
+            min_order_size=d.get("min_order_size", 0),
+            created_at=d.get("created_at", ""),
+            updated_at=d.get("updated_at", ""),
+        )
 
 
 @dataclass
@@ -218,7 +253,7 @@ class UnifiedMetadataResponse:
     markets: list[dict] = field(default_factory=list)
     outcomes: list[dict] = field(default_factory=list)
     conditional_tokens: list[dict] = field(default_factory=list)
-    deposit_tokens: list[dict] = field(default_factory=list)
+    deposit_tokens: list[DepositTokenMetadataResponse] = field(default_factory=list)
 
     @staticmethod
     def from_dict(d: dict) -> "UnifiedMetadataResponse":
@@ -226,8 +261,37 @@ class UnifiedMetadataResponse:
             markets=d.get("markets") or [],
             outcomes=d.get("outcomes") or [],
             conditional_tokens=d.get("conditional_tokens") or [],
-            deposit_tokens=d.get("deposit_tokens") or [],
+            deposit_tokens=[
+                DepositTokenMetadataResponse.from_dict(token)
+                for token in d.get("deposit_tokens", [])
+            ],
         )
+
+
+@dataclass
+class MetadataCategoriesResponse:
+    categories: list[str] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "MetadataCategoriesResponse":
+        return MetadataCategoriesResponse(categories=d.get("categories") or [])
+
+
+@dataclass
+class AddMetadataCategoryRequest:
+    category: str
+
+    def to_dict(self) -> dict:
+        return {"category": self.category}
+
+
+@dataclass
+class AddMetadataCategoryResponse:
+    category: str = ""
+
+    @staticmethod
+    def from_dict(d: dict) -> "AddMetadataCategoryResponse":
+        return AddMetadataCategoryResponse(category=d.get("category", ""))
 
 
 @dataclass
@@ -1035,8 +1099,12 @@ __all__ = [
     "OutcomeMetadataPayload",
     "ConditionalTokenMetadataPayload",
     "DepositTokenMetadataPayload",
+    "DepositTokenMetadataResponse",
     "UnifiedMetadataRequest",
     "UnifiedMetadataResponse",
+    "MetadataCategoriesResponse",
+    "AddMetadataCategoryRequest",
+    "AddMetadataCategoryResponse",
     "AllocateCodesRequest",
     "AllocateCodesResponse",
     "WhitelistRequest",

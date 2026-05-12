@@ -77,6 +77,7 @@ def market_payload(resolution: dict | None = None) -> dict:
                 "num_outcomes": 2,
                 "icon_url_low": "https://example.com/usdc-low.png",
                 "decimals": 6,
+                "min_order_size": 1_000_000,
                 "conditional_mints": [
                     {
                         "id": 10,
@@ -163,6 +164,7 @@ def test_market_conversion_preserves_scalar_resolution() -> None:
     assert market.resolution is not None
     assert market.resolution.kind == MarketResolutionKind.SCALAR
     assert [p.payout_numerator for p in market.resolution.payouts] == [7, 3]
+    assert market.deposit_assets[0].min_order_size == 1_000_000
 
 
 def test_market_conversion_preserves_single_winner_resolution() -> None:

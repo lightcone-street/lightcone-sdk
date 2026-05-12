@@ -2,13 +2,14 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
-    AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricHistoryQuery,
-    AdminLogMetricHistoryResponse, AdminLogMetricsQuery, AdminLogMetricsResponse,
-    AdminLoginRequest, AdminLoginResponse, AdminNonceResponse, AllocateCodesRequest,
-    AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
-    DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
-    ReferralConfig, RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
-    UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
+    AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminLogEvent, AdminLogEventsQuery,
+    AdminLogEventsResponse, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
+    AdminLogMetricsQuery, AdminLogMetricsResponse, AdminLoginRequest, AdminLoginResponse,
+    AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
+    CreateNotificationResponse, DismissNotificationRequest, DismissNotificationResponse,
+    ListCodesRequest, ListCodesResponse, MetadataCategoriesResponse, ReferralConfig, RevokeRequest,
+    RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest,
+    UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse, WhitelistRequest,
     WhitelistResponse,
 };
@@ -79,6 +80,36 @@ impl<'a> Admin<'a> {
         request: &UnifiedMetadataRequest,
     ) -> Result<UnifiedMetadataResponse, SdkError> {
         let url = format!("{}/api/admin/metadata", self.client.http.base_url());
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// List whitelisted market metadata categories. Requires prior `admin_login()`.
+    pub async fn list_metadata_categories(&self) -> Result<MetadataCategoriesResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/categories",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Add a category to the metadata whitelist. Requires prior `admin_login()`.
+    ///
+    /// The backend trims whitespace, enforces length/emptiness rules, performs
+    /// case-insensitive duplicate matching, and returns the canonical category casing.
+    pub async fn add_metadata_category(
+        &self,
+        request: &AddMetadataCategoryRequest,
+    ) -> Result<AddMetadataCategoryResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/categories",
+            self.client.http.base_url()
+        );
         self.client
             .http
             .admin_post(&url, request, RetryPolicy::None)

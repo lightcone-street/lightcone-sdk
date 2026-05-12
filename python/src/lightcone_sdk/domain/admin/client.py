@@ -44,6 +44,8 @@ from ...program.types import (
     WhitelistDepositTokenParams,
 )
 from . import (
+    AddMetadataCategoryRequest,
+    AddMetadataCategoryResponse,
     AdminLogEvent,
     AdminLogEventsQuery,
     AdminLogEventsResponse,
@@ -62,6 +64,7 @@ from . import (
     DismissNotificationResponse,
     ListCodesRequest,
     ListCodesResponse,
+    MetadataCategoriesResponse,
     ReferralConfig,
     RevokeRequest,
     RevokeResponse,
@@ -128,6 +131,20 @@ class Admin:
             "/api/admin/metadata", request.to_dict()
         )
         return UnifiedMetadataResponse.from_dict(data)
+
+    async def list_metadata_categories(self) -> MetadataCategoriesResponse:
+        """List whitelisted market metadata categories. Requires prior admin_login()."""
+        data = await self._client._http.admin_get("/api/admin/metadata/categories")
+        return MetadataCategoriesResponse.from_dict(data)
+
+    async def add_metadata_category(
+        self, request: AddMetadataCategoryRequest
+    ) -> AddMetadataCategoryResponse:
+        """Add a category to the metadata whitelist. Requires prior admin_login()."""
+        data = await self._client._http.admin_post(
+            "/api/admin/metadata/categories", request.to_dict()
+        )
+        return AddMetadataCategoryResponse.from_dict(data)
 
     async def upload_market_deployment_assets(
         self, request: UploadMarketDeploymentAssetsRequest

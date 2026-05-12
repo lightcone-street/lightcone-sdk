@@ -41,6 +41,8 @@ import type {
   AdminNonceResponse,
 } from "./index";
 import type {
+  AddMetadataCategoryRequest,
+  AddMetadataCategoryResponse,
   AdminLogEvent,
   AdminLogEventsQuery,
   AdminLogEventsResponse,
@@ -56,6 +58,7 @@ import type {
   DismissNotificationResponse,
   ListCodesRequest,
   ListCodesResponse,
+  MetadataCategoriesResponse,
   ReferralConfig,
   RevokeRequest,
   RevokeResponse,
@@ -112,6 +115,24 @@ export class Admin {
       request,
       RetryPolicy.None
     );
+  }
+
+  async listMetadataCategories(): Promise<MetadataCategoriesResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/metadata/categories`;
+    return this.client.http.adminGet<MetadataCategoriesResponse>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
+  async addMetadataCategory(
+    request: AddMetadataCategoryRequest
+  ): Promise<AddMetadataCategoryResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/metadata/categories`;
+    return this.client.http.adminPost<
+      AddMetadataCategoryResponse,
+      AddMetadataCategoryRequest
+    >(url, request, RetryPolicy.None);
   }
 
   async uploadMarketDeploymentAssets(

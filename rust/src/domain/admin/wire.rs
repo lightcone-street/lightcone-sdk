@@ -77,12 +77,6 @@ pub struct MarketMetadataPayload {
     pub featured_rank: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,12 +97,6 @@ pub struct OutcomeMetadataPayload {
     pub description: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -134,12 +122,6 @@ pub struct ConditionalTokenMetadataPayload {
     pub metadata_uri: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decimals: Option<i16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced_at: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,11 +146,13 @@ pub struct DepositTokenMetadataPayload {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decimals: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced: Option<bool>,
+    pub min_order_size: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_synced_at: Option<String>,
+    pub binance_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub s3_error: Option<String>,
+    pub binance_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub okx_inst_id: Option<String>,
 }
 
 /// Response from `POST /api/admin/metadata`.
@@ -181,7 +165,59 @@ pub struct UnifiedMetadataResponse {
     #[serde(default)]
     pub conditional_tokens: Vec<serde_json::Value>,
     #[serde(default)]
-    pub deposit_tokens: Vec<serde_json::Value>,
+    pub deposit_tokens: Vec<DepositTokenMetadataResponse>,
+}
+
+/// Deposit token metadata row returned from `POST /api/admin/metadata`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DepositTokenMetadataResponse {
+    pub id: i64,
+    pub deposit_asset: String,
+    pub display_name: String,
+    pub symbol: String,
+    #[serde(default)]
+    pub token_symbol: Option<String>,
+    #[serde(default)]
+    pub binance_symbol: Option<String>,
+    #[serde(default)]
+    pub binance_enabled: bool,
+    #[serde(default)]
+    pub okx_inst_id: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+    #[serde(default)]
+    pub metadata_uri: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<i16>,
+    #[serde(default)]
+    pub min_order_size: i64,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Response body from `GET /api/admin/metadata/categories`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MetadataCategoriesResponse {
+    #[serde(default)]
+    pub categories: Vec<String>,
+}
+
+/// Request body for `POST /api/admin/metadata/categories`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AddMetadataCategoryRequest {
+    pub category: String,
+}
+
+/// Response body from `POST /api/admin/metadata/categories`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AddMetadataCategoryResponse {
+    pub category: String,
 }
 
 // ============================================================================
@@ -842,6 +878,114 @@ pub struct UploadedConditionalToken {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    #[test]
+    fn add_metadata_category_request_serializes_category() {
+        let request = AddMetadataCategoryRequest {
+            category: "Crypto".to_string(),
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "category": "Crypto"
+            })
+        );
+    }
+
+    #[test]
+    fn metadata_categories_response_deserializes_categories() {
+        let response: MetadataCategoriesResponse = serde_json::from_value(json!({
+            "categories": ["Politics", "Crypto", "Sports"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            response.categories,
+            vec![
+                "Politics".to_string(),
+                "Crypto".to_string(),
+                "Sports".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn add_metadata_category_response_deserializes_canonical_category() {
+        let response: AddMetadataCategoryResponse = serde_json::from_value(json!({
+            "category": "Politics"
+        }))
+        .unwrap();
+
+        assert_eq!(response.category, "Politics");
+    }
+
+    #[test]
+    fn deposit_token_metadata_payload_serializes_price_feed_and_min_order_fields() {
+        let request = DepositTokenMetadataPayload {
+            deposit_asset: "TOKEN_MINT".to_string(),
+            display_name: None,
+            symbol: None,
+            token_symbol: None,
+            description: None,
+            icon_url_low: None,
+            icon_url_medium: None,
+            icon_url_high: None,
+            metadata_uri: None,
+            decimals: None,
+            min_order_size: Some(1_000_000),
+            binance_symbol: Some("BTCUSDT".to_string()),
+            binance_enabled: Some(true),
+            okx_inst_id: Some("BTC-USDT".to_string()),
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "deposit_asset": "TOKEN_MINT",
+                "min_order_size": 1_000_000,
+                "binance_symbol": "BTCUSDT",
+                "binance_enabled": true,
+                "okx_inst_id": "BTC-USDT"
+            })
+        );
+    }
+
+    #[test]
+    fn unified_metadata_response_reads_deposit_token_metadata_fields() {
+        let response: UnifiedMetadataResponse = serde_json::from_value(json!({
+            "deposit_tokens": [{
+                "id": 1,
+                "deposit_asset": "TOKEN_MINT",
+                "display_name": "Bitcoin",
+                "symbol": "BTC",
+                "token_symbol": null,
+                "binance_symbol": "BTCUSDT",
+                "binance_enabled": true,
+                "okx_inst_id": "BTC-USDT",
+                "description": null,
+                "icon_url_low": null,
+                "icon_url_medium": null,
+                "icon_url_high": null,
+                "metadata_uri": null,
+                "decimals": 8,
+                "min_order_size": 100_000,
+                "created_at": "2026-05-12T00:00:00Z",
+                "updated_at": "2026-05-12T00:00:00Z"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.deposit_tokens.len(), 1);
+        let token = &response.deposit_tokens[0];
+        assert_eq!(token.deposit_asset, "TOKEN_MINT");
+        assert_eq!(token.binance_symbol.as_deref(), Some("BTCUSDT"));
+        assert!(token.binance_enabled);
+        assert_eq!(token.okx_inst_id.as_deref(), Some("BTC-USDT"));
+        assert_eq!(token.min_order_size, 100_000);
+    }
 
     #[test]
     fn upload_market_deployment_assets_request_uses_quality_specific_upload_fields() {

@@ -43,6 +43,7 @@ export interface DepositAssetResponse {
   icon_url_high?: string;
   metadata_uri?: string;
   decimals?: number;
+  min_order_size?: number;
   conditional_mints: ConditionalTokenResponse[];
   created_at: string;
 }

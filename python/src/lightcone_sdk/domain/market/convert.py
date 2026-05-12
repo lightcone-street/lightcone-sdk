@@ -90,6 +90,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             short_symbol=da_short_symbol,
             description=da.description,
             decimals=da.decimals,
+            min_order_size=da.min_order_size,
             icon_url_low=da_icons[0] if da_icons else "",
             icon_url_medium=da_icons[1] if da_icons else "",
             icon_url_high=da_icons[2] if da_icons else "",
