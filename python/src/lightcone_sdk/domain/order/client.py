@@ -184,8 +184,12 @@ class Orders:
         Open orders are JWT-only — there is intentionally no public path-based
         variant.
         """
-        url = _build_user_orders_authenticated_url(limit, cursor)
-        data = await self._client._http.get(url)
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get("/api/users/orders", params=params or None)
         return _user_orders_response_from_wire(data, "")
 
     async def get_user_orders_with_auth(
@@ -201,8 +205,14 @@ class Orders:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        url = _build_user_orders_authenticated_url(limit, cursor)
-        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get_with_auth(
+            "/api/users/orders", auth_token=auth_token, params=params or None
+        )
         return _user_orders_response_from_wire(data, "")
 
     async def get_user_order_fills(
@@ -217,8 +227,14 @@ class Orders:
         Includes orders where the user was either maker or taker.
         Optionally filter by market. Returns orders sorted by most recent fill first.
         """
-        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
-        data = await self._client._http.get(url)
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get("/api/users/order-fills", params=params or None)
         return UserOrderFillsResponse.from_dict(data)
 
     async def get_user_order_fills_with_auth(
@@ -235,8 +251,16 @@ class Orders:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
-        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get_with_auth(
+            "/api/users/order-fills", auth_token=auth_token, params=params or None
+        )
         return UserOrderFillsResponse.from_dict(data)
 
     async def get_user_order_fills_by_wallet(
@@ -251,10 +275,16 @@ class Orders:
         Takes the user's wallet via the URL path
         (``GET /api/users/{wallet}/order-fills``) and requires no auth.
         """
-        url = _build_user_order_fills_by_wallet_url(
-            wallet_address, market_pubkey, limit, cursor
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get(
+            f"/api/users/{wallet_address}/order-fills", params=params or None
         )
-        data = await self._client._http.get(url)
         return UserOrderFillsResponse.from_dict(data)
 
     # ── Unified cancel (dispatches based on client signing strategy) ────
@@ -483,56 +513,6 @@ class Orders:
             raise ArithmeticOverflowError()
         return nonce
 
-
-def _build_user_orders_authenticated_url(
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = "/api/users/orders"
-    sep = "?"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
-
-
-def _build_user_order_fills_authenticated_url(
-    market_pubkey: Optional[str],
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = "/api/users/order-fills"
-    sep = "?"
-    if market_pubkey is not None:
-        url += f"{sep}market_pubkey={market_pubkey}"
-        sep = "&"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
-
-
-def _build_user_order_fills_by_wallet_url(
-    wallet_address: str,
-    market_pubkey: Optional[str],
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = f"/api/users/{wallet_address}/order-fills"
-    sep = "?"
-    if market_pubkey is not None:
-        url += f"{sep}market_pubkey={market_pubkey}"
-        sep = "&"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
 
 
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:

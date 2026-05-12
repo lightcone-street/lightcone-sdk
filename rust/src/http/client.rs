@@ -129,10 +129,21 @@ impl LightconeHttp {
         url: &str,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
+        self.get_with_query(url, &[], retry).await
+    }
+
+    /// GET with retry and URL-encoded query parameters. Uses cookie auth.
+    pub(crate) async fn get_with_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
             AuthMode::Cookie,
         )
@@ -148,10 +159,24 @@ impl LightconeHttp {
         retry: RetryPolicy,
         auth_token: &str,
     ) -> Result<T, SdkError> {
+        self.get_with_auth_and_query(url, &[], retry, auth_token)
+            .await
+    }
+
+    /// GET with retry and URL-encoded query parameters, using an explicit
+    /// per-call `auth_token`.
+    pub(crate) async fn get_with_auth_and_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+        auth_token: &str,
+    ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
             AuthMode::CookieOverride(auth_token.to_string()),
         )
@@ -169,6 +194,7 @@ impl LightconeHttp {
             reqwest::Method::POST,
             url,
             Some(body),
+            &[],
             retry,
             AuthMode::Cookie,
         )
@@ -186,6 +212,7 @@ impl LightconeHttp {
             reqwest::Method::POST,
             url,
             Some(body),
+            &[],
             retry,
             AuthMode::AdminCookie,
         )
@@ -198,10 +225,21 @@ impl LightconeHttp {
         url: &str,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
+        self.admin_get_with_query(url, &[], retry).await
+    }
+
+    /// GET with retry and URL-encoded query parameters. Uses admin cookie auth.
+    pub(crate) async fn admin_get_with_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
             AuthMode::AdminCookie,
         )
@@ -213,12 +251,15 @@ impl LightconeHttp {
         method: reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         retry: RetryPolicy,
         auth_mode: AuthMode,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
-                return self.send_and_parse(&method, url, body, &auth_mode).await;
+                return self
+                    .send_and_parse(&method, url, body, query, &auth_mode)
+                    .await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
             RetryPolicy::Custom(c) => c.clone(),
@@ -228,7 +269,7 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_request::<ApiResponse<T>, B>(&method, url, body, &auth_mode)
+                .send_request::<ApiResponse<T>, B>(&method, url, body, query, &auth_mode)
                 .await
             {
                 Ok((api_resp, request_id)) => {
@@ -291,10 +332,11 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         auth_mode: &AuthMode,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_request::<ApiResponse<T>, B>(method, url, body, auth_mode)
+            .send_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
             .await?;
         Self::parse_api_response(api_resp, request_id)
     }
@@ -318,11 +360,15 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         auth_mode: &AuthMode,
     ) -> Result<(T, String), HttpError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
+        if !query.is_empty() {
+            req = req.query(query);
+        }
 
         match auth_mode {
             AuthMode::Cookie => {

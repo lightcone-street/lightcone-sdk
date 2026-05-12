@@ -135,6 +135,8 @@ class LightconeHttp:
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
         """Make a GET request with user auth cookie injection."""
         return await self._request_with_retry(
@@ -142,6 +144,7 @@ class LightconeHttp:
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE,
+            params=params,
         )
 
     async def get_with_auth(
@@ -150,6 +153,7 @@ class LightconeHttp:
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
         auth_token: str,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
         """Make a GET request with an explicit per-call ``auth_token`` cookie.
 
@@ -165,6 +169,7 @@ class LightconeHttp:
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE_OVERRIDE,
             auth_token_override=auth_token,
+            params=params,
         )
 
     async def post(
@@ -201,6 +206,8 @@ class LightconeHttp:
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
         """Make a GET request with admin cookie injection."""
         return await self._request_with_retry(
@@ -208,6 +215,7 @@ class LightconeHttp:
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.ADMIN_COOKIE,
+            params=params,
         )
 
     async def _request_with_retry(
@@ -218,6 +226,7 @@ class LightconeHttp:
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         auth_mode: _AuthMode,
         auth_token_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
         """Make an HTTP request with retry logic and ApiResponse unwrapping."""
@@ -229,6 +238,7 @@ class LightconeHttp:
                 path,
                 auth_mode=auth_mode,
                 auth_token_override=auth_token_override,
+                params=params,
                 **kwargs,
             )
 
@@ -241,6 +251,7 @@ class LightconeHttp:
                     path,
                     auth_mode=auth_mode,
                     auth_token_override=auth_token_override,
+                    params=params,
                     **kwargs,
                 )
             except ApiRejected:
@@ -303,6 +314,7 @@ class LightconeHttp:
         *,
         auth_mode: _AuthMode,
         auth_token_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
         payload, request_id = await self._send_request(
@@ -310,6 +322,7 @@ class LightconeHttp:
             path,
             auth_mode=auth_mode,
             auth_token_override=auth_token_override,
+            params=params,
             **kwargs,
         )
         return self._parse_api_response(payload, request_id)
@@ -337,6 +350,7 @@ class LightconeHttp:
         *,
         auth_mode: _AuthMode,
         auth_token_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> tuple[Any, str]:
         """Send one request and return the raw decoded JSON payload plus request id."""
@@ -350,6 +364,7 @@ class LightconeHttp:
             method,
             self._resolve_url(path),
             headers=headers,
+            params=params,
             **kwargs,
         ) as response:
             if 200 <= response.status < 300:

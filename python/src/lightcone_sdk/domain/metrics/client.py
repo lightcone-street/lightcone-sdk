@@ -4,7 +4,7 @@ volume metrics, market leaderboard, and time-series history."""
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
-from urllib.parse import quote as url_quote, urlencode
+from urllib.parse import quote as url_quote
 
 from .wire import (
     CategoriesMetrics,
@@ -59,11 +59,13 @@ class Metrics:
         ``deposit_asset``. Prices per orderbook are scaled using that
         orderbook's own decimals.
         """
-        url = "/api/metrics/orderbooks/tickers"
+        params: dict[str, str] | None = None
         mint = deposit_asset.strip() if deposit_asset else None
         if mint:
-            url += f"?deposit_asset={url_quote(mint, safe='')}"
-        data = await self._client._http.get(url)
+            params = {"deposit_asset": mint}
+        data = await self._client._http.get(
+            "/api/metrics/orderbooks/tickers", params=params
+        )
         return OrderbookTickersResponse.from_dict(data)
 
     async def orderbook(self, orderbook_id: str) -> OrderbookVolumeMetrics:
@@ -92,10 +94,12 @@ class Metrics:
 
     async def leaderboard(self, limit: Optional[int] = None) -> Leaderboard:
         """GET /api/metrics/leaderboard/markets"""
-        url = "/api/metrics/leaderboard/markets"
+        params: dict[str, str] | None = None
         if limit is not None:
-            url += f"?limit={limit}"
-        data = await self._client._http.get(url)
+            params = {"limit": str(limit)}
+        data = await self._client._http.get(
+            "/api/metrics/leaderboard/markets", params=params
+        )
         return Leaderboard.from_dict(data)
 
     async def history(
@@ -109,14 +113,12 @@ class Metrics:
         ``scope`` is one of ``"orderbook" | "market" | "category" |
         "deposit_token" | "platform"``.
         """
-        url = (
+        path = (
             f"/api/metrics/history/"
             f"{url_quote(scope, safe='')}/{url_quote(scope_key, safe='')}"
         )
         params = (query or MetricsHistoryQuery()).to_query()
-        if params:
-            url += "?" + urlencode(params)
-        data = await self._client._http.get(url)
+        data = await self._client._http.get(path, params=params or None)
         return MetricsHistory.from_dict(data)
 
     async def user(self) -> UserMetrics:

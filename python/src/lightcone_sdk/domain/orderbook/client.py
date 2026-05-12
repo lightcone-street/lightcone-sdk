@@ -74,10 +74,12 @@ class Orderbooks:
         self, orderbook_id: str, depth: Optional[int] = None
     ) -> OrderbookDepthResponse:
         """Get orderbook depth."""
-        url = f"/api/orderbook/{orderbook_id}"
+        params: dict[str, str] | None = None
         if depth is not None:
-            url += f"?depth={depth}"
-        data = await self._client._http.get(url)
+            params = {"depth": str(depth)}
+        data = await self._client._http.get(
+            f"/api/orderbook/{orderbook_id}", params=params
+        )
         return OrderbookDepthResponse.from_dict(data)
 
     # ── On-chain account fetchers (require connection) ───────────────────
