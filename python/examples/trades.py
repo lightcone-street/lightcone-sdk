@@ -33,6 +33,12 @@ async def main():
     else:
         print("no more pages")
 
+    # 3. Trades across all orderbooks for the market
+    market_page = await client.trades().get_by_market(
+        orderbook.market_pubkey, 10
+    )
+    print_trades("market trades (all outcomes)", market_page.trades)
+
     await client.close()
 
 

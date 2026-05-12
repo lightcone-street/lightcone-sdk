@@ -39,5 +39,12 @@ async fn main() -> ExampleResult {
         print_trades("page 2", &next_page.trades);
     }
 
+    // Fetch trades across all orderbooks for the market
+    let market_page = client
+        .trades()
+        .get_by_market(orderbook.market_pubkey.as_str(), Some(10), None)
+        .await?;
+    print_trades("market trades (all outcomes)", &market_page.trades);
+
     Ok(())
 }
