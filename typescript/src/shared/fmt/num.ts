@@ -1,12 +1,14 @@
+import { displayDecimalsBy, isFormattedZero } from "./constants";
+
 export function displayFormattedString(input: string): string {
   const [rawInteger, rawFraction] = input.split(".");
   const negative = rawInteger.startsWith("-");
   const integer = negative ? rawInteger.slice(1) : rawInteger;
   const withCommas = integer.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  const fraction = rawFraction?.replace(/0+$/, "");
+  const fraction = rawFraction;
   const prefix = negative ? "-" : "";
 
-  if (!fraction) {
+  if (fraction === undefined) {
     return `${prefix}${withCommas}`;
   }
 
@@ -17,21 +19,13 @@ export function displayWithDecimals(value: number, decimals: number): string {
   return displayFormattedString(value.toFixed(decimals));
 }
 
-export function display(value: number): string {
-  if (Math.abs(value) >= 100) {
-    return displayWithDecimals(value, 0);
-  }
-  if (Math.abs(value) >= 1) {
-    return displayWithDecimals(value, 2);
-  }
-  if (value === 0) {
-    return "0";
-  }
+function displayDecimals(absValue: number): number {
+  return displayDecimalsBy((threshold) => absValue >= Number(threshold));
+}
 
-  const abs = Math.abs(value);
-  const exponent = Math.floor(Math.log10(abs));
-  const decimals = Math.min(Math.max(Math.abs(exponent) + 2, 2), 8);
-  return displayWithDecimals(value, decimals);
+export function display(value: number): string {
+  const formatted = value.toFixed(displayDecimals(Math.abs(value)));
+  return isFormattedZero(formatted) ? "0" : displayFormattedString(formatted);
 }
 
 export function toDecimalValue(value: bigint, decimals: number): number {
