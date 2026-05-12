@@ -252,7 +252,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 |---------|-------------|
 | [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
 | [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and derive decimal precision metadata |
-| [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination |
+| [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
 

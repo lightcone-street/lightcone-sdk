@@ -61,6 +61,24 @@ Fetch trades for an orderbook with cursor-based pagination.
 - `limit` -- maximum number of trades to return
 - `cursor` -- numeric cursor from `next_cursor` of a previous response (fetch older trades)
 
+### `get_by_market`
+
+```rust
+async fn get_by_market(
+    &self,
+    market_pubkey: &str,
+    limit: Option<u32>,
+    cursor: Option<i64>,
+) -> Result<TradesPage, SdkError>
+```
+
+Fetch trades across all orderbooks in a market, interleaved by time. Each `Trade` in the result carries its own `orderbook_id` so callers can distinguish which outcome it belongs to.
+
+**Parameters:**
+- `market_pubkey` -- market public key to query
+- `limit` -- maximum number of trades to return
+- `cursor` -- numeric cursor from `next_cursor` of a previous response (fetch older trades)
+
 ## State Container: TradeHistory
 
 `TradeHistory` is an app-owned rolling buffer for maintaining a live trade feed from WebSocket updates.
@@ -139,7 +157,7 @@ async fn live_trades(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw types in `lightcone::domain::trade::wire` include `TradeResponse`, `WsTrade`, and `TradesResponse`.
+Raw types in `lightcone::domain::trade::wire` include `TradeResponse`, `WsTrade`, `TradesResponse`, and `MarketTradesResponse`.
 
 ---
 
