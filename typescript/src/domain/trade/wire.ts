@@ -28,6 +28,13 @@ export interface TradesResponse {
   decimals?: TradesDecimals;
 }
 
+export interface MarketTradesResponse {
+  market_pubkey: string;
+  trades: TradeResponse[];
+  next_cursor?: number;
+  has_more?: boolean;
+}
+
 export interface WsTrade {
   orderbook_id: OrderBookId;
   trade_id: string;
