@@ -6,10 +6,11 @@ use crate::domain::admin::{
     AdminLogEventsResponse, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
     AdminLogMetricsQuery, AdminLogMetricsResponse, AdminLoginRequest, AdminLoginResponse,
     AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
-    CreateNotificationResponse, DismissNotificationRequest, DismissNotificationResponse,
-    ListCodesRequest, ListCodesResponse, MetadataCategoriesResponse, ReferralConfig, RevokeRequest,
-    RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest,
-    UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
+    CreateNotificationResponse, CriticalLogErrors24hCountResponse, DismissNotificationRequest,
+    DismissNotificationResponse, ListCodesRequest, ListCodesResponse, MarketsToSettleCountResponse,
+    MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse, ReferralConfig,
+    RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
+    UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse, WhitelistRequest,
     WhitelistResponse,
 };
@@ -204,6 +205,45 @@ impl<'a> Admin<'a> {
             .await
     }
 
+    // ── Markets to settle ──────────────────────────────────────────────
+
+    /// Count active markets that are past their metadata resolution time.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn markets_to_settle_count(&self) -> Result<MarketsToSettleCountResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/markets-to-settle/count",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// List active markets that are past their metadata resolution time.
+    ///
+    /// Pagination is cursor-based; pass the `next_cursor` from a previous
+    /// response to continue. Requires prior `admin_login()`.
+    pub async fn markets_to_settle(
+        &self,
+        query: &MarketsToSettleQuery,
+    ) -> Result<MarketsToSettleResponse, SdkError> {
+        let mut url = format!(
+            "{}/api/admin/markets-to-settle",
+            self.client.http.base_url()
+        );
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
     // ── Referral config / codes ────────────────────────────────────────
 
     /// Fetch the platform-wide referral configuration.
@@ -341,6 +381,22 @@ impl<'a> Admin<'a> {
                 url = format!("{}?{}", url, qs);
             }
         }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Count critical log errors from the previous 24 hours.
+    ///
+    /// Requires prior `admin_login()`.
+    pub async fn critical_log_errors_24h_count(
+        &self,
+    ) -> Result<CriticalLogErrors24hCountResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/logs/critical-errors-24h/count",
+            self.client.http.base_url()
+        );
         self.client
             .http
             .admin_get(&url, RetryPolicy::Idempotent)

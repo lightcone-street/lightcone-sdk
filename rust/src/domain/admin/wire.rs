@@ -1,5 +1,6 @@
 //! Wire types for admin requests and responses.
 
+use crate::domain::market::wire::MarketResponse;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize, Serializer};
@@ -389,6 +390,38 @@ pub struct DismissNotificationResponse {
 }
 
 // ============================================================================
+// MARKETS TO SETTLE ADMIN
+// ============================================================================
+
+/// Response from `GET /api/admin/markets-to-settle/count`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketsToSettleCountResponse {
+    pub markets_to_settle_count: u64,
+}
+
+/// Query parameters for `GET /api/admin/markets-to-settle`.
+///
+/// Pagination is cursor-based using the previous response's `next_cursor`
+/// value, which is a `market_id`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MarketsToSettleQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+}
+
+/// Response from `GET /api/admin/markets-to-settle`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MarketsToSettleResponse {
+    #[serde(default)]
+    pub markets: Vec<MarketResponse>,
+    #[serde(default)]
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
+}
+
+// ============================================================================
 // REFERRAL CONFIG / CODES ADMIN
 // ============================================================================
 
@@ -666,6 +699,12 @@ pub struct AdminLogMetricPoint {
     pub error_count: u64,
     pub critical_count: u64,
     pub user_visible_count: u64,
+}
+
+/// Response from `GET /api/admin/logs/critical-errors-24h/count`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CriticalLogErrors24hCountResponse {
+    pub critical_log_errors_24h: u64,
 }
 
 // ============================================================================
@@ -1021,6 +1060,51 @@ mod tests {
         );
         assert_eq!(response.markets[1]["resolution"], json!(false));
         assert!(response.markets[1].get("resolution_by").is_none());
+    }
+
+    #[test]
+    fn markets_to_settle_count_response_deserializes_count() {
+        let response: MarketsToSettleCountResponse = serde_json::from_value(json!({
+            "markets_to_settle_count": 3
+        }))
+        .unwrap();
+
+        assert_eq!(response.markets_to_settle_count, 3);
+    }
+
+    #[test]
+    fn markets_to_settle_query_serializes_cursor_and_limit() {
+        let query = MarketsToSettleQuery {
+            cursor: Some(123),
+            limit: Some(200),
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(query_string, "cursor=123&limit=200");
+    }
+
+    #[test]
+    fn markets_to_settle_response_deserializes_pagination_fields() {
+        let response: MarketsToSettleResponse = serde_json::from_value(json!({
+            "markets": [],
+            "next_cursor": 456,
+            "has_more": true
+        }))
+        .unwrap();
+
+        assert!(response.markets.is_empty());
+        assert_eq!(response.next_cursor, Some(456));
+        assert!(response.has_more);
+    }
+
+    #[test]
+    fn critical_log_errors_24h_count_response_deserializes_count() {
+        let response: CriticalLogErrors24hCountResponse = serde_json::from_value(json!({
+            "critical_log_errors_24h": 1
+        }))
+        .unwrap();
+
+        assert_eq!(response.critical_log_errors_24h, 1);
     }
 
     #[test]

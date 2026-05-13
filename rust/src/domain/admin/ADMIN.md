@@ -188,6 +188,25 @@ async fn dismiss_notification(
 
 Dismiss a notification. Requires prior `admin_login()`.
 
+### `markets_to_settle_count`
+
+```rust
+async fn markets_to_settle_count(&self) -> Result<MarketsToSettleCountResponse, SdkError>
+```
+
+Count active markets that have metadata `resolution = true` and `resolution_by <= now`. Requires prior `admin_login()`.
+
+### `markets_to_settle`
+
+```rust
+async fn markets_to_settle(
+    &self,
+    query: &MarketsToSettleQuery,
+) -> Result<MarketsToSettleResponse, SdkError>
+```
+
+List active markets ready to settle using the existing market response shape. Pagination uses `market_id` as the cursor: pass the previous response's `next_cursor` to continue. The backend default limit is `200` and max limit is `1000`. Requires prior `admin_login()`.
+
 ### `get_referral_config`
 
 ```rust
@@ -269,6 +288,14 @@ async fn log_metric_history(
 ```
 
 Fetch a time-series of log metric buckets for a given scope (optionally narrowed to a `scope_key`). Use `AdminLogMetricHistoryQuery::new("service")` for default `"1h"` resolution. Requires prior `admin_login()`.
+
+### `critical_log_errors_24h_count`
+
+```rust
+async fn critical_log_errors_24h_count(&self) -> Result<CriticalLogErrors24hCountResponse, SdkError>
+```
+
+Count critical log errors from the previous 24 hours. Requires prior `admin_login()`. If the backend logging service is unavailable or not configured, this returns the API error response as `SdkError`.
 
 ### On-Chain Instruction & Transaction Builders
 
@@ -724,6 +751,28 @@ A single structured log event. Key fields: `id`, `public_id`, `service_name`, `e
 ### `AdminLogEventsResponse`, `AdminLogMetricsResponse`, `AdminLogMetricHistoryResponse`
 
 Envelope types holding paged events, breakdown rows, and history points respectively. See [`wire.rs`](./wire.rs) for the exact field list.
+
+### `MarketsToSettleQuery`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cursor` | `Option<i64>` | Previous page's `next_cursor`, using `market_id` |
+| `limit` | `Option<u32>` | Page size. Backend default is `200`; backend max is `1000` |
+
+### `MarketsToSettleCountResponse` / `MarketsToSettleResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `markets_to_settle_count` | `u64` | Count of active markets past their resolution time |
+| `markets` | `Vec<MarketResponse>` | Ready-to-settle markets using the existing market response shape |
+| `next_cursor` | `Option<i64>` | Cursor for the next page |
+| `has_more` | `bool` | Whether another page is available |
+
+### `CriticalLogErrors24hCountResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `critical_log_errors_24h` | `u64` | Critical logging error count for the previous 24 hours |
 
 ## TargetSpec
 

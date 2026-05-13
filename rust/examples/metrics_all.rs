@@ -24,9 +24,10 @@ async fn main() -> ExampleResult {
     // ── Platform ─────────────────────────────────────────────────────────
     let platform = client.metrics().platform().await?;
     println!(
-        "platform: 24h=${}, 7d=${}, active_markets={}, active_orderbooks={}",
+        "platform: 24h=${}, 7d=${}, open_interest=${}, active_markets={}, active_orderbooks={}",
         platform.volume_24h_usd,
         platform.volume_7d_usd,
+        platform.open_interest_usd,
         platform.active_markets,
         platform.active_orderbooks
     );

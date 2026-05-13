@@ -22,6 +22,8 @@ All monetary / percentage fields are `rust_decimal::Decimal` (deserialized from 
 | `taker_bid_volume_{24h,7d,30d,total}_usd` | `Decimal` | Taker-bid-side USD volume |
 | `taker_ask_volume_{24h,7d,30d,total}_usd` | `Decimal` | Taker-ask-side USD volume |
 | `taker_bid_ask_imbalance_{24h,7d,30d,total}_pct` | `Decimal` | Bid/ask imbalance (%) |
+| `open_interest_usd` | `Decimal` | Current open interest in USD |
+| `fees_{24h,7d,30d}_usd` | `Decimal` | Fee totals per window. The backend currently returns `"0"` for each fee window |
 | `unique_traders_{24h,7d,30d}` | `i32` | Unique trader counts |
 | `active_markets` / `active_orderbooks` | `i64` | Currently active entities |
 | `deposit_token_volumes` | `Vec<DepositTokenVolumeMetrics>` | Per-deposit-token breakdown |

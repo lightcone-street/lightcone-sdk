@@ -126,8 +126,9 @@ pub mod prelude {
         AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
         AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
         AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, CodeListEntry,
-        ListCodesRequest, ListCodesResponse, ReferralConfig, UpdateCodeRequest, UpdateCodeResponse,
-        UpdateConfigRequest,
+        CriticalLogErrors24hCountResponse, ListCodesRequest, ListCodesResponse,
+        MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
+        ReferralConfig, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     };
 
     // Errors
