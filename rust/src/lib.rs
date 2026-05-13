@@ -125,8 +125,9 @@ pub mod prelude {
     pub use crate::domain::admin::{
         AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
         AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
-        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, CodeListEntry,
-        CriticalLogErrors24hCountResponse, ListCodesRequest, ListCodesResponse,
+        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketRow,
+        AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
+        CodeListEntry, CriticalLogErrors24hCountResponse, ListCodesRequest, ListCodesResponse,
         MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
         ReferralConfig, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     };

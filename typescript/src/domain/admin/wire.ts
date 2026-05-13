@@ -200,6 +200,96 @@ export interface DismissNotificationResponse {
 }
 
 // ============================================================================
+// Admin markets
+// ============================================================================
+
+export type AdminMarketStatusFilter = "all" | "active" | "resolved";
+export type AdminMarketStatus = "Active" | "Resolved";
+export type AdminMarketsRangeValue = string | number;
+
+export interface AdminMarketsQuery {
+  cursor?: number;
+  limit?: number;
+  sort_by?: string;
+  sort_direction?: "asc" | "desc" | string;
+  market_status?: AdminMarketStatusFilter;
+  category?: string;
+  search?: string;
+
+  min_volume_24h_usd?: AdminMarketsRangeValue;
+  max_volume_24h_usd?: AdminMarketsRangeValue;
+  min_volume_7d_usd?: AdminMarketsRangeValue;
+  max_volume_7d_usd?: AdminMarketsRangeValue;
+  min_volume_30d_usd?: AdminMarketsRangeValue;
+  max_volume_30d_usd?: AdminMarketsRangeValue;
+  min_volume_total_usd?: AdminMarketsRangeValue;
+  max_volume_total_usd?: AdminMarketsRangeValue;
+
+  min_unique_traders_24h?: number;
+  max_unique_traders_24h?: number;
+  min_unique_traders_7d?: number;
+  max_unique_traders_7d?: number;
+  min_unique_traders_30d?: number;
+  max_unique_traders_30d?: number;
+  min_unique_traders_total?: number;
+  max_unique_traders_total?: number;
+
+  min_open_interest_usd?: AdminMarketsRangeValue;
+  max_open_interest_usd?: AdminMarketsRangeValue;
+
+  min_fees_24h_usd?: AdminMarketsRangeValue;
+  max_fees_24h_usd?: AdminMarketsRangeValue;
+  min_fees_7d_usd?: AdminMarketsRangeValue;
+  max_fees_7d_usd?: AdminMarketsRangeValue;
+  min_fees_30d_usd?: AdminMarketsRangeValue;
+  max_fees_30d_usd?: AdminMarketsRangeValue;
+  min_fees_total_usd?: AdminMarketsRangeValue;
+  max_fees_total_usd?: AdminMarketsRangeValue;
+}
+
+export interface AdminMarketsResponse {
+  timestamp: number;
+  sort_by: string;
+  sort_direction: string;
+  total: number;
+  limit: number;
+  next_cursor?: number;
+  has_more: boolean;
+  markets: AdminMarketRow[];
+}
+
+export interface AdminMarketRow {
+  rank: number;
+  market_id: number;
+  market_pubkey: string;
+  market_status: AdminMarketStatus;
+  slug: string | null;
+  market_name: string | null;
+  category: string | null;
+  icon_url: string | null;
+  num_outcomes: number;
+  resolution: boolean;
+  resolution_by?: number;
+  open_interest_usd: string;
+  volume_24h_usd: string;
+  volume_7d_usd: string;
+  volume_30d_usd: string;
+  volume_total_usd: string;
+  unique_traders_24h: number;
+  unique_traders_7d: number;
+  unique_traders_30d: number;
+  unique_traders_total: number;
+  fees_24h_usd: string;
+  fees_7d_usd: string;
+  fees_30d_usd: string;
+  fees_total_usd: string;
+  created_at: string;
+  activated_at: string | null;
+  settled_at: string | null;
+  updated_at: string;
+}
+
+// ============================================================================
 // Markets to settle
 // ============================================================================
 

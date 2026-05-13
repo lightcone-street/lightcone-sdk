@@ -50,6 +50,8 @@ import type {
   AdminLogMetricHistoryResponse,
   AdminLogMetricsQuery,
   AdminLogMetricsResponse,
+  AdminMarketsQuery,
+  AdminMarketsResponse,
   AllocateCodesRequest,
   AllocateCodesResponse,
   CreateNotificationRequest,
@@ -206,6 +208,17 @@ export class Admin {
       url,
       request,
       RetryPolicy.None
+    );
+  }
+
+  // ── Admin markets ───────────────────────────────────────────────────
+
+  async markets(query: AdminMarketsQuery = {}): Promise<AdminMarketsResponse> {
+    const qs = buildQueryString(query);
+    const url = `${this.client.http.baseUrl()}/api/admin/markets${qs}`;
+    return this.client.http.adminGet<AdminMarketsResponse>(
+      url,
+      RetryPolicy.Idempotent
     );
   }
 

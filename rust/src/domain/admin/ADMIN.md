@@ -188,6 +188,19 @@ async fn dismiss_notification(
 
 Dismiss a notification. Requires prior `admin_login()`.
 
+### `markets`
+
+```rust
+async fn markets(
+    &self,
+    query: &AdminMarketsQuery,
+) -> Result<AdminMarketsResponse, SdkError>
+```
+
+List the main admin markets table from cached metrics. Supports offset cursor pagination, sorting, status/category/search filters, and numeric range filters. Requires prior `admin_login()`.
+
+Defaults are applied by the backend when omitted: `cursor=0`, `limit=200`, `sort_by=volume_24h_usd`, `sort_direction=desc`, and `market_status=all`. The `market_status` filter supports only `all`, `active`, and `resolved`; do not send `settled`.
+
 ### `markets_to_settle_count`
 
 ```rust
@@ -751,6 +764,40 @@ A single structured log event. Key fields: `id`, `public_id`, `service_name`, `e
 ### `AdminLogEventsResponse`, `AdminLogMetricsResponse`, `AdminLogMetricHistoryResponse`
 
 Envelope types holding paged events, breakdown rows, and history points respectively. See [`wire.rs`](./wire.rs) for the exact field list.
+
+### `AdminMarketsQuery`
+
+Query type for `GET /api/admin/markets`. All fields are optional; omitted fields let the backend apply its defaults.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cursor` | `Option<u64>` | Offset cursor. Reset to `0` when changing sort or filters |
+| `limit` | `Option<u32>` | Page size. Backend default is `200` |
+| `sort_by` | `Option<String>` | Sort field. Backend default is `volume_24h_usd` |
+| `sort_direction` | `Option<String>` | `asc` or `desc`. Backend default is `desc` |
+| `market_status` | `Option<AdminMarketStatusFilter>` | `All`, `Active`, or `Resolved`. Serializes as `all`, `active`, or `resolved` |
+| `category` | `Option<String>` | Category filter |
+| `search` | `Option<String>` | Search filter |
+
+Every sortable numeric field also has `min_` and `max_` filters. USD filters use `Option<Decimal>` and unique-trader filters use `Option<u64>`.
+
+Sortable/range fields: `volume_24h_usd`, `volume_7d_usd`, `volume_30d_usd`, `volume_total_usd`, `unique_traders_24h`, `unique_traders_7d`, `unique_traders_30d`, `unique_traders_total`, `open_interest_usd`, `fees_24h_usd`, `fees_7d_usd`, `fees_30d_usd`, and `fees_total_usd`.
+
+Do not send `settled` as a market status filter. Resolved markets are selected with `AdminMarketStatusFilter::Resolved`.
+
+### `AdminMarketsResponse` / `AdminMarketRow`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | `i64` | Metrics cache timestamp in milliseconds |
+| `sort_by` / `sort_direction` | `String` | Sort actually used by the backend |
+| `total` | `u64` | Total matching rows |
+| `limit` | `u32` | Page limit |
+| `next_cursor` | `Option<u64>` | Offset cursor for the next page |
+| `has_more` | `bool` | Whether another page is available |
+| `markets` | `Vec<AdminMarketRow>` | Current page of admin market table rows |
+
+`AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (`Active` or `Resolved`), `resolution`, optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
 
 ### `MarketsToSettleQuery`
 

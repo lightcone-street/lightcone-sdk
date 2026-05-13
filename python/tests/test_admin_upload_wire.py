@@ -1,6 +1,10 @@
 from lightcone_sdk.domain.admin import (
     AddMetadataCategoryRequest,
     AddMetadataCategoryResponse,
+    AdminMarketStatus,
+    AdminMarketStatusFilter,
+    AdminMarketsQuery,
+    AdminMarketsResponse,
     CriticalLogErrors24hCountResponse,
     DepositTokenMetadataPayload,
     MarketMetadataPayload,
@@ -136,6 +140,85 @@ def test_unified_metadata_response_reads_market_resolution_fields():
     assert response.markets[0]["resolution_by"] == 1_735_689_600_000
     assert response.markets[1]["resolution"] is False
     assert "resolution_by" not in response.markets[1]
+
+
+def test_admin_markets_query_serializes_status_and_range_filters():
+    query = AdminMarketsQuery(
+        cursor=100,
+        limit=50,
+        sort_by="open_interest_usd",
+        sort_direction="asc",
+        market_status=AdminMarketStatusFilter.RESOLVED,
+        category="Crypto",
+        search="btc",
+        min_volume_24h_usd="1000",
+        max_open_interest_usd="50000",
+        min_unique_traders_total=10,
+    )
+
+    assert query.to_query() == {
+        "cursor": "100",
+        "limit": "50",
+        "sort_by": "open_interest_usd",
+        "sort_direction": "asc",
+        "market_status": "resolved",
+        "category": "Crypto",
+        "search": "btc",
+        "min_volume_24h_usd": "1000",
+        "min_unique_traders_total": "10",
+        "max_open_interest_usd": "50000",
+    }
+
+
+def test_admin_markets_response_reads_market_rows():
+    response = AdminMarketsResponse.from_dict({
+        "timestamp": 1_710_000_000_000,
+        "sort_by": "volume_24h_usd",
+        "sort_direction": "desc",
+        "total": 123,
+        "limit": 100,
+        "next_cursor": 100,
+        "has_more": True,
+        "markets": [{
+            "rank": 1,
+            "market_id": 123,
+            "market_pubkey": "market-pubkey",
+            "market_status": "Active",
+            "slug": "btc-100k",
+            "market_name": "Will BTC hit $100k?",
+            "category": "Crypto",
+            "icon_url": "https://example.com/icon.png",
+            "num_outcomes": 2,
+            "resolution": True,
+            "resolution_by": 1_760_000_000_000,
+            "open_interest_usd": "12345.67",
+            "volume_24h_usd": "1000.00",
+            "volume_7d_usd": "7000.00",
+            "volume_30d_usd": "30000.00",
+            "volume_total_usd": "50000.00",
+            "unique_traders_24h": 50,
+            "unique_traders_7d": 200,
+            "unique_traders_30d": 600,
+            "unique_traders_total": 900,
+            "fees_24h_usd": "0",
+            "fees_7d_usd": "0",
+            "fees_30d_usd": "0",
+            "fees_total_usd": "0",
+            "created_at": "2026-01-01T00:00:00+00:00",
+            "activated_at": "2026-01-02T00:00:00+00:00",
+            "settled_at": None,
+            "updated_at": "2026-01-03T00:00:00+00:00",
+        }],
+    })
+
+    assert response.next_cursor == 100
+    assert response.has_more is True
+    assert response.markets[0].market_status == AdminMarketStatus.ACTIVE
+    assert response.markets[0].resolution_by == 1_760_000_000_000
+    assert response.markets[0].open_interest_usd == "12345.67"
+    assert response.markets[0].unique_traders_total == 900
+    assert response.markets[0].fees_total_usd == "0"
+    assert response.markets[0].settled_at is None
 
 
 def test_markets_to_settle_admin_response_shapes():

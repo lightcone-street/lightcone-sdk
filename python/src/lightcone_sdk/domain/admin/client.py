@@ -55,6 +55,8 @@ from . import (
     AdminLogMetricHistoryResponse,
     AdminLogMetricsQuery,
     AdminLogMetricsResponse,
+    AdminMarketsQuery,
+    AdminMarketsResponse,
     AdminNonceResponse,
     AllocateCodesRequest,
     AllocateCodesResponse,
@@ -209,6 +211,19 @@ class Admin:
             "/api/admin/notifications/dismiss", request.to_dict()
         )
         return DismissNotificationResponse.from_dict(data)
+
+    # ── Admin markets ───────────────────────────────────────────────────
+
+    async def markets(
+        self, query: Optional[AdminMarketsQuery] = None
+    ) -> AdminMarketsResponse:
+        """List the admin markets table from cached metrics. Requires prior admin_login()."""
+        url = "/api/admin/markets"
+        params = (query or AdminMarketsQuery()).to_query()
+        if params:
+            url += "?" + urlencode(params)
+        data = await self._client._http.admin_get(url)
+        return AdminMarketsResponse.from_dict(data)
 
     # ── Markets to settle ────────────────────────────────────────────────
 

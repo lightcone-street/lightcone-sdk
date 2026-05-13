@@ -5,12 +5,13 @@ use crate::domain::admin::{
     AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminLogEvent, AdminLogEventsQuery,
     AdminLogEventsResponse, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
     AdminLogMetricsQuery, AdminLogMetricsResponse, AdminLoginRequest, AdminLoginResponse,
-    AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse, CreateNotificationRequest,
-    CreateNotificationResponse, CriticalLogErrors24hCountResponse, DismissNotificationRequest,
-    DismissNotificationResponse, ListCodesRequest, ListCodesResponse, MarketsToSettleCountResponse,
-    MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse, ReferralConfig,
-    RevokeRequest, RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse,
-    UnrevokeRequest, UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
+    AdminMarketsQuery, AdminMarketsResponse, AdminNonceResponse, AllocateCodesRequest,
+    AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
+    CriticalLogErrors24hCountResponse, DismissNotificationRequest, DismissNotificationResponse,
+    ListCodesRequest, ListCodesResponse, MarketsToSettleCountResponse, MarketsToSettleQuery,
+    MarketsToSettleResponse, MetadataCategoriesResponse, ReferralConfig, RevokeRequest,
+    RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest,
+    UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse, WhitelistRequest,
     WhitelistResponse,
 };
@@ -202,6 +203,28 @@ impl<'a> Admin<'a> {
         self.client
             .http
             .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    // ── Admin markets ──────────────────────────────────────────────────
+
+    /// List the admin markets table from cached metrics.
+    ///
+    /// Supports offset cursor pagination, sorting, status/category/search
+    /// filters, and numeric range filters. Requires prior `admin_login()`.
+    pub async fn markets(
+        &self,
+        query: &AdminMarketsQuery,
+    ) -> Result<AdminMarketsResponse, SdkError> {
+        let mut url = format!("{}/api/admin/markets", self.client.http.base_url());
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
             .await
     }
 

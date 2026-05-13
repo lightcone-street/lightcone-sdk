@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import type {
   AddMetadataCategoryRequest,
   AddMetadataCategoryResponse,
+  AdminMarketsQuery,
+  AdminMarketsResponse,
+  AdminMarketStatusFilter,
   CriticalLogErrors24hCountResponse,
   DepositTokenMetadataPayload,
   MarketMetadataPayload,
@@ -143,6 +146,82 @@ describe("admin upload wire types", () => {
     assert.equal(response.markets?.[0]?.resolution_by, 1_735_689_600_000);
     assert.equal(response.markets?.[1]?.resolution, false);
     assert.equal(response.markets?.[1]?.resolution_by, undefined);
+  });
+
+  it("serializes admin markets status filters and range query fields", () => {
+    const status: AdminMarketStatusFilter = "resolved";
+    const query: AdminMarketsQuery = {
+      cursor: 100,
+      limit: 50,
+      sort_by: "open_interest_usd",
+      sort_direction: "asc",
+      market_status: status,
+      category: "Crypto",
+      search: "btc",
+      min_volume_24h_usd: "1000",
+      max_open_interest_usd: "50000",
+      min_unique_traders_total: 10,
+    };
+    const params = new URLSearchParams();
+    for (const [key, value] of Object.entries(query)) {
+      if (value !== undefined && value !== null) {
+        params.append(key, String(value));
+      }
+    }
+
+    assert.equal(
+      params.toString(),
+      "cursor=100&limit=50&sort_by=open_interest_usd&sort_direction=asc&market_status=resolved&category=Crypto&search=btc&min_volume_24h_usd=1000&max_open_interest_usd=50000&min_unique_traders_total=10"
+    );
+  });
+
+  it("reads admin markets response shape", () => {
+    const response: AdminMarketsResponse = {
+      timestamp: 1_710_000_000_000,
+      sort_by: "volume_24h_usd",
+      sort_direction: "desc",
+      total: 123,
+      limit: 100,
+      next_cursor: 100,
+      has_more: true,
+      markets: [{
+        rank: 1,
+        market_id: 123,
+        market_pubkey: "market-pubkey",
+        market_status: "Active",
+        slug: "btc-100k",
+        market_name: "Will BTC hit $100k?",
+        category: "Crypto",
+        icon_url: "https://example.com/icon.png",
+        num_outcomes: 2,
+        resolution: true,
+        resolution_by: 1_760_000_000_000,
+        open_interest_usd: "12345.67",
+        volume_24h_usd: "1000.00",
+        volume_7d_usd: "7000.00",
+        volume_30d_usd: "30000.00",
+        volume_total_usd: "50000.00",
+        unique_traders_24h: 50,
+        unique_traders_7d: 200,
+        unique_traders_30d: 600,
+        unique_traders_total: 900,
+        fees_24h_usd: "0",
+        fees_7d_usd: "0",
+        fees_30d_usd: "0",
+        fees_total_usd: "0",
+        created_at: "2026-01-01T00:00:00+00:00",
+        activated_at: "2026-01-02T00:00:00+00:00",
+        settled_at: null,
+        updated_at: "2026-01-03T00:00:00+00:00",
+      }],
+    };
+
+    assert.equal(response.markets[0]?.market_status, "Active");
+    assert.equal(response.markets[0]?.resolution_by, 1_760_000_000_000);
+    assert.equal(response.markets[0]?.open_interest_usd, "12345.67");
+    assert.equal(response.markets[0]?.unique_traders_total, 900);
+    assert.equal(response.markets[0]?.fees_total_usd, "0");
+    assert.equal(response.next_cursor, 100);
   });
 
   it("reads markets-to-settle admin response shapes", () => {

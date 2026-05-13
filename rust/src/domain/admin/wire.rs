@@ -3,6 +3,7 @@
 use crate::domain::market::wire::MarketResponse;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize, Serializer};
 
 // ============================================================================
@@ -387,6 +388,153 @@ pub struct DismissNotificationRequest {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DismissNotificationResponse {
     pub status: String,
+}
+
+// ============================================================================
+// ADMIN MARKETS
+// ============================================================================
+
+/// Status filter for `GET /api/admin/markets`.
+///
+/// This is intentionally the SDK-facing filter vocabulary. Do not model or send
+/// `settled`; resolved markets are selected with `Resolved`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum AdminMarketStatusFilter {
+    All,
+    Active,
+    Resolved,
+}
+
+/// Market lifecycle values returned by `GET /api/admin/markets`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum AdminMarketStatus {
+    Active,
+    Resolved,
+}
+
+/// Query parameters for `GET /api/admin/markets`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub market_status: Option<AdminMarketStatusFilter>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_total_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_total_usd: Option<Decimal>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_24h: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_24h: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_7d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_7d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_30d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_30d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_total: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_total: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_open_interest_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_open_interest_usd: Option<Decimal>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_total_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_total_usd: Option<Decimal>,
+}
+
+/// Response from `GET /api/admin/markets`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketsResponse {
+    pub timestamp: i64,
+    pub sort_by: String,
+    pub sort_direction: String,
+    pub total: u64,
+    pub limit: u32,
+    #[serde(default)]
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
+    #[serde(default)]
+    pub markets: Vec<AdminMarketRow>,
+}
+
+/// A single row in the admin markets table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketRow {
+    pub rank: u64,
+    pub market_id: i64,
+    pub market_pubkey: PubkeyStr,
+    pub market_status: AdminMarketStatus,
+    pub slug: Option<String>,
+    pub market_name: Option<String>,
+    pub category: Option<String>,
+    pub icon_url: Option<String>,
+    pub num_outcomes: u32,
+    pub resolution: bool,
+    #[serde(default)]
+    pub resolution_by: Option<i64>,
+    pub open_interest_usd: Decimal,
+    pub volume_24h_usd: Decimal,
+    pub volume_7d_usd: Decimal,
+    pub volume_30d_usd: Decimal,
+    pub volume_total_usd: Decimal,
+    pub unique_traders_24h: u64,
+    pub unique_traders_7d: u64,
+    pub unique_traders_30d: u64,
+    pub unique_traders_total: u64,
+    pub fees_24h_usd: Decimal,
+    pub fees_7d_usd: Decimal,
+    pub fees_30d_usd: Decimal,
+    pub fees_total_usd: Decimal,
+    pub created_at: DateTime<Utc>,
+    pub activated_at: Option<DateTime<Utc>>,
+    pub settled_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
 }
 
 // ============================================================================
@@ -920,7 +1068,9 @@ pub struct UploadedConditionalToken {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal::Decimal;
     use serde_json::{json, Value};
+    use std::str::FromStr;
 
     #[test]
     fn add_metadata_category_request_serializes_category() {
@@ -1060,6 +1210,122 @@ mod tests {
         );
         assert_eq!(response.markets[1]["resolution"], json!(false));
         assert!(response.markets[1].get("resolution_by").is_none());
+    }
+
+    #[test]
+    fn admin_market_status_filter_serializes_supported_values() {
+        let all = AdminMarketsQuery {
+            market_status: Some(AdminMarketStatusFilter::All),
+            ..Default::default()
+        };
+        let active = AdminMarketsQuery {
+            market_status: Some(AdminMarketStatusFilter::Active),
+            ..Default::default()
+        };
+        let resolved = AdminMarketsQuery {
+            market_status: Some(AdminMarketStatusFilter::Resolved),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            serde_urlencoded::to_string(all).unwrap(),
+            "market_status=all"
+        );
+        assert_eq!(
+            serde_urlencoded::to_string(active).unwrap(),
+            "market_status=active"
+        );
+        assert_eq!(
+            serde_urlencoded::to_string(resolved).unwrap(),
+            "market_status=resolved"
+        );
+    }
+
+    #[test]
+    fn admin_markets_query_serializes_sort_filters_and_ranges() {
+        let query = AdminMarketsQuery {
+            cursor: Some(100),
+            limit: Some(50),
+            sort_by: Some("open_interest_usd".to_string()),
+            sort_direction: Some("asc".to_string()),
+            market_status: Some(AdminMarketStatusFilter::Resolved),
+            category: Some("Crypto".to_string()),
+            search: Some("btc".to_string()),
+            min_volume_24h_usd: Some(Decimal::from_str("1000").unwrap()),
+            max_open_interest_usd: Some(Decimal::from_str("50000").unwrap()),
+            min_unique_traders_total: Some(10),
+            ..Default::default()
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "cursor=100&limit=50&sort_by=open_interest_usd&sort_direction=asc&market_status=resolved&category=Crypto&search=btc&min_volume_24h_usd=1000&min_unique_traders_total=10&max_open_interest_usd=50000"
+        );
+    }
+
+    #[test]
+    fn admin_markets_response_deserializes_market_rows() {
+        let response: AdminMarketsResponse = serde_json::from_value(json!({
+            "timestamp": 1_710_000_000_000i64,
+            "sort_by": "volume_24h_usd",
+            "sort_direction": "desc",
+            "total": 123,
+            "limit": 100,
+            "next_cursor": 100,
+            "has_more": true,
+            "markets": [{
+                "rank": 1,
+                "market_id": 123,
+                "market_pubkey": "MarketPubkey",
+                "market_status": "Active",
+                "slug": "btc-100k",
+                "market_name": "Will BTC hit $100k?",
+                "category": "Crypto",
+                "icon_url": "https://example.com/icon.png",
+                "num_outcomes": 2,
+                "resolution": true,
+                "resolution_by": 1_760_000_000_000i64,
+                "open_interest_usd": "12345.67",
+                "volume_24h_usd": "1000.00",
+                "volume_7d_usd": "7000.00",
+                "volume_30d_usd": "30000.00",
+                "volume_total_usd": "50000.00",
+                "unique_traders_24h": 50,
+                "unique_traders_7d": 200,
+                "unique_traders_30d": 600,
+                "unique_traders_total": 900,
+                "fees_24h_usd": "0",
+                "fees_7d_usd": "0",
+                "fees_30d_usd": "0",
+                "fees_total_usd": "0",
+                "created_at": "2026-01-01T00:00:00+00:00",
+                "activated_at": "2026-01-02T00:00:00+00:00",
+                "settled_at": null,
+                "updated_at": "2026-01-03T00:00:00+00:00"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.timestamp, 1_710_000_000_000);
+        assert_eq!(response.next_cursor, Some(100));
+        assert!(response.has_more);
+        assert_eq!(response.markets.len(), 1);
+
+        let market = &response.markets[0];
+        assert_eq!(market.market_status, AdminMarketStatus::Active);
+        assert_eq!(market.resolution_by, Some(1_760_000_000_000));
+        assert_eq!(
+            market.open_interest_usd,
+            Decimal::from_str("12345.67").unwrap()
+        );
+        assert_eq!(
+            market.volume_total_usd,
+            Decimal::from_str("50000.00").unwrap()
+        );
+        assert_eq!(market.unique_traders_total, 900);
+        assert_eq!(market.fees_total_usd, Decimal::ZERO);
+        assert!(market.settled_at.is_none());
     }
 
     #[test]

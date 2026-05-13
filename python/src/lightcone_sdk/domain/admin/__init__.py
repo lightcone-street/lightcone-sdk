@@ -1,7 +1,8 @@
 """Admin domain types aligned with the Rust SDK."""
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from enum import Enum
+from typing import Any, Optional, Union
 
 from ...error import SdkError
 from ..market.wire import MarketWire
@@ -19,6 +20,17 @@ def _serialize_payload(value):
     if hasattr(value, "to_dict"):
         return value.to_dict()
     return value
+
+
+def _serialize_query_value(value) -> str:
+    if isinstance(value, Enum):
+        return str(value.value)
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)
+
+
+AdminMarketsRangeValue = Union[int, float, str]
 
 
 # ============================================================================
@@ -441,6 +453,167 @@ class DismissNotificationResponse:
     @staticmethod
     def from_dict(d: dict) -> "DismissNotificationResponse":
         return DismissNotificationResponse(status=d.get("status", ""))
+
+
+# ============================================================================
+# ADMIN MARKETS
+# ============================================================================
+
+
+class AdminMarketStatusFilter(str, Enum):
+    """SDK-facing filter values for GET /api/admin/markets."""
+
+    ALL = "all"
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
+class AdminMarketStatus(str, Enum):
+    """Database lifecycle values returned by GET /api/admin/markets."""
+
+    ACTIVE = "Active"
+    RESOLVED = "Resolved"
+
+
+@dataclass
+class AdminMarketsQuery:
+    cursor: Optional[int] = None
+    limit: Optional[int] = None
+    sort_by: Optional[str] = None
+    sort_direction: Optional[str] = None
+    market_status: Optional[AdminMarketStatusFilter] = None
+    category: Optional[str] = None
+    search: Optional[str] = None
+
+    min_volume_24h_usd: Optional[AdminMarketsRangeValue] = None
+    max_volume_24h_usd: Optional[AdminMarketsRangeValue] = None
+    min_volume_7d_usd: Optional[AdminMarketsRangeValue] = None
+    max_volume_7d_usd: Optional[AdminMarketsRangeValue] = None
+    min_volume_30d_usd: Optional[AdminMarketsRangeValue] = None
+    max_volume_30d_usd: Optional[AdminMarketsRangeValue] = None
+    min_volume_total_usd: Optional[AdminMarketsRangeValue] = None
+    max_volume_total_usd: Optional[AdminMarketsRangeValue] = None
+
+    min_unique_traders_24h: Optional[int] = None
+    max_unique_traders_24h: Optional[int] = None
+    min_unique_traders_7d: Optional[int] = None
+    max_unique_traders_7d: Optional[int] = None
+    min_unique_traders_30d: Optional[int] = None
+    max_unique_traders_30d: Optional[int] = None
+    min_unique_traders_total: Optional[int] = None
+    max_unique_traders_total: Optional[int] = None
+
+    min_open_interest_usd: Optional[AdminMarketsRangeValue] = None
+    max_open_interest_usd: Optional[AdminMarketsRangeValue] = None
+
+    min_fees_24h_usd: Optional[AdminMarketsRangeValue] = None
+    max_fees_24h_usd: Optional[AdminMarketsRangeValue] = None
+    min_fees_7d_usd: Optional[AdminMarketsRangeValue] = None
+    max_fees_7d_usd: Optional[AdminMarketsRangeValue] = None
+    min_fees_30d_usd: Optional[AdminMarketsRangeValue] = None
+    max_fees_30d_usd: Optional[AdminMarketsRangeValue] = None
+    min_fees_total_usd: Optional[AdminMarketsRangeValue] = None
+    max_fees_total_usd: Optional[AdminMarketsRangeValue] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        for key, value in self.__dict__.items():
+            if value is not None:
+                params[key] = _serialize_query_value(value)
+        return params
+
+
+@dataclass(frozen=True)
+class AdminMarketRow:
+    rank: int
+    market_id: int
+    market_pubkey: str
+    market_status: AdminMarketStatus
+    slug: Optional[str]
+    market_name: Optional[str]
+    category: Optional[str]
+    icon_url: Optional[str]
+    num_outcomes: int
+    resolution: bool
+    resolution_by: Optional[int]
+    open_interest_usd: str
+    volume_24h_usd: str
+    volume_7d_usd: str
+    volume_30d_usd: str
+    volume_total_usd: str
+    unique_traders_24h: int
+    unique_traders_7d: int
+    unique_traders_30d: int
+    unique_traders_total: int
+    fees_24h_usd: str
+    fees_7d_usd: str
+    fees_30d_usd: str
+    fees_total_usd: str
+    created_at: str
+    activated_at: Optional[str]
+    settled_at: Optional[str]
+    updated_at: str
+
+    @staticmethod
+    def from_dict(d: dict) -> "AdminMarketRow":
+        return AdminMarketRow(
+            rank=d.get("rank", 0),
+            market_id=d.get("market_id", 0),
+            market_pubkey=d.get("market_pubkey", ""),
+            market_status=AdminMarketStatus(d.get("market_status", "Active")),
+            slug=d.get("slug"),
+            market_name=d.get("market_name"),
+            category=d.get("category"),
+            icon_url=d.get("icon_url"),
+            num_outcomes=d.get("num_outcomes", 0),
+            resolution=d.get("resolution", False),
+            resolution_by=d.get("resolution_by"),
+            open_interest_usd=str(d.get("open_interest_usd", "0")),
+            volume_24h_usd=str(d.get("volume_24h_usd", "0")),
+            volume_7d_usd=str(d.get("volume_7d_usd", "0")),
+            volume_30d_usd=str(d.get("volume_30d_usd", "0")),
+            volume_total_usd=str(d.get("volume_total_usd", "0")),
+            unique_traders_24h=d.get("unique_traders_24h", 0),
+            unique_traders_7d=d.get("unique_traders_7d", 0),
+            unique_traders_30d=d.get("unique_traders_30d", 0),
+            unique_traders_total=d.get("unique_traders_total", 0),
+            fees_24h_usd=str(d.get("fees_24h_usd", "0")),
+            fees_7d_usd=str(d.get("fees_7d_usd", "0")),
+            fees_30d_usd=str(d.get("fees_30d_usd", "0")),
+            fees_total_usd=str(d.get("fees_total_usd", "0")),
+            created_at=d.get("created_at", ""),
+            activated_at=d.get("activated_at"),
+            settled_at=d.get("settled_at"),
+            updated_at=d.get("updated_at", ""),
+        )
+
+
+@dataclass
+class AdminMarketsResponse:
+    timestamp: int = 0
+    sort_by: str = ""
+    sort_direction: str = ""
+    total: int = 0
+    limit: int = 0
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+    markets: list[AdminMarketRow] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "AdminMarketsResponse":
+        return AdminMarketsResponse(
+            timestamp=d.get("timestamp", 0),
+            sort_by=d.get("sort_by", ""),
+            sort_direction=d.get("sort_direction", ""),
+            total=d.get("total", 0),
+            limit=d.get("limit", 0),
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+            markets=[
+                AdminMarketRow.from_dict(market)
+                for market in d.get("markets", [])
+            ],
+        )
 
 
 # ============================================================================
@@ -1176,6 +1349,12 @@ __all__ = [
     "CreateNotificationResponse",
     "DismissNotificationRequest",
     "DismissNotificationResponse",
+    "AdminMarketStatusFilter",
+    "AdminMarketStatus",
+    "AdminMarketsRangeValue",
+    "AdminMarketsQuery",
+    "AdminMarketRow",
+    "AdminMarketsResponse",
     "MarketsToSettleCountResponse",
     "MarketsToSettleQuery",
     "MarketsToSettleResponse",
