@@ -467,7 +467,26 @@ Batch metadata upsert payload. All arrays are optional, but at least one section
 | `conditional_tokens` | `Vec<ConditionalTokenMetadataPayload>` | Token metadata updates |
 | `deposit_tokens` | `Vec<DepositTokenMetadataPayload>` | Deposit token metadata updates |
 
-Each payload struct uses `Option<T>` fields — only non-`None` fields are updated, leaving other fields unchanged.
+Each payload struct uses `Option<T>` fields for optional metadata - only non-`None` fields are updated, leaving other fields unchanged.
+
+### `MarketMetadataPayload`
+
+Market metadata updates are keyed by `market_id`. Optional fields may be sent independently for partial updates.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `market_id` | `i64` | Required market ID |
+| `market_name`, `slug`, `description`, `definition` | `Option<String>` | Display metadata |
+| `banner_image_url_low` / `_medium` / `_high` | `Option<String>` | Banner URLs by quality |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Icon URLs by quality |
+| `category`, `subcategory` | `Option<String>` | Market category metadata |
+| `tags` | `Option<Vec<String>>` | Market tags |
+| `featured_rank` | `Option<i16>` | Optional featured ordering |
+| `metadata_uri` | `Option<String>` | Optional market metadata URI |
+| `resolution` | `Option<bool>` | `Some(false)` clears the defined resolution date. `Some(true)` should be sent with `resolution_by` when explicitly enabling a resolution date |
+| `resolution_by` | `Option<i64>` | Non-negative Unix timestamp in milliseconds. Sending this sets or updates the defined resolution date and marks resolution as true on the backend |
+
+If both `resolution` and `resolution_by` are omitted, the existing resolution state is unchanged. On new market metadata rows, omitted resolution fields default to no defined resolution date (`resolution: false`). When `resolution: false` is sent, the backend clears and omits `resolution_by`.
 
 ### `DepositTokenMetadataPayload`
 
