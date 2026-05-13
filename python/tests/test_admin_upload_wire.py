@@ -1,11 +1,15 @@
 from lightcone_sdk.domain.admin import (
     AddMetadataCategoryRequest,
     AddMetadataCategoryResponse,
+    CriticalLogErrors24hCountResponse,
     DepositTokenMetadataPayload,
     MarketMetadataPayload,
     MarketDeploymentConditionalToken,
     MarketDeploymentMarket,
     MarketDeploymentOutcome,
+    MarketsToSettleCountResponse,
+    MarketsToSettleQuery,
+    MarketsToSettleResponse,
     UnifiedMetadataResponse,
     UploadMarketDeploymentAssetsResponse,
     UploadedConditionalToken,
@@ -132,6 +136,44 @@ def test_unified_metadata_response_reads_market_resolution_fields():
     assert response.markets[0]["resolution_by"] == 1_735_689_600_000
     assert response.markets[1]["resolution"] is False
     assert "resolution_by" not in response.markets[1]
+
+
+def test_markets_to_settle_admin_response_shapes():
+    count = MarketsToSettleCountResponse.from_dict({
+        "markets_to_settle_count": 3,
+    })
+    query = MarketsToSettleQuery(cursor=123, limit=200)
+    response = MarketsToSettleResponse.from_dict({
+        "markets": [{
+            "market_id": 123,
+            "market_pubkey": "market-pubkey",
+            "market_status": "Active",
+            "market_name": "Market",
+            "slug": "market",
+            "outcomes": [],
+            "deposit_assets": [],
+            "orderbooks": [],
+        }],
+        "next_cursor": 456,
+        "has_more": True,
+    })
+
+    assert count.markets_to_settle_count == 3
+    assert query.to_query() == {
+        "cursor": "123",
+        "limit": "200",
+    }
+    assert response.markets[0].market_id == 123
+    assert response.next_cursor == 456
+    assert response.has_more is True
+
+
+def test_critical_log_errors_24h_count_response_shape():
+    response = CriticalLogErrors24hCountResponse.from_dict({
+        "critical_log_errors_24h": 1,
+    })
+
+    assert response.critical_log_errors_24h == 1
 
 
 def test_upload_request_uses_quality_specific_image_fields():

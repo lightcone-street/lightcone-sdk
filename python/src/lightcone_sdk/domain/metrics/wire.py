@@ -179,6 +179,10 @@ class PlatformMetrics:
     taker_bid_ask_imbalance_7d_pct: str = "0"
     taker_bid_ask_imbalance_30d_pct: str = "0"
     taker_bid_ask_imbalance_total_pct: str = "0"
+    open_interest_usd: str = "0"
+    fees_24h_usd: str = "0"
+    fees_7d_usd: str = "0"
+    fees_30d_usd: str = "0"
     unique_traders_24h: int = 0
     unique_traders_7d: int = 0
     unique_traders_30d: int = 0
@@ -214,6 +218,10 @@ class PlatformMetrics:
             taker_bid_ask_imbalance_total_pct=str(
                 d.get("taker_bid_ask_imbalance_total_pct", "0")
             ),
+            open_interest_usd=str(d.get("open_interest_usd", "0")),
+            fees_24h_usd=str(d.get("fees_24h_usd", "0")),
+            fees_7d_usd=str(d.get("fees_7d_usd", "0")),
+            fees_30d_usd=str(d.get("fees_30d_usd", "0")),
             unique_traders_24h=int(d.get("unique_traders_24h", 0)),
             unique_traders_7d=int(d.get("unique_traders_7d", 0)),
             unique_traders_30d=int(d.get("unique_traders_30d", 0)),

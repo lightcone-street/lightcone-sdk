@@ -46,6 +46,10 @@ export interface PlatformMetrics {
   taker_bid_ask_imbalance_7d_pct: string;
   taker_bid_ask_imbalance_30d_pct: string;
   taker_bid_ask_imbalance_total_pct: string;
+  open_interest_usd: string;
+  fees_24h_usd: string;
+  fees_7d_usd: string;
+  fees_30d_usd: string;
   unique_traders_24h: number;
   unique_traders_7d: number;
   unique_traders_30d: number;

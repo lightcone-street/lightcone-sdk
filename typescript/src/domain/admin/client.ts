@@ -54,10 +54,14 @@ import type {
   AllocateCodesResponse,
   CreateNotificationRequest,
   CreateNotificationResponse,
+  CriticalLogErrors24hCountResponse,
   DismissNotificationRequest,
   DismissNotificationResponse,
   ListCodesRequest,
   ListCodesResponse,
+  MarketsToSettleCountResponse,
+  MarketsToSettleQuery,
+  MarketsToSettleResponse,
   MetadataCategoriesResponse,
   ReferralConfig,
   RevokeRequest,
@@ -205,6 +209,27 @@ export class Admin {
     );
   }
 
+  // ── Markets to settle ────────────────────────────────────────────────
+
+  async marketsToSettleCount(): Promise<MarketsToSettleCountResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/markets-to-settle/count`;
+    return this.client.http.adminGet<MarketsToSettleCountResponse>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
+  async marketsToSettle(
+    query: MarketsToSettleQuery = {}
+  ): Promise<MarketsToSettleResponse> {
+    const qs = buildQueryString(query);
+    const url = `${this.client.http.baseUrl()}/api/admin/markets-to-settle${qs}`;
+    return this.client.http.adminGet<MarketsToSettleResponse>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
   // ── Referral config / codes ──────────────────────────────────────────
 
   async getReferralConfig(): Promise<ReferralConfig> {
@@ -274,6 +299,14 @@ export class Admin {
     const qs = buildQueryString(query);
     const url = `${this.client.http.baseUrl()}/api/admin/logs/metrics/history${qs}`;
     return this.client.http.adminGet<AdminLogMetricHistoryResponse>(url, RetryPolicy.Idempotent);
+  }
+
+  async criticalLogErrors24hCount(): Promise<CriticalLogErrors24hCountResponse> {
+    const url = `${this.client.http.baseUrl()}/api/admin/logs/critical-errors-24h/count`;
+    return this.client.http.adminGet<CriticalLogErrors24hCountResponse>(
+      url,
+      RetryPolicy.Idempotent
+    );
   }
 
   // ── On-chain transaction builders ────────────────────────────────────

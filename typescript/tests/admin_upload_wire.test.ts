@@ -3,8 +3,12 @@ import assert from "node:assert/strict";
 import type {
   AddMetadataCategoryRequest,
   AddMetadataCategoryResponse,
+  CriticalLogErrors24hCountResponse,
   DepositTokenMetadataPayload,
   MarketMetadataPayload,
+  MarketsToSettleCountResponse,
+  MarketsToSettleQuery,
+  MarketsToSettleResponse,
   UnifiedMetadataResponse,
   UploadMarketDeploymentAssetsRequest,
   UploadMarketDeploymentAssetsResponse,
@@ -139,6 +143,51 @@ describe("admin upload wire types", () => {
     assert.equal(response.markets?.[0]?.resolution_by, 1_735_689_600_000);
     assert.equal(response.markets?.[1]?.resolution, false);
     assert.equal(response.markets?.[1]?.resolution_by, undefined);
+  });
+
+  it("reads markets-to-settle admin response shapes", () => {
+    const count: MarketsToSettleCountResponse = {
+      markets_to_settle_count: 3,
+    };
+    const query: MarketsToSettleQuery = {
+      cursor: 123,
+      limit: 200,
+    };
+    const response: MarketsToSettleResponse = {
+      markets: [{
+        market_id: 123,
+        market_pubkey: "market-pubkey",
+        market_status: "Active",
+        market_name: "Market",
+        slug: "market",
+        outcomes: [],
+        deposit_assets: [],
+        orderbooks: [],
+        oracle: "oracle",
+        question_id: "question",
+        condition_id: "condition",
+        created_at: "2026-05-12T00:00:00Z",
+      }],
+      next_cursor: 456,
+      has_more: true,
+    };
+
+    assert.equal(count.markets_to_settle_count, 3);
+    assert.deepEqual(JSON.parse(JSON.stringify(query)), {
+      cursor: 123,
+      limit: 200,
+    });
+    assert.equal(response.markets[0]?.market_id, 123);
+    assert.equal(response.next_cursor, 456);
+    assert.equal(response.has_more, true);
+  });
+
+  it("reads critical log error count response shape", () => {
+    const response: CriticalLogErrors24hCountResponse = {
+      critical_log_errors_24h: 1,
+    };
+
+    assert.equal(response.critical_log_errors_24h, 1);
   });
 
   it("uses quality-specific upload fields", () => {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 from urllib.parse import quote as url_quote
 from urllib.parse import urlencode
 
@@ -60,10 +60,14 @@ from . import (
     AllocateCodesResponse,
     CreateNotificationRequest,
     CreateNotificationResponse,
+    CriticalLogErrors24hCountResponse,
     DismissNotificationRequest,
     DismissNotificationResponse,
     ListCodesRequest,
     ListCodesResponse,
+    MarketsToSettleCountResponse,
+    MarketsToSettleQuery,
+    MarketsToSettleResponse,
     MetadataCategoriesResponse,
     ReferralConfig,
     RevokeRequest,
@@ -206,6 +210,26 @@ class Admin:
         )
         return DismissNotificationResponse.from_dict(data)
 
+    # ── Markets to settle ────────────────────────────────────────────────
+
+    async def markets_to_settle_count(self) -> MarketsToSettleCountResponse:
+        """Count active markets past their metadata resolution time. Requires prior admin_login()."""
+        data = await self._client._http.admin_get(
+            "/api/admin/markets-to-settle/count"
+        )
+        return MarketsToSettleCountResponse.from_dict(data)
+
+    async def markets_to_settle(
+        self, query: Optional[MarketsToSettleQuery] = None
+    ) -> MarketsToSettleResponse:
+        """List active markets past their metadata resolution time. Requires prior admin_login()."""
+        url = "/api/admin/markets-to-settle"
+        params = (query or MarketsToSettleQuery()).to_query()
+        if params:
+            url += "?" + urlencode(params)
+        data = await self._client._http.admin_get(url)
+        return MarketsToSettleResponse.from_dict(data)
+
     # ── Referral config / codes ──────────────────────────────────────────
 
     async def get_referral_config(self) -> ReferralConfig:
@@ -274,6 +298,15 @@ class Admin:
         url = "/api/admin/logs/metrics/history?" + urlencode(query.to_query())
         data = await self._client._http.admin_get(url)
         return AdminLogMetricHistoryResponse.from_dict(data)
+
+    async def critical_log_errors_24h_count(
+        self,
+    ) -> CriticalLogErrors24hCountResponse:
+        """Count critical log errors from the previous 24 hours. Requires prior admin_login()."""
+        data = await self._client._http.admin_get(
+            "/api/admin/logs/critical-errors-24h/count"
+        )
+        return CriticalLogErrors24hCountResponse.from_dict(data)
 
     # ── On-chain instruction builders ────────────────────────────────────
 

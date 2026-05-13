@@ -1,3 +1,5 @@
+import type { MarketResponse } from "../market/wire";
+
 export interface UnifiedMetadataRequest {
   markets?: MarketMetadataPayload[];
   outcomes?: OutcomeMetadataPayload[];
@@ -198,6 +200,25 @@ export interface DismissNotificationResponse {
 }
 
 // ============================================================================
+// Markets to settle
+// ============================================================================
+
+export interface MarketsToSettleCountResponse {
+  markets_to_settle_count: number;
+}
+
+export interface MarketsToSettleQuery {
+  cursor?: number;
+  limit?: number;
+}
+
+export interface MarketsToSettleResponse {
+  markets: MarketResponse[];
+  next_cursor?: number;
+  has_more: boolean;
+}
+
+// ============================================================================
 // Referral config / codes
 // ============================================================================
 
@@ -377,6 +398,10 @@ export interface AdminLogMetricHistoryResponse {
   points: AdminLogMetricPoint[];
   from?: string;
   to?: string;
+}
+
+export interface CriticalLogErrors24hCountResponse {
+  critical_log_errors_24h: number;
 }
 
 // ============================================================================

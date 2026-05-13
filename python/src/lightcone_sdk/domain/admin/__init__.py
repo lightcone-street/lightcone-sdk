@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ...error import SdkError
+from ..market.wire import MarketWire
 
 
 def _compact_dict(payload: dict) -> dict:
@@ -443,6 +444,51 @@ class DismissNotificationResponse:
 
 
 # ============================================================================
+# MARKETS TO SETTLE ADMIN
+# ============================================================================
+
+
+@dataclass
+class MarketsToSettleCountResponse:
+    markets_to_settle_count: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "MarketsToSettleCountResponse":
+        return MarketsToSettleCountResponse(
+            markets_to_settle_count=d.get("markets_to_settle_count", 0),
+        )
+
+
+@dataclass
+class MarketsToSettleQuery:
+    cursor: Optional[int] = None
+    limit: Optional[int] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        if self.cursor is not None:
+            params["cursor"] = str(self.cursor)
+        if self.limit is not None:
+            params["limit"] = str(self.limit)
+        return params
+
+
+@dataclass
+class MarketsToSettleResponse:
+    markets: list[MarketWire] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+
+    @staticmethod
+    def from_dict(d: dict) -> "MarketsToSettleResponse":
+        return MarketsToSettleResponse(
+            markets=[MarketWire.from_dict(market) for market in d.get("markets", [])],
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+        )
+
+
+# ============================================================================
 # REFERRAL CONFIG / CODES ADMIN
 # ============================================================================
 
@@ -838,6 +884,17 @@ class AdminLogMetricHistoryResponse:
         )
 
 
+@dataclass
+class CriticalLogErrors24hCountResponse:
+    critical_log_errors_24h: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "CriticalLogErrors24hCountResponse":
+        return CriticalLogErrors24hCountResponse(
+            critical_log_errors_24h=d.get("critical_log_errors_24h", 0),
+        )
+
+
 # ============================================================================
 # MARKET DEPLOYMENT ASSET UPLOAD
 # ============================================================================
@@ -1119,6 +1176,9 @@ __all__ = [
     "CreateNotificationResponse",
     "DismissNotificationRequest",
     "DismissNotificationResponse",
+    "MarketsToSettleCountResponse",
+    "MarketsToSettleQuery",
+    "MarketsToSettleResponse",
     "ReferralConfig",
     "UpdateConfigRequest",
     "ListCodesRequest",
@@ -1136,6 +1196,7 @@ __all__ = [
     "AdminLogMetricHistoryQuery",
     "AdminLogMetricHistoryResponse",
     "AdminLogMetricPoint",
+    "CriticalLogErrors24hCountResponse",
     "MarketDeploymentMarket",
     "MarketDeploymentOutcome",
     "MarketDeploymentDepositAsset",
