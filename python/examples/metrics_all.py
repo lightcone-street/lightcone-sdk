@@ -77,6 +77,13 @@ async def main():
     deposit_tokens = await metrics.deposit_tokens()
     print(f"deposit tokens: {len(deposit_tokens.deposit_tokens)}")
 
+    deposit_token_history = await metrics.deposit_tokens_volume_history()
+    print(
+        f"deposit token volume history @ {deposit_token_history.resolution}: "
+        f"{len(deposit_token_history.points)} days, "
+        f"total=${deposit_token_history.volume_total_usd}"
+    )
+
     # Leaderboard
     board = await metrics.leaderboard(5)
     print(f"leaderboard ({board.period}): {len(board.entries)} entries")

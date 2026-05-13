@@ -9,6 +9,8 @@ from urllib.parse import quote as url_quote
 from .wire import (
     CategoriesMetrics,
     CategoryVolumeMetrics,
+    DepositTokenVolumeHistory,
+    DepositTokenVolumeHistoryQuery,
     DepositTokensMetrics,
     Leaderboard,
     MarketDetailMetrics,
@@ -91,6 +93,17 @@ class Metrics:
         """GET /api/metrics/deposit-tokens"""
         data = await self._client._http.get("/api/metrics/deposit-tokens")
         return DepositTokensMetrics.from_dict(data)
+
+    async def deposit_tokens_volume_history(
+        self, query: Optional[DepositTokenVolumeHistoryQuery] = None
+    ) -> DepositTokenVolumeHistory:
+        """GET /api/metrics/deposit-tokens/volume-history"""
+        params = (query or DepositTokenVolumeHistoryQuery()).to_query()
+        data = await self._client._http.get(
+            "/api/metrics/deposit-tokens/volume-history",
+            params=params or None,
+        )
+        return DepositTokenVolumeHistory.from_dict(data)
 
     async def leaderboard(self, limit: Optional[int] = None) -> Leaderboard:
         """GET /api/metrics/leaderboard/markets"""

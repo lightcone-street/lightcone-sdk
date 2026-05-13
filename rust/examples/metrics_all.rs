@@ -98,6 +98,17 @@ async fn main() -> ExampleResult {
     let deposit_tokens = client.metrics().deposit_tokens().await?;
     println!("deposit tokens: {}", deposit_tokens.deposit_tokens.len());
 
+    let deposit_token_history = client
+        .metrics()
+        .deposit_tokens_volume_history(&DepositTokenVolumeHistoryQuery::default())
+        .await?;
+    println!(
+        "deposit token volume history @ {}: {} days, total=${}",
+        deposit_token_history.resolution,
+        deposit_token_history.points.len(),
+        deposit_token_history.volume_total_usd
+    );
+
     // ── Leaderboard ──────────────────────────────────────────────────────
     let board = client.metrics().leaderboard(Some(5)).await?;
     println!(

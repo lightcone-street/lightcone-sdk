@@ -105,7 +105,9 @@ pub mod prelude {
 
     // Domain types — metrics
     pub use crate::domain::metrics::{
-        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeMetrics,
+        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeHistory,
+        DepositTokenVolumeHistoryPoint, DepositTokenVolumeHistoryPointToken,
+        DepositTokenVolumeHistoryQuery, DepositTokenVolumeHistoryToken, DepositTokenVolumeMetrics,
         DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
         MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
         MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,

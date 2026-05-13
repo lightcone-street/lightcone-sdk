@@ -67,6 +67,11 @@ export type {
 export type {
   CategoriesMetrics,
   CategoryVolumeMetrics,
+  DepositTokenVolumeHistory,
+  DepositTokenVolumeHistoryPoint,
+  DepositTokenVolumeHistoryPointToken,
+  DepositTokenVolumeHistoryQuery,
+  DepositTokenVolumeHistoryToken,
   DepositTokenVolumeMetrics,
   DepositTokensMetrics,
   HistoryPoint,

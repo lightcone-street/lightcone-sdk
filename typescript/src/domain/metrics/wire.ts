@@ -328,6 +328,47 @@ export interface DepositTokensMetrics {
   deposit_tokens: DepositTokenVolumeMetrics[];
 }
 
+export interface DepositTokenVolumeHistoryToken {
+  rank: number;
+  deposit_asset: PubkeyStr;
+  symbol?: string;
+  volume_total_usd: string;
+}
+
+export interface DepositTokenVolumeHistoryPointToken {
+  deposit_asset: PubkeyStr;
+  symbol?: string;
+  volume_usd: string;
+}
+
+export interface DepositTokenVolumeHistoryPoint {
+  /** Bucket start, Unix epoch milliseconds. */
+  bucket_start: number;
+  /** Calendar day label in `YYYY-MM-DD` format. */
+  bucket_start_date: string;
+  total_volume_usd: string;
+  cumulative_volume_usd: string;
+  deposit_token_volumes: DepositTokenVolumeHistoryPointToken[];
+}
+
+export interface DepositTokenVolumeHistory {
+  timestamp: number;
+  resolution: string;
+  from: number;
+  to: number;
+  volume_total_usd: string;
+  total_days: number;
+  deposit_tokens: DepositTokenVolumeHistoryToken[];
+  points: DepositTokenVolumeHistoryPoint[];
+}
+
+/** Query for `GET /api/metrics/deposit-tokens/volume-history`. */
+export interface DepositTokenVolumeHistoryQuery {
+  from?: number;
+  to?: number;
+  limit?: number;
+}
+
 // ─── Leaderboard ────────────────────────────────────────────────────────────
 
 export interface LeaderboardEntry {

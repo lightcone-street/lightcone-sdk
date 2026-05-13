@@ -4,6 +4,11 @@ volumes, market leaderboard, time-series history."""
 from .wire import (
     CategoriesMetrics,
     CategoryVolumeMetrics,
+    DepositTokenVolumeHistory,
+    DepositTokenVolumeHistoryPoint,
+    DepositTokenVolumeHistoryPointToken,
+    DepositTokenVolumeHistoryQuery,
+    DepositTokenVolumeHistoryToken,
     DepositTokenVolumeMetrics,
     DepositTokensMetrics,
     HistoryPoint,
@@ -25,6 +30,11 @@ from .wire import (
 __all__ = [
     "CategoriesMetrics",
     "CategoryVolumeMetrics",
+    "DepositTokenVolumeHistory",
+    "DepositTokenVolumeHistoryPoint",
+    "DepositTokenVolumeHistoryPointToken",
+    "DepositTokenVolumeHistoryQuery",
+    "DepositTokenVolumeHistoryToken",
     "DepositTokenVolumeMetrics",
     "DepositTokensMetrics",
     "HistoryPoint",

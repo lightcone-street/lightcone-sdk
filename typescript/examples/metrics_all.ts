@@ -70,6 +70,13 @@ async function main() {
   const depositTokens = await metrics.depositTokens();
   console.log("deposit tokens:", depositTokens.deposit_tokens.length);
 
+  const depositTokenHistory = await metrics.depositTokensVolumeHistory();
+  console.log(
+    `deposit token volume history @ ${depositTokenHistory.resolution}: ` +
+      `${depositTokenHistory.points.length} days, ` +
+      `total=$${depositTokenHistory.volume_total_usd}`,
+  );
+
   const board = await metrics.leaderboard(5);
   console.log(`leaderboard (${board.period}): ${board.entries.length} entries`);
   for (const entry of board.entries) {

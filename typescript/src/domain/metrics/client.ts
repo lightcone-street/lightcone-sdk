@@ -4,6 +4,8 @@ import type { OrderBookId, PubkeyStr } from "../../shared";
 import type {
   CategoriesMetrics,
   CategoryVolumeMetrics,
+  DepositTokenVolumeHistory,
+  DepositTokenVolumeHistoryQuery,
   DepositTokensMetrics,
   Leaderboard,
   MarketDetailMetrics,
@@ -82,6 +84,25 @@ export class Metrics {
   async depositTokens(): Promise<DepositTokensMetrics> {
     const url = `${this.client.http.baseUrl()}/api/metrics/deposit-tokens`;
     return this.client.http.get<DepositTokensMetrics>(url, RetryPolicy.Idempotent);
+  }
+
+  /** `GET /api/metrics/deposit-tokens/volume-history` */
+  async depositTokensVolumeHistory(
+    query: DepositTokenVolumeHistoryQuery = {}
+  ): Promise<DepositTokenVolumeHistory> {
+    const search = new URLSearchParams();
+    if (query.from !== undefined) search.set("from", String(query.from));
+    if (query.to !== undefined) search.set("to", String(query.to));
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+
+    const qs = search.toString();
+    const url =
+      `${this.client.http.baseUrl()}/api/metrics/deposit-tokens/volume-history` +
+      (qs ? `?${qs}` : "");
+    return this.client.http.get<DepositTokenVolumeHistory>(
+      url,
+      RetryPolicy.Idempotent
+    );
   }
 
   /** `GET /api/metrics/leaderboard/markets` */

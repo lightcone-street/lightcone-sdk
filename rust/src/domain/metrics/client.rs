@@ -3,10 +3,11 @@
 
 use crate::client::LightconeClient;
 use crate::domain::metrics::wire::{
-    CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokensMetrics,
-    Leaderboard, MarketDetailMetrics, MarketMetricsQuery, MarketsMetrics, MarketsMetricsQuery,
-    MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery, OrderbookTickersResponse,
-    OrderbookVolumeMetrics, PlatformMetrics, UserMetrics,
+    CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeHistory,
+    DepositTokenVolumeHistoryQuery, DepositTokensMetrics, Leaderboard, MarketDetailMetrics,
+    MarketMetricsQuery, MarketsMetrics, MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery,
+    OrderbookMetricsQuery, OrderbookTickersResponse, OrderbookVolumeMetrics, PlatformMetrics,
+    UserMetrics,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -140,6 +141,23 @@ impl<'a> Metrics<'a> {
     /// `GET /api/metrics/deposit-tokens`
     pub async fn deposit_tokens(&self) -> Result<DepositTokensMetrics, SdkError> {
         let url = format!("{}/api/metrics/deposit-tokens", self.client.http.base_url());
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Fetch daily platform volume history broken down by deposit token.
+    ///
+    /// `GET /api/metrics/deposit-tokens/volume-history`
+    pub async fn deposit_tokens_volume_history(
+        &self,
+        query: &DepositTokenVolumeHistoryQuery,
+    ) -> Result<DepositTokenVolumeHistory, SdkError> {
+        let mut url = format!(
+            "{}/api/metrics/deposit-tokens/volume-history",
+            self.client.http.base_url()
+        );
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            append_query(&mut url, &qs);
+        }
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 

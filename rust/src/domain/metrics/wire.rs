@@ -386,6 +386,53 @@ pub struct DepositTokensMetrics {
     pub deposit_tokens: Vec<DepositTokenVolumeMetrics>,
 }
 
+/// Token summary entry in `GET /api/metrics/deposit-tokens/volume-history`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositTokenVolumeHistoryToken {
+    pub rank: i32,
+    pub deposit_asset: PubkeyStr,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    pub volume_total_usd: Decimal,
+}
+
+/// Per-token stacked-bar entry for one daily volume history point.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositTokenVolumeHistoryPointToken {
+    pub deposit_asset: PubkeyStr,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    pub volume_usd: Decimal,
+}
+
+/// Daily point in `GET /api/metrics/deposit-tokens/volume-history`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositTokenVolumeHistoryPoint {
+    /// Bucket start, Unix epoch milliseconds.
+    pub bucket_start: i64,
+    /// Calendar day label in `YYYY-MM-DD` format.
+    pub bucket_start_date: String,
+    pub total_volume_usd: Decimal,
+    pub cumulative_volume_usd: Decimal,
+    #[serde(default)]
+    pub deposit_token_volumes: Vec<DepositTokenVolumeHistoryPointToken>,
+}
+
+/// `GET /api/metrics/deposit-tokens/volume-history` response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DepositTokenVolumeHistory {
+    pub timestamp: i64,
+    pub resolution: String,
+    pub from: i64,
+    pub to: i64,
+    pub volume_total_usd: Decimal,
+    pub total_days: u32,
+    #[serde(default)]
+    pub deposit_tokens: Vec<DepositTokenVolumeHistoryToken>,
+    #[serde(default)]
+    pub points: Vec<DepositTokenVolumeHistoryPoint>,
+}
+
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 
 /// Entry in `GET /api/metrics/leaderboard/markets`.
@@ -447,6 +494,17 @@ pub struct OrderbookMetricsQuery {}
 /// Query parameters for `GET /api/metrics/categories/{category}` (reserved for future filters).
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct CategoryMetricsQuery {}
+
+/// Query parameters for `GET /api/metrics/deposit-tokens/volume-history`.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct DepositTokenVolumeHistoryQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
 
 /// Query parameters for `GET /api/metrics/history/{scope}/{scope_key}`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -528,5 +586,89 @@ mod tests {
         assert_eq!(metrics.fees_24h_usd, Decimal::ZERO);
         assert_eq!(metrics.fees_7d_usd, Decimal::ZERO);
         assert_eq!(metrics.fees_30d_usd, Decimal::ZERO);
+    }
+
+    #[test]
+    fn deposit_token_volume_history_query_serializes_bounds_and_limit() {
+        let query = DepositTokenVolumeHistoryQuery {
+            from: Some(1_704_067_200_000),
+            to: Some(1_760_000_000_000),
+            limit: Some(365),
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "from=1704067200000&to=1760000000000&limit=365"
+        );
+    }
+
+    #[test]
+    fn deposit_token_volume_history_deserializes_daily_points() {
+        let history: DepositTokenVolumeHistory = serde_json::from_value(json!({
+            "timestamp": 1_760_000_000_000i64,
+            "resolution": "1d",
+            "from": 1_704_067_200_000i64,
+            "to": 1_760_000_000_000i64,
+            "volume_total_usd": "123456.78",
+            "total_days": 365,
+            "deposit_tokens": [{
+                "rank": 1,
+                "deposit_asset": "DepositAsset",
+                "symbol": "BTC",
+                "volume_total_usd": "90000.00"
+            }],
+            "points": [{
+                "bucket_start": 1_704_067_200_000i64,
+                "bucket_start_date": "2024-01-01",
+                "total_volume_usd": "1000.00",
+                "cumulative_volume_usd": "1000.00",
+                "deposit_token_volumes": [{
+                    "deposit_asset": "DepositAsset",
+                    "symbol": "BTC",
+                    "volume_usd": "700.00"
+                }, {
+                    "deposit_asset": "OtherDepositAsset",
+                    "symbol": "ETH",
+                    "volume_usd": "300.00"
+                }]
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(history.resolution, "1d");
+        assert_eq!(
+            history.volume_total_usd,
+            Decimal::from_str("123456.78").unwrap()
+        );
+        assert_eq!(history.total_days, 365);
+        assert_eq!(history.deposit_tokens.len(), 1);
+        assert_eq!(history.deposit_tokens[0].rank, 1);
+        assert_eq!(
+            history.deposit_tokens[0].deposit_asset.as_str(),
+            "DepositAsset"
+        );
+        assert_eq!(history.deposit_tokens[0].symbol.as_deref(), Some("BTC"));
+        assert_eq!(
+            history.deposit_tokens[0].volume_total_usd,
+            Decimal::from_str("90000.00").unwrap()
+        );
+
+        let point = &history.points[0];
+        assert_eq!(point.bucket_start, 1_704_067_200_000);
+        assert_eq!(point.bucket_start_date, "2024-01-01");
+        assert_eq!(
+            point.total_volume_usd,
+            Decimal::from_str("1000.00").unwrap()
+        );
+        assert_eq!(
+            point.cumulative_volume_usd,
+            Decimal::from_str("1000.00").unwrap()
+        );
+        assert_eq!(point.deposit_token_volumes.len(), 2);
+        assert_eq!(
+            point.deposit_token_volumes[0].volume_usd,
+            Decimal::from_str("700.00").unwrap()
+        );
     }
 }

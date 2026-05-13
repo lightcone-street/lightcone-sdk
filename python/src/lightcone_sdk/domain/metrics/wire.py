@@ -92,6 +92,101 @@ class DepositTokensMetrics:
         )
 
 
+@dataclass
+class DepositTokenVolumeHistoryToken:
+    """Token legend/summary entry in /api/metrics/deposit-tokens/volume-history."""
+
+    rank: int = 0
+    deposit_asset: str = ""
+    volume_total_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryToken":
+        return DepositTokenVolumeHistoryToken(
+            rank=int(d.get("rank", 0)),
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            volume_total_usd=str(d.get("volume_total_usd", "0")),
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistoryPointToken:
+    """Per-token stacked-bar entry for a daily deposit-token history point."""
+
+    deposit_asset: str = ""
+    volume_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryPointToken":
+        return DepositTokenVolumeHistoryPointToken(
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            volume_usd=str(d.get("volume_usd", "0")),
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistoryPoint:
+    """Daily point in /api/metrics/deposit-tokens/volume-history."""
+
+    bucket_start: int = 0
+    bucket_start_date: str = ""
+    total_volume_usd: str = "0"
+    cumulative_volume_usd: str = "0"
+    deposit_token_volumes: list[DepositTokenVolumeHistoryPointToken] = field(
+        default_factory=list
+    )
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryPoint":
+        return DepositTokenVolumeHistoryPoint(
+            bucket_start=int(d.get("bucket_start", 0)),
+            bucket_start_date=d.get("bucket_start_date", ""),
+            total_volume_usd=str(d.get("total_volume_usd", "0")),
+            cumulative_volume_usd=str(d.get("cumulative_volume_usd", "0")),
+            deposit_token_volumes=[
+                DepositTokenVolumeHistoryPointToken.from_dict(x)
+                for x in d.get("deposit_token_volumes", [])
+            ],
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistory:
+    """Response of /api/metrics/deposit-tokens/volume-history."""
+
+    timestamp: int = 0
+    resolution: str = ""
+    from_ms: int = 0
+    to_ms: int = 0
+    volume_total_usd: str = "0"
+    total_days: int = 0
+    deposit_tokens: list[DepositTokenVolumeHistoryToken] = field(default_factory=list)
+    points: list[DepositTokenVolumeHistoryPoint] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistory":
+        return DepositTokenVolumeHistory(
+            timestamp=int(d.get("timestamp", 0)),
+            resolution=d.get("resolution", ""),
+            from_ms=int(d.get("from", 0)),
+            to_ms=int(d.get("to", 0)),
+            volume_total_usd=str(d.get("volume_total_usd", "0")),
+            total_days=int(d.get("total_days", 0)),
+            deposit_tokens=[
+                DepositTokenVolumeHistoryToken.from_dict(x)
+                for x in d.get("deposit_tokens", [])
+            ],
+            points=[
+                DepositTokenVolumeHistoryPoint.from_dict(x)
+                for x in d.get("points", [])
+            ],
+        )
+
+
 # ─── Orderbook tickers (batch) ───────────────────────────────────────────────
 
 
@@ -914,6 +1009,25 @@ class MetricsHistoryQuery:
 
 
 @dataclass
+class DepositTokenVolumeHistoryQuery:
+    """Query for /api/metrics/deposit-tokens/volume-history."""
+
+    from_ms: Optional[int] = None
+    to_ms: Optional[int] = None
+    limit: Optional[int] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        if self.from_ms is not None:
+            params["from"] = str(self.from_ms)
+        if self.to_ms is not None:
+            params["to"] = str(self.to_ms)
+        if self.limit is not None:
+            params["limit"] = str(self.limit)
+        return params
+
+
+@dataclass
 class UserMetrics:
     """Per-wallet trading + referral aggregates.
 
@@ -939,6 +1053,11 @@ class UserMetrics:
 __all__ = [
     "DepositTokenVolumeMetrics",
     "DepositTokensMetrics",
+    "DepositTokenVolumeHistoryToken",
+    "DepositTokenVolumeHistoryPointToken",
+    "DepositTokenVolumeHistoryPoint",
+    "DepositTokenVolumeHistory",
+    "DepositTokenVolumeHistoryQuery",
     "PlatformMetrics",
     "MarketVolumeMetrics",
     "MarketsMetrics",

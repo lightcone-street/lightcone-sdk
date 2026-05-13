@@ -1,6 +1,6 @@
 # Metrics
 
-Platform, market, orderbook, category, and deposit-token volume metrics, plus the market leaderboard and time-series history.
+Platform, market, orderbook, category, and deposit-token volume metrics, plus deposit-token volume history, the market leaderboard, and time-series history.
 
 [← Overview](../../../README.md)
 
@@ -50,6 +50,12 @@ Per-orderbook totals with volume expressed in USD, base token, and quote token a
 ### `CategoryVolumeMetrics`, `DepositTokenVolumeMetrics`
 
 Single-dimension summaries with the same four-window shape. See [`wire.rs`](./wire.rs) for exact fields.
+
+### `DepositTokenVolumeHistory`
+
+Daily platform volume history broken down by deposit token. The response has `resolution: "1d"`, inclusive `from`, exclusive `to`, `volume_total_usd`, `total_days`, a `deposit_tokens` legend sorted by total range volume, and `points`.
+
+Each `DepositTokenVolumeHistoryPoint` has `bucket_start` (Unix epoch ms), `bucket_start_date` (`YYYY-MM-DD`), `total_volume_usd`, `cumulative_volume_usd`, and `deposit_token_volumes` for the stacked-bar breakdown. All USD fields are `Decimal`.
 
 ### `CategoriesMetrics`, `DepositTokensMetrics`, `MarketsMetrics`, `Leaderboard`
 
@@ -143,6 +149,17 @@ async fn deposit_tokens(&self) -> Result<DepositTokensMetrics, SdkError>
 ```
 
 Per-deposit-token platform-wide volumes.
+
+### `deposit_tokens_volume_history`
+
+```rust
+async fn deposit_tokens_volume_history(
+    &self,
+    query: &DepositTokenVolumeHistoryQuery,
+) -> Result<DepositTokenVolumeHistory, SdkError>
+```
+
+Daily platform volume history by deposit token from `GET /api/metrics/deposit-tokens/volume-history`. `DepositTokenVolumeHistoryQuery::default()` lets the backend choose its range. Optional query params are `from` (inclusive epoch ms), `to` (exclusive epoch ms), and `limit` (backend default/max is `5000`).
 
 ### `leaderboard`
 
