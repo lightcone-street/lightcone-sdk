@@ -2,6 +2,7 @@ from lightcone_sdk.domain.admin import (
     AddMetadataCategoryRequest,
     AddMetadataCategoryResponse,
     DepositTokenMetadataPayload,
+    MarketMetadataPayload,
     MarketDeploymentConditionalToken,
     MarketDeploymentMarket,
     MarketDeploymentOutcome,
@@ -70,6 +71,67 @@ def test_metadata_category_request_and_response_shapes():
 
     assert request.to_dict() == {"category": "Crypto"}
     assert response.category == "Crypto"
+
+
+def test_market_metadata_omits_resolution_fields_when_none():
+    request = MarketMetadataPayload(market_id=1, market_name="Updated name")
+
+    payload = request.to_dict()
+    assert payload == {
+        "market_id": 1,
+        "market_name": "Updated name",
+    }
+    assert "resolution" not in payload
+    assert "resolution_by" not in payload
+
+
+def test_market_metadata_serializes_resolution_by_without_resolution():
+    request = MarketMetadataPayload(
+        market_id=1,
+        resolution_by=1_735_689_600_000,
+    )
+
+    assert request.to_dict() == {
+        "market_id": 1,
+        "resolution_by": 1_735_689_600_000,
+    }
+
+
+def test_market_metadata_serializes_explicit_resolution_states():
+    enabled = MarketMetadataPayload(
+        market_id=1,
+        resolution=True,
+        resolution_by=1_735_689_600_000,
+    )
+    cleared = MarketMetadataPayload(market_id=1, resolution=False)
+
+    assert enabled.to_dict() == {
+        "market_id": 1,
+        "resolution": True,
+        "resolution_by": 1_735_689_600_000,
+    }
+    assert cleared.to_dict() == {
+        "market_id": 1,
+        "resolution": False,
+    }
+
+
+def test_unified_metadata_response_reads_market_resolution_fields():
+    response = UnifiedMetadataResponse.from_dict({
+        "markets": [{
+            "market_id": 1,
+            "resolution": True,
+            "resolution_by": 1_735_689_600_000,
+        }, {
+            "market_id": 2,
+            "resolution": False,
+        }],
+    })
+
+    assert response.markets[0]["resolution"] is True
+    assert response.markets[0]["resolution_by"] == 1_735_689_600_000
+    assert response.markets[1]["resolution"] is False
+    assert "resolution_by" not in response.markets[1]
 
 
 def test_upload_request_uses_quality_specific_image_fields():
