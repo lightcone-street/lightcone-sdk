@@ -22,6 +22,8 @@ export interface MarketMetadataPayload {
   tags?: string[];
   featured_rank?: number;
   metadata_uri?: string;
+  resolution?: boolean;
+  resolution_by?: number;
 }
 
 export interface OutcomeMetadataPayload {

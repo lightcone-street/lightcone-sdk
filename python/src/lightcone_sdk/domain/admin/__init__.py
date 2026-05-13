@@ -127,6 +127,8 @@ class MarketMetadataPayload:
     tags: Optional[list[str]] = None
     featured_rank: Optional[int] = None
     metadata_uri: Optional[str] = None
+    resolution: Optional[bool] = None
+    resolution_by: Optional[int] = None
 
     def to_dict(self) -> dict:
         return _compact_dict(self.__dict__)

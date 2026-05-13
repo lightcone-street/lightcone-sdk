@@ -4,6 +4,7 @@ import type {
   AddMetadataCategoryRequest,
   AddMetadataCategoryResponse,
   DepositTokenMetadataPayload,
+  MarketMetadataPayload,
   UnifiedMetadataResponse,
   UploadMarketDeploymentAssetsRequest,
   UploadMarketDeploymentAssetsResponse,
@@ -65,6 +66,79 @@ describe("admin upload wire types", () => {
 
     assert.deepEqual(JSON.parse(JSON.stringify(request)), { category: "Crypto" });
     assert.equal(response.category, "Crypto");
+  });
+
+  it("omits market resolution fields when they are undefined", () => {
+    const request: MarketMetadataPayload = {
+      market_id: 1,
+      market_name: "Updated name",
+    };
+
+    const payload = JSON.parse(JSON.stringify(request)) as Record<string, any>;
+    assert.deepEqual(payload, {
+      market_id: 1,
+      market_name: "Updated name",
+    });
+    assert.equal("resolution" in payload, false);
+    assert.equal("resolution_by" in payload, false);
+  });
+
+  it("serializes market resolution date updates", () => {
+    const request: MarketMetadataPayload = {
+      market_id: 1,
+      resolution_by: 1_735_689_600_000,
+    };
+
+    assert.deepEqual(JSON.parse(JSON.stringify(request)), {
+      market_id: 1,
+      resolution_by: 1_735_689_600_000,
+    });
+  });
+
+  it("serializes explicit market resolution states", () => {
+    const enabled: MarketMetadataPayload = {
+      market_id: 1,
+      resolution: true,
+      resolution_by: 1_735_689_600_000,
+    };
+    const cleared: MarketMetadataPayload = {
+      market_id: 1,
+      resolution: false,
+    };
+
+    assert.deepEqual(JSON.parse(JSON.stringify(enabled)), {
+      market_id: 1,
+      resolution: true,
+      resolution_by: 1_735_689_600_000,
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(cleared)), {
+      market_id: 1,
+      resolution: false,
+    });
+  });
+
+  it("reads market resolution response fields", () => {
+    const response: UnifiedMetadataResponse = {
+      markets: [{
+        id: 1,
+        market_id: 1,
+        resolution: true,
+        resolution_by: 1_735_689_600_000,
+        created_at: "2026-05-12T00:00:00Z",
+        updated_at: "2026-05-12T00:00:00Z",
+      }, {
+        id: 2,
+        market_id: 2,
+        resolution: false,
+        created_at: "2026-05-12T00:00:00Z",
+        updated_at: "2026-05-12T00:00:00Z",
+      }],
+    };
+
+    assert.equal(response.markets?.[0]?.resolution, true);
+    assert.equal(response.markets?.[0]?.resolution_by, 1_735_689_600_000);
+    assert.equal(response.markets?.[1]?.resolution, false);
+    assert.equal(response.markets?.[1]?.resolution_by, undefined);
   });
 
   it("uses quality-specific upload fields", () => {
