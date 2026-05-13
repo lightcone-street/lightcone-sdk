@@ -77,6 +77,10 @@ pub struct MarketMetadataPayload {
     pub featured_rank: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution_by: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -919,6 +923,104 @@ mod tests {
         .unwrap();
 
         assert_eq!(response.category, "Politics");
+    }
+
+    #[test]
+    fn market_metadata_payload_omits_resolution_fields_when_none() {
+        let request = MarketMetadataPayload {
+            market_id: 1,
+            market_name: Some("Updated name".to_string()),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
+                "market_name": "Updated name"
+            })
+        );
+    }
+
+    #[test]
+    fn market_metadata_payload_serializes_resolution_by_without_resolution() {
+        let request = MarketMetadataPayload {
+            market_id: 1,
+            resolution_by: Some(1_735_689_600_000),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
+                "resolution_by": 1_735_689_600_000i64
+            })
+        );
+    }
+
+    #[test]
+    fn market_metadata_payload_serializes_enabled_resolution_date() {
+        let request = MarketMetadataPayload {
+            market_id: 1,
+            resolution: Some(true),
+            resolution_by: Some(1_735_689_600_000),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
+                "resolution": true,
+                "resolution_by": 1_735_689_600_000i64
+            })
+        );
+    }
+
+    #[test]
+    fn market_metadata_payload_serializes_clear_resolution_date() {
+        let request = MarketMetadataPayload {
+            market_id: 1,
+            resolution: Some(false),
+            ..Default::default()
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
+                "resolution": false
+            })
+        );
+    }
+
+    #[test]
+    fn unified_metadata_response_reads_market_resolution_fields() {
+        let response: UnifiedMetadataResponse = serde_json::from_value(json!({
+            "markets": [{
+                "market_id": 1,
+                "resolution": true,
+                "resolution_by": 1_735_689_600_000i64
+            }, {
+                "market_id": 2,
+                "resolution": false
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.markets.len(), 2);
+        assert_eq!(response.markets[0]["resolution"], json!(true));
+        assert_eq!(
+            response.markets[0]["resolution_by"],
+            json!(1_735_689_600_000i64)
+        );
+        assert_eq!(response.markets[1]["resolution"], json!(false));
+        assert!(response.markets[1].get("resolution_by").is_none());
     }
 
     #[test]
