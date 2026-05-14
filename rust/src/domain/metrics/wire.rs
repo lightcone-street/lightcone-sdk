@@ -433,6 +433,89 @@ pub struct DepositTokenVolumeHistory {
     pub points: Vec<DepositTokenVolumeHistoryPoint>,
 }
 
+/// Deposit-asset summary entry in `GET /api/metrics/open-interest/history`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenInterestHistoryDepositAsset {
+    pub rank: i32,
+    pub deposit_asset: PubkeyStr,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    pub latest_open_interest_usd: Decimal,
+    pub max_open_interest_usd: Decimal,
+}
+
+/// Per-deposit-asset entry for one daily open-interest history point.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenInterestHistoryPointDepositAsset {
+    pub deposit_asset: PubkeyStr,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    pub open_interest_usd: Decimal,
+}
+
+/// Daily point in `GET /api/metrics/open-interest/history`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenInterestHistoryPoint {
+    /// Bucket start, Unix epoch milliseconds for the UTC day start.
+    pub bucket_start: i64,
+    /// UTC calendar day label in `YYYY-MM-DD` format.
+    pub bucket_start_date: String,
+    pub total_open_interest_usd: Decimal,
+    #[serde(default)]
+    pub deposit_asset_open_interest: Vec<OpenInterestHistoryPointDepositAsset>,
+}
+
+/// `GET /api/metrics/open-interest/history` response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct OpenInterestHistory {
+    pub timestamp: i64,
+    pub resolution: String,
+    pub from: i64,
+    pub to: i64,
+    pub latest_open_interest_usd: Decimal,
+    pub total_days: u32,
+    #[serde(default)]
+    pub deposit_assets: Vec<OpenInterestHistoryDepositAsset>,
+    #[serde(default)]
+    pub points: Vec<OpenInterestHistoryPoint>,
+}
+
+/// Scope vocabulary for `GET /api/metrics/unique-traders/history`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum UniqueTradersHistoryScope {
+    Platform,
+    Market,
+    Orderbook,
+    Category,
+    Outcome,
+}
+
+/// Daily point in `GET /api/metrics/unique-traders/history`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniqueTradersHistoryPoint {
+    /// Bucket start, Unix epoch milliseconds for the UTC day start.
+    pub bucket_start: i64,
+    /// UTC calendar day label in `YYYY-MM-DD` format.
+    pub bucket_start_date: String,
+    pub unique_traders: u64,
+}
+
+/// `GET /api/metrics/unique-traders/history` response.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UniqueTradersHistory {
+    pub timestamp: i64,
+    pub resolution: String,
+    pub scope: UniqueTradersHistoryScope,
+    pub scope_key: String,
+    pub from: i64,
+    pub to: i64,
+    pub latest_unique_traders: u64,
+    pub total_days: u32,
+    #[serde(default)]
+    pub points: Vec<UniqueTradersHistoryPoint>,
+}
+
 // ─── Leaderboard ─────────────────────────────────────────────────────────────
 
 /// Entry in `GET /api/metrics/leaderboard/markets`.
@@ -498,6 +581,32 @@ pub struct CategoryMetricsQuery {}
 /// Query parameters for `GET /api/metrics/deposit-tokens/volume-history`.
 #[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct DepositTokenVolumeHistoryQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// Query parameters for `GET /api/metrics/open-interest/history`.
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
+pub struct OpenInterestHistoryQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<usize>,
+}
+
+/// Query parameters for `GET /api/metrics/unique-traders/history`.
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+pub struct UniqueTradersHistoryQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope: Option<UniqueTradersHistoryScope>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scope_key: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -670,5 +779,151 @@ mod tests {
             point.deposit_token_volumes[0].volume_usd,
             Decimal::from_str("700.00").unwrap()
         );
+    }
+
+    #[test]
+    fn open_interest_history_query_serializes_bounds_and_limit() {
+        let query = OpenInterestHistoryQuery {
+            from: Some(1_704_067_200_000),
+            to: Some(1_760_000_000_000),
+            limit: Some(30),
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(query_string, "from=1704067200000&to=1760000000000&limit=30");
+    }
+
+    #[test]
+    fn open_interest_history_deserializes_daily_snapshots() {
+        let history: OpenInterestHistory = serde_json::from_value(json!({
+            "timestamp": 1_760_000_000_000i64,
+            "resolution": "1d",
+            "from": 1_704_067_200_000i64,
+            "to": 1_760_000_000_000i64,
+            "latest_open_interest_usd": "123456.78",
+            "total_days": 30,
+            "deposit_assets": [{
+                "rank": 1,
+                "deposit_asset": "DepositAsset",
+                "symbol": "BTC",
+                "latest_open_interest_usd": "90000.00",
+                "max_open_interest_usd": "100000.00"
+            }],
+            "points": [{
+                "bucket_start": 1_704_067_200_000i64,
+                "bucket_start_date": "2024-01-01",
+                "total_open_interest_usd": "123456.78",
+                "deposit_asset_open_interest": [{
+                    "deposit_asset": "DepositAsset",
+                    "symbol": "BTC",
+                    "open_interest_usd": "90000.00"
+                }, {
+                    "deposit_asset": "OtherDepositAsset",
+                    "symbol": "ETH",
+                    "open_interest_usd": "0"
+                }]
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(history.resolution, "1d");
+        assert_eq!(
+            history.latest_open_interest_usd,
+            Decimal::from_str("123456.78").unwrap()
+        );
+        assert_eq!(history.total_days, 30);
+        assert_eq!(history.deposit_assets.len(), 1);
+        assert_eq!(history.deposit_assets[0].rank, 1);
+        assert_eq!(
+            history.deposit_assets[0].deposit_asset.as_str(),
+            "DepositAsset"
+        );
+        assert_eq!(history.deposit_assets[0].symbol.as_deref(), Some("BTC"));
+        assert_eq!(
+            history.deposit_assets[0].latest_open_interest_usd,
+            Decimal::from_str("90000.00").unwrap()
+        );
+        assert_eq!(
+            history.deposit_assets[0].max_open_interest_usd,
+            Decimal::from_str("100000.00").unwrap()
+        );
+
+        let point = &history.points[0];
+        assert_eq!(point.bucket_start, 1_704_067_200_000);
+        assert_eq!(point.bucket_start_date, "2024-01-01");
+        assert_eq!(
+            point.total_open_interest_usd,
+            Decimal::from_str("123456.78").unwrap()
+        );
+        assert_eq!(point.deposit_asset_open_interest.len(), 2);
+        assert_eq!(
+            point.deposit_asset_open_interest[0].open_interest_usd,
+            Decimal::from_str("90000.00").unwrap()
+        );
+        assert_eq!(
+            point.deposit_asset_open_interest[1].open_interest_usd,
+            Decimal::ZERO
+        );
+    }
+
+    #[test]
+    fn unique_traders_history_default_query_uses_backend_defaults() {
+        let query_string =
+            serde_urlencoded::to_string(UniqueTradersHistoryQuery::default()).unwrap();
+        assert_eq!(query_string, "");
+    }
+
+    #[test]
+    fn unique_traders_history_query_serializes_scope_bounds_and_limit() {
+        let query = UniqueTradersHistoryQuery {
+            scope: Some(UniqueTradersHistoryScope::Market),
+            scope_key: Some("MarketPubkey".to_string()),
+            from: Some(1_710_000_000_000),
+            to: Some(1_720_000_000_000),
+            limit: Some(30),
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "scope=market&scope_key=MarketPubkey&from=1710000000000&to=1720000000000&limit=30"
+        );
+    }
+
+    #[test]
+    fn unique_traders_history_deserializes_daily_counts_and_preserves_zero_days() {
+        let history: UniqueTradersHistory = serde_json::from_value(json!({
+            "timestamp": 1_760_000_000_000i64,
+            "resolution": "1d",
+            "scope": "platform",
+            "scope_key": "platform",
+            "from": 1_710_000_000_000i64,
+            "to": 1_720_000_000_000i64,
+            "latest_unique_traders": 42,
+            "total_days": 30,
+            "points": [{
+                "bucket_start": 1_710_000_000_000i64,
+                "bucket_start_date": "2024-03-09",
+                "unique_traders": 42
+            }, {
+                "bucket_start": 1_710_086_400_000i64,
+                "bucket_start_date": "2024-03-10",
+                "unique_traders": 0
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(history.resolution, "1d");
+        assert_eq!(history.scope, UniqueTradersHistoryScope::Platform);
+        assert_eq!(history.scope_key, "platform");
+        assert_eq!(history.from, 1_710_000_000_000);
+        assert_eq!(history.to, 1_720_000_000_000);
+        assert_eq!(history.latest_unique_traders, 42);
+        assert_eq!(history.total_days, 30);
+        assert_eq!(history.points.len(), 2);
+        assert_eq!(history.points[0].bucket_start_date, "2024-03-09");
+        assert_eq!(history.points[0].unique_traders, 42);
+        assert_eq!(history.points[1].bucket_start_date, "2024-03-10");
+        assert_eq!(history.points[1].unique_traders, 0);
     }
 }

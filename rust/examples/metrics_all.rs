@@ -109,6 +109,28 @@ async fn main() -> ExampleResult {
         deposit_token_history.volume_total_usd
     );
 
+    let open_interest_history = client
+        .metrics()
+        .open_interest_history(&OpenInterestHistoryQuery::default())
+        .await?;
+    println!(
+        "open interest history @ {}: {} days, latest=${}",
+        open_interest_history.resolution,
+        open_interest_history.points.len(),
+        open_interest_history.latest_open_interest_usd
+    );
+
+    let unique_traders_history = client
+        .metrics()
+        .unique_traders_history(&UniqueTradersHistoryQuery::default())
+        .await?;
+    println!(
+        "unique traders history @ {}: {} days, latest={}",
+        unique_traders_history.resolution,
+        unique_traders_history.points.len(),
+        unique_traders_history.latest_unique_traders
+    );
+
     // ── Leaderboard ──────────────────────────────────────────────────────
     let board = client.metrics().leaderboard(Some(5)).await?;
     println!(

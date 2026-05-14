@@ -83,11 +83,20 @@ export type {
   MarketsMetrics,
   MetricsHistory,
   MetricsHistoryQuery,
+  OpenInterestHistory,
+  OpenInterestHistoryDepositAsset,
+  OpenInterestHistoryPoint,
+  OpenInterestHistoryPointDepositAsset,
+  OpenInterestHistoryQuery,
   OrderbookTickerEntry,
   OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   OutcomeVolumeMetrics,
   PlatformMetrics,
+  UniqueTradersHistory,
+  UniqueTradersHistoryPoint,
+  UniqueTradersHistoryQuery,
+  UniqueTradersHistoryScope,
 } from "./domain/metrics";
 
 export type {

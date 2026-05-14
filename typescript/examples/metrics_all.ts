@@ -77,6 +77,20 @@ async function main() {
       `total=$${depositTokenHistory.volume_total_usd}`,
   );
 
+  const openInterestHistory = await metrics.openInterestHistory();
+  console.log(
+    `open interest history @ ${openInterestHistory.resolution}: ` +
+      `${openInterestHistory.points.length} days, ` +
+      `latest=$${openInterestHistory.latest_open_interest_usd}`,
+  );
+
+  const uniqueTradersHistory = await metrics.uniqueTradersHistory();
+  console.log(
+    `unique traders history @ ${uniqueTradersHistory.resolution}: ` +
+      `${uniqueTradersHistory.points.length} days, ` +
+      `latest=${uniqueTradersHistory.latest_unique_traders}`,
+  );
+
   const board = await metrics.leaderboard(5);
   console.log(`leaderboard (${board.period}): ${board.entries.length} entries`);
   for (const entry of board.entries) {

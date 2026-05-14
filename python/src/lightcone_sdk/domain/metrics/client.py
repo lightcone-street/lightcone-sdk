@@ -17,9 +17,13 @@ from .wire import (
     MarketsMetrics,
     MetricsHistory,
     MetricsHistoryQuery,
+    OpenInterestHistory,
+    OpenInterestHistoryQuery,
     OrderbookTickersResponse,
     OrderbookVolumeMetrics,
     PlatformMetrics,
+    UniqueTradersHistory,
+    UniqueTradersHistoryQuery,
     UserMetrics,
 )
 
@@ -104,6 +108,28 @@ class Metrics:
             params=params or None,
         )
         return DepositTokenVolumeHistory.from_dict(data)
+
+    async def open_interest_history(
+        self, query: Optional[OpenInterestHistoryQuery] = None
+    ) -> OpenInterestHistory:
+        """GET /api/metrics/open-interest/history"""
+        params = (query or OpenInterestHistoryQuery()).to_query()
+        data = await self._client._http.get(
+            "/api/metrics/open-interest/history",
+            params=params or None,
+        )
+        return OpenInterestHistory.from_dict(data)
+
+    async def unique_traders_history(
+        self, query: Optional[UniqueTradersHistoryQuery] = None
+    ) -> UniqueTradersHistory:
+        """GET /api/metrics/unique-traders/history"""
+        params = (query or UniqueTradersHistoryQuery()).to_query()
+        data = await self._client._http.get(
+            "/api/metrics/unique-traders/history",
+            params=params or None,
+        )
+        return UniqueTradersHistory.from_dict(data)
 
     async def leaderboard(self, limit: Optional[int] = None) -> Leaderboard:
         """GET /api/metrics/leaderboard/markets"""

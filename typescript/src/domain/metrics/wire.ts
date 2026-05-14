@@ -369,6 +369,83 @@ export interface DepositTokenVolumeHistoryQuery {
   limit?: number;
 }
 
+export interface OpenInterestHistoryDepositAsset {
+  rank: number;
+  deposit_asset: PubkeyStr;
+  symbol?: string;
+  latest_open_interest_usd: string;
+  max_open_interest_usd: string;
+}
+
+export interface OpenInterestHistoryPointDepositAsset {
+  deposit_asset: PubkeyStr;
+  symbol?: string;
+  open_interest_usd: string;
+}
+
+export interface OpenInterestHistoryPoint {
+  /** Bucket start, Unix epoch milliseconds for the UTC day start. */
+  bucket_start: number;
+  /** UTC calendar day label in `YYYY-MM-DD` format. */
+  bucket_start_date: string;
+  total_open_interest_usd: string;
+  deposit_asset_open_interest: OpenInterestHistoryPointDepositAsset[];
+}
+
+export interface OpenInterestHistory {
+  timestamp: number;
+  resolution: string;
+  from: number;
+  to: number;
+  latest_open_interest_usd: string;
+  total_days: number;
+  deposit_assets: OpenInterestHistoryDepositAsset[];
+  points: OpenInterestHistoryPoint[];
+}
+
+/** Query for `GET /api/metrics/open-interest/history`. */
+export interface OpenInterestHistoryQuery {
+  from?: number;
+  to?: number;
+  limit?: number;
+}
+
+export type UniqueTradersHistoryScope =
+  | "platform"
+  | "market"
+  | "orderbook"
+  | "category"
+  | "outcome";
+
+export interface UniqueTradersHistoryPoint {
+  /** Bucket start, Unix epoch milliseconds for the UTC day start. */
+  bucket_start: number;
+  /** UTC calendar day label in `YYYY-MM-DD` format. */
+  bucket_start_date: string;
+  unique_traders: number;
+}
+
+export interface UniqueTradersHistory {
+  timestamp: number;
+  resolution: string;
+  scope: UniqueTradersHistoryScope;
+  scope_key: string;
+  from: number;
+  to: number;
+  latest_unique_traders: number;
+  total_days: number;
+  points: UniqueTradersHistoryPoint[];
+}
+
+/** Query for `GET /api/metrics/unique-traders/history`. */
+export interface UniqueTradersHistoryQuery {
+  scope?: UniqueTradersHistoryScope;
+  scope_key?: string;
+  from?: number;
+  to?: number;
+  limit?: number;
+}
+
 // ─── Leaderboard ────────────────────────────────────────────────────────────
 
 export interface LeaderboardEntry {

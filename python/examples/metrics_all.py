@@ -84,6 +84,20 @@ async def main():
         f"total=${deposit_token_history.volume_total_usd}"
     )
 
+    open_interest_history = await metrics.open_interest_history()
+    print(
+        f"open interest history @ {open_interest_history.resolution}: "
+        f"{len(open_interest_history.points)} days, "
+        f"latest=${open_interest_history.latest_open_interest_usd}"
+    )
+
+    unique_traders_history = await metrics.unique_traders_history()
+    print(
+        f"unique traders history @ {unique_traders_history.resolution}: "
+        f"{len(unique_traders_history.points)} days, "
+        f"latest={unique_traders_history.latest_unique_traders}"
+    )
+
     # Leaderboard
     board = await metrics.leaderboard(5)
     print(f"leaderboard ({board.period}): {len(board.entries)} entries")

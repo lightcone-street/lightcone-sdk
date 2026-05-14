@@ -1,12 +1,13 @@
 //! Metrics sub-client — platform, market, orderbook, category, deposit-token,
-//! leaderboard, and history metrics.
+//! leaderboard, and historical metrics.
 
 use crate::client::LightconeClient;
 use crate::domain::metrics::wire::{
     CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeHistory,
     DepositTokenVolumeHistoryQuery, DepositTokensMetrics, Leaderboard, MarketDetailMetrics,
     MarketMetricsQuery, MarketsMetrics, MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery,
-    OrderbookMetricsQuery, OrderbookTickersResponse, OrderbookVolumeMetrics, PlatformMetrics,
+    OpenInterestHistory, OpenInterestHistoryQuery, OrderbookMetricsQuery, OrderbookTickersResponse,
+    OrderbookVolumeMetrics, PlatformMetrics, UniqueTradersHistory, UniqueTradersHistoryQuery,
     UserMetrics,
 };
 use crate::error::SdkError;
@@ -153,6 +154,45 @@ impl<'a> Metrics<'a> {
     ) -> Result<DepositTokenVolumeHistory, SdkError> {
         let mut url = format!(
             "{}/api/metrics/deposit-tokens/volume-history",
+            self.client.http.base_url()
+        );
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            append_query(&mut url, &qs);
+        }
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Fetch daily platform open-interest snapshots by deposit asset.
+    ///
+    /// Open interest is a live snapshot metric, not cumulative. Do not sum
+    /// values across days. `GET /api/metrics/open-interest/history`
+    pub async fn open_interest_history(
+        &self,
+        query: &OpenInterestHistoryQuery,
+    ) -> Result<OpenInterestHistory, SdkError> {
+        let mut url = format!(
+            "{}/api/metrics/open-interest/history",
+            self.client.http.base_url()
+        );
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            append_query(&mut url, &qs);
+        }
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// Fetch daily unique trader counts for the platform or a scoped entity.
+    ///
+    /// `UniqueTradersHistoryQuery::default()` lets the backend return
+    /// platform-wide daily unique traders. For non-platform scopes, provide
+    /// both `scope` and `scope_key`.
+    ///
+    /// `GET /api/metrics/unique-traders/history`
+    pub async fn unique_traders_history(
+        &self,
+        query: &UniqueTradersHistoryQuery,
+    ) -> Result<UniqueTradersHistory, SdkError> {
+        let mut url = format!(
+            "{}/api/metrics/unique-traders/history",
             self.client.http.base_url()
         );
         if let Ok(qs) = serde_urlencoded::to_string(query) {

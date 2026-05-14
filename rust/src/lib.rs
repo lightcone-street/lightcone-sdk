@@ -110,8 +110,11 @@ pub mod prelude {
         DepositTokenVolumeHistoryQuery, DepositTokenVolumeHistoryToken, DepositTokenVolumeMetrics,
         DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
         MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
-        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,
-        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics,
+        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OpenInterestHistory,
+        OpenInterestHistoryDepositAsset, OpenInterestHistoryPoint,
+        OpenInterestHistoryPointDepositAsset, OpenInterestHistoryQuery, OrderbookMetricsQuery,
+        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics, UniqueTradersHistory,
+        UniqueTradersHistoryPoint, UniqueTradersHistoryQuery, UniqueTradersHistoryScope,
     };
 
     // Domain types — faucet
