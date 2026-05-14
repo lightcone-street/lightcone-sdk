@@ -207,7 +207,7 @@ Defaults are applied by the backend when omitted: `cursor=0`, `limit=200`, `sort
 async fn markets_to_settle_count(&self) -> Result<MarketsToSettleCountResponse, SdkError>
 ```
 
-Count active markets that have metadata `resolution = true` and `resolution_by <= now`. Requires prior `admin_login()`.
+Count active, unsettled markets whose metadata `resolution_by` is set and in the past. Requires prior `admin_login()`.
 
 ### `markets_to_settle`
 
@@ -507,7 +507,7 @@ Batch metadata upsert payload. All arrays are optional, but at least one section
 | `conditional_tokens` | `Vec<ConditionalTokenMetadataPayload>` | Token metadata updates |
 | `deposit_tokens` | `Vec<DepositTokenMetadataPayload>` | Deposit token metadata updates |
 
-Each payload struct uses `Option<T>` fields for optional metadata - only non-`None` fields are updated, leaving other fields unchanged.
+Each payload struct uses optional fields for partial updates. Omitted fields are left unchanged. `MarketMetadataPayload::resolution_by` is nested so it can also send an explicit JSON `null`.
 
 ### `MarketMetadataPayload`
 
@@ -523,10 +523,9 @@ Market metadata updates are keyed by `market_id`. Optional fields may be sent in
 | `tags` | `Option<Vec<String>>` | Market tags |
 | `featured_rank` | `Option<i16>` | Optional featured ordering |
 | `metadata_uri` | `Option<String>` | Optional market metadata URI |
-| `resolution` | `Option<bool>` | `Some(false)` clears the defined resolution date. `Some(true)` should be sent with `resolution_by` when explicitly enabling a resolution date |
-| `resolution_by` | `Option<i64>` | Non-negative Unix timestamp in milliseconds. Sending this sets or updates the defined resolution date and marks resolution as true on the backend |
+| `resolution_by` | `Option<Option<i64>>` | `None` omits the field and preserves the backend value. `Some(Some(ms))` sends a non-negative Unix timestamp in milliseconds and sets/updates the resolution deadline. `Some(None)` sends JSON `null` and clears the deadline |
 
-If both `resolution` and `resolution_by` are omitted, the existing resolution state is unchanged. On new market metadata rows, omitted resolution fields default to no defined resolution date (`resolution: false`). When `resolution: false` is sent, the backend clears and omits `resolution_by`.
+Market metadata no longer uses a separate `resolution` boolean. The presence of `resolution_by` determines whether a market has a configured resolution deadline. Metadata responses include `resolution_by` as either a Unix timestamp in milliseconds or `null`.
 
 ### `DepositTokenMetadataPayload`
 
@@ -797,7 +796,7 @@ Do not send `settled` as a market status filter. Resolved markets are selected w
 | `has_more` | `bool` | Whether another page is available |
 | `markets` | `Vec<AdminMarketRow>` | Current page of admin market table rows |
 
-`AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (`Active` or `Resolved`), `resolution`, optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
+`AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (`Active` or `Resolved`), optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
 
 ### `MarketsToSettleQuery`
 

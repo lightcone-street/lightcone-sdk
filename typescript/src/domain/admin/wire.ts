@@ -24,8 +24,7 @@ export interface MarketMetadataPayload {
   tags?: string[];
   featured_rank?: number;
   metadata_uri?: string;
-  resolution?: boolean;
-  resolution_by?: number;
+  resolution_by?: number | null;
 }
 
 export interface OutcomeMetadataPayload {
@@ -73,6 +72,7 @@ export interface DepositTokenMetadataPayload {
 
 export interface MarketMetadataResponse extends MarketMetadataPayload {
   id: number;
+  resolution_by: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -268,8 +268,7 @@ export interface AdminMarketRow {
   category: string | null;
   icon_url: string | null;
   num_outcomes: number;
-  resolution: boolean;
-  resolution_by?: number;
+  resolution_by: number | null;
   open_interest_usd: string;
   volume_24h_usd: string;
   volume_7d_usd: string;

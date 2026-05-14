@@ -75,7 +75,7 @@ describe("admin upload wire types", () => {
     assert.equal(response.category, "Crypto");
   });
 
-  it("omits market resolution fields when they are undefined", () => {
+  it("omits market resolution_by when it is undefined", () => {
     const request: MarketMetadataPayload = {
       market_id: 1,
       market_name: "Updated name",
@@ -90,7 +90,7 @@ describe("admin upload wire types", () => {
     assert.equal("resolution_by" in payload, false);
   });
 
-  it("serializes market resolution date updates", () => {
+  it("serializes market resolution_by timestamp updates", () => {
     const request: MarketMetadataPayload = {
       market_id: 1,
       resolution_by: 1_735_689_600_000,
@@ -102,50 +102,37 @@ describe("admin upload wire types", () => {
     });
   });
 
-  it("serializes explicit market resolution states", () => {
-    const enabled: MarketMetadataPayload = {
+  it("serializes market resolution_by null clears", () => {
+    const request: MarketMetadataPayload = {
       market_id: 1,
-      resolution: true,
-      resolution_by: 1_735_689_600_000,
-    };
-    const cleared: MarketMetadataPayload = {
-      market_id: 1,
-      resolution: false,
+      resolution_by: null,
     };
 
-    assert.deepEqual(JSON.parse(JSON.stringify(enabled)), {
+    assert.deepEqual(JSON.parse(JSON.stringify(request)), {
       market_id: 1,
-      resolution: true,
-      resolution_by: 1_735_689_600_000,
-    });
-    assert.deepEqual(JSON.parse(JSON.stringify(cleared)), {
-      market_id: 1,
-      resolution: false,
+      resolution_by: null,
     });
   });
 
-  it("reads market resolution response fields", () => {
+  it("reads market resolution_by response values", () => {
     const response: UnifiedMetadataResponse = {
       markets: [{
         id: 1,
         market_id: 1,
-        resolution: true,
         resolution_by: 1_735_689_600_000,
         created_at: "2026-05-12T00:00:00Z",
         updated_at: "2026-05-12T00:00:00Z",
       }, {
         id: 2,
         market_id: 2,
-        resolution: false,
+        resolution_by: null,
         created_at: "2026-05-12T00:00:00Z",
         updated_at: "2026-05-12T00:00:00Z",
       }],
     };
 
-    assert.equal(response.markets?.[0]?.resolution, true);
     assert.equal(response.markets?.[0]?.resolution_by, 1_735_689_600_000);
-    assert.equal(response.markets?.[1]?.resolution, false);
-    assert.equal(response.markets?.[1]?.resolution_by, undefined);
+    assert.equal(response.markets?.[1]?.resolution_by, null);
   });
 
   it("serializes admin markets status filters and range query fields", () => {
@@ -194,7 +181,6 @@ describe("admin upload wire types", () => {
         category: "Crypto",
         icon_url: "https://example.com/icon.png",
         num_outcomes: 2,
-        resolution: true,
         resolution_by: 1_760_000_000_000,
         open_interest_usd: "12345.67",
         volume_24h_usd: "1000.00",

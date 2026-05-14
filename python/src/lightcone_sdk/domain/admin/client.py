@@ -228,7 +228,7 @@ class Admin:
     # ── Markets to settle ────────────────────────────────────────────────
 
     async def markets_to_settle_count(self) -> MarketsToSettleCountResponse:
-        """Count active markets past their metadata resolution time. Requires prior admin_login()."""
+        """Count active, unsettled markets past their metadata resolution_by deadline."""
         data = await self._client._http.admin_get(
             "/api/admin/markets-to-settle/count"
         )
@@ -237,7 +237,7 @@ class Admin:
     async def markets_to_settle(
         self, query: Optional[MarketsToSettleQuery] = None
     ) -> MarketsToSettleResponse:
-        """List active markets past their metadata resolution time. Requires prior admin_login()."""
+        """List active, unsettled markets past their metadata resolution_by deadline."""
         url = "/api/admin/markets-to-settle"
         params = (query or MarketsToSettleQuery()).to_query()
         if params:

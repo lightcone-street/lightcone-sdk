@@ -230,7 +230,7 @@ impl<'a> Admin<'a> {
 
     // ── Markets to settle ──────────────────────────────────────────────
 
-    /// Count active markets that are past their metadata resolution time.
+    /// Count active, unsettled markets that are past their metadata `resolution_by` deadline.
     ///
     /// Requires prior `admin_login()`.
     pub async fn markets_to_settle_count(&self) -> Result<MarketsToSettleCountResponse, SdkError> {
@@ -244,7 +244,7 @@ impl<'a> Admin<'a> {
             .await
     }
 
-    /// List active markets that are past their metadata resolution time.
+    /// List active, unsettled markets that are past their metadata `resolution_by` deadline.
     ///
     /// Pagination is cursor-based; pass the `next_cursor` from a previous
     /// response to continue. Requires prior `admin_login()`.

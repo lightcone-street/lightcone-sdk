@@ -31,6 +31,7 @@ def _serialize_query_value(value) -> str:
 
 
 AdminMarketsRangeValue = Union[int, float, str]
+_OMIT = object()
 
 
 # ============================================================================
@@ -140,11 +141,27 @@ class MarketMetadataPayload:
     tags: Optional[list[str]] = None
     featured_rank: Optional[int] = None
     metadata_uri: Optional[str] = None
-    resolution: Optional[bool] = None
-    resolution_by: Optional[int] = None
+    # Defaults to omitted. Pass `None` explicitly to send JSON null and clear
+    # the configured resolution deadline.
+    resolution_by: Any = field(default=_OMIT, repr=False)
 
     def to_dict(self) -> dict:
-        return _compact_dict(self.__dict__)
+        payload = {
+            key: value
+            for key, value in self.__dict__.items()
+            if key != "resolution_by" and value is not None
+        }
+        if self.resolution_by is not _OMIT:
+            payload["resolution_by"] = self.resolution_by
+        return payload
+
+    def with_resolution_by(self, resolution_by_ms: int) -> "MarketMetadataPayload":
+        self.resolution_by = resolution_by_ms
+        return self
+
+    def with_cleared_resolution_by(self) -> "MarketMetadataPayload":
+        self.resolution_by = None
+        return self
 
 
 @dataclass
@@ -534,7 +551,6 @@ class AdminMarketRow:
     category: Optional[str]
     icon_url: Optional[str]
     num_outcomes: int
-    resolution: bool
     resolution_by: Optional[int]
     open_interest_usd: str
     volume_24h_usd: str
@@ -566,7 +582,6 @@ class AdminMarketRow:
             category=d.get("category"),
             icon_url=d.get("icon_url"),
             num_outcomes=d.get("num_outcomes", 0),
-            resolution=d.get("resolution", False),
             resolution_by=d.get("resolution_by"),
             open_interest_usd=str(d.get("open_interest_usd", "0")),
             volume_24h_usd=str(d.get("volume_24h_usd", "0")),

@@ -81,7 +81,7 @@ def test_metadata_category_request_and_response_shapes():
     assert response.category == "Crypto"
 
 
-def test_market_metadata_omits_resolution_fields_when_none():
+def test_market_metadata_omits_resolution_by_when_unset():
     request = MarketMetadataPayload(market_id=1, market_name="Updated name")
 
     payload = request.to_dict()
@@ -93,7 +93,7 @@ def test_market_metadata_omits_resolution_fields_when_none():
     assert "resolution_by" not in payload
 
 
-def test_market_metadata_serializes_resolution_by_without_resolution():
+def test_market_metadata_serializes_resolution_by_timestamp():
     request = MarketMetadataPayload(
         market_id=1,
         resolution_by=1_735_689_600_000,
@@ -105,41 +105,47 @@ def test_market_metadata_serializes_resolution_by_without_resolution():
     }
 
 
-def test_market_metadata_serializes_explicit_resolution_states():
-    enabled = MarketMetadataPayload(
+def test_market_metadata_serializes_resolution_by_null_to_clear():
+    request = MarketMetadataPayload(
         market_id=1,
-        resolution=True,
-        resolution_by=1_735_689_600_000,
+        resolution_by=None,
     )
-    cleared = MarketMetadataPayload(market_id=1, resolution=False)
 
-    assert enabled.to_dict() == {
+    assert request.to_dict() == {
         "market_id": 1,
-        "resolution": True,
+        "resolution_by": None,
+    }
+
+
+def test_market_metadata_resolution_by_helpers_set_and_clear():
+    set_request = MarketMetadataPayload(market_id=1).with_resolution_by(
+        1_735_689_600_000
+    )
+    clear_request = MarketMetadataPayload(market_id=1).with_cleared_resolution_by()
+
+    assert set_request.to_dict() == {
+        "market_id": 1,
         "resolution_by": 1_735_689_600_000,
     }
-    assert cleared.to_dict() == {
+    assert clear_request.to_dict() == {
         "market_id": 1,
-        "resolution": False,
+        "resolution_by": None,
     }
 
 
-def test_unified_metadata_response_reads_market_resolution_fields():
+def test_unified_metadata_response_reads_market_resolution_by_values():
     response = UnifiedMetadataResponse.from_dict({
         "markets": [{
             "market_id": 1,
-            "resolution": True,
             "resolution_by": 1_735_689_600_000,
         }, {
             "market_id": 2,
-            "resolution": False,
+            "resolution_by": None,
         }],
     })
 
-    assert response.markets[0]["resolution"] is True
     assert response.markets[0]["resolution_by"] == 1_735_689_600_000
-    assert response.markets[1]["resolution"] is False
-    assert "resolution_by" not in response.markets[1]
+    assert response.markets[1]["resolution_by"] is None
 
 
 def test_admin_markets_query_serializes_status_and_range_filters():
@@ -189,7 +195,6 @@ def test_admin_markets_response_reads_market_rows():
             "category": "Crypto",
             "icon_url": "https://example.com/icon.png",
             "num_outcomes": 2,
-            "resolution": True,
             "resolution_by": 1_760_000_000_000,
             "open_interest_usd": "12345.67",
             "volume_24h_usd": "1000.00",

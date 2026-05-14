@@ -4,7 +4,15 @@ use crate::domain::market::wire::MarketResponse;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+fn deserialize_optional_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
 
 // ============================================================================
 // ADMIN AUTH
@@ -79,10 +87,31 @@ pub struct MarketMetadataPayload {
     pub featured_rank: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolution: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resolution_by: Option<i64>,
+    /// Resolution deadline update.
+    ///
+    /// - `None` omits the field and preserves the backend value.
+    /// - `Some(Some(ms))` sends a Unix timestamp in milliseconds and sets the deadline.
+    /// - `Some(None)` sends JSON `null` and clears the deadline.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub resolution_by: Option<Option<i64>>,
+}
+
+impl MarketMetadataPayload {
+    /// Set or update the market's resolution deadline.
+    pub fn with_resolution_by(mut self, resolution_by_ms: i64) -> Self {
+        self.resolution_by = Some(Some(resolution_by_ms));
+        self
+    }
+
+    /// Clear the market's configured resolution deadline.
+    pub fn with_cleared_resolution_by(mut self) -> Self {
+        self.resolution_by = Some(None);
+        self
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -515,7 +544,6 @@ pub struct AdminMarketRow {
     pub category: Option<String>,
     pub icon_url: Option<String>,
     pub num_outcomes: u32,
-    pub resolution: bool,
     #[serde(default)]
     pub resolution_by: Option<i64>,
     pub open_interest_usd: Decimal,
@@ -1133,10 +1161,10 @@ mod tests {
     }
 
     #[test]
-    fn market_metadata_payload_serializes_resolution_by_without_resolution() {
+    fn market_metadata_payload_serializes_resolution_by_timestamp() {
         let request = MarketMetadataPayload {
             market_id: 1,
-            resolution_by: Some(1_735_689_600_000),
+            resolution_by: Some(Some(1_735_689_600_000)),
             ..Default::default()
         };
 
@@ -1151,11 +1179,10 @@ mod tests {
     }
 
     #[test]
-    fn market_metadata_payload_serializes_enabled_resolution_date() {
+    fn market_metadata_payload_serializes_resolution_by_null_to_clear() {
         let request = MarketMetadataPayload {
             market_id: 1,
-            resolution: Some(true),
-            resolution_by: Some(1_735_689_600_000),
+            resolution_by: Some(None),
             ..Default::default()
         };
 
@@ -1164,52 +1191,83 @@ mod tests {
             value,
             json!({
                 "market_id": 1,
-                "resolution": true,
+                "resolution_by": null
+            })
+        );
+    }
+
+    #[test]
+    fn market_metadata_payload_preserves_explicit_null_when_deserialized() {
+        let request: MarketMetadataPayload = serde_json::from_value(json!({
+            "market_id": 1,
+            "resolution_by": null
+        }))
+        .unwrap();
+
+        assert_eq!(request.resolution_by, Some(None));
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
+                "resolution_by": null
+            })
+        );
+    }
+
+    #[test]
+    fn market_metadata_payload_helpers_set_and_clear_resolution_by() {
+        let request = MarketMetadataPayload {
+            market_id: 1,
+            ..Default::default()
+        }
+        .with_resolution_by(1_735_689_600_000);
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_id": 1,
                 "resolution_by": 1_735_689_600_000i64
             })
         );
-    }
 
-    #[test]
-    fn market_metadata_payload_serializes_clear_resolution_date() {
         let request = MarketMetadataPayload {
             market_id: 1,
-            resolution: Some(false),
             ..Default::default()
-        };
+        }
+        .with_cleared_resolution_by();
 
         let value = serde_json::to_value(request).unwrap();
         assert_eq!(
             value,
             json!({
                 "market_id": 1,
-                "resolution": false
+                "resolution_by": null
             })
         );
     }
 
     #[test]
-    fn unified_metadata_response_reads_market_resolution_fields() {
+    fn unified_metadata_response_reads_market_resolution_by_values() {
         let response: UnifiedMetadataResponse = serde_json::from_value(json!({
             "markets": [{
                 "market_id": 1,
-                "resolution": true,
                 "resolution_by": 1_735_689_600_000i64
             }, {
                 "market_id": 2,
-                "resolution": false
+                "resolution_by": null
             }]
         }))
         .unwrap();
 
         assert_eq!(response.markets.len(), 2);
-        assert_eq!(response.markets[0]["resolution"], json!(true));
         assert_eq!(
             response.markets[0]["resolution_by"],
             json!(1_735_689_600_000i64)
         );
-        assert_eq!(response.markets[1]["resolution"], json!(false));
-        assert!(response.markets[1].get("resolution_by").is_none());
+        assert!(response.markets[1]["resolution_by"].is_null());
     }
 
     #[test]
@@ -1284,7 +1342,6 @@ mod tests {
                 "category": "Crypto",
                 "icon_url": "https://example.com/icon.png",
                 "num_outcomes": 2,
-                "resolution": true,
                 "resolution_by": 1_760_000_000_000i64,
                 "open_interest_usd": "12345.67",
                 "volume_24h_usd": "1000.00",
