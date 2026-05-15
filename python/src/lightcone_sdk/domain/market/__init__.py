@@ -123,6 +123,7 @@ class ConditionalToken:
     deposit_symbol: str = ""
     name: str = ""
     symbol: str = ""
+    short_symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
     icon_url_low: str = ""
@@ -138,6 +139,7 @@ class DepositAsset:
     num_outcomes: int = 0
     name: str = ""
     symbol: str = ""
+    short_symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
     icon_url_low: str = ""
@@ -174,6 +176,7 @@ class GlobalDepositAsset:
     deposit_asset: str = ""
     name: str = ""
     symbol: str = ""
+    short_symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
     icon_url_low: str = ""
@@ -194,6 +197,7 @@ class ValidatedTokens:
 class TokenMetadata:
     pubkey: str = ""
     symbol: str = ""
+    short_symbol: str = ""
     decimals: int = 6
     icon_url_low: str = ""
     icon_url_medium: str = ""

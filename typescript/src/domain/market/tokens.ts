@@ -12,6 +12,7 @@ export interface Token {
   pubkey: PubkeyStr;
   name: string;
   symbol: string;
+  shortSymbol: string;
   description?: string;
   decimals: number;
   iconUrlLow: string;
@@ -114,6 +115,7 @@ export interface GlobalDepositAsset extends Token {
 export interface TokenMetadata {
   pubkey: PubkeyStr;
   symbol: string;
+  shortSymbol: string;
   decimals: number;
   iconUrlLow: string;
   iconUrlMedium: string;
@@ -171,6 +173,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   metadata[source.deposit_asset] = {
     pubkey: depositPubkey,
     symbol: symbol ?? "",
+    shortSymbol: name ?? "",
     decimals: decimals ?? 0,
     iconUrlLow: iconUrls?.low ?? "",
     iconUrlMedium: iconUrls?.medium ?? "",
@@ -186,6 +189,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
     metadata[conditional.pubkey] = {
       pubkey: conditional.pubkey,
       symbol: conditional.symbol,
+      shortSymbol: conditional.shortSymbol,
       decimals: conditional.decimals,
       iconUrlLow: conditional.iconUrlLow,
       iconUrlMedium: conditional.iconUrlMedium,
@@ -203,6 +207,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       pubkey: depositPubkey,
       name: name ?? "",
       symbol: symbol ?? "",
+      shortSymbol: name ?? "",
       description: source.description,
       decimals: decimals ?? 0,
       iconUrlLow: iconUrls?.low ?? "",
@@ -240,6 +245,7 @@ export function globalDepositAssetFromWire(
     depositAsset,
     name: name ?? "",
     symbol: symbol ?? "",
+    shortSymbol: name ?? "",
     description: source.description,
     decimals: decimals ?? 0,
     iconUrlLow: iconUrls?.low ?? "",
@@ -280,7 +286,8 @@ function conditionalFromWire(
     depositSymbol,
     pubkey: asPubkeyStr(source.token_address),
     name: source.outcome ?? "",
-    symbol: source.short_symbol ?? "",
+    symbol: source.symbol ?? source.short_symbol ?? "",
+    shortSymbol: source.short_symbol ?? source.symbol ?? "",
     description: source.description,
     decimals: source.decimals ?? 0,
     iconUrlLow: resolvedIconUrlLow,

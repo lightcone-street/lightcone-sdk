@@ -107,11 +107,27 @@ Collateral token accepted by the market.
 |-------|------|-------------|
 | `mint` | `PubkeyStr` | Token mint address (e.g., USDC) |
 | `display_name` | `String` | Human-readable name |
-| `symbol` | `String` | Token symbol (e.g., "USDC") |
+| `symbol` | `String` | Token symbol (e.g., "wBTC") |
+| `short_symbol` | `String` | Display-friendly short symbol (e.g., "BTC" for wBTC) |
 | `decimals` | `u8` | Token decimals |
 | `icon_url_low` | `String` | Token icon (low quality) |
 | `icon_url_medium` | `String` | Token icon (medium quality) |
 | `icon_url_high` | `String` | Token icon (high quality) |
+
+### `TokenMetadata`
+
+Metadata for any token (deposit or conditional), keyed by mint pubkey.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pubkey` | `PubkeyStr` | Token mint address |
+| `symbol` | `String` | Token symbol |
+| `short_symbol` | `String` | Display-friendly short symbol (e.g., "BTC" for wBTC, "Fall-BTC" for conditional tokens) |
+| `decimals` | `u16` | Token decimals |
+| `icon_url_low` | `String` | Token icon (low quality) |
+| `icon_url_medium` | `String` | Token icon (medium quality) |
+| `icon_url_high` | `String` | Token icon (high quality) |
+| `name` | `String` | Human-readable name |
 
 ### `DepositAssetPair`
 
