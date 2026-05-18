@@ -35,9 +35,10 @@ pub trait Order {
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
 pub enum OrderType {
     Limit,
+    #[default]
     Market,
     Deposit,
     Merge,
@@ -46,16 +47,47 @@ pub enum OrderType {
     TakeProfitLimit,
 }
 
+impl OrderType {
+    pub fn label(&self) -> &'static str {
+        match self {
+            OrderType::Limit => "Limit",
+            OrderType::Market => "Market",
+            OrderType::Deposit => "Deposit",
+            OrderType::Merge => "Merge",
+            OrderType::Withdraw => "Withdraw",
+            OrderType::StopLimit => "Stop Limit",
+            OrderType::TakeProfitLimit => "Take Profit Limit",
+        }
+    }
+}
+
 impl std::fmt::Display for OrderType {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            OrderType::Limit => write!(f, "Limit"),
-            OrderType::Market => write!(f, "Market"),
-            OrderType::Deposit => write!(f, "Deposit"),
-            OrderType::Merge => write!(f, "Merge"),
-            OrderType::Withdraw => write!(f, "Withdraw"),
-            OrderType::StopLimit => write!(f, "Stop Limit"),
-            OrderType::TakeProfitLimit => write!(f, "Take Profit Limit"),
+            OrderType::Limit => write!(f, "limit"),
+            OrderType::Market => write!(f, "market"),
+            OrderType::Deposit => write!(f, "deposit"),
+            OrderType::Merge => write!(f, "merge"),
+            OrderType::Withdraw => write!(f, "withdraw"),
+            OrderType::StopLimit => write!(f, "stop_limit"),
+            OrderType::TakeProfitLimit => write!(f, "take_profit_limit"),
+        }
+    }
+}
+
+impl std::str::FromStr for OrderType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "limit" => Ok(OrderType::Limit),
+            "market" => Ok(OrderType::Market),
+            "deposit" => Ok(OrderType::Deposit),
+            "merge" => Ok(OrderType::Merge),
+            "withdraw" => Ok(OrderType::Withdraw),
+            "stop_limit" => Ok(OrderType::StopLimit),
+            "take_profit_limit" => Ok(OrderType::TakeProfitLimit),
+            _ => Err(format!("invalid order type: {s}")),
         }
     }
 }

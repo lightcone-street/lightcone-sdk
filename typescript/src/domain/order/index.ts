@@ -11,6 +11,15 @@ export enum OrderType {
   Trigger = "trigger",
 }
 
+export function orderTypeLabel(orderType: OrderType): string {
+  switch (orderType) {
+    case OrderType.Limit:
+      return "Limit";
+    case OrderType.Trigger:
+      return "Trigger";
+  }
+}
+
 export enum OrderStatus {
   Open = "OPEN",
   Matching = "MATCHING",

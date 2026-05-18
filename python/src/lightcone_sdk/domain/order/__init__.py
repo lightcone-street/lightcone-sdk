@@ -12,6 +12,12 @@ class OrderType(str, Enum):
     LIMIT = "limit"
     TRIGGER = "trigger"
 
+    def label(self) -> str:
+        return {
+            OrderType.LIMIT: "Limit",
+            OrderType.TRIGGER: "Trigger",
+        }[self]
+
 
 class OrderStatus(str, Enum):
     OPEN = "OPEN"
