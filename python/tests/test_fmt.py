@@ -2,10 +2,11 @@
 
 from decimal import Decimal
 
-from lightcone_sdk.shared.fmt.decimal import display as display_decimal
+from lightcone_sdk.shared.fmt.decimal import display as display_decimal, display_pct as display_pct_decimal
 from lightcone_sdk.shared.fmt.num import (
     display,
     display_formatted_string,
+    display_pct,
     display_with_decimals,
 )
 
@@ -82,3 +83,53 @@ def test_decimal_display_caps_small_values_at_five_decimals():
     assert display_decimal(Decimal("0.000004")) == "0"
     assert display_decimal(Decimal("-0.000004")) == "0"
     assert display_decimal(Decimal("0.000000001")) == "0"
+
+
+def test_display_pct_truncation():
+    assert display_pct(12.345) == "12.34"
+    assert display_pct(12.999) == "12.99"
+    assert display_pct(99.999) == "99.99"
+
+
+def test_display_pct_padding_true():
+    assert display_pct(12.3) == "12.30"
+    assert display_pct(12.0) == "12.00"
+    assert display_pct(0.0) == "0.00"
+
+
+def test_display_pct_padding_false():
+    assert display_pct(12.345, padding=False) == "12.34"
+    assert display_pct(12.3, padding=False) == "12.3"
+    assert display_pct(12.0, padding=False) == "12"
+    assert display_pct(0.0, padding=False) == "0"
+
+
+def test_display_pct_negative():
+    assert display_pct(-3.456) == "-3.45"
+    assert display_pct(-3.4) == "-3.40"
+    assert display_pct(-3.456, padding=False) == "-3.45"
+
+
+def test_display_pct_decimal_truncation():
+    assert display_pct_decimal(Decimal("12.345")) == "12.34"
+    assert display_pct_decimal(Decimal("12.999")) == "12.99"
+    assert display_pct_decimal(Decimal("99.999")) == "99.99"
+
+
+def test_display_pct_decimal_padding_true():
+    assert display_pct_decimal(Decimal("12.3")) == "12.30"
+    assert display_pct_decimal(Decimal("12")) == "12.00"
+    assert display_pct_decimal(Decimal("0")) == "0.00"
+
+
+def test_display_pct_decimal_padding_false():
+    assert display_pct_decimal(Decimal("12.345"), padding=False) == "12.34"
+    assert display_pct_decimal(Decimal("12.3"), padding=False) == "12.3"
+    assert display_pct_decimal(Decimal("12"), padding=False) == "12"
+    assert display_pct_decimal(Decimal("0"), padding=False) == "0"
+
+
+def test_display_pct_decimal_negative():
+    assert display_pct_decimal(Decimal("-3.456")) == "-3.45"
+    assert display_pct_decimal(Decimal("-3.4")) == "-3.40"
+    assert display_pct_decimal(Decimal("-3.456"), padding=False) == "-3.45"

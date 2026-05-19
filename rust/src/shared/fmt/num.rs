@@ -78,6 +78,23 @@ pub fn to_decimal_value(value: u64, decimals: u64) -> f64 {
     value as f64 / 10f64.powi(decimals as i32)
 }
 
+/// Format an f64 as a percentage with exactly 2 decimal places (truncated).
+///
+/// When `padding` is true (default), always shows 2 decimal places (e.g. "12.30").
+/// When false, trailing zeros are trimmed (e.g. "12.3").
+pub fn display_pct(value: &f64, padding: Option<bool>) -> String {
+    let padding = padding.unwrap_or(true);
+    let truncated = (value * 100.0).trunc() / 100.0;
+
+    if padding {
+        display_formatted_string(format!("{:.2}", truncated))
+    } else {
+        let formatted = format!("{:.2}", truncated);
+        let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+        display_formatted_string(trimmed.to_string())
+    }
+}
+
 /// Convert an f64 value back to on-chain integer representation.
 ///
 /// e.g. `from_decimal_value(1.5, 9)` → `1_500_000_000`
@@ -214,6 +231,35 @@ mod tests {
         assert_eq!(from_decimal_value(1.0, 6), 1_000_000);
         assert_eq!(from_decimal_value(0.5, 6), 500_000);
         assert_eq!(from_decimal_value(0.0, 9), 0);
+    }
+
+    #[test]
+    fn test_display_pct_truncation() {
+        assert_eq!(display_pct(&12.345, None), "12.34");
+        assert_eq!(display_pct(&12.999, None), "12.99");
+        assert_eq!(display_pct(&99.999, None), "99.99");
+    }
+
+    #[test]
+    fn test_display_pct_padding_true() {
+        assert_eq!(display_pct(&12.3, None), "12.30");
+        assert_eq!(display_pct(&12.0, None), "12.00");
+        assert_eq!(display_pct(&0.0, None), "0.00");
+    }
+
+    #[test]
+    fn test_display_pct_padding_false() {
+        assert_eq!(display_pct(&12.345, Some(false)), "12.34");
+        assert_eq!(display_pct(&12.3, Some(false)), "12.3");
+        assert_eq!(display_pct(&12.0, Some(false)), "12");
+        assert_eq!(display_pct(&0.0, Some(false)), "0");
+    }
+
+    #[test]
+    fn test_display_pct_negative() {
+        assert_eq!(display_pct(&-3.456, None), "-3.45");
+        assert_eq!(display_pct(&-3.4, None), "-3.40");
+        assert_eq!(display_pct(&-3.456, Some(false)), "-3.45");
     }
 
     #[test]

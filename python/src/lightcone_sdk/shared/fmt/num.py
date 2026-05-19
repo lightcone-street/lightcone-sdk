@@ -60,5 +60,24 @@ def to_decimal_value(value: int, decimals: int) -> float:
     return value / (10 ** decimals)
 
 
+def display_pct(value: float, padding: bool | None = None) -> str:
+    """Format a float as a percentage with exactly 2 decimal places (truncated).
+
+    When padding is True (default), always shows 2 decimal places (e.g. "12.30").
+    When False, trailing zeros are trimmed (e.g. "12.3").
+    """
+    if padding is None:
+        padding = True
+    import math
+    truncated = math.trunc(value * 100) / 100
+
+    if padding:
+        return display_formatted_string(f"{truncated:.2f}")
+    else:
+        formatted = f"{truncated:.2f}"
+        trimmed = formatted.rstrip("0").rstrip(".")
+        return display_formatted_string(trimmed)
+
+
 def from_decimal_value(value: float, decimals: int) -> int:
     return int(Decimal(str(value)) * (Decimal(10) ** decimals))

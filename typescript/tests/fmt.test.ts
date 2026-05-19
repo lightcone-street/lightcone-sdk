@@ -82,4 +82,48 @@ describe("shared fmt", () => {
     assert.equal(decimalFmt.abbrNumber(new Decimal("1000")), "1.00k");
     assert.equal(decimalFmt.abbrNumber(new Decimal("1500")), "1.50k");
   });
+
+  it("formats num percentages with truncation and padding", () => {
+    assert.equal(num.displayPct(12.345), "12.34");
+    assert.equal(num.displayPct(12.999), "12.99");
+    assert.equal(num.displayPct(99.999), "99.99");
+    assert.equal(num.displayPct(12.3), "12.30");
+    assert.equal(num.displayPct(12), "12.00");
+    assert.equal(num.displayPct(0), "0.00");
+  });
+
+  it("formats num percentages without padding", () => {
+    assert.equal(num.displayPct(12.345, false), "12.34");
+    assert.equal(num.displayPct(12.3, false), "12.3");
+    assert.equal(num.displayPct(12, false), "12");
+    assert.equal(num.displayPct(0, false), "0");
+  });
+
+  it("formats negative num percentages", () => {
+    assert.equal(num.displayPct(-3.456), "-3.45");
+    assert.equal(num.displayPct(-3.4), "-3.40");
+    assert.equal(num.displayPct(-3.456, false), "-3.45");
+  });
+
+  it("formats decimal percentages with truncation and padding", () => {
+    assert.equal(decimalFmt.displayPct(new Decimal("12.345")), "12.34");
+    assert.equal(decimalFmt.displayPct(new Decimal("12.999")), "12.99");
+    assert.equal(decimalFmt.displayPct(new Decimal("99.999")), "99.99");
+    assert.equal(decimalFmt.displayPct(new Decimal("12.3")), "12.30");
+    assert.equal(decimalFmt.displayPct(new Decimal("12")), "12.00");
+    assert.equal(decimalFmt.displayPct(new Decimal("0")), "0.00");
+  });
+
+  it("formats decimal percentages without padding", () => {
+    assert.equal(decimalFmt.displayPct(new Decimal("12.345"), false), "12.34");
+    assert.equal(decimalFmt.displayPct(new Decimal("12.3"), false), "12.3");
+    assert.equal(decimalFmt.displayPct(new Decimal("12"), false), "12");
+    assert.equal(decimalFmt.displayPct(new Decimal("0"), false), "0");
+  });
+
+  it("formats negative decimal percentages", () => {
+    assert.equal(decimalFmt.displayPct(new Decimal("-3.456")), "-3.45");
+    assert.equal(decimalFmt.displayPct(new Decimal("-3.4")), "-3.40");
+    assert.equal(decimalFmt.displayPct(new Decimal("-3.456"), false), "-3.45");
+  });
 });

@@ -32,6 +32,25 @@ export function abbrNumber(value: Decimal, digits = 2, showSign = true): string 
   return `${sign}${abs.toFixed(digits)}`;
 }
 
+/**
+ * Format a Decimal as a percentage with exactly 2 decimal places (truncated).
+ *
+ * When padding is true (default), always shows 2 decimal places (e.g. "12.30").
+ * When false, trailing zeros are trimmed (e.g. "12.3").
+ */
+export function displayPct(value: Decimal, padding?: boolean): string {
+  const pad = padding ?? true;
+  const truncated = value.toDecimalPlaces(2, Decimal.ROUND_DOWN);
+
+  if (pad) {
+    return displayFormattedString(truncated.toFixed(2));
+  } else {
+    const formatted = truncated.toFixed(2);
+    const trimmed = formatted.replace(/\.?0+$/, "");
+    return displayFormattedString(trimmed);
+  }
+}
+
 export function toBaseUnits(value: Decimal, decimals: number): bigint | null {
   const scaled = value.mul(new Decimal(10).pow(decimals));
   if (!scaled.isInteger() || scaled.isNegative()) {

@@ -103,6 +103,22 @@ pub fn abbr_number(amount: &Decimal, digits: Option<usize>, show_sign: Option<bo
     }
 }
 
+/// Format a `Decimal` as a percentage with exactly 2 decimal places (truncated).
+///
+/// When `padding` is true (default), always shows 2 decimal places (e.g. "12.30").
+/// When false, trailing zeros are trimmed (e.g. "12.3").
+pub fn display_pct(value: &Decimal, padding: Option<bool>) -> String {
+    let padding = padding.unwrap_or(true);
+    let truncated = value.round_dp_with_strategy(2, RoundingStrategy::ToZero);
+
+    if padding {
+        super::num::display_formatted_string(format!("{:.2}", truncated))
+    } else {
+        let normalized = truncated.normalize();
+        super::num::display_formatted_string(format!("{}", normalized))
+    }
+}
+
 /// Converts a human-readable `Decimal` to token base units (u64).
 ///
 /// Scales the decimal value by `10^decimals` and converts to u64.
@@ -208,5 +224,34 @@ mod tests {
     fn test_abbr_number_negative() {
         assert_eq!(abbr_number(&dec("-1500000"), None, None), "-1.50m");
         assert_eq!(abbr_number(&dec("-1500000"), None, Some(false)), "1.50m");
+    }
+
+    #[test]
+    fn test_display_pct_truncation() {
+        assert_eq!(display_pct(&dec("12.345"), None), "12.34");
+        assert_eq!(display_pct(&dec("12.999"), None), "12.99");
+        assert_eq!(display_pct(&dec("99.999"), None), "99.99");
+    }
+
+    #[test]
+    fn test_display_pct_padding_true() {
+        assert_eq!(display_pct(&dec("12.3"), None), "12.30");
+        assert_eq!(display_pct(&dec("12"), None), "12.00");
+        assert_eq!(display_pct(&Decimal::ZERO, None), "0.00");
+    }
+
+    #[test]
+    fn test_display_pct_padding_false() {
+        assert_eq!(display_pct(&dec("12.345"), Some(false)), "12.34");
+        assert_eq!(display_pct(&dec("12.3"), Some(false)), "12.3");
+        assert_eq!(display_pct(&dec("12"), Some(false)), "12");
+        assert_eq!(display_pct(&Decimal::ZERO, Some(false)), "0");
+    }
+
+    #[test]
+    fn test_display_pct_negative() {
+        assert_eq!(display_pct(&dec("-3.456"), None), "-3.45");
+        assert_eq!(display_pct(&dec("-3.4"), None), "-3.40");
+        assert_eq!(display_pct(&dec("-3.456"), Some(false)), "-3.45");
     }
 }
