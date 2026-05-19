@@ -573,7 +573,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 ct_pubkey.clone(),
                 TokenMetadata {
                     pubkey: ct_pubkey.clone(),
-                    symbol: ct_symbol,
+                    symbol: ct_symbol.clone(),
                     short_symbol: ct_short_symbol.clone(),
                     decimals: ct_decimals,
                     icon_url_low: ct_icon_url_low.clone(),
@@ -595,7 +595,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 outcome: ct_outcome.clone(),
                 mint: ct_pubkey,
                 name: ct_outcome,
-                symbol: ct_short_symbol.clone(),
+                symbol: ct_symbol,
                 short_symbol: ct_short_symbol,
                 decimals: ct_decimals,
             });
