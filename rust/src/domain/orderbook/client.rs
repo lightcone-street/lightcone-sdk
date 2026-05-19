@@ -88,7 +88,7 @@ impl<'a> Orderbooks<'a> {
         mint_a: &Pubkey,
         mint_b: &Pubkey,
     ) -> Result<crate::program::accounts::Orderbook, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.pda(mint_a, mint_b);
         let account = rpc.get_account(&pda).await.map_err(|e| {
             SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(

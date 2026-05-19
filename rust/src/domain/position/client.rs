@@ -449,7 +449,7 @@ impl<'a> Positions<'a> {
         owner: &Pubkey,
         market: &Pubkey,
     ) -> Result<Option<crate::program::accounts::Position>, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.pda(owner, market);
         match rpc.get_account(&pda).await {
             Ok(account) => Ok(Some(crate::program::accounts::Position::deserialize(

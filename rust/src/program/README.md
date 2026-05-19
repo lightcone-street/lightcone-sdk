@@ -168,8 +168,8 @@ let gdt = rpc.get_global_deposit_token(&mint).await?;
 // Latest blockhash
 let blockhash = rpc.get_latest_blockhash().await?;
 
-// Access the underlying Solana RpcClient
-let solana_rpc = rpc.inner()?;
+// Access the currently-active Solana RpcClient
+let solana_rpc = rpc.inner().await?;
 ```
 
 ### Instruction Builders

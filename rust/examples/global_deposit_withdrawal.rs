@@ -21,7 +21,7 @@ async fn main() -> ExampleResult {
     let deposit_amount = amount * 2; // deposit extra so global has funds after market transfer
 
     let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner()?;
+    let rpc = rpc_sub.inner().await?;
 
     let mut instructions: Vec<(&str, solana_instruction::Instruction)> = vec![];
 

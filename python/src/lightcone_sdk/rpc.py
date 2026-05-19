@@ -5,7 +5,8 @@ Mirrors rust/src/rpc.rs.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+import asyncio
+from typing import TYPE_CHECKING, Callable, Optional, TypeVar
 
 from solders.hash import Hash
 from solders.instruction import Instruction
@@ -26,21 +27,87 @@ from .program.pda import (
     get_user_global_deposit_pda,
 )
 from .program.types import Exchange, GlobalDepositToken
+from .rpc_failover import (
+    ActiveRpc,
+    is_infrastructure_error,
+    FAST_RETRY_DELAY_SECS,
+)
 
 if TYPE_CHECKING:
     from solana.rpc.async_api import AsyncClient
 
     from .client import LightconeClient
 
+T = TypeVar("T")
+
 
 def require_connection(client: "LightconeClient") -> "AsyncClient":
-    """Resolve the Solana RPC client, or raise if not configured."""
+    """Resolve the currently-active Solana RPC client, or raise if not configured."""
     conn = client.connection
     if conn is None:
         raise SdkError(
             "Solana RPC not configured — use .rpc_url() on the builder"
         )
     return conn
+
+
+def _resolve_connection_for(
+    client: "LightconeClient", target: ActiveRpc
+) -> Optional["AsyncClient"]:
+    """Resolve the connection for a specific endpoint."""
+    if target == ActiveRpc.PRIMARY:
+        return client._primary_connection
+    return client._backup_connection
+
+
+async def _connection_with_failover(
+    client: "LightconeClient",
+    operation: Callable[["AsyncClient"], object],
+) -> object:
+    """Execute an RPC operation with fast retry + failover.
+
+    Same flow as Rust's ``solana_rpc_with_failover``.
+    """
+    state = client.rpc_failover_state
+    state.maybe_recover_to_primary()
+    original_active = state.active
+
+    active_conn = require_connection(client)
+
+    # First attempt.
+    try:
+        return await operation(active_conn)  # type: ignore[misc]
+    except Exception as first_error:
+        if not is_infrastructure_error(first_error):
+            raise
+
+    # Fast retry on same connection.
+    await asyncio.sleep(FAST_RETRY_DELAY_SECS)
+    try:
+        return await operation(active_conn)  # type: ignore[misc]
+    except Exception as retry_error:
+        if not is_infrastructure_error(retry_error):
+            raise
+
+    # Flip and try the other connection.
+    other_target = (
+        ActiveRpc.BACKUP
+        if original_active == ActiveRpc.PRIMARY
+        else ActiveRpc.PRIMARY
+    )
+    other_conn = _resolve_connection_for(client, other_target)
+    if other_conn is not None:
+        try:
+            result = await operation(other_conn)  # type: ignore[misc]
+            if other_target == ActiveRpc.PRIMARY:
+                state.flip_to_primary()
+            else:
+                state.flip_to_backup()
+            return result
+        except Exception:
+            raise
+
+    raise retry_error  # type: ignore[name-defined]  # noqa: F821
 
 
 class Rpc:
@@ -70,27 +137,33 @@ class Rpc:
 
     async def get_latest_blockhash(self) -> Hash:
         """Get the latest blockhash for transaction building."""
-        conn = require_connection(self._client)
-        response = await conn.get_latest_blockhash()
-        return response.value.blockhash
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_latest_blockhash(),
+        )
+        return response.value.blockhash  # type: ignore[union-attr]
 
     async def get_exchange(self) -> Exchange:
         """Fetch the Exchange account."""
-        conn = require_connection(self._client)
         pda = self.get_exchange_pda()
-        response = await conn.get_account_info(pda)
-        if response.value is None:
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_account_info(pda),
+        )
+        if response.value is None:  # type: ignore[union-attr]
             raise AccountNotFoundError(str(pda))
-        return deserialize_exchange(response.value.data)
+        return deserialize_exchange(response.value.data)  # type: ignore[union-attr]
 
     async def get_global_deposit_token(self, mint: Pubkey) -> GlobalDepositToken:
         """Fetch a GlobalDepositToken account by mint."""
-        conn = require_connection(self._client)
         pda = self.get_global_deposit_token_pda(mint)
-        response = await conn.get_account_info(pda)
-        if response.value is None:
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_account_info(pda),
+        )
+        if response.value is None:  # type: ignore[union-attr]
             raise AccountNotFoundError(str(pda))
-        return deserialize_global_deposit_token(response.value.data)
+        return deserialize_global_deposit_token(response.value.data)  # type: ignore[union-attr]
 
     # ── Convenience ──────────────────────────────────────────────────────
 

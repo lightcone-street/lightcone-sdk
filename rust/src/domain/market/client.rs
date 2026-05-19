@@ -250,7 +250,7 @@ impl<'a> Markets<'a> {
         &self,
         market: &Pubkey,
     ) -> Result<crate::program::accounts::Market, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let account = rpc.get_account(market).await.map_err(|e| {
             SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
                 "Market: {}",

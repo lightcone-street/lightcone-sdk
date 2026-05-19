@@ -27,6 +27,7 @@ from .env import LightconeEnv
 from .privy.client import Privy
 from .rpc import Rpc
 from .error import SdkError
+from .rpc_failover import ActiveRpc, RpcFailoverState, is_infrastructure_error, FAST_RETRY_DELAY_SECS
 from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
 from .shared.types import DepositSource
 from .ws import WsConfig, WS_DEFAULT_CONFIG
@@ -49,17 +50,22 @@ class LightconeClient:
         auth_credentials: Optional[AuthCredentials] = None,
         program_id: Optional[Pubkey] = None,
         connection: Optional[object] = None,
+        backup_connection: Optional[object] = None,
         deposit_source: DepositSource = DepositSource.GLOBAL,
         signing_strategy: Optional[SigningStrategy] = None,
-        rpc_url: Optional[str] = None,
+        primary_rpc_url: Optional[str] = None,
+        backup_rpc_url: Optional[str] = None,
     ):
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
         self._program_id: Pubkey = program_id or LightconeEnv.PROD.program_id
-        self._connection = connection  # Optional[AsyncClient]
+        self._primary_connection = connection  # Optional[AsyncClient]
+        self._backup_connection = backup_connection  # Optional[AsyncClient]
+        self._rpc_failover_state = RpcFailoverState()
         self._deposit_source: DepositSource = deposit_source
         self._signing_strategy: Optional[SigningStrategy] = signing_strategy
-        self._rpc_url: Optional[str] = rpc_url
+        self._primary_rpc_url: Optional[str] = primary_rpc_url
+        self._backup_rpc_url: Optional[str] = backup_rpc_url
         self._order_nonce: Optional[int] = None
 
         # Sub-clients (all take self reference)
@@ -86,8 +92,16 @@ class LightconeClient:
 
     @property
     def connection(self) -> Optional[object]:
-        """Optional Solana RPC connection (AsyncClient)."""
-        return self._connection
+        """Currently-active Solana RPC connection (AsyncClient), resolved
+        through failover state."""
+        self._rpc_failover_state.maybe_recover_to_primary()
+        if self._rpc_failover_state.active == ActiveRpc.PRIMARY:
+            return self._primary_connection
+        return self._backup_connection or self._primary_connection
+
+    @property
+    def rpc_failover_state(self) -> RpcFailoverState:
+        return self._rpc_failover_state
 
     # ── Deposit source ───────────────────────────────────────────────────
 
@@ -143,6 +157,69 @@ class LightconeClient:
         """Clear the cached nonce (e.g. on logout)."""
         self._order_nonce = None
 
+    def _active_rpc_url(self) -> str:
+        """Resolve the currently-active RPC URL, recovering to primary if cooldown elapsed."""
+        self._rpc_failover_state.maybe_recover_to_primary()
+        if self._rpc_failover_state.active == ActiveRpc.PRIMARY:
+            url = self._primary_rpc_url
+        else:
+            url = self._backup_rpc_url or self._primary_rpc_url
+        if url is None:
+            raise SdkError("rpc_url is not configured on the client")
+        return url
+
+    async def _rpc_call_with_failover(self, body: dict) -> dict:
+        """Execute a JSON-RPC call with fast retry + failover."""
+        import aiohttp
+
+        active_url = self._active_rpc_url()
+        original_active = self._rpc_failover_state.active
+
+        async def _post(url: str) -> dict:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=body) as resp:
+                    if resp.status in (502, 503, 504):
+                        raise aiohttp.ClientResponseError(
+                            resp.request_info, resp.history, status=resp.status
+                        )
+                    return await resp.json()
+
+        # First attempt.
+        try:
+            return await _post(active_url)
+        except Exception as first_error:
+            if not is_infrastructure_error(first_error):
+                raise SdkError(f"RPC failed: {first_error}") from first_error
+
+        # Fast retry on same URL.
+        await asyncio.sleep(FAST_RETRY_DELAY_SECS)
+        try:
+            return await _post(active_url)
+        except Exception as retry_error:
+            if not is_infrastructure_error(retry_error):
+                raise SdkError(f"RPC failed: {retry_error}") from retry_error
+
+        # Flip and try the other URL.
+        other_url = (
+            self._backup_rpc_url
+            if original_active == ActiveRpc.PRIMARY
+            else self._primary_rpc_url
+        )
+        if other_url is not None:
+            try:
+                result = await _post(other_url)
+                if original_active == ActiveRpc.PRIMARY:
+                    self._rpc_failover_state.flip_to_backup()
+                else:
+                    self._rpc_failover_state.flip_to_primary()
+                return result
+            except Exception as both_error:
+                raise SdkError(
+                    f"RPC failed on both endpoints: {both_error}"
+                ) from both_error
+
+        raise SdkError(f"RPC failed: {retry_error}") from retry_error  # noqa: F821
+
     def _require_signing_strategy(self) -> SigningStrategy:
         """Get the signing strategy or raise if not set."""
         if self._signing_strategy is None:
@@ -178,21 +255,15 @@ class LightconeClient:
             tx_bytes = bytes(tx)  # type: ignore[arg-type]
             signed_bytes = await signer.sign_transaction(tx_bytes)
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
-            # Submit via RPC
-            if self._rpc_url is not None:
-                import aiohttp
-                body = {
-                    "jsonrpc": "2.0", "id": 1,
-                    "method": "sendTransaction",
-                    "params": [base64_tx, {"encoding": "base64", "preflightCommitment": "confirmed"}],
-                }
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(self._rpc_url, json=body) as resp:
-                        data = await resp.json()
-                if "error" in data:
-                    raise SdkError(f"RPC error: {data['error']}")
-                return data["result"]
-            raise SdkError("rpc_url is required for WalletAdapter signing")
+            # Submit via RPC with failover
+            data = await self._rpc_call_with_failover({
+                "jsonrpc": "2.0", "id": 1,
+                "method": "sendTransaction",
+                "params": [base64_tx, {"encoding": "base64", "preflightCommitment": "confirmed"}],
+            })
+            if "error" in data:
+                raise SdkError(f"RPC error: {data['error']}")
+            return data["result"]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
@@ -316,7 +387,8 @@ class LightconeClientBuilder:
         self._program_id: Optional[Pubkey] = environment.program_id
         self._deposit_source: DepositSource = DepositSource.GLOBAL
         self._signing_strategy: Optional[SigningStrategy] = None
-        self._rpc_url: Optional[str] = environment.rpc_url
+        self._primary_rpc_url: Optional[str] = environment.rpc_url
+        self._backup_rpc_url: Optional[str] = None
         self._connection: Optional[object] = None
 
     def env(self, environment: LightconeEnv) -> "LightconeClientBuilder":
@@ -329,7 +401,7 @@ class LightconeClientBuilder:
         self._base_url = environment.api_url
         self._ws_url = environment.ws_url
         self._program_id = environment.program_id
-        self._rpc_url = environment.rpc_url
+        self._primary_rpc_url = environment.rpc_url
         return self
 
     def base_url(self, url: str) -> "LightconeClientBuilder":
@@ -381,8 +453,13 @@ class LightconeClientBuilder:
         return self
 
     def rpc_url(self, url: str) -> "LightconeClientBuilder":
-        """Set the Solana RPC URL for blockhash fetching, transaction submission, and on-chain reads."""
-        self._rpc_url = url
+        """Set the primary Solana RPC URL for blockhash fetching, transaction submission, and on-chain reads."""
+        self._primary_rpc_url = url
+        return self
+
+    def backup_rpc_url(self, url: str) -> "LightconeClientBuilder":
+        """Set a backup Solana RPC URL for automatic failover."""
+        self._backup_rpc_url = url
         return self
 
     def rpc_connection(self, connection: object) -> "LightconeClientBuilder":
@@ -408,9 +485,14 @@ class LightconeClientBuilder:
 
         # Resolve connection: explicit connection takes priority over rpc_url
         connection = self._connection
-        if connection is None and self._rpc_url is not None:
+        if connection is None and self._primary_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
-            connection = AsyncClient(self._rpc_url)
+            connection = AsyncClient(self._primary_rpc_url)
+
+        backup_connection = None
+        if self._backup_rpc_url is not None:
+            from solana.rpc.async_api import AsyncClient
+            backup_connection = AsyncClient(self._backup_rpc_url)
 
         return LightconeClient(
             http=http,
@@ -418,9 +500,11 @@ class LightconeClientBuilder:
             auth_credentials=self._auth_credentials,
             program_id=self._program_id,
             connection=connection,
+            backup_connection=backup_connection,
             deposit_source=self._deposit_source,
             signing_strategy=self._signing_strategy,
-            rpc_url=self._rpc_url,
+            primary_rpc_url=self._primary_rpc_url,
+            backup_rpc_url=self._backup_rpc_url,
         )
 
 
