@@ -24,7 +24,7 @@ async fn main() -> ExampleResult {
     let (_market, orderbook) = market_and_orderbook(&client).await?;
     let mint = quote_deposit_mint(&orderbook)?;
     let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner()?;
+    let rpc = rpc_sub.inner().await?;
 
     // 1. Deposit collateral into the global pool.
     //

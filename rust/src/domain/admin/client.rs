@@ -339,7 +339,7 @@ impl<'a> Admin<'a> {
         params: CreateMarketParams,
     ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(pid);
         let account = rpc.get_account(&exchange_pda).await.map_err(|e| {
             crate::program::error::SdkError::AccountNotFound(format!("Exchange: {}", e))

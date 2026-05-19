@@ -150,6 +150,10 @@ name = "read_onchain"
 required-features = ["native"]
 
 [[example]]
+name = "rpc_failover"
+required-features = ["native"]
+
+[[example]]
 name = "submit_order"
 required-features = ["native"]
 

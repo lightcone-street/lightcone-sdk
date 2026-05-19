@@ -711,7 +711,7 @@ impl<'a> Orders<'a> {
         &self,
         order_hash: &[u8; 32],
     ) -> Result<Option<crate::program::accounts::OrderStatus>, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.status_pda(order_hash);
         match rpc.get_account(&pda).await {
             Ok(account) => Ok(Some(crate::program::accounts::OrderStatus::deserialize(
@@ -723,7 +723,7 @@ impl<'a> Orders<'a> {
 
     /// Fetch a user's current nonce (returns 0 if not initialized).
     pub async fn get_nonce(&self, user: &Pubkey) -> Result<u64, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.nonce_pda(user);
         match rpc.get_account(&pda).await {
             Ok(account) => {

@@ -1,6 +1,6 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import type { ClientContext } from "./context";
-import { requireConnection } from "./context";
+import { requireConnection, connectionWithFailover } from "./context";
 import { ProgramSdkError } from "./program/error";
 import {
   getExchangePda,
@@ -16,7 +16,12 @@ import type { Exchange, GlobalDepositToken } from "./program/types";
 export class Rpc {
   constructor(private readonly client: ClientContext) {}
 
-  /** Get the underlying Connection, or throw if not configured. */
+  /**
+   * Get the currently-active Connection, or throw if not configured.
+   *
+   * Prefer the typed methods (getExchange, etc.) — they include automatic
+   * failover. Direct use of inner() bypasses the retry/failover wrapper.
+   */
   inner(): Connection {
     return requireConnection(this.client);
   }
@@ -41,14 +46,17 @@ export class Rpc {
     blockhash: string;
     lastValidBlockHeight: number;
   }> {
-    const connection = requireConnection(this.client);
-    return connection.getLatestBlockhash();
+    return connectionWithFailover(this.client, (connection) =>
+      connection.getLatestBlockhash()
+    );
   }
 
   async getExchange(): Promise<Exchange> {
-    const connection = requireConnection(this.client);
     const pda = this.getExchangePda();
-    const accountInfo = await connection.getAccountInfo(pda);
+    const accountInfo = await connectionWithFailover(
+      this.client,
+      (connection) => connection.getAccountInfo(pda)
+    );
     if (!accountInfo) {
       throw ProgramSdkError.accountNotFound("Exchange");
     }
@@ -56,9 +64,11 @@ export class Rpc {
   }
 
   async getGlobalDepositToken(mint: PublicKey): Promise<GlobalDepositToken> {
-    const connection = requireConnection(this.client);
     const pda = this.getGlobalDepositTokenPda(mint);
-    const accountInfo = await connection.getAccountInfo(pda);
+    const accountInfo = await connectionWithFailover(
+      this.client,
+      (connection) => connection.getAccountInfo(pda)
+    );
     if (!accountInfo) {
       throw ProgramSdkError.accountNotFound(
         `GlobalDepositToken for mint ${mint.toBase58()}`

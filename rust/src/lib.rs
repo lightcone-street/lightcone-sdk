@@ -24,6 +24,10 @@ pub mod network;
 #[cfg(feature = "http")]
 pub mod rpc;
 
+/// RPC failover: automatic switch to a backup Solana RPC on infrastructure errors.
+#[cfg(feature = "http")]
+pub mod rpc_failover;
+
 // ── Layer 2: Auth ────────────────────────────────────────────────────────────
 
 /// Authentication: message generation, credentials, login/logout.
@@ -177,6 +181,8 @@ pub mod prelude {
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
+    #[cfg(feature = "http")]
+    pub use crate::rpc_failover::ActiveRpc;
 
     // WebSocket types
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};

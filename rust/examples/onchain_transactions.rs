@@ -55,7 +55,7 @@ async fn main() -> ExampleResult {
     ];
 
     let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner()?;
+    let rpc = rpc_sub.inner().await?;
     for (name, tx) in &mut transactions {
         tx.try_sign(&[&keypair], blockhash)?;
         describe_tx(name, tx)?;

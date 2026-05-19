@@ -267,6 +267,26 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 `LightconeEnv::Local` targets `http://localhost:8080/api` for REST and `ws://localhost:8081/ws` for WebSocket connections. The corresponding local health checks are `http://localhost:8080/health` and `http://localhost:8081/health`.
 
+### RPC Failover
+
+The SDK supports automatic failover to a backup Solana RPC endpoint:
+
+```rust
+let client = LightconeClient::builder()
+    .rpc_url("https://my-primary-rpc.example.com")
+    .backup_rpc_url("https://my-backup-rpc.example.com")
+    .build()?;
+```
+
+When the active RPC returns infrastructure errors (connection failures, timeouts, HTTP 502/503/504), the SDK:
+1. Retries once after 100 ms on the same endpoint
+2. If still failing, flips to the other endpoint and retries
+3. All subsequent calls use the new endpoint automatically
+
+After 120 seconds the SDK probes the primary again. If it fails, the fast retry logic switches back to the backup immediately.
+
+Application-level errors (transaction failures, JSON-RPC errors, 4xx responses) never trigger failover — they indicate a problem with the request, not the RPC node.
+
 ## Examples
 All examples are runnable with `cargo run --example <name> --features native`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.
 
