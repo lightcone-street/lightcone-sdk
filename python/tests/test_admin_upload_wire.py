@@ -42,6 +42,19 @@ def test_deposit_token_metadata_serializes_without_legacy_s3_fields():
     assert "s3_error" not in payload
 
 
+def test_top_level_admin_metadata_exports_include_exchange_symbol_fields():
+    from lightcone_sdk import DepositTokenMetadataPayload as TopLevelDepositTokenMetadataPayload
+
+    request = TopLevelDepositTokenMetadataPayload(
+        deposit_asset="TOKEN_MINT",
+        binance_symbol="BTCUSDT",
+        okx_inst_id="BTC-USDT",
+    )
+
+    assert request.to_dict()["binance_symbol"] == "BTCUSDT"
+    assert request.to_dict()["okx_inst_id"] == "BTC-USDT"
+
+
 def test_unified_metadata_response_reads_deposit_token_fields():
     response = UnifiedMetadataResponse.from_dict({
         "deposit_tokens": [{

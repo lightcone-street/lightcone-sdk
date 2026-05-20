@@ -128,13 +128,19 @@ pub mod prelude {
 
     // Domain types — admin (referral config/codes and logs)
     pub use crate::domain::admin::{
+        AddMetadataCategoryRequest, AddMetadataCategoryResponse,
         AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
         AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
         AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketRow,
         AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
-        CodeListEntry, CriticalLogErrors24hCountResponse, ListCodesRequest, ListCodesResponse,
-        MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
-        ReferralConfig, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
+        CodeListEntry, ConditionalTokenMetadataPayload,
+        CriticalLogErrors24hCountResponse, DepositTokenMetadataPayload,
+        DepositTokenMetadataResponse, ListCodesRequest, ListCodesResponse,
+        MarketMetadataPayload, MarketsToSettleCountResponse,
+        MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse,
+        OutcomeMetadataPayload, ReferralConfig,
+        UnifiedMetadataRequest, UnifiedMetadataResponse, UpdateCodeRequest, UpdateCodeResponse,
+        UpdateConfigRequest,
     };
 
     // Errors

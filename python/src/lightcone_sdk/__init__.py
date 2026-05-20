@@ -156,6 +156,18 @@ from .domain.market import (
     MarketResolutionPayout,
     MarketResolutionResponse,
 )
+from .domain.admin import (
+    AddMetadataCategoryRequest,
+    AddMetadataCategoryResponse,
+    ConditionalTokenMetadataPayload,
+    DepositTokenMetadataPayload,
+    DepositTokenMetadataResponse,
+    MarketMetadataPayload,
+    MetadataCategoriesResponse,
+    OutcomeMetadataPayload,
+    UnifiedMetadataRequest,
+    UnifiedMetadataResponse,
+)
 
 # ============================================================================
 # Program layer (on-chain interaction)
@@ -399,6 +411,16 @@ __all__ = [
     "MarketResolutionKind",
     "MarketResolutionPayout",
     "MarketResolutionResponse",
+    "AddMetadataCategoryRequest",
+    "AddMetadataCategoryResponse",
+    "ConditionalTokenMetadataPayload",
+    "DepositTokenMetadataPayload",
+    "DepositTokenMetadataResponse",
+    "MarketMetadataPayload",
+    "MetadataCategoriesResponse",
+    "OutcomeMetadataPayload",
+    "UnifiedMetadataRequest",
+    "UnifiedMetadataResponse",
     # Shared types
     "OrderBookId",
     "PubkeyStr",

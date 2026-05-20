@@ -64,6 +64,7 @@ describe("admin upload wire types", () => {
     };
 
     assert.equal(response.deposit_tokens?.[0]?.min_order_size, 100_000);
+    assert.equal(response.deposit_tokens?.[0]?.binance_symbol, "BTCUSDT");
     assert.equal(response.deposit_tokens?.[0]?.okx_inst_id, "BTC-USDT");
   });
 
