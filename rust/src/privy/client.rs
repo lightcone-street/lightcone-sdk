@@ -82,6 +82,7 @@ impl<'a> Privy<'a> {
     ///
     /// The backend signs the trigger order ID using the embedded wallet
     /// and submits the cancellation to the exchange engine.
+    #[cfg(feature = "trigger_orders")]
     pub async fn sign_and_cancel_trigger_order(
         &self,
         wallet_id: &str,

@@ -354,6 +354,8 @@ let request = LimitOrderEnvelope::new()
 
 ### `TriggerOrderEnvelope`
 
+> **Feature-gated** (`trigger_orders`): The types and methods below require the `trigger_orders` Cargo feature, which is disabled by default. Trigger orders are under development and not yet available. For internal use only.
+
 For take-profit and stop-loss orders:
 
 ```rust

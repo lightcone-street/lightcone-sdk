@@ -9,10 +9,6 @@ export {
   Resolution,
   Side,
   TimeInForce,
-  TriggerResultStatus,
-  TriggerStatus,
-  TriggerType,
-  TriggerUpdateType,
   type ApiResponse,
   type OrderBookId,
   type PubkeyStr,
@@ -137,8 +133,6 @@ export type {
   CancelAllSuccess,
   CancelBody,
   CancelSuccess,
-  CancelTriggerBody,
-  CancelTriggerSuccess,
   ConditionalBalance,
   FillInfo,
   GlobalDepositUpdate,
@@ -148,14 +142,11 @@ export type {
   OrderStatus,
   OrderType,
   SubmitOrderResponse,
-  TriggerOrder,
-  TriggerOrderResponse,
-  TriggerOrderUpdate,
   UserSnapshotBalance,
   UserSnapshotOrder,
   UserOrdersResponse,
 } from "./domain/order";
-export type { UserOpenLimitOrders, UserTriggerOrders } from "./domain/order/state";
+export type { UserOpenLimitOrders } from "./domain/order/state";
 
 export type {
   Portfolio,
@@ -220,7 +211,6 @@ export type {
 
 export {
   LimitOrderEnvelope,
-  TriggerOrderEnvelope,
   type OrderEnvelope,
   type OrderPayload,
 } from "./program";

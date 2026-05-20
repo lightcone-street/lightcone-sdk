@@ -511,6 +511,7 @@ pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
 /// Build the message bytes for cancelling a trigger order.
 ///
 /// The message is the trigger_order_id as UTF-8 bytes.
+#[cfg(feature = "trigger_orders")]
 pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
     trigger_order_id.as_bytes().to_vec()
 }
@@ -922,6 +923,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_cancel_trigger_order_message() {
         let id = "trigger-order-uuid-123";
         let message = cancel_trigger_order_message(id);

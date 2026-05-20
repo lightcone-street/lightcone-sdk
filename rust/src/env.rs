@@ -35,30 +35,51 @@ pub enum LightconeEnv {
 
 impl LightconeEnv {
     /// REST API base URL for this environment.
-    pub fn api_url(&self) -> &'static str {
+    ///
+    /// If the `SDK_API_URL` environment variable is set, its value is used
+    /// regardless of the selected environment.
+    pub fn api_url(&self) -> String {
+        if let Ok(override_url) = std::env::var("SDK_API_URL") {
+            return override_url;
+        }
         match self {
-            Self::Local => "http://localhost:8080/api",
+            Self::Local => "https://local-api.lightcone.xyz",
             Self::Staging => "https://tapi2.lightcone.xyz",
             Self::Prod => "https://tapi.lightcone.xyz",
         }
+        .to_string()
     }
 
     /// WebSocket URL for this environment.
-    pub fn ws_url(&self) -> &'static str {
+    ///
+    /// If the `SDK_WS_URL` environment variable is set, its value is used
+    /// regardless of the selected environment.
+    pub fn ws_url(&self) -> String {
+        if let Ok(override_url) = std::env::var("SDK_WS_URL") {
+            return override_url;
+        }
         match self {
-            Self::Local => "ws://localhost:8081/ws",
+            Self::Local => "wss://local-ws.lightcone.xyz/ws",
             Self::Staging => "wss://tws2.lightcone.xyz/ws",
             Self::Prod => "wss://tws.lightcone.xyz/ws",
         }
+        .to_string()
     }
 
     /// Solana RPC URL for this environment.
-    pub fn rpc_url(&self) -> &'static str {
+    ///
+    /// If the `SDK_RPC_URL` environment variable is set, its value is used
+    /// regardless of the selected environment.
+    pub fn rpc_url(&self) -> String {
+        if let Ok(override_url) = std::env::var("SDK_RPC_URL") {
+            return override_url;
+        }
         match self {
             Self::Local => "https://api.devnet.solana.com",
             Self::Staging => "https://api.devnet.solana.com",
             Self::Prod => "https://api.devnet.solana.com",
         }
+        .to_string()
     }
 
     /// On-chain Lightcone program ID for this environment.
@@ -104,8 +125,14 @@ mod tests {
     fn local_environment_targets_local_backend() {
         let environment = LightconeEnv::Local;
 
-        assert_eq!(environment.api_url(), "http://localhost:8080/api");
-        assert_eq!(environment.ws_url(), "ws://localhost:8081/ws");
+        assert_eq!(
+            environment.api_url(),
+            "https://local-api.lightcone.xyz".to_string()
+        );
+        assert_eq!(
+            environment.ws_url(),
+            "wss://local-ws.lightcone.xyz/ws".to_string()
+        );
     }
 
     #[test]

@@ -76,11 +76,14 @@ pub mod prelude {
 
     // Domain types — order
     pub use crate::domain::order::{
-        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
-        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance,
-        GlobalDepositUpdate, LimitOrder, Order, OrderEvent, OrderStatus, OrderType,
-        SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
-        UserOpenLimitOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
+        FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
+        OrderStatus, OrderType, SubmitOrderResponse, TriggerOrderUpdate, UserOpenLimitOrders,
+        UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
+    };
+    #[cfg(feature = "trigger_orders")]
+    pub use crate::domain::order::{
+        CancelTriggerBody, CancelTriggerSuccess, TriggerOrder, TriggerOrderResponse,
         UserTriggerOrders,
     };
 
@@ -141,9 +144,10 @@ pub mod prelude {
     };
 
     // Program — order envelopes, trait, payload
+    #[cfg(feature = "trigger_orders")]
+    pub use crate::program::TriggerOrderEnvelope;
     pub use crate::program::{
         generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
-        TriggerOrderEnvelope,
     };
 
     // Position builders

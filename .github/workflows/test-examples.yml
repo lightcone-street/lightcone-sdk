@@ -65,7 +65,7 @@ jobs:
                 ;;
             esac
             echo "::group::$name"
-            timeout 120 cargo run --example "$name" --features native
+            timeout 120 cargo run --example "$name" --features "native,trigger_orders"
             echo "::endgroup::"
           done
 

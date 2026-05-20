@@ -116,6 +116,7 @@ impl PrivyOrderEnvelope {
     }
 
     /// Build from a `TriggerOrderEnvelope`.
+    #[cfg(feature = "trigger_orders")]
     pub fn from_trigger(
         envelope: &crate::program::envelope::TriggerOrderEnvelope,
         orderbook_id: impl Into<String>,
@@ -175,6 +176,7 @@ pub struct SignAndCancelOrderRequest {
 pub enum CancelTarget {
     #[serde(rename = "limit")]
     Limit { order_hash: String },
+    #[cfg(feature = "trigger_orders")]
     #[serde(rename = "trigger")]
     Trigger { trigger_order_id: String },
 }
