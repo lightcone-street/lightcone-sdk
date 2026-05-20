@@ -41,6 +41,7 @@ lightcone = { version = "0.6.2", features = ["wasm"] }
 |---------|-----------------|----------|
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
+| **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
 
 ## Quick Start
 
@@ -265,7 +266,7 @@ let client = LightconeClient::builder()
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.base_url()`, `.ws_url()`, `.rpc_url()`) take precedence when called after `.env()`.
 
-`LightconeEnv::Local` targets `http://localhost:8080/api` for REST and `ws://localhost:8081/ws` for WebSocket connections. The corresponding local health checks are `http://localhost:8080/health` and `http://localhost:8081/health`.
+`LightconeEnv::Local` targets `https://local-api.lightcone.xyz` for REST and `wss://local-ws.lightcone.xyz/ws` for WebSocket connections.
 
 ### RPC Failover
 

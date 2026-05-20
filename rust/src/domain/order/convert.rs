@@ -1,8 +1,13 @@
 //! Conversions: WS wire types → Order domain types.
 
 use super::wire;
-use super::{LimitOrder, TriggerOrder, UserOpenLimitOrders, UserTriggerOrders};
-use crate::shared::{OrderBookId, PubkeyStr, TimeInForce};
+use super::LimitOrder;
+use super::UserOpenLimitOrders;
+#[cfg(feature = "trigger_orders")]
+use super::{TriggerOrder, UserTriggerOrders};
+#[cfg(feature = "trigger_orders")]
+use crate::shared::TimeInForce;
+use crate::shared::{OrderBookId, PubkeyStr};
 use std::collections::HashMap;
 
 impl From<wire::OrderUpdate> for LimitOrder {
@@ -48,6 +53,7 @@ pub fn limit_snapshot_to_order(
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 pub fn trigger_snapshot_to_order(
     common: wire::UserSnapshotOrderCommon,
     trigger_order_id: String,
@@ -70,7 +76,8 @@ pub fn trigger_snapshot_to_order(
     }
 }
 
-pub fn split_snapshot_orders(
+#[cfg(feature = "trigger_orders")]
+pub fn convert_snapshot_orders(
     orders: Vec<wire::UserSnapshotOrder>,
 ) -> (UserOpenLimitOrders, UserTriggerOrders) {
     let mut open_orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>> = HashMap::new();
@@ -129,11 +136,41 @@ pub fn split_snapshot_orders(
     )
 }
 
+#[cfg(not(feature = "trigger_orders"))]
+pub fn convert_snapshot_orders(orders: Vec<wire::UserSnapshotOrder>) -> UserOpenLimitOrders {
+    let mut open_orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<LimitOrder>>> = HashMap::new();
+    for snapshot in orders {
+        match snapshot {
+            wire::UserSnapshotOrder::Limit {
+                common,
+                tx_signature,
+            } => {
+                if !common.remaining.is_zero() {
+                    let market = common.market_pubkey.clone();
+                    let orderbook = common.orderbook_id.clone();
+                    open_orders
+                        .entry(market)
+                        .or_default()
+                        .entry(orderbook)
+                        .or_default()
+                        .push(limit_snapshot_to_order(common, tx_signature));
+                }
+            }
+            wire::UserSnapshotOrder::Trigger { .. } => {}
+        }
+    }
+    UserOpenLimitOrders {
+        orders: open_orders,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain::order::OrderStatus;
-    use crate::shared::{OrderBookId, OrderUpdateType, PubkeyStr, Side, TriggerType};
+    #[cfg(feature = "trigger_orders")]
+    use crate::shared::TriggerType;
+    use crate::shared::{OrderBookId, OrderUpdateType, PubkeyStr, Side};
     use chrono::Utc;
     use rust_decimal::Decimal;
 
@@ -173,6 +210,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "trigger_orders")]
     fn make_trigger_snapshot(
         trigger_id: &str,
         market: &str,
@@ -252,6 +290,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_snapshot_conversion() {
         let snapshot = make_trigger_snapshot("trig-123", "mkt-xyz", "ob_test");
         if let wire::UserSnapshotOrder::Trigger {
@@ -280,7 +319,8 @@ mod tests {
     }
 
     #[test]
-    fn test_split_snapshot_orders() {
+    #[cfg(feature = "trigger_orders")]
+    fn test_convert_snapshot_orders() {
         let orders = vec![
             make_limit_snapshot("mkt1", "o1", Decimal::new(1, 0)),
             make_limit_snapshot("mkt1", "o2", Decimal::ZERO),
@@ -288,7 +328,7 @@ mod tests {
             make_trigger_snapshot("t2", "mkt-xyz", "ob_test"),
         ];
 
-        let (open, triggers) = split_snapshot_orders(orders);
+        let (open, triggers) = convert_snapshot_orders(orders);
         let mkt1_by_orderbook = open.get_by_market(&PubkeyStr::from("mkt1")).unwrap();
         let total_limit_orders: usize = mkt1_by_orderbook.values().map(|v| v.len()).sum();
         assert_eq!(total_limit_orders, 1);

@@ -5,7 +5,7 @@
 // ============================================================================
 // ENVELOPE / BUILDER
 // ============================================================================
-export { LimitOrderEnvelope, TriggerOrderEnvelope, type OrderEnvelope } from "./envelope";
+export { LimitOrderEnvelope, type OrderEnvelope } from "./envelope";
 export { ProgramSdkError, ProgramSdkError as SdkError } from "./error";
 export type { ProgramResult, ProgramResult as SdkResult } from "./error";
 
@@ -266,8 +266,6 @@ export {
   toSubmitRequest,
   cancelOrderMessage,
   signCancelOrder,
-  cancelTriggerOrderMessage,
-  signCancelTriggerOrder,
   cancelAllMessage,
   generateCancelAllSalt,
   signCancelAll,
@@ -275,7 +273,6 @@ export {
   orders_can_cross,
   calculate_taker_fill,
   cancel_order_message,
-  cancel_trigger_order_message,
   cancel_all_message,
   generate_cancel_all_salt,
   derive_condition_id,

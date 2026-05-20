@@ -97,7 +97,7 @@ def trigger_snapshot_to_order(snapshot: UserSnapshotOrder) -> TriggerOrder:
     )
 
 
-def split_snapshot_orders(
+def convert_snapshot_orders(
     snapshots: list[UserSnapshotOrder],
 ) -> tuple[UserOpenLimitOrders, UserTriggerOrders]:
     """Split a list of UserSnapshotOrders into limit and trigger containers."""

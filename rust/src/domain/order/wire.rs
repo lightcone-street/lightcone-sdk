@@ -222,6 +222,7 @@ pub struct TriggerOrderUpdate {
     pub tif: TimeInForce,
 }
 
+#[cfg(feature = "trigger_orders")]
 impl TriggerOrderUpdate {
     /// Convert this update into a domain TriggerOrder.
     pub fn into_trigger_order(self) -> super::TriggerOrder {

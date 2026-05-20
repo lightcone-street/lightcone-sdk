@@ -67,7 +67,7 @@ export function triggerSnapshotToOrder(
   };
 }
 
-export function splitSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenLimitOrders, UserTriggerOrders] {
+export function convertSnapshotOrders(orders: UserSnapshotOrder[]): [UserOpenLimitOrders, UserTriggerOrders] {
   const openOrders = new UserOpenLimitOrders();
   const triggerOrders = new UserTriggerOrders();
 

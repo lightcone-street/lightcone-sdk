@@ -16,22 +16,15 @@ async def main():
     snapshot = await client.orders().get_user_orders(50)
 
     limit_orders = [o for o in snapshot.orders if o.order_type == "limit"]
-    trigger_orders = [o for o in snapshot.orders if o.order_type == "trigger"]
 
-    print(f"orders: {len(limit_orders)} limit / {len(trigger_orders)} trigger")
+    print(f"orders: {len(limit_orders)} limit")
     print(f"balances: {len(snapshot.balances)} market")
     print(f"has more: {snapshot.has_more}")
 
-    if snapshot.orders:
-        first = snapshot.orders[0]
+    if limit_orders:
+        first = limit_orders[0]
         side = "BID" if first.side == 0 else "ASK"
-        if first.order_type == "limit":
-            print(f"first limit: {first.order_hash} {side} @ {first.price}")
-        else:
-            print(
-                f"first trigger: {first.trigger_order_id} {side} @ {first.price} "
-                f"(trigger {first.trigger_price})"
-            )
+        print(f"first limit: {first.order_hash} {side} @ {first.price}")
 
     # 2. Pagination
     if snapshot.next_cursor:

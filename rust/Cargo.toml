@@ -163,7 +163,7 @@ required-features = ["native"]
 
 [[example]]
 name = "user_orders"
-required-features = ["native"]
+required-features = ["native", "trigger_orders"]
 
 [[example]]
 name = "with_auth"
@@ -198,6 +198,10 @@ ws-wasm = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:j
 
 # Solana RPC client (native only)
 solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]
+
+# Trigger order types (stop-limit, take-profit-limit).
+# Under development — not yet available. For internal use only.
+trigger_orders = []
 
 # Convenience bundles
 native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls", "dep:tokio"]

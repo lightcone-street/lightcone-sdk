@@ -5,7 +5,9 @@ use crate::client::LightconeClient;
 use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
-use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
+#[cfg(feature = "trigger_orders")]
+use crate::program::envelope::TriggerOrderEnvelope;
+use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
@@ -119,6 +121,7 @@ impl CancelAllBody {
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelTriggerBody {
     pub trigger_order_id: String,
@@ -126,6 +129,7 @@ pub struct CancelTriggerBody {
     pub signature: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 impl CancelTriggerBody {
     /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
     /// Converts base58 to the hex encoding the backend expects.
@@ -192,12 +196,14 @@ pub struct CancelAllSuccess {
     pub message: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriggerOrderResponse {
     pub trigger_order_id: String,
     pub order_hash: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelTriggerSuccess {
     pub trigger_order_id: String,
@@ -248,6 +254,7 @@ impl<'a> Orders<'a> {
     ///
     /// Users can still override the deposit source on the returned envelope
     /// by calling `.deposit_source()` before signing.
+    #[cfg(feature = "trigger_orders")]
     pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
         let deposit_source = self.client.deposit_source().await;
         TriggerOrderEnvelope::new().deposit_source(deposit_source)
@@ -281,6 +288,7 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
+    #[cfg(feature = "trigger_orders")]
     pub async fn submit_trigger(
         &self,
         request: &impl serde::Serialize,
@@ -292,6 +300,7 @@ impl<'a> Orders<'a> {
             .await
     }
 
+    #[cfg(feature = "trigger_orders")]
     pub async fn cancel_trigger(
         &self,
         body: &CancelTriggerBody,
@@ -555,6 +564,7 @@ impl<'a> Orders<'a> {
     /// Cancel a trigger order using the client's signing strategy.
     ///
     /// Signs the cancel message and submits the cancellation request.
+    #[cfg(feature = "trigger_orders")]
     pub async fn cancel_trigger_signed(
         &self,
         trigger_order_id: &str,

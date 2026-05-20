@@ -15,15 +15,10 @@ from .shared import (
     RejectionCode,
     Side,
     TimeInForce,
-    TriggerType,
-    TriggerStatus,
-    TriggerResultStatus,
     OrderUpdateType,
-    TriggerUpdateType,
     DepositSource,
     Resolution,
     SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
     abbr_number,
     display,
     display_decimal,
@@ -98,7 +93,6 @@ from .privy import (
     ExportWalletRequest,
     ExportWalletResponse,
     privy_order_from_limit_envelope,
-    privy_order_from_trigger_envelope,
 )
 
 from .privy.client import Privy
@@ -323,7 +317,6 @@ from .program import (
     calculate_taker_fill,
     cancel_all_message,
     cancel_order_message,
-    cancel_trigger_order_message,
     generate_cancel_all_salt,
     sign_cancel_all,
     sign_cancel_order,
@@ -366,7 +359,6 @@ from .program import (
     build_close_orderbook_instruction,
     # Envelope & Builder
     LimitOrderEnvelope,
-    TriggerOrderEnvelope,
     OrderBuilder,
 )
 
@@ -402,15 +394,10 @@ __all__ = [
     "RejectionCode",
     "Side",
     "TimeInForce",
-    "TriggerType",
-    "TriggerStatus",
-    "TriggerResultStatus",
     "OrderUpdateType",
-    "TriggerUpdateType",
     "DepositSource",
     "Resolution",
     "SubmitOrderRequest",
-    "SubmitTriggerOrderRequest",
     # Shared utils
     "abbr_number",
     "display",
@@ -469,7 +456,6 @@ __all__ = [
     "ExportWalletResponse",
     "Privy",
     "privy_order_from_limit_envelope",
-    "privy_order_from_trigger_envelope",
     # HTTP
     "LightconeHttp",
     "RetryPolicy",
@@ -658,7 +644,6 @@ __all__ = [
     "calculate_taker_fill",
     "cancel_all_message",
     "cancel_order_message",
-    "cancel_trigger_order_message",
     "generate_cancel_all_salt",
     "sign_cancel_all",
     "sign_cancel_order",
@@ -701,7 +686,6 @@ __all__ = [
     "build_close_orderbook_instruction",
     # Program - Envelope & Builder
     "LimitOrderEnvelope",
-    "TriggerOrderEnvelope",
     "OrderBuilder",
     # Submodules
     "shared",
