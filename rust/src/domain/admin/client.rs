@@ -2,18 +2,21 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
-    AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminLogEvent, AdminLogEventsQuery,
-    AdminLogEventsResponse, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
-    AdminLogMetricsQuery, AdminLogMetricsResponse, AdminLoginRequest, AdminLoginResponse,
-    AdminMarketsQuery, AdminMarketsResponse, AdminNonceResponse, AllocateCodesRequest,
-    AllocateCodesResponse, CreateNotificationRequest, CreateNotificationResponse,
-    CriticalLogErrors24hCountResponse, DismissNotificationRequest, DismissNotificationResponse,
-    ListCodesRequest, ListCodesResponse, MarketsToSettleCountResponse, MarketsToSettleQuery,
-    MarketsToSettleResponse, MetadataCategoriesResponse, ReferralConfig, RevokeRequest,
+    AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminDepositTokenMetadataResponse,
+    AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricHistoryQuery,
+    AdminLogMetricHistoryResponse, AdminLogMetricsQuery, AdminLogMetricsResponse,
+    AdminLoginRequest, AdminLoginResponse, AdminMarketMetadataResponse, AdminMarketsQuery,
+    AdminMarketsResponse, AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse,
+    CreateNotificationRequest, CreateNotificationResponse, CriticalLogErrors24hCountResponse,
+    DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
+    MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
+    MetadataCategoriesResponse, MetadataImageUpdateResponse, ReferralConfig, RevokeRequest,
     RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest,
     UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
-    UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse, WhitelistRequest,
-    WhitelistResponse,
+    UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
+    UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataRequest,
+    UpdateMarketMetadataResponse, UploadMarketDeploymentAssetsRequest,
+    UploadMarketDeploymentAssetsResponse, WhitelistRequest, WhitelistResponse,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -85,6 +88,112 @@ impl<'a> Admin<'a> {
         self.client
             .http
             .admin_post(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Fetch full admin metadata for one market. Requires prior `admin_login()`.
+    pub async fn get_market_metadata(
+        &self,
+        market_id: i64,
+    ) -> Result<AdminMarketMetadataResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/markets/{}",
+            self.client.http.base_url(),
+            market_id
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Update database metadata for one market, its outcomes, and conditional tokens.
+    ///
+    /// This does not upload image bytes. Requires prior `admin_login()`.
+    pub async fn update_market_metadata(
+        &self,
+        market_id: i64,
+        request: &UpdateMarketMetadataRequest,
+    ) -> Result<UpdateMarketMetadataResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/markets/{}",
+            self.client.http.base_url(),
+            market_id
+        );
+        self.client
+            .http
+            .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Replace existing market, outcome, and conditional token image bytes at stable URLs.
+    ///
+    /// The database URL columns are not changed. Requires prior `admin_login()`.
+    pub async fn update_market_images(
+        &self,
+        market_id: i64,
+        request: &UpdateMarketImagesRequest,
+    ) -> Result<MetadataImageUpdateResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/markets/{}/images",
+            self.client.http.base_url(),
+            market_id
+        );
+        self.client
+            .http
+            .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Fetch database metadata for one deposit token. Requires prior `admin_login()`.
+    pub async fn get_deposit_token_metadata(
+        &self,
+        deposit_asset: &str,
+    ) -> Result<AdminDepositTokenMetadataResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/deposit-tokens/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(deposit_asset)
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Update database metadata for one deposit token. Requires prior `admin_login()`.
+    pub async fn update_deposit_token_metadata(
+        &self,
+        deposit_asset: &str,
+        request: &UpdateDepositTokenMetadataRequest,
+    ) -> Result<UpdateDepositTokenMetadataResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/deposit-tokens/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(deposit_asset)
+        );
+        self.client
+            .http
+            .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Replace existing deposit token icon bytes at stable URLs.
+    ///
+    /// The database URL columns are not changed. Requires prior `admin_login()`.
+    pub async fn update_deposit_token_images(
+        &self,
+        deposit_asset: &str,
+        request: &UpdateDepositTokenImagesRequest,
+    ) -> Result<MetadataImageUpdateResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/deposit-tokens/{}/images",
+            self.client.http.base_url(),
+            urlencoding::encode(deposit_asset)
+        );
+        self.client
+            .http
+            .admin_put(&url, request, RetryPolicy::None)
             .await
     }
 

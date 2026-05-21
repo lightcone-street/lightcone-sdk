@@ -223,6 +223,24 @@ impl LightconeHttp {
         .await
     }
 
+    /// PUT with retry. Uses admin cookie auth.
+    pub(crate) async fn admin_put<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::PUT,
+            url,
+            Some(body),
+            &[],
+            retry,
+            AuthMode::AdminCookie,
+        )
+        .await
+    }
+
     /// GET with retry. Uses admin cookie auth.
     pub(crate) async fn admin_get<T: DeserializeOwned>(
         &self,
@@ -453,6 +471,11 @@ impl LightconeHttp {
 
         let status_code = status.as_u16();
         let body_text = resp.text().await.unwrap_or_default();
+        if status_code != 429 {
+            if let Ok(parsed) = serde_json::from_str::<T>(&body_text) {
+                return Ok((parsed, request_id));
+            }
+        }
 
         match status_code {
             401 => Err(HttpError::Unauthorized),

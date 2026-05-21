@@ -92,6 +92,89 @@ Market `category` values are validated by the backend. For new market metadata r
 
 Potential category validation error codes include `MARKET_CATEGORY_REQUIRED`, `MARKET_CATEGORY_INVALID`, `MARKET_CATEGORY_NOT_WHITELISTED`, and `MARKET_CATEGORY_LOOKUP_FAILED`.
 
+### `get_market_metadata`
+
+```rust
+async fn get_market_metadata(
+    &self,
+    market_id: i64,
+) -> Result<AdminMarketMetadataResponse, SdkError>
+```
+
+Fetch full admin metadata for one market, including the canonical market row, optional market metadata row, deposit assets, outcomes, conditional token rows, and missing metadata indicators. Requires prior `admin_login()`.
+
+### `update_market_metadata`
+
+```rust
+async fn update_market_metadata(
+    &self,
+    market_id: i64,
+    request: &UpdateMarketMetadataRequest,
+) -> Result<UpdateMarketMetadataResponse, SdkError>
+```
+
+Update database metadata for one market, its outcomes, and conditional tokens. This does not upload image bytes. At least one of `market`, `outcomes`, or `conditional_tokens` must be non-empty. Requires prior `admin_login()`.
+
+```rust
+let request = UpdateMarketMetadataRequest {
+    market: Some(UpdateMarketMetadataPayload {
+        market_name: Some("Will BTC close above $100k?".into()),
+        category: Some("Crypto".into()),
+        ..Default::default()
+    }),
+    ..Default::default()
+};
+
+let response = client.admin().update_market_metadata(42, &request).await?;
+```
+
+### `update_market_images`
+
+```rust
+async fn update_market_images(
+    &self,
+    market_id: i64,
+    request: &UpdateMarketImagesRequest,
+) -> Result<MetadataImageUpdateResponse, SdkError>
+```
+
+Replace existing market, outcome, and conditional token image bytes at the metadata URLs already stored in the database. URL columns are not changed. Image variants must be WebP data URLs. Requires prior `admin_login()`.
+
+### `get_deposit_token_metadata`
+
+```rust
+async fn get_deposit_token_metadata(
+    &self,
+    deposit_asset: &str,
+) -> Result<AdminDepositTokenMetadataResponse, SdkError>
+```
+
+Fetch database metadata for one deposit token. Requires prior `admin_login()`.
+
+### `update_deposit_token_metadata`
+
+```rust
+async fn update_deposit_token_metadata(
+    &self,
+    deposit_asset: &str,
+    request: &UpdateDepositTokenMetadataRequest,
+) -> Result<UpdateDepositTokenMetadataResponse, SdkError>
+```
+
+Update database metadata for one deposit token. This does not upload image bytes. Requires prior `admin_login()`.
+
+### `update_deposit_token_images`
+
+```rust
+async fn update_deposit_token_images(
+    &self,
+    deposit_asset: &str,
+    request: &UpdateDepositTokenImagesRequest,
+) -> Result<MetadataImageUpdateResponse, SdkError>
+```
+
+Replace existing deposit token icon bytes at the metadata URLs already stored in the database. URL columns are not changed. Image variants must be WebP data URLs. Requires prior `admin_login()`.
+
 ### `list_metadata_categories`
 
 ```rust

@@ -236,6 +236,436 @@ pub struct DepositTokenMetadataResponse {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Response from `GET /api/admin/metadata/markets/{market_id}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketMetadataResponse {
+    pub market: AdminMetadataMarket,
+    #[serde(default)]
+    pub market_metadata: Option<AdminMarketMetadataRow>,
+    #[serde(default)]
+    pub deposit_assets: Vec<AdminMarketDepositAsset>,
+    #[serde(default)]
+    pub outcomes: Vec<AdminOutcomeMetadataEntry>,
+    pub missing_metadata: AdminMissingMetadata,
+}
+
+/// Canonical market row included in focused admin metadata responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMetadataMarket {
+    pub id: i64,
+    pub market_pubkey: PubkeyStr,
+    pub market_id: i64,
+    pub num_outcomes: i16,
+    pub oracle: PubkeyStr,
+    pub question_id: String,
+    pub condition_id: String,
+    pub bump: i16,
+    pub market_status: String,
+    #[serde(default)]
+    pub winning_outcome: Option<i16>,
+    pub has_winning_outcome: bool,
+    #[serde(default)]
+    pub payout_numerators: Option<Vec<i64>>,
+    #[serde(default)]
+    pub payout_denominator: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub activated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub settled_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Market metadata row, or `None` in [`AdminMarketMetadataResponse`] when missing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketMetadataRow {
+    pub id: i64,
+    pub market_id: i64,
+    #[serde(default)]
+    pub market_name: Option<String>,
+    #[serde(default)]
+    pub slug: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub definition: Option<String>,
+    #[serde(default)]
+    pub banner_image_url_low: Option<String>,
+    #[serde(default)]
+    pub banner_image_url_medium: Option<String>,
+    #[serde(default)]
+    pub banner_image_url_high: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+    #[serde(default)]
+    pub category: Option<String>,
+    #[serde(default)]
+    pub subcategory: Option<String>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub featured_rank: Option<i16>,
+    #[serde(default)]
+    pub metadata_uri: Option<String>,
+    #[serde(default)]
+    pub resolution_by: Option<i64>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Market deposit asset row included in focused admin metadata responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminMarketDepositAsset {
+    pub id: i32,
+    pub market_id: i64,
+    pub market_pubkey: PubkeyStr,
+    pub deposit_asset: PubkeyStr,
+    pub vault: PubkeyStr,
+    pub num_outcomes: i16,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Outcome metadata plus conditional token rows for one outcome index.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminOutcomeMetadataEntry {
+    pub outcome_index: i16,
+    #[serde(default)]
+    pub outcome_metadata: Option<AdminOutcomeMetadataRow>,
+    #[serde(default)]
+    pub conditional_tokens: Vec<AdminConditionalTokenMetadataEntry>,
+}
+
+/// Outcome metadata row, or `None` in [`AdminOutcomeMetadataEntry`] when missing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminOutcomeMetadataRow {
+    pub id: i64,
+    pub market_id: i64,
+    pub outcome_index: i16,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub name_long: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub metadata_uri: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Conditional mint row plus optional metadata for one conditional token.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminConditionalTokenMetadataEntry {
+    pub conditional_mint: AdminConditionalMintRow,
+    #[serde(default)]
+    pub conditional_token_metadata: Option<AdminConditionalTokenMetadataRow>,
+}
+
+/// Conditional mint database row included in focused admin metadata responses.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminConditionalMintRow {
+    pub id: i32,
+    pub market_deposit_mint_id: i32,
+    pub deposit_asset: PubkeyStr,
+    pub outcome_index: i16,
+    pub token_address: PubkeyStr,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub uri: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Conditional token metadata row, or `None` when missing.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminConditionalTokenMetadataRow {
+    pub id: i64,
+    pub conditional_mint_id: i32,
+    pub outcome_index: i16,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub deposit_symbol: Option<String>,
+    #[serde(default)]
+    pub short_symbol: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+    #[serde(default)]
+    pub metadata_uri: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<i16>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Missing metadata row identifiers returned by focused market metadata reads.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminMissingMetadata {
+    #[serde(default)]
+    pub market_metadata: bool,
+    #[serde(default)]
+    pub outcomes: Vec<i16>,
+    #[serde(default)]
+    pub conditional_tokens: Vec<i32>,
+}
+
+/// Request body for `PUT /api/admin/metadata/markets/{market_id}`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UpdateMarketMetadataRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market: Option<UpdateMarketMetadataPayload>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outcomes: Vec<UpdateOutcomeMetadataPayload>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_tokens: Vec<UpdateConditionalTokenMetadataPayload>,
+}
+
+/// Market-level update payload for focused market metadata updates.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct UpdateMarketMetadataPayload {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slug: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_image_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_image_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub banner_image_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subcategory: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub featured_rank: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_uri: Option<String>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_nullable"
+    )]
+    pub resolution_by: Option<Option<i64>>,
+}
+
+impl UpdateMarketMetadataPayload {
+    pub fn with_resolution_by(mut self, resolution_by_ms: i64) -> Self {
+        self.resolution_by = Some(Some(resolution_by_ms));
+        self
+    }
+
+    pub fn with_cleared_resolution_by(mut self) -> Self {
+        self.resolution_by = Some(None);
+        self
+    }
+}
+
+/// Outcome update payload for focused market metadata updates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateOutcomeMetadataPayload {
+    pub outcome_index: i16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name_long: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_uri: Option<String>,
+}
+
+/// Conditional token update payload for focused market metadata updates.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateConditionalTokenMetadataPayload {
+    pub conditional_mint_id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome_index: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deposit_symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decimals: Option<i16>,
+}
+
+/// Focused market metadata update response.
+pub type UpdateMarketMetadataResponse = UnifiedMetadataResponse;
+
+/// Three quality variants for metadata images.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminImageVariants {
+    pub low: String,
+    pub medium: String,
+    pub high: String,
+}
+
+/// Request body for `PUT /api/admin/metadata/markets/{market_id}/images`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateMarketImagesRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_icon: Option<AdminImageVariants>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub market_banner: Option<AdminImageVariants>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outcomes: Vec<UpdateOutcomeImageRequest>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conditional_tokens: Vec<UpdateConditionalTokenImageRequest>,
+}
+
+/// Outcome image replacement payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateOutcomeImageRequest {
+    pub outcome_index: i16,
+    pub icon: AdminImageVariants,
+}
+
+/// Conditional token image replacement payload.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateConditionalTokenImageRequest {
+    pub conditional_mint_id: i32,
+    pub icon: AdminImageVariants,
+}
+
+/// Request body for `PUT /api/admin/metadata/deposit-tokens/{deposit_asset}/images`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateDepositTokenImagesRequest {
+    pub icon: AdminImageVariants,
+}
+
+/// Image replacement response from focused metadata image endpoints.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MetadataImageUpdateResponse {
+    #[serde(default)]
+    pub updated: Vec<MetadataImageUpdate>,
+    pub database_updated: bool,
+    #[serde(default)]
+    pub invalidation_paths: Vec<String>,
+}
+
+/// One replaced metadata image target.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MetadataImageUpdate {
+    pub target_type: MetadataImageTargetType,
+    #[serde(default)]
+    pub outcome_index: Option<i16>,
+    #[serde(default)]
+    pub conditional_mint_id: Option<i32>,
+    #[serde(default)]
+    pub conditional_mint: Option<PubkeyStr>,
+    #[serde(default)]
+    pub deposit_asset: Option<PubkeyStr>,
+    pub urls: AdminImageVariants,
+}
+
+/// Metadata image target discriminator.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MetadataImageTargetType {
+    MarketIcon,
+    MarketBanner,
+    OutcomeIcon,
+    ConditionalTokenIcon,
+    DepositTokenIcon,
+}
+
+/// Response from `GET /api/admin/metadata/deposit-tokens/{deposit_asset}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminDepositTokenMetadataResponse {
+    pub deposit_asset: PubkeyStr,
+    pub deposit_token_metadata: DepositTokenMetadataResponse,
+}
+
+/// Request body for `PUT /api/admin/metadata/deposit-tokens/{deposit_asset}`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateDepositTokenMetadataRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon_url_high: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub metadata_uri: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decimals: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_order_size: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binance_symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub binance_enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub okx_inst_id: Option<String>,
+}
+
+/// Response from `PUT /api/admin/metadata/deposit-tokens/{deposit_asset}`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateDepositTokenMetadataResponse {
+    #[serde(default)]
+    pub deposit_tokens: Vec<DepositTokenMetadataResponse>,
+}
+
 /// Response body from `GET /api/admin/metadata/categories`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MetadataCategoriesResponse {
@@ -1494,6 +1924,303 @@ mod tests {
         assert!(token.binance_enabled);
         assert_eq!(token.okx_inst_id.as_deref(), Some("BTC-USDT"));
         assert_eq!(token.min_order_size, 100_000);
+    }
+
+    #[test]
+    fn admin_market_metadata_response_reads_nested_rows_and_missing_metadata() {
+        let response: AdminMarketMetadataResponse = serde_json::from_value(json!({
+            "market": {
+                "id": 1,
+                "market_pubkey": "11111111111111111111111111111111",
+                "market_id": 42,
+                "num_outcomes": 2,
+                "oracle": "11111111111111111111111111111111",
+                "question_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "condition_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+                "bump": 255,
+                "market_status": "Active",
+                "winning_outcome": null,
+                "has_winning_outcome": false,
+                "payout_numerators": null,
+                "payout_denominator": null,
+                "created_at": "2026-05-21T10:00:00Z",
+                "activated_at": "2026-05-21T10:00:00Z",
+                "settled_at": null,
+                "updated_at": "2026-05-21T10:00:00Z"
+            },
+            "market_metadata": {
+                "id": 10,
+                "market_id": 42,
+                "market_name": "Will BTC close above $100k?",
+                "slug": "will-btc-close-above-100k",
+                "description": "Market description",
+                "definition": "Resolution rules",
+                "category": "Crypto",
+                "tags": ["btc", "crypto"],
+                "featured_rank": 0,
+                "resolution_by": 1770000000000i64,
+                "created_at": "2026-05-21T10:00:00Z",
+                "updated_at": "2026-05-21T10:00:00Z"
+            },
+            "deposit_assets": [{
+                "id": 7,
+                "market_id": 42,
+                "market_pubkey": "11111111111111111111111111111111",
+                "deposit_asset": "So11111111111111111111111111111111111111112",
+                "vault": "11111111111111111111111111111111",
+                "num_outcomes": 2,
+                "created_at": "2026-05-21T10:00:00Z"
+            }],
+            "outcomes": [{
+                "outcome_index": 0,
+                "outcome_metadata": null,
+                "conditional_tokens": [{
+                    "conditional_mint": {
+                        "id": 31,
+                        "market_deposit_mint_id": 7,
+                        "deposit_asset": "So11111111111111111111111111111111111111112",
+                        "outcome_index": 0,
+                        "token_address": "11111111111111111111111111111111",
+                        "name": "YES SOL",
+                        "symbol": "YES-SOL",
+                        "uri": "https://metadata.example/token.json",
+                        "created_at": "2026-05-21T10:00:00Z"
+                    },
+                    "conditional_token_metadata": null
+                }]
+            }],
+            "missing_metadata": {
+                "market_metadata": false,
+                "outcomes": [0],
+                "conditional_tokens": [31]
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(response.market.market_id, 42);
+        assert_eq!(
+            response
+                .market_metadata
+                .as_ref()
+                .and_then(|metadata| metadata.resolution_by),
+            Some(1_770_000_000_000)
+        );
+        assert_eq!(response.deposit_assets[0].num_outcomes, 2);
+        assert!(response.outcomes[0].outcome_metadata.is_none());
+        assert!(response.outcomes[0].conditional_tokens[0]
+            .conditional_token_metadata
+            .is_none());
+        assert_eq!(response.missing_metadata.outcomes, vec![0]);
+        assert_eq!(response.missing_metadata.conditional_tokens, vec![31]);
+    }
+
+    #[test]
+    fn update_market_metadata_request_serializes_path_scoped_body() {
+        let request = UpdateMarketMetadataRequest {
+            market: Some(
+                UpdateMarketMetadataPayload {
+                    market_name: Some("Updated market".to_string()),
+                    tags: Some(vec!["btc".to_string(), "crypto".to_string()]),
+                    ..Default::default()
+                }
+                .with_cleared_resolution_by(),
+            ),
+            outcomes: vec![UpdateOutcomeMetadataPayload {
+                outcome_index: 0,
+                name: Some("YES".to_string()),
+                name_long: None,
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
+                description: None,
+                metadata_uri: None,
+            }],
+            conditional_tokens: vec![UpdateConditionalTokenMetadataPayload {
+                conditional_mint_id: 31,
+                outcome_index: Some(0),
+                outcome: Some("YES".to_string()),
+                deposit_symbol: None,
+                short_symbol: None,
+                description: None,
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
+                metadata_uri: None,
+                decimals: Some(6),
+            }],
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market": {
+                    "market_name": "Updated market",
+                    "tags": ["btc", "crypto"],
+                    "resolution_by": null
+                },
+                "outcomes": [{
+                    "outcome_index": 0,
+                    "name": "YES"
+                }],
+                "conditional_tokens": [{
+                    "conditional_mint_id": 31,
+                    "outcome_index": 0,
+                    "outcome": "YES",
+                    "decimals": 6
+                }]
+            })
+        );
+        assert!(value["market"].get("market_id").is_none());
+    }
+
+    #[test]
+    fn metadata_image_requests_and_response_use_variant_triplets() {
+        let variants = AdminImageVariants {
+            low: "data:image/webp;base64,low".to_string(),
+            medium: "data:image/webp;base64,medium".to_string(),
+            high: "data:image/webp;base64,high".to_string(),
+        };
+        let request = UpdateMarketImagesRequest {
+            market_icon: Some(variants.clone()),
+            market_banner: None,
+            outcomes: vec![UpdateOutcomeImageRequest {
+                outcome_index: 0,
+                icon: variants.clone(),
+            }],
+            conditional_tokens: vec![UpdateConditionalTokenImageRequest {
+                conditional_mint_id: 31,
+                icon: variants.clone(),
+            }],
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "market_icon": {
+                    "low": "data:image/webp;base64,low",
+                    "medium": "data:image/webp;base64,medium",
+                    "high": "data:image/webp;base64,high"
+                },
+                "outcomes": [{
+                    "outcome_index": 0,
+                    "icon": {
+                        "low": "data:image/webp;base64,low",
+                        "medium": "data:image/webp;base64,medium",
+                        "high": "data:image/webp;base64,high"
+                    }
+                }],
+                "conditional_tokens": [{
+                    "conditional_mint_id": 31,
+                    "icon": {
+                        "low": "data:image/webp;base64,low",
+                        "medium": "data:image/webp;base64,medium",
+                        "high": "data:image/webp;base64,high"
+                    }
+                }]
+            })
+        );
+
+        let response: MetadataImageUpdateResponse = serde_json::from_value(json!({
+            "updated": [{
+                "target_type": "deposit_token_icon",
+                "outcome_index": null,
+                "conditional_mint_id": null,
+                "conditional_mint": null,
+                "deposit_asset": "So11111111111111111111111111111111111111112",
+                "urls": {
+                    "low": "https://cdn/low.webp",
+                    "medium": "https://cdn/medium.webp",
+                    "high": "https://cdn/high.webp"
+                }
+            }],
+            "database_updated": false,
+            "invalidation_paths": ["/metadata/deposit-tokens/low.webp"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            response.updated[0].target_type,
+            MetadataImageTargetType::DepositTokenIcon
+        );
+        assert_eq!(
+            response.updated[0]
+                .deposit_asset
+                .as_ref()
+                .map(|mint| mint.as_str()),
+            Some("So11111111111111111111111111111111111111112")
+        );
+        assert!(!response.database_updated);
+        assert_eq!(response.invalidation_paths.len(), 1);
+    }
+
+    #[test]
+    fn focused_deposit_token_metadata_types_roundtrip() {
+        let response: AdminDepositTokenMetadataResponse = serde_json::from_value(json!({
+            "deposit_asset": "So11111111111111111111111111111111111111112",
+            "deposit_token_metadata": {
+                "id": 50,
+                "deposit_asset": "So11111111111111111111111111111111111111112",
+                "display_name": "Solana",
+                "symbol": "SOL",
+                "token_symbol": "SOL",
+                "binance_symbol": "SOLUSDT",
+                "okx_inst_id": "SOL-USDT",
+                "description": "Solana deposit token",
+                "icon_url_low": "https://cdn/sol-low.webp",
+                "icon_url_medium": "https://cdn/sol-medium.webp",
+                "icon_url_high": "https://cdn/sol-high.webp",
+                "metadata_uri": "https://cdn/sol.json",
+                "decimals": 9,
+                "min_order_size": 1000000,
+                "created_at": "2026-05-21T10:00:00Z",
+                "updated_at": "2026-05-21T10:00:00Z"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(response.deposit_token_metadata.symbol, "SOL");
+        assert!(!response.deposit_token_metadata.binance_enabled);
+
+        let request = UpdateDepositTokenMetadataRequest {
+            display_name: Some("Solana".to_string()),
+            symbol: Some("SOL".to_string()),
+            token_symbol: Some("SOL".to_string()),
+            min_order_size: Some(1_000_000),
+            okx_inst_id: Some("SOL-USDT".to_string()),
+            ..Default::default()
+        };
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "display_name": "Solana",
+                "symbol": "SOL",
+                "token_symbol": "SOL",
+                "min_order_size": 1_000_000,
+                "okx_inst_id": "SOL-USDT"
+            })
+        );
+        assert!(value.get("deposit_asset").is_none());
+
+        let images = UpdateDepositTokenImagesRequest {
+            icon: AdminImageVariants {
+                low: "data:image/webp;base64,low".to_string(),
+                medium: "data:image/webp;base64,medium".to_string(),
+                high: "data:image/webp;base64,high".to_string(),
+            },
+        };
+        assert_eq!(
+            serde_json::to_value(images).unwrap(),
+            json!({
+                "icon": {
+                    "low": "data:image/webp;base64,low",
+                    "medium": "data:image/webp;base64,medium",
+                    "high": "data:image/webp;base64,high"
+                }
+            })
+        );
     }
 
     #[test]

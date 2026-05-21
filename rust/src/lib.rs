@@ -128,19 +128,23 @@ pub mod prelude {
 
     // Domain types — admin (referral config/codes and logs)
     pub use crate::domain::admin::{
-        AddMetadataCategoryRequest, AddMetadataCategoryResponse,
-        AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
-        AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
-        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketRow,
-        AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
-        CodeListEntry, ConditionalTokenMetadataPayload,
+        AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminDepositTokenMetadataResponse,
+        AdminImageVariants, AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse,
+        AdminLogMetricBreakdown, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
+        AdminLogMetricPoint, AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse,
+        AdminMarketMetadataResponse, AdminMarketRow, AdminMarketStatus, AdminMarketStatusFilter,
+        AdminMarketsQuery, AdminMarketsResponse, CodeListEntry, ConditionalTokenMetadataPayload,
         CriticalLogErrors24hCountResponse, DepositTokenMetadataPayload,
-        DepositTokenMetadataResponse, ListCodesRequest, ListCodesResponse,
-        MarketMetadataPayload, MarketsToSettleCountResponse,
-        MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse,
-        OutcomeMetadataPayload, ReferralConfig,
+        DepositTokenMetadataResponse, ListCodesRequest, ListCodesResponse, MarketMetadataPayload,
+        MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
+        MetadataCategoriesResponse, MetadataImageTargetType, MetadataImageUpdate,
+        MetadataImageUpdateResponse, OutcomeMetadataPayload, ReferralConfig,
         UnifiedMetadataRequest, UnifiedMetadataResponse, UpdateCodeRequest, UpdateCodeResponse,
-        UpdateConfigRequest,
+        UpdateConditionalTokenImageRequest, UpdateConditionalTokenMetadataPayload,
+        UpdateConfigRequest, UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
+        UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataPayload,
+        UpdateMarketMetadataRequest, UpdateMarketMetadataResponse, UpdateOutcomeImageRequest,
+        UpdateOutcomeMetadataPayload,
     };
 
     // Errors
