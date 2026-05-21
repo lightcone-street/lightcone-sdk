@@ -259,7 +259,8 @@ pub struct AdminMetadataMarket {
     pub oracle: PubkeyStr,
     pub question_id: String,
     pub condition_id: String,
-    pub bump: i16,
+    #[serde(default)]
+    pub bump: Option<i16>,
     pub market_status: String,
     #[serde(default)]
     pub winning_outcome: Option<i16>,
@@ -1112,19 +1113,43 @@ pub struct AdminLogEventsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub service_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_names: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environments: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub category: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub categories: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub severity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub severities: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub component: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub components: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub operation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub operations: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fingerprint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub fingerprints: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub response_status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response_statuses: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_codes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejection_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejection_codes: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user_visible: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1202,6 +1227,10 @@ pub struct AdminLogEvent {
     pub fingerprint: Option<String>,
     #[serde(default)]
     pub response_status: Option<String>,
+    #[serde(default)]
+    pub error_code: Option<String>,
+    #[serde(default)]
+    pub rejection_code: Option<String>,
     pub context: serde_json::Value,
 }
 
@@ -1861,6 +1890,108 @@ mod tests {
     }
 
     #[test]
+    fn admin_log_events_query_serializes_error_identity_filters() {
+        let query = AdminLogEventsQuery {
+            error_code: Some("MARKET_METADATA_FETCH_FAILED".to_string()),
+            error_codes: Some(
+                "MARKET_METADATA_FETCH_FAILED,METADATA_IMAGE_URL_MISSING".to_string(),
+            ),
+            rejection_code: Some("BROADCAST_FAILURE".to_string()),
+            rejection_codes: Some("ORDER_NOT_FOUND,SELF_TRADE".to_string()),
+            limit: Some(100),
+            ..Default::default()
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "error_code=MARKET_METADATA_FETCH_FAILED&error_codes=MARKET_METADATA_FETCH_FAILED%2CMETADATA_IMAGE_URL_MISSING&rejection_code=BROADCAST_FAILURE&rejection_codes=ORDER_NOT_FOUND%2CSELF_TRADE&limit=100"
+        );
+    }
+
+    #[test]
+    fn admin_log_events_query_serializes_plural_dimension_filters() {
+        let query = AdminLogEventsQuery {
+            service_names: Some("api,engine".to_string()),
+            environments: Some("production,staging".to_string()),
+            categories: Some("api_error,business_rejection".to_string()),
+            severities: Some("error,critical".to_string()),
+            components: Some("admin_handler,grpc".to_string()),
+            operations: Some("get_market_metadata_admin,submit_order".to_string()),
+            fingerprints: Some(
+                "api_error|admin_handler|get_market_metadata_admin,business_rejection|grpc|submit_order|BROADCAST_FAILURE"
+                    .to_string(),
+            ),
+            response_statuses: Some("error,rejected".to_string()),
+            cursor: Some("opaque-cursor".to_string()),
+            ..Default::default()
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "service_names=api%2Cengine&environments=production%2Cstaging&categories=api_error%2Cbusiness_rejection&severities=error%2Ccritical&components=admin_handler%2Cgrpc&operations=get_market_metadata_admin%2Csubmit_order&fingerprints=api_error%7Cadmin_handler%7Cget_market_metadata_admin%2Cbusiness_rejection%7Cgrpc%7Csubmit_order%7CBROADCAST_FAILURE&response_statuses=error%2Crejected&cursor=opaque-cursor"
+        );
+    }
+
+    #[test]
+    fn admin_log_event_deserializes_error_and_rejection_codes() {
+        let event: AdminLogEvent = serde_json::from_value(json!({
+            "id": 991,
+            "public_id": "LCERR_0198D0F3B07B7AA8A24F73DCD6C68E12",
+            "service_name": "api",
+            "environment": "production",
+            "component": "admin_handler",
+            "operation": "get_market_metadata_admin",
+            "category": "api_error",
+            "severity": "error",
+            "occurred_at_ms": 1770000000000i64,
+            "created_at_ms": 1770000000100i64,
+            "user_visible": true,
+            "request_id": "0198d0f3-b07b-7aa8-a24f-73dcd6c68e12",
+            "http_status": 500,
+            "message": "Failed to fetch market metadata",
+            "fingerprint": "api_error|admin_handler|get_market_metadata_admin",
+            "response_status": "error",
+            "error_code": "MARKET_METADATA_FETCH_FAILED",
+            "rejection_code": "BROADCAST_FAILURE",
+            "context": {
+                "rejection_code": "BROADCAST_FAILURE"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            event.error_code.as_deref(),
+            Some("MARKET_METADATA_FETCH_FAILED")
+        );
+        assert_eq!(event.rejection_code.as_deref(), Some("BROADCAST_FAILURE"));
+    }
+
+    #[test]
+    fn admin_log_event_deserializes_when_error_identity_fields_are_absent() {
+        let event: AdminLogEvent = serde_json::from_value(json!({
+            "id": 1002,
+            "public_id": "LCERR_0198D0F4AA537D2C9C7D4BA640A91E20",
+            "service_name": "engine",
+            "environment": "production",
+            "component": "grpc",
+            "operation": "submit_order",
+            "category": "business_rejection",
+            "severity": "error",
+            "occurred_at_ms": 1770000600000i64,
+            "created_at_ms": 1770000600050i64,
+            "user_visible": true,
+            "message": "Order broadcast failed",
+            "context": {}
+        }))
+        .unwrap();
+
+        assert!(event.error_code.is_none());
+        assert!(event.rejection_code.is_none());
+    }
+
+    #[test]
     fn deposit_token_metadata_payload_serializes_price_feed_and_min_order_fields() {
         let request = DepositTokenMetadataPayload {
             deposit_asset: "TOKEN_MINT".to_string(),
@@ -1937,7 +2068,7 @@ mod tests {
                 "oracle": "11111111111111111111111111111111",
                 "question_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
                 "condition_id": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-                "bump": 255,
+                "bump": null,
                 "market_status": "Active",
                 "winning_outcome": null,
                 "has_winning_outcome": false,
@@ -1998,6 +2129,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(response.market.market_id, 42);
+        assert_eq!(response.market.bump, None);
         assert_eq!(
             response
                 .market_metadata

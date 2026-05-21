@@ -353,7 +353,7 @@ async fn list_log_events(
 ) -> Result<AdminLogEventsResponse, SdkError>
 ```
 
-List structured log events with optional filters (time range, service, component, severity, user/market/orderbook, etc.). Pagination is cursor-based — pass the previous response's `next_cursor` on the next call. Requires prior `admin_login()`.
+List structured log events with optional filters (time range, service, component, severity, error code, rejection code, user/market/orderbook, etc.). Pagination is cursor-based — pass the previous response's `next_cursor` on the next call. Requires prior `admin_login()`.
 
 ### `get_log_event`
 
@@ -837,11 +837,15 @@ All upload data URLs must start with `data:image/webp;base64,`.
 
 ### `AdminLogEventsQuery`
 
-Filter set for the events listing endpoint. All fields optional. Keys include `from_ms`, `to_ms`, `service_name`, `environment`, `category`, `severity`, `component`, `operation`, `fingerprint`, `response_status`, `user_visible`, `request_id`, `user_pubkey` (`PubkeyStr`), `market_pubkey` (`PubkeyStr`), `orderbook_id` (`OrderBookId`), `order_hash`, `trigger_order_id`, `tx_signature`, `checkpoint_signature`, `limit`, and `cursor`.
+Filter set for the events listing endpoint. All fields optional. Keys include `from_ms`, `to_ms`, `service_name`, `service_names`, `environment`, `environments`, `category`, `categories`, `severity`, `severities`, `component`, `components`, `operation`, `operations`, `fingerprint`, `fingerprints`, `response_status`, `response_statuses`, `error_code`, `error_codes`, `rejection_code`, `rejection_codes`, `user_visible`, `request_id`, `user_pubkey` (`PubkeyStr`), `market_pubkey` (`PubkeyStr`), `orderbook_id` (`OrderBookId`), `order_hash`, `trigger_order_id`, `tx_signature`, `checkpoint_signature`, `limit`, and `cursor`.
+
+Plural filter fields are comma-separated strings. Different filter dimensions are combined with `AND`; multiple values within one dimension are combined with `OR`. Singular and plural filters for the same dimension are merged by the backend. Keep the same filters when reusing `cursor` for pagination.
+
+The logging service persists only `error` and `critical` events. Queries for `warning` or `info` severity should not be expected to return newly ingested logs.
 
 ### `AdminLogEvent`
 
-A single structured log event. Key fields: `id`, `public_id`, `service_name`, `environment`, `component`, `operation`, `category`, `severity`, `occurred_at_ms`, `created_at_ms`, `user_visible`, and free-form `context: serde_json::Value`. Entity bindings (`user_pubkey`, `market_pubkey`, `orderbook_id`, etc.) are all optional.
+A single structured log event. Key fields: `id`, `public_id`, `service_name`, `environment`, `component`, `operation`, `category`, `severity`, `occurred_at_ms`, `created_at_ms`, `user_visible`, optional `error_code`, optional `rejection_code`, and free-form `context: serde_json::Value`. Entity bindings (`user_pubkey`, `market_pubkey`, `orderbook_id`, etc.) are all optional.
 
 ### `AdminLogEventsResponse`, `AdminLogMetricsResponse`, `AdminLogMetricHistoryResponse`
 
