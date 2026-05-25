@@ -629,6 +629,13 @@ pub struct AdminDepositTokenMetadataResponse {
     pub deposit_token_metadata: DepositTokenMetadataResponse,
 }
 
+/// Response from `GET /api/admin/metadata/deposit-tokens`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AdminDepositTokenMetadataListResponse {
+    #[serde(default)]
+    pub deposit_tokens: Vec<DepositTokenMetadataResponse>,
+}
+
 /// Request body for `PUT /api/admin/metadata/deposit-tokens/{deposit_asset}`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateDepositTokenMetadataRequest {
@@ -948,6 +955,85 @@ pub struct AdminMarketsQuery {
     pub max_fees_total_usd: Option<Decimal>,
 }
 
+/// Shared query parameters for admin metrics table endpoints.
+///
+/// Used by `GET /api/admin/deposit-tokens` and `GET /api/admin/categories`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct AdminMetricsTableQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_by: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort_direction: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub search: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_volume_total_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_volume_total_usd: Option<Decimal>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_24h: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_24h: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_7d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_7d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_30d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_30d: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_unique_traders_total: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_unique_traders_total: Option<u64>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_open_interest_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_open_interest_usd: Option<Decimal>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_24h_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_7d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_30d_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_fees_total_usd: Option<Decimal>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_fees_total_usd: Option<Decimal>,
+}
+
+/// Query parameters for `GET /api/admin/deposit-tokens`.
+pub type AdminDepositTokensQuery = AdminMetricsTableQuery;
+
+/// Query parameters for `GET /api/admin/categories`.
+pub type AdminCategoriesQuery = AdminMetricsTableQuery;
+
 /// Response from `GET /api/admin/markets`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminMarketsResponse {
@@ -994,6 +1080,106 @@ pub struct AdminMarketRow {
     pub activated_at: Option<DateTime<Utc>>,
     pub settled_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// Response from `GET /api/admin/deposit-tokens`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminDepositTokensResponse {
+    pub timestamp: i64,
+    pub sort_by: String,
+    pub sort_direction: String,
+    pub total: u64,
+    pub limit: u32,
+    #[serde(default)]
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
+    #[serde(default)]
+    pub deposit_tokens: Vec<AdminDepositTokenRow>,
+}
+
+/// A single row in the admin deposit tokens metrics table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminDepositTokenRow {
+    pub rank: u64,
+    pub deposit_asset: String,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub token_symbol: Option<String>,
+    #[serde(default)]
+    pub binance_symbol: Option<String>,
+    #[serde(default)]
+    pub okx_inst_id: Option<String>,
+    #[serde(default)]
+    pub icon_url: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<i16>,
+    #[serde(default)]
+    pub min_order_size: Option<i64>,
+    pub open_interest_usd: Decimal,
+    pub volume_24h_usd: Decimal,
+    pub volume_7d_usd: Decimal,
+    pub volume_30d_usd: Decimal,
+    pub volume_total_usd: Decimal,
+    pub unique_traders_24h: u64,
+    pub unique_traders_7d: u64,
+    pub unique_traders_30d: u64,
+    pub unique_traders_total: u64,
+    pub fees_24h_usd: Decimal,
+    pub fees_7d_usd: Decimal,
+    pub fees_30d_usd: Decimal,
+    pub fees_total_usd: Decimal,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// Response from `GET /api/admin/categories`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminCategoriesResponse {
+    pub timestamp: i64,
+    pub sort_by: String,
+    pub sort_direction: String,
+    pub total: u64,
+    pub limit: u32,
+    #[serde(default)]
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
+    #[serde(default)]
+    pub categories: Vec<AdminCategoryRow>,
+}
+
+/// A single row in the admin categories metrics table.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AdminCategoryRow {
+    pub rank: u64,
+    #[serde(default)]
+    pub category_id: Option<i64>,
+    pub category: String,
+    pub category_key: String,
+    pub market_count: u64,
+    pub active_market_count: u64,
+    pub resolved_market_count: u64,
+    pub open_interest_usd: Decimal,
+    pub volume_24h_usd: Decimal,
+    pub volume_7d_usd: Decimal,
+    pub volume_30d_usd: Decimal,
+    pub volume_total_usd: Decimal,
+    pub unique_traders_24h: u64,
+    pub unique_traders_7d: u64,
+    pub unique_traders_30d: u64,
+    pub unique_traders_total: u64,
+    pub fees_24h_usd: Decimal,
+    pub fees_7d_usd: Decimal,
+    pub fees_30d_usd: Decimal,
+    pub fees_total_usd: Decimal,
+    #[serde(default)]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub updated_at: Option<DateTime<Utc>>,
 }
 
 // ============================================================================
@@ -1845,6 +2031,131 @@ mod tests {
     }
 
     #[test]
+    fn admin_metrics_table_query_serializes_shared_filters() {
+        let query = AdminDepositTokensQuery {
+            cursor: Some(200),
+            limit: Some(25),
+            sort_by: Some("fees_total_usd".to_string()),
+            sort_direction: Some("ascending".to_string()),
+            search: Some("sol".to_string()),
+            min_volume_7d_usd: Some(Decimal::from_str("100.25").unwrap()),
+            max_unique_traders_30d: Some(500),
+            min_open_interest_usd: Some(Decimal::from_str("10").unwrap()),
+            ..Default::default()
+        };
+
+        let query_string = serde_urlencoded::to_string(query).unwrap();
+        assert_eq!(
+            query_string,
+            "cursor=200&limit=25&sort_by=fees_total_usd&sort_direction=ascending&search=sol&min_volume_7d_usd=100.25&max_unique_traders_30d=500&min_open_interest_usd=10"
+        );
+    }
+
+    #[test]
+    fn admin_deposit_tokens_response_deserializes_metric_rows() {
+        let response: AdminDepositTokensResponse = serde_json::from_value(json!({
+            "timestamp": 1_770_000_000_000i64,
+            "sort_by": "volume_24h_usd",
+            "sort_direction": "desc",
+            "total": 2,
+            "limit": 200,
+            "next_cursor": null,
+            "has_more": false,
+            "deposit_tokens": [{
+                "rank": 1,
+                "deposit_asset": "So11111111111111111111111111111111111111112",
+                "display_name": "Wrapped SOL",
+                "symbol": "SOL",
+                "token_symbol": "SOL",
+                "binance_symbol": "SOLUSDT",
+                "okx_inst_id": "SOL-USDT",
+                "icon_url": "https://metadata.example/deposit-tokens/sol/icon.webp",
+                "decimals": 9,
+                "min_order_size": 1000000,
+                "open_interest_usd": "125000.50",
+                "volume_24h_usd": "42000.25",
+                "volume_7d_usd": "250000.75",
+                "volume_30d_usd": "900000.00",
+                "volume_total_usd": "1250000.00",
+                "unique_traders_24h": 40,
+                "unique_traders_7d": 180,
+                "unique_traders_30d": 420,
+                "unique_traders_total": 700,
+                "fees_24h_usd": "21.00",
+                "fees_7d_usd": "125.50",
+                "fees_30d_usd": "450.00",
+                "fees_total_usd": "625.00",
+                "created_at": "2026-05-21T10:00:00Z",
+                "updated_at": "2026-05-21T10:15:00Z"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.total, 2);
+        assert_eq!(response.next_cursor, None);
+        assert_eq!(response.deposit_tokens.len(), 1);
+
+        let token = &response.deposit_tokens[0];
+        assert_eq!(token.symbol.as_deref(), Some("SOL"));
+        assert_eq!(token.decimals, Some(9));
+        assert_eq!(
+            token.open_interest_usd,
+            Decimal::from_str("125000.50").unwrap()
+        );
+        assert_eq!(token.unique_traders_total, 700);
+        assert_eq!(token.fees_total_usd, Decimal::from_str("625.00").unwrap());
+        assert!(token.created_at.is_some());
+    }
+
+    #[test]
+    fn admin_categories_response_deserializes_metric_rows() {
+        let response: AdminCategoriesResponse = serde_json::from_value(json!({
+            "timestamp": 1_770_000_000_000i64,
+            "sort_by": "volume_24h_usd",
+            "sort_direction": "desc",
+            "total": 1,
+            "limit": 200,
+            "has_more": false,
+            "categories": [{
+                "rank": 1,
+                "category": "Crypto",
+                "category_key": "crypto",
+                "market_count": 18,
+                "active_market_count": 14,
+                "resolved_market_count": 4,
+                "open_interest_usd": "350000.00",
+                "volume_24h_usd": "115000.50",
+                "volume_7d_usd": "700000.25",
+                "volume_30d_usd": "2500000.00",
+                "volume_total_usd": "4200000.00",
+                "unique_traders_24h": 120,
+                "unique_traders_7d": 550,
+                "unique_traders_30d": 1300,
+                "unique_traders_total": 2200,
+                "fees_24h_usd": "57.50",
+                "fees_7d_usd": "350.00",
+                "fees_30d_usd": "1250.00",
+                "fees_total_usd": "2100.00"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.next_cursor, None);
+        assert_eq!(response.categories.len(), 1);
+
+        let category = &response.categories[0];
+        assert_eq!(category.category_key, "crypto");
+        assert_eq!(category.category_id, None);
+        assert_eq!(category.active_market_count, 14);
+        assert_eq!(
+            category.volume_total_usd,
+            Decimal::from_str("4200000.00").unwrap()
+        );
+        assert_eq!(category.unique_traders_total, 2200);
+        assert!(category.created_at.is_none());
+    }
+
+    #[test]
     fn markets_to_settle_count_response_deserializes_count() {
         let response: MarketsToSettleCountResponse = serde_json::from_value(json!({
             "markets_to_settle_count": 3
@@ -2285,6 +2596,35 @@ mod tests {
         );
         assert!(!response.database_updated);
         assert_eq!(response.invalidation_paths.len(), 1);
+    }
+
+    #[test]
+    fn deposit_token_metadata_list_response_deserializes_rows() {
+        let response: AdminDepositTokenMetadataListResponse = serde_json::from_value(json!({
+            "deposit_tokens": [{
+                "id": 50,
+                "deposit_asset": "So11111111111111111111111111111111111111112",
+                "display_name": "Solana",
+                "symbol": "SOL",
+                "token_symbol": "SOL",
+                "binance_symbol": "SOLUSDT",
+                "okx_inst_id": "SOL-USDT",
+                "description": "Solana deposit token",
+                "icon_url_low": "https://cdn/sol-low.webp",
+                "icon_url_medium": "https://cdn/sol-medium.webp",
+                "icon_url_high": "https://cdn/sol-high.webp",
+                "metadata_uri": "https://cdn/sol.json",
+                "decimals": 9,
+                "min_order_size": 1000000,
+                "created_at": "2026-05-21T10:00:00Z",
+                "updated_at": "2026-05-21T10:00:00Z"
+            }]
+        }))
+        .unwrap();
+
+        assert_eq!(response.deposit_tokens.len(), 1);
+        assert_eq!(response.deposit_tokens[0].symbol, "SOL");
+        assert!(!response.deposit_tokens[0].binance_enabled);
     }
 
     #[test]

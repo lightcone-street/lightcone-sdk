@@ -128,12 +128,15 @@ pub mod prelude {
 
     // Domain types — admin (referral config/codes and logs)
     pub use crate::domain::admin::{
-        AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminDepositTokenMetadataResponse,
-        AdminImageVariants, AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse,
-        AdminLogMetricBreakdown, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
-        AdminLogMetricPoint, AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse,
-        AdminMarketMetadataResponse, AdminMarketRow, AdminMarketStatus, AdminMarketStatusFilter,
-        AdminMarketsQuery, AdminMarketsResponse, CodeListEntry, ConditionalTokenMetadataPayload,
+        AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminCategoriesQuery,
+        AdminCategoriesResponse, AdminCategoryRow, AdminDepositTokenMetadataListResponse,
+        AdminDepositTokenMetadataResponse, AdminDepositTokenRow, AdminDepositTokensQuery,
+        AdminDepositTokensResponse, AdminImageVariants, AdminLogEvent, AdminLogEventsQuery,
+        AdminLogEventsResponse, AdminLogMetricBreakdown, AdminLogMetricHistoryQuery,
+        AdminLogMetricHistoryResponse, AdminLogMetricPoint, AdminLogMetricSummary,
+        AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketMetadataResponse, AdminMarketRow,
+        AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
+        AdminMetricsTableQuery, CodeListEntry, ConditionalTokenMetadataPayload,
         CriticalLogErrors24hCountResponse, DepositTokenMetadataPayload,
         DepositTokenMetadataResponse, ListCodesRequest, ListCodesResponse, MarketMetadataPayload,
         MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,

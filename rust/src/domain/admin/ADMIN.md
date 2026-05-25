@@ -151,6 +151,16 @@ async fn get_deposit_token_metadata(
 
 Fetch database metadata for one deposit token. Requires prior `admin_login()`.
 
+### `list_deposit_token_metadata`
+
+```rust
+async fn list_deposit_token_metadata(
+    &self,
+) -> Result<AdminDepositTokenMetadataListResponse, SdkError>
+```
+
+List database metadata for all deposit tokens. Requires prior `admin_login()`.
+
 ### `update_deposit_token_metadata`
 
 ```rust
@@ -283,6 +293,28 @@ async fn markets(
 List the main admin markets table from cached metrics. Supports offset cursor pagination, sorting, status/category/search filters, and numeric range filters. Requires prior `admin_login()`.
 
 Defaults are applied by the backend when omitted: `cursor=0`, `limit=200`, `sort_by=volume_24h_usd`, `sort_direction=desc`, and `market_status=all`. The `market_status` filter supports only `all`, `active`, and `resolved`; do not send `settled`.
+
+### `deposit_tokens`
+
+```rust
+async fn deposit_tokens(
+    &self,
+    query: &AdminDepositTokensQuery,
+) -> Result<AdminDepositTokensResponse, SdkError>
+```
+
+List deposit token metadata plus admin metrics. Supports offset cursor pagination, sorting, search, and numeric range filters. Requires prior `admin_login()`.
+
+### `categories`
+
+```rust
+async fn categories(
+    &self,
+    query: &AdminCategoriesQuery,
+) -> Result<AdminCategoriesResponse, SdkError>
+```
+
+List category metadata/counts plus admin metrics. Supports offset cursor pagination, sorting, search, and numeric range filters. Requires prior `admin_login()`.
 
 ### `markets_to_settle_count`
 
@@ -884,6 +916,30 @@ Do not send `settled` as a market status filter. Resolved markets are selected w
 | `markets` | `Vec<AdminMarketRow>` | Current page of admin market table rows |
 
 `AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (`Active` or `Resolved`), optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
+
+### `AdminMetricsTableQuery`
+
+Shared query type for `GET /api/admin/deposit-tokens` and `GET /api/admin/categories`. `AdminDepositTokensQuery` and `AdminCategoriesQuery` are aliases for this type.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cursor` | `Option<u64>` | Offset cursor. Reset to `0` when changing sort or filters |
+| `limit` | `Option<u32>` | Page size. Backend default is `200`; backend max is `1000` |
+| `sort_by` | `Option<String>` | Sort field. Backend default is `volume_24h_usd` |
+| `sort_direction` | `Option<String>` | `asc`, `ascending`, `desc`, or `descending`. Backend returns `asc` or `desc` |
+| `search` | `Option<String>` | Case-insensitive substring search |
+
+Every sortable numeric field also has `min_` and `max_` filters. USD filters use `Option<Decimal>` and unique-trader filters use `Option<u64>`.
+
+Sortable/range fields: `volume_24h_usd`, `volume_7d_usd`, `volume_30d_usd`, `volume_total_usd`, `unique_traders_24h`, `unique_traders_7d`, `unique_traders_30d`, `unique_traders_total`, `open_interest_usd`, `fees_24h_usd`, `fees_7d_usd`, `fees_30d_usd`, and `fees_total_usd`.
+
+### `AdminDepositTokensResponse` / `AdminDepositTokenRow`
+
+Paged response for `GET /api/admin/deposit-tokens`. `AdminDepositTokenRow` includes deposit asset metadata, optional exchange symbols/icon/decimals/min order size, open interest, volume, unique-trader metrics, fee metrics, and optional lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
+
+### `AdminCategoriesResponse` / `AdminCategoryRow`
+
+Paged response for `GET /api/admin/categories`. `AdminCategoryRow` includes category identity, market counts, open interest, volume, unique-trader metrics, fee metrics, and optional lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
 
 ### `MarketsToSettleQuery`
 

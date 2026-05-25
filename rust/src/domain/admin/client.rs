@@ -2,7 +2,9 @@
 
 use crate::client::LightconeClient;
 use crate::domain::admin::{
-    AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminDepositTokenMetadataResponse,
+    AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminCategoriesQuery,
+    AdminCategoriesResponse, AdminDepositTokenMetadataListResponse,
+    AdminDepositTokenMetadataResponse, AdminDepositTokensQuery, AdminDepositTokensResponse,
     AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricHistoryQuery,
     AdminLogMetricHistoryResponse, AdminLogMetricsQuery, AdminLogMetricsResponse,
     AdminLoginRequest, AdminLoginResponse, AdminMarketMetadataResponse, AdminMarketsQuery,
@@ -142,6 +144,20 @@ impl<'a> Admin<'a> {
         self.client
             .http
             .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// List database metadata for all deposit tokens. Requires prior `admin_login()`.
+    pub async fn list_deposit_token_metadata(
+        &self,
+    ) -> Result<AdminDepositTokenMetadataListResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/deposit-tokens",
+            self.client.http.base_url()
+        );
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
             .await
     }
 
@@ -326,6 +342,46 @@ impl<'a> Admin<'a> {
         query: &AdminMarketsQuery,
     ) -> Result<AdminMarketsResponse, SdkError> {
         let mut url = format!("{}/api/admin/markets", self.client.http.base_url());
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// List deposit token metadata and admin metrics.
+    ///
+    /// Supports offset cursor pagination, sorting, search, and numeric range
+    /// filters. Requires prior `admin_login()`.
+    pub async fn deposit_tokens(
+        &self,
+        query: &AdminDepositTokensQuery,
+    ) -> Result<AdminDepositTokensResponse, SdkError> {
+        let mut url = format!("{}/api/admin/deposit-tokens", self.client.http.base_url());
+        if let Ok(qs) = serde_urlencoded::to_string(query) {
+            if !qs.is_empty() {
+                url = format!("{}?{}", url, qs);
+            }
+        }
+        self.client
+            .http
+            .admin_get(&url, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// List category metadata/counts and admin metrics.
+    ///
+    /// Supports offset cursor pagination, sorting, search, and numeric range
+    /// filters. Requires prior `admin_login()`.
+    pub async fn categories(
+        &self,
+        query: &AdminCategoriesQuery,
+    ) -> Result<AdminCategoriesResponse, SdkError> {
+        let mut url = format!("{}/api/admin/categories", self.client.http.base_url());
         if let Ok(qs) = serde_urlencoded::to_string(query) {
             if !qs.is_empty() {
                 url = format!("{}?{}", url, qs);
