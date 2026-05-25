@@ -185,22 +185,17 @@ impl<'a> Positions<'a> {
     }
 
     /// Build WithdrawFromPosition instruction.
-    pub fn withdraw_from_position_ix(
-        &self,
-        params: &WithdrawFromPositionParams,
-        is_token_2022: bool,
-    ) -> Instruction {
+    pub fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_withdraw_from_position_ix(params, is_token_2022, pid)
+        instructions::build_withdraw_from_position_ix(params, pid)
     }
 
     /// Build WithdrawFromPosition transaction.
     pub fn withdraw_from_position_tx(
         &self,
         params: WithdrawFromPositionParams,
-        is_token_2022: bool,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.withdraw_from_position_ix(&params, is_token_2022);
+        let ix = self.withdraw_from_position_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 

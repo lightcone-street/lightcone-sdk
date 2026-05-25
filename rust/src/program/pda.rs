@@ -6,8 +6,9 @@ use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, CONDITION_SEED, EXCHANGE_SEED,
-    GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, ORDERBOOK_SEED, ORDER_STATUS_SEED,
-    POSITION_SEED, USER_NONCE_SEED, VAULT_SEED,
+    GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, MPL_METADATA_SEED,
+    MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
+    USER_NONCE_SEED, VAULT_SEED,
 };
 
 /// Get the Exchange PDA.
@@ -78,6 +79,21 @@ pub fn get_all_conditional_mint_pdas(
     (0..num_outcomes)
         .map(|i| get_conditional_mint_pda(market, deposit_mint, i, program_id))
         .collect()
+}
+
+/// Get the Metaplex Token Metadata PDA for a conditional mint.
+///
+/// Seeds: ["metadata", MPL_TOKEN_METADATA_PROGRAM_ID, conditional_mint],
+/// program: MPL_TOKEN_METADATA_PROGRAM_ID.
+pub fn get_mpl_metadata_pda(conditional_mint: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            MPL_METADATA_SEED,
+            MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(),
+            conditional_mint.as_ref(),
+        ],
+        &MPL_TOKEN_METADATA_PROGRAM_ID,
+    )
 }
 
 /// Get an Order Status PDA.

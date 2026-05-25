@@ -195,23 +195,21 @@ let tx = client.admin().set_paused_tx(&authority, true)?;
 ```rust
 // create_market_ix is async (fetches next market ID via RPC)
 let ix = client.admin().create_market_ix(CreateMarketParams {
-    authority,
+    manager,
     oracle,
     question_id,
     num_outcomes,
+    maker_fee_bps,
+    taker_fee_bps,
 }).await?;
 
 let ix = client.admin().add_deposit_mint_ix(&AddDepositMintParams {
-    authority,
+    manager,
     deposit_mint: usdc_mint,
-    outcome_metadata: vec![
-        OutcomeMetadata { name: "Yes".into(), symbol: "YES".into(), uri: "".into() },
-        OutcomeMetadata { name: "No".into(), symbol: "NO".into(), uri: "".into() },
-    ],
 }, &market, num_outcomes)?;
 
 let ix = client.admin().activate_market_ix(&ActivateMarketParams {
-    authority,
+    manager,
     market_id,
 });
 
@@ -271,7 +269,7 @@ let ix = client.positions().redeem_winnings_ix(&RedeemWinningsParams {
 
 let ix = client.positions().withdraw_from_position_ix(&WithdrawFromPositionParams {
     user, market, mint: conditional_mint, amount, outcome_index,
-}, is_token_2022);
+});
 
 let ix = client.positions().init_position_tokens_ix(&InitPositionTokensParams {
     payer, user, market, deposit_mints, recent_slot,
@@ -496,7 +494,6 @@ The Lightcone program ID is derived from `LightconeEnv` and accessed via `Lightc
 
 ```rust
 TOKEN_PROGRAM_ID: Pubkey              // SPL Token
-TOKEN_2022_PROGRAM_ID: Pubkey         // Token-2022 (conditional tokens)
 ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey
 SYSTEM_PROGRAM_ID: Pubkey
 RENT_SYSVAR_ID: Pubkey
@@ -587,18 +584,13 @@ pub struct CreateMarketParams {
     pub num_outcomes: u8,
     pub oracle: Pubkey,
     pub question_id: [u8; 32],
+    pub maker_fee_bps: i16,
+    pub taker_fee_bps: i16,
 }
 
 pub struct AddDepositMintParams {
     pub manager: Pubkey,
     pub deposit_mint: Pubkey,
-    pub outcome_metadata: Vec<OutcomeMetadata>,
-}
-
-pub struct OutcomeMetadata {
-    pub name: String,    // max 32 chars
-    pub symbol: String,  // max 18 chars
-    pub uri: String,     // max 200 chars
 }
 
 pub struct ActivateMarketParams {
@@ -646,6 +638,7 @@ pub struct MatchOrdersMultiParams {
     pub market: Pubkey,
     pub base_mint: Pubkey,
     pub quote_mint: Pubkey,
+    pub fee_receiver: Pubkey,
     pub taker_order: OrderPayload,
     pub maker_orders: Vec<OrderPayload>,
     pub maker_fill_amounts: Vec<u64>,
@@ -715,6 +708,9 @@ pub enum SdkError {
     TokenAccountNotEmpty,
     LookupTableNotClosed,
     InvalidManager,
+    InvalidFeeRange,
+    InvalidFeeSum,
+    InvalidFeeReceiver,
     InvalidPubkey(String),
     Scaling(ScalingError),
     UnsignedOrder,

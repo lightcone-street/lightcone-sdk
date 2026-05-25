@@ -151,7 +151,6 @@ async fn main() -> ExampleResult {
         .amount(amount)
         .with_market_deposit_source(&market)
         .outcome_index(0)
-        .token_2022(true)
         .build_ix()
         .await?;
     println!(

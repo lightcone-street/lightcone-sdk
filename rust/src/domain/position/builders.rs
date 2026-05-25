@@ -324,7 +324,6 @@ impl<'a> MergeBuilder<'a> {
 ///     .amount(1_000_000)
 ///     .with_market_deposit_source(&market)
 ///     .outcome_index(0)
-///     .token_2022(true)
 ///     .build_ix()
 ///     .await?;
 /// ```
@@ -336,7 +335,6 @@ pub struct WithdrawBuilder<'a> {
     deposit_source: Option<DepositSource>,
     market: Option<&'a Market>,
     outcome_index: Option<u8>,
-    is_token_2022: bool,
 }
 
 impl<'a> WithdrawBuilder<'a> {
@@ -349,7 +347,6 @@ impl<'a> WithdrawBuilder<'a> {
             deposit_source: Some(deposit_source),
             market: None,
             outcome_index: None,
-            is_token_2022: false,
         }
     }
 
@@ -402,12 +399,6 @@ impl<'a> WithdrawBuilder<'a> {
         self
     }
 
-    /// Set whether the token uses Token-2022 (only relevant for `Market` withdrawals).
-    pub fn token_2022(mut self, is_token_2022: bool) -> Self {
-        self.is_token_2022 = is_token_2022;
-        self
-    }
-
     /// Build a withdraw instruction.
     pub async fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -451,7 +442,6 @@ impl<'a> WithdrawBuilder<'a> {
                         amount,
                         outcome_index,
                     },
-                    self.is_token_2022,
                     program_id,
                 ))
             }
@@ -621,7 +611,6 @@ pub struct WithdrawFromPositionBuilder<'a> {
     mint: Option<Pubkey>,
     amount: Option<u64>,
     outcome_index: Option<u8>,
-    is_token_2022: bool,
 }
 
 impl<'a> WithdrawFromPositionBuilder<'a> {
@@ -633,7 +622,6 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
             mint: None,
             amount: None,
             outcome_index: None,
-            is_token_2022: false,
         }
     }
 
@@ -667,12 +655,6 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         self
     }
 
-    /// Set whether this is a Token-2022 (conditional) token. Defaults to `false`.
-    pub fn token_2022(mut self, is_token_2022: bool) -> Self {
-        self.is_token_2022 = is_token_2022;
-        self
-    }
-
     /// Build a withdraw-from-position instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -699,7 +681,6 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
                 amount,
                 outcome_index,
             },
-            self.is_token_2022,
             &self.client.program_id,
         ))
     }

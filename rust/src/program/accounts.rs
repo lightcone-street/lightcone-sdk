@@ -41,7 +41,7 @@ fn read_u32(data: &[u8], offset: usize) -> u32 {
 }
 
 // ============================================================================
-// Exchange Account (120 bytes)
+// Exchange Account (212 bytes)
 // ============================================================================
 
 /// Exchange account - singleton state for the exchange
@@ -55,7 +55,8 @@ fn read_u32(data: &[u8], offset: usize) -> u32 {
 /// - [112]    paused (1 byte)
 /// - [113]    bump (1 byte)
 /// - [114..116] deposit_token_count (2 bytes)
-/// - [116..120] _padding (4 bytes)
+/// - [116..148] fee_receiver (32 bytes)
+/// - [148..212] _reserved (64 bytes)
 #[derive(Debug, Clone)]
 pub struct Exchange {
     /// Account discriminator
@@ -74,6 +75,8 @@ pub struct Exchange {
     pub bump: u8,
     /// Number of whitelisted deposit tokens
     pub deposit_token_count: u16,
+    /// Protocol fee receiver for quote-leg fees.
+    pub fee_receiver: Pubkey,
 }
 
 impl Exchange {
@@ -106,6 +109,7 @@ impl Exchange {
             paused: data[112] != 0,
             bump: data[113],
             deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 114)),
+            fee_receiver: read_pubkey(data, 116),
         })
     }
 
@@ -116,7 +120,7 @@ impl Exchange {
 }
 
 // ============================================================================
-// Market Account (148 bytes)
+// Market Account (212 bytes)
 // ============================================================================
 
 /// Market account - represents a market
@@ -127,12 +131,15 @@ impl Exchange {
 /// - [16]       num_outcomes (1 byte)
 /// - [17]       status (1 byte)
 /// - [18]       bump (1 byte)
-/// - [19..24]   _padding (5 bytes)
+/// - [19]       _padding (1 byte)
+/// - [20..22]   maker_fee_bps (i16)
+/// - [22..24]   taker_fee_bps (i16)
 /// - [24..56]   oracle (32 bytes)
 /// - [56..88]   question_id (32 bytes)
 /// - [88..120]  condition_id (32 bytes)
 /// - [120..144] payout_numerators ([u32; 6])
 /// - [144..148] payout_denominator (u32)
+/// - [148..212] _reserved (64 bytes)
 #[derive(Debug, Clone)]
 pub struct Market {
     /// Account discriminator
@@ -145,6 +152,10 @@ pub struct Market {
     pub status: MarketStatus,
     /// PDA bump seed
     pub bump: u8,
+    /// Maker fee in basis points. May be negative for rebates.
+    pub maker_fee_bps: i16,
+    /// Taker fee in basis points. May be negative for rebates.
+    pub taker_fee_bps: i16,
     /// Oracle pubkey that can settle this market
     pub oracle: Pubkey,
     /// Question ID (32 bytes)
@@ -190,6 +201,8 @@ impl Market {
             num_outcomes: data[16],
             status: MarketStatus::try_from(data[17])?,
             bump: data[18],
+            maker_fee_bps: i16::from_le_bytes(read_bytes::<2>(data, 20)),
+            taker_fee_bps: i16::from_le_bytes(read_bytes::<2>(data, 22)),
             oracle: read_pubkey(data, 24),
             question_id: read_bytes::<32>(data, 56),
             condition_id: read_bytes::<32>(data, 88),
@@ -528,6 +541,8 @@ mod tests {
         data[113] = 255;
         // deposit_token_count at offset 114
         data[114..116].copy_from_slice(&7u16.to_le_bytes());
+        // fee_receiver at offset 116
+        data[116..148].copy_from_slice(&[4u8; 32]);
 
         let exchange = Exchange::deserialize(&data).unwrap();
         assert_eq!(exchange.manager, Pubkey::new_from_array([3u8; 32]));
@@ -535,6 +550,7 @@ mod tests {
         assert!(!exchange.paused);
         assert_eq!(exchange.bump, 255);
         assert_eq!(exchange.deposit_token_count, 7);
+        assert_eq!(exchange.fee_receiver, Pubkey::new_from_array([4u8; 32]));
     }
 
     #[test]
@@ -549,6 +565,9 @@ mod tests {
         data[17] = 1; // Active
                       // bump at offset 18
         data[18] = 254;
+        // fees at offsets 20 and 22
+        data[20..22].copy_from_slice(&(-10i16).to_le_bytes());
+        data[22..24].copy_from_slice(&25i16.to_le_bytes());
         // payout_numerators at offset 120
         data[120..124].copy_from_slice(&7u32.to_le_bytes());
         data[124..128].copy_from_slice(&3u32.to_le_bytes());
@@ -560,6 +579,8 @@ mod tests {
         assert_eq!(market.num_outcomes, 3);
         assert_eq!(market.status, MarketStatus::Active);
         assert_eq!(market.bump, 254);
+        assert_eq!(market.maker_fee_bps, -10);
+        assert_eq!(market.taker_fee_bps, 25);
         assert_eq!(market.payout_numerators[0], 7);
         assert_eq!(market.payout_numerators[1], 3);
         assert_eq!(market.payout_denominator, 10);

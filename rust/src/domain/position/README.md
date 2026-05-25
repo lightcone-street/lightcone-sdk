@@ -126,8 +126,8 @@ Build a RedeemWinnings instruction/transaction — redeem conditional tokens for
 #### `withdraw_from_position_ix` / `withdraw_from_position_tx`
 
 ```rust
-fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams, is_token_2022: bool) -> Instruction
-fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams, is_token_2022: bool) -> Result<Transaction, SdkError>
+fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction
+fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Result<Transaction, SdkError>
 ```
 
 Build a WithdrawFromPosition instruction/transaction — withdraw conditional tokens from a position account to the user's wallet.
@@ -208,7 +208,7 @@ async fn withdraw(&self) -> WithdrawBuilder<'a>
 
 Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
 
-For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` and `.token_2022()` as needed.
+For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` as needed.
 
 #### `merge`
 

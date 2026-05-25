@@ -28,9 +28,9 @@ pub fn get_associated_token_address(
     .0
 }
 
-/// Get the ATA for a conditional token (using Token-2022).
+/// Get the ATA for a conditional token (using SPL Token).
 pub fn get_conditional_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
-    get_associated_token_address(wallet, mint, &spl_token_2022::id())
+    get_associated_token_address(wallet, mint, &spl_token::id())
 }
 
 /// Get the ATA for a deposit token (using SPL Token).
@@ -74,6 +74,17 @@ pub fn validate_32_bytes(buffer: &[u8]) -> SdkResult<()> {
     Ok(())
 }
 
+/// Validate a maker/taker fee pair against program rules.
+pub fn validate_fee_pair(maker_fee_bps: i16, taker_fee_bps: i16) -> SdkResult<()> {
+    if !(-500..=500).contains(&maker_fee_bps) || !(-500..=500).contains(&taker_fee_bps) {
+        return Err(SdkError::InvalidFeeRange);
+    }
+    if i32::from(maker_fee_bps) + i32::from(taker_fee_bps) < 0 {
+        return Err(SdkError::InvalidFeeSum);
+    }
+    Ok(())
+}
+
 // ============================================================================
 // String Serialization
 // ============================================================================
@@ -85,6 +96,16 @@ pub fn serialize_string(s: &str) -> Vec<u8> {
     let bytes = s.as_bytes();
     let len = bytes.len() as u16;
     let mut result = Vec::with_capacity(2 + bytes.len());
+    result.extend_from_slice(&len.to_le_bytes());
+    result.extend_from_slice(bytes);
+    result
+}
+
+/// Serialize a string with a u32 little-endian length prefix.
+pub fn serialize_string_u32(s: &str) -> Vec<u8> {
+    let bytes = s.as_bytes();
+    let len = bytes.len() as u32;
+    let mut result = Vec::with_capacity(4 + bytes.len());
     result.extend_from_slice(&len.to_le_bytes());
     result.extend_from_slice(bytes);
     result
@@ -116,32 +137,34 @@ pub fn deserialize_string(data: &[u8]) -> SdkResult<(String, usize)> {
     Ok((s, 2 + len))
 }
 
-// ============================================================================
-// Metadata Serialization
-// ============================================================================
+/// Serialize conditional metadata instruction strings.
+///
+/// Format: `[name_len u32][name][symbol_len u32][symbol][uri_len u32][uri]`.
+pub fn serialize_conditional_metadata(name: &str, symbol: &str, uri: &str) -> SdkResult<Vec<u8>> {
+    validate_metadata_string("name", name, 32)?;
+    validate_metadata_string("symbol", symbol, 10)?;
+    validate_metadata_string("uri", uri, 200)?;
 
-/// Outcome metadata for conditional token creation.
-#[derive(Debug, Clone)]
-pub struct OutcomeMetadataInput {
-    /// Token name (max 32 chars)
-    pub name: String,
-    /// Token symbol (max 18 chars)
-    pub symbol: String,
-    /// Token URI (max 200 chars)
-    pub uri: String,
+    let mut result = Vec::with_capacity(12 + name.len() + symbol.len() + uri.len());
+    result.extend(serialize_string_u32(name));
+    result.extend(serialize_string_u32(symbol));
+    result.extend(serialize_string_u32(uri));
+    Ok(result)
 }
 
-/// Serialize outcome metadata for the add_deposit_mint instruction.
-pub fn serialize_outcome_metadata(metadata: &[OutcomeMetadataInput]) -> Vec<u8> {
-    let mut result = Vec::new();
-
-    for m in metadata {
-        result.extend(serialize_string(&m.name));
-        result.extend(serialize_string(&m.symbol));
-        result.extend(serialize_string(&m.uri));
+fn validate_metadata_string(field: &'static str, value: &str, max_bytes: usize) -> SdkResult<()> {
+    if value.as_bytes().len() > max_bytes {
+        return Err(SdkError::InvalidDataLength {
+            expected: max_bytes,
+            actual: value.as_bytes().len(),
+        });
     }
-
-    result
+    if value.as_bytes().len() > u32::MAX as usize {
+        return Err(SdkError::Serialization(format!(
+            "{field} length exceeds u32 bounds"
+        )));
+    }
+    Ok(())
 }
 
 // ============================================================================
@@ -195,6 +218,20 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_fee_pair() {
+        assert!(validate_fee_pair(0, 0).is_ok());
+        assert!(validate_fee_pair(-10, 25).is_ok());
+        assert!(matches!(
+            validate_fee_pair(501, 0),
+            Err(SdkError::InvalidFeeRange)
+        ));
+        assert!(matches!(
+            validate_fee_pair(-50, 25),
+            Err(SdkError::InvalidFeeSum)
+        ));
+    }
+
+    #[test]
     fn test_string_serialization_roundtrip() {
         let original = "Hello, World!";
         let serialized = serialize_string(original);
@@ -225,30 +262,6 @@ mod tests {
     }
 
     #[test]
-    fn test_outcome_metadata_serialization() {
-        let metadata = vec![
-            OutcomeMetadataInput {
-                name: "Yes".to_string(),
-                symbol: "YES".to_string(),
-                uri: "https://example.com/yes".to_string(),
-            },
-            OutcomeMetadataInput {
-                name: "No".to_string(),
-                symbol: "NO".to_string(),
-                uri: "https://example.com/no".to_string(),
-            },
-        ];
-
-        let serialized = serialize_outcome_metadata(&metadata);
-
-        // Verify it's not empty and has reasonable length
-        assert!(!serialized.is_empty());
-
-        // First string should be "Yes" (len=3)
-        assert_eq!(u16::from_le_bytes([serialized[0], serialized[1]]), 3);
-    }
-
-    #[test]
     fn test_checked_arithmetic() {
         assert_eq!(checked_mul_u64(100, 200).unwrap(), 20000);
         assert_eq!(checked_div_u64(200, 100).unwrap(), 2);
@@ -274,7 +287,7 @@ mod tests {
         let ata2 = get_deposit_token_ata(&wallet, &mint);
         assert_ne!(ata2, Pubkey::default());
 
-        // Different token programs should produce different ATAs
-        assert_ne!(ata, ata2);
+        // Conditional tokens and deposit tokens both use the SPL Token program.
+        assert_eq!(ata, ata2);
     }
 }
