@@ -65,7 +65,7 @@ class LightconeEnv(Enum):
             return Pubkey.from_string(override_id)
         if self in (LightconeEnv.LOCAL, LightconeEnv.STAGING):
             return Pubkey.from_string(
-                "AZ8bEUuk8ifpw5EncZqHxiNJauikZtvtbuXdvwxYPfNT"
+                "5P3mbZDiECBi28JzuBfCFqfN7amwGEZfYFPcHMShYcp4"
             )
         return Pubkey.from_string(
             "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"

@@ -151,6 +151,18 @@ pub enum SdkError {
     #[error("Invalid manager")]
     InvalidManager,
 
+    /// Fee bps outside the protocol range.
+    #[error("Invalid fee range: maker and taker bps must each be between -500 and 500")]
+    InvalidFeeRange,
+
+    /// Fee pair would make protocol fees negative.
+    #[error("Invalid fee sum: maker + taker bps must be non-negative")]
+    InvalidFeeSum,
+
+    /// Invalid fee receiver.
+    #[error("Invalid fee receiver")]
+    InvalidFeeReceiver,
+
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),

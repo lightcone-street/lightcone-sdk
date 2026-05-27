@@ -39,6 +39,7 @@ class Exchange:
     paused: bool
     bump: int
     deposit_token_count: int = 0
+    fee_receiver: Pubkey = Pubkey.from_bytes(bytes(32))
 
 
 @dataclass
@@ -49,6 +50,8 @@ class Market:
     num_outcomes: int
     status: MarketStatus
     bump: int
+    maker_fee_bps: int
+    taker_fee_bps: int
     oracle: Pubkey
     question_id: bytes
     condition_id: bytes
@@ -138,15 +141,6 @@ CompactOrder = Order
 
 
 @dataclass
-class OutcomeMetadata:
-    """Metadata for a market outcome."""
-
-    name: str
-    symbol: str
-    uri: str
-
-
-@dataclass
 class MakerFill:
     """Per-maker fill info for deposit_and_swap."""
 
@@ -176,6 +170,8 @@ class CreateMarketParams:
     num_outcomes: int
     oracle: Pubkey
     question_id: bytes
+    maker_fee_bps: int
+    taker_fee_bps: int
 
 
 @dataclass
@@ -184,7 +180,6 @@ class AddDepositMintParams:
 
     manager: Pubkey
     deposit_mint: Pubkey
-    outcome_metadata: list[OutcomeMetadata]
 
 
 @dataclass
@@ -292,6 +287,7 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    fee_receiver: Pubkey
     taker_order: SignedOrder
     maker_orders: list[SignedOrder]
     maker_fill_amounts: list[int]
@@ -307,6 +303,7 @@ class CreateOrderbookParams:
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
+    fee_receiver: Pubkey
     mint_a_deposit_mint: Pubkey
     mint_b_deposit_mint: Pubkey
     recent_slot: int
@@ -329,6 +326,44 @@ class SetManagerParams:
 
     authority: Pubkey
     new_manager: Pubkey
+
+
+@dataclass
+class MarketFeeUpdate:
+    """One per-market fee update."""
+
+    market: Pubkey
+    maker_fee_bps: int
+    taker_fee_bps: int
+
+
+@dataclass
+class SetMarketFeesParams:
+    """Parameters for setting fees on one or more markets."""
+
+    manager: Pubkey
+    updates: list[MarketFeeUpdate]
+
+
+@dataclass
+class SetFeeReceiverParams:
+    """Parameters for setting the exchange fee receiver."""
+
+    authority: Pubkey
+    new_fee_receiver: Pubkey
+
+
+@dataclass
+class ConditionalMetadataParams:
+    """Parameters for creating or updating conditional mint metadata."""
+
+    manager: Pubkey
+    market: Pubkey
+    deposit_mint: Pubkey
+    outcome_index: int
+    name: str
+    symbol: str
+    uri: str
 
 
 @dataclass
@@ -434,6 +469,7 @@ class DepositAndSwapParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    fee_receiver: Pubkey
     taker_order: SignedOrder
     taker_is_full_fill: bool
     taker_is_deposit: bool
@@ -545,7 +581,6 @@ class MarketWithdrawContext:
 
     market: object  # domain Market (has .pubkey str, .outcomes list)
     outcome_index: int
-    is_token_2022: bool = False
 
 
 @dataclass

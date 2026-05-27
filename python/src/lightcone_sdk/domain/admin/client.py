@@ -13,26 +13,33 @@ from solders.transaction import Transaction
 from ...program.instructions import (
     build_activate_market_instruction,
     build_add_deposit_mint_instruction,
+    build_create_conditional_metadata_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
     build_deposit_and_swap_instruction,
     build_initialize_instruction,
     build_match_orders_multi_instruction,
     build_set_authority_instruction,
+    build_set_fee_receiver_instruction,
     build_set_manager_instruction,
+    build_set_market_fees_instruction,
     build_set_operator_instruction,
     build_set_paused_instruction,
     build_settle_market_instruction,
+    build_update_conditional_metadata_instruction,
     build_whitelist_deposit_token_instruction,
 )
 from ...program.types import (
     ActivateMarketParams,
     AddDepositMintParams,
+    ConditionalMetadataParams,
     CreateOrderbookParams,
     DepositAndSwapParams,
     MatchOrdersMultiParams,
     SetAuthorityParams,
+    SetFeeReceiverParams,
     SetManagerParams,
+    SetMarketFeesParams,
     SettleMarketParams,
     WhitelistDepositTokenParams,
 )
@@ -263,6 +270,8 @@ class Admin:
         num_outcomes: int,
         oracle: Pubkey,
         question_id: bytes,
+        maker_fee_bps: int,
+        taker_fee_bps: int,
     ) -> Instruction:
         """Build CreateMarket instruction.
 
@@ -275,6 +284,8 @@ class Admin:
             num_outcomes=num_outcomes,
             oracle=oracle,
             question_id=question_id,
+            maker_fee_bps=maker_fee_bps,
+            taker_fee_bps=taker_fee_bps,
             program_id=self._client.program_id,
         )
 
@@ -289,7 +300,6 @@ class Admin:
             manager=params.manager,
             market=market,
             deposit_mint=params.deposit_mint,
-            outcome_metadata=params.outcome_metadata,
             num_outcomes=num_outcomes,
             program_id=self._client.program_id,
         )
@@ -337,6 +347,20 @@ class Admin:
             program_id=self._client.program_id,
         )
 
+    def set_market_fees_ix(self, params: SetMarketFeesParams) -> Instruction:
+        """Build SetMarketFees instruction."""
+        return build_set_market_fees_instruction(
+            params,
+            program_id=self._client.program_id,
+        )
+
+    def set_fee_receiver_ix(self, params: SetFeeReceiverParams) -> Instruction:
+        """Build SetFeeReceiver instruction."""
+        return build_set_fee_receiver_instruction(
+            params,
+            program_id=self._client.program_id,
+        )
+
     def whitelist_deposit_token_ix(
         self, params: WhitelistDepositTokenParams
     ) -> Instruction:
@@ -347,6 +371,24 @@ class Admin:
             program_id=self._client.program_id,
         )
 
+    def create_conditional_metadata_ix(
+        self, params: ConditionalMetadataParams
+    ) -> Instruction:
+        """Build CreateConditionalMetadata instruction."""
+        return build_create_conditional_metadata_instruction(
+            params,
+            program_id=self._client.program_id,
+        )
+
+    def update_conditional_metadata_ix(
+        self, params: ConditionalMetadataParams
+    ) -> Instruction:
+        """Build UpdateConditionalMetadata instruction."""
+        return build_update_conditional_metadata_instruction(
+            params,
+            program_id=self._client.program_id,
+        )
+
     def create_orderbook_ix(self, params: CreateOrderbookParams) -> Instruction:
         """Build CreateOrderbook instruction."""
         return build_create_orderbook_instruction(
@@ -354,6 +396,7 @@ class Admin:
             market=params.market,
             mint_a=params.mint_a,
             mint_b=params.mint_b,
+            fee_receiver=params.fee_receiver,
             mint_a_deposit_mint=params.mint_a_deposit_mint,
             mint_b_deposit_mint=params.mint_b_deposit_mint,
             recent_slot=params.recent_slot,
@@ -370,6 +413,7 @@ class Admin:
             market=params.market,
             base_mint=params.base_mint,
             quote_mint=params.quote_mint,
+            fee_receiver=params.fee_receiver,
             taker_order=params.taker_order,
             maker_orders=params.maker_orders,
             maker_fill_amounts=params.maker_fill_amounts,
@@ -385,6 +429,7 @@ class Admin:
             market=params.market,
             base_mint=params.base_mint,
             quote_mint=params.quote_mint,
+            fee_receiver=params.fee_receiver,
             taker_order=params.taker_order,
             taker_is_full_fill=params.taker_is_full_fill,
             taker_is_deposit=params.taker_is_deposit,
@@ -407,12 +452,21 @@ class Admin:
         num_outcomes: int,
         oracle: Pubkey,
         question_id: bytes,
+        maker_fee_bps: int,
+        taker_fee_bps: int,
     ) -> Transaction:
         """Build CreateMarket transaction.
 
         Async because it fetches the next market ID from on-chain state.
         """
-        ix = await self.create_market_ix(manager, num_outcomes, oracle, question_id)
+        ix = await self.create_market_ix(
+            manager,
+            num_outcomes,
+            oracle,
+            question_id,
+            maker_fee_bps,
+            taker_fee_bps,
+        )
         return Transaction.new_with_payer([ix], manager)
 
     def add_deposit_mint_tx(
@@ -455,12 +509,36 @@ class Admin:
         ix = self.set_manager_ix(params)
         return Transaction.new_with_payer([ix], params.authority)
 
+    def set_market_fees_tx(self, params: SetMarketFeesParams) -> Transaction:
+        """Build SetMarketFees transaction."""
+        ix = self.set_market_fees_ix(params)
+        return Transaction.new_with_payer([ix], params.manager)
+
+    def set_fee_receiver_tx(self, params: SetFeeReceiverParams) -> Transaction:
+        """Build SetFeeReceiver transaction."""
+        ix = self.set_fee_receiver_ix(params)
+        return Transaction.new_with_payer([ix], params.authority)
+
     def whitelist_deposit_token_tx(
         self, params: WhitelistDepositTokenParams
     ) -> Transaction:
         """Build WhitelistDepositToken transaction."""
         ix = self.whitelist_deposit_token_ix(params)
         return Transaction.new_with_payer([ix], params.authority)
+
+    def create_conditional_metadata_tx(
+        self, params: ConditionalMetadataParams
+    ) -> Transaction:
+        """Build CreateConditionalMetadata transaction."""
+        ix = self.create_conditional_metadata_ix(params)
+        return Transaction.new_with_payer([ix], params.manager)
+
+    def update_conditional_metadata_tx(
+        self, params: ConditionalMetadataParams
+    ) -> Transaction:
+        """Build UpdateConditionalMetadata transaction."""
+        ix = self.update_conditional_metadata_ix(params)
+        return Transaction.new_with_payer([ix], params.manager)
 
     def create_orderbook_tx(self, params: CreateOrderbookParams) -> Transaction:
         """Build CreateOrderbook transaction."""

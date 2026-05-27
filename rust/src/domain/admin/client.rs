@@ -18,9 +18,9 @@ use crate::program::instructions;
 #[cfg(feature = "solana-rpc")]
 use crate::program::types::CreateMarketParams;
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateOrderbookParams, DepositAndSwapParams,
-    MatchOrdersMultiParams, SetAuthorityParams, SetManagerParams, SettleMarketParams,
-    WhitelistDepositTokenParams,
+    ActivateMarketParams, AddDepositMintParams, ConditionalMetadataParams, CreateOrderbookParams,
+    DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SetFeeReceiverParams,
+    SetManagerParams, SetMarketFeesParams, SettleMarketParams, WhitelistDepositTokenParams,
 };
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -473,6 +473,41 @@ impl<'a> Admin<'a> {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
+    /// Build SetMarketFees instruction.
+    pub fn set_market_fees_ix(
+        &self,
+        params: &SetMarketFeesParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_set_market_fees_ix(params, pid)?)
+    }
+
+    /// Build SetMarketFees transaction.
+    pub fn set_market_fees_tx(&self, params: SetMarketFeesParams) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.set_market_fees_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
+    /// Build SetFeeReceiver instruction.
+    pub fn set_fee_receiver_ix(
+        &self,
+        params: &SetFeeReceiverParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_set_fee_receiver_ix(params, pid)?)
+    }
+
+    /// Build SetFeeReceiver transaction.
+    pub fn set_fee_receiver_tx(
+        &self,
+        params: SetFeeReceiverParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.authority;
+        let ix = self.set_fee_receiver_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
     /// Build WhitelistDepositToken instruction.
     pub fn whitelist_deposit_token_ix(&self, params: &WhitelistDepositTokenParams) -> Instruction {
         let pid = &self.client.program_id;
@@ -486,6 +521,48 @@ impl<'a> Admin<'a> {
     ) -> Result<Transaction, SdkError> {
         let ix = self.whitelist_deposit_token_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
+    /// Build CreateConditionalMetadata instruction.
+    pub fn create_conditional_metadata_ix(
+        &self,
+        params: &ConditionalMetadataParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_create_conditional_metadata_ix(
+            params, pid,
+        )?)
+    }
+
+    /// Build CreateConditionalMetadata transaction.
+    pub fn create_conditional_metadata_tx(
+        &self,
+        params: ConditionalMetadataParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.create_conditional_metadata_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
+    /// Build UpdateConditionalMetadata instruction.
+    pub fn update_conditional_metadata_ix(
+        &self,
+        params: &ConditionalMetadataParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_update_conditional_metadata_ix(
+            params, pid,
+        )?)
+    }
+
+    /// Build UpdateConditionalMetadata transaction.
+    pub fn update_conditional_metadata_tx(
+        &self,
+        params: ConditionalMetadataParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.update_conditional_metadata_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
     }
 
     /// Build CreateOrderbook instruction.

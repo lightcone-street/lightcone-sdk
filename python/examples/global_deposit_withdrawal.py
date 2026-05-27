@@ -152,7 +152,6 @@ async def main():
         .amount(amount)
         .with_market_deposit_source(m)
         .outcome_index(0)
-        .token_2022(True)
         .build_ix()
     )
     print(f"builder market withdraw ix: {len(market_withdraw_ix.accounts)} accounts")

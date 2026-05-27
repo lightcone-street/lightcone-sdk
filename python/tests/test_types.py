@@ -9,7 +9,6 @@ from lightcone_sdk import (
     MarketStatus,
     OrderSide,
     OrderStatus,
-    OutcomeMetadata,
     Position,
     ScalarResolutionParams,
     SettleMarketParams,
@@ -85,6 +84,8 @@ class TestMarket:
             num_outcomes=2,
             status=MarketStatus.ACTIVE,
             bump=254,
+            maker_fee_bps=-10,
+            taker_fee_bps=25,
             oracle=oracle,
             question_id=question_id,
             condition_id=condition_id,
@@ -96,6 +97,8 @@ class TestMarket:
         assert market.num_outcomes == 2
         assert market.status == MarketStatus.ACTIVE
         assert market.bump == 254
+        assert market.maker_fee_bps == -10
+        assert market.taker_fee_bps == 25
         assert market.oracle == oracle
         assert market.payout_numerators == (0, 0, 0, 0, 0, 0)
         assert market.payout_denominator == 0
@@ -226,16 +229,3 @@ class TestFullOrder:
         assert order.expiration == 1700000000
         assert len(order.signature) == 64
         assert order.signature == bytes(64)
-
-
-class TestOutcomeMetadata:
-    def test_create_outcome_metadata(self):
-        metadata = OutcomeMetadata(
-            name="Yes",
-            symbol="YES",
-            uri="https://example.com/yes.json",
-        )
-
-        assert metadata.name == "Yes"
-        assert metadata.symbol == "YES"
-        assert metadata.uri == "https://example.com/yes.json"

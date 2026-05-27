@@ -125,7 +125,6 @@ export class WithdrawBuilder {
   private marketValue?: Market;
   private depositSourceValue?: DepositSource;
   private outcomeIndexValue?: number;
-  private isToken2022Value = false;
 
   constructor(client: ClientContext, depositSource: DepositSource) {
     this.client = client;
@@ -162,11 +161,6 @@ export class WithdrawBuilder {
     return this;
   }
 
-  token2022(isToken2022: boolean): this {
-    this.isToken2022Value = isToken2022;
-    return this;
-  }
-
   withMarketDepositSource(market: Market): this {
     this.depositSourceValue = DepositSource.Market;
     this.marketValue = market;
@@ -196,7 +190,6 @@ export class WithdrawBuilder {
         const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
         return buildWithdrawFromPositionIx(
           { user, market: marketPubkey, mint, amount, outcomeIndex },
-          this.isToken2022Value,
           this.client.programId,
         );
       }
@@ -352,7 +345,6 @@ export class WithdrawFromPositionBuilder {
   private mintValue?: PublicKey;
   private amountValue?: bigint;
   private outcomeIndexValue?: number;
-  private isToken2022Value = false;
 
   constructor(client: ClientContext) {
     this.client = client;
@@ -383,11 +375,6 @@ export class WithdrawFromPositionBuilder {
     return this;
   }
 
-  token2022(isToken2022: boolean): this {
-    this.isToken2022Value = isToken2022;
-    return this;
-  }
-
   buildIx(): TransactionInstruction {
     const user = requireField(this.userValue, "user");
     const market = requireField(this.marketValue, "market");
@@ -397,7 +384,6 @@ export class WithdrawFromPositionBuilder {
 
     return buildWithdrawFromPositionIx(
       { user, market, mint, amount, outcomeIndex },
-      this.isToken2022Value,
       this.client.programId,
     );
   }

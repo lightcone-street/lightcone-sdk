@@ -173,10 +173,9 @@ export class Positions {
   }
 
   withdrawFromPositionIx(
-    params: WithdrawFromPositionParams,
-    isToken2022: boolean
+    params: WithdrawFromPositionParams
   ): TransactionInstruction {
-    return buildWithdrawFromPositionIx(params, isToken2022, this.client.programId);
+    return buildWithdrawFromPositionIx(params, this.client.programId);
   }
 
   initPositionTokensIx(
@@ -240,11 +239,8 @@ export class Positions {
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
-  withdrawFromPositionTx(
-    params: WithdrawFromPositionParams,
-    isToken2022: boolean
-  ): Transaction {
-    const ix = this.withdrawFromPositionIx(params, isToken2022);
+  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
+    const ix = this.withdrawFromPositionIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 

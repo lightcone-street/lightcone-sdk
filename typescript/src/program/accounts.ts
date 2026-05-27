@@ -98,7 +98,7 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
 /**
  * Deserialize Exchange account data
  *
- * Layout (120 bytes):
+ * Layout (212 bytes):
  * - discriminator: [u8; 8]
  * - authority: Pubkey (32 bytes)
  * - operator: Pubkey (32 bytes)
@@ -107,7 +107,8 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
  * - paused: u8 (1 byte)
  * - bump: u8 (1 byte)
  * - deposit_token_count: u16 (2 bytes)
- * - _padding: [u8; 4]
+ * - fee_receiver: Pubkey (32 bytes)
+ * - _reserved: [u8; 64]
  */
 export function deserializeExchange(data: Buffer): Exchange {
   if (data.length < ACCOUNT_SIZE.EXCHANGE) {
@@ -142,7 +143,8 @@ export function deserializeExchange(data: Buffer): Exchange {
   const depositTokenCount = data.readUInt16LE(offset);
   offset += 2;
 
-  // Skip padding: 4 bytes
+  const feeReceiver = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
 
   return {
     discriminator,
@@ -153,19 +155,22 @@ export function deserializeExchange(data: Buffer): Exchange {
     paused,
     bump,
     depositTokenCount,
+    feeReceiver,
   };
 }
 
 /**
  * Deserialize Market account data
  *
- * Layout (148 bytes):
+ * Layout (212 bytes):
  * - discriminator: [u8; 8]
  * - market_id: u64 (8 bytes)
  * - num_outcomes: u8 (1 byte)
  * - status: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 5]
+ * - _padding: [u8; 1]
+ * - maker_fee_bps: i16
+ * - taker_fee_bps: i16
  * - oracle: Pubkey (32 bytes)
  * - question_id: [u8; 32]
  * - condition_id: [u8; 32]
@@ -196,8 +201,14 @@ export function deserializeMarket(data: Buffer): Market {
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 5 bytes
-  offset += 5;
+  // Skip padding: 1 byte
+  offset += 1;
+
+  const makerFeeBps = data.readInt16LE(offset);
+  offset += 2;
+
+  const takerFeeBps = data.readInt16LE(offset);
+  offset += 2;
 
   const oracle = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
@@ -242,6 +253,8 @@ export function deserializeMarket(data: Buffer): Market {
     numOutcomes,
     status,
     bump,
+    makerFeeBps,
+    takerFeeBps,
     oracle,
     questionId,
     conditionId,

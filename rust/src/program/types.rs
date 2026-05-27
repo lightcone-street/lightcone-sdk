@@ -80,17 +80,10 @@ pub struct CreateMarketParams {
     pub oracle: Pubkey,
     /// Question ID (32 bytes)
     pub question_id: [u8; 32],
-}
-
-/// Metadata for a single outcome token
-#[derive(Debug, Clone)]
-pub struct OutcomeMetadata {
-    /// Token name (max 32 chars)
-    pub name: String,
-    /// Token symbol (max 18 chars)
-    pub symbol: String,
-    /// Token URI (max 200 chars)
-    pub uri: String,
+    /// Maker fee in basis points. Must be in [-500, 500].
+    pub maker_fee_bps: i16,
+    /// Taker fee in basis points. Must be in [-500, 500].
+    pub taker_fee_bps: i16,
 }
 
 /// Parameters for adding a deposit mint to a market
@@ -100,8 +93,6 @@ pub struct AddDepositMintParams {
     pub manager: Pubkey,
     /// Deposit mint pubkey
     pub deposit_mint: Pubkey,
-    /// Metadata for each outcome token
-    pub outcome_metadata: Vec<OutcomeMetadata>,
 }
 
 /// Parameters for minting a complete set
@@ -383,6 +374,8 @@ pub struct MatchOrdersMultiParams {
     pub base_mint: Pubkey,
     /// Quote mint pubkey
     pub quote_mint: Pubkey,
+    /// Current exchange fee receiver. Used to derive the quote ATA that collects fees.
+    pub fee_receiver: Pubkey,
     /// Taker order (signed)
     pub taker_order: OrderPayload,
     /// Maker orders (signed)
@@ -406,6 +399,8 @@ pub struct CreateOrderbookParams {
     pub mint_a: Pubkey,
     /// Second conditional mint pubkey. The builder canonicalizes account order.
     pub mint_b: Pubkey,
+    /// Current exchange fee receiver. The orderbook ALT records its quote ATA.
+    pub fee_receiver: Pubkey,
     /// Deposit mint used to derive `mint_a`
     pub mint_a_deposit_mint: Pubkey,
     /// Deposit mint used to derive `mint_b`
@@ -436,6 +431,54 @@ pub struct SetManagerParams {
     pub authority: Pubkey,
     /// New manager pubkey
     pub new_manager: Pubkey,
+}
+
+/// One per-market fee update.
+#[derive(Debug, Clone)]
+pub struct MarketFeeUpdate {
+    /// Market account to update.
+    pub market: Pubkey,
+    /// Maker fee in basis points. Must be in [-500, 500].
+    pub maker_fee_bps: i16,
+    /// Taker fee in basis points. Must be in [-500, 500].
+    pub taker_fee_bps: i16,
+}
+
+/// Parameters for setting fees on one or more markets.
+#[derive(Debug, Clone)]
+pub struct SetMarketFeesParams {
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
+    /// Fee updates, one account and one maker/taker pair per market.
+    pub updates: Vec<MarketFeeUpdate>,
+}
+
+/// Parameters for setting the exchange fee receiver.
+#[derive(Debug, Clone)]
+pub struct SetFeeReceiverParams {
+    /// Current authority pubkey
+    pub authority: Pubkey,
+    /// New fee receiver. Must not be the zero pubkey.
+    pub new_fee_receiver: Pubkey,
+}
+
+/// Parameters for creating or updating Metaplex metadata for a conditional mint.
+#[derive(Debug, Clone)]
+pub struct ConditionalMetadataParams {
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
+    /// Market pubkey
+    pub market: Pubkey,
+    /// Deposit mint backing the conditional mint
+    pub deposit_mint: Pubkey,
+    /// Outcome index for the conditional mint
+    pub outcome_index: u8,
+    /// Metadata name, max 32 UTF-8 bytes.
+    pub name: String,
+    /// Metadata symbol, max 10 UTF-8 bytes.
+    pub symbol: String,
+    /// Metadata URI, max 200 UTF-8 bytes.
+    pub uri: String,
 }
 
 /// Parameters for whitelisting a deposit token for global deposits
@@ -531,6 +574,8 @@ pub struct DepositAndSwapParams {
     pub base_mint: Pubkey,
     /// Quote mint pubkey (conditional token B)
     pub quote_mint: Pubkey,
+    /// Current exchange fee receiver. Used to derive the quote ATA that collects fees.
+    pub fee_receiver: Pubkey,
     /// Taker order (signed)
     pub taker_order: OrderPayload,
     /// Whether the taker requires full fill
@@ -663,8 +708,6 @@ pub struct MarketWithdrawContext<'a> {
     pub market: &'a Market,
     /// Outcome index to withdraw. Use `255` for collateral.
     pub outcome_index: u8,
-    /// `true` for conditional tokens (Token-2022), `false` for deposit tokens (SPL Token).
-    pub is_token_2022: bool,
 }
 
 /// Unified withdraw parameters — dispatches to global or market withdrawal

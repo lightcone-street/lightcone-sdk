@@ -32,6 +32,9 @@ export type ProgramErrorVariant =
   | "TokenAccountNotEmpty"
   | "LookupTableNotClosed"
   | "InvalidManager"
+  | "InvalidFeeRange"
+  | "InvalidFeeSum"
+  | "InvalidFeeReceiver"
   | "InvalidScalarRange"
   | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
@@ -238,6 +241,24 @@ export class ProgramSdkError extends Error {
 
   static invalidManager(): ProgramSdkError {
     return new ProgramSdkError("InvalidManager", "Invalid manager");
+  }
+
+  static invalidFeeRange(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidFeeRange",
+      "Invalid fee range: maker and taker bps must each be between -500 and 500",
+    );
+  }
+
+  static invalidFeeSum(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidFeeSum",
+      "Invalid fee sum: maker + taker bps must be non-negative",
+    );
+  }
+
+  static invalidFeeReceiver(): ProgramSdkError {
+    return new ProgramSdkError("InvalidFeeReceiver", "Invalid fee receiver");
   }
 
   static invalidScalarRange(): ProgramSdkError {

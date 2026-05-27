@@ -11,12 +11,13 @@ from .constants import (
     ASSOCIATED_TOKEN_PROGRAM_ID,
     MAX_OUTCOMES,
     MIN_OUTCOMES,
-    TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 )
 from .errors import (
     DuplicateScalarOutcomesError,
     InvalidDataLengthError,
+    InvalidFeeRangeError,
+    InvalidFeeSumError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
@@ -71,6 +72,13 @@ def encode_u32(value: int) -> bytes:
     return struct.pack("<I", value)
 
 
+def encode_i16(value: int) -> bytes:
+    """Encode a signed 16-bit integer (little-endian)."""
+    if not -32768 <= value <= 32767:
+        raise SerializationError(f"i16 value out of range: {value}")
+    return struct.pack("<h", value)
+
+
 def encode_u64(value: int) -> bytes:
     """Encode an unsigned 64-bit integer (little-endian).
 
@@ -108,6 +116,11 @@ def decode_u16(data: bytes, offset: int = 0) -> int:
 def decode_u32(data: bytes, offset: int = 0) -> int:
     """Decode an unsigned 32-bit integer (little-endian)."""
     return struct.unpack_from("<I", data, offset)[0]
+
+
+def decode_i16(data: bytes, offset: int = 0) -> int:
+    """Decode a signed 16-bit integer (little-endian)."""
+    return struct.unpack_from("<h", data, offset)[0]
 
 
 def decode_u64(data: bytes, offset: int = 0) -> int:
@@ -168,8 +181,13 @@ def get_associated_token_address(
 
 
 def get_associated_token_address_2022(owner: Pubkey, mint: Pubkey) -> Pubkey:
-    """Derive the ATA address for Token-2022 tokens."""
-    return get_associated_token_address(owner, mint, TOKEN_2022_PROGRAM_ID)
+    """Deprecated: conditional tokens now use the SPL Token program."""
+    return get_associated_token_address(owner, mint, TOKEN_PROGRAM_ID)
+
+
+def get_conditional_token_ata(owner: Pubkey, mint: Pubkey) -> Pubkey:
+    """Derive the ATA address for conditional SPL tokens."""
+    return get_associated_token_address(owner, mint, TOKEN_PROGRAM_ID)
 
 
 def derive_condition_id(
@@ -195,6 +213,25 @@ def encode_string(s: str, max_len: int) -> bytes:
         raise SerializationError(f"String too long: {len(encoded)} > {max_len}")
     # Length prefix (2 bytes u16 LE) + string content
     return struct.pack("<H", len(encoded)) + encoded
+
+
+def encode_string_u32(s: str, max_len: int) -> bytes:
+    """Encode a string with a u32 length prefix."""
+    encoded = s.encode("utf-8")
+    if len(encoded) > max_len:
+        raise InvalidDataLengthError(max_len, len(encoded))
+    return struct.pack("<I", len(encoded)) + encoded
+
+
+def serialize_conditional_metadata(name: str, symbol: str, uri: str) -> bytes:
+    """Serialize conditional mint metadata strings for Metaplex instructions."""
+    return b"".join(
+        [
+            encode_string_u32(name, 32),
+            encode_string_u32(symbol, 10),
+            encode_string_u32(uri, 200),
+        ]
+    )
 
 
 def encode_string_fixed(s: str, max_len: int) -> bytes:
@@ -227,6 +264,23 @@ def validate_outcome_index(outcome_index: int, num_outcomes: int) -> None:
         or outcome_index >= num_outcomes
     ):
         raise InvalidOutcomeIndexError(outcome_index, num_outcomes - 1)
+
+
+def validate_fee_pair(maker_fee_bps: int, taker_fee_bps: int) -> None:
+    """Validate a maker/taker fee pair against program rules."""
+    if (
+        not isinstance(maker_fee_bps, int)
+        or isinstance(maker_fee_bps, bool)
+        or not isinstance(taker_fee_bps, int)
+        or isinstance(taker_fee_bps, bool)
+        or maker_fee_bps < -500
+        or maker_fee_bps > 500
+        or taker_fee_bps < -500
+        or taker_fee_bps > 500
+    ):
+        raise InvalidFeeRangeError()
+    if maker_fee_bps + taker_fee_bps < 0:
+        raise InvalidFeeSumError()
 
 
 def winner_takes_all_payout_numerators(

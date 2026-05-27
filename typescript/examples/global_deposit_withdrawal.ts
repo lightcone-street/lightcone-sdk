@@ -129,7 +129,6 @@ async function main() {
     .amount(amount)
     .withMarketDepositSource(m)
     .outcomeIndex(0)
-    .token2022(true)
     .buildIx();
   console.log(`builder market withdraw ix: ${marketWithdrawIx.keys.length} accounts`);
 

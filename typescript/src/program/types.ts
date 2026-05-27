@@ -31,7 +31,7 @@ export enum OrderSide {
 /**
  * Exchange account - singleton central state
  * PDA: ["central_state"]
- * Size: 120 bytes
+ * Size: 212 bytes
  */
 export interface Exchange {
   discriminator: Buffer; // 8 bytes
@@ -42,12 +42,13 @@ export interface Exchange {
   paused: boolean; // u8 - 0 = active, 1 = paused
   bump: number; // u8
   depositTokenCount: number; // u16 - number of whitelisted deposit tokens
+  feeReceiver: PublicKey; // 32 bytes - quote-leg fee receiver
 }
 
 /**
  * Market account
  * PDA: ["market", market_id (u64)]
- * Size: 148 bytes
+ * Size: 212 bytes
  */
 export interface Market {
   discriminator: Buffer; // 8 bytes
@@ -55,6 +56,8 @@ export interface Market {
   numOutcomes: number; // u8 - 2-6 outcomes supported
   status: MarketStatus; // u8
   bump: number; // u8
+  makerFeeBps: number; // i16
+  takerFeeBps: number; // i16
   oracle: PublicKey; // 32 bytes - who can settle the market
   questionId: Buffer; // 32 bytes
   conditionId: Buffer; // 32 bytes - derived from oracle + questionId + numOutcomes
@@ -185,15 +188,8 @@ export interface CreateMarketParams {
   numOutcomes: number; // 2-6
   oracle: PublicKey;
   questionId: Buffer; // 32 bytes
-}
-
-/**
- * Metadata for a single outcome token
- */
-export interface OutcomeMetadata {
-  name: string;
-  symbol: string;
-  uri: string;
+  makerFeeBps: number;
+  takerFeeBps: number;
 }
 
 /**
@@ -202,7 +198,6 @@ export interface OutcomeMetadata {
 export interface AddDepositMintParams {
   manager: PublicKey;
   depositMint: PublicKey;
-  outcomeMetadata: OutcomeMetadata[];
 }
 
 /**
@@ -315,6 +310,7 @@ export interface MatchOrdersMultiParams {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  feeReceiver: PublicKey;
   takerOrder: SignedOrder;
   makerOrders: SignedOrder[];
   makerFillAmounts: bigint[]; // Per maker - what each maker gives
@@ -338,6 +334,7 @@ export interface CreateOrderbookParams {
   market: PublicKey;
   mintA: PublicKey;
   mintB: PublicKey;
+  feeReceiver: PublicKey;
   mintADepositMint: PublicKey;
   mintBDepositMint: PublicKey;
   recentSlot: bigint;
@@ -352,6 +349,44 @@ export interface CreateOrderbookParams {
 export interface SetManagerParams {
   authority: PublicKey;
   newManager: PublicKey;
+}
+
+/**
+ * One per-market fee update.
+ */
+export interface MarketFeeUpdate {
+  market: PublicKey;
+  makerFeeBps: number;
+  takerFeeBps: number;
+}
+
+/**
+ * Parameters for setMarketFees instruction.
+ */
+export interface SetMarketFeesParams {
+  manager: PublicKey;
+  updates: MarketFeeUpdate[];
+}
+
+/**
+ * Parameters for setFeeReceiver instruction.
+ */
+export interface SetFeeReceiverParams {
+  authority: PublicKey;
+  newFeeReceiver: PublicKey;
+}
+
+/**
+ * Parameters for create/update conditional mint metadata instructions.
+ */
+export interface ConditionalMetadataParams {
+  manager: PublicKey;
+  market: PublicKey;
+  depositMint: PublicKey;
+  outcomeIndex: number;
+  name: string;
+  symbol: string;
+  uri: string;
 }
 
 /**
@@ -427,6 +462,7 @@ export interface DepositAndSwapParams {
   market: PublicKey;
   baseMint: PublicKey;
   quoteMint: PublicKey;
+  feeReceiver: PublicKey;
   takerOrder: SignedOrder;
   takerIsFullFill: boolean;
   takerIsDeposit: boolean;

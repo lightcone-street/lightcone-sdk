@@ -472,6 +472,7 @@ mod tests {
             num_outcomes: 2,
             name: mint.to_string(),
             symbol: mint.to_string(),
+            short_symbol: mint.to_string(),
             description: None,
             decimals: 6,
             icon_url_low: String::new(),

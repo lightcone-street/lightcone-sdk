@@ -234,7 +234,6 @@ class WithdrawBuilder:
         self._market: object = None
         self._deposit_source: Optional[DepositSource] = deposit_source
         self._outcome_index: Optional[int] = None
-        self._is_token_2022: bool = False
 
     def user(self, user: Pubkey) -> "WithdrawBuilder":
         self._user = user
@@ -260,11 +259,6 @@ class WithdrawBuilder:
     def outcome_index(self, outcome_index: int) -> "WithdrawBuilder":
         """Set the outcome index (required when deposit source is ``Market``)."""
         self._outcome_index = outcome_index
-        return self
-
-    def token_2022(self, is_token_2022: bool) -> "WithdrawBuilder":
-        """Set whether the token uses Token-2022 (only relevant for ``Market`` withdrawals)."""
-        self._is_token_2022 = is_token_2022
         return self
 
     def with_market_deposit_source(self, market: object) -> "WithdrawBuilder":
@@ -312,7 +306,6 @@ class WithdrawBuilder:
                 mint=mint,
                 amount=amount,
                 outcome_index=outcome_index,
-                is_token_2022=self._is_token_2022,
                 program_id=program_id,
             )
 
@@ -413,7 +406,6 @@ class WithdrawFromPositionBuilder:
         self._mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
         self._outcome_index: Optional[int] = None
-        self._is_token_2022: bool = False
 
     def user(self, user: Pubkey) -> "WithdrawFromPositionBuilder":
         self._user = user
@@ -433,10 +425,6 @@ class WithdrawFromPositionBuilder:
 
     def outcome_index(self, outcome_index: int) -> "WithdrawFromPositionBuilder":
         self._outcome_index = outcome_index
-        return self
-
-    def token_2022(self, is_token_2022: bool) -> "WithdrawFromPositionBuilder":
-        self._is_token_2022 = is_token_2022
         return self
 
     def build_ix(self) -> Instruction:
@@ -461,7 +449,6 @@ class WithdrawFromPositionBuilder:
             mint=mint,
             amount=amount,
             outcome_index=outcome_index,
-            is_token_2022=self._is_token_2022,
             program_id=self._client.program_id,
         )
 
