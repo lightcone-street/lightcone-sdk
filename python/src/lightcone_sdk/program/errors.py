@@ -258,6 +258,29 @@ class InvalidManagerError(LightconeError):
         super().__init__("Invalid manager")
 
 
+class InvalidFeeRangeError(LightconeError):
+    """Raised when maker or taker bps is outside the program fee range."""
+
+    def __init__(self):
+        super().__init__(
+            "Invalid fee range: maker and taker bps must each be between -500 and 500"
+        )
+
+
+class InvalidFeeSumError(LightconeError):
+    """Raised when a fee pair would make protocol fees negative."""
+
+    def __init__(self):
+        super().__init__("Invalid fee sum: maker + taker bps must be non-negative")
+
+
+class InvalidFeeReceiverError(LightconeError):
+    """Raised when the exchange fee receiver is invalid."""
+
+    def __init__(self):
+        super().__init__("Invalid fee receiver")
+
+
 class InvalidOrderbookError(LightconeError):
     """Raised when an orderbook is invalid."""
 

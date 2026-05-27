@@ -18,6 +18,7 @@ from .constants import (
     INSTRUCTION_CLOSE_ORDERBOOK_ALT,
     INSTRUCTION_CLOSE_POSITION_ALT,
     INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS,
+    INSTRUCTION_CREATE_CONDITIONAL_METADATA,
     INSTRUCTION_CREATE_MARKET,
     INSTRUCTION_CREATE_ORDERBOOK,
     INSTRUCTION_DEPOSIT_AND_SWAP,
@@ -32,25 +33,27 @@ from .constants import (
     INSTRUCTION_MINT_COMPLETE_SET,
     INSTRUCTION_REDEEM_WINNINGS,
     INSTRUCTION_SET_AUTHORITY,
+    INSTRUCTION_SET_FEE_RECEIVER,
     INSTRUCTION_SET_MANAGER,
+    INSTRUCTION_SET_MARKET_FEES,
     INSTRUCTION_SET_OPERATOR,
     INSTRUCTION_SET_PAUSED,
     INSTRUCTION_SETTLE_MARKET,
+    INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
     INSTRUCTION_WHITELIST_DEPOSIT_TOKEN,
     INSTRUCTION_WITHDRAW_FROM_GLOBAL,
     INSTRUCTION_WITHDRAW_FROM_POSITION,
     MAX_MAKERS,
     MAX_OUTCOMES,
-    MAX_OUTCOME_NAME_LEN,
-    MAX_OUTCOME_SYMBOL_LEN,
-    MAX_OUTCOME_URI_LEN,
     MIN_OUTCOMES,
+    MPL_TOKEN_METADATA_PROGRAM_ID,
+    RENT_SYSVAR_ID,
     SYSTEM_PROGRAM_ID,
-    TOKEN_2022_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
 )
 from .errors import (
     ArithmeticOverflowError,
+    InvalidFeeReceiverError,
     InvalidMintOrderError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
@@ -68,6 +71,7 @@ from .pda import (
     get_global_deposit_pda,
     get_market_pda,
     get_mint_authority_pda,
+    get_mpl_metadata_pda,
     get_order_status_pda,
     get_orderbook_pda,
     get_position_alt_pda,
@@ -82,22 +86,31 @@ from .types import (
     CloseOrderbookParams,
     ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
+    ConditionalMetadataParams,
     DepositToGlobalAltContext,
-    OutcomeMetadata,
+    SetFeeReceiverParams,
+    SetMarketFeesParams,
     SignedOrder,
 )
 from .utils import (
     derive_condition_id,
+    encode_i16,
     encode_u32,
-    encode_string,
     encode_u8,
     encode_u64,
     get_associated_token_address,
-    get_associated_token_address_2022,
+    get_conditional_token_ata,
+    serialize_conditional_metadata,
+    validate_fee_pair,
+    validate_outcome_count,
 )
 
 # Backward compatibility alias
 FullOrder = SignedOrder
+
+
+def _zero_pubkey() -> Pubkey:
+    return Pubkey.from_bytes(bytes(32))
 
 
 def build_initialize_instruction(
@@ -130,12 +143,17 @@ def build_create_market_instruction(
     num_outcomes: int,
     oracle: Pubkey,
     question_id: bytes,
+    maker_fee_bps: int,
+    taker_fee_bps: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the create_market instruction with a known market_id.
 
     Use this when you already know the market_id (from exchange.market_count).
     """
+    validate_outcome_count(num_outcomes)
+    validate_fee_pair(maker_fee_bps, taker_fee_bps)
+
     exchange, _ = get_exchange_pda(program_id)
     market, _ = get_market_pda(market_id, program_id)
     condition_id = derive_condition_id(oracle, question_id, num_outcomes)
@@ -146,6 +164,8 @@ def build_create_market_instruction(
     data.append(num_outcomes)
     data.extend(bytes(oracle))
     data.extend(question_id)
+    data.extend(encode_i16(maker_fee_bps))
+    data.extend(encode_i16(taker_fee_bps))
 
     accounts = [
         AccountMeta(pubkey=manager, is_signer=True, is_writable=True),
@@ -162,7 +182,6 @@ def build_add_deposit_mint_instruction(
     manager: Pubkey,
     market: Pubkey,
     deposit_mint: Pubkey,
-    outcome_metadata: list[OutcomeMetadata],
     num_outcomes: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
@@ -176,15 +195,13 @@ def build_add_deposit_mint_instruction(
     4. vault (writable)
     5. mint_authority (readonly)
     6. token_program (readonly)
-    7. token_2022_program (readonly)
-    8. system_program (readonly)
-    9. global_deposit_token (readonly)
-    10+. conditional_mints[0..num_outcomes] (writable)
+    7. system_program (readonly)
+    8. global_deposit_token (readonly)
+    9+. conditional_mints[0..num_outcomes] (writable)
 
-    Data: [2, ...metadata for each outcome]
+    Data: [2]
     """
-    if len(outcome_metadata) != num_outcomes:
-        raise InvalidOutcomeCountError(len(outcome_metadata))
+    validate_outcome_count(num_outcomes)
 
     exchange, _ = get_exchange_pda(program_id)
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
@@ -199,7 +216,6 @@ def build_add_deposit_mint_instruction(
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False),
     ]
@@ -211,17 +227,11 @@ def build_add_deposit_mint_instruction(
             AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
         )
 
-    # Build instruction data
-    data = bytearray()
-    data.append(INSTRUCTION_ADD_DEPOSIT_MINT)
-
-    # Encode metadata for each outcome
-    for meta in outcome_metadata:
-        data.extend(encode_string(meta.name, MAX_OUTCOME_NAME_LEN))
-        data.extend(encode_string(meta.symbol, MAX_OUTCOME_SYMBOL_LEN))
-        data.extend(encode_string(meta.uri, MAX_OUTCOME_URI_LEN))
-
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return Instruction(
+        program_id=program_id,
+        accounts=accounts,
+        data=bytes([INSTRUCTION_ADD_DEPOSIT_MINT]),
+    )
 
 
 def build_mint_complete_set_instruction(
@@ -244,9 +254,8 @@ def build_mint_complete_set_instruction(
     6. position (writable)
     7. mint_authority
     8. token_program
-    9. token_2022_program
-    10. associated_token_program
-    11. system_program
+    9. associated_token_program
+    10. system_program
     Remaining: [conditional_mint[i], position_conditional_ata[i]] pairs
     """
     exchange, _ = get_exchange_pda(program_id)
@@ -254,7 +263,6 @@ def build_mint_complete_set_instruction(
     vault, _ = get_vault_pda(deposit_mint, market, program_id)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
-    # Deposit token uses SPL Token, conditional tokens use Token-2022
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
 
     accounts = [
@@ -267,17 +275,16 @@ def build_mint_complete_set_instruction(
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    # Add conditional mint and position ATA pairs (conditional tokens use Token-2022)
+    # Add conditional mint and position ATA pairs.
     for i in range(num_outcomes):
         cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        position_cond_ata = get_conditional_token_ata(position, cond_mint)
         accounts.append(
             AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
         )
@@ -314,7 +321,6 @@ def build_merge_complete_set_instruction(
     6. user_deposit_ata (writable)
     7. mint_authority (readonly)
     8. token_program (readonly)
-    9. token_2022_program (readonly)
     + [conditional_mint, position_ata] pairs
     """
     exchange, _ = get_exchange_pda(program_id)
@@ -335,13 +341,11 @@ def build_merge_complete_set_instruction(
         AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    # Conditional tokens use Token-2022
     for i in range(num_outcomes):
         cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        position_cond_ata = get_conditional_token_ata(position, cond_mint)
         accounts.append(
             AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
         )
@@ -495,8 +499,7 @@ def build_redeem_winnings_instruction(
     7. user_deposit_ata (writable)
     8. mint_authority
     9. token_program
-    10. token_2022_program
-    11. exchange
+    10. exchange
 
     Data: [8, amount (u64 LE), outcome_index (u8)]
     """
@@ -516,9 +519,7 @@ def build_redeem_winnings_instruction(
         market, deposit_mint, outcome_index, program_id
     )
 
-    position_conditional_ata = get_associated_token_address_2022(
-        position, conditional_mint
-    )
+    position_conditional_ata = get_conditional_token_ata(position, conditional_mint)
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
 
     accounts = [
@@ -532,7 +533,6 @@ def build_redeem_winnings_instruction(
         AccountMeta(pubkey=user_deposit_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
     ]
 
@@ -602,7 +602,6 @@ def build_withdraw_from_position_instruction(
     mint: Pubkey,
     amount: int,
     outcome_index: int,
-    is_token_2022: bool = True,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the withdraw_from_position instruction.
@@ -614,19 +613,13 @@ def build_withdraw_from_position_instruction(
     3. mint (readonly)
     4. position_ata (writable)
     5. user_ata (writable)
-    6. token_program (SPL Token or Token-2022)
+    6. token_program
     7. exchange (readonly)
     """
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
-    token_program = TOKEN_2022_PROGRAM_ID if is_token_2022 else TOKEN_PROGRAM_ID
-
-    if is_token_2022:
-        position_ata = get_associated_token_address_2022(position, mint)
-        user_ata = get_associated_token_address_2022(user, mint)
-    else:
-        position_ata = get_associated_token_address(position, mint)
-        user_ata = get_associated_token_address(user, mint)
+    position_ata = get_conditional_token_ata(position, mint)
+    user_ata = get_conditional_token_ata(user, mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
@@ -635,7 +628,7 @@ def build_withdraw_from_position_instruction(
         AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=user_ata, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=token_program, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
     ]
 
@@ -678,6 +671,7 @@ def build_match_orders_multi_instruction(
     market: Pubkey,
     base_mint: Pubkey,
     quote_mint: Pubkey,
+    fee_receiver: Pubkey,
     taker_order: SignedOrder,
     maker_orders: list[SignedOrder],
     maker_fill_amounts: list[int],
@@ -703,8 +697,9 @@ def build_match_orders_multi_instruction(
     8. quote_mint
     9. taker_position_base_ata (writable)
     10. taker_position_quote_ata (writable)
-    11. token_2022_program
+    11. token_program
     12. system_program
+    13. fee_receiver_quote_ata (writable)
     Per maker (5 accounts each, conditionally including order_status based on bitmask):
     - order_status (writable) [only if bit set in bitmask]
     - nonce
@@ -728,12 +723,9 @@ def build_match_orders_multi_instruction(
     taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
 
-    taker_position_base_ata = get_associated_token_address_2022(
-        taker_position, base_mint
-    )
-    taker_position_quote_ata = get_associated_token_address_2022(
-        taker_position, quote_mint
-    )
+    taker_position_base_ata = get_conditional_token_ata(taker_position, base_mint)
+    taker_position_quote_ata = get_conditional_token_ata(taker_position, quote_mint)
+    fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     taker_full_fill = bool((full_fill_bitmask >> 7) & 1)
 
@@ -763,10 +755,11 @@ def build_match_orders_multi_instruction(
             AccountMeta(
                 pubkey=taker_position_quote_ata, is_signer=False, is_writable=True
             ),
-            AccountMeta(
-                pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False
-            ),
+            AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+            AccountMeta(
+                pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True
+            ),
         ]
     )
 
@@ -787,10 +780,10 @@ def build_match_orders_multi_instruction(
 
         maker_nonce, _ = get_user_nonce_pda(maker_order.maker, program_id)
         maker_position, _ = get_position_pda(maker_order.maker, market, program_id)
-        maker_position_base_ata = get_associated_token_address_2022(
+        maker_position_base_ata = get_conditional_token_ata(
             maker_position, base_mint
         )
-        maker_position_quote_ata = get_associated_token_address_2022(
+        maker_position_quote_ata = get_conditional_token_ata(
             maker_position, quote_mint
         )
 
@@ -836,6 +829,7 @@ def build_create_orderbook_instruction(
     market: Pubkey,
     mint_a: Pubkey,
     mint_b: Pubkey,
+    fee_receiver: Pubkey,
     mint_a_deposit_mint: Pubkey,
     mint_b_deposit_mint: Pubkey,
     recent_slot: int,
@@ -858,6 +852,10 @@ def build_create_orderbook_instruction(
     8. system_program
     9. mint_a_deposit_mint (canonical order)
     10. mint_b_deposit_mint (canonical order)
+    11. token_program
+    12. associated_token_program
+    13. fee_receiver
+    14. fee_receiver_quote_ata
 
     Data: [15, recent_slot (u64), base_index (u8), mint_a_outcome_index (u8), mint_b_outcome_index (u8)]
     """
@@ -888,6 +886,8 @@ def build_create_orderbook_instruction(
         canonical_a["mint"], canonical_b["mint"], program_id
     )
     lookup_table, _ = get_alt_pda(orderbook, recent_slot)
+    quote_mint = canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
+    fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     accounts = [
         AccountMeta(pubkey=manager, is_signer=True, is_writable=True),
@@ -904,6 +904,14 @@ def build_create_orderbook_instruction(
         ),
         AccountMeta(
             pubkey=canonical_b["deposit_mint"], is_signer=False, is_writable=False
+        ),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
+        ),
+        AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True
         ),
     ]
 
@@ -967,6 +975,130 @@ def build_set_manager_instruction(
     data = bytearray()
     data.append(INSTRUCTION_SET_MANAGER)
     data.extend(bytes(new_manager))
+
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_set_market_fees_instruction(
+    params: SetMarketFeesParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the set_market_fees instruction."""
+    if not params.updates:
+        raise MissingFieldError("updates")
+
+    exchange, _ = get_exchange_pda(program_id)
+    accounts = [
+        AccountMeta(pubkey=params.manager, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+    ]
+
+    data = bytearray([INSTRUCTION_SET_MARKET_FEES])
+    for update in params.updates:
+        validate_fee_pair(update.maker_fee_bps, update.taker_fee_bps)
+        accounts.append(
+            AccountMeta(pubkey=update.market, is_signer=False, is_writable=True)
+        )
+        data.extend(encode_i16(update.maker_fee_bps))
+        data.extend(encode_i16(update.taker_fee_bps))
+
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_set_fee_receiver_instruction(
+    params: SetFeeReceiverParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the set_fee_receiver instruction."""
+    if params.new_fee_receiver == _zero_pubkey():
+        raise InvalidFeeReceiverError()
+
+    exchange, _ = get_exchange_pda(program_id)
+    accounts = [
+        AccountMeta(pubkey=params.authority, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
+    ]
+
+    data = bytearray([INSTRUCTION_SET_FEE_RECEIVER])
+    data.extend(bytes(params.new_fee_receiver))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_create_conditional_metadata_instruction(
+    params: ConditionalMetadataParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the create_conditional_metadata instruction."""
+    return _build_conditional_metadata_instruction(params, True, program_id)
+
+
+def build_update_conditional_metadata_instruction(
+    params: ConditionalMetadataParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the update_conditional_metadata instruction."""
+    return _build_conditional_metadata_instruction(params, False, program_id)
+
+
+def _build_conditional_metadata_instruction(
+    params: ConditionalMetadataParams,
+    is_create: bool,
+    program_id: Pubkey,
+) -> Instruction:
+    if (
+        not isinstance(params.outcome_index, int)
+        or isinstance(params.outcome_index, bool)
+        or params.outcome_index < 0
+        or params.outcome_index >= MAX_OUTCOMES
+    ):
+        raise InvalidOutcomeIndexError(params.outcome_index, MAX_OUTCOMES - 1)
+
+    exchange, _ = get_exchange_pda(program_id)
+    conditional_mint, _ = get_conditional_mint_pda(
+        params.market,
+        params.deposit_mint,
+        params.outcome_index,
+        program_id,
+    )
+    mint_authority, _ = get_mint_authority_pda(params.market, program_id)
+    metadata, _ = get_mpl_metadata_pda(conditional_mint)
+
+    data = bytearray(
+        [
+            INSTRUCTION_CREATE_CONDITIONAL_METADATA
+            if is_create
+            else INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
+            params.outcome_index,
+        ]
+    )
+    data.extend(serialize_conditional_metadata(params.name, params.symbol, params.uri))
+
+    accounts = [
+        AccountMeta(
+            pubkey=params.manager,
+            is_signer=True,
+            is_writable=is_create,
+        ),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=conditional_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=metadata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=MPL_TOKEN_METADATA_PROGRAM_ID,
+            is_signer=False,
+            is_writable=False,
+        ),
+    ]
+
+    if is_create:
+        accounts.append(
+            AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False)
+        )
+        accounts.append(
+            AccountMeta(pubkey=RENT_SYSVAR_ID, is_signer=False, is_writable=False)
+        )
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
@@ -1096,7 +1228,7 @@ def build_global_to_market_deposit_instruction(
 ) -> Instruction:
     """Build the global_to_market_deposit instruction.
 
-    Accounts (13 + num_outcomes*2):
+    Accounts (12 + num_outcomes*2):
     0. user (signer, writable)
     1. exchange (readonly)
     2. market (readonly)
@@ -1107,9 +1239,8 @@ def build_global_to_market_deposit_instruction(
     7. position (writable)
     8. mint_authority (readonly)
     9. token_program (readonly)
-    10. token_2022_program (readonly)
-    11. ata_program (readonly)
-    12. system_program (readonly)
+    10. ata_program (readonly)
+    11. system_program (readonly)
     + per outcome: conditional_mint[i] (writable), position_conditional_ata[i] (writable)
     """
     exchange, _ = get_exchange_pda(program_id)
@@ -1130,7 +1261,6 @@ def build_global_to_market_deposit_instruction(
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
@@ -1139,7 +1269,7 @@ def build_global_to_market_deposit_instruction(
 
     for i in range(num_outcomes):
         cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-        position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+        position_cond_ata = get_conditional_token_ata(position, cond_mint)
         accounts.append(
             AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
         )
@@ -1173,7 +1303,7 @@ def build_init_position_tokens_instruction(
     4. position (writable)
     5. lookup_table (writable)
     6. mint_authority (readonly)
-    7. token_2022_program (readonly)
+    7. token_program (readonly)
     8. ata_program (readonly)
     9. alt_program (readonly)
     10. system_program (readonly)
@@ -1192,7 +1322,7 @@ def build_init_position_tokens_instruction(
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
         AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
@@ -1212,7 +1342,7 @@ def build_init_position_tokens_instruction(
 
         for i in range(num_outcomes):
             cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-            position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+            position_cond_ata = get_conditional_token_ata(position, cond_mint)
             accounts.append(
                 AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False)
             )
@@ -1231,6 +1361,7 @@ def build_deposit_and_swap_instruction(
     market: Pubkey,
     base_mint: Pubkey,
     quote_mint: Pubkey,
+    fee_receiver: Pubkey,
     taker_order: SignedOrder,
     taker_is_full_fill: bool = False,
     taker_is_deposit: bool = False,
@@ -1245,9 +1376,10 @@ def build_deposit_and_swap_instruction(
     conditional tokens in a single instruction.
 
     Account layout:
-      Fixed (6): operator, exchange, market, orderbook, mint_authority, token_program
-      Taker block (8-9): [order_status], nonce, position, base_mint, quote_mint,
-                          taker_receive_ata, taker_give_ata, token_2022_program, system_program
+      Fixed (7): operator, exchange, market, orderbook, mint_authority, token_program,
+                 fee_receiver_quote_ata
+      Taker block: [order_status], nonce, position, base_mint, quote_mint,
+                   taker_receive_ata, taker_give_ata, system_program
       Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
                                        [cond_mint, ata] x num_outcomes
       Per-maker blocks: [order_status], nonce, position,
@@ -1267,6 +1399,7 @@ def build_deposit_and_swap_instruction(
     mint_authority, _ = get_mint_authority_pda(market, program_id)
     taker_position, _ = get_position_pda(taker_order.maker, market, program_id)
     taker_nonce, _ = get_user_nonce_pda(taker_order.maker, program_id)
+    fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     taker_side = int(taker_order.side)
     if taker_side == 0:  # BID
@@ -1289,7 +1422,7 @@ def build_deposit_and_swap_instruction(
 
     accounts = []
 
-    # Fixed accounts (6)
+    # Fixed accounts (7)
     accounts.append(AccountMeta(pubkey=operator, is_signer=True, is_writable=True))
     accounts.append(AccountMeta(pubkey=exchange, is_signer=False, is_writable=False))
     accounts.append(AccountMeta(pubkey=market, is_signer=False, is_writable=False))
@@ -1299,6 +1432,9 @@ def build_deposit_and_swap_instruction(
     )
     accounts.append(
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False)
+    )
+    accounts.append(
+        AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True)
     )
 
     # Taker order_status (only if not full fill)
@@ -1310,8 +1446,8 @@ def build_deposit_and_swap_instruction(
         )
 
     # Taker common block
-    taker_receive_ata = get_associated_token_address_2022(taker_position, receive_mint)
-    taker_give_ata = get_associated_token_address_2022(taker_position, give_mint)
+    taker_receive_ata = get_conditional_token_ata(taker_position, receive_mint)
+    taker_give_ata = get_conditional_token_ata(taker_position, give_mint)
     accounts.append(AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False))
     accounts.append(
         AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True)
@@ -1323,9 +1459,6 @@ def build_deposit_and_swap_instruction(
     )
     accounts.append(
         AccountMeta(pubkey=taker_give_ata, is_signer=False, is_writable=True)
-    )
-    accounts.append(
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False)
     )
     accounts.append(
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False)
@@ -1348,7 +1481,7 @@ def build_deposit_and_swap_instruction(
 
         for i in range(num_outcomes):
             cond_mint, _ = get_conditional_mint_pda(market, dm, i, program_id)
-            ata = get_associated_token_address_2022(taker_position, cond_mint)
+            ata = get_conditional_token_ata(taker_position, cond_mint)
             accounts.append(
                 AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
             )
@@ -1396,7 +1529,7 @@ def build_deposit_and_swap_instruction(
 
             for j in range(num_outcomes):
                 cond_mint, _ = get_conditional_mint_pda(market, dm, j, program_id)
-                maker_ata = get_associated_token_address_2022(maker_position, cond_mint)
+                maker_ata = get_conditional_token_ata(maker_position, cond_mint)
                 accounts.append(
                     AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
                 )
@@ -1405,10 +1538,8 @@ def build_deposit_and_swap_instruction(
                 )
 
         # Swap ATAs (always present)
-        maker_receive_ata = get_associated_token_address_2022(
-            maker_position, receive_mint
-        )
-        maker_give_ata = get_associated_token_address_2022(maker_position, give_mint)
+        maker_receive_ata = get_conditional_token_ata(maker_position, receive_mint)
+        maker_give_ata = get_conditional_token_ata(maker_position, give_mint)
         accounts.append(
             AccountMeta(pubkey=maker_receive_ata, is_signer=False, is_writable=True)
         )
@@ -1459,7 +1590,7 @@ def build_extend_position_tokens_instruction(
     3. market (readonly)
     4. position (readonly)
     5. lookup_table (writable)
-    6. token_2022_program (readonly)
+    6. token_program (readonly)
     7. ata_program (readonly)
     8. alt_program (readonly)
     9. system_program (readonly)
@@ -1479,7 +1610,7 @@ def build_extend_position_tokens_instruction(
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position, is_signer=False, is_writable=False),
         AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
@@ -1501,7 +1632,7 @@ def build_extend_position_tokens_instruction(
 
         for i in range(num_outcomes):
             cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-            position_cond_ata = get_associated_token_address_2022(position, cond_mint)
+            position_cond_ata = get_conditional_token_ata(position, cond_mint)
             accounts.append(
                 AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False)
             )
@@ -1621,7 +1752,7 @@ def build_close_position_token_accounts_instruction(
     1. exchange (readonly)
     2. market (readonly)
     3. position (readonly)
-    4. token_2022_program (readonly)
+    4. token_program (readonly)
     + per deposit mint: deposit_mint, conditional_mint/position_ata pairs
     """
     if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
@@ -1636,7 +1767,7 @@ def build_close_position_token_accounts_instruction(
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=params.position, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=TOKEN_2022_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
     for deposit_mint in params.deposit_mints:
@@ -1650,7 +1781,7 @@ def build_close_position_token_accounts_instruction(
                 i,
                 program_id,
             )
-            position_ata = get_associated_token_address_2022(
+            position_ata = get_conditional_token_ata(
                 params.position,
                 conditional_mint,
             )

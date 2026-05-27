@@ -29,6 +29,7 @@ from .types import (
 )
 from .utils import (
     decode_bool,
+    decode_i16,
     decode_pubkey,
     decode_u8,
     decode_u16,
@@ -49,7 +50,7 @@ def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:
 def deserialize_exchange(data: bytes) -> Exchange:
     """Deserialize an Exchange account.
 
-    Layout (120 bytes):
+    Layout (212 bytes):
     - [0..8]: discriminator
     - [8..40]: authority (Pubkey)
     - [40..72]: operator (Pubkey)
@@ -58,7 +59,8 @@ def deserialize_exchange(data: bytes) -> Exchange:
     - [112]: paused (bool)
     - [113]: bump (u8)
     - [114..116]: deposit_token_count (u16 LE)
-    - [116..120]: padding
+    - [116..148]: fee_receiver (Pubkey)
+    - [148..212]: reserved
     """
     _validate_discriminator(data, EXCHANGE_DISCRIMINATOR, "Exchange")
 
@@ -75,19 +77,22 @@ def deserialize_exchange(data: bytes) -> Exchange:
         paused=decode_bool(data, 112),
         bump=decode_u8(data, 113),
         deposit_token_count=decode_u16(data, 114),
+        fee_receiver=decode_pubkey(data, 116),
     )
 
 
 def deserialize_market(data: bytes) -> Market:
     """Deserialize a Market account.
 
-    Layout (148 bytes):
+    Layout (212 bytes):
     - [0..8]: discriminator
     - [8..16]: market_id (u64 LE)
     - [16]: num_outcomes (u8)
     - [17]: status (u8: 0=Pending, 1=Active, 2=Resolved, 3=Cancelled)
     - [18]: bump (u8)
-    - [19..24]: padding (5 bytes)
+    - [19]: padding
+    - [20..22]: maker_fee_bps (i16 LE)
+    - [22..24]: taker_fee_bps (i16 LE)
     - [24..56]: oracle (Pubkey)
     - [56..88]: question_id (32 bytes)
     - [88..120]: condition_id (32 bytes)
@@ -106,6 +111,8 @@ def deserialize_market(data: bytes) -> Market:
         num_outcomes=decode_u8(data, 16),
         status=MarketStatus(decode_u8(data, 17)),
         bump=decode_u8(data, 18),
+        maker_fee_bps=decode_i16(data, 20),
+        taker_fee_bps=decode_i16(data, 22),
         oracle=decode_pubkey(data, 24),
         question_id=data[56:88],
         condition_id=data[88:120],

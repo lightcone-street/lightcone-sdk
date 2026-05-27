@@ -5,7 +5,6 @@ import {
 } from "@solana/web3.js";
 import {
   TOKEN_PROGRAM_ID as SPL_TOKEN_PROGRAM_ID,
-  TOKEN_2022_PROGRAM_ID as SPL_TOKEN_2022_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID as SPL_ASSOCIATED_TOKEN_PROGRAM_ID,
 } from "@solana/spl-token";
 
@@ -22,14 +21,16 @@ export const ALT_PROGRAM_ID = new PublicKey(
 export const TOKEN_PROGRAM_ID = SPL_TOKEN_PROGRAM_ID;
 
 /**
- * Token-2022 Program ID (for conditional tokens)
- */
-export const TOKEN_2022_PROGRAM_ID = SPL_TOKEN_2022_PROGRAM_ID;
-
-/**
  * Associated Token Account Program ID
  */
 export const ASSOCIATED_TOKEN_PROGRAM_ID = SPL_ASSOCIATED_TOKEN_PROGRAM_ID;
+
+/**
+ * Metaplex Token Metadata Program ID
+ */
+export const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey(
+  "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
+);
 
 /**
  * System Program ID
@@ -74,6 +75,10 @@ export const INSTRUCTION = {
   CLOSE_ORDERBOOK_ALT: 26,
   CLOSE_ORDERBOOK: 27,
   SET_MANAGER: 28,
+  SET_MARKET_FEES: 29,
+  SET_FEE_RECEIVER: 30,
+  CREATE_CONDITIONAL_METADATA: 31,
+  UPDATE_CONDITIONAL_METADATA: 32,
 } as const;
 
 /**
@@ -94,8 +99,8 @@ export const DISCRIMINATOR = {
  * Account sizes in bytes
  */
 export const ACCOUNT_SIZE = {
-  EXCHANGE: 120,
-  MARKET: 148,
+  EXCHANGE: 212,
+  MARKET: 212,
   ORDER_STATUS: 32,
   USER_NONCE: 16,
   POSITION: 80,
@@ -142,4 +147,6 @@ export const SEEDS = {
   POSITION: "position",
   ORDERBOOK: "orderbook",
   GLOBAL_DEPOSIT: "global_deposit",
+  FEE_RECEIVER: "fee_receiver",
+  MPL_METADATA: "metadata",
 } as const;

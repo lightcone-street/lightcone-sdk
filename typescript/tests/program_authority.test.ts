@@ -16,6 +16,7 @@ import {
   buildCloseOrderbookIx,
   buildClosePositionAltIx,
   buildClosePositionTokenAccountsIx,
+  buildCreateConditionalMetadataIx,
   buildCreateMarketIx,
   buildCreateOrderbookIx,
   buildDepositIx,
@@ -27,8 +28,11 @@ import {
   buildIncrementNonceIx,
   buildMatchOrdersMultiIx,
   buildRedeemWinningsIx,
+  buildSetFeeReceiverIx,
   buildSetManagerIx,
+  buildSetMarketFeesIx,
   buildSettleMarketIx,
+  buildUpdateConditionalMetadataIx,
   buildWithdrawFromPositionIx,
   buildWithdrawFromGlobalIx,
   deriveConditionId,
@@ -44,6 +48,7 @@ import {
   getGlobalDepositTokenPda,
   getMarketPda,
   getMintAuthorityPda,
+  getMplMetadataPda,
   getOrderStatusPda,
   getOrderbookPda,
   getPositionPda,
@@ -77,7 +82,7 @@ function order(seed: number, market = pubkey(30), baseMint = pubkey(40), quoteMi
 }
 
 describe("program authority/account alignment", () => {
-  it("deserializes the 120-byte Exchange layout with manager", () => {
+  it("deserializes the 212-byte Exchange layout with manager and fee receiver", () => {
     const data = Buffer.alloc(ACCOUNT_SIZE.EXCHANGE);
     DISCRIMINATOR.EXCHANGE.copy(data, 0);
     pubkey(1).toBuffer().copy(data, 8);
@@ -87,6 +92,7 @@ describe("program authority/account alignment", () => {
     data[112] = 1;
     data[113] = 7;
     data.writeUInt16LE(5, 114);
+    pubkey(4).toBuffer().copy(data, 116);
 
     const exchange = deserializeExchange(data);
 
@@ -97,6 +103,7 @@ describe("program authority/account alignment", () => {
     assert.equal(exchange.paused, true);
     assert.equal(exchange.bump, 7);
     assert.equal(exchange.depositTokenCount, 5);
+    assert.equal(exchange.feeReceiver.toBase58(), pubkey(4).toBase58());
   });
 
   it("deserializes the 32-byte OrderStatus layout with baseRemaining", () => {
@@ -113,7 +120,7 @@ describe("program authority/account alignment", () => {
     assert.equal(status.isCancelled, true);
   });
 
-  it("deserializes the 148-byte Market payout-vector layout", () => {
+  it("deserializes the 212-byte Market payout-vector and fee layout", () => {
     const data = Buffer.alloc(ACCOUNT_SIZE.MARKET);
     const questionId = Buffer.alloc(32, 4);
     const conditionId = Buffer.alloc(32, 5);
@@ -122,6 +129,8 @@ describe("program authority/account alignment", () => {
     data[16] = 3;
     data[17] = MarketStatus.Resolved;
     data[18] = 9;
+    data.writeInt16LE(-10, 20);
+    data.writeInt16LE(25, 22);
     pubkey(6).toBuffer().copy(data, 24);
     questionId.copy(data, 56);
     conditionId.copy(data, 88);
@@ -136,6 +145,8 @@ describe("program authority/account alignment", () => {
     assert.equal(market.numOutcomes, 3);
     assert.equal(market.status, MarketStatus.Resolved);
     assert.equal(market.bump, 9);
+    assert.equal(market.makerFeeBps, -10);
+    assert.equal(market.takerFeeBps, 25);
     assert.equal(market.oracle.toBase58(), pubkey(6).toBase58());
     assert.deepEqual(market.questionId, questionId);
     assert.deepEqual(market.conditionId, conditionId);
@@ -158,6 +169,8 @@ describe("program authority/account alignment", () => {
       numOutcomes: 2,
       oracle: pubkey(2),
       questionId: Buffer.alloc(32, 3),
+      makerFeeBps: 10,
+      takerFeeBps: 20,
     };
     const conditionId = deriveConditionId(params.oracle, params.questionId, params.numOutcomes);
     const [conditionTombstone] = getConditionTombstonePda(conditionId, programId);
@@ -169,6 +182,9 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[4]!.pubkey.toBase58(), conditionTombstone.toBase58());
     assert.equal(ix.keys[4]!.isWritable, true);
+    assert.equal(ix.data.length, 70);
+    assert.equal(ix.data.readInt16LE(66), 10);
+    assert.equal(ix.data.readInt16LE(68), 20);
   });
 
   it("builds addDepositMint with manager, readonly market, and global deposit token", () => {
@@ -181,21 +197,18 @@ describe("program authority/account alignment", () => {
       {
         manager: pubkey(1),
         depositMint,
-        outcomeMetadata: [
-          { name: "Yes", symbol: "YES", uri: "" },
-          { name: "No", symbol: "NO", uri: "" },
-        ],
       },
       market,
       2,
       programId
     );
 
-    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys.length, 11);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), pubkey(1).toBase58());
     assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
     assert.equal(ix.keys[2]!.isWritable, false);
-    assert.equal(ix.keys[9]!.pubkey.toBase58(), globalDepositToken.toBase58());
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), globalDepositToken.toBase58());
+    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.ADD_DEPOSIT_MINT]));
   });
 
   it("builds mintCompleteSet without obsolete position collateral ATA", () => {
@@ -211,7 +224,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 18);
+    assert.equal(ix.keys.length, 17);
     assert.equal(ix.keys[7]!.pubkey.toBase58(), mintAuthority.toBase58());
     assert.equal(ix.keys[7]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.MINT_COMPLETE_SET);
@@ -245,6 +258,66 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data.length, 33);
     assert.equal(ix.data[0], INSTRUCTION.SET_MANAGER);
     assert.deepEqual(ix.data.subarray(1), newManager.toBuffer());
+  });
+
+  it("builds market fee and fee receiver admin instructions", () => {
+    const programId = pubkey(111);
+    const market = pubkey(2);
+
+    const feesIx = buildSetMarketFeesIx(
+      {
+        manager: pubkey(1),
+        updates: [{ market, makerFeeBps: -10, takerFeeBps: 25 }],
+      },
+      programId
+    );
+
+    assert.equal(feesIx.keys.length, 3);
+    assert.equal(feesIx.keys[2]!.pubkey.toBase58(), market.toBase58());
+    assert.equal(feesIx.data[0], INSTRUCTION.SET_MARKET_FEES);
+    assert.equal(feesIx.data.readInt16LE(1), -10);
+    assert.equal(feesIx.data.readInt16LE(3), 25);
+
+    const receiverIx = buildSetFeeReceiverIx(
+      { authority: pubkey(3), newFeeReceiver: pubkey(4) },
+      programId
+    );
+
+    assert.equal(receiverIx.keys.length, 2);
+    assert.equal(receiverIx.data.length, 33);
+    assert.equal(receiverIx.data[0], INSTRUCTION.SET_FEE_RECEIVER);
+  });
+
+  it("builds conditional metadata create and update instructions", () => {
+    const programId = pubkey(112);
+    const params = {
+      manager: pubkey(1),
+      market: pubkey(2),
+      depositMint: pubkey(3),
+      outcomeIndex: 1,
+      name: "Yes",
+      symbol: "YES",
+      uri: "https://example.com/yes.json",
+    };
+    const [conditionalMint] = getConditionalMintPda(
+      params.market,
+      params.depositMint,
+      params.outcomeIndex,
+      programId
+    );
+    const [metadata] = getMplMetadataPda(conditionalMint);
+
+    const createIx = buildCreateConditionalMetadataIx(params, programId);
+    assert.equal(createIx.keys.length, 10);
+    assert.equal(createIx.keys[5]!.pubkey.toBase58(), metadata.toBase58());
+    assert.equal(createIx.data[0], INSTRUCTION.CREATE_CONDITIONAL_METADATA);
+    assert.equal(createIx.data[1], 1);
+    assert.equal(createIx.data.readUInt32LE(2), 3);
+
+    const updateIx = buildUpdateConditionalMetadataIx(params, programId);
+    assert.equal(updateIx.keys.length, 8);
+    assert.equal(updateIx.keys[0]!.isWritable, false);
+    assert.equal(updateIx.data[0], INSTRUCTION.UPDATE_CONDITIONAL_METADATA);
   });
 
   it("builds settleMarket with readonly oracle signer and u32 payout vector", () => {
@@ -375,6 +448,7 @@ describe("program authority/account alignment", () => {
         mintA: suppliedMintA,
         mintB: suppliedMintB,
         mintADepositMint: pubkey(3),
+        feeReceiver: pubkey(6),
         mintBDepositMint: pubkey(4),
         recentSlot: 123n,
         baseIndex: 0,
@@ -384,11 +458,12 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 11);
+    assert.equal(ix.keys.length, 15);
     assert.equal(ix.keys[2]!.pubkey.toBase58(), suppliedMintB.toBase58());
     assert.equal(ix.keys[3]!.pubkey.toBase58(), suppliedMintA.toBase58());
     assert.equal(ix.keys[4]!.pubkey.toBase58(), orderbook.toBase58());
     assert.equal(ix.keys[5]!.pubkey.toBase58(), lookupTable.toBase58());
+    assert.equal(ix.keys[13]!.pubkey.toBase58(), pubkey(6).toBase58());
     assert.equal(ix.data.length, 12);
     assert.equal(ix.data[9], 1);
     assert.equal(ix.data[10], 1);
@@ -408,6 +483,7 @@ describe("program authority/account alignment", () => {
         market,
         baseMint,
         quoteMint,
+        feeReceiver: pubkey(6),
         takerOrder: order(1, market, baseMint, quoteMint),
         makerOrders: [order(2, market, baseMint, quoteMint)],
         makerFillAmounts: [10n],
@@ -479,7 +555,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys.length, 11);
     assert.equal(ix.keys[3]!.pubkey.toBase58(), vault.toBase58());
     assert.equal(ix.keys[4]!.pubkey.toBase58(), conditionalMint.toBase58());
     assert.equal(ix.keys[5]!.pubkey.toBase58(), position.toBase58());
@@ -487,7 +563,7 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[6]!.pubkey.toBase58(), positionConditionalAta.toBase58());
     assert.equal(ix.keys[7]!.pubkey.toBase58(), userDepositAta.toBase58());
     assert.equal(ix.keys[8]!.pubkey.toBase58(), mintAuthority.toBase58());
-    assert.equal(ix.keys[11]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[10]!.pubkey.toBase58(), exchange.toBase58());
     assert.equal(ix.data.length, 10);
     assert.equal(ix.data[0], INSTRUCTION.REDEEM_WINNINGS);
     assert.equal(ix.data.readBigUInt64LE(1), 123n);
@@ -506,7 +582,6 @@ describe("program authority/account alignment", () => {
         amount: 100n,
         outcomeIndex: 1,
       },
-      true,
       programId
     );
 
@@ -529,7 +604,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 19);
+    assert.equal(ix.keys.length, 18);
     assert.equal(ix.keys[8]!.pubkey.toBase58(), mintAuthority.toBase58());
     assert.equal(ix.keys[8]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.GLOBAL_TO_MARKET_DEPOSIT);
@@ -556,6 +631,7 @@ describe("program authority/account alignment", () => {
         market,
         baseMint,
         quoteMint,
+        feeReceiver: pubkey(6),
         takerOrder: order(1, market, baseMint, quoteMint),
         takerIsFullFill: true,
         takerIsDeposit: false,

@@ -181,9 +181,7 @@ class Positions:
             program_id=self._client.program_id,
         )
 
-    def withdraw_from_position_ix(
-        self, params: WithdrawFromPositionParams, is_token_2022: bool = True
-    ) -> Instruction:
+    def withdraw_from_position_ix(self, params: WithdrawFromPositionParams) -> Instruction:
         """Build WithdrawFromPosition instruction."""
         return build_withdraw_from_position_instruction(
             user=params.user,
@@ -191,7 +189,6 @@ class Positions:
             mint=params.mint,
             amount=params.amount,
             outcome_index=params.outcome_index,
-            is_token_2022=is_token_2022,
             program_id=self._client.program_id,
         )
 
@@ -293,11 +290,9 @@ class Positions:
         ix = self.redeem_winnings_ix(params, outcome_index)
         return Transaction.new_with_payer([ix], params.user)
 
-    def withdraw_from_position_tx(
-        self, params: WithdrawFromPositionParams, is_token_2022: bool = True
-    ) -> Transaction:
+    def withdraw_from_position_tx(self, params: WithdrawFromPositionParams) -> Transaction:
         """Build WithdrawFromPosition transaction."""
-        ix = self.withdraw_from_position_ix(params, is_token_2022)
+        ix = self.withdraw_from_position_ix(params)
         return Transaction.new_with_payer([ix], params.user)
 
     def init_position_tokens_tx(

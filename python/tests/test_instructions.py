@@ -9,15 +9,18 @@ from lightcone_sdk.program import (
     CloseOrderbookParams,
     ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
+    ConditionalMetadataParams,
     DepositToGlobalAltContext,
     InvalidOutcomeCountError,
     InvalidPayoutNumeratorsError,
     ArithmeticOverflowError,
     MakerFill,
+    MarketFeeUpdate,
     OrderSide,
-    OutcomeMetadata,
     SignedOrder,
-    TOKEN_2022_PROGRAM_ID,
+    SetFeeReceiverParams,
+    SetMarketFeesParams,
+    TOKEN_PROGRAM_ID,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
     build_close_order_status_instruction,
@@ -25,6 +28,7 @@ from lightcone_sdk.program import (
     build_close_orderbook_instruction,
     build_close_position_alt_instruction,
     build_close_position_token_accounts_instruction,
+    build_create_conditional_metadata_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
     build_deposit_and_swap_instruction,
@@ -35,20 +39,24 @@ from lightcone_sdk.program import (
     build_match_orders_multi_instruction,
     build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
+    build_set_fee_receiver_instruction,
     build_set_manager_instruction,
+    build_set_market_fees_instruction,
     build_settle_market_instruction,
+    build_update_conditional_metadata_instruction,
     build_withdraw_from_position_instruction,
     build_withdraw_from_global_instruction,
     derive_condition_id,
     get_associated_token_address,
-    get_associated_token_address_2022,
     get_alt_pda,
+    get_conditional_token_ata,
     get_conditional_mint_pda,
     get_condition_tombstone_pda,
     get_exchange_pda,
     get_global_deposit_pda,
     get_market_pda,
     get_mint_authority_pda,
+    get_mpl_metadata_pda,
     get_order_status_pda,
     get_orderbook_pda,
     get_position_pda,
@@ -98,6 +106,8 @@ def test_create_market_uses_manager_and_condition_tombstone():
         num_outcomes=2,
         oracle=oracle,
         question_id=question_id,
+        maker_fee_bps=10,
+        taker_fee_bps=20,
     )
 
     condition_id = derive_condition_id(oracle, question_id, 2)
@@ -108,34 +118,32 @@ def test_create_market_uses_manager_and_condition_tombstone():
     assert ix.accounts[0].is_signer is True
     assert ix.accounts[4].pubkey == condition_tombstone
     assert ix.accounts[4].is_writable is True
-    assert len(ix.data) == 66
+    assert len(ix.data) == 70
+    assert int.from_bytes(ix.data[66:68], "little", signed=True) == 10
+    assert int.from_bytes(ix.data[68:70], "little", signed=True) == 20
 
 
 def test_add_deposit_mint_uses_manager_and_global_deposit_token():
     manager = Pubkey.new_unique()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
-    metadata = [
-        OutcomeMetadata("Yes", "YES", "https://example.com/yes.json"),
-        OutcomeMetadata("No", "NO", "https://example.com/no.json"),
-    ]
 
     ix = build_add_deposit_mint_instruction(
         manager=manager,
         market=market,
         deposit_mint=deposit_mint,
-        outcome_metadata=metadata,
         num_outcomes=2,
     )
 
     global_deposit_token, _ = get_global_deposit_pda(deposit_mint)
 
-    assert len(ix.accounts) == 12
+    assert len(ix.accounts) == 11
     assert ix.accounts[0].pubkey == manager
     assert ix.accounts[2].pubkey == market
     assert ix.accounts[2].is_writable is False
-    assert ix.accounts[9].pubkey == global_deposit_token
-    assert ix.accounts[9].is_writable is False
+    assert ix.accounts[8].pubkey == global_deposit_token
+    assert ix.accounts[8].is_writable is False
+    assert ix.data == bytes([2])
 
 
 def test_mint_complete_set_matches_canonical_account_layout():
@@ -153,12 +161,12 @@ def test_mint_complete_set_matches_canonical_account_layout():
         num_outcomes=3,
     )
 
-    assert len(ix.accounts) == 18
+    assert len(ix.accounts) == 17
     assert ix.accounts[6].pubkey == position
     assert ix.accounts[7].pubkey == mint_authority
     assert ix.accounts[7].is_writable is False
     assert (
-        ix.accounts[12].pubkey
+        ix.accounts[11].pubkey
         == get_conditional_mint_pda(
             market,
             deposit_mint,
@@ -182,6 +190,7 @@ def test_create_orderbook_canonicalizes_mints_and_data():
         market=market,
         mint_a=high_mint,
         mint_b=low_mint,
+        fee_receiver=fixed_pubkey(7),
         mint_a_deposit_mint=high_deposit_mint,
         mint_b_deposit_mint=low_deposit_mint,
         recent_slot=123,
@@ -192,13 +201,14 @@ def test_create_orderbook_canonicalizes_mints_and_data():
 
     orderbook, _ = get_orderbook_pda(low_mint, high_mint)
 
-    assert len(ix.accounts) == 11
+    assert len(ix.accounts) == 15
     assert ix.accounts[0].pubkey == manager
     assert ix.accounts[2].pubkey == low_mint
     assert ix.accounts[3].pubkey == high_mint
     assert ix.accounts[4].pubkey == orderbook
     assert ix.accounts[9].pubkey == low_deposit_mint
     assert ix.accounts[10].pubkey == high_deposit_mint
+    assert ix.accounts[13].pubkey == fixed_pubkey(7)
     assert len(ix.data) == 12
     assert ix.data[9] == 1
     assert ix.data[10] == 1
@@ -215,6 +225,68 @@ def test_set_manager_instruction_layout():
     assert ix.accounts[0].pubkey == authority
     assert ix.accounts[0].is_signer is True
     assert ix.data == bytes([28]) + bytes(new_manager)
+
+
+def test_fee_admin_instruction_layouts():
+    manager = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+
+    fees_ix = build_set_market_fees_instruction(
+        SetMarketFeesParams(
+            manager=manager,
+            updates=[
+                MarketFeeUpdate(
+                    market=market,
+                    maker_fee_bps=-10,
+                    taker_fee_bps=25,
+                )
+            ],
+        )
+    )
+
+    assert len(fees_ix.accounts) == 3
+    assert fees_ix.accounts[2].pubkey == market
+    assert fees_ix.data[0] == 29
+    assert int.from_bytes(fees_ix.data[1:3], "little", signed=True) == -10
+    assert int.from_bytes(fees_ix.data[3:5], "little", signed=True) == 25
+
+    authority = Pubkey.new_unique()
+    fee_receiver = Pubkey.new_unique()
+    receiver_ix = build_set_fee_receiver_instruction(
+        SetFeeReceiverParams(authority=authority, new_fee_receiver=fee_receiver)
+    )
+
+    assert len(receiver_ix.accounts) == 2
+    assert receiver_ix.data == bytes([30]) + bytes(fee_receiver)
+
+
+def test_conditional_metadata_instruction_layouts():
+    manager = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+    params = ConditionalMetadataParams(
+        manager=manager,
+        market=market,
+        deposit_mint=deposit_mint,
+        outcome_index=1,
+        name="Yes",
+        symbol="YES",
+        uri="https://example.com/yes.json",
+    )
+    conditional_mint, _ = get_conditional_mint_pda(market, deposit_mint, 1)
+    metadata, _ = get_mpl_metadata_pda(conditional_mint)
+
+    create_ix = build_create_conditional_metadata_instruction(params)
+    assert len(create_ix.accounts) == 10
+    assert create_ix.accounts[5].pubkey == metadata
+    assert create_ix.data[0] == 31
+    assert create_ix.data[1] == 1
+    assert int.from_bytes(create_ix.data[2:6], "little") == 3
+
+    update_ix = build_update_conditional_metadata_instruction(params)
+    assert len(update_ix.accounts) == 8
+    assert update_ix.accounts[0].is_writable is False
+    assert update_ix.data[0] == 32
 
 
 def test_settle_market_uses_payout_vector_layout():
@@ -307,6 +379,7 @@ def test_match_orders_multi_includes_orderbook_at_fixed_index():
         market=market,
         base_mint=base_mint,
         quote_mint=quote_mint,
+        fee_receiver=Pubkey.new_unique(),
         taker_order=taker_order,
         maker_orders=[maker_order],
         maker_fill_amounts=[100],
@@ -333,6 +406,7 @@ def test_deposit_and_swap_includes_orderbook_at_fixed_index():
         market=market,
         base_mint=base_mint,
         quote_mint=quote_mint,
+        fee_receiver=Pubkey.new_unique(),
         taker_order=taker_order,
         makers=[
             MakerFill(
@@ -403,7 +477,7 @@ def test_global_to_market_deposit_matches_canonical_account_layout():
         num_outcomes=3,
     )
 
-    assert len(ix.accounts) == 19
+    assert len(ix.accounts) == 18
     assert [meta.pubkey for meta in ix.accounts[:9]] == [
         user,
         exchange,
@@ -416,7 +490,7 @@ def test_global_to_market_deposit_matches_canonical_account_layout():
         mint_authority,
     ]
     assert (
-        ix.accounts[13].pubkey
+        ix.accounts[12].pubkey
         == get_conditional_mint_pda(
             market,
             deposit_mint,
@@ -457,9 +531,7 @@ def test_redeem_winnings_uses_outcome_index_and_exchange():
     vault, _ = get_vault_pda(deposit_mint, market)
     conditional_mint, _ = get_conditional_mint_pda(market, deposit_mint, outcome_index)
     position, _ = get_position_pda(user, market)
-    position_conditional_ata = get_associated_token_address_2022(
-        position, conditional_mint
-    )
+    position_conditional_ata = get_conditional_token_ata(position, conditional_mint)
     user_deposit_ata = get_associated_token_address(user, deposit_mint)
     mint_authority, _ = get_mint_authority_pda(market)
 
@@ -471,7 +543,7 @@ def test_redeem_winnings_uses_outcome_index_and_exchange():
         amount=123,
     )
 
-    assert len(ix.accounts) == 12
+    assert len(ix.accounts) == 11
     assert ix.accounts[3].pubkey == vault
     assert ix.accounts[4].pubkey == conditional_mint
     assert ix.accounts[5].pubkey == position
@@ -479,7 +551,7 @@ def test_redeem_winnings_uses_outcome_index_and_exchange():
     assert ix.accounts[6].pubkey == position_conditional_ata
     assert ix.accounts[7].pubkey == user_deposit_ata
     assert ix.accounts[8].pubkey == mint_authority
-    assert ix.accounts[11].pubkey == exchange
+    assert ix.accounts[10].pubkey == exchange
     assert len(ix.data) == 10
     assert ix.data[0] == 8
     assert int.from_bytes(ix.data[1:9], "little") == 123
@@ -541,7 +613,7 @@ def test_close_position_token_accounts_instruction_layout():
     )
 
     first_conditional_mint, _ = get_conditional_mint_pda(market, deposit_mints[0], 0)
-    first_position_ata = get_associated_token_address_2022(
+    first_position_ata = get_conditional_token_ata(
         position,
         first_conditional_mint,
     )
@@ -552,7 +624,7 @@ def test_close_position_token_accounts_instruction_layout():
         exchange,
         market,
         position,
-        TOKEN_2022_PROGRAM_ID,
+        TOKEN_PROGRAM_ID,
         deposit_mints[0],
     ]
     assert ix.accounts[6].pubkey == first_conditional_mint

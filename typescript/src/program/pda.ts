@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { ALT_PROGRAM_ID, SEEDS } from "./constants";
+import { ALT_PROGRAM_ID, MPL_TOKEN_METADATA_PROGRAM_ID, SEEDS } from "./constants";
 import { PROGRAM_ID } from "../env";
 import { ProgramSdkError } from "./error";
 import { toU64Le, toU8 } from "./utils";
@@ -116,6 +116,24 @@ export function getAllConditionalMintPdas(
     pdas.push(getConditionalMintPda(market, depositMint, i, programId));
   }
   return pdas;
+}
+
+/**
+ * Derive the Metaplex metadata PDA for a conditional mint.
+ * Seeds: ["metadata", MPL_TOKEN_METADATA_PROGRAM_ID, conditional_mint]
+ * Program: MPL_TOKEN_METADATA_PROGRAM_ID
+ */
+export function getMplMetadataPda(
+  conditionalMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(SEEDS.MPL_METADATA),
+      MPL_TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+      conditionalMint.toBuffer(),
+    ],
+    MPL_TOKEN_METADATA_PROGRAM_ID
+  );
 }
 
 /**
@@ -266,6 +284,7 @@ export const pda = {
   getMintAuthorityPda,
   getConditionalMintPda,
   getAllConditionalMintPdas,
+  getMplMetadataPda,
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,

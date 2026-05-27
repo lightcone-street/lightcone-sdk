@@ -5,6 +5,7 @@ from solders.pubkey import Pubkey
 from ..env import PROGRAM_ID
 from .constants import (
     ALT_PROGRAM_ID,
+    MPL_TOKEN_METADATA_PROGRAM_ID,
     ORDERBOOK_SEED,
     SEED_CENTRAL_STATE,
     SEED_CONDITION,
@@ -12,6 +13,7 @@ from .constants import (
     SEED_GLOBAL_DEPOSIT,
     SEED_MARKET,
     SEED_MINT_AUTHORITY,
+    SEED_MPL_METADATA,
     SEED_ORDER_STATUS,
     SEED_POSITION,
     SEED_USER_NONCE,
@@ -212,6 +214,22 @@ def get_all_conditional_mint_pdas(
         get_conditional_mint_pda(market, deposit_mint, i, program_id)
         for i in range(num_outcomes)
     ]
+
+
+def get_mpl_metadata_pda(conditional_mint: Pubkey) -> tuple[Pubkey, int]:
+    """Derive the Metaplex metadata PDA for a conditional mint.
+
+    Seeds: ["metadata", MPL_TOKEN_METADATA_PROGRAM_ID, conditional_mint]
+    Program: MPL_TOKEN_METADATA_PROGRAM_ID
+    """
+    return Pubkey.find_program_address(
+        [
+            SEED_MPL_METADATA,
+            bytes(MPL_TOKEN_METADATA_PROGRAM_ID),
+            bytes(conditional_mint),
+        ],
+        MPL_TOKEN_METADATA_PROGRAM_ID,
+    )
 
 
 def get_all_conditional_mints(

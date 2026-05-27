@@ -29,6 +29,7 @@ def build_exchange_data(
     market_count: int,
     paused: bool,
     bump: int,
+    fee_receiver: Pubkey | None = None,
 ) -> bytes:
     """Build Exchange account data for testing."""
     data = bytearray()
@@ -40,7 +41,8 @@ def build_exchange_data(
     data.append(1 if paused else 0)
     data.append(bump)
     data.extend(struct.pack("<H", 0))
-    data.extend(bytes(4))  # padding
+    data.extend(bytes(fee_receiver or Pubkey.from_bytes(bytes(32))))
+    data.extend(bytes(64))  # reserved
     return bytes(data)
 
 
@@ -52,6 +54,8 @@ def build_market_data(
     oracle: Pubkey,
     question_id: bytes,
     condition_id: bytes,
+    maker_fee_bps: int = 0,
+    taker_fee_bps: int = 0,
     payout_numerators: tuple[int, int, int, int, int, int] = (0, 0, 0, 0, 0, 0),
     payout_denominator: int = 0,
 ) -> bytes:
@@ -62,13 +66,16 @@ def build_market_data(
     data.append(num_outcomes)
     data.append(status)
     data.append(bump)
-    data.extend(bytes(5))  # padding
+    data.extend(bytes(1))  # padding
+    data.extend(struct.pack("<h", maker_fee_bps))
+    data.extend(struct.pack("<h", taker_fee_bps))
     data.extend(bytes(oracle))
     data.extend(question_id)
     data.extend(condition_id)
     for numerator in payout_numerators:
         data.extend(struct.pack("<I", numerator))
     data.extend(struct.pack("<I", payout_denominator))
+    data.extend(bytes(64))  # reserved
     return bytes(data)
 
 
@@ -109,6 +116,7 @@ class TestDeserializeExchange:
         authority = Pubkey.new_unique()
         operator = Pubkey.new_unique()
         manager = Pubkey.new_unique()
+        fee_receiver = Pubkey.new_unique()
         data = build_exchange_data(
             authority=authority,
             operator=operator,
@@ -116,6 +124,7 @@ class TestDeserializeExchange:
             market_count=42,
             paused=False,
             bump=255,
+            fee_receiver=fee_receiver,
         )
 
         exchange = deserialize_exchange(data)
@@ -126,6 +135,7 @@ class TestDeserializeExchange:
         assert exchange.market_count == 42
         assert exchange.paused is False
         assert exchange.bump == 255
+        assert exchange.fee_receiver == fee_receiver
 
     def test_deserialize_paused_exchange(self):
         data = build_exchange_data(
@@ -167,6 +177,8 @@ class TestDeserializeMarket:
             oracle=oracle,
             question_id=question_id,
             condition_id=condition_id,
+            maker_fee_bps=-10,
+            taker_fee_bps=25,
         )
 
         market = deserialize_market(data)
@@ -175,6 +187,8 @@ class TestDeserializeMarket:
         assert market.num_outcomes == 2
         assert market.status == MarketStatus.ACTIVE
         assert market.bump == 253
+        assert market.maker_fee_bps == -10
+        assert market.taker_fee_bps == 25
         assert market.oracle == oracle
         assert market.question_id == question_id
         assert market.condition_id == condition_id
