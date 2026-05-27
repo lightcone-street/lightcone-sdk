@@ -138,12 +138,6 @@ pub struct OutcomeMetadataPayload {
 pub struct ConditionalTokenMetadataPayload {
     pub conditional_mint_id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome_index: Option<i16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deposit_symbol: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub short_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -153,10 +147,6 @@ pub struct ConditionalTokenMetadataPayload {
     pub icon_url_medium: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_url_high: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decimals: Option<i16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -421,6 +411,42 @@ pub struct AdminConditionalTokenMetadataRow {
     pub updated_at: DateTime<Utc>,
 }
 
+/// Conditional token metadata database row returned by derived-field resync.
+///
+/// This is distinct from [`AdminConditionalTokenMetadataRow`]: the resync
+/// endpoint returns the database column name `short_name`, while focused admin
+/// market reads expose `short_symbol`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ConditionalTokenMetadataRow {
+    pub id: i64,
+    pub conditional_mint_id: i32,
+    pub outcome_index: i16,
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub outcome: Option<String>,
+    #[serde(default)]
+    pub symbol: Option<String>,
+    #[serde(default)]
+    pub deposit_symbol: Option<String>,
+    #[serde(default)]
+    pub short_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub icon_url_low: Option<String>,
+    #[serde(default)]
+    pub icon_url_medium: Option<String>,
+    #[serde(default)]
+    pub icon_url_high: Option<String>,
+    #[serde(default)]
+    pub metadata_uri: Option<String>,
+    #[serde(default)]
+    pub decimals: Option<i16>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 /// Missing metadata row identifiers returned by focused market metadata reads.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AdminMissingMetadata {
@@ -521,12 +547,6 @@ pub struct UpdateOutcomeMetadataPayload {
 pub struct UpdateConditionalTokenMetadataPayload {
     pub conditional_mint_id: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome_index: Option<i16>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub deposit_symbol: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub short_symbol: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -536,14 +556,52 @@ pub struct UpdateConditionalTokenMetadataPayload {
     pub icon_url_medium: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_url_high: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub metadata_uri: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub decimals: Option<i16>,
 }
 
 /// Focused market metadata update response.
 pub type UpdateMarketMetadataResponse = UnifiedMetadataResponse;
+
+/// Request body for rewriting conditional token metadata JSON.
+///
+/// Image fields must be WebP data URLs when provided. The backend reuses
+/// existing database image URLs for omitted variants; a high image URL must
+/// already exist or be provided as `image_data_url_high`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UpdateConditionalTokenMetadataJsonRequest {
+    pub name: String,
+    pub symbol: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_data_url_low: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_data_url_medium: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_data_url_high: Option<String>,
+}
+
+/// Response from rewriting conditional token metadata JSON.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConditionalTokenMetadataJsonResponse {
+    pub conditional_mint: PubkeyStr,
+    pub metadata_uri: String,
+    #[serde(default)]
+    pub image_url_low: Option<String>,
+    #[serde(default)]
+    pub image_url_medium: Option<String>,
+    #[serde(default)]
+    pub image_url_high: Option<String>,
+    pub database_updated: bool,
+    #[serde(default)]
+    pub invalidation_paths: Vec<String>,
+}
+
+/// Response from resyncing derived conditional-token metadata fields.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ResyncConditionalTokenDerivedMetadataResponse {
+    #[serde(default)]
+    pub conditional_tokens: Vec<ConditionalTokenMetadataRow>,
+}
 
 /// Three quality variants for metadata images.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -584,6 +642,24 @@ pub struct UpdateConditionalTokenImageRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateDepositTokenImagesRequest {
     pub icon: AdminImageVariants,
+}
+
+/// Request body for `POST /api/admin/metadata/deposit-tokens/{deposit_asset}/images/upload`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UploadDepositTokenImagesRequest {
+    pub icon: AdminImageVariants,
+}
+
+/// Response from uploading first-time deposit token icon images.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct UploadDepositTokenImagesResponse {
+    pub deposit_asset: PubkeyStr,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
+    pub database_updated: bool,
+    #[serde(default)]
+    pub invalidation_paths: Vec<String>,
 }
 
 /// Image replacement response from focused metadata image endpoints.
@@ -2480,16 +2556,11 @@ mod tests {
             }],
             conditional_tokens: vec![UpdateConditionalTokenMetadataPayload {
                 conditional_mint_id: 31,
-                outcome_index: Some(0),
-                outcome: Some("YES".to_string()),
-                deposit_symbol: None,
-                short_symbol: None,
-                description: None,
+                short_symbol: Some("YES".to_string()),
+                description: Some("YES token".to_string()),
                 icon_url_low: None,
                 icon_url_medium: None,
-                icon_url_high: None,
-                metadata_uri: None,
-                decimals: Some(6),
+                icon_url_high: Some("https://cdn/token-high.webp".to_string()),
             }],
         };
 
@@ -2508,13 +2579,120 @@ mod tests {
                 }],
                 "conditional_tokens": [{
                     "conditional_mint_id": 31,
-                    "outcome_index": 0,
-                    "outcome": "YES",
-                    "decimals": 6
+                    "short_symbol": "YES",
+                    "description": "YES token",
+                    "icon_url_high": "https://cdn/token-high.webp"
                 }]
             })
         );
         assert!(value["market"].get("market_id").is_none());
+        let token = value["conditional_tokens"][0].as_object().unwrap();
+        assert!(!token.contains_key("metadata_uri"));
+        assert!(!token.contains_key("outcome"));
+        assert!(!token.contains_key("outcome_index"));
+        assert!(!token.contains_key("deposit_symbol"));
+        assert!(!token.contains_key("decimals"));
+    }
+
+    #[test]
+    fn conditional_token_metadata_payload_serializes_dashboard_writable_fields_only() {
+        let request = ConditionalTokenMetadataPayload {
+            conditional_mint_id: 31,
+            short_symbol: Some("YES".to_string()),
+            description: Some("YES token".to_string()),
+            icon_url_low: Some("https://cdn/token-low.webp".to_string()),
+            icon_url_medium: None,
+            icon_url_high: Some("https://cdn/token-high.webp".to_string()),
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "conditional_mint_id": 31,
+                "short_symbol": "YES",
+                "description": "YES token",
+                "icon_url_low": "https://cdn/token-low.webp",
+                "icon_url_high": "https://cdn/token-high.webp"
+            })
+        );
+    }
+
+    #[test]
+    fn conditional_token_metadata_json_request_and_response_roundtrip() {
+        let request = UpdateConditionalTokenMetadataJsonRequest {
+            name: "YES USDC".to_string(),
+            symbol: "YES-USDC".to_string(),
+            description: Some("YES token".to_string()),
+            image_data_url_low: None,
+            image_data_url_medium: None,
+            image_data_url_high: Some("data:image/webp;base64,high".to_string()),
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "name": "YES USDC",
+                "symbol": "YES-USDC",
+                "description": "YES token",
+                "image_data_url_high": "data:image/webp;base64,high"
+            })
+        );
+
+        let response: ConditionalTokenMetadataJsonResponse = serde_json::from_value(json!({
+            "conditional_mint": "11111111111111111111111111111111",
+            "metadata_uri": "https://cdn/token.json",
+            "image_url_low": null,
+            "image_url_medium": "https://cdn/token-medium.webp",
+            "image_url_high": "https://cdn/token-high.webp",
+            "database_updated": true,
+            "invalidation_paths": ["/metadata/token.json"]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            response.conditional_mint.as_str(),
+            "11111111111111111111111111111111"
+        );
+        assert_eq!(response.image_url_low, None);
+        assert_eq!(
+            response.image_url_high.as_deref(),
+            Some("https://cdn/token-high.webp")
+        );
+        assert!(response.database_updated);
+    }
+
+    #[test]
+    fn resync_conditional_token_derived_metadata_response_reads_database_rows() {
+        let response: ResyncConditionalTokenDerivedMetadataResponse =
+            serde_json::from_value(json!({
+                "conditional_tokens": [{
+                    "id": 99,
+                    "conditional_mint_id": 31,
+                    "outcome_index": 0,
+                    "display_name": "YES USDC",
+                    "outcome": "YES",
+                    "symbol": "YES-USDC",
+                    "deposit_symbol": "USDC",
+                    "short_name": "YES",
+                    "description": "YES token",
+                    "icon_url_low": null,
+                    "icon_url_medium": null,
+                    "icon_url_high": "https://cdn/token-high.webp",
+                    "metadata_uri": "https://cdn/token.json",
+                    "decimals": 6,
+                    "created_at": "2026-05-21T10:00:00Z",
+                    "updated_at": "2026-05-21T10:00:00Z"
+                }]
+            }))
+            .unwrap();
+
+        let token = &response.conditional_tokens[0];
+        assert_eq!(token.conditional_mint_id, 31);
+        assert_eq!(token.short_name.as_deref(), Some("YES"));
+        assert_eq!(token.deposit_symbol.as_deref(), Some("USDC"));
+        assert_eq!(token.decimals, Some(6));
     }
 
     #[test]
@@ -2693,6 +2871,54 @@ mod tests {
                 }
             })
         );
+    }
+
+    #[test]
+    fn upload_deposit_token_images_request_and_response_roundtrip() {
+        let request = UploadDepositTokenImagesRequest {
+            icon: AdminImageVariants {
+                low: "data:image/webp;base64,low".to_string(),
+                medium: "data:image/webp;base64,medium".to_string(),
+                high: "data:image/webp;base64,high".to_string(),
+            },
+        };
+
+        let value = serde_json::to_value(request).unwrap();
+        assert_eq!(
+            value,
+            json!({
+                "icon": {
+                    "low": "data:image/webp;base64,low",
+                    "medium": "data:image/webp;base64,medium",
+                    "high": "data:image/webp;base64,high"
+                }
+            })
+        );
+
+        let response: UploadDepositTokenImagesResponse = serde_json::from_value(json!({
+            "deposit_asset": "4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy",
+            "icon_url_low": "https://cdn.example/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-low.webp",
+            "icon_url_medium": "https://cdn.example/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-medium.webp",
+            "icon_url_high": "https://cdn.example/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-high.webp",
+            "database_updated": false,
+            "invalidation_paths": [
+                "/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-low.webp",
+                "/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-medium.webp",
+                "/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-high.webp"
+            ]
+        }))
+        .unwrap();
+
+        assert_eq!(
+            response.deposit_asset.as_str(),
+            "4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy"
+        );
+        assert_eq!(
+            response.icon_url_medium,
+            "https://cdn.example/metadata/deposit-tokens/4o5Vsd7iPu97qkKypojXDbpu8BR3t5poD8ThGo8hnUKy/icon-medium.webp"
+        );
+        assert!(!response.database_updated);
+        assert_eq!(response.invalidation_paths.len(), 3);
     }
 
     #[test]

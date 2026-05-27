@@ -147,7 +147,8 @@ pub mod prelude {
         UpdateConfigRequest, UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
         UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataPayload,
         UpdateMarketMetadataRequest, UpdateMarketMetadataResponse, UpdateOutcomeImageRequest,
-        UpdateOutcomeMetadataPayload,
+        UpdateOutcomeMetadataPayload, UploadDepositTokenImagesRequest,
+        UploadDepositTokenImagesResponse,
     };
 
     // Errors

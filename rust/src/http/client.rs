@@ -223,6 +223,23 @@ impl LightconeHttp {
         .await
     }
 
+    /// POST without a request body. Uses admin cookie auth.
+    pub(crate) async fn admin_post_empty<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::POST,
+            url,
+            None::<&()>,
+            &[],
+            retry,
+            AuthMode::AdminCookie,
+        )
+        .await
+    }
+
     /// PUT with retry. Uses admin cookie auth.
     pub(crate) async fn admin_put<T: DeserializeOwned, B: Serialize>(
         &self,

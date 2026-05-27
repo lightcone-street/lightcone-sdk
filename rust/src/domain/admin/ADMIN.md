@@ -92,6 +92,8 @@ Market `category` values are validated by the backend. For new market metadata r
 
 Potential category validation error codes include `MARKET_CATEGORY_REQUIRED`, `MARKET_CATEGORY_INVALID`, `MARKET_CATEGORY_NOT_WHITELISTED`, and `MARKET_CATEGORY_LOOKUP_FAILED`.
 
+Conditional token payloads on this endpoint are dashboard-facing and only write admin-managed fields: `short_symbol`, `description`, and icon URLs. The SDK no longer sends `metadata_uri`, `outcome`, `deposit_symbol`, `decimals`, or `outcome_index` from normal metadata upserts. `display_name`, `symbol`, and `metadata_uri` are synced from on-chain Metaplex metadata by the listener. `outcome`, `deposit_symbol`, and `decimals` are derived by the backend.
+
 ### `get_market_metadata`
 
 ```rust
@@ -114,6 +116,8 @@ async fn update_market_metadata(
 ```
 
 Update database metadata for one market, its outcomes, and conditional tokens. This does not upload image bytes. At least one of `market`, `outcomes`, or `conditional_tokens` must be non-empty. Requires prior `admin_login()`.
+
+For conditional tokens, this endpoint writes the same dashboard-facing fields as `upsert_metadata`: `short_symbol`, `description`, and icon URLs only. To update token `name`, `symbol`, or the stable token JSON, call `update_conditional_token_metadata_json`, submit the corresponding on-chain Metaplex metadata update with the returned `metadata_uri`, then wait for the listener to sync the database.
 
 ```rust
 let request = UpdateMarketMetadataRequest {
@@ -139,6 +143,36 @@ async fn update_market_images(
 ```
 
 Replace existing market, outcome, and conditional token image bytes at the metadata URLs already stored in the database. URL columns are not changed. Image variants must be WebP data URLs. Requires prior `admin_login()`.
+
+### `update_conditional_token_metadata_json`
+
+```rust
+async fn update_conditional_token_metadata_json(
+    &self,
+    market_id: i64,
+    conditional_mint_id: i32,
+    request: &UpdateConditionalTokenMetadataJsonRequest,
+) -> Result<ConditionalTokenMetadataJsonResponse, SdkError>
+```
+
+Rewrite the stable metadata JSON for one conditional token. Optional image fields must be WebP data URLs. If image bytes are omitted, the backend reuses existing database image URLs. A high image URL must exist either from prior metadata or from `image_data_url_high`. This endpoint does not submit the on-chain Metaplex metadata update.
+
+Required flow for conditional token name/symbol/URI changes:
+
+1. Call `update_conditional_token_metadata_json`.
+2. Submit the on-chain Metaplex metadata update using the returned `metadata_uri`.
+3. Wait for the event listener to sync `display_name`, `symbol`, and `metadata_uri` into the database.
+
+### `resync_conditional_token_derived_metadata`
+
+```rust
+async fn resync_conditional_token_derived_metadata(
+    &self,
+    market_id: i64,
+) -> Result<ResyncConditionalTokenDerivedMetadataResponse, SdkError>
+```
+
+Recompute derived conditional-token database fields for one market: `outcome`, `deposit_symbol`, and `decimals`. This does not update on-chain metadata.
 
 ### `get_deposit_token_metadata`
 
@@ -172,6 +206,22 @@ async fn update_deposit_token_metadata(
 ```
 
 Update database metadata for one deposit token. This does not upload image bytes. Requires prior `admin_login()`.
+
+For first-time deposit token icon creation, call `upload_deposit_token_images` first and use the returned hosted `icon_url_*` values in this metadata payload. Do not send `data:image/webp;base64,...` values to `upsert_metadata` or `update_deposit_token_metadata`; deposit token icon URLs and `metadata_uri` must be `http://` or `https://`.
+
+### `upload_deposit_token_images`
+
+```rust
+async fn upload_deposit_token_images(
+    &self,
+    deposit_asset: &str,
+    request: &UploadDepositTokenImagesRequest,
+) -> Result<UploadDepositTokenImagesResponse, SdkError>
+```
+
+Upload first-time deposit token icon image variants to metadata storage and return hosted URLs. The request must include `low`, `medium`, and `high` WebP data URLs under `icon`. This endpoint does not update the metadata database; use the returned URLs when building the deposit token metadata payload for `upsert_metadata` or `update_deposit_token_metadata`. Requires prior `admin_login()`.
+
+Backend validation may return `METADATA_IMAGE_DATA_URL_INVALID`, `METADATA_IMAGE_TOO_LARGE`, or `METADATA_SERVICE_UNAVAILABLE`.
 
 ### `update_deposit_token_images`
 
@@ -642,6 +692,48 @@ Market metadata updates are keyed by `market_id`. Optional fields may be sent in
 
 Market metadata no longer uses a separate `resolution` boolean. The presence of `resolution_by` determines whether a market has a configured resolution deadline. Metadata responses include `resolution_by` as either a Unix timestamp in milliseconds or `null`.
 
+### `ConditionalTokenMetadataPayload`
+
+Dashboard-facing conditional-token metadata writes are keyed by `conditional_mint_id`. Omitted optional fields are preserved by the backend.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditional_mint_id` | `i32` | Required conditional mint database row ID |
+| `short_symbol` | `Option<String>` | Admin-managed short display symbol |
+| `description` | `Option<String>` | Admin-managed token description |
+| `icon_url_low` / `_medium` / `_high` | `Option<String>` | Existing hosted icon URLs by quality |
+
+The normal SDK payload intentionally does not expose `metadata_uri`, `outcome`, `deposit_symbol`, `decimals`, or `outcome_index`. `metadata_uri` is chain-owned and rejected when sent for conditional tokens. The other fields are backend-derived and may fail validation if sent through lower-level compatibility paths with mismatched values.
+
+### `UpdateConditionalTokenMetadataJsonRequest`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `String` | Required token display name for the metadata JSON |
+| `symbol` | `String` | Required token symbol for the metadata JSON |
+| `description` | `Option<String>` | Optional token description |
+| `image_data_url_low` / `_medium` / `_high` | `Option<String>` | Optional replacement WebP image data URLs |
+
+All supplied image data URLs must contain WebP bytes. The backend forwards them to the metadata service as `image/webp`.
+
+### `ConditionalTokenMetadataJsonResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditional_mint` | `PubkeyStr` | Conditional token mint pubkey |
+| `metadata_uri` | `String` | Stable metadata JSON URI to use for the on-chain update |
+| `image_url_low` / `_medium` / `_high` | `Option<String>` | Resolved managed image URLs |
+| `database_updated` | `bool` | Whether database image/description fields changed |
+| `invalidation_paths` | `Vec<String>` | Cache invalidation paths returned by the backend |
+
+### `ResyncConditionalTokenDerivedMetadataResponse`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `conditional_tokens` | `Vec<ConditionalTokenMetadataRow>` | Database conditional-token metadata rows after resync |
+
+`ConditionalTokenMetadataRow` is the database row shape returned by `resync_conditional_token_derived_metadata`; it exposes `short_name`. Focused admin market reads still use `AdminConditionalTokenMetadataRow`, which exposes `short_symbol`.
+
 ### `DepositTokenMetadataPayload`
 
 Deposit token metadata is global per `deposit_asset`, not per market. `min_order_size` is raw integer token units, not user-scaled decimal units. For a 6-decimal token such as USDC, `1 USDC` is sent as `1_000_000`.
@@ -660,6 +752,25 @@ Deposit token metadata is global per `deposit_asset`, not per market. `min_order
 | `okx_inst_id` | `Option<String>` | Uppercase instrument id with dash, such as `BTC-USDT` |
 
 Negative `min_order_size` values are not currently rejected by the backend; SDK callers should avoid sending them.
+
+### `UploadDepositTokenImagesRequest`
+
+First-time deposit token icon upload payload. All three variants are required WebP data URLs.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `icon` | `AdminImageVariants` | Required `low`, `medium`, and `high` WebP data URLs |
+
+### `UploadDepositTokenImagesResponse`
+
+Hosted URLs returned by `upload_deposit_token_images`. Use these values in deposit token metadata writes.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `deposit_asset` | `PubkeyStr` | Deposit token mint/address identifier |
+| `icon_url_low` / `_medium` / `_high` | `String` | Hosted icon URLs by quality |
+| `database_updated` | `bool` | Always `false` for first-time image upload responses |
+| `invalidation_paths` | `Vec<String>` | Cache invalidation paths returned by the backend |
 
 ### `DepositTokenMetadataResponse`
 

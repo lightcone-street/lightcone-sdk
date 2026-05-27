@@ -9,15 +9,17 @@ use crate::domain::admin::{
     AdminLogMetricHistoryResponse, AdminLogMetricsQuery, AdminLogMetricsResponse,
     AdminLoginRequest, AdminLoginResponse, AdminMarketMetadataResponse, AdminMarketsQuery,
     AdminMarketsResponse, AdminNonceResponse, AllocateCodesRequest, AllocateCodesResponse,
-    CreateNotificationRequest, CreateNotificationResponse, CriticalLogErrors24hCountResponse,
-    DismissNotificationRequest, DismissNotificationResponse, ListCodesRequest, ListCodesResponse,
-    MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
-    MetadataCategoriesResponse, MetadataImageUpdateResponse, ReferralConfig, RevokeRequest,
-    RevokeResponse, UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest,
-    UnrevokeResponse, UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
-    UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
+    ConditionalTokenMetadataJsonResponse, CreateNotificationRequest, CreateNotificationResponse,
+    CriticalLogErrors24hCountResponse, DismissNotificationRequest, DismissNotificationResponse,
+    ListCodesRequest, ListCodesResponse, MarketsToSettleCountResponse, MarketsToSettleQuery,
+    MarketsToSettleResponse, MetadataCategoriesResponse, MetadataImageUpdateResponse,
+    ReferralConfig, ResyncConditionalTokenDerivedMetadataResponse, RevokeRequest, RevokeResponse,
+    UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
+    UpdateCodeRequest, UpdateCodeResponse, UpdateConditionalTokenMetadataJsonRequest,
+    UpdateConfigRequest, UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
     UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataRequest,
-    UpdateMarketMetadataResponse, UploadMarketDeploymentAssetsRequest,
+    UpdateMarketMetadataResponse, UploadDepositTokenImagesRequest,
+    UploadDepositTokenImagesResponse, UploadMarketDeploymentAssetsRequest,
     UploadMarketDeploymentAssetsResponse, WhitelistRequest, WhitelistResponse,
 };
 use crate::error::SdkError;
@@ -147,6 +149,48 @@ impl<'a> Admin<'a> {
             .await
     }
 
+    /// Rewrite the stable metadata JSON for one conditional token.
+    ///
+    /// This may upload replacement WebP images first, then writes JSON that
+    /// points at the resolved image URLs. It does not submit the on-chain
+    /// Metaplex metadata update. Requires prior `admin_login()`.
+    pub async fn update_conditional_token_metadata_json(
+        &self,
+        market_id: i64,
+        conditional_mint_id: i32,
+        request: &UpdateConditionalTokenMetadataJsonRequest,
+    ) -> Result<ConditionalTokenMetadataJsonResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/markets/{}/conditional-tokens/{}/metadata-json",
+            self.client.http.base_url(),
+            market_id,
+            conditional_mint_id
+        );
+        self.client
+            .http
+            .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Resync derived conditional-token database fields for one market.
+    ///
+    /// Recomputes `outcome`, `deposit_symbol`, and `decimals`. This does not
+    /// update on-chain metadata. Requires prior `admin_login()`.
+    pub async fn resync_conditional_token_derived_metadata(
+        &self,
+        market_id: i64,
+    ) -> Result<ResyncConditionalTokenDerivedMetadataResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/markets/{}/conditional-tokens/resync-derived",
+            self.client.http.base_url(),
+            market_id
+        );
+        self.client
+            .http
+            .admin_post_empty(&url, RetryPolicy::None)
+            .await
+    }
+
     /// List database metadata for all deposit tokens. Requires prior `admin_login()`.
     pub async fn list_deposit_token_metadata(
         &self,
@@ -191,6 +235,26 @@ impl<'a> Admin<'a> {
         self.client
             .http
             .admin_put(&url, request, RetryPolicy::None)
+            .await
+    }
+
+    /// Upload first-time deposit token icon images and return hosted URLs.
+    ///
+    /// Use the returned `icon_url_*` values in the deposit token metadata
+    /// upsert payload. Requires prior `admin_login()`.
+    pub async fn upload_deposit_token_images(
+        &self,
+        deposit_asset: &str,
+        request: &UploadDepositTokenImagesRequest,
+    ) -> Result<UploadDepositTokenImagesResponse, SdkError> {
+        let url = format!(
+            "{}/api/admin/metadata/deposit-tokens/{}/images/upload",
+            self.client.http.base_url(),
+            urlencoding::encode(deposit_asset)
+        );
+        self.client
+            .http
+            .admin_post(&url, request, RetryPolicy::None)
             .await
     }
 
