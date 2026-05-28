@@ -262,7 +262,7 @@ export class Orders {
 
   /**
    * Fetch the authenticated user's open orders. Wallet is resolved
-   * server-side from the `auth_token` cookie, so no parameter is required.
+   * server-side from the `lightcone-token` cookie, so no parameter is required.
    */
   async getUserOrders(
     limit?: number,
@@ -294,7 +294,7 @@ export class Orders {
 
   /**
    * Fetch the authenticated user's filled orders with nested fill events.
-   * Wallet is resolved server-side from the `auth_token` cookie.
+   * Wallet is resolved server-side from the `lightcone-token` cookie.
    */
   async getUserOrderFills(
     marketPubkey?: string,

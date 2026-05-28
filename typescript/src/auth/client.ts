@@ -60,6 +60,7 @@ export class Auth {
       x_user_id: response.x_user_id,
       x_display_name: response.x_display_name,
       google_email: response.google_email,
+      auth_method: response.auth_method,
     };
   }
 
@@ -90,6 +91,7 @@ export class Auth {
       x_user_id: response.x_user_id,
       x_display_name: response.x_display_name,
       google_email: response.google_email,
+      auth_method: response.auth_method,
     };
   }
 

@@ -202,6 +202,7 @@ export { DepositPriceState, PriceHistoryState } from "./domain/price_history";
 
 export type {
   AuthCredentials,
+  AuthMethod,
   ChainType,
   EmbeddedWallet,
   LinkedAccount,

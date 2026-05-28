@@ -43,9 +43,9 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "https://local-api.lightcone.xyz",
-            Self::Staging => "https://tapi2.lightcone.xyz",
-            Self::Prod => "https://tapi.lightcone.xyz",
+            Self::Local => "https://api.local.lightcone.xyz",
+            Self::Staging => "https://api.staging.lightcone.xyz",
+            Self::Prod => "https://api.lightcone.xyz",
         }
         .to_string()
     }
@@ -59,9 +59,9 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "wss://local-ws.lightcone.xyz/ws",
-            Self::Staging => "wss://tws2.lightcone.xyz/ws",
-            Self::Prod => "wss://tws.lightcone.xyz/ws",
+            Self::Local => "wss://ws.local.lightcone.xyz/ws",
+            Self::Staging => "wss://ws.staging.lightcone.xyz/ws",
+            Self::Prod => "wss://ws.lightcone.xyz/ws",
         }
         .to_string()
     }
@@ -127,11 +127,11 @@ mod tests {
 
         assert_eq!(
             environment.api_url(),
-            "https://local-api.lightcone.xyz".to_string()
+            "https://api.local.lightcone.xyz".to_string()
         );
         assert_eq!(
             environment.ws_url(),
-            "wss://local-ws.lightcone.xyz/ws".to_string()
+            "wss://ws.local.lightcone.xyz/ws".to_string()
         );
     }
 

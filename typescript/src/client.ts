@@ -128,7 +128,7 @@ export class LightconeClient implements ClientContext {
   // ── Auth token (cookie) ─────────────────────────────────────────────
 
   /**
-   * Get the current `auth_token` cookie value, if any. Populated by the SDK
+   * Get the current `lightcone-token` cookie value, if any. Populated by the SDK
    * after a successful login, then attached on every authed request. Useful
    * for forwarding the token through the `*WithAuth` methods, or
    * persisting the session across processes.
@@ -138,7 +138,7 @@ export class LightconeClient implements ClientContext {
   }
 
   /**
-   * Clear the cached `auth_token`. Subsequent authed calls will go out
+   * Clear the cached `lightcone-token`. Subsequent authed calls will go out
    * without a `Cookie` header (and 401) unless they use a
    * `*WithAuth` variant.
    */

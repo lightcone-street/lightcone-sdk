@@ -118,7 +118,7 @@ export class Metrics {
    * user: distinct outcomes traded, total USD volume across all the
    * wallet's trades, and the number of times the wallet's referral codes
    * have been redeemed. The wallet is resolved server-side from the
-   * `auth_token` cookie.
+   * `lightcone-token` cookie.
    *
    * `GET /api/metrics/user`
    */

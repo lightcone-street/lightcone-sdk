@@ -191,7 +191,7 @@ impl<'a> Metrics<'a> {
     /// user: distinct outcomes traded, total USD volume across all the
     /// wallet's trades, and the number of times the wallet's referral codes
     /// have been redeemed. The wallet is resolved server-side from the
-    /// `auth_token` cookie.
+    /// `lightcone-token` cookie.
     ///
     /// `GET /api/metrics/user`
     pub async fn user(&self) -> Result<UserMetrics, SdkError> {
@@ -199,7 +199,7 @@ impl<'a> Metrics<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::user`] but uses the supplied `auth_token` for this
+    /// Same as [`Self::user`] but uses the supplied `lightcone-token` for this
     /// call instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / Dioxus server

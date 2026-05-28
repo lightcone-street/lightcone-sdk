@@ -63,7 +63,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Get all conditional-token positions for the authenticated user across
-    /// every market. The wallet is resolved server-side from the `auth_token`
+    /// every market. The wallet is resolved server-side from the `lightcone-token`
     /// cookie, so no parameter is required. Same response shape as
     /// [`Positions::get`]; empty `positions` array when the user has none.
     pub async fn positions(&self) -> Result<PositionsResponse, SdkError> {
@@ -71,7 +71,7 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::positions`], but uses the supplied `auth_token` for
+    /// Same as [`Self::positions`], but uses the supplied `lightcone-token` for
     /// this call instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)
@@ -90,7 +90,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Get the authenticated user's positions in a specific market. The
-    /// wallet is resolved server-side from the `auth_token` cookie.
+    /// wallet is resolved server-side from the `lightcone-token` cookie.
     pub async fn positions_for_market(
         &self,
         market_pubkey: &str,
@@ -104,7 +104,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Same as [`Self::positions_for_market`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
+    /// `lightcone-token` for this call instead of the SDK's process-wide token
     /// store. For server-side cookie forwarding (SSR / server functions).
     pub async fn positions_for_market_with_auth(
         &self,
@@ -124,7 +124,7 @@ impl<'a> Positions<'a> {
 
     /// Get SPL deposit-token balances for the authenticated user.
     ///
-    /// The wallet is resolved server-side from the `auth_token` cookie, so no
+    /// The wallet is resolved server-side from the `lightcone-token` cookie, so no
     /// parameter is required. Returns balances keyed by mint pubkey for every
     /// deposit token registered in the backend's `deposit_token_metadata`.
     /// An empty map means the user has none of the tracked balances — this is
@@ -140,7 +140,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Same as [`Self::deposit_token_balances`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
+    /// `lightcone-token` for this call instead of the SDK's process-wide token
     /// store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)

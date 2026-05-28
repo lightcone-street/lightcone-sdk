@@ -27,11 +27,12 @@ const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
 enum AuthMode {
     /// User auth via cookie (native) or credentials (WASM).
     Cookie,
-    /// Per-call user auth token override. Used for server-side cookie
-    /// forwarding (e.g. SSR / server functions) where the per-request browser
-    /// cookie can't propagate to the SDK's process-wide token store. On
-    /// WASM this is equivalent to `Cookie` because the browser already
-    /// attaches credentials.
+    /// Per-call raw `Cookie` header override, sent verbatim. Used for
+    /// server-side cookie forwarding (e.g. SSR / server functions) where the
+    /// per-request browser cookies can't propagate to the SDK's process-wide
+    /// token store. Carries whatever auth cookies the browser sent (e.g.
+    /// `"privy-token=…; lightcone-token=…"`). On WASM this is equivalent to
+    /// `Cookie` because the browser already attaches credentials.
     CookieOverride(String),
     /// Admin auth via cookie (native) or credentials (WASM).
     AdminCookie,
@@ -152,27 +153,28 @@ impl LightconeHttp {
         .await
     }
 
-    /// GET with retry, using an explicit per-call `auth_token` instead of
-    /// the SDK's process-wide token store. Intended for server-side cookie
-    /// forwarding (SSR / server functions).
+    /// GET with retry, forwarding an explicit per-call raw `Cookie` header
+    /// instead of the SDK's process-wide token store. Intended for server-side
+    /// cookie forwarding (SSR / server functions), where the browser's auth
+    /// cookies must be relayed to the backend verbatim.
     pub(crate) async fn get_with_auth<T: DeserializeOwned>(
         &self,
         url: &str,
         retry: RetryPolicy,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<T, SdkError> {
-        self.get_with_auth_and_query(url, &[], retry, auth_token)
+        self.get_with_auth_and_query(url, &[], retry, cookie_header)
             .await
     }
 
-    /// GET with retry and URL-encoded query parameters, using an explicit
-    /// per-call `auth_token`.
+    /// GET with retry and URL-encoded query parameters, forwarding an explicit
+    /// per-call raw `Cookie` header.
     pub(crate) async fn get_with_auth_and_query<T: DeserializeOwned>(
         &self,
         url: &str,
         query: &[(&str, String)],
         retry: RetryPolicy,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
@@ -180,7 +182,7 @@ impl LightconeHttp {
             None::<&()>,
             query,
             retry,
-            AuthMode::CookieOverride(auth_token.to_string()),
+            AuthMode::CookieOverride(cookie_header.to_string()),
         )
         .await
     }
@@ -377,7 +379,7 @@ impl LightconeHttp {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     if let Some(token) = self.auth_token.read().await.as_ref() {
-                        req = req.header("Cookie", format!("auth_token={}", token));
+                        req = req.header("Cookie", format!("lightcone-token={}", token));
                     }
                 }
 
@@ -386,16 +388,16 @@ impl LightconeHttp {
                     req = req.fetch_credentials_include();
                 }
             }
-            AuthMode::CookieOverride(token) => {
+            AuthMode::CookieOverride(cookie_header) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    req = req.header("Cookie", format!("auth_token={}", token));
+                    req = req.header("Cookie", cookie_header);
                 }
-                // On WASM the browser is already attaching the cookie via
-                // credentials mode; the per-call token is unused.
+                // On WASM the browser is already attaching the cookies via
+                // credentials mode; the per-call header is unused.
                 #[cfg(target_arch = "wasm32")]
                 {
-                    let _ = token;
+                    let _ = cookie_header;
                     req = req.fetch_credentials_include();
                 }
             }

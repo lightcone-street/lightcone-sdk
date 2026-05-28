@@ -28,7 +28,7 @@ impl<'a> Notifications<'a> {
         Ok(body.notifications)
     }
 
-    /// Same as [`Self::fetch`], but uses the supplied `auth_token` for this
+    /// Same as [`Self::fetch`], but uses the supplied `lightcone-token` for this
     /// call instead of the SDK's process-wide token store. For server-side
     /// cookie forwarding (SSR / server functions).
     pub async fn fetch_with_auth(&self, auth_token: &str) -> Result<Vec<Notification>, SdkError> {

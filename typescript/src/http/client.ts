@@ -225,7 +225,7 @@ export class LightconeHttp {
 
   private captureCookies(response: Response): void {
     for (const cookieHeader of getSetCookieHeaders(response.headers)) {
-      const authToken = extractCookieValue(cookieHeader, "auth_token");
+      const authToken = extractCookieValue(cookieHeader, "lightcone-token");
       if (authToken) {
         this.authToken = authToken;
       }
@@ -246,9 +246,9 @@ export class LightconeHttp {
       case "adminCookie":
         return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
       case "cookieOverride":
-        return `auth_token=${authMode.token}`;
+        return `lightcone-token=${authMode.token}`;
       case "cookie":
-        return this.authToken ? `auth_token=${this.authToken}` : undefined;
+        return this.authToken ? `lightcone-token=${this.authToken}` : undefined;
     }
   }
 

@@ -68,7 +68,7 @@ export class Positions {
 
   /**
    * Get all conditional-token positions for the authenticated user across
-   * every market. The wallet is resolved server-side from the `auth_token`
+   * every market. The wallet is resolved server-side from the `lightcone-token`
    * cookie, so no parameter is required. Same response shape as `get()`.
    *
    * `GET /api/users/positions`
@@ -99,7 +99,7 @@ export class Positions {
 
   /**
    * Get the authenticated user's positions in a specific market. The wallet
-   * is resolved server-side from the `auth_token` cookie.
+   * is resolved server-side from the `lightcone-token` cookie.
    *
    * `GET /api/users/markets/{market_pubkey}/positions`
    */
@@ -128,7 +128,7 @@ export class Positions {
   /**
    * Get SPL deposit-token balances for the authenticated user.
    *
-   * The wallet is resolved server-side from the `auth_token` cookie, so no
+   * The wallet is resolved server-side from the `lightcone-token` cookie, so no
    * parameter is required. Returns balances keyed by mint pubkey for every
    * deposit token registered in the backend's `deposit_token_metadata`.
    * An empty object means the user has none of the tracked balances — this

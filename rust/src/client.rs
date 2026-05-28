@@ -23,7 +23,6 @@ use crate::env::LightconeEnv;
 use crate::error::SdkError;
 use crate::http::retry::RetryPolicy;
 use crate::http::LightconeHttp;
-use crate::privy::client::Privy;
 use crate::rpc::Rpc;
 use crate::rpc_failover::{
     is_infrastructure_error_http, with_failover, ActiveRpc, RpcFailoverState,
@@ -133,10 +132,6 @@ impl LightconeClient {
         Auth { client: self }
     }
 
-    pub fn privy(&self) -> Privy<'_> {
-        Privy { client: self }
-    }
-
     pub fn referrals(&self) -> Referrals<'_> {
         Referrals { client: self }
     }
@@ -189,7 +184,7 @@ impl LightconeClient {
         self.rpc_failover_state.read().await.active()
     }
 
-    /// Get the current `auth_token` cookie value, if any. Populated by the
+    /// Get the current `lightcone-token` cookie value, if any. Populated by the
     /// SDK after a successful login, then attached on every authed request.
     /// Useful for forwarding the token through the `_with_auth`
     /// methods, or persisting the session across processes.
@@ -201,7 +196,7 @@ impl LightconeClient {
         self.http.auth_token_ref().read().await.clone()
     }
 
-    /// Clear the cached `auth_token`. Subsequent authed calls will go out
+    /// Clear the cached `lightcone-token`. Subsequent authed calls will go out
     /// without a `Cookie` header (and 401) unless they use a
     /// `_with_auth` variant.
     ///
@@ -385,18 +380,6 @@ impl LightconeClient {
                 );
                 self.send_raw_transaction_rpc(&base64_tx).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let tx_bytes = bincode::serialize(&tx).map_err(|error| {
-                    SdkError::Other(format!("tx serialization failed: {error}"))
-                })?;
-                let base64_tx =
-                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
-                let result = self
-                    .privy()
-                    .sign_and_send_tx(&wallet_id, &base64_tx)
-                    .await?;
-                Ok(result.hash)
-            }
         }
     }
 
@@ -559,15 +542,6 @@ impl LightconeClientBuilder {
     /// to bridge your wallet adapter to the SDK.
     pub fn external_signer(mut self, signer: Arc<dyn ExternalSigner>) -> Self {
         self.signing_strategy = Some(SigningStrategy::WalletAdapter(signer));
-        self
-    }
-
-    /// Set a Privy embedded wallet ID for signing orders, cancels, and transactions.
-    /// The backend signs on behalf of the user using the Privy wallet.
-    pub fn privy_wallet_id(mut self, wallet_id: impl Into<String>) -> Self {
-        self.signing_strategy = Some(SigningStrategy::Privy {
-            wallet_id: wallet_id.into(),
-        });
         self
     }
 

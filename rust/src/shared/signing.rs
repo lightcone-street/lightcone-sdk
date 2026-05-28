@@ -67,10 +67,6 @@ pub enum SigningStrategy {
     /// External wallet adapter (browser).
     /// Delegates signing to the provided `ExternalSigner` implementation.
     WalletAdapter(Arc<dyn ExternalSigner>),
-
-    /// Privy embedded wallet (backend-managed signing).
-    /// The backend signs on behalf of the user using the Privy wallet.
-    Privy { wallet_id: String },
 }
 
 /// Check if an external signer error indicates the user cancelled/rejected
@@ -99,9 +95,6 @@ impl Clone for SigningStrategy {
             #[cfg(feature = "native-auth")]
             Self::Native(keypair) => Self::Native(keypair.clone()),
             Self::WalletAdapter(signer) => Self::WalletAdapter(signer.clone()),
-            Self::Privy { wallet_id } => Self::Privy {
-                wallet_id: wallet_id.clone(),
-            },
         }
     }
 }

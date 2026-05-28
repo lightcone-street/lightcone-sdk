@@ -13,6 +13,20 @@ export interface User {
   x_user_id?: string;
   x_display_name?: string;
   google_email?: string;
+  /**
+   * How this session authenticated. `Privy` ⇒ the embedded wallet is the
+   * trading identity; `Lightcone` ⇒ self-custody session, the linked wallet is.
+   */
+  auth_method: AuthMethod;
+}
+
+/**
+ * How a session authenticated, as reported by the backend (derived from which
+ * token verified the request).
+ */
+export enum AuthMethod {
+  Privy = "privy",
+  Lightcone = "lightcone",
 }
 
 export interface LinkedAccount {
@@ -74,6 +88,7 @@ export interface LoginResponse {
   x_user_id?: string;
   x_display_name?: string;
   google_email?: string;
+  auth_method: AuthMethod;
 }
 
 export interface MeResponse {
@@ -87,6 +102,7 @@ export interface MeResponse {
   x_display_name?: string;
   google_email?: string;
   expires_at: number;
+  auth_method: AuthMethod;
 }
 
 export interface NonceResponse {

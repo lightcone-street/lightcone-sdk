@@ -81,6 +81,7 @@ impl<'a> Auth<'a> {
             x_user_id: login_resp.x_user_id,
             x_display_name: login_resp.x_display_name,
             google_email: login_resp.google_email,
+            auth_method: login_resp.auth_method,
         })
     }
 
@@ -127,25 +128,28 @@ impl<'a> Auth<'a> {
             x_user_id: me.x_user_id,
             x_display_name: me.x_display_name,
             google_email: me.google_email,
+            auth_method: me.auth_method,
         })
     }
 
-    /// Same as [`Self::check_session`], but uses the supplied `auth_token`
-    /// for this call instead of the SDK's process-wide token store, and does
-    /// **not** mutate the shared `auth_credentials` (safe under concurrent
-    /// SSR). Returns both the validated `User` and the parsed
-    /// `AuthCredentials` so SSR consumers can read the wallet + token
-    /// expiry without making a follow-up call.
-    pub async fn check_session_with_auth(
+    /// Same as [`Self::check_session`], but forwards the supplied raw `Cookie`
+    /// header for this call instead of the SDK's process-wide token store, and
+    /// does **not** mutate the shared `auth_credentials` (safe under concurrent
+    /// SSR). The header should carry whichever auth cookies the browser sent
+    /// (e.g. `"privy-token=…; lightcone-token=…"`) so the backend authenticates
+    /// the SSR request exactly as it would a client request. Returns both the
+    /// validated `User` and the parsed `AuthCredentials` so SSR consumers can
+    /// read the wallet + token expiry without making a follow-up call.
+    pub async fn check_session_with_cookies(
         &self,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<(User, AuthCredentials), SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
         let me: MeResponse = self
             .client
             .http
-            .get_with_auth::<MeResponse>(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_auth::<MeResponse>(&url, RetryPolicy::Idempotent, cookie_header)
             .await?;
 
         let expires_at = parse_expires_at(me.expires_at);
@@ -166,6 +170,7 @@ impl<'a> Auth<'a> {
             x_user_id: me.x_user_id,
             x_display_name: me.x_display_name,
             google_email: me.google_email,
+            auth_method: me.auth_method,
         };
 
         Ok((user, credentials))
@@ -185,6 +190,19 @@ impl<'a> Auth<'a> {
 
         *self.client.auth_credentials.write().await = None;
 
+        Ok(())
+    }
+
+    /// Register a Privy-authenticated user in the backend DB.
+    /// Called after Privy login when `is_new_user: true`.
+    /// Idempotent — safe to call multiple times.
+    pub async fn register_privy(&self) -> Result<(), SdkError> {
+        let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
+        let _: serde_json::Value = self
+            .client
+            .http
+            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await?;
         Ok(())
     }
 

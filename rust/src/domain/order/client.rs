@@ -310,7 +310,7 @@ impl<'a> Orders<'a> {
     }
 
     /// Fetch the authenticated user's open orders. Wallet is resolved
-    /// server-side from the `auth_token` cookie, so no parameter is required.
+    /// server-side from the `lightcone-token` cookie, so no parameter is required.
     pub async fn get_user_orders(
         &self,
         limit: Option<u32>,
@@ -330,7 +330,7 @@ impl<'a> Orders<'a> {
             .await
     }
 
-    /// Same as [`Self::get_user_orders`], but uses the supplied `auth_token`
+    /// Same as [`Self::get_user_orders`], but uses the supplied `lightcone-token`
     /// for this call instead of the SDK's process-wide token store. Intended
     /// for server-side cookie forwarding (SSR / server functions).
     pub async fn get_user_orders_with_auth(
@@ -354,7 +354,7 @@ impl<'a> Orders<'a> {
     }
 
     /// Fetch the authenticated user's filled orders with nested fill events.
-    /// Wallet is resolved server-side from the `auth_token` cookie.
+    /// Wallet is resolved server-side from the `lightcone-token` cookie.
     ///
     /// Includes orders where the user was either maker or taker.
     /// Optionally filter by market. Returns orders sorted by most recent fill first.
@@ -382,7 +382,7 @@ impl<'a> Orders<'a> {
     }
 
     /// Same as [`Self::get_user_order_fills`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
+    /// `lightcone-token` for this call instead of the SDK's process-wide token
     /// store. Intended for server-side cookie forwarding (SSR / server functions).
     pub async fn get_user_order_fills_with_auth(
         &self,
@@ -473,16 +473,6 @@ impl<'a> Orders<'a> {
                         .map_err(|error| SdkError::Program(error))?;
                 self.cancel(&body).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_order(&wallet_id, order_hash, maker.as_str())
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel response: {error}"))
-                })
-            }
         }
     }
 
@@ -542,22 +532,6 @@ impl<'a> Orders<'a> {
                 .map_err(|error| SdkError::Program(error))?;
                 self.cancel_all(&body).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_all_orders(
-                        &wallet_id,
-                        user_pubkey.as_str(),
-                        orderbook_id_str,
-                        timestamp,
-                        salt,
-                    )
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel-all response: {error}"))
-                })
-            }
         }
     }
 
@@ -601,16 +575,6 @@ impl<'a> Orders<'a> {
                 )
                 .map_err(|error| SdkError::Program(error))?;
                 self.cancel_trigger(&body).await
-            }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_trigger_order(&wallet_id, trigger_order_id, maker.as_str())
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel-trigger response: {error}"))
-                })
             }
         }
     }

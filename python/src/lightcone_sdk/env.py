@@ -30,18 +30,18 @@ class LightconeEnv(Enum):
     def api_url(self) -> str:
         """REST API base URL for this environment."""
         return {
-            LightconeEnv.LOCAL: "https://local-api.lightcone.xyz",
-            LightconeEnv.STAGING: "https://tapi2.lightcone.xyz",
-            LightconeEnv.PROD: "https://tapi.lightcone.xyz",
+            LightconeEnv.LOCAL: "https://api.local.lightcone.xyz",
+            LightconeEnv.STAGING: "https://api.staging.lightcone.xyz",
+            LightconeEnv.PROD: "https://api.lightcone.xyz",
         }[self]
 
     @property
     def ws_url(self) -> str:
         """WebSocket URL for this environment."""
         return {
-            LightconeEnv.LOCAL: "wss://local-ws.lightcone.xyz/ws",
-            LightconeEnv.STAGING: "wss://tws2.lightcone.xyz/ws",
-            LightconeEnv.PROD: "wss://tws.lightcone.xyz/ws",
+            LightconeEnv.LOCAL: "wss://ws.local.lightcone.xyz/ws",
+            LightconeEnv.STAGING: "wss://ws.staging.lightcone.xyz/ws",
+            LightconeEnv.PROD: "wss://ws.lightcone.xyz/ws",
         }[self]
 
     @property

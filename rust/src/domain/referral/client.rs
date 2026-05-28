@@ -19,7 +19,7 @@ impl<'a> Referrals<'a> {
         Ok(referral_status_from_wire(resp))
     }
 
-    /// Same as [`Self::get_status`], but uses the supplied `auth_token` for
+    /// Same as [`Self::get_status`], but uses the supplied `lightcone-token` for
     /// this call instead of the SDK's process-wide token store. For
     /// server-side cookie forwarding (SSR / server functions).
     pub async fn get_status_with_auth(&self, auth_token: &str) -> Result<ReferralStatus, SdkError> {
