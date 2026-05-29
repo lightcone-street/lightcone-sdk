@@ -21,6 +21,8 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
+
 /// Auth mode for HTTP requests.
 enum AuthMode {
     /// User auth via cookie (native) or credentials (WASM).
@@ -58,7 +60,7 @@ impl LightconeHttp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             builder = builder
-                .timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
                 .pool_max_idle_per_host(10);
         }
 

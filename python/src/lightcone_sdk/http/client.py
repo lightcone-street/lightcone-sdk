@@ -27,7 +27,7 @@ from .retry import RetryPolicy, delay_for_attempt
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECS = 30
+DEFAULT_TIMEOUT_SECS = 180
 
 
 class _AuthMode(str, Enum):

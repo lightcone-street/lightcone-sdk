@@ -22,7 +22,7 @@ from .domain.position.client import Positions
 from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
-from .http.client import LightconeHttp
+from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
 from .env import LightconeEnv
 from .privy.client import Privy
 from .rpc import Rpc
@@ -383,7 +383,7 @@ class LightconeClientBuilder:
         self._ws_url: str = environment.ws_url
         self._auth_credentials: Optional[AuthCredentials] = None
         self._ws_config: Optional[WsConfig] = None
-        self._timeout: int = 30
+        self._timeout: int = DEFAULT_TIMEOUT_SECS
         self._program_id: Optional[Pubkey] = environment.program_id
         self._deposit_source: DepositSource = DepositSource.GLOBAL
         self._signing_strategy: Optional[SigningStrategy] = None

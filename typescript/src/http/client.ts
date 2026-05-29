@@ -11,6 +11,8 @@ type AuthMode =
   | { kind: "cookieOverride"; token: string }
   | { kind: "adminCookie" };
 
+const DEFAULT_HTTP_TIMEOUT_MS = 180_000;
+
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
   private authToken: string | undefined;
@@ -179,7 +181,7 @@ export class LightconeHttp {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30_000);
+    const timeoutId = setTimeout(() => controller.abort(), DEFAULT_HTTP_TIMEOUT_MS);
 
     let response: Response;
 
