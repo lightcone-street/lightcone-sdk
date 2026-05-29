@@ -92,7 +92,7 @@ impl LightconeEnv {
         }
         match self {
             Self::Local | Self::Staging => {
-                Pubkey::from_str("5P3mbZDiECBi28JzuBfCFqfN7amwGEZfYFPcHMShYcp4")
+                Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE")
                     .expect("valid program id")
             }
             Self::Prod => Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV")
@@ -142,11 +142,11 @@ mod tests {
 
         assert_eq!(
             program_id,
-            Pubkey::from_str("5P3mbZDiECBi28JzuBfCFqfN7amwGEZfYFPcHMShYcp4").unwrap()
+            Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE").unwrap()
         );
         assert_eq!(
             exchange_pda,
-            Pubkey::from_str("CmS1BpdkqhSCcyuTiZ3cJbQcGUZviJnQA3ALfKVWZwx7").unwrap()
+            Pubkey::from_str("76uuPrRX8jVgn8BYr8ZtGfT7bMeSCoN2Ft6PBNsvHCte").unwrap()
         );
     }
 }
