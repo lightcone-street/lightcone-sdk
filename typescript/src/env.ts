@@ -68,10 +68,11 @@ export function programId(environment: LightconeEnv): PublicKey {
   }
   switch (environment) {
     case LightconeEnv.Local:
+      return new PublicKey("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago");
     case LightconeEnv.Staging:
       return new PublicKey("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE");
     case LightconeEnv.Prod:
-      return new PublicKey("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV");
+      return new PublicKey("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK");
   }
 }
 

@@ -63,12 +63,16 @@ class LightconeEnv(Enum):
         override_id = os.environ.get("SDK_PROGRAM_ID")
         if override_id:
             return Pubkey.from_string(override_id)
-        if self in (LightconeEnv.LOCAL, LightconeEnv.STAGING):
+        if self is LightconeEnv.LOCAL:
+            return Pubkey.from_string(
+                "HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago"
+            )
+        if self is LightconeEnv.STAGING:
             return Pubkey.from_string(
                 "FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE"
             )
         return Pubkey.from_string(
-            "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
+            "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK"
         )
 
     def __str__(self) -> str:

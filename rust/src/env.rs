@@ -23,13 +23,14 @@ use std::str::FromStr;
 ///     .env(LightconeEnv::Staging)
 ///     .build()?;
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum LightconeEnv {
     /// Local development environment.
     Local,
     /// Staging / test environment.
     Staging,
     /// Production environment (default).
+    #[default]
     Prod,
 }
 
@@ -91,19 +92,13 @@ impl LightconeEnv {
             return Pubkey::from_str(&override_id).expect("SDK_PROGRAM_ID must be a valid pubkey");
         }
         match self {
-            Self::Local | Self::Staging => {
-                Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE")
-                    .expect("valid program id")
-            }
-            Self::Prod => Pubkey::from_str("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV")
+            Self::Local => Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
+                .expect("valid program id"),
+            Self::Staging => Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE")
+                .expect("valid program id"),
+            Self::Prod => Pubkey::from_str("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK")
                 .expect("valid program id"),
         }
-    }
-}
-
-impl Default for LightconeEnv {
-    fn default() -> Self {
-        Self::Prod
     }
 }
 
@@ -142,11 +137,11 @@ mod tests {
 
         assert_eq!(
             program_id,
-            Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE").unwrap()
+            Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago").unwrap()
         );
         assert_eq!(
             exchange_pda,
-            Pubkey::from_str("76uuPrRX8jVgn8BYr8ZtGfT7bMeSCoN2Ft6PBNsvHCte").unwrap()
+            Pubkey::from_str("B6Y3DF25exUTk2j7ocjYfoBY6r3tc6shyXTVhnHhrbk9").unwrap()
         );
     }
 }
