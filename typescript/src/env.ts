@@ -23,11 +23,11 @@ export enum LightconeEnv {
 export function apiUrl(environment: LightconeEnv): string {
   switch (environment) {
     case LightconeEnv.Local:
-      return "https://local-api.lightcone.xyz";
+      return "https://api.local.lightcone.xyz";
     case LightconeEnv.Staging:
-      return "https://tapi2.lightcone.xyz";
+      return "https://api.staging.lightcone.xyz";
     case LightconeEnv.Prod:
-      return "https://tapi.lightcone.xyz";
+      return "https://api.lightcone.xyz";
   }
 }
 
@@ -35,11 +35,11 @@ export function apiUrl(environment: LightconeEnv): string {
 export function wsUrl(environment: LightconeEnv): string {
   switch (environment) {
     case LightconeEnv.Local:
-      return "wss://local-ws.lightcone.xyz/ws";
+      return "wss://ws.local.lightcone.xyz/ws";
     case LightconeEnv.Staging:
-      return "wss://tws2.lightcone.xyz/ws";
+      return "wss://ws.staging.lightcone.xyz/ws";
     case LightconeEnv.Prod:
-      return "wss://tws.lightcone.xyz/ws";
+      return "wss://ws.lightcone.xyz/ws";
   }
 }
 
@@ -68,10 +68,11 @@ export function programId(environment: LightconeEnv): PublicKey {
   }
   switch (environment) {
     case LightconeEnv.Local:
+      return new PublicKey("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago");
     case LightconeEnv.Staging:
       return new PublicKey("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE");
     case LightconeEnv.Prod:
-      return new PublicKey("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV");
+      return new PublicKey("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK");
   }
 }
 

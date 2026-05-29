@@ -180,7 +180,7 @@ class Orders:
     ) -> UserOrdersResponse:
         """Get the authenticated user's open orders with pagination.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
         Open orders are JWT-only — there is intentionally no public path-based
         variant.
         """
@@ -192,13 +192,13 @@ class Orders:
         data = await self._client._http.get("/api/users/orders", params=params or None)
         return _user_orders_response_from_wire(data, "")
 
-    async def get_user_orders_with_auth(
+    async def get_user_orders_with_cookies(
         self,
         limit: Optional[int],
         cursor: Optional[str],
-        auth_token: str,
+        cookie_header: str,
     ) -> UserOrdersResponse:
-        """Same as :meth:`get_user_orders`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`get_user_orders`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
@@ -210,8 +210,8 @@ class Orders:
             params["limit"] = str(limit)
         if cursor is not None:
             params["cursor"] = cursor
-        data = await self._client._http.get_with_auth(
-            "/api/users/orders", auth_token=auth_token, params=params or None
+        data = await self._client._http.get_with_cookies(
+            "/api/users/orders", cookie_header=cookie_header, params=params or None
         )
         return _user_orders_response_from_wire(data, "")
 
@@ -223,7 +223,7 @@ class Orders:
     ) -> UserOrderFillsResponse:
         """Fetch the authenticated user's filled orders with nested fill events.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
         Includes orders where the user was either maker or taker.
         Optionally filter by market. Returns orders sorted by most recent fill first.
         """
@@ -237,14 +237,14 @@ class Orders:
         data = await self._client._http.get("/api/users/order-fills", params=params or None)
         return UserOrderFillsResponse.from_dict(data)
 
-    async def get_user_order_fills_with_auth(
+    async def get_user_order_fills_with_cookies(
         self,
         market_pubkey: Optional[str],
         limit: Optional[int],
         cursor: Optional[str],
-        auth_token: str,
+        cookie_header: str,
     ) -> UserOrderFillsResponse:
-        """Same as :meth:`get_user_order_fills`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`get_user_order_fills`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
@@ -258,8 +258,8 @@ class Orders:
             params["limit"] = str(limit)
         if cursor is not None:
             params["cursor"] = cursor
-        data = await self._client._http.get_with_auth(
-            "/api/users/order-fills", auth_token=auth_token, params=params or None
+        data = await self._client._http.get_with_cookies(
+            "/api/users/order-fills", cookie_header=cookie_header, params=params or None
         )
         return UserOrderFillsResponse.from_dict(data)
 

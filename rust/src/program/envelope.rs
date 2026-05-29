@@ -601,21 +601,6 @@ impl LimitOrderEnvelope {
                 let request = self.finalize(&sig_bs58, orderbook)?;
                 client.orders().submit(&request).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let envelope = crate::privy::PrivyOrderEnvelope::from_limit(
-                    &self,
-                    orderbook.orderbook_id.as_str(),
-                )?;
-                let result = client
-                    .privy()
-                    .sign_and_send_order(&wallet_id, envelope)
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    crate::error::SdkError::Other(format!(
-                        "failed to parse submit order response: {error}"
-                    ))
-                })
-            }
         }
     }
 }
@@ -676,21 +661,6 @@ impl TriggerOrderEnvelope {
                 let sig_bs58 = bs58::encode(&sig_bytes).into_string();
                 let request = self.finalize(&sig_bs58, orderbook)?;
                 client.orders().submit_trigger(&request).await
-            }
-            SigningStrategy::Privy { wallet_id } => {
-                let envelope = crate::privy::PrivyOrderEnvelope::from_trigger(
-                    &self,
-                    orderbook.orderbook_id.as_str(),
-                )?;
-                let result = client
-                    .privy()
-                    .sign_and_send_order(&wallet_id, envelope)
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    crate::error::SdkError::Other(format!(
-                        "failed to parse trigger order response: {error}"
-                    ))
-                })
             }
         }
     }

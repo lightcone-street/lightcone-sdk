@@ -111,7 +111,7 @@ Configuration for the WS client. Defaults are sensible for most use cases.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `url` | `String` | `"wss://tws.lightcone.xyz/ws"` | WebSocket server URL |
+| `url` | `String` | `"wss://ws.lightcone.xyz/ws"` | WebSocket server URL |
 | `reconnect` | `bool` | `true` | Auto-reconnect on disconnect |
 | `max_reconnect_attempts` | `u32` | `10` | Maximum reconnect attempts |
 | `base_reconnect_delay_ms` | `u32` | `1000` | Base delay for exponential backoff |

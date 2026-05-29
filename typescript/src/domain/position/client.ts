@@ -68,8 +68,8 @@ export class Positions {
 
   /**
    * Get all conditional-token positions for the authenticated user across
-   * every market. The wallet is resolved server-side from the `auth_token`
-   * cookie, so no parameter is required. Same response shape as `get()`.
+   * every market. The wallet is resolved server-side from the auth cookie,
+   * so no parameter is required. Same response shape as `get()`.
    *
    * `GET /api/users/positions`
    */
@@ -79,7 +79,7 @@ export class Positions {
   }
 
   /**
-   * Same as {@link positions}, but uses the supplied `authToken` for this
+   * Same as {@link positions}, but uses the supplied `cookieHeader` for this
    * call instead of the SDK's process-wide cookie store.
    *
    * Intended for server-side cookie forwarding (SSR / server functions)
@@ -88,18 +88,18 @@ export class Positions {
    * because the runtime is already attaching the cookie via
    * `credentials: "include"`.
    */
-  async positionsWithAuth(authToken: string): Promise<PositionsResponse> {
+  async positionsWithCookies(cookieHeader: string): Promise<PositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/positions`;
-    return this.client.http.getWithAuth<PositionsResponse>(
+    return this.client.http.getWithCookies<PositionsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
   /**
    * Get the authenticated user's positions in a specific market. The wallet
-   * is resolved server-side from the `auth_token` cookie.
+   * is resolved server-side from the auth cookie.
    *
    * `GET /api/users/markets/{market_pubkey}/positions`
    */
@@ -109,26 +109,26 @@ export class Positions {
   }
 
   /**
-   * Same as {@link positionsForMarket}, but uses the supplied `authToken`
+   * Same as {@link positionsForMarket}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / server functions).
    */
-  async positionsForMarketWithAuth(
+  async positionsForMarketWithCookies(
     marketPubkey: string,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<MarketPositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
-    return this.client.http.getWithAuth<MarketPositionsResponse>(
+    return this.client.http.getWithCookies<MarketPositionsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
   /**
    * Get SPL deposit-token balances for the authenticated user.
    *
-   * The wallet is resolved server-side from the `auth_token` cookie, so no
+   * The wallet is resolved server-side from the auth cookie, so no
    * parameter is required. Returns balances keyed by mint pubkey for every
    * deposit token registered in the backend's `deposit_token_metadata`.
    * An empty object means the user has none of the tracked balances — this
@@ -143,7 +143,7 @@ export class Positions {
   }
 
   /**
-   * Same as {@link depositTokenBalances}, but uses the supplied `authToken`
+   * Same as {@link depositTokenBalances}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store.
    *
    * Intended for server-side cookie forwarding (SSR / server functions)
@@ -152,14 +152,14 @@ export class Positions {
    * {@link depositTokenBalances} because the runtime is already attaching
    * the cookie via `credentials: "include"`.
    */
-  async depositTokenBalancesWithAuth(
-    authToken: string,
+  async depositTokenBalancesWithCookies(
+    cookieHeader: string,
   ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
     const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
-    return this.client.http.getWithAuth<Record<PubkeyStr, DepositTokenBalance>>(
+    return this.client.http.getWithCookies<Record<PubkeyStr, DepositTokenBalance>>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 

@@ -262,7 +262,7 @@ export class Orders {
 
   /**
    * Fetch the authenticated user's open orders. Wallet is resolved
-   * server-side from the `auth_token` cookie, so no parameter is required.
+   * server-side from the auth cookie, so no parameter is required.
    */
   async getUserOrders(
     limit?: number,
@@ -274,27 +274,27 @@ export class Orders {
   }
 
   /**
-   * Same as {@link getUserOrders}, but uses the supplied `authToken` for
+   * Same as {@link getUserOrders}, but uses the supplied `cookieHeader` for
    * this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / route handlers).
    */
-  async getUserOrdersWithAuth(
+  async getUserOrdersWithCookies(
     limit: number | undefined,
     cursor: string | undefined,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<UserOrdersResponse> {
     const url = buildUserOrdersAuthenticatedUrl(this.client.http.baseUrl(), limit, cursor);
-    const response = await this.client.http.getWithAuth<UserOrdersRawResponse>(
+    const response = await this.client.http.getWithCookies<UserOrdersRawResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
     return normalizeUserOrdersPayload(response);
   }
 
   /**
    * Fetch the authenticated user's filled orders with nested fill events.
-   * Wallet is resolved server-side from the `auth_token` cookie.
+   * Wallet is resolved server-side from the auth cookie.
    */
   async getUserOrderFills(
     marketPubkey?: string,
@@ -311,15 +311,15 @@ export class Orders {
   }
 
   /**
-   * Same as {@link getUserOrderFills}, but uses the supplied `authToken`
+   * Same as {@link getUserOrderFills}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / route handlers).
    */
-  async getUserOrderFillsWithAuth(
+  async getUserOrderFillsWithCookies(
     marketPubkey: string | undefined,
     limit: number | undefined,
     cursor: string | undefined,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<UserOrderFillsResponse> {
     const url = buildUserOrderFillsAuthenticatedUrl(
       this.client.http.baseUrl(),
@@ -327,10 +327,10 @@ export class Orders {
       limit,
       cursor,
     );
-    return this.client.http.getWithAuth<UserOrderFillsResponse>(
+    return this.client.http.getWithCookies<UserOrderFillsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 

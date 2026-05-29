@@ -33,9 +33,6 @@ pub mod rpc_failover;
 /// Authentication: message generation, credentials, login/logout.
 pub mod auth;
 
-/// Privy embedded wallet RPC operations.
-pub mod privy;
-
 // ── Layer 3: HTTP API ────────────────────────────────────────────────────────
 
 /// HTTP client with retry policies.
@@ -156,12 +153,6 @@ pub mod prelude {
         GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
         RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
         WithdrawFromPositionBuilder,
-    };
-
-    // Privy RPC types
-    pub use crate::privy::{
-        ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
-        SignAndSendTxRequest, SignAndSendTxResponse,
     };
 
     // Signing strategy

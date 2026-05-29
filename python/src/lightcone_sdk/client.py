@@ -350,7 +350,7 @@ class LightconeClient:
 
         Populated by the SDK after a successful login, then attached on
         every authed request. Useful for forwarding the token through
-        ``*_with_auth`` methods or persisting the session across
+        ``*_with_cookies`` methods or persisting the session across
         processes.
         """
         return self._http.auth_token
@@ -359,7 +359,7 @@ class LightconeClient:
         """Clear the cached ``auth_token``.
 
         Subsequent authed calls will go out without a ``Cookie`` header
-        (and 401) unless they use a ``*_with_auth`` variant.
+        (and 401) unless they use a ``*_with_cookies`` variant.
         """
         self._http.clear_auth_token()
 

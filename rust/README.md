@@ -214,36 +214,36 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 ### Cookie handling
 
-After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The behaviour depends on the build target:
+After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The behaviour depends on the build target:
 
 - **Native builds**: token lives in a process-wide `Arc<RwLock<Option<String>>>` on the `LightconeClient`. Every authed call reads from it.
 - **WASM builds**: requests use `credentials: "include"` and the browser supplies the cookie automatically — the SDK's internal store is unused.
 
-### Server-side cookie forwarding (`_with_auth` variants)
+### Server-side cookie forwarding (`_with_cookies` variants)
 
-> **Naming note.** The `_with_auth` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_auth(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
+> **Naming note.** The `_with_cookies` suffix does **not** mean other methods are unauthed — most SDK methods that talk to authed endpoints (`Positions::positions`, `Metrics::user`, etc.) read auth from the SDK's process-wide token store / browser cookie automatically; that's the typical client-side path. The `_with_cookies(auth_token: &str)` siblings exist for **server-side rendering (SSR)** where the per-request browser cookie can't propagate to the shared client. Those callers extract the token from the incoming request and pass it explicitly. Same wire contract, different credentials path.
 
 When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
-For these cases, authed methods that need per-call forwarding ship a `_with_auth(auth_token)` sibling that injects the cookie just for that one call:
+For these cases, authed methods that need per-call forwarding ship a `_with_cookies(auth_token)` sibling that injects the cookie just for that one call:
 
 ```rust
 // Inside an axum / dioxus server function, after extracting the
 // auth_token cookie from the incoming request:
 let balances = client
     .positions()
-    .deposit_token_balances_with_auth(&auth_token)
+    .deposit_token_balances_with_cookies(&auth_token)
     .await?;
 
 let positions = client
     .positions()
-    .positions_with_auth(&auth_token)
+    .positions_with_cookies(&auth_token)
     .await?;
 ```
 
-On WASM these methods are equivalent to their non-`_with_auth` counterparts because the browser is already attaching the cookie via credentials mode.
+On WASM these methods are equivalent to their non-`_with_cookies` counterparts because the browser is already attaching the cookie via credentials mode.
 
-If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: auth_token=<token>` header attachment differs.
+If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
 
 ## Environment Configuration
 
@@ -266,7 +266,7 @@ let client = LightconeClient::builder()
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.base_url()`, `.ws_url()`, `.rpc_url()`) take precedence when called after `.env()`.
 
-`LightconeEnv::Local` targets `https://local-api.lightcone.xyz` for REST and `wss://local-ws.lightcone.xyz/ws` for WebSocket connections.
+`LightconeEnv::Local` targets `https://api.local.lightcone.xyz` for REST and `wss://ws.local.lightcone.xyz/ws` for WebSocket connections.
 
 ### RPC Failover
 
@@ -296,7 +296,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_auth` variant |
+| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_cookies` variant |
 
 ### Market Discovery & Data
 

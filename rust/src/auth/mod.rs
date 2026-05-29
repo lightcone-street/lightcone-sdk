@@ -29,6 +29,18 @@ pub struct User {
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
     pub google_email: Option<String>,
+    /// How this session authenticated. `Privy` ⇒ the embedded wallet is the
+    /// trading identity; `Lightcone` ⇒ self-custody session, the linked wallet is.
+    pub auth_method: AuthMethod,
+}
+
+/// How a session authenticated, as reported by the backend (derived from which
+/// token verified the request).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AuthMethod {
+    Privy,
+    Lightcone,
 }
 
 /// A linked identity (wallet, Google OAuth, X OAuth) associated with a user.
@@ -166,6 +178,7 @@ pub struct LoginResponse {
     pub x_user_id: Option<String>,
     pub x_display_name: Option<String>,
     pub google_email: Option<String>,
+    pub auth_method: AuthMethod,
 }
 
 /// Response from `GET /api/auth/me`.
@@ -181,6 +194,7 @@ pub struct MeResponse {
     pub x_display_name: Option<String>,
     pub google_email: Option<String>,
     pub expires_at: i64,
+    pub auth_method: AuthMethod,
 }
 
 /// Response from `GET /api/auth/nonce`.

@@ -124,21 +124,21 @@ class Metrics:
     async def user(self) -> UserMetrics:
         """Per-wallet trading + referral aggregates for the authenticated user.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
 
         GET /api/metrics/user
         """
         data = await self._client._http.get("/api/metrics/user")
         return UserMetrics.from_dict(data)
 
-    async def user_with_auth(self, auth_token: str) -> UserMetrics:
-        """Same as :meth:`user`, with an explicit per-call ``auth_token``.
+    async def user_with_cookies(self, cookie_header: str) -> UserMetrics:
+        """Same as :meth:`user`, with an explicit per-call ``cookie_header``.
 
         For server-side cookie forwarding (SSR / route handlers).
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/metrics/user",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return UserMetrics.from_dict(data)
 

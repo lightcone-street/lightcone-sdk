@@ -909,7 +909,7 @@ class MetricsHistoryQuery:
 class UserMetrics:
     """Per-wallet trading + referral aggregates.
 
-    Response shape of ``metrics().user()``, ``metrics().user_with_auth()``,
+    Response shape of ``metrics().user()``, ``metrics().user_with_cookies()``,
     and ``metrics().user_by_wallet()``.
     """
 

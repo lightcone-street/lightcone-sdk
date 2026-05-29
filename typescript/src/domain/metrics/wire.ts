@@ -370,7 +370,7 @@ export interface MetricsHistoryQuery {
 
 /**
  * Per-wallet trading + referral aggregates. Response shape of
- * `metrics().user()`, `metrics().userWithAuth()`, and
+ * `metrics().user()`, `metrics().userWithCookies()`, and
  * `metrics().userByWallet()`.
  */
 export interface UserMetrics {

@@ -139,7 +139,7 @@ export class WsClient implements IWsClient {
     const headers: Record<string, string> = {};
     const token = this.authTokenRef ? await this.authTokenRef() : undefined;
     if (token) {
-      headers.Cookie = `auth_token=${token}`;
+      headers.Cookie = `lightcone-token=${token}`;
     }
 
     const socket = new WebSocket(this.config.url, { headers });

@@ -23,19 +23,19 @@ class Notifications:
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
-    async def fetch_with_auth(
-        self, auth_token: str
+    async def fetch_with_cookies(
+        self, cookie_header: str
     ) -> list[Notification]:
-        """Same as :meth:`fetch`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`fetch`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The override is used only for this call
         and never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/notifications",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
