@@ -63,34 +63,34 @@ impl<'a> Positions<'a> {
     }
 
     /// Get all conditional-token positions for the authenticated user across
-    /// every market. The wallet is resolved server-side from the `lightcone-token`
-    /// cookie, so no parameter is required. Same response shape as
+    /// every market. The wallet is resolved server-side from the auth cookie,
+    /// so no parameter is required. Same response shape as
     /// [`Positions::get`]; empty `positions` array when the user has none.
     pub async fn positions(&self) -> Result<PositionsResponse, SdkError> {
         let url = format!("{}/api/users/positions", self.client.http.base_url());
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::positions`], but uses the supplied `lightcone-token` for
+    /// Same as [`Self::positions`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for
     /// this call instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)
     /// where the per-request browser cookie can't propagate to the shared
     /// client. On WASM this is equivalent to [`Self::positions`] because the
     /// browser is already attaching the cookie via credentials mode.
-    pub async fn positions_with_auth(
+    pub async fn positions_with_cookies(
         &self,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<PositionsResponse, SdkError> {
         let url = format!("{}/api/users/positions", self.client.http.base_url());
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Get the authenticated user's positions in a specific market. The
-    /// wallet is resolved server-side from the `lightcone-token` cookie.
+    /// wallet is resolved server-side from the auth cookie.
     pub async fn positions_for_market(
         &self,
         market_pubkey: &str,
@@ -103,13 +103,14 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::positions_for_market`], but uses the supplied
-    /// `lightcone-token` for this call instead of the SDK's process-wide token
-    /// store. For server-side cookie forwarding (SSR / server functions).
-    pub async fn positions_for_market_with_auth(
+    /// Same as [`Self::positions_for_market`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store. For server-side cookie
+    /// forwarding (SSR / server functions).
+    pub async fn positions_for_market_with_cookies(
         &self,
         market_pubkey: &str,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<MarketPositionsResponse, SdkError> {
         let url = format!(
             "{}/api/users/markets/{}/positions",
@@ -118,13 +119,13 @@ impl<'a> Positions<'a> {
         );
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Get SPL deposit-token balances for the authenticated user.
     ///
-    /// The wallet is resolved server-side from the `lightcone-token` cookie, so no
+    /// The wallet is resolved server-side from the auth cookie, so no
     /// parameter is required. Returns balances keyed by mint pubkey for every
     /// deposit token registered in the backend's `deposit_token_metadata`.
     /// An empty map means the user has none of the tracked balances — this is
@@ -139,18 +140,18 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::deposit_token_balances`], but uses the supplied
-    /// `lightcone-token` for this call instead of the SDK's process-wide token
-    /// store.
+    /// Same as [`Self::deposit_token_balances`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)
-    /// where the per-request browser cookie can't propagate to the shared
+    /// where the per-request browser cookies can't propagate to the shared
     /// client. On WASM this is equivalent to
     /// [`Self::deposit_token_balances`] because the browser is already
-    /// attaching the cookie via credentials mode.
-    pub async fn deposit_token_balances_with_auth(
+    /// attaching cookies via credentials mode.
+    pub async fn deposit_token_balances_with_cookies(
         &self,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
         let url = format!(
             "{}/api/users/deposit-token-balances",
@@ -158,7 +159,7 @@ impl<'a> Positions<'a> {
         );
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 

@@ -157,19 +157,19 @@ impl LightconeHttp {
     /// instead of the SDK's process-wide token store. Intended for server-side
     /// cookie forwarding (SSR / server functions), where the browser's auth
     /// cookies must be relayed to the backend verbatim.
-    pub(crate) async fn get_with_auth<T: DeserializeOwned>(
+    pub(crate) async fn get_with_cookies<T: DeserializeOwned>(
         &self,
         url: &str,
         retry: RetryPolicy,
         cookie_header: &str,
     ) -> Result<T, SdkError> {
-        self.get_with_auth_and_query(url, &[], retry, cookie_header)
+        self.get_with_cookies_and_query(url, &[], retry, cookie_header)
             .await
     }
 
     /// GET with retry and URL-encoded query parameters, forwarding an explicit
     /// per-call raw `Cookie` header.
-    pub(crate) async fn get_with_auth_and_query<T: DeserializeOwned>(
+    pub(crate) async fn get_with_cookies_and_query<T: DeserializeOwned>(
         &self,
         url: &str,
         query: &[(&str, String)],

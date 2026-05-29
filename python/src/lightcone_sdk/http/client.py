@@ -147,28 +147,28 @@ class LightconeHttp:
             params=params,
         )
 
-    async def get_with_auth(
+    async def get_with_cookies(
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
-        auth_token: str,
+        cookie_header: str,
         params: Optional[dict[str, str]] = None,
     ) -> Any:
-        """Make a GET request with an explicit per-call ``auth_token`` cookie.
+        """Make a GET request forwarding an explicit per-call raw ``Cookie`` header.
 
-        Intended for server-side cookie forwarding (SSR / server functions)
-        where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. Bypasses both the stored ``auth_token``
-        and the response-side ``Set-Cookie`` capture so per-call overrides
-        never mutate shared state.
+        The header (e.g. ``"privy-token=…; lightcone-token=…"``) is sent verbatim.
+        Intended for server-side cookie forwarding (SSR / server functions) where
+        the per-request browser cookies can't propagate to the SDK's process-wide
+        cookie store. Bypasses both the stored ``auth_token`` and the response-side
+        ``Set-Cookie`` capture so per-call overrides never mutate shared state.
         """
         return await self._request_with_retry(
             "GET",
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE_OVERRIDE,
-            auth_token_override=auth_token,
+            cookie_header_override=cookie_header,
             params=params,
         )
 
@@ -225,7 +225,7 @@ class LightconeHttp:
         *,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
         params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
@@ -237,7 +237,7 @@ class LightconeHttp:
                 method,
                 path,
                 auth_mode=auth_mode,
-                auth_token_override=auth_token_override,
+                cookie_header_override=cookie_header_override,
                 params=params,
                 **kwargs,
             )
@@ -250,7 +250,7 @@ class LightconeHttp:
                     method,
                     path,
                     auth_mode=auth_mode,
-                    auth_token_override=auth_token_override,
+                    cookie_header_override=cookie_header_override,
                     params=params,
                     **kwargs,
                 )
@@ -313,7 +313,7 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
         params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
@@ -321,7 +321,7 @@ class LightconeHttp:
             method,
             path,
             auth_mode=auth_mode,
-            auth_token_override=auth_token_override,
+            cookie_header_override=cookie_header_override,
             params=params,
             **kwargs,
         )
@@ -349,7 +349,7 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
         params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> tuple[Any, str]:
@@ -358,7 +358,7 @@ class LightconeHttp:
         request_id = str(uuid.uuid4())
         headers = dict(kwargs.pop("headers", {}))
         headers["x-request-id"] = request_id
-        headers.update(self._auth_headers(auth_mode, auth_token_override))
+        headers.update(self._auth_headers(auth_mode, cookie_header_override))
 
         async with session.request(
             method,
@@ -397,12 +397,14 @@ class LightconeHttp:
     def _auth_headers(
         self,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
     ) -> dict[str, str]:
         headers: dict[str, str] = {}
         if auth_mode == _AuthMode.COOKIE_OVERRIDE:
-            if auth_token_override:
-                headers["Cookie"] = f"lightcone-token={auth_token_override}"
+            if cookie_header_override:
+                # Forward the supplied Cookie header verbatim (may carry
+                # privy-token and/or lightcone-token).
+                headers["Cookie"] = cookie_header_override
         elif auth_mode == _AuthMode.COOKIE and self._auth_token:
             headers["Cookie"] = f"lightcone-token={self._auth_token}"
         elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:

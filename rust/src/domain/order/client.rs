@@ -310,7 +310,7 @@ impl<'a> Orders<'a> {
     }
 
     /// Fetch the authenticated user's open orders. Wallet is resolved
-    /// server-side from the `lightcone-token` cookie, so no parameter is required.
+    /// server-side from the auth cookie, so no parameter is required.
     pub async fn get_user_orders(
         &self,
         limit: Option<u32>,
@@ -330,14 +330,15 @@ impl<'a> Orders<'a> {
             .await
     }
 
-    /// Same as [`Self::get_user_orders`], but uses the supplied `lightcone-token`
-    /// for this call instead of the SDK's process-wide token store. Intended
-    /// for server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_orders_with_auth(
+    /// Same as [`Self::get_user_orders`], but forwards the supplied raw `Cookie`
+    /// header (`privy-token` and/or `lightcone-token`) for this call instead of
+    /// the SDK's process-wide token store. Intended for server-side cookie
+    /// forwarding (SSR / server functions).
+    pub async fn get_user_orders_with_cookies(
         &self,
         limit: Option<u32>,
         cursor: Option<&str>,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<UserOrdersResponse, SdkError> {
         let url = format!("{}/api/users/orders", self.client.http.base_url());
         let mut query = Vec::new();
@@ -349,12 +350,12 @@ impl<'a> Orders<'a> {
         }
         self.client
             .http
-            .get_with_auth_and_query(&url, &query, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Fetch the authenticated user's filled orders with nested fill events.
-    /// Wallet is resolved server-side from the `lightcone-token` cookie.
+    /// Wallet is resolved server-side from the auth cookie.
     ///
     /// Includes orders where the user was either maker or taker.
     /// Optionally filter by market. Returns orders sorted by most recent fill first.
@@ -381,15 +382,16 @@ impl<'a> Orders<'a> {
             .await
     }
 
-    /// Same as [`Self::get_user_order_fills`], but uses the supplied
-    /// `lightcone-token` for this call instead of the SDK's process-wide token
-    /// store. Intended for server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_order_fills_with_auth(
+    /// Same as [`Self::get_user_order_fills`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store. Intended for server-side
+    /// cookie forwarding (SSR / server functions).
+    pub async fn get_user_order_fills_with_cookies(
         &self,
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
         let url = format!("{}/api/users/order-fills", self.client.http.base_url());
         let mut query = Vec::new();
@@ -404,7 +406,7 @@ impl<'a> Orders<'a> {
         }
         self.client
             .http
-            .get_with_auth_and_query(&url, &query, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 

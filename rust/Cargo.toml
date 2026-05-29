@@ -165,7 +165,7 @@ name = "user_orders"
 required-features = ["native", "trigger_orders"]
 
 [[example]]
-name = "with_auth"
+name = "with_cookies"
 required-features = ["native"]
 
 [[example]]

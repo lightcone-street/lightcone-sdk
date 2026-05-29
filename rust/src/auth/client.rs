@@ -149,7 +149,7 @@ impl<'a> Auth<'a> {
         let me: MeResponse = self
             .client
             .http
-            .get_with_auth::<MeResponse>(&url, RetryPolicy::Idempotent, cookie_header)
+            .get_with_cookies::<MeResponse>(&url, RetryPolicy::Idempotent, cookie_header)
             .await?;
 
         let expires_at = parse_expires_at(me.expires_at);

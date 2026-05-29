@@ -89,7 +89,7 @@ class Positions:
     async def positions(self) -> PositionsResponseWire:
         """Get all conditional-token positions for the authenticated user.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie; no
+        Wallet is resolved server-side from the ``cookie_header`` cookie; no
         parameter required. Same response shape as ``get(wallet)``.
 
         GET /api/users/positions
@@ -97,17 +97,17 @@ class Positions:
         data = await self._client._http.get("/api/users/positions")
         return PositionsResponseWire.from_dict(data)
 
-    async def positions_with_auth(self, auth_token: str) -> PositionsResponseWire:
-        """Same as :meth:`positions`, with an explicit per-call ``auth_token``.
+    async def positions_with_cookies(self, cookie_header: str) -> PositionsResponseWire:
+        """Same as :meth:`positions`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/users/positions",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return PositionsResponseWire.from_dict(data)
 
@@ -116,7 +116,7 @@ class Positions:
     ) -> MarketPositionsResponseWire:
         """Get the authenticated user's positions in a specific market.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
 
         GET /api/users/markets/{market_pubkey}/positions
         """
@@ -125,23 +125,23 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
-    async def positions_for_market_with_auth(
-        self, market_pubkey: str, auth_token: str
+    async def positions_for_market_with_cookies(
+        self, market_pubkey: str, cookie_header: str
     ) -> MarketPositionsResponseWire:
-        """Same as :meth:`positions_for_market`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`positions_for_market`, with an explicit per-call ``cookie_header``.
 
         For server-side cookie forwarding (SSR / route handlers).
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             f"/api/users/markets/{market_pubkey}/positions",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return MarketPositionsResponseWire.from_dict(data)
 
     async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
         """Get SPL deposit-token balances for the authenticated user.
 
-        The wallet is resolved server-side from the ``auth_token`` cookie, so
+        The wallet is resolved server-side from the ``cookie_header`` cookie, so
         no parameter is required. Returns balances keyed by mint pubkey for
         every deposit token registered in the backend's
         ``deposit_token_metadata``. An empty dict means the user has none of
@@ -150,19 +150,19 @@ class Positions:
         data = await self._client._http.get("/api/users/deposit-token-balances")
         return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 
-    async def deposit_token_balances_with_auth(
-        self, auth_token: str
+    async def deposit_token_balances_with_cookies(
+        self, cookie_header: str
     ) -> dict[str, DepositTokenBalance]:
-        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/users/deposit-token-balances",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 

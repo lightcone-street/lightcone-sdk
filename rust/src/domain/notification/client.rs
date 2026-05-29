@@ -28,15 +28,18 @@ impl<'a> Notifications<'a> {
         Ok(body.notifications)
     }
 
-    /// Same as [`Self::fetch`], but uses the supplied `lightcone-token` for this
+    /// Same as [`Self::fetch`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for this
     /// call instead of the SDK's process-wide token store. For server-side
     /// cookie forwarding (SSR / server functions).
-    pub async fn fetch_with_auth(&self, auth_token: &str) -> Result<Vec<Notification>, SdkError> {
+    pub async fn fetch_with_cookies(
+        &self,
+        cookie_header: &str,
+    ) -> Result<Vec<Notification>, SdkError> {
         let url = format!("{}/api/notifications", self.client.http.base_url());
         let body: NotificationsResponse = self
             .client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await?;
         Ok(body.notifications)
     }

@@ -61,7 +61,7 @@ Plural envelopes holding a `Vec<_>` of their single-dimension counterparts (plus
 
 Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: i64` (Unix epoch ms) and `volume_usd: Decimal`.
 
-### `UserMetrics` — response of `metrics().user()`, `metrics().user_with_auth()`, and `metrics().user_by_wallet()`
+### `UserMetrics` — response of `metrics().user()`, `metrics().user_with_cookies()`, and `metrics().user_by_wallet()`
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -171,13 +171,13 @@ async fn user(&self) -> Result<UserMetrics, SdkError>
 
 Per-wallet trading + referral aggregates for the **authenticated** user. Hits `GET /api/metrics/user`; the wallet is resolved server-side from the `auth_token` cookie.
 
-### `user_with_auth`
+### `user_with_cookies`
 
 ```rust
-async fn user_with_auth(&self, auth_token: &str) -> Result<UserMetrics, SdkError>
+async fn user_with_cookies(&self, auth_token: &str) -> Result<UserMetrics, SdkError>
 ```
 
-SSR / server-function variant of [`user`]. Hits the same authenticated endpoint with the supplied `auth_token` injected as `Cookie: lightcone-token=…` for that single call. Does not touch the SDK's process-wide token store; safe under concurrent SSR. See [the Authentication section](../../../README.md#authentication) for the broader `_with_auth` story.
+SSR / server-function variant of [`user`]. Hits the same authenticated endpoint with the supplied `auth_token` injected as `Cookie: lightcone-token=…` for that single call. Does not touch the SDK's process-wide token store; safe under concurrent SSR. See [the Authentication section](../../../README.md#authentication) for the broader `_with_cookies` story.
 
 ### `user_by_wallet`
 

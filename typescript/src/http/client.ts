@@ -8,7 +8,7 @@ import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry
 
 type AuthMode =
   | { kind: "cookie" }
-  | { kind: "cookieOverride"; token: string }
+  | { kind: "cookieOverride"; cookieHeader: string }
   | { kind: "adminCookie" };
 
 const DEFAULT_HTTP_TIMEOUT_MS = 180_000;
@@ -61,20 +61,20 @@ export class LightconeHttp {
   }
 
   /**
-   * GET with retry, using an explicit per-call `authToken` instead of the
-   * SDK's process-wide cookie store. Intended for server-side cookie
-   * forwarding (SSR / server functions) where the per-request browser cookie
-   * can't propagate to the shared client. In a browser context this is
-   * equivalent to {@link get} — the runtime is already attaching the cookie
-   * via `credentials: "include"`.
+   * GET with retry, forwarding an explicit per-call raw `Cookie` header
+   * (e.g. `privy-token=…; lightcone-token=…`) instead of the SDK's process-wide
+   * cookie store. Intended for server-side cookie forwarding (SSR / server
+   * functions) where the per-request browser cookies can't propagate to the
+   * shared client. In a browser context this is equivalent to {@link get} — the
+   * runtime is already attaching cookies via `credentials: "include"`.
    */
-  async getWithAuth<T>(url: string, retry: RetryPolicy, authToken: string): Promise<T> {
+  async getWithCookies<T>(url: string, retry: RetryPolicy, cookieHeader: string): Promise<T> {
     return this.requestWithRetry<T>(
       "GET",
       url,
       undefined,
       retry,
-      { kind: "cookieOverride", token: authToken }
+      { kind: "cookieOverride", cookieHeader }
     );
   }
 
@@ -246,7 +246,9 @@ export class LightconeHttp {
       case "adminCookie":
         return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
       case "cookieOverride":
-        return `lightcone-token=${authMode.token}`;
+        // Forward the supplied Cookie header verbatim (may carry privy-token
+        // and/or lightcone-token).
+        return authMode.cookieHeader;
       case "cookie":
         return this.authToken ? `lightcone-token=${this.authToken}` : undefined;
     }

@@ -93,7 +93,7 @@ Fetch positions for a user in a specific market. Public path-based endpoint; no 
 async fn positions(&self) -> Result<PositionsResponse, SdkError>
 ```
 
-Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_auth` story.
+Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_cookies` story.
 
 ### `positions_for_market`
 
@@ -106,7 +106,7 @@ async fn positions_for_market(
 
 Fetch positions for the authenticated user in a specific market.
 
-### `positions_with_auth` / `positions_for_market_with_auth` / `deposit_token_balances_with_auth`
+### `positions_with_cookies` / `positions_for_market_with_cookies` / `deposit_token_balances_with_cookies`
 
 Same as the no-arg authed variants above, but accept an explicit `auth_token: &str`. For SSR / Dioxus server-function callers that need to forward the per-request cookie. See [the Authentication section](../../../README.md#authentication).
 

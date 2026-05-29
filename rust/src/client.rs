@@ -186,7 +186,7 @@ impl LightconeClient {
 
     /// Get the current `lightcone-token` cookie value, if any. Populated by the
     /// SDK after a successful login, then attached on every authed request.
-    /// Useful for forwarding the token through the `_with_auth`
+    /// Useful for forwarding the token through the `_with_cookies`
     /// methods, or persisting the session across processes.
     ///
     /// Native only — on WASM the cookie lives in the browser's cookie jar
@@ -198,7 +198,7 @@ impl LightconeClient {
 
     /// Clear the cached `lightcone-token`. Subsequent authed calls will go out
     /// without a `Cookie` header (and 401) unless they use a
-    /// `_with_auth` variant.
+    /// `_with_cookies` variant.
     ///
     /// Native only — on WASM the cookie lives in the browser's cookie jar
     /// and the SDK never sees it.

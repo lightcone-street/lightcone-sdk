@@ -19,15 +19,18 @@ impl<'a> Referrals<'a> {
         Ok(referral_status_from_wire(resp))
     }
 
-    /// Same as [`Self::get_status`], but uses the supplied `lightcone-token` for
+    /// Same as [`Self::get_status`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for
     /// this call instead of the SDK's process-wide token store. For
     /// server-side cookie forwarding (SSR / server functions).
-    pub async fn get_status_with_auth(&self, auth_token: &str) -> Result<ReferralStatus, SdkError> {
+    pub async fn get_status_with_cookies(
+        &self,
+        cookie_header: &str,
+    ) -> Result<ReferralStatus, SdkError> {
         let url = format!("{}/api/referral/status", self.client.http.base_url());
         let resp: ReferralStatusResponse = self
             .client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await?;
         Ok(referral_status_from_wire(resp))
     }
