@@ -26,7 +26,7 @@ The SDK uses a cookie-based auth model with platform-specific handling:
 
 ### Native / CLI
 
-- The SDK stores the token **internally** (private field) and injects it as a `Cookie: auth_token=<token>` header.
+- The SDK stores the token **internally** (private field) and injects it as a `Cookie: lightcone-token=<token>` header.
 - Token is **never** exposed via public API -- no `.token()` accessor.
 - `AuthCredentials` only exposes: `user_id`, `wallet_address`, `expires_at`, `is_authenticated()`.
 

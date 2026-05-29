@@ -2,7 +2,7 @@
 //!
 //! Demonstrates the `_with_auth` variants on `Positions`, `Notifications`,
 //! `Referrals`, `Orders`, and `Metrics`. These bypass the SDK's process-wide
-//! `auth_token` store and pass the supplied token as a `Cookie: auth_token=…`
+//! `auth_token` store and pass the supplied token as a `Cookie: lightcone-token=…`
 //! header for that single call only.
 //!
 //! In a real SSR / server-function context the token would be extracted from

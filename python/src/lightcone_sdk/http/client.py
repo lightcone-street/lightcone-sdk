@@ -402,9 +402,9 @@ class LightconeHttp:
         headers: dict[str, str] = {}
         if auth_mode == _AuthMode.COOKIE_OVERRIDE:
             if auth_token_override:
-                headers["Cookie"] = f"auth_token={auth_token_override}"
+                headers["Cookie"] = f"lightcone-token={auth_token_override}"
         elif auth_mode == _AuthMode.COOKIE and self._auth_token:
-            headers["Cookie"] = f"auth_token={self._auth_token}"
+            headers["Cookie"] = f"lightcone-token={self._auth_token}"
         elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:
             headers["Cookie"] = f"admin_token={self._admin_token}"
         return headers
@@ -414,8 +414,8 @@ class LightconeHttp:
         if hasattr(headers, "getall"):
             set_cookie_headers = list(headers.getall("set-cookie", []))
         for cookie_header in set_cookie_headers:
-            if cookie_header.startswith("auth_token="):
-                token = cookie_header.split("auth_token=", 1)[1].split(";", 1)[0]
+            if cookie_header.startswith("lightcone-token="):
+                token = cookie_header.split("lightcone-token=", 1)[1].split(";", 1)[0]
                 if token:
                     self._auth_token = token
             elif cookie_header.startswith("admin_token="):

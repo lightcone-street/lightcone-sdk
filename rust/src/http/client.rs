@@ -428,7 +428,7 @@ impl LightconeHttp {
                 for value in resp.headers().get_all("set-cookie").iter() {
                     if let Ok(header_str) = value.to_str() {
                         if let Some(token) = header_str
-                            .strip_prefix("auth_token=")
+                            .strip_prefix("lightcone-token=")
                             .and_then(|rest| rest.split(';').next())
                         {
                             if !token.is_empty() {

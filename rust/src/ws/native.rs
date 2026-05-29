@@ -474,7 +474,7 @@ async fn run_connected(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Attempt to establish a WebSocket connection with a 30-second timeout.
-/// If an auth token is available, includes it as a `Cookie: auth_token=<jwt>` header
+/// If an auth token is available, includes it as a `Cookie: lightcone-token=<jwt>` header
 /// in the HTTP upgrade request.
 async fn attempt_connect(
     url: &str,
@@ -488,7 +488,7 @@ async fn attempt_connect(
         if let Some(token) = token_lock.read().await.as_ref() {
             request.headers_mut().insert(
                 "Cookie",
-                format!("auth_token={}", token)
+                format!("lightcone-token={}", token)
                     .parse()
                     .map_err(|e| format!("Invalid cookie header: {}", e))?,
             );

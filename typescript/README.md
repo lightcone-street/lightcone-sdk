@@ -218,7 +218,7 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 ### Cookie handling
 
-After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. Behaviour depends on the runtime:
+After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. Behaviour depends on the runtime:
 
 - **Node / non-browser**: token is stored on the `LightconeHttp` instance and added as a `Cookie` header per request.
 - **Browser**: requests use `credentials: "include"` and the runtime supplies the cookie automatically — the SDK's internal store is unused.

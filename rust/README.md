@@ -214,7 +214,7 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 ### Cookie handling
 
-After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The behaviour depends on the build target:
+After `client.auth().login_with_message(...)` succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The behaviour depends on the build target:
 
 - **Native builds**: token lives in a process-wide `Arc<RwLock<Option<String>>>` on the `LightconeClient`. Every authed call reads from it.
 - **WASM builds**: requests use `credentials: "include"` and the browser supplies the cookie automatically — the SDK's internal store is unused.
@@ -243,7 +243,7 @@ let positions = client
 
 On WASM these methods are equivalent to their non-`_with_auth` counterparts because the browser is already attaching the cookie via credentials mode.
 
-If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: auth_token=<token>` header attachment differs.
+If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
 
 ## Environment Configuration
 

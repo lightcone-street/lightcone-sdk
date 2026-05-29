@@ -177,7 +177,7 @@ Per-wallet trading + referral aggregates for the **authenticated** user. Hits `G
 async fn user_with_auth(&self, auth_token: &str) -> Result<UserMetrics, SdkError>
 ```
 
-SSR / server-function variant of [`user`]. Hits the same authenticated endpoint with the supplied `auth_token` injected as `Cookie: auth_token=…` for that single call. Does not touch the SDK's process-wide token store; safe under concurrent SSR. See [the Authentication section](../../../README.md#authentication) for the broader `_with_auth` story.
+SSR / server-function variant of [`user`]. Hits the same authenticated endpoint with the supplied `auth_token` injected as `Cookie: lightcone-token=…` for that single call. Does not touch the SDK's process-wide token store; safe under concurrent SSR. See [the Authentication section](../../../README.md#authentication) for the broader `_with_auth` story.
 
 ### `user_by_wallet`
 

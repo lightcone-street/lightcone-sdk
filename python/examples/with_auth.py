@@ -3,7 +3,7 @@
 Demonstrates the ``*_with_auth`` variants on ``Positions``, ``Notifications``,
 ``Referrals``, ``Orders``, and ``Metrics``. These bypass the SDK's
 process-wide ``auth_token`` store and pass the supplied token as a
-``Cookie: auth_token=…`` header for that single call only.
+``Cookie: lightcone-token=…`` header for that single call only.
 
 In a real SSR / route handler the token would be extracted from the
 incoming request's cookie jar. Here we mimic that by:
