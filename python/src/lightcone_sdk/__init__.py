@@ -1,6 +1,6 @@
 """Lightcone SDK - Python SDK for the Lightcone protocol on Solana."""
 
-__version__ = "0.6.2"
+__version__ = "0.7.0"
 
 # ============================================================================
 # Layer 1: Core
