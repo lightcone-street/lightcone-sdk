@@ -487,12 +487,14 @@ class LightconeClientBuilder:
         connection = self._connection
         if connection is None and self._primary_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
-            connection = AsyncClient(self._primary_rpc_url)
+            from solana.rpc.commitment import Confirmed
+            connection = AsyncClient(self._primary_rpc_url, commitment=Confirmed)
 
         backup_connection = None
         if self._backup_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
-            backup_connection = AsyncClient(self._backup_rpc_url)
+            from solana.rpc.commitment import Confirmed
+            backup_connection = AsyncClient(self._backup_rpc_url, commitment=Confirmed)
 
         return LightconeClient(
             http=http,

@@ -248,10 +248,10 @@ export class LightconeClient implements ClientContext {
       wsConfig: { ...this.wsConfigValue },
       programId: this.programId,
       primaryConnection: this.primaryConnection
-        ? new Connection(this.primaryConnection.rpcEndpoint)
+        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed" })
         : undefined,
       backupConnection: this.backupConnection
-        ? new Connection(this.backupConnection.rpcEndpoint)
+        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed" })
         : undefined,
       rpcFailoverState: this.rpcFailoverState,
       depositSource: this.depositSourceValue,
@@ -365,10 +365,10 @@ export class LightconeClientBuilder {
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
       primaryConnection: this.primaryRpcUrlValue
-        ? new Connection(this.primaryRpcUrlValue)
+        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed" })
         : undefined,
       backupConnection: this.backupRpcUrlValue
-        ? new Connection(this.backupRpcUrlValue)
+        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed" })
         : undefined,
       authCredentials: this.authCredentials,
     });
