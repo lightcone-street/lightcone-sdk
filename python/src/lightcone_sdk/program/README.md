@@ -65,9 +65,11 @@ from lightcone_sdk.program import (
 |-------|------|-------------|
 | `authority` | Pubkey | Admin authority |
 | `operator` | Pubkey | Order matching operator |
+| `manager` | Pubkey | Market and orderbook manager |
 | `market_count` | int | Number of markets created |
 | `paused` | bool | Trading paused |
 | `bump` | int | PDA bump seed |
+| `deposit_token_count` | int | Number of whitelisted deposit tokens |
 
 #### Market
 
@@ -76,11 +78,12 @@ from lightcone_sdk.program import (
 | `market_id` | int | Sequential market ID |
 | `num_outcomes` | int | Number of outcomes |
 | `status` | MarketStatus | Current status |
-| `winning_outcome` | Optional[int] | Winner (if settled) |
 | `bump` | int | PDA bump seed |
 | `oracle` | Pubkey | Oracle authority |
 | `question_id` | bytes | Question identifier |
 | `condition_id` | bytes | Computed condition ID |
+| `payout_numerators` | tuple[int, int, int, int, int, int] | Resolution vector; first `num_outcomes` entries are meaningful |
+| `payout_denominator` | int | Sum of meaningful payout numerators |
 
 #### Position
 
@@ -95,6 +98,7 @@ from lightcone_sdk.program import (
 | Field | Type | Description |
 |-------|------|-------------|
 | `remaining` | int | Remaining order amount |
+| `base_remaining` | int | Remaining base-side amount |
 | `is_cancelled` | bool | Cancelled flag |
 
 #### UserNonce
@@ -109,7 +113,7 @@ from lightcone_sdk.program import (
 from lightcone_sdk.program import FullOrder, CompactOrder, MakerFill
 ```
 
-#### FullOrder (225 bytes)
+#### FullOrder (233 bytes)
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -119,14 +123,14 @@ from lightcone_sdk.program import FullOrder, CompactOrder, MakerFill
 | `base_mint` | Pubkey | Base token mint |
 | `quote_mint` | Pubkey | Quote token mint |
 | `side` | OrderSide | BID or ASK |
-| `maker_amount` | int | Amount maker gives |
-| `taker_amount` | int | Amount maker receives |
+| `amount_in` | int | Amount maker gives |
+| `amount_out` | int | Amount maker receives |
 | `expiration` | int | Expiration timestamp |
 | `signature` | bytes | Ed25519 signature (64 bytes) |
 
-#### CompactOrder (65 bytes)
+#### CompactOrder (37 bytes)
 
-Same as FullOrder but without `market`, `base_mint`, `quote_mint` (derived from instruction context).
+Compact instruction form with `nonce`, `salt`, `side`, `amount_in`, `amount_out`, and `expiration`.
 
 #### MakerFill
 
@@ -215,15 +219,15 @@ from lightcone_sdk.program import (
 ```python
 from lightcone_sdk.program import (
     # Account sizes
-    EXCHANGE_SIZE,      # 88 bytes
-    MARKET_SIZE,        # 120 bytes
-    ORDER_STATUS_SIZE,  # 24 bytes
+    EXCHANGE_SIZE,      # 120 bytes
+    MARKET_SIZE,        # 148 bytes
+    ORDER_STATUS_SIZE,  # 32 bytes
     USER_NONCE_SIZE,    # 16 bytes
     POSITION_SIZE,      # 80 bytes
 
     # Order sizes
-    FULL_ORDER_SIZE,    # 225 bytes
-    COMPACT_ORDER_SIZE, # 65 bytes
+    FULL_ORDER_SIZE,    # 233 bytes
+    COMPACT_ORDER_SIZE, # 37 bytes
     SIGNATURE_SIZE,     # 64 bytes
     ORDER_HASH_SIZE,    # 32 bytes
 
@@ -387,7 +391,7 @@ order_hash = hash_order(order)  # 32 bytes
 is_valid = verify_order_signature(order)
 
 # Serialize/deserialize
-order_bytes = serialize_full_order(order)     # 225 bytes
+order_bytes = serialize_full_order(order)     # 233 bytes
 order = deserialize_full_order(order_bytes)
 
 # Validation
@@ -419,7 +423,9 @@ from lightcone_sdk.program import (
     ActivateMarketParams,
     AddDepositMintParams,
     OutcomeMetadata,
+    ScalarResolutionParams,
     SettleMarketParams,
+    scalar_to_payout_numerators,
 )
 
 # Create market
@@ -453,8 +459,18 @@ tx = await client.activate_market(ActivateMarketParams(
 # Settle market
 tx = await client.settle_market(SettleMarketParams(
     oracle=oracle_pubkey,
-    market=market_pubkey,
-    winning_outcome=0,
+    market_id=market_id,
+    payout_numerators=[1, 0],
+))
+
+# Scalar settlement uses integer fixed-point metadata off-chain.
+payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(
+    min_value=0,
+    max_value=100,
+    resolved_value=25,
+    lower_outcome_index=0,
+    upper_outcome_index=1,
+    num_outcomes=2,
 ))
 ```
 
@@ -498,7 +514,7 @@ tx = await client.redeem_winnings(
         deposit_mint=usdc_mint,
         amount=1_000_000,
     ),
-    winning_outcome=0,
+    outcome_index=0,
 )
 
 # Withdraw tokens from position account
@@ -708,5 +724,20 @@ from lightcone_sdk.program import (
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
+    build_create_orderbook_instruction,
+    build_set_authority_instruction,
+    build_set_manager_instruction,
+    build_whitelist_deposit_token_instruction,
+    build_deposit_to_global_instruction,
+    build_global_to_market_deposit_instruction,
+    build_init_position_tokens_instruction,
+    build_deposit_and_swap_instruction,
+    build_extend_position_tokens_instruction,
+    build_withdraw_from_global_instruction,
+    build_close_position_alt_instruction,
+    build_close_order_status_instruction,
+    build_close_position_token_accounts_instruction,
+    build_close_orderbook_alt_instruction,
+    build_close_orderbook_instruction,
 )
 ```

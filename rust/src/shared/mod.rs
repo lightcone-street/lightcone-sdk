@@ -18,7 +18,7 @@ pub use rejection::RejectionCode;
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::{path::Display, str::FromStr};
+use std::str::FromStr;
 
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 
@@ -161,19 +161,41 @@ impl<'de> Deserialize<'de> for PubkeyStr {
 /// Order side: Bid (buy) or Ask (sell).
 ///
 /// Serializes as `"bid"`/`"ask"`. Deserializes from `"bid"`/`"ask"` or `"buy"`/`"sell"`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Side {
+    #[default]
     #[serde(rename = "bid", alias = "buy")]
     Bid,
     #[serde(rename = "ask", alias = "sell")]
     Ask,
 }
 
+impl Side {
+    pub fn label(&self) -> &'static str {
+        match self {
+            Side::Bid => "Buy",
+            Side::Ask => "Sell",
+        }
+    }
+}
+
 impl std::fmt::Display for Side {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         match self {
-            Side::Bid => write!(f, "Buy"),
-            Side::Ask => write!(f, "Sell"),
+            Side::Bid => write!(f, "bid"),
+            Side::Ask => write!(f, "ask"),
+        }
+    }
+}
+
+impl std::str::FromStr for Side {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "bid" | "buy" => Ok(Side::Bid),
+            "ask" | "sell" => Ok(Side::Ask),
+            _ => Err(format!("invalid side: {s}")),
         }
     }
 }

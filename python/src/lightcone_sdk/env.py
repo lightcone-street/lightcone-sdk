@@ -5,6 +5,7 @@ connects to. Each variant maps to a specific API URL, WebSocket URL,
 Solana RPC URL, and on-chain program ID.
 """
 
+import os
 from enum import Enum
 
 from solders.pubkey import Pubkey
@@ -29,18 +30,18 @@ class LightconeEnv(Enum):
     def api_url(self) -> str:
         """REST API base URL for this environment."""
         return {
-            LightconeEnv.LOCAL: "https://local-api.lightcone.xyz",
-            LightconeEnv.STAGING: "https://tapi2.lightcone.xyz",
-            LightconeEnv.PROD: "https://tapi.lightcone.xyz",
+            LightconeEnv.LOCAL: "https://api.local.lightcone.xyz",
+            LightconeEnv.STAGING: "https://api.staging.lightcone.xyz",
+            LightconeEnv.PROD: "https://api.lightcone.xyz",
         }[self]
 
     @property
     def ws_url(self) -> str:
         """WebSocket URL for this environment."""
         return {
-            LightconeEnv.LOCAL: "wss://local-ws.lightcone.xyz/ws",
-            LightconeEnv.STAGING: "wss://tws2.lightcone.xyz/ws",
-            LightconeEnv.PROD: "wss://tws.lightcone.xyz/ws",
+            LightconeEnv.LOCAL: "wss://ws.local.lightcone.xyz/ws",
+            LightconeEnv.STAGING: "wss://ws.staging.lightcone.xyz/ws",
+            LightconeEnv.PROD: "wss://ws.lightcone.xyz/ws",
         }[self]
 
     @property
@@ -54,13 +55,24 @@ class LightconeEnv(Enum):
 
     @property
     def program_id(self) -> Pubkey:
-        """On-chain Lightcone program ID for this environment."""
-        if self in (LightconeEnv.LOCAL, LightconeEnv.STAGING):
+        """On-chain Lightcone program ID for this environment.
+
+        If the ``SDK_PROGRAM_ID`` environment variable is set, its value is
+        used regardless of the selected environment.
+        """
+        override_id = os.environ.get("SDK_PROGRAM_ID")
+        if override_id:
+            return Pubkey.from_string(override_id)
+        if self is LightconeEnv.LOCAL:
             return Pubkey.from_string(
-                "H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq"
+                "HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago"
+            )
+        if self is LightconeEnv.STAGING:
+            return Pubkey.from_string(
+                "FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE"
             )
         return Pubkey.from_string(
-            "8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV"
+            "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK"
         )
 
     def __str__(self) -> str:

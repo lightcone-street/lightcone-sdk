@@ -9,6 +9,7 @@ import { Privy } from "../../privy";
 import { isUserCancellation } from "../../shared/signing";
 import {
   buildCancelOrderIx,
+  buildCloseOrderStatusIx,
   buildIncrementNonceIx,
 } from "../../program/instructions";
 import {
@@ -37,6 +38,7 @@ import {
 } from "../../program/accounts";
 import type {
   SignedOrder,
+  CloseOrderStatusParams,
   BidOrderParams,
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
@@ -160,7 +162,7 @@ export interface SubmitOrderResponse {
 
 export interface CancelSuccess {
   order_hash: string;
-  remaining: number;
+  remaining: string;
 }
 
 export interface CancelAllSuccess {
@@ -260,7 +262,7 @@ export class Orders {
 
   /**
    * Fetch the authenticated user's open orders. Wallet is resolved
-   * server-side from the `auth_token` cookie, so no parameter is required.
+   * server-side from the auth cookie, so no parameter is required.
    */
   async getUserOrders(
     limit?: number,
@@ -272,27 +274,27 @@ export class Orders {
   }
 
   /**
-   * Same as {@link getUserOrders}, but uses the supplied `authToken` for
+   * Same as {@link getUserOrders}, but uses the supplied `cookieHeader` for
    * this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / route handlers).
    */
-  async getUserOrdersWithAuth(
+  async getUserOrdersWithCookies(
     limit: number | undefined,
     cursor: string | undefined,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<UserOrdersResponse> {
     const url = buildUserOrdersAuthenticatedUrl(this.client.http.baseUrl(), limit, cursor);
-    const response = await this.client.http.getWithAuth<UserOrdersRawResponse>(
+    const response = await this.client.http.getWithCookies<UserOrdersRawResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
     return normalizeUserOrdersPayload(response);
   }
 
   /**
    * Fetch the authenticated user's filled orders with nested fill events.
-   * Wallet is resolved server-side from the `auth_token` cookie.
+   * Wallet is resolved server-side from the auth cookie.
    */
   async getUserOrderFills(
     marketPubkey?: string,
@@ -309,15 +311,15 @@ export class Orders {
   }
 
   /**
-   * Same as {@link getUserOrderFills}, but uses the supplied `authToken`
+   * Same as {@link getUserOrderFills}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / route handlers).
    */
-  async getUserOrderFillsWithAuth(
+  async getUserOrderFillsWithCookies(
     marketPubkey: string | undefined,
     limit: number | undefined,
     cursor: string | undefined,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<UserOrderFillsResponse> {
     const url = buildUserOrderFillsAuthenticatedUrl(
       this.client.http.baseUrl(),
@@ -325,10 +327,10 @@ export class Orders {
       limit,
       cursor,
     );
-    return this.client.http.getWithAuth<UserOrderFillsResponse>(
+    return this.client.http.getWithCookies<UserOrderFillsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
@@ -497,31 +499,40 @@ export class Orders {
   // ── On-chain transaction builders ────────────────────────────────────
 
   cancelOrderIx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): TransactionInstruction {
-    return buildCancelOrderIx(maker, market, order, this.client.programId);
+    return buildCancelOrderIx(operator, market, order, this.client.programId);
   }
 
   incrementNonceIx(user: PublicKey): TransactionInstruction {
     return buildIncrementNonceIx(user, this.client.programId);
   }
 
+  closeOrderStatusIx(params: CloseOrderStatusParams): TransactionInstruction {
+    return buildCloseOrderStatusIx(params, this.client.programId);
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   cancelOrderTx(
-    maker: PublicKey,
+    operator: PublicKey,
     market: PublicKey,
     order: SignedOrder
   ): Transaction {
-    const ix = this.cancelOrderIx(maker, market, order);
-    return new Transaction({ feePayer: maker }).add(ix);
+    const ix = this.cancelOrderIx(operator, market, order);
+    return new Transaction({ feePayer: operator }).add(ix);
   }
 
   incrementNonceTx(user: PublicKey): Transaction {
     const ix = this.incrementNonceIx(user);
     return new Transaction({ feePayer: user }).add(ix);
+  }
+
+  closeOrderStatusTx(params: CloseOrderStatusParams): Transaction {
+    const ix = this.closeOrderStatusIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────

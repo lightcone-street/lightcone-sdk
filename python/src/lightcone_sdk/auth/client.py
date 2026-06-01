@@ -209,6 +209,7 @@ def _user_from_dict(d: dict) -> User:
         x_user_id=d.get("x_user_id"),
         x_display_name=d.get("x_display_name"),
         google_email=d.get("google_email"),
+        auth_method=d.get("auth_method", "lightcone"),
     )
 
 

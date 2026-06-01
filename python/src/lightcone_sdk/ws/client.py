@@ -93,7 +93,7 @@ class WsClient:
             self._session = aiohttp.ClientSession()
             headers: dict[str, str] = {}
             if self._auth_token:
-                headers["Cookie"] = f"auth_token={self._auth_token}"
+                headers["Cookie"] = f"lightcone-token={self._auth_token}"
 
             self._ws = await self._session.ws_connect(
                 self._config.url,

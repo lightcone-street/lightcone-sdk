@@ -31,6 +31,10 @@ async function main() {
     const page2 = await client.trades().get(orderbookId, 10, page1.nextCursor);
     printTrades("page 2", page2.trades);
   }
+
+  // Trades across all orderbooks for the market
+  const marketPage = await client.trades().getByMarket(orderbook.marketPubkey, 10);
+  printTrades("market trades (all outcomes)", marketPage.trades);
 }
 
 void runExample(main);

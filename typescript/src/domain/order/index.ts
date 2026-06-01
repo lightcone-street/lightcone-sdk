@@ -4,11 +4,20 @@ import { Side, type OrderBookId, type PubkeyStr, type TimeInForce, type TriggerT
 export * from "./client";
 export * from "./wire";
 export * from "./state";
-export { limitSnapshotToOrder, splitSnapshotOrders, triggerSnapshotToOrder, orderFromUpdate } from "./convert";
+export { limitSnapshotToOrder, convertSnapshotOrders, orderFromUpdate } from "./convert";
 
 export enum OrderType {
   Limit = "limit",
   Trigger = "trigger",
+}
+
+export function orderTypeLabel(orderType: OrderType): string {
+  switch (orderType) {
+    case OrderType.Limit:
+      return "Limit";
+    case OrderType.Trigger:
+      return "Trigger";
+  }
 }
 
 export enum OrderStatus {

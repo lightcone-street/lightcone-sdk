@@ -42,33 +42,34 @@ impl<'a> PriceHistoryClient<'a> {
         orderbook_id: &str,
         query: OrderbookPriceHistoryQuery,
     ) -> Result<OrderbookPriceHistoryResponse, SdkError> {
-        let mut url = format!(
-            "{}/api/price-history?orderbook_id={}&resolution={}",
-            self.client.http.base_url(),
-            orderbook_id,
-            query.resolution.as_str()
-        );
-        if let Some(f) = query.from {
-            url = format!("{}&from={}", url, ensure_unix_milliseconds("from", f)?);
+        let url = format!("{}/api/price-history", self.client.http.base_url());
+        let mut params = vec![
+            ("orderbook_id", orderbook_id.to_string()),
+            ("resolution", query.resolution.as_str().to_string()),
+        ];
+        if let Some(from) = query.from {
+            params.push(("from", ensure_unix_milliseconds("from", from)?.to_string()));
         }
-        if let Some(t) = query.to {
-            url = format!("{}&to={}", url, ensure_unix_milliseconds("to", t)?);
+        if let Some(to) = query.to {
+            params.push(("to", ensure_unix_milliseconds("to", to)?.to_string()));
         }
         if let Some(cursor) = query.cursor {
-            url = format!(
-                "{}&cursor={}",
-                url,
-                ensure_unix_milliseconds("cursor", cursor)?
-            );
+            params.push((
+                "cursor",
+                ensure_unix_milliseconds("cursor", cursor)?.to_string(),
+            ));
         }
         if let Some(limit) = query.limit {
-            url = format!("{}&limit={}", url, ensure_page_limit(limit)?);
+            params.push(("limit", ensure_page_limit(limit)?.to_string()));
         }
         if query.include_ohlcv {
-            url = format!("{}&include_ohlcv=true", url);
+            params.push(("include_ohlcv", "true".to_string()));
         }
 
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &params, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Get deposit-token price history from the same REST endpoint.
@@ -77,30 +78,31 @@ impl<'a> PriceHistoryClient<'a> {
         deposit_asset: &str,
         query: DepositPriceHistoryQuery,
     ) -> Result<DepositPriceHistoryResponse, SdkError> {
-        let mut url = format!(
-            "{}/api/price-history?deposit_asset={}&resolution={}",
-            self.client.http.base_url(),
-            deposit_asset,
-            query.resolution.as_str()
-        );
-        if let Some(f) = query.from {
-            url = format!("{}&from={}", url, ensure_unix_milliseconds("from", f)?);
+        let url = format!("{}/api/price-history", self.client.http.base_url());
+        let mut params = vec![
+            ("deposit_asset", deposit_asset.to_string()),
+            ("resolution", query.resolution.as_str().to_string()),
+        ];
+        if let Some(from) = query.from {
+            params.push(("from", ensure_unix_milliseconds("from", from)?.to_string()));
         }
-        if let Some(t) = query.to {
-            url = format!("{}&to={}", url, ensure_unix_milliseconds("to", t)?);
+        if let Some(to) = query.to {
+            params.push(("to", ensure_unix_milliseconds("to", to)?.to_string()));
         }
         if let Some(cursor) = query.cursor {
-            url = format!(
-                "{}&cursor={}",
-                url,
-                ensure_unix_milliseconds("cursor", cursor)?
-            );
+            params.push((
+                "cursor",
+                ensure_unix_milliseconds("cursor", cursor)?.to_string(),
+            ));
         }
         if let Some(limit) = query.limit {
-            url = format!("{}&limit={}", url, ensure_page_limit(limit)?);
+            params.push(("limit", ensure_page_limit(limit)?.to_string()));
         }
 
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &params, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Snapshot of current prices for every active mint in `global_deposit_tokens`.

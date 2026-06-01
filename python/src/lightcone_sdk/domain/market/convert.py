@@ -79,6 +79,7 @@ def market_from_wire(wire: MarketWire) -> Market:
     for da in wire.deposit_assets:
         da_symbol = da.token_symbol or da.symbol
         da_icons = _resolve_icon_urls(da.icon_url_low, da.icon_url_medium, da.icon_url_high)
+        da_short_symbol = da.display_name or da_symbol
         deposit_assets.append(DepositAsset(
             id=da.id,
             market_pda=da.market_pubkey,
@@ -86,6 +87,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             num_outcomes=da.num_outcomes,
             name=da.display_name,
             symbol=da_symbol,
+            short_symbol=da_short_symbol,
             description=da.description,
             decimals=da.decimals,
             icon_url_low=da_icons[0] if da_icons else "",
@@ -95,7 +97,8 @@ def market_from_wire(wire: MarketWire) -> Market:
 
         for ct in da.conditional_mints:
             ct_name = ct.outcome
-            ct_symbol = ct.short_symbol or ct.symbol
+            ct_short_symbol = ct.short_symbol or ct.symbol
+            ct_full_symbol = ct.symbol or ct.short_symbol
             ct_icons = _resolve_icon_urls(ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high)
             if ct_icons is None and da_icons is not None:
                 ct_icons = da_icons
@@ -107,7 +110,8 @@ def market_from_wire(wire: MarketWire) -> Market:
                 deposit_asset=da.deposit_asset,
                 deposit_symbol=da_symbol,
                 name=ct_name,
-                symbol=ct_symbol,
+                symbol=ct_full_symbol,
+                short_symbol=ct_short_symbol,
                 description=ct.description,
                 decimals=ct.decimals,
                 icon_url_low=ct_icons[0] if ct_icons else "",
@@ -117,7 +121,8 @@ def market_from_wire(wire: MarketWire) -> Market:
             if ct.token_address:
                 token_metadata[ct.token_address] = TokenMetadata(
                     pubkey=ct.token_address,
-                    symbol=ct_symbol,
+                    symbol=ct_full_symbol,
+                    short_symbol=ct_short_symbol,
                     decimals=ct.decimals,
                     icon_url_low=ct_icons[0] if ct_icons else "",
                     icon_url_medium=ct_icons[1] if ct_icons else "",
@@ -184,7 +189,7 @@ def market_from_wire(wire: MarketWire) -> Market:
         created_at=wire.created_at,
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
-        winning_outcome=wire.winning_outcome,
+        resolution=wire.resolution,
         description=wire.description or "",
         definition=wire.definition or "",
         category=wire.category,
@@ -266,6 +271,7 @@ def global_deposit_asset_from_wire(
         deposit_asset=wire.mint,
         name=wire.display_name or "",
         symbol=wire.symbol or "",
+        short_symbol=wire.display_name or wire.symbol or "",
         description=wire.description,
         decimals=wire.decimals or 0,
         icon_url_low=resolved_icons[0] if resolved_icons else "",

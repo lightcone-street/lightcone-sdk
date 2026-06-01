@@ -280,20 +280,6 @@ class LimitOrderEnvelope:
     def get_time_in_force(self) -> Optional[TimeInForce]:
         return self._time_in_force
 
-    # Backward-compat aliases (deprecated — use get_* instead)
-    fields_maker = get_maker
-    fields_market = get_market
-    fields_base_mint = get_base_mint
-    fields_quote_mint = get_quote_mint
-    fields_side = get_side
-    fields_amount_in = get_amount_in
-    fields_amount_out = get_amount_out
-    fields_expiration = get_expiration
-    fields_nonce = get_nonce
-    fields_salt = get_salt
-    fields_deposit_source = get_deposit_source
-    fields_time_in_force = get_time_in_force
-
     # ── Unified submit (dispatches based on client signing strategy) ──
 
     async def submit(self, client: object, orderbook: "OrderBookPair"):
@@ -582,22 +568,6 @@ class TriggerOrderEnvelope:
     @property
     def get_trigger_type(self) -> Optional[TriggerType]:
         return self._trigger_type
-
-    # Backward-compat aliases (deprecated — use get_* instead)
-    fields_maker = get_maker
-    fields_market = get_market
-    fields_base_mint = get_base_mint
-    fields_quote_mint = get_quote_mint
-    fields_side = get_side
-    fields_amount_in = get_amount_in
-    fields_amount_out = get_amount_out
-    fields_expiration = get_expiration
-    fields_nonce = get_nonce
-    fields_salt = get_salt
-    fields_deposit_source = get_deposit_source
-    fields_time_in_force = get_time_in_force
-    fields_trigger_price = get_trigger_price
-    fields_trigger_type = get_trigger_type
 
     # ── Unified submit (dispatches based on client signing strategy) ──
 

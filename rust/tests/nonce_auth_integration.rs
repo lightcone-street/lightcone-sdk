@@ -23,7 +23,7 @@ use solana_keypair::Keypair;
 use solana_signer::Signer;
 
 fn api_url() -> String {
-    std::env::var("API_URL").unwrap_or_else(|_| "https://tapi2.lightcone.xyz".into())
+    std::env::var("API_URL").unwrap_or_else(|_| "https://api.staging.lightcone.xyz".into())
 }
 
 fn make_client() -> LightconeClient {

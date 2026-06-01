@@ -1,28 +1,15 @@
 import Decimal from "decimal.js";
+import { displayDecimalsBy, isFormattedZero } from "./constants";
 import { displayFormattedString } from "./num";
 
+function displayDecimals(value: Decimal): number {
+  return displayDecimalsBy((threshold) => value.greaterThanOrEqualTo(new Decimal(threshold)));
+}
+
 export function display(value: Decimal): string {
-  if (value.isZero()) {
-    return "0";
-  }
-
-  const abs = value.abs();
-  if (abs.greaterThanOrEqualTo(100)) {
-    return displayFormattedString(value.toDecimalPlaces(0).toString());
-  }
-  if (abs.greaterThanOrEqualTo(1)) {
-    return displayFormattedString(value.toDecimalPlaces(2).toString());
-  }
-
-  const asString = abs.toFixed(20).replace(/0+$/, "");
-  const match = /^0\.(0+)(\d+)/.exec(asString);
-  if (match && match[1].length > 5) {
-    const sign = value.isNegative() ? "-" : "";
-    const significant = match[2].slice(0, 4).replace(/0+$/, "");
-    return `${sign}0.0(${match[1].length})${significant || "0"}`;
-  }
-
-  return displayFormattedString(value.toSignificantDigits(8).toString());
+  const decimals = displayDecimals(value.abs());
+  const formatted = value.toFixed(decimals);
+  return isFormattedZero(formatted) ? "0" : displayFormattedString(formatted);
 }
 
 export function abbrNumber(value: Decimal, digits = 2, showSign = true): string {
@@ -38,11 +25,30 @@ export function abbrNumber(value: Decimal, digits = 2, showSign = true): string 
 
   for (const [threshold, suffix] of units) {
     if (abs.greaterThanOrEqualTo(threshold)) {
-      return `${sign}${abs.div(threshold).toDecimalPlaces(digits).toString()}${suffix}`;
+      return `${sign}${abs.div(threshold).toFixed(digits)}${suffix}`;
     }
   }
 
-  return `${sign}${abs.toDecimalPlaces(digits).toString()}`;
+  return `${sign}${abs.toFixed(digits)}`;
+}
+
+/**
+ * Format a Decimal as a percentage with exactly 2 decimal places (truncated).
+ *
+ * When padding is true (default), always shows 2 decimal places (e.g. "12.30").
+ * When false, trailing zeros are trimmed (e.g. "12.3").
+ */
+export function displayPct(value: Decimal, padding?: boolean): string {
+  const pad = padding ?? true;
+  const truncated = value.toDecimalPlaces(2, Decimal.ROUND_DOWN);
+
+  if (pad) {
+    return displayFormattedString(truncated.toFixed(2));
+  } else {
+    const formatted = truncated.toFixed(2);
+    const trimmed = formatted.replace(/\.?0+$/, "");
+    return displayFormattedString(trimmed);
+  }
 }
 
 export function toBaseUnits(value: Decimal, decimals: number): bigint | null {

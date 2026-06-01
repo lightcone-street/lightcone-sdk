@@ -5,10 +5,13 @@ use crate::client::LightconeClient;
 use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
-use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
+#[cfg(feature = "trigger_orders")]
+use crate::program::envelope::TriggerOrderEnvelope;
+use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
+use crate::program::types::CloseOrderStatusParams;
 use crate::shared::{OrderBookId, PubkeyStr};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
@@ -118,6 +121,7 @@ impl CancelAllBody {
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelTriggerBody {
     pub trigger_order_id: String,
@@ -125,6 +129,7 @@ pub struct CancelTriggerBody {
     pub signature: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 impl CancelTriggerBody {
     /// Build a cancel-trigger request with a base58-encoded signature (from a wallet adapter).
     /// Converts base58 to the hex encoding the backend expects.
@@ -179,7 +184,7 @@ pub struct SubmitOrderResponse {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelSuccess {
     pub order_hash: String,
-    pub remaining: u64,
+    pub remaining: Decimal,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -191,12 +196,14 @@ pub struct CancelAllSuccess {
     pub message: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TriggerOrderResponse {
     pub trigger_order_id: String,
     pub order_hash: String,
 }
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CancelTriggerSuccess {
     pub trigger_order_id: String,
@@ -247,6 +254,7 @@ impl<'a> Orders<'a> {
     ///
     /// Users can still override the deposit source on the returned envelope
     /// by calling `.deposit_source()` before signing.
+    #[cfg(feature = "trigger_orders")]
     pub async fn trigger_order(&self) -> TriggerOrderEnvelope {
         let deposit_source = self.client.deposit_source().await;
         TriggerOrderEnvelope::new().deposit_source(deposit_source)
@@ -280,6 +288,7 @@ impl<'a> Orders<'a> {
         self.client.http.post(&url, body, RetryPolicy::None).await
     }
 
+    #[cfg(feature = "trigger_orders")]
     pub async fn submit_trigger(
         &self,
         request: &impl serde::Serialize,
@@ -291,6 +300,7 @@ impl<'a> Orders<'a> {
             .await
     }
 
+    #[cfg(feature = "trigger_orders")]
     pub async fn cancel_trigger(
         &self,
         body: &CancelTriggerBody,
@@ -300,34 +310,52 @@ impl<'a> Orders<'a> {
     }
 
     /// Fetch the authenticated user's open orders. Wallet is resolved
-    /// server-side from the `auth_token` cookie, so no parameter is required.
+    /// server-side from the auth cookie, so no parameter is required.
     pub async fn get_user_orders(
         &self,
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
-    /// Same as [`Self::get_user_orders`], but uses the supplied `auth_token`
-    /// for this call instead of the SDK's process-wide token store. Intended
-    /// for server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_orders_with_auth(
+    /// Same as [`Self::get_user_orders`], but forwards the supplied raw `Cookie`
+    /// header (`privy-token` and/or `lightcone-token`) for this call instead of
+    /// the SDK's process-wide token store. Intended for server-side cookie
+    /// forwarding (SSR / server functions).
+    pub async fn get_user_orders_with_cookies(
         &self,
         limit: Option<u32>,
         cursor: Option<&str>,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<UserOrdersResponse, SdkError> {
-        let url = build_user_orders_authenticated_url(self.client.http.base_url(), limit, cursor);
+        let url = format!("{}/api/users/orders", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Fetch the authenticated user's filled orders with nested fill events.
-    /// Wallet is resolved server-side from the `auth_token` cookie.
+    /// Wallet is resolved server-side from the auth cookie.
     ///
     /// Includes orders where the user was either maker or taker.
     /// Optionally filter by market. Returns orders sorted by most recent fill first.
@@ -337,34 +365,48 @@ impl<'a> Orders<'a> {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_authenticated_url(
-            self.client.http.base_url(),
-            market_pubkey,
-            limit,
-            cursor,
-        );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
-    /// Same as [`Self::get_user_order_fills`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
-    /// store. Intended for server-side cookie forwarding (SSR / server functions).
-    pub async fn get_user_order_fills_with_auth(
+    /// Same as [`Self::get_user_order_fills`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store. Intended for server-side
+    /// cookie forwarding (SSR / server functions).
+    pub async fn get_user_order_fills_with_cookies(
         &self,
         market_pubkey: Option<&str>,
         limit: Option<u32>,
         cursor: Option<&str>,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_authenticated_url(
-            self.client.http.base_url(),
-            market_pubkey,
-            limit,
-            cursor,
-        );
+        let url = format!("{}/api/users/order-fills", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
@@ -378,14 +420,25 @@ impl<'a> Orders<'a> {
         limit: Option<u32>,
         cursor: Option<&str>,
     ) -> Result<UserOrderFillsResponse, SdkError> {
-        let url = build_user_order_fills_by_wallet_url(
+        let url = format!(
+            "{}/api/users/{}/order-fills",
             self.client.http.base_url(),
-            wallet_address,
-            market_pubkey,
-            limit,
-            cursor,
+            wallet_address
         );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let mut query = Vec::new();
+        if let Some(market_pubkey) = market_pubkey {
+            query.push(("market_pubkey", market_pubkey.to_string()));
+        }
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
+        }
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     // ── Unified cancel (dispatches based on client signing strategy) ────
@@ -421,16 +474,6 @@ impl<'a> Orders<'a> {
                     CancelBody::from_base58(order_hash.to_string(), maker.clone(), &sig_bs58)
                         .map_err(|error| SdkError::Program(error))?;
                 self.cancel(&body).await
-            }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_order(&wallet_id, order_hash, maker.as_str())
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel response: {error}"))
-                })
             }
         }
     }
@@ -491,28 +534,13 @@ impl<'a> Orders<'a> {
                 .map_err(|error| SdkError::Program(error))?;
                 self.cancel_all(&body).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_all_orders(
-                        &wallet_id,
-                        user_pubkey.as_str(),
-                        orderbook_id_str,
-                        timestamp,
-                        salt,
-                    )
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel-all response: {error}"))
-                })
-            }
         }
     }
 
     /// Cancel a trigger order using the client's signing strategy.
     ///
     /// Signs the cancel message and submits the cancellation request.
+    #[cfg(feature = "trigger_orders")]
     pub async fn cancel_trigger_signed(
         &self,
         trigger_order_id: &str,
@@ -550,16 +578,6 @@ impl<'a> Orders<'a> {
                 .map_err(|error| SdkError::Program(error))?;
                 self.cancel_trigger(&body).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let result = self
-                    .client
-                    .privy()
-                    .sign_and_cancel_trigger_order(&wallet_id, trigger_order_id, maker.as_str())
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    SdkError::Other(format!("failed to parse cancel-trigger response: {error}"))
-                })
-            }
         }
     }
 
@@ -568,23 +586,23 @@ impl<'a> Orders<'a> {
     /// Build CancelOrder instruction (on-chain cancellation).
     pub fn cancel_order_ix(
         &self,
-        maker: &Pubkey,
+        operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
     ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_cancel_order_ix(maker, market, order, pid)
+        instructions::build_cancel_order_ix(operator, market, order, pid)
     }
 
     /// Build CancelOrder transaction (on-chain cancellation).
     pub fn cancel_order_tx(
         &self,
-        maker: &Pubkey,
+        operator: &Pubkey,
         market: &Pubkey,
         order: &OrderPayload,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.cancel_order_ix(maker, market, order);
-        Ok(Transaction::new_with_payer(&[ix], Some(maker)))
+        let ix = self.cancel_order_ix(operator, market, order);
+        Ok(Transaction::new_with_payer(&[ix], Some(operator)))
     }
 
     /// Build IncrementNonce instruction.
@@ -597,6 +615,21 @@ impl<'a> Orders<'a> {
     pub fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError> {
         let ix = self.increment_nonce_ix(user);
         Ok(Transaction::new_with_payer(&[ix], Some(user)))
+    }
+
+    /// Build CloseOrderStatus instruction.
+    pub fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_order_status_ix(params, pid)
+    }
+
+    /// Build CloseOrderStatus transaction.
+    pub fn close_order_status_tx(
+        &self,
+        params: CloseOrderStatusParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_order_status_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     // ── Order helpers ────────────────────────────────────────────────────
@@ -654,7 +687,7 @@ impl<'a> Orders<'a> {
         &self,
         order_hash: &[u8; 32],
     ) -> Result<Option<crate::program::accounts::OrderStatus>, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.status_pda(order_hash);
         match rpc.get_account(&pda).await {
             Ok(account) => Ok(Some(crate::program::accounts::OrderStatus::deserialize(
@@ -666,7 +699,7 @@ impl<'a> Orders<'a> {
 
     /// Fetch a user's current nonce (returns 0 if not initialized).
     pub async fn get_nonce(&self, user: &Pubkey) -> Result<u64, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.nonce_pda(user);
         match rpc.get_account(&pda).await {
             Ok(account) => {
@@ -683,66 +716,4 @@ impl<'a> Orders<'a> {
         u32::try_from(nonce)
             .map_err(|_| SdkError::Program(crate::program::error::SdkError::Overflow))
     }
-}
-
-fn build_user_orders_authenticated_url(
-    base_url: &str,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/orders", base_url);
-    let mut separator = '?';
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
-}
-
-fn build_user_order_fills_authenticated_url(
-    base_url: &str,
-    market_pubkey: Option<&str>,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/order-fills", base_url);
-    let mut separator = '?';
-    if let Some(market_pubkey) = market_pubkey {
-        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
-        separator = '&';
-    }
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
-}
-
-fn build_user_order_fills_by_wallet_url(
-    base_url: &str,
-    wallet_address: &str,
-    market_pubkey: Option<&str>,
-    limit: Option<u32>,
-    cursor: Option<&str>,
-) -> String {
-    let mut url = format!("{}/api/users/{}/order-fills", base_url, wallet_address);
-    let mut separator = '?';
-    if let Some(market_pubkey) = market_pubkey {
-        url.push_str(&format!("{}market_pubkey={}", separator, market_pubkey));
-        separator = '&';
-    }
-    if let Some(limit) = limit {
-        url.push_str(&format!("{}limit={}", separator, limit));
-        separator = '&';
-    }
-    if let Some(cursor) = cursor {
-        url.push_str(&format!("{}cursor={}", separator, cursor));
-    }
-    url
 }

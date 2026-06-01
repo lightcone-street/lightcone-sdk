@@ -1,16 +1,18 @@
 """Tests for PDA derivation functions."""
 
-import pytest
 from solders.pubkey import Pubkey
 
-from src import (
+from lightcone_sdk import (
     PROGRAM_ID,
+    canonical_mint_pair,
     get_all_conditional_mints,
+    get_condition_tombstone_pda,
     get_conditional_mint_pda,
     get_exchange_pda,
     get_market_pda,
     get_mint_authority_pda,
     get_order_status_pda,
+    get_orderbook_pda,
     get_position_pda,
     get_user_nonce_pda,
     get_vault_pda,
@@ -87,6 +89,15 @@ class TestGetVaultPda:
         pda2, _ = get_vault_pda(mint2, market)
 
         assert pda1 != pda2
+
+
+class TestGetConditionTombstonePda:
+    def test_derives_valid_pda(self):
+        condition_id = bytes([7] * 32)
+        pda, bump = get_condition_tombstone_pda(condition_id)
+
+        assert isinstance(pda, Pubkey)
+        assert isinstance(bump, int)
 
 
 class TestGetMintAuthorityPda:
@@ -183,6 +194,27 @@ class TestGetPositionPda:
         pda2, _ = get_position_pda(owner, market2)
 
         assert pda1 != pda2
+
+
+class TestGetOrderbookPda:
+    def test_canonicalizes_mint_order(self):
+        mint_a = Pubkey.new_unique()
+        mint_b = Pubkey.new_unique()
+
+        pda_ab, bump_ab = get_orderbook_pda(mint_a, mint_b)
+        pda_ba, bump_ba = get_orderbook_pda(mint_b, mint_a)
+
+        assert pda_ab == pda_ba
+        assert bump_ab == bump_ba
+
+    def test_canonical_mint_pair(self):
+        mint_a = Pubkey.new_unique()
+        mint_b = Pubkey.new_unique()
+
+        first, second = canonical_mint_pair(mint_a, mint_b)
+
+        assert bytes(first) <= bytes(second)
+        assert {first, second} == {mint_a, mint_b}
 
 
 class TestGetAllConditionalMints:

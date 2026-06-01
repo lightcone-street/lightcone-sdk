@@ -15,10 +15,12 @@ use crate::domain::admin::{
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
+#[cfg(feature = "solana-rpc")]
+use crate::program::types::CreateMarketParams;
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, CreateMarketParams, CreateOrderbookParams,
-    DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SettleMarketParams,
-    WhitelistDepositTokenParams,
+    ActivateMarketParams, AddDepositMintParams, ConditionalMetadataParams, CreateOrderbookParams,
+    DepositAndSwapParams, MatchOrdersMultiParams, SetAuthorityParams, SetFeeReceiverParams,
+    SetManagerParams, SetMarketFeesParams, SettleMarketParams, WhitelistDepositTokenParams,
 };
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -337,7 +339,7 @@ impl<'a> Admin<'a> {
         params: CreateMarketParams,
     ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(pid);
         let account = rpc.get_account(&exchange_pda).await.map_err(|e| {
             crate::program::error::SdkError::AccountNotFound(format!("Exchange: {}", e))
@@ -357,9 +359,9 @@ impl<'a> Admin<'a> {
         &self,
         params: CreateMarketParams,
     ) -> Result<Transaction, SdkError> {
-        let authority = params.authority;
+        let manager = params.manager;
         let ix = self.create_market_ix(params).await?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&manager)))
     }
 
     /// Build AddDepositMint instruction.
@@ -386,7 +388,7 @@ impl<'a> Admin<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.add_deposit_mint_ix(&params, market, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build ActivateMarket instruction.
@@ -401,18 +403,18 @@ impl<'a> Admin<'a> {
         params: ActivateMarketParams,
     ) -> Result<Transaction, SdkError> {
         let ix = self.activate_market_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build SettleMarket instruction.
-    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Instruction {
+    pub fn settle_market_ix(&self, params: &SettleMarketParams) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        instructions::build_settle_market_ix(params, pid)
+        Ok(instructions::build_settle_market_ix(params, pid)?)
     }
 
     /// Build SettleMarket transaction.
     pub fn settle_market_tx(&self, params: SettleMarketParams) -> Result<Transaction, SdkError> {
-        let ix = self.settle_market_ix(&params);
+        let ix = self.settle_market_ix(&params)?;
         Ok(Transaction::new_with_payer(&[ix], Some(&params.oracle)))
     }
 
@@ -459,6 +461,53 @@ impl<'a> Admin<'a> {
         ))
     }
 
+    /// Build SetManager instruction.
+    pub fn set_manager_ix(&self, params: &SetManagerParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_set_manager_ix(params, pid)
+    }
+
+    /// Build SetManager transaction.
+    pub fn set_manager_tx(&self, params: SetManagerParams) -> Result<Transaction, SdkError> {
+        let ix = self.set_manager_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+    }
+
+    /// Build SetMarketFees instruction.
+    pub fn set_market_fees_ix(
+        &self,
+        params: &SetMarketFeesParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_set_market_fees_ix(params, pid)?)
+    }
+
+    /// Build SetMarketFees transaction.
+    pub fn set_market_fees_tx(&self, params: SetMarketFeesParams) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.set_market_fees_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
+    /// Build SetFeeReceiver instruction.
+    pub fn set_fee_receiver_ix(
+        &self,
+        params: &SetFeeReceiverParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_set_fee_receiver_ix(params, pid)?)
+    }
+
+    /// Build SetFeeReceiver transaction.
+    pub fn set_fee_receiver_tx(
+        &self,
+        params: SetFeeReceiverParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.authority;
+        let ix = self.set_fee_receiver_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
     /// Build WhitelistDepositToken instruction.
     pub fn whitelist_deposit_token_ix(&self, params: &WhitelistDepositTokenParams) -> Instruction {
         let pid = &self.client.program_id;
@@ -474,10 +523,55 @@ impl<'a> Admin<'a> {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
     }
 
-    /// Build CreateOrderbook instruction.
-    pub fn create_orderbook_ix(&self, params: &CreateOrderbookParams) -> Instruction {
+    /// Build CreateConditionalMetadata instruction.
+    pub fn create_conditional_metadata_ix(
+        &self,
+        params: &ConditionalMetadataParams,
+    ) -> Result<Instruction, SdkError> {
         let pid = &self.client.program_id;
-        instructions::build_create_orderbook_ix(params, pid)
+        Ok(instructions::build_create_conditional_metadata_ix(
+            params, pid,
+        )?)
+    }
+
+    /// Build CreateConditionalMetadata transaction.
+    pub fn create_conditional_metadata_tx(
+        &self,
+        params: ConditionalMetadataParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.create_conditional_metadata_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
+    /// Build UpdateConditionalMetadata instruction.
+    pub fn update_conditional_metadata_ix(
+        &self,
+        params: &ConditionalMetadataParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_update_conditional_metadata_ix(
+            params, pid,
+        )?)
+    }
+
+    /// Build UpdateConditionalMetadata transaction.
+    pub fn update_conditional_metadata_tx(
+        &self,
+        params: ConditionalMetadataParams,
+    ) -> Result<Transaction, SdkError> {
+        let payer = params.manager;
+        let ix = self.update_conditional_metadata_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&payer)))
+    }
+
+    /// Build CreateOrderbook instruction.
+    pub fn create_orderbook_ix(
+        &self,
+        params: &CreateOrderbookParams,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_create_orderbook_ix(params, pid)?)
     }
 
     /// Build CreateOrderbook transaction.
@@ -485,8 +579,8 @@ impl<'a> Admin<'a> {
         &self,
         params: CreateOrderbookParams,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.create_orderbook_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.authority)))
+        let ix = self.create_orderbook_ix(&params)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.manager)))
     }
 
     /// Build MatchOrdersMulti instruction.

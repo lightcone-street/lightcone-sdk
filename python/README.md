@@ -214,7 +214,7 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 ### Cookie handling
 
-After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
+After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.
 
 ### Server-side cookie forwarding (`*_with_auth` variants)
 
@@ -252,7 +252,7 @@ All examples are runnable with `python examples/<name>.py`. Examples default to 
 |---------|-------------|
 | [`markets`](examples/markets.py) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
 | [`orderbook`](examples/orderbook.py) | Fetch orderbook depth (bids/asks) and derive decimal precision metadata |
-| [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination |
+| [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
 
@@ -346,3 +346,7 @@ except ApiRejected as err:
 - **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.
+
+## Trigger Orders
+
+Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.

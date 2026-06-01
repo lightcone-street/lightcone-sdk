@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { ALT_PROGRAM_ID, SEEDS } from "./constants";
+import { ALT_PROGRAM_ID, MPL_TOKEN_METADATA_PROGRAM_ID, SEEDS } from "./constants";
 import { PROGRAM_ID } from "../env";
 import { ProgramSdkError } from "./error";
 import { toU64Le, toU8 } from "./utils";
@@ -27,6 +27,23 @@ export function getMarketPda(
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
     [Buffer.from(SEEDS.MARKET), toU64Le(marketId)],
+    programId
+  );
+}
+
+/**
+ * Derive Condition Tombstone PDA
+ * Seeds: ["condition", condition_id (32 bytes)]
+ */
+export function getConditionTombstonePda(
+  conditionId: Buffer,
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  if (conditionId.length !== 32) {
+    throw ProgramSdkError.invalidDataLength("conditionId", 32, conditionId.length);
+  }
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.CONDITION), conditionId],
     programId
   );
 }
@@ -102,6 +119,24 @@ export function getAllConditionalMintPdas(
 }
 
 /**
+ * Derive the Metaplex metadata PDA for a conditional mint.
+ * Seeds: ["metadata", MPL_TOKEN_METADATA_PROGRAM_ID, conditional_mint]
+ * Program: MPL_TOKEN_METADATA_PROGRAM_ID
+ */
+export function getMplMetadataPda(
+  conditionalMint: PublicKey
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [
+      Buffer.from(SEEDS.MPL_METADATA),
+      MPL_TOKEN_METADATA_PROGRAM_ID.toBuffer(),
+      conditionalMint.toBuffer(),
+    ],
+    MPL_TOKEN_METADATA_PROGRAM_ID
+  );
+}
+
+/**
  * Derive Order Status PDA
  * Seeds: ["order_status", order_hash (32 bytes)]
  */
@@ -148,19 +183,32 @@ export function getPositionPda(
 }
 
 /**
+ * Return mints in the canonical order used by orderbook PDAs.
+ */
+export function canonicalMintPair(
+  mintA: PublicKey,
+  mintB: PublicKey
+): [PublicKey, PublicKey] {
+  return Buffer.compare(mintA.toBuffer(), mintB.toBuffer()) <= 0
+    ? [mintA, mintB]
+    : [mintB, mintA];
+}
+
+/**
  * Derive Orderbook PDA
- * Seeds: ["orderbook", mint_a (32 bytes), mint_b (32 bytes)]
+ * Seeds: ["orderbook", canonical_mint_a (32 bytes), canonical_mint_b (32 bytes)]
  */
 export function getOrderbookPda(
   mintA: PublicKey,
   mintB: PublicKey,
   programId: PublicKey = PROGRAM_ID
 ): [PublicKey, number] {
+  const [canonicalMintA, canonicalMintB] = canonicalMintPair(mintA, mintB);
   return PublicKey.findProgramAddressSync(
     [
       Buffer.from(SEEDS.ORDERBOOK),
-      mintA.toBuffer(),
-      mintB.toBuffer(),
+      canonicalMintA.toBuffer(),
+      canonicalMintB.toBuffer(),
     ],
     programId
   );
@@ -168,15 +216,15 @@ export function getOrderbookPda(
 
 /**
  * Derive Address Lookup Table PDA
- * Seeds: [orderbook (32 bytes), recent_slot (u64 little-endian)]
+ * Seeds: [authority (32 bytes), recent_slot (u64 little-endian)]
  * Program: ALT_PROGRAM_ID
  */
 export function getAltPda(
-  orderbook: PublicKey,
+  authority: PublicKey,
   recentSlot: bigint
 ): [PublicKey, number] {
   return PublicKey.findProgramAddressSync(
-    [orderbook.toBuffer(), toU64Le(recentSlot)],
+    [authority.toBuffer(), toU64Le(recentSlot)],
     ALT_PROGRAM_ID
   );
 }
@@ -231,13 +279,16 @@ export function getPositionAltPda(
 export const pda = {
   getExchangePda,
   getMarketPda,
+  getConditionTombstonePda,
   getVaultPda,
   getMintAuthorityPda,
   getConditionalMintPda,
   getAllConditionalMintPdas,
+  getMplMetadataPda,
   getOrderStatusPda,
   getUserNoncePda,
   getPositionPda,
+  canonicalMintPair,
   getOrderbookPda,
   getAltPda,
   getGlobalDepositTokenPda,

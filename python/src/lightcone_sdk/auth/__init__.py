@@ -10,6 +10,10 @@ from typing import Optional, Literal, ClassVar
 
 LinkedAccountType = Literal["wallet", "twitter_oauth", "google_oauth"]
 ChainType = Literal["solana", "ethereum"]
+# How a session authenticated, as reported by the backend (derived from which
+# token verified the request). "privy" => embedded wallet is the trading
+# identity; "lightcone" => self-custody session, the linked wallet is.
+AuthMethod = Literal["privy", "lightcone"]
 
 
 # ---------------------------------------------------------------------------
@@ -49,6 +53,7 @@ class User:
     x_user_id: Optional[str] = None
     x_display_name: Optional[str] = None
     google_email: Optional[str] = None
+    auth_method: AuthMethod = "lightcone"
 
 
 @dataclass
@@ -89,6 +94,7 @@ class LoginResponse:
     x_user_id: Optional[str] = None
     x_display_name: Optional[str] = None
     google_email: Optional[str] = None
+    auth_method: AuthMethod = "lightcone"
 
 
 @dataclass
@@ -105,6 +111,7 @@ class MeResponse:
     x_display_name: Optional[str] = None
     google_email: Optional[str] = None
     expires_at: int = 0
+    auth_method: AuthMethod = "lightcone"
 
 
 @dataclass
@@ -130,6 +137,7 @@ def generate_signin_message(nonce: str) -> str:
 __all__ = [
     "LinkedAccountType",
     "ChainType",
+    "AuthMethod",
     "LinkedAccount",
     "EmbeddedWallet",
     "User",

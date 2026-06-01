@@ -1,6 +1,6 @@
 [package]
 name = "lightcone"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
 license = "MIT"
@@ -25,7 +25,6 @@ sha3 = "0.10"
 
 # SPL (WASM-compatible)
 spl-token = { version = "9.0", features = ["no-entrypoint"] }
-spl-token-2022 = { version = "10.0", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
 
 # Serialization (WASM-compatible)
@@ -90,6 +89,14 @@ name = "cancel_order"
 required-features = ["native"]
 
 [[example]]
+name = "deposit_asset_prices"
+required-features = ["native"]
+
+[[example]]
+name = "deposit_token_balances"
+required-features = ["native"]
+
+[[example]]
 name = "faucet_claim"
 required-features = ["native"]
 
@@ -122,6 +129,10 @@ name = "orderbook"
 required-features = ["native"]
 
 [[example]]
+name = "orderbook_tickers"
+required-features = ["native"]
+
+[[example]]
 name = "positions"
 required-features = ["native"]
 
@@ -138,6 +149,10 @@ name = "read_onchain"
 required-features = ["native"]
 
 [[example]]
+name = "rpc_failover"
+required-features = ["native"]
+
+[[example]]
 name = "submit_order"
 required-features = ["native"]
 
@@ -147,6 +162,10 @@ required-features = ["native"]
 
 [[example]]
 name = "user_orders"
+required-features = ["native", "trigger_orders"]
+
+[[example]]
+name = "with_cookies"
 required-features = ["native"]
 
 [[example]]
@@ -178,6 +197,10 @@ ws-wasm = ["dep:web-sys", "dep:wasm-bindgen", "dep:wasm-bindgen-futures", "dep:j
 
 # Solana RPC client (native only)
 solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]
+
+# Trigger order types (stop-limit, take-profit-limit).
+# Under development — not yet available. For internal use only.
+trigger_orders = []
 
 # Convenience bundles
 native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls", "dep:tokio"]

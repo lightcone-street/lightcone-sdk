@@ -5,15 +5,20 @@ import {
   buildInitializeIx,
   buildCreateMarketIx,
   buildAddDepositMintIx,
+  buildCreateConditionalMetadataIx,
   buildActivateMarketIx,
   buildSettleMarketIx,
   buildSetPausedIx,
   buildSetOperatorIx,
   buildSetAuthorityIx,
+  buildSetFeeReceiverIx,
+  buildSetManagerIx,
+  buildSetMarketFeesIx,
   buildWhitelistDepositTokenIx,
   buildCreateOrderbookIx,
   buildMatchOrdersMultiIx,
   buildDepositAndSwapIx,
+  buildUpdateConditionalMetadataIx,
 } from "../../program/instructions";
 import type {
   CreateMarketParams,
@@ -21,10 +26,14 @@ import type {
   ActivateMarketParams,
   SettleMarketParams,
   SetAuthorityParams,
+  SetFeeReceiverParams,
+  SetManagerParams,
+  SetMarketFeesParams,
   WhitelistDepositTokenParams,
   CreateOrderbookParams,
   MatchOrdersMultiParams,
   DepositAndSwapParams,
+  ConditionalMetadataParams,
 } from "../../program/types";
 import type {
   AdminLoginRequest,
@@ -284,8 +293,32 @@ export class Admin {
     return buildSetAuthorityIx(params, this.client.programId);
   }
 
+  setManagerIx(params: SetManagerParams): TransactionInstruction {
+    return buildSetManagerIx(params, this.client.programId);
+  }
+
+  setMarketFeesIx(params: SetMarketFeesParams): TransactionInstruction {
+    return buildSetMarketFeesIx(params, this.client.programId);
+  }
+
+  setFeeReceiverIx(params: SetFeeReceiverParams): TransactionInstruction {
+    return buildSetFeeReceiverIx(params, this.client.programId);
+  }
+
   whitelistDepositTokenIx(params: WhitelistDepositTokenParams): TransactionInstruction {
     return buildWhitelistDepositTokenIx(params, this.client.programId);
+  }
+
+  createConditionalMetadataIx(
+    params: ConditionalMetadataParams
+  ): TransactionInstruction {
+    return buildCreateConditionalMetadataIx(params, this.client.programId);
+  }
+
+  updateConditionalMetadataIx(
+    params: ConditionalMetadataParams
+  ): TransactionInstruction {
+    return buildUpdateConditionalMetadataIx(params, this.client.programId);
   }
 
   createOrderbookIx(params: CreateOrderbookParams): TransactionInstruction {
@@ -309,7 +342,7 @@ export class Admin {
 
   createMarketTx(params: CreateMarketParams, marketId: bigint): Transaction {
     const ix = this.createMarketIx(params, marketId);
-    return new Transaction({ feePayer: params.authority }).add(ix);
+    return new Transaction({ feePayer: params.manager }).add(ix);
   }
 
   addDepositMintTx(
@@ -318,12 +351,12 @@ export class Admin {
     numOutcomes: number
   ): Transaction {
     const ix = this.addDepositMintIx(params, market, numOutcomes);
-    return new Transaction({ feePayer: params.authority }).add(ix);
+    return new Transaction({ feePayer: params.manager }).add(ix);
   }
 
   activateMarketTx(params: ActivateMarketParams): Transaction {
     const ix = this.activateMarketIx(params);
-    return new Transaction({ feePayer: params.authority }).add(ix);
+    return new Transaction({ feePayer: params.manager }).add(ix);
   }
 
   settleMarketTx(params: SettleMarketParams): Transaction {
@@ -346,14 +379,39 @@ export class Admin {
     return new Transaction({ feePayer: params.currentAuthority }).add(ix);
   }
 
+  setManagerTx(params: SetManagerParams): Transaction {
+    const ix = this.setManagerIx(params);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
+  setMarketFeesTx(params: SetMarketFeesParams): Transaction {
+    const ix = this.setMarketFeesIx(params);
+    return new Transaction({ feePayer: params.manager }).add(ix);
+  }
+
+  setFeeReceiverTx(params: SetFeeReceiverParams): Transaction {
+    const ix = this.setFeeReceiverIx(params);
+    return new Transaction({ feePayer: params.authority }).add(ix);
+  }
+
   whitelistDepositTokenTx(params: WhitelistDepositTokenParams): Transaction {
     const ix = this.whitelistDepositTokenIx(params);
     return new Transaction({ feePayer: params.authority }).add(ix);
   }
 
+  createConditionalMetadataTx(params: ConditionalMetadataParams): Transaction {
+    const ix = this.createConditionalMetadataIx(params);
+    return new Transaction({ feePayer: params.manager }).add(ix);
+  }
+
+  updateConditionalMetadataTx(params: ConditionalMetadataParams): Transaction {
+    const ix = this.updateConditionalMetadataIx(params);
+    return new Transaction({ feePayer: params.manager }).add(ix);
+  }
+
   createOrderbookTx(params: CreateOrderbookParams): Transaction {
     const ix = this.createOrderbookIx(params);
-    return new Transaction({ feePayer: params.authority }).add(ix);
+    return new Transaction({ feePayer: params.manager }).add(ix);
   }
 
   matchOrdersMultiTx(params: MatchOrdersMultiParams): Transaction {

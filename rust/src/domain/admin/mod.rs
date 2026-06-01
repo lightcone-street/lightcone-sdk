@@ -15,6 +15,6 @@ pub use wire::{
     UnifiedMetadataRequest, UnifiedMetadataResponse, UnrevokeRequest, UnrevokeResponse,
     UpdateCodeRequest, UpdateCodeResponse, UpdateConfigRequest,
     UploadMarketDeploymentAssetsRequest, UploadMarketDeploymentAssetsResponse,
-    UploadedConditionalToken, UploadedMarketImages, UploadedOutcomeImages, WhitelistRequest,
-    WhitelistResponse,
+    UploadedConditionalToken, UploadedDepositAssetImages, UploadedMarketImages,
+    UploadedOutcomeImages, WhitelistRequest, WhitelistResponse,
 };

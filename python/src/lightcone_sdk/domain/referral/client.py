@@ -21,17 +21,17 @@ class Referrals:
         data = await self._client._http.get("/api/referral/status")
         return _referral_status_from_wire(data)
 
-    async def get_status_with_auth(self, auth_token: str) -> ReferralStatus:
-        """Same as :meth:`get_status`, with an explicit per-call ``auth_token``.
+    async def get_status_with_cookies(self, cookie_header: str) -> ReferralStatus:
+        """Same as :meth:`get_status`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The override is used only for this call
         and never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/referral/status",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return _referral_status_from_wire(data)
 

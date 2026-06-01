@@ -16,16 +16,16 @@ export class Referrals {
   }
 
   /**
-   * Same as {@link getStatus}, but uses the supplied `authToken` for this
+   * Same as {@link getStatus}, but uses the supplied `cookieHeader` for this
    * call instead of the SDK's process-wide cookie store. For server-side
    * cookie forwarding (SSR / route handlers).
    */
-  async getStatusWithAuth(authToken: string): Promise<ReferralStatus> {
+  async getStatusWithCookies(cookieHeader: string): Promise<ReferralStatus> {
     const url = `${this.client.http.baseUrl()}/api/referral/status`;
-    const response = await this.client.http.getWithAuth<ReferralStatusResponse>(
+    const response = await this.client.http.getWithCookies<ReferralStatusResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
     return referralStatusFromWire(response);
   }

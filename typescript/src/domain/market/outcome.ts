@@ -7,6 +7,7 @@ export interface Outcome {
   iconUrlMedium: string;
   iconUrlHigh: string;
   name: string;
+  nameLong?: string;
 }
 
 export class OutcomeValidationError extends Error {
@@ -31,5 +32,6 @@ export function outcomeFromWire(source: OutcomeResponse): Outcome {
     iconUrlMedium: iconUrls.medium,
     iconUrlHigh: iconUrls.high,
     name: source.name,
+    nameLong: source.name_long,
   };
 }

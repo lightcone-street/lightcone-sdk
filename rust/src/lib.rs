@@ -24,13 +24,14 @@ pub mod network;
 #[cfg(feature = "http")]
 pub mod rpc;
 
+/// RPC failover: automatic switch to a backup Solana RPC on infrastructure errors.
+#[cfg(feature = "http")]
+pub mod rpc_failover;
+
 // ── Layer 2: Auth ────────────────────────────────────────────────────────────
 
 /// Authentication: message generation, credentials, login/logout.
 pub mod auth;
-
-/// Privy embedded wallet RPC operations.
-pub mod privy;
 
 // ── Layer 3: HTTP API ────────────────────────────────────────────────────────
 
@@ -63,18 +64,23 @@ pub mod prelude {
         sort_by_display_priority, ConditionalToken, DepositAsset, GlobalDepositAsset,
         HasDisplayToken, Token, TokenMetadata, ValidatedTokens,
     };
-    pub use crate::domain::market::{Market, Status};
+    pub use crate::domain::market::{
+        Market, MarketResolutionKind, MarketResolutionPayout, MarketResolutionResponse, Status,
+    };
 
     // Domain types — orderbook
     pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};
 
     // Domain types — order
     pub use crate::domain::order::{
-        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, CancelTriggerBody,
-        CancelTriggerSuccess, ConditionalBalance, FillInfo, GlobalDepositBalance,
-        GlobalDepositUpdate, LimitOrder, Order, OrderEvent, OrderStatus, OrderType,
-        SubmitOrderResponse, TriggerOrder, TriggerOrderResponse, TriggerOrderUpdate,
-        UserOpenLimitOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
+        FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
+        OrderStatus, OrderType, SubmitOrderResponse, TriggerOrderUpdate, UserOpenLimitOrders,
+        UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
+    };
+    #[cfg(feature = "trigger_orders")]
+    pub use crate::domain::order::{
+        CancelTriggerBody, CancelTriggerSuccess, TriggerOrder, TriggerOrderResponse,
         UserTriggerOrders,
     };
 
@@ -135,9 +141,10 @@ pub mod prelude {
     };
 
     // Program — order envelopes, trait, payload
+    #[cfg(feature = "trigger_orders")]
+    pub use crate::program::TriggerOrderEnvelope;
     pub use crate::program::{
         generate_cancel_all_salt, LimitOrderEnvelope, OrderEnvelope, OrderPayload,
-        TriggerOrderEnvelope,
     };
 
     // Position builders
@@ -146,12 +153,6 @@ pub mod prelude {
         GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
         RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
         WithdrawFromPositionBuilder,
-    };
-
-    // Privy RPC types
-    pub use crate::privy::{
-        ExportWalletRequest, ExportWalletResponse, PrivyOrderEnvelope, SignAndSendOrderRequest,
-        SignAndSendTxRequest, SignAndSendTxResponse,
     };
 
     // Signing strategy
@@ -175,6 +176,8 @@ pub mod prelude {
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
+    #[cfg(feature = "http")]
+    pub use crate::rpc_failover::ActiveRpc;
 
     // WebSocket types
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};

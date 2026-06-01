@@ -23,8 +23,10 @@ use crate::env::LightconeEnv;
 use crate::error::SdkError;
 use crate::http::retry::RetryPolicy;
 use crate::http::LightconeHttp;
-use crate::privy::client::Privy;
 use crate::rpc::Rpc;
+use crate::rpc_failover::{
+    is_infrastructure_error_http, with_failover, ActiveRpc, RpcFailoverState,
+};
 use crate::shared::signing::{ExternalSigner, SigningStrategy};
 use crate::shared::{DepositSource, PubkeyStr};
 use crate::ws::WsConfig;
@@ -77,12 +79,18 @@ pub struct LightconeClient {
     /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
     /// use this cached value, falling back to 0 if nothing has been cached.
     pub(crate) order_nonce: Arc<RwLock<Option<u64>>>,
-    /// Solana RPC URL for blockhash fetching and transaction submission.
-    /// Used by `sign_and_submit_tx()` and `get_latest_blockhash()`.
-    pub(crate) rpc_url: Option<String>,
-    /// Optional Solana RPC client for on-chain reads (native only).
+    /// Primary Solana RPC URL for blockhash fetching and transaction submission.
+    pub(crate) primary_rpc_url: Option<String>,
+    /// Backup Solana RPC URL for automatic failover.
+    pub(crate) backup_rpc_url: Option<String>,
+    /// Tracks which RPC endpoint is active and cooldown state.
+    pub(crate) rpc_failover_state: Arc<RwLock<RpcFailoverState>>,
+    /// Primary Solana RPC client for on-chain reads (native only).
     #[cfg(feature = "solana-rpc")]
-    pub(crate) solana_rpc_client: Option<SolanaRpcClient>,
+    pub(crate) primary_solana_rpc_client: Option<SolanaRpcClient>,
+    /// Backup Solana RPC client for on-chain reads (native only).
+    #[cfg(feature = "solana-rpc")]
+    pub(crate) backup_solana_rpc_client: Option<SolanaRpcClient>,
 }
 
 impl LightconeClient {
@@ -122,10 +130,6 @@ impl LightconeClient {
 
     pub fn auth(&self) -> Auth<'_> {
         Auth { client: self }
-    }
-
-    pub fn privy(&self) -> Privy<'_> {
-        Privy { client: self }
     }
 
     pub fn referrals(&self) -> Referrals<'_> {
@@ -175,9 +179,14 @@ impl LightconeClient {
         &self.program_id
     }
 
-    /// Get the current `auth_token` cookie value, if any. Populated by the
+    /// Get which RPC endpoint is currently active (Primary or Backup).
+    pub async fn active_rpc(&self) -> ActiveRpc {
+        self.rpc_failover_state.read().await.active()
+    }
+
+    /// Get the current `lightcone-token` cookie value, if any. Populated by the
     /// SDK after a successful login, then attached on every authed request.
-    /// Useful for forwarding the token through the `_with_auth`
+    /// Useful for forwarding the token through the `_with_cookies`
     /// methods, or persisting the session across processes.
     ///
     /// Native only — on WASM the cookie lives in the browser's cookie jar
@@ -187,9 +196,9 @@ impl LightconeClient {
         self.http.auth_token_ref().read().await.clone()
     }
 
-    /// Clear the cached `auth_token`. Subsequent authed calls will go out
+    /// Clear the cached `lightcone-token`. Subsequent authed calls will go out
     /// without a `Cookie` header (and 401) unless they use a
-    /// `_with_auth` variant.
+    /// `_with_cookies` variant.
     ///
     /// Native only — on WASM the cookie lives in the browser's cookie jar
     /// and the SDK never sees it.
@@ -277,18 +286,42 @@ impl LightconeClient {
 
     // ── RPC helpers (HTTP-based, works on all platforms) ─────────────────
 
-    /// Get the configured RPC URL, or error if not set.
-    pub(crate) fn require_rpc_url(&self) -> Result<&str, SdkError> {
-        self.rpc_url
-            .as_deref()
-            .ok_or_else(|| SdkError::Validation("rpc_url is not configured on the client".into()))
+    /// Execute a JSON-RPC call with fast retry + failover.
+    async fn rpc_call_with_failover<T: serde::de::DeserializeOwned>(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<T, SdkError> {
+        let primary = self.primary_rpc_url.as_deref();
+        let backup = self.backup_rpc_url.as_deref();
+
+        if primary.is_none() && backup.is_none() {
+            return Err(SdkError::Validation(
+                "rpc_url is not configured on the client".into(),
+            ));
+        }
+
+        with_failover(
+            &self.rpc_failover_state,
+            |target| {
+                let url = match target {
+                    ActiveRpc::Primary => primary.or(backup),
+                    ActiveRpc::Backup => backup.or(primary),
+                }
+                .unwrap();
+                Box::pin(self.http.raw_post::<T, _>(url, body))
+            },
+            backup.is_some(),
+            is_infrastructure_error_http,
+        )
+        .await
+        .map_err(SdkError::Http)
     }
 
     /// Fetch the latest blockhash via JSON-RPC POST.
     ///
-    /// Works on all platforms (native + WASM). Uses the `rpc_url` configured on the client.
+    /// Works on all platforms (native + WASM). Uses the active RPC URL,
+    /// with automatic failover to the backup if configured.
     pub async fn get_latest_blockhash(&self) -> Result<solana_hash::Hash, SdkError> {
-        let rpc_url = self.require_rpc_url()?;
         let body = serde_json::json!({
             "id": 1,
             "jsonrpc": "2.0",
@@ -296,11 +329,7 @@ impl LightconeClient {
             "params": []
         });
 
-        let response: serde_json::Value = self
-            .http
-            .raw_post(rpc_url, &body)
-            .await
-            .map_err(|error| SdkError::Other(format!("blockhash RPC failed: {error}")))?;
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
 
         let blockhash_str = response["result"]["value"]["blockhash"]
             .as_str()
@@ -332,7 +361,6 @@ impl LightconeClient {
         match strategy {
             #[cfg(feature = "native-auth")]
             SigningStrategy::Native(keypair) => {
-                use solana_signer::Signer;
                 tx.try_sign(&[keypair.as_ref()], blockhash)
                     .map_err(|error| SdkError::Signing(error.to_string()))?;
                 self.send_transaction_rpc(&tx).await
@@ -352,22 +380,11 @@ impl LightconeClient {
                 );
                 self.send_raw_transaction_rpc(&base64_tx).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let tx_bytes = bincode::serialize(&tx).map_err(|error| {
-                    SdkError::Other(format!("tx serialization failed: {error}"))
-                })?;
-                let base64_tx =
-                    base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
-                let result = self
-                    .privy()
-                    .sign_and_send_tx(&wallet_id, &base64_tx)
-                    .await?;
-                Ok(result.hash)
-            }
         }
     }
 
     /// Submit a signed transaction via JSON-RPC `sendTransaction`.
+    #[cfg(feature = "native-auth")]
     async fn send_transaction_rpc(
         &self,
         tx: &solana_transaction::Transaction,
@@ -381,7 +398,6 @@ impl LightconeClient {
 
     /// Submit a base64-encoded signed transaction via JSON-RPC `sendTransaction`.
     async fn send_raw_transaction_rpc(&self, base64_tx: &str) -> Result<String, SdkError> {
-        let rpc_url = self.require_rpc_url()?;
         let body = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
@@ -395,11 +411,7 @@ impl LightconeClient {
             ]
         });
 
-        let response: serde_json::Value = self
-            .http
-            .raw_post(rpc_url, &body)
-            .await
-            .map_err(|error| SdkError::Other(format!("sendTransaction RPC failed: {error}")))?;
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
 
         if let Some(error) = response.get("error") {
             return Err(SdkError::Other(format!("RPC error: {error}")));
@@ -422,11 +434,18 @@ impl Clone for LightconeClient {
             deposit_source: self.deposit_source.clone(),
             order_nonce: self.order_nonce.clone(),
             signing_strategy: self.signing_strategy.clone(),
-            rpc_url: self.rpc_url.clone(),
+            primary_rpc_url: self.primary_rpc_url.clone(),
+            backup_rpc_url: self.backup_rpc_url.clone(),
+            rpc_failover_state: self.rpc_failover_state.clone(),
             #[cfg(feature = "solana-rpc")]
-            solana_rpc_client: self.solana_rpc_client.as_ref().map(|rpc_client| {
-                // SolanaRpcClient doesn't implement Clone; create a new one with the same URL.
-                // This is a limitation — the cloned client shares no connection state.
+            primary_solana_rpc_client: self.primary_solana_rpc_client.as_ref().map(|rpc_client| {
+                SolanaRpcClient::new_with_commitment(
+                    rpc_client.url(),
+                    CommitmentConfig::confirmed(),
+                )
+            }),
+            #[cfg(feature = "solana-rpc")]
+            backup_solana_rpc_client: self.backup_solana_rpc_client.as_ref().map(|rpc_client| {
                 SolanaRpcClient::new_with_commitment(
                     rpc_client.url(),
                     CommitmentConfig::confirmed(),
@@ -447,7 +466,8 @@ pub struct LightconeClientBuilder {
     program_id: Pubkey,
     deposit_source: DepositSource,
     signing_strategy: Option<SigningStrategy>,
-    rpc_url: Option<String>,
+    primary_rpc_url: Option<String>,
+    backup_rpc_url: Option<String>,
 }
 
 impl Default for LightconeClientBuilder {
@@ -460,7 +480,8 @@ impl Default for LightconeClientBuilder {
             program_id: environment.program_id(),
             deposit_source: DepositSource::Global,
             signing_strategy: None,
-            rpc_url: Some(environment.rpc_url().to_string()),
+            primary_rpc_url: Some(environment.rpc_url().to_string()),
+            backup_rpc_url: None,
         }
     }
 }
@@ -475,7 +496,7 @@ impl LightconeClientBuilder {
         self.base_url = environment.api_url().to_string();
         self.ws_url = environment.ws_url().to_string();
         self.program_id = environment.program_id();
-        self.rpc_url = Some(environment.rpc_url().to_string());
+        self.primary_rpc_url = Some(environment.rpc_url().to_string());
         self
     }
 
@@ -524,19 +545,19 @@ impl LightconeClientBuilder {
         self
     }
 
-    /// Set a Privy embedded wallet ID for signing orders, cancels, and transactions.
-    /// The backend signs on behalf of the user using the Privy wallet.
-    pub fn privy_wallet_id(mut self, wallet_id: impl Into<String>) -> Self {
-        self.signing_strategy = Some(SigningStrategy::Privy {
-            wallet_id: wallet_id.into(),
-        });
+    /// Set the primary Solana RPC URL for blockhash fetching, transaction
+    /// submission, and on-chain reads (when `solana-rpc` feature is enabled).
+    pub fn rpc_url(mut self, url: &str) -> Self {
+        self.primary_rpc_url = Some(url.to_string());
         self
     }
 
-    /// Set the Solana RPC URL for blockhash fetching, transaction submission,
-    /// and on-chain reads (when `solana-rpc` feature is enabled).
-    pub fn rpc_url(mut self, url: &str) -> Self {
-        self.rpc_url = Some(url.to_string());
+    /// Set a backup Solana RPC URL for automatic failover. When the primary
+    /// RPC returns infrastructure errors (connection failures, timeouts,
+    /// 502/503/504), the SDK switches to this URL and stays on it until a
+    /// 120 s cooldown elapses.
+    pub fn backup_rpc_url(mut self, url: &str) -> Self {
+        self.backup_rpc_url = Some(url.to_string());
         self
     }
 
@@ -552,11 +573,17 @@ impl LightconeClientBuilder {
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
             order_nonce: Arc::new(RwLock::new(None)),
             signing_strategy: Arc::new(RwLock::new(self.signing_strategy)),
-            rpc_url: self.rpc_url.clone(),
             #[cfg(feature = "solana-rpc")]
-            solana_rpc_client: self.rpc_url.map(|url| {
-                SolanaRpcClient::new_with_commitment(url, CommitmentConfig::confirmed())
+            primary_solana_rpc_client: self.primary_rpc_url.as_ref().map(|url| {
+                SolanaRpcClient::new_with_commitment(url.clone(), CommitmentConfig::confirmed())
             }),
+            #[cfg(feature = "solana-rpc")]
+            backup_solana_rpc_client: self.backup_rpc_url.as_ref().map(|url| {
+                SolanaRpcClient::new_with_commitment(url.clone(), CommitmentConfig::confirmed())
+            }),
+            primary_rpc_url: self.primary_rpc_url,
+            backup_rpc_url: self.backup_rpc_url,
+            rpc_failover_state: Arc::new(RwLock::new(RpcFailoverState::new())),
         })
     }
 }

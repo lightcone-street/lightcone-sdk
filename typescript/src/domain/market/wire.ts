@@ -4,6 +4,7 @@ import type { Status } from "./index";
 export interface OutcomeResponse {
   index: number;
   name: string;
+  name_long?: string;
   icon_url_low?: string;
   icon_url_medium?: string;
   icon_url_high?: string;
@@ -46,6 +47,26 @@ export interface DepositAssetResponse {
   created_at: string;
 }
 
+export const MarketResolutionKind = {
+  SingleWinner: "single_winner",
+  Scalar: "scalar",
+} as const;
+
+export type MarketResolutionKind =
+  (typeof MarketResolutionKind)[keyof typeof MarketResolutionKind];
+
+export interface MarketResolutionPayout {
+  outcome_index: number;
+  payout_numerator: number;
+}
+
+export interface MarketResolutionResponse {
+  kind: MarketResolutionKind;
+  payout_denominator: number;
+  payouts: MarketResolutionPayout[];
+  single_winning_outcome: number | null;
+}
+
 export interface MarketResponse {
   market_name?: string;
   slug?: string;
@@ -67,8 +88,7 @@ export interface MarketResponse {
   question_id: string;
   condition_id: string;
   market_status: string;
-  winning_outcome?: number;
-  has_winning_outcome: boolean;
+  resolution?: MarketResolutionResponse;
   created_at: string;
   activated_at?: string;
   settled_at?: string;
@@ -89,6 +109,7 @@ export interface SingleMarketResponse {
 export interface SearchOrderbook {
   orderbook_id: OrderBookId;
   outcome_name: string;
+  outcome_name_long?: string;
   outcome_index: number;
   deposit_base_asset: PubkeyStr;
   deposit_quote_asset: PubkeyStr;
@@ -102,6 +123,11 @@ export interface SearchOrderbook {
   quote_icon_url_high?: string;
   conditional_base_mint: PubkeyStr;
   conditional_quote_mint: PubkeyStr;
+  outcome_icon_url_low?: string;
+  outcome_icon_url_medium?: string;
+  outcome_icon_url_high?: string;
+  conditional_base_symbol?: string;
+  conditional_quote_symbol?: string;
   latest_mid_price?: string;
 }
 

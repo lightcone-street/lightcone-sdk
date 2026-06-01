@@ -5,6 +5,7 @@ import { SdkError } from "../../error";
 import {
   buildDepositIx,
   buildDepositToGlobalIx,
+  buildDepositToGlobalIxWithAlt,
   buildExtendPositionTokensIx,
   buildGlobalToMarketDepositIx,
   buildMergeIx,
@@ -14,6 +15,7 @@ import {
   buildInitPositionTokensIx,
 } from "../../program/instructions";
 import { DepositSource } from "../../shared";
+import type { DepositToGlobalAltContext } from "../../program/types";
 import type { Market } from "../market";
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -123,7 +125,6 @@ export class WithdrawBuilder {
   private marketValue?: Market;
   private depositSourceValue?: DepositSource;
   private outcomeIndexValue?: number;
-  private isToken2022Value = false;
 
   constructor(client: ClientContext, depositSource: DepositSource) {
     this.client = client;
@@ -160,11 +161,6 @@ export class WithdrawBuilder {
     return this;
   }
 
-  token2022(isToken2022: boolean): this {
-    this.isToken2022Value = isToken2022;
-    return this;
-  }
-
   withMarketDepositSource(market: Market): this {
     this.depositSourceValue = DepositSource.Market;
     this.marketValue = market;
@@ -194,7 +190,6 @@ export class WithdrawBuilder {
         const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
         return buildWithdrawFromPositionIx(
           { user, market: marketPubkey, mint, amount, outcomeIndex },
-          this.isToken2022Value,
           this.client.programId,
         );
       }
@@ -284,73 +279,7 @@ export class RedeemWinningsBuilder {
   private marketValue?: PublicKey;
   private mintValue?: PublicKey;
   private amountValue?: bigint;
-  private winningOutcomeValue?: number;
-
-  constructor(client: ClientContext) {
-    this.client = client;
-  }
-
-  user(user: PublicKey): this {
-    this.userValue = user;
-    return this;
-  }
-
-  market(market: PublicKey): this {
-    this.marketValue = market;
-    return this;
-  }
-
-  mint(mint: PublicKey): this {
-    this.mintValue = mint;
-    return this;
-  }
-
-  amount(amount: bigint): this {
-    this.amountValue = amount;
-    return this;
-  }
-
-  winningOutcome(outcome: number): this {
-    this.winningOutcomeValue = outcome;
-    return this;
-  }
-
-  buildIx(): TransactionInstruction {
-    const user = requireField(this.userValue, "user");
-    const market = requireField(this.marketValue, "market");
-    const depositMint = requireField(this.mintValue, "mint");
-    const amount = requireField(this.amountValue, "amount");
-    const winningOutcome = requireField(this.winningOutcomeValue, "winning_outcome");
-
-    return buildRedeemWinningsIx(
-      { user, market, depositMint, amount },
-      winningOutcome,
-      this.client.programId,
-    );
-  }
-
-  buildTx(): Transaction {
-    const user = requireField(this.userValue, "user");
-    const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
-  }
-
-  async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
-    return signAndSubmitTx(this.client, tx);
-  }
-}
-
-// ─── WithdrawFromPositionBuilder ────────────────────────────────────────────
-
-export class WithdrawFromPositionBuilder {
-  private readonly client: ClientContext;
-  private userValue?: PublicKey;
-  private marketValue?: PublicKey;
-  private mintValue?: PublicKey;
-  private amountValue?: bigint;
   private outcomeIndexValue?: number;
-  private isToken2022Value = false;
 
   constructor(client: ClientContext) {
     this.client = client;
@@ -381,8 +310,68 @@ export class WithdrawFromPositionBuilder {
     return this;
   }
 
-  token2022(isToken2022: boolean): this {
-    this.isToken2022Value = isToken2022;
+  buildIx(): TransactionInstruction {
+    const user = requireField(this.userValue, "user");
+    const market = requireField(this.marketValue, "market");
+    const depositMint = requireField(this.mintValue, "mint");
+    const amount = requireField(this.amountValue, "amount");
+    const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
+
+    return buildRedeemWinningsIx(
+      { user, market, depositMint, amount },
+      outcomeIndex,
+      this.client.programId,
+    );
+  }
+
+  buildTx(): Transaction {
+    const user = requireField(this.userValue, "user");
+    const ix = this.buildIx();
+    return new Transaction({ feePayer: user }).add(ix);
+  }
+
+  async signAndSubmit(): Promise<string> {
+    const tx = this.buildTx();
+    return signAndSubmitTx(this.client, tx);
+  }
+}
+
+// ─── WithdrawFromPositionBuilder ────────────────────────────────────────────
+
+export class WithdrawFromPositionBuilder {
+  private readonly client: ClientContext;
+  private userValue?: PublicKey;
+  private marketValue?: PublicKey;
+  private mintValue?: PublicKey;
+  private amountValue?: bigint;
+  private outcomeIndexValue?: number;
+
+  constructor(client: ClientContext) {
+    this.client = client;
+  }
+
+  user(user: PublicKey): this {
+    this.userValue = user;
+    return this;
+  }
+
+  market(market: PublicKey): this {
+    this.marketValue = market;
+    return this;
+  }
+
+  mint(mint: PublicKey): this {
+    this.mintValue = mint;
+    return this;
+  }
+
+  amount(amount: bigint): this {
+    this.amountValue = amount;
+    return this;
+  }
+
+  outcomeIndex(index: number): this {
+    this.outcomeIndexValue = index;
     return this;
   }
 
@@ -395,7 +384,6 @@ export class WithdrawFromPositionBuilder {
 
     return buildWithdrawFromPositionIx(
       { user, market, mint, amount, outcomeIndex },
-      this.isToken2022Value,
       this.client.programId,
     );
   }
@@ -486,9 +474,13 @@ export class InitPositionTokensBuilder {
 
 // ─── ExtendPositionTokensBuilder ────────────────────────────────────────────
 
+/**
+ * Operator-only builder for extending an existing position ALT after a market
+ * adds new deposit mints.
+ */
 export class ExtendPositionTokensBuilder {
   private readonly client: ClientContext;
-  private payerValue?: PublicKey;
+  private operatorValue?: PublicKey;
   private userValue?: PublicKey;
   private marketValue?: PublicKey;
   private lookupTableValue?: PublicKey;
@@ -499,8 +491,8 @@ export class ExtendPositionTokensBuilder {
     this.client = client;
   }
 
-  payer(payer: PublicKey): this {
-    this.payerValue = payer;
+  operator(operator: PublicKey): this {
+    this.operatorValue = operator;
     return this;
   }
 
@@ -530,7 +522,7 @@ export class ExtendPositionTokensBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const payer = requireField(this.payerValue, "payer");
+    const operator = requireField(this.operatorValue, "operator");
     const user = requireField(this.userValue, "user");
     const market = requireField(this.marketValue, "market");
     const lookupTable = requireField(this.lookupTableValue, "lookup_table");
@@ -538,16 +530,16 @@ export class ExtendPositionTokensBuilder {
     const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildExtendPositionTokensIx(
-      { payer, user, market, lookupTable, depositMints },
+      { operator, user, market, lookupTable, depositMints },
       numOutcomes,
       this.client.programId,
     );
   }
 
   buildTx(): Transaction {
-    const payer = requireField(this.payerValue, "payer");
+    const operator = requireField(this.operatorValue, "operator");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: payer }).add(ix);
+    return new Transaction({ feePayer: operator }).add(ix);
   }
 
   async signAndSubmit(): Promise<string> {
@@ -563,6 +555,7 @@ export class DepositToGlobalBuilder {
   private userValue?: PublicKey;
   private mintValue?: PublicKey;
   private amountValue?: bigint;
+  private altContextValue?: DepositToGlobalAltContext;
 
   constructor(client: ClientContext) {
     this.client = client;
@@ -583,12 +576,25 @@ export class DepositToGlobalBuilder {
     return this;
   }
 
+  createAlt(recentSlot: bigint): this {
+    this.altContextValue = { kind: "create", recentSlot };
+    return this;
+  }
+
+  extendAlt(lookupTable: PublicKey): this {
+    this.altContextValue = { kind: "extend", lookupTable };
+    return this;
+  }
+
   buildIx(): TransactionInstruction {
     const user = requireField(this.userValue, "user");
     const mint = requireField(this.mintValue, "mint");
     const amount = requireField(this.amountValue, "amount");
 
-    return buildDepositToGlobalIx({ user, mint, amount }, this.client.programId);
+    const params = { user, mint, amount };
+    return this.altContextValue
+      ? buildDepositToGlobalIxWithAlt(params, this.altContextValue, this.client.programId)
+      : buildDepositToGlobalIx(params, this.client.programId);
   }
 
   buildTx(): Transaction {
@@ -714,4 +720,3 @@ export class GlobalToMarketDepositBuilder {
     return signAndSubmitTx(this.client, tx);
   }
 }
-

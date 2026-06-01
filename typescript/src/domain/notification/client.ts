@@ -19,16 +19,16 @@ export class Notifications {
   }
 
   /**
-   * Same as {@link fetch}, but uses the supplied `authToken` for this call
+   * Same as {@link fetch}, but uses the supplied `cookieHeader` for this call
    * instead of the SDK's process-wide cookie store. For server-side cookie
    * forwarding (SSR / route handlers).
    */
-  async fetchWithAuth(authToken: string): Promise<Notification[]> {
+  async fetchWithCookies(cookieHeader: string): Promise<Notification[]> {
     const url = `${this.client.http.baseUrl()}/api/notifications`;
-    const resp = await this.client.http.getWithAuth<NotificationsResponse>(
+    const resp = await this.client.http.getWithCookies<NotificationsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
     return resp.notifications;
   }

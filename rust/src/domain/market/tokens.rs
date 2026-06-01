@@ -17,6 +17,7 @@ pub trait Token {
     fn pubkey(&self) -> &PubkeyStr;
     fn name(&self) -> &str;
     fn symbol(&self) -> &str;
+    fn short_symbol(&self) -> &str;
     fn description(&self) -> &Option<String>;
     fn decimals(&self) -> u16;
     fn icon_url_low(&self) -> &str;
@@ -27,7 +28,7 @@ pub trait Token {
     /// at 0, ETH/WETH tie at 1, SOL at 2; everything else falls to the
     /// alphabetical tail.
     fn display_priority(&self) -> u8 {
-        match self.symbol() {
+        match self.symbol().to_uppercase().as_str() {
             "BTC" | "WBTC" => 0,
             "ETH" | "WETH" => 1,
             "SOL" => 2,
@@ -81,6 +82,7 @@ pub struct ConditionalToken {
     mint: PubkeyStr,
     name: String,
     symbol: String,
+    short_symbol: String,
     description: Option<String>,
     decimals: u16,
     icon_url_low: String,
@@ -100,6 +102,9 @@ impl Token for ConditionalToken {
     }
     fn symbol(&self) -> &str {
         &self.symbol
+    }
+    fn short_symbol(&self) -> &str {
+        &self.short_symbol
     }
     fn description(&self) -> &Option<String> {
         &self.description
@@ -129,6 +134,7 @@ pub struct DepositAsset {
     pub num_outcomes: i16,
     pub name: String,
     pub symbol: String,
+    pub short_symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
     pub icon_url_low: String,
@@ -148,6 +154,9 @@ impl Token for DepositAsset {
     }
     fn symbol(&self) -> &str {
         &self.symbol
+    }
+    fn short_symbol(&self) -> &str {
+        &self.short_symbol
     }
     fn description(&self) -> &Option<String> {
         &self.description
@@ -173,6 +182,7 @@ impl Token for DepositAsset {
 pub struct TokenMetadata {
     pub pubkey: PubkeyStr,
     pub symbol: String,
+    pub short_symbol: String,
     pub decimals: u16,
     pub icon_url_low: String,
     pub icon_url_medium: String,
@@ -186,9 +196,17 @@ pub const USDC_MAINNET: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 pub const USDT_MAINNET: &str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 pub const USDC_DEVNET_LC: &str = "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez";
 
-fn is_usd_stablecoin(pubkey: &PubkeyStr) -> bool {
+pub fn is_usd_stablecoin(pubkey: &PubkeyStr) -> bool {
     let s = pubkey.as_str();
     s == USDC_MAINNET || s == USDT_MAINNET || s == USDC_DEVNET_LC
+}
+
+pub fn currency_symbol(pubkey: &PubkeyStr) -> &'static str {
+    if is_usd_stablecoin(pubkey) {
+        "$"
+    } else {
+        ""
+    }
 }
 
 impl ConditionalToken {
@@ -226,6 +244,7 @@ impl ConditionalToken {
             mint: mint.clone(),
             name: "Outcome".to_string(),
             symbol: "YES".to_string(),
+            short_symbol: "YES".to_string(),
             description: None,
             decimals: 6,
             icon_url_low: "https://example.com/icon_low.png".to_string(),
@@ -281,6 +300,7 @@ pub struct GlobalDepositAsset {
     deposit_asset: PubkeyStr,
     name: String,
     symbol: String,
+    short_symbol: String,
     description: Option<String>,
     decimals: u16,
     icon_url_low: String,
@@ -302,6 +322,9 @@ impl Token for GlobalDepositAsset {
     }
     fn symbol(&self) -> &str {
         &self.symbol
+    }
+    fn short_symbol(&self) -> &str {
+        &self.short_symbol
     }
     fn description(&self) -> &Option<String> {
         &self.description
@@ -373,6 +396,7 @@ impl TryFrom<GlobalDepositAssetResponse> for GlobalDepositAsset {
         Ok(Self {
             id: source.id,
             deposit_asset: PubkeyStr::from(source.mint),
+            short_symbol: name.clone(),
             name,
             symbol,
             description: source.description,
@@ -468,7 +492,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
             ));
             (String::new(), String::new(), String::new())
         });
-        let name = source.display_name.unwrap_or_else(|| {
+        let short_symbol = source.display_name.unwrap_or_else(|| {
             errors.push(TokenValidationError::MissingDisplayName(
                 source.deposit_asset.clone(),
             ));
@@ -492,11 +516,12 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
             TokenMetadata {
                 pubkey: pubkey.clone(),
                 symbol: symbol.clone(),
+                short_symbol: short_symbol.clone(),
                 decimals,
                 icon_url_low: icon_url_low.clone(),
                 icon_url_medium: icon_url_medium.clone(),
                 icon_url_high: icon_url_high.clone(),
-                name: name.clone(),
+                name: short_symbol.clone(),
             },
         );
 
@@ -508,12 +533,17 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 ct_errors.push(TokenValidationError::MissingDecimals(ct_pubkey.to_string()));
                 0
             });
-            let ct_symbol = ct.short_symbol.unwrap_or_else(|| {
-                ct_errors.push(TokenValidationError::MissingShortSymbol(
-                    ct_pubkey.to_string(),
-                ));
-                String::new()
-            });
+            let ct_short_symbol = ct
+                .short_symbol
+                .clone()
+                .or_else(|| ct.symbol.clone())
+                .unwrap_or_else(|| {
+                    ct_errors.push(TokenValidationError::MissingShortSymbol(
+                        ct_pubkey.to_string(),
+                    ));
+                    String::new()
+                });
+            let ct_symbol = ct.symbol.clone().unwrap_or_else(|| ct_short_symbol.clone());
             let ct_outcome = ct.outcome.unwrap_or_else(|| {
                 ct_errors.push(TokenValidationError::MissingOutcome(ct_pubkey.to_string()));
                 String::new()
@@ -544,6 +574,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 TokenMetadata {
                     pubkey: ct_pubkey.clone(),
                     symbol: ct_symbol.clone(),
+                    short_symbol: ct_short_symbol.clone(),
                     decimals: ct_decimals,
                     icon_url_low: ct_icon_url_low.clone(),
                     icon_url_medium: ct_icon_url_medium.clone(),
@@ -565,6 +596,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 mint: ct_pubkey,
                 name: ct_outcome,
                 symbol: ct_symbol,
+                short_symbol: ct_short_symbol,
                 decimals: ct_decimals,
             });
         }
@@ -579,8 +611,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 id: source.id,
                 market_pda: source.market_pubkey.into(),
                 num_outcomes: source.num_outcomes,
-                name,
+                name: short_symbol.clone(),
                 symbol,
+                short_symbol,
                 description: source.description,
                 decimals,
                 icon_url_low,
@@ -643,6 +676,40 @@ mod tests {
         assert_eq!(validated.token.symbol, "USDC");
         assert_eq!(validated.conditionals.len(), 1);
         assert_eq!(validated.conditionals[0].symbol(), "YES");
+
+        let deposit_meta = &validated.metadata
+            [&PubkeyStr::from("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string())];
+        assert_eq!(deposit_meta.symbol, "USDC");
+        assert_eq!(deposit_meta.short_symbol, "USD Coin");
+
+        let cond_meta = &validated.metadata[&PubkeyStr::from("cond_yes".to_string())];
+        assert_eq!(cond_meta.symbol, "YES");
+        assert_eq!(cond_meta.short_symbol, "YES");
+    }
+
+    #[test]
+    fn test_conditional_short_symbol_falls_back_to_symbol() {
+        let mut resp = minimal_deposit_asset_response();
+        resp.conditional_mints[0].short_symbol = None;
+        resp.conditional_mints[0].symbol = Some("FALL-USDC".to_string());
+        let validated = ValidatedTokens::try_from(resp).unwrap();
+        assert_eq!(validated.conditionals[0].symbol(), "FALL-USDC");
+
+        let cond_meta = &validated.metadata[&PubkeyStr::from("cond_yes".to_string())];
+        assert_eq!(cond_meta.symbol, "FALL-USDC");
+        assert_eq!(cond_meta.short_symbol, "FALL-USDC");
+    }
+
+    #[test]
+    fn test_conditional_token_metadata_distinguishes_symbol_and_short_symbol() {
+        let mut resp = minimal_deposit_asset_response();
+        resp.conditional_mints[0].symbol = Some("FALL-USDC".to_string());
+        resp.conditional_mints[0].short_symbol = Some("Fall-USDC".to_string());
+        let validated = ValidatedTokens::try_from(resp).unwrap();
+
+        let cond_meta = &validated.metadata[&PubkeyStr::from("cond_yes".to_string())];
+        assert_eq!(cond_meta.symbol, "FALL-USDC");
+        assert_eq!(cond_meta.short_symbol, "Fall-USDC");
     }
 
     #[test]

@@ -108,6 +108,7 @@ class OrderbookTickerEntry:
     market_pubkey: str = ""
     outcome_index: Optional[int] = None
     outcome_name: Optional[str] = None
+    outcome_name_long: Optional[str] = None
     base_deposit_asset: str = ""
     quote_deposit_asset: str = ""
     best_bid: Optional[str] = None
@@ -130,6 +131,7 @@ class OrderbookTickerEntry:
             market_pubkey=str(d.get("market_pubkey", "")),
             outcome_index=_opt_int("outcome_index"),
             outcome_name=_opt_str("outcome_name"),
+            outcome_name_long=_opt_str("outcome_name_long"),
             base_deposit_asset=str(d.get("base_deposit_asset", "")),
             quote_deposit_asset=str(d.get("quote_deposit_asset", "")),
             best_bid=_opt_str("best_bid"),
@@ -325,6 +327,7 @@ class MarketsMetrics:
 class OutcomeVolumeMetrics:
     outcome_index: Optional[int] = None
     outcome_name: Optional[str] = None
+    outcome_name_long: Optional[str] = None
     volume_24h_usd: str = "0"
     volume_7d_usd: str = "0"
     volume_30d_usd: str = "0"
@@ -351,6 +354,7 @@ class OutcomeVolumeMetrics:
         return OutcomeVolumeMetrics(
             outcome_index=d.get("outcome_index"),
             outcome_name=d.get("outcome_name"),
+            outcome_name_long=d.get("outcome_name_long"),
             volume_24h_usd=str(d.get("volume_24h_usd", "0")),
             volume_7d_usd=str(d.get("volume_7d_usd", "0")),
             volume_30d_usd=str(d.get("volume_30d_usd", "0")),
@@ -432,6 +436,7 @@ class MarketOrderbookVolumeMetrics:
     volume_share_24h_pct: str = "0"
     outcome_index: Optional[int] = None
     outcome_name: Optional[str] = None
+    outcome_name_long: Optional[str] = None
     base_deposit_symbol: Optional[str] = None
     quote_deposit_symbol: Optional[str] = None
 
@@ -444,6 +449,7 @@ class MarketOrderbookVolumeMetrics:
             orderbook_id=d.get("orderbook_id", ""),
             outcome_index=d.get("outcome_index"),
             outcome_name=d.get("outcome_name"),
+            outcome_name_long=d.get("outcome_name_long"),
             base_deposit_asset=d.get("base_deposit_asset", ""),
             base_deposit_symbol=d.get("base_deposit_symbol"),
             quote_deposit_asset=d.get("quote_deposit_asset", ""),
@@ -639,6 +645,7 @@ class OrderbookVolumeMetrics:
     market_volume_share_24h_pct: str = "0"
     outcome_index: Optional[int] = None
     outcome_name: Optional[str] = None
+    outcome_name_long: Optional[str] = None
     base_deposit_symbol: Optional[str] = None
     quote_deposit_symbol: Optional[str] = None
 
@@ -652,6 +659,7 @@ class OrderbookVolumeMetrics:
             market_pubkey=d.get("market_pubkey", ""),
             outcome_index=d.get("outcome_index"),
             outcome_name=d.get("outcome_name"),
+            outcome_name_long=d.get("outcome_name_long"),
             base_deposit_asset=d.get("base_deposit_asset", ""),
             base_deposit_symbol=d.get("base_deposit_symbol"),
             quote_deposit_asset=d.get("quote_deposit_asset", ""),
@@ -901,7 +909,7 @@ class MetricsHistoryQuery:
 class UserMetrics:
     """Per-wallet trading + referral aggregates.
 
-    Response shape of ``metrics().user()``, ``metrics().user_with_auth()``,
+    Response shape of ``metrics().user()``, ``metrics().user_with_cookies()``,
     and ``metrics().user_by_wallet()``.
     """
 

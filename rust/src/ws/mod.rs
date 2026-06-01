@@ -240,6 +240,16 @@ pub enum WsEvent {
     MaxReconnectReached,
 }
 
+impl WsEvent {
+    /// Return the client-side error text for `WsEvent::Error`.
+    pub fn error_message(&self) -> Option<&str> {
+        match self {
+            Self::Error(message) => Some(message),
+            _ => None,
+        }
+    }
+}
+
 // ─── WsConfig ────────────────────────────────────────────────────────────────
 
 /// Configuration for the WS client.

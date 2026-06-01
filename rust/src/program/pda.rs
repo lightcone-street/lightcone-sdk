@@ -5,9 +5,10 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, EXCHANGE_SEED, GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED,
-    MINT_AUTHORITY_SEED, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED, USER_NONCE_SEED,
-    VAULT_SEED,
+    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, CONDITION_SEED, EXCHANGE_SEED,
+    GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, MPL_METADATA_SEED,
+    MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
+    USER_NONCE_SEED, VAULT_SEED,
 };
 
 /// Get the Exchange PDA.
@@ -22,6 +23,13 @@ pub fn get_exchange_pda(program_id: &Pubkey) -> (Pubkey, u8) {
 /// Seeds: ["market", market_id (8 bytes LE)]
 pub fn get_market_pda(market_id: u64, program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[MARKET_SEED, &market_id.to_le_bytes()], program_id)
+}
+
+/// Get a Condition Tombstone PDA.
+///
+/// Seeds: ["condition", condition_id]
+pub fn get_condition_tombstone_pda(condition_id: &[u8; 32], program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[CONDITION_SEED, condition_id], program_id)
 }
 
 /// Get the Vault PDA for a market's deposit mint.
@@ -73,6 +81,21 @@ pub fn get_all_conditional_mint_pdas(
         .collect()
 }
 
+/// Get the Metaplex Token Metadata PDA for a conditional mint.
+///
+/// Seeds: ["metadata", MPL_TOKEN_METADATA_PROGRAM_ID, conditional_mint],
+/// program: MPL_TOKEN_METADATA_PROGRAM_ID.
+pub fn get_mpl_metadata_pda(conditional_mint: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[
+            MPL_METADATA_SEED,
+            MPL_TOKEN_METADATA_PROGRAM_ID.as_ref(),
+            conditional_mint.as_ref(),
+        ],
+        &MPL_TOKEN_METADATA_PROGRAM_ID,
+    )
+}
+
 /// Get an Order Status PDA.
 ///
 /// Seeds: ["order_status", order_hash (32 bytes)]
@@ -97,10 +120,20 @@ pub fn get_position_pda(owner: &Pubkey, market: &Pubkey, program_id: &Pubkey) ->
     )
 }
 
+/// Return mints in the canonical order used by orderbook PDAs.
+pub fn canonical_mint_pair<'a>(mint_a: &'a Pubkey, mint_b: &'a Pubkey) -> (&'a Pubkey, &'a Pubkey) {
+    if mint_a.as_ref() <= mint_b.as_ref() {
+        (mint_a, mint_b)
+    } else {
+        (mint_b, mint_a)
+    }
+}
+
 /// Get an Orderbook PDA.
 ///
-/// Seeds: ["orderbook", mint_a, mint_b]
+/// Seeds: ["orderbook", canonical_mint_a, canonical_mint_b]
 pub fn get_orderbook_pda(mint_a: &Pubkey, mint_b: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    let (mint_a, mint_b) = canonical_mint_pair(mint_a, mint_b);
     Pubkey::find_program_address(
         &[ORDERBOOK_SEED, mint_a.as_ref(), mint_b.as_ref()],
         program_id,
@@ -237,6 +270,18 @@ mod tests {
 
         assert_eq!(pda1, pda2);
         assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_orderbook_pda_canonicalizes_mint_order() {
+        let program_id = test_program_id();
+        let mint_a = Pubkey::new_from_array([1u8; 32]);
+        let mint_b = Pubkey::new_from_array([2u8; 32]);
+
+        let forward = get_orderbook_pda(&mint_a, &mint_b, &program_id);
+        let reverse = get_orderbook_pda(&mint_b, &mint_a, &program_id);
+
+        assert_eq!(forward, reverse);
     }
 
     #[test]

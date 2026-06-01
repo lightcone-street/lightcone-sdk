@@ -48,6 +48,17 @@ pub struct TradesResponse {
     pub decimals: Option<TradesDecimals>,
 }
 
+/// REST response for market-level trades (all orderbooks in a market).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarketTradesResponse {
+    pub market_pubkey: crate::shared::PubkeyStr,
+    pub trades: Vec<TradeResponse>,
+    #[serde(default)]
+    pub next_cursor: Option<i64>,
+    #[serde(default)]
+    pub has_more: bool,
+}
+
 // ─── WS wire types ───────────────────────────────────────────────────────────
 
 /// WS trade event.

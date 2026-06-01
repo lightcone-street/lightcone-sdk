@@ -2,53 +2,27 @@
 
 from __future__ import annotations
 
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_DOWN, ROUND_HALF_UP
 
-from .num import display_formatted_string
+from .constants import display_decimals_by
+from .num import display_default_formatted_string, display_formatted_string
 
-_HUNDRED = Decimal("100")
 _THOUSAND = Decimal("1000")
 _MILLION = Decimal("1000000")
 _BILLION = Decimal("1000000000")
 _TRILLION = Decimal("1000000000000")
 
 
-def _leading_zero_count(value: Decimal) -> int:
-    normalized = format(value.normalize(), "f")
-    fraction = normalized.split(".", 1)[1] if "." in normalized else ""
-    zeros = 0
-    for char in fraction:
-        if char == "0":
-            zeros += 1
-        else:
-            break
-    return zeros
+def _display_decimals(abs_value: Decimal) -> int:
+    return display_decimals_by(lambda threshold: abs_value >= Decimal(threshold))
 
 
 def display(value: Decimal) -> str:
     """Format a Decimal using the Rust display rules."""
-    if value == 0:
-        return "0"
-
-    abs_value = abs(value)
-    if abs_value >= _HUNDRED:
-        rounded = value.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        return display_formatted_string(format(rounded, "f"))
-    if abs_value >= Decimal("1"):
-        rounded = value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        return display_formatted_string(format(rounded, "f"))
-
-    leading_zeros = _leading_zero_count(abs_value)
-    if leading_zeros > 5:
-        digits = abs_value.scaleb(leading_zeros + 1)
-        significant = format(digits.normalize(), "f").replace(".", "")[:4].rstrip("0") or "0"
-        prefix = "-" if value.is_signed() else ""
-        return f"{prefix}0.0({leading_zeros}){significant}"
-
-    decimals = min(leading_zeros + 3, 8)
+    decimals = _display_decimals(abs(value))
     quantizer = Decimal(1).scaleb(-decimals)
     rounded = value.quantize(quantizer, rounding=ROUND_HALF_UP)
-    return display_formatted_string(format(rounded, "f"))
+    return display_default_formatted_string(format(rounded, "f"))
 
 
 def abbr_number(amount: Decimal, digits: int | None = None, show_sign: bool | None = None) -> str:
@@ -66,6 +40,23 @@ def abbr_number(amount: Decimal, digits: int | None = None, show_sign: bool | No
     if abs_amount >= _THOUSAND:
         return f"{sign}{abs_amount / _THOUSAND:.{digits}f}k"
     return f"{sign}{abs_amount:.{digits}f}"
+
+
+def display_pct(value: Decimal, padding: bool | None = None) -> str:
+    """Format a Decimal as a percentage with exactly 2 decimal places (truncated).
+
+    When padding is True (default), always shows 2 decimal places (e.g. "12.30").
+    When False, trailing zeros are trimmed (e.g. "12.3").
+    """
+    if padding is None:
+        padding = True
+    truncated = value.quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+    if padding:
+        return display_formatted_string(f"{truncated:.2f}")
+    else:
+        normalized = truncated.normalize()
+        return display_formatted_string(format(normalized, "f"))
 
 
 def to_base_units(value: Decimal, decimals: int) -> int | None:

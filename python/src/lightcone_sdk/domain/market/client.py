@@ -81,16 +81,13 @@ class Markets:
         limit: Optional[int] = None,
     ) -> MarketsResult:
         """Get markets with Rust-aligned filtering and validation reporting."""
-        url = "/api/markets"
-        query_parts: list[str] = []
+        params: dict[str, str] = {}
         if cursor is not None:
-            query_parts.append(f"cursor={cursor}")
+            params["cursor"] = str(cursor)
         if limit is not None:
-            query_parts.append(f"limit={limit}")
-        if query_parts:
-            url += "?" + "&".join(query_parts)
+            params["limit"] = str(limit)
 
-        data = await self._client._http.get(url)
+        data = await self._client._http.get("/api/markets", params=params or None)
         resp = MarketResponse.from_dict(data)
         markets: list[Market] = []
         validation_errors: list[str] = []
@@ -149,7 +146,7 @@ class Markets:
         results = [MarketSearchResult.from_dict(m) for m in markets_data]
         return [
             result for result in results
-            if result.market_status in {"Active", "Resolved"}
+            if result.market_status in {"Active"}
         ]
 
     async def deposit_assets(self, market_pubkey: str) -> DepositMintsResponse:

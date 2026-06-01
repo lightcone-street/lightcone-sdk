@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..market import MarketResolutionResponse
 from . import Notification, NotificationKind, MarketData, MarketResolvedData, OrderFilledData
 
 if TYPE_CHECKING:
@@ -22,19 +23,19 @@ class Notifications:
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
 
-    async def fetch_with_auth(
-        self, auth_token: str
+    async def fetch_with_cookies(
+        self, cookie_header: str
     ) -> list[Notification]:
-        """Same as :meth:`fetch`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`fetch`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The override is used only for this call
         and never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/notifications",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         notifications_data = data.get("notifications", [])
         return [_parse_notification(n) for n in notifications_data]
@@ -65,11 +66,16 @@ def _parse_notification(d: dict) -> Notification:
 
     data = d.get("data", {})
     if kind == NotificationKind.MARKET_RESOLVED and data:
+        resolution_raw = data.get("resolution")
         notification.market_resolved_data = MarketResolvedData(
             market_pubkey=data.get("market_pubkey", ""),
             market_slug=data.get("market_slug"),
             market_name=data.get("market_name"),
-            winning_outcome=data.get("winning_outcome"),
+            resolution=(
+                MarketResolutionResponse.from_dict(resolution_raw)
+                if isinstance(resolution_raw, dict)
+                else None
+            ),
         )
     elif kind == NotificationKind.ORDER_FILLED and data:
         notification.order_filled_data = OrderFilledData(
@@ -82,6 +88,7 @@ def _parse_notification(d: dict) -> Notification:
             market_slug=data.get("market_slug"),
             market_name=data.get("market_name"),
             outcome_name=data.get("outcome_name"),
+            outcome_name_long=data.get("outcome_name_long"),
             outcome_icon_url_low=data.get("outcome_icon_url_low"),
             outcome_icon_url_medium=data.get("outcome_icon_url_medium"),
             outcome_icon_url_high=data.get("outcome_icon_url_high"),

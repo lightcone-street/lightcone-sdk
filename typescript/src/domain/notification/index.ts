@@ -1,4 +1,5 @@
 import type { PubkeyStr } from "../../shared";
+import type { MarketResolutionResponse } from "../market";
 
 export * from "./client";
 
@@ -6,7 +7,7 @@ export interface MarketResolvedData {
   market_pubkey: PubkeyStr;
   market_slug?: string;
   market_name?: string;
-  winning_outcome?: number;
+  resolution?: MarketResolutionResponse;
 }
 
 export interface OrderFilledData {
@@ -19,6 +20,7 @@ export interface OrderFilledData {
   market_slug?: string;
   market_name?: string;
   outcome_name?: string;
+  outcome_name_long?: string;
   outcome_icon_url_low?: string;
   outcome_icon_url_medium?: string;
   outcome_icon_url_high?: string;

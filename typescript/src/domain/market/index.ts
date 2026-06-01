@@ -7,6 +7,7 @@ import type {
   DepositAssetPair,
   TokenMetadata,
 } from "./tokens";
+import type { MarketResolutionResponse } from "./wire";
 
 export * from "./client";
 export * from "./wire";
@@ -53,7 +54,7 @@ export interface Market {
   createdAt: Date;
   activatedAt?: Date;
   settledAt?: Date;
-  winningOutcome?: number;
+  resolution?: MarketResolutionResponse;
   description: string;
   definition: string;
   category?: string;
@@ -69,6 +70,26 @@ export interface Market {
   orderbookPairs: OrderBookPair[];
   orderbookIds: OrderBookId[];
   tokenMetadata: Record<string, TokenMetadata>;
+}
+
+export interface MarketResolutionContainer {
+  resolution?: MarketResolutionResponse | null;
+}
+
+export function isMarketResolved(market: MarketResolutionContainer): boolean {
+  return market.resolution !== undefined && market.resolution !== null;
+}
+
+export function singleWinningOutcome(
+  market: MarketResolutionContainer
+): number | undefined {
+  return market.resolution?.single_winning_outcome ?? undefined;
+}
+
+export function hasSingleWinningOutcome(
+  market: MarketResolutionContainer
+): boolean {
+  return singleWinningOutcome(market) !== undefined;
 }
 
 export class MarketValidationError extends Error {

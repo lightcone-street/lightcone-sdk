@@ -2,12 +2,40 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from ...program.accounts import deserialize_position
+from ...program.instructions import (
+    build_close_position_alt_instruction,
+    build_close_position_token_accounts_instruction,
+    build_deposit_to_global_instruction,
+    build_deposit_to_global_instruction_with_alt,
+    build_extend_position_tokens_instruction,
+    build_global_to_market_deposit_instruction,
+    build_init_position_tokens_instruction,
+    build_redeem_winnings_instruction,
+    build_withdraw_from_global_instruction,
+    build_withdraw_from_position_instruction,
+)
+from ...program.pda import get_position_pda
+from ...program.types import (
+    ClosePositionAltParams,
+    ClosePositionTokenAccountsParams,
+    DepositToGlobalAltContext,
+    DepositToGlobalParams,
+    ExtendPositionTokensParams,
+    GlobalToMarketDepositParams,
+    InitPositionTokensParams,
+    Position,
+    RedeemWinningsParams,
+    WithdrawFromGlobalParams,
+    WithdrawFromPositionParams,
+)
+from ...rpc import require_connection
 from . import DepositTokenBalance
 from .builders import (
     DepositBuilder,
@@ -21,29 +49,7 @@ from .builders import (
     WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 )
-from .wire import PositionsResponseWire, MarketPositionsResponseWire
-from ...program.accounts import deserialize_position
-from ...program.instructions import (
-    build_deposit_to_global_instruction,
-    build_extend_position_tokens_instruction,
-    build_global_to_market_deposit_instruction,
-    build_init_position_tokens_instruction,
-    build_redeem_winnings_instruction,
-    build_withdraw_from_global_instruction,
-    build_withdraw_from_position_instruction,
-)
-from ...program.pda import get_position_pda
-from ...program.types import (
-    DepositToGlobalParams,
-    ExtendPositionTokensParams,
-    GlobalToMarketDepositParams,
-    InitPositionTokensParams,
-    Position as OnchainPosition,
-    RedeemWinningsParams,
-    WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
-)
-from ...rpc import require_connection
+from .wire import MarketPositionsResponseWire, PositionsResponseWire
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -83,7 +89,7 @@ class Positions:
     async def positions(self) -> PositionsResponseWire:
         """Get all conditional-token positions for the authenticated user.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie; no
+        Wallet is resolved server-side from the ``cookie_header`` cookie; no
         parameter required. Same response shape as ``get(wallet)``.
 
         GET /api/users/positions
@@ -91,19 +97,17 @@ class Positions:
         data = await self._client._http.get("/api/users/positions")
         return PositionsResponseWire.from_dict(data)
 
-    async def positions_with_auth(
-        self, auth_token: str
-    ) -> PositionsResponseWire:
-        """Same as :meth:`positions`, with an explicit per-call ``auth_token``.
+    async def positions_with_cookies(self, cookie_header: str) -> PositionsResponseWire:
+        """Same as :meth:`positions`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/users/positions",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return PositionsResponseWire.from_dict(data)
 
@@ -112,7 +116,7 @@ class Positions:
     ) -> MarketPositionsResponseWire:
         """Get the authenticated user's positions in a specific market.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
 
         GET /api/users/markets/{market_pubkey}/positions
         """
@@ -121,69 +125,63 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
-    async def positions_for_market_with_auth(
-        self, market_pubkey: str, auth_token: str
+    async def positions_for_market_with_cookies(
+        self, market_pubkey: str, cookie_header: str
     ) -> MarketPositionsResponseWire:
-        """Same as :meth:`positions_for_market`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`positions_for_market`, with an explicit per-call ``cookie_header``.
 
         For server-side cookie forwarding (SSR / route handlers).
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             f"/api/users/markets/{market_pubkey}/positions",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
         return MarketPositionsResponseWire.from_dict(data)
 
     async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
         """Get SPL deposit-token balances for the authenticated user.
 
-        The wallet is resolved server-side from the ``auth_token`` cookie, so
+        The wallet is resolved server-side from the ``cookie_header`` cookie, so
         no parameter is required. Returns balances keyed by mint pubkey for
         every deposit token registered in the backend's
         ``deposit_token_metadata``. An empty dict means the user has none of
         the tracked balances — this is not an error.
         """
         data = await self._client._http.get("/api/users/deposit-token-balances")
-        return {
-            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
-        }
+        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 
-    async def deposit_token_balances_with_auth(
-        self, auth_token: str
+    async def deposit_token_balances_with_cookies(
+        self, cookie_header: str
     ) -> dict[str, DepositTokenBalance]:
-        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        data = await self._client._http.get_with_auth(
+        data = await self._client._http.get_with_cookies(
             "/api/users/deposit-token-balances",
-            auth_token=auth_token,
+            cookie_header=cookie_header,
         )
-        return {
-            mint: DepositTokenBalance(**balance) for mint, balance in data.items()
-        }
+        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
 
     # ── On-chain instruction builders ────────────────────────────────────
 
     def redeem_winnings_ix(
-        self, params: RedeemWinningsParams, winning_outcome: int
+        self, params: RedeemWinningsParams, outcome_index: int
     ) -> Instruction:
         """Build RedeemWinnings instruction."""
         return build_redeem_winnings_instruction(
             user=params.user,
             market=params.market,
             deposit_mint=params.deposit_mint,
-            winning_outcome=winning_outcome,
+            outcome_index=outcome_index,
             amount=params.amount,
             program_id=self._client.program_id,
         )
 
-    def withdraw_from_position_ix(
-        self, params: WithdrawFromPositionParams, is_token_2022: bool = True
-    ) -> Instruction:
+    def withdraw_from_position_ix(self, params: WithdrawFromPositionParams) -> Instruction:
         """Build WithdrawFromPosition instruction."""
         return build_withdraw_from_position_instruction(
             user=params.user,
@@ -191,7 +189,6 @@ class Positions:
             mint=params.mint,
             amount=params.amount,
             outcome_index=params.outcome_index,
-            is_token_2022=is_token_2022,
             program_id=self._client.program_id,
         )
 
@@ -200,7 +197,13 @@ class Positions:
     ) -> Instruction:
         """Build InitPositionTokens instruction."""
         return build_init_position_tokens_instruction(
-            params, num_outcomes, self._client.program_id
+            payer=params.payer,
+            user=params.user,
+            market=params.market,
+            deposit_mints=params.deposit_mints,
+            num_outcomes=num_outcomes,
+            recent_slot=params.recent_slot,
+            program_id=self._client.program_id,
         )
 
     def extend_position_tokens_ix(
@@ -208,7 +211,29 @@ class Positions:
     ) -> Instruction:
         """Build ExtendPositionTokens instruction."""
         return build_extend_position_tokens_instruction(
-            params, num_outcomes, self._client.program_id
+            operator=params.operator,
+            user=params.user,
+            market=params.market,
+            lookup_table=params.lookup_table,
+            deposit_mints=params.deposit_mints,
+            num_outcomes=num_outcomes,
+            program_id=self._client.program_id,
+        )
+
+    def close_position_alt_ix(self, params: ClosePositionAltParams) -> Instruction:
+        """Build ClosePositionAlt instruction."""
+        return build_close_position_alt_instruction(params, self._client.program_id)
+
+    def close_position_token_accounts_ix(
+        self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: int,
+    ) -> Instruction:
+        """Build ClosePositionTokenAccounts instruction."""
+        return build_close_position_token_accounts_instruction(
+            params,
+            num_outcomes,
+            self._client.program_id,
         )
 
     def deposit_to_global_ix(self, params: DepositToGlobalParams) -> Instruction:
@@ -217,6 +242,20 @@ class Positions:
             user=params.user,
             mint=params.mint,
             amount=params.amount,
+            program_id=self._client.program_id,
+        )
+
+    def deposit_to_global_ix_with_alt(
+        self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Instruction:
+        """Build DepositToGlobal instruction with user-deposit ALT accounts."""
+        return build_deposit_to_global_instruction_with_alt(
+            user=params.user,
+            mint=params.mint,
+            amount=params.amount,
+            alt_context=alt_context,
             program_id=self._client.program_id,
         )
 
@@ -245,17 +284,15 @@ class Positions:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def redeem_winnings_tx(
-        self, params: RedeemWinningsParams, winning_outcome: int
+        self, params: RedeemWinningsParams, outcome_index: int
     ) -> Transaction:
         """Build RedeemWinnings transaction."""
-        ix = self.redeem_winnings_ix(params, winning_outcome)
+        ix = self.redeem_winnings_ix(params, outcome_index)
         return Transaction.new_with_payer([ix], params.user)
 
-    def withdraw_from_position_tx(
-        self, params: WithdrawFromPositionParams, is_token_2022: bool = True
-    ) -> Transaction:
+    def withdraw_from_position_tx(self, params: WithdrawFromPositionParams) -> Transaction:
         """Build WithdrawFromPosition transaction."""
-        ix = self.withdraw_from_position_ix(params, is_token_2022)
+        ix = self.withdraw_from_position_ix(params)
         return Transaction.new_with_payer([ix], params.user)
 
     def init_position_tokens_tx(
@@ -270,11 +307,34 @@ class Positions:
     ) -> Transaction:
         """Build ExtendPositionTokens transaction."""
         ix = self.extend_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.payer)
+        return Transaction.new_with_payer([ix], params.operator)
+
+    def close_position_alt_tx(self, params: ClosePositionAltParams) -> Transaction:
+        """Build ClosePositionAlt transaction."""
+        ix = self.close_position_alt_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
+
+    def close_position_token_accounts_tx(
+        self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: int,
+    ) -> Transaction:
+        """Build ClosePositionTokenAccounts transaction."""
+        ix = self.close_position_token_accounts_ix(params, num_outcomes)
+        return Transaction.new_with_payer([ix], params.operator)
 
     def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
         """Build DepositToGlobal transaction."""
         ix = self.deposit_to_global_ix(params)
+        return Transaction.new_with_payer([ix], params.user)
+
+    def deposit_to_global_tx_with_alt(
+        self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Transaction:
+        """Build DepositToGlobal transaction with user-deposit ALT accounts."""
+        ix = self.deposit_to_global_ix_with_alt(params, alt_context)
         return Transaction.new_with_payer([ix], params.user)
 
     def global_to_market_deposit_tx(
@@ -339,9 +399,7 @@ class Positions:
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_onchain(
-        self, owner: Pubkey, market: Pubkey
-    ) -> Optional[OnchainPosition]:
+    async def get_onchain(self, owner: Pubkey, market: Pubkey) -> Optional[Position]:
         """Fetch a Position account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.pda(owner, market)

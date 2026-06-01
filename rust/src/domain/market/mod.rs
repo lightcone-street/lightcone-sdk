@@ -7,6 +7,7 @@ pub mod tokens;
 pub mod wire;
 
 pub use self::tokens::{DepositAssetPair, GlobalDepositAsset};
+pub use self::wire::{MarketResolutionKind, MarketResolutionPayout, MarketResolutionResponse};
 
 use crate::domain::orderbook;
 use crate::shared::{OrderBookId, PubkeyStr};
@@ -94,7 +95,7 @@ pub struct Market {
     pub created_at: DateTime<Utc>,
     pub activated_at: Option<DateTime<Utc>>,
     pub settled_at: Option<DateTime<Utc>>,
-    pub winning_outcome: Option<i16>,
+    pub resolution: Option<MarketResolutionResponse>,
     pub description: String,
     pub definition: String,
     pub category: Option<String>,
@@ -108,6 +109,22 @@ pub struct Market {
     pub orderbook_pairs: Vec<orderbook::OrderBookPair>,
     pub orderbook_ids: Vec<OrderBookId>,
     pub token_metadata: HashMap<PubkeyStr, self::tokens::TokenMetadata>,
+}
+
+impl Market {
+    pub fn is_resolved(&self) -> bool {
+        self.resolution.is_some()
+    }
+
+    pub fn single_winning_outcome(&self) -> Option<i16> {
+        self.resolution
+            .as_ref()
+            .and_then(|resolution| resolution.single_winning_outcome)
+    }
+
+    pub fn has_single_winning_outcome(&self) -> bool {
+        self.single_winning_outcome().is_some()
+    }
 }
 
 // ─── Validation ──────────────────────────────────────────────────────────────

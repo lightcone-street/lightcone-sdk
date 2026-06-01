@@ -142,7 +142,7 @@ export function verifyOrderSignature(order: SignedOrder): boolean {
 }
 
 // ============================================================================
-// SIGNED ORDER SERIALIZATION (225 bytes)
+// SIGNED ORDER SERIALIZATION (233 bytes)
 // ============================================================================
 
 /**
@@ -262,7 +262,7 @@ export function deserializeSignedOrder(data: Buffer): SignedOrder {
 }
 
 // ============================================================================
-// ORDER SERIALIZATION (29 bytes)
+// ORDER SERIALIZATION (37 bytes)
 // ============================================================================
 
 /**

@@ -2,50 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from . import (
-    SubmitOrderResponse,
-    CancelBody,
-    CancelSuccess,
-    CancelAllBody,
-    CancelAllSuccess,
-    CancelTriggerBody,
-    CancelTriggerSuccess,
-    TriggerOrderResponse,
-    UserOrdersResponse,
-    UserOrderFillsResponse,
-    UserSnapshotOrder,
-    UserSnapshotBalance,
-)
-from .convert import submit_response_from_dict
-from ...error import SdkError, SigningError
+from ...error import SigningError
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
-from ...program.errors import ArithmeticOverflowError
 from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
+from ...program.errors import ArithmeticOverflowError
 from ...program.instructions import (
     build_cancel_order_instruction,
+    build_close_order_status_instruction,
     build_increment_nonce_instruction,
 )
 from ...program.orders import (
-    create_ask_order as _create_ask_order,
-    create_bid_order as _create_bid_order,
-    create_signed_ask_order as _create_signed_ask_order,
-    create_signed_bid_order as _create_signed_bid_order,
-    generate_cancel_all_salt as _generate_cancel_all_salt,
-    hash_order as _hash_order,
-    sign_order as _sign_order,
+    create_ask_order,
+    create_bid_order,
+    create_signed_ask_order,
+    create_signed_bid_order,
+    generate_cancel_all_salt,
+    hash_order,
+    sign_order,
 )
 from ...program.pda import get_order_status_pda, get_user_nonce_pda
 from ...program.types import (
     AskOrderParams,
     BidOrderParams,
-    OrderStatus as OnchainOrderStatus,
+    CloseOrderStatusParams,
+    OrderStatus,
     SignedOrder,
 )
 from ...rpc import require_connection
@@ -53,6 +40,21 @@ from ...shared.types import (
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
 )
+from . import (
+    CancelAllBody,
+    CancelAllSuccess,
+    CancelBody,
+    CancelSuccess,
+    CancelTriggerBody,
+    CancelTriggerSuccess,
+    SubmitOrderResponse,
+    TriggerOrderResponse,
+    UserOrderFillsResponse,
+    UserOrdersResponse,
+    UserSnapshotBalance,
+    UserSnapshotOrder,
+)
+from .convert import submit_response_from_dict
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -80,35 +82,35 @@ class Orders:
 
     def create_bid_order(self, params: BidOrderParams) -> SignedOrder:
         """Create an unsigned bid order."""
-        return _create_bid_order(params)
+        return create_bid_order(params)
 
     def create_ask_order(self, params: AskOrderParams) -> SignedOrder:
         """Create an unsigned ask order."""
-        return _create_ask_order(params)
+        return create_ask_order(params)
 
     def create_signed_bid_order(
         self, params: BidOrderParams, keypair: Keypair
     ) -> SignedOrder:
         """Create and sign a bid order."""
-        return _create_signed_bid_order(params, keypair)
+        return create_signed_bid_order(params, keypair)
 
     def create_signed_ask_order(
         self, params: AskOrderParams, keypair: Keypair
     ) -> SignedOrder:
         """Create and sign an ask order."""
-        return _create_signed_ask_order(params, keypair)
+        return create_signed_ask_order(params, keypair)
 
     def hash_order(self, order: SignedOrder) -> bytes:
         """Compute the keccak256 hash of an order."""
-        return _hash_order(order)
+        return hash_order(order)
 
     def sign_order(self, order: SignedOrder, keypair: Keypair) -> bytes:
         """Sign an order with a keypair."""
-        return _sign_order(order, keypair)
+        return sign_order(order, keypair)
 
     def generate_cancel_all_salt(self) -> str:
         """Generate a random salt for cancel-all replay protection."""
-        return _generate_cancel_all_salt()
+        return generate_cancel_all_salt()
 
     # ── Envelope factories ────────────────────────────────────────────────
 
@@ -140,7 +142,7 @@ class Orders:
         data = await self._client._http.post("/api/orders/cancel", body.to_dict())
         return CancelSuccess(
             order_hash=data.get("order_hash", body.order_hash),
-            remaining=data.get("remaining", 0),
+            remaining=data.get("remaining", "0"),
         )
 
     async def cancel_all(self, body: CancelAllBody) -> CancelAllSuccess:
@@ -178,29 +180,39 @@ class Orders:
     ) -> UserOrdersResponse:
         """Get the authenticated user's open orders with pagination.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
         Open orders are JWT-only — there is intentionally no public path-based
         variant.
         """
-        url = _build_user_orders_authenticated_url(limit, cursor)
-        data = await self._client._http.get(url)
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get("/api/users/orders", params=params or None)
         return _user_orders_response_from_wire(data, "")
 
-    async def get_user_orders_with_auth(
+    async def get_user_orders_with_cookies(
         self,
         limit: Optional[int],
         cursor: Optional[str],
-        auth_token: str,
+        cookie_header: str,
     ) -> UserOrdersResponse:
-        """Same as :meth:`get_user_orders`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`get_user_orders`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        url = _build_user_orders_authenticated_url(limit, cursor)
-        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        params: dict[str, str] = {}
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get_with_cookies(
+            "/api/users/orders", cookie_header=cookie_header, params=params or None
+        )
         return _user_orders_response_from_wire(data, "")
 
     async def get_user_order_fills(
@@ -211,30 +223,44 @@ class Orders:
     ) -> UserOrderFillsResponse:
         """Fetch the authenticated user's filled orders with nested fill events.
 
-        Wallet is resolved server-side from the ``auth_token`` cookie.
+        Wallet is resolved server-side from the ``cookie_header`` cookie.
         Includes orders where the user was either maker or taker.
         Optionally filter by market. Returns orders sorted by most recent fill first.
         """
-        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
-        data = await self._client._http.get(url)
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get("/api/users/order-fills", params=params or None)
         return UserOrderFillsResponse.from_dict(data)
 
-    async def get_user_order_fills_with_auth(
+    async def get_user_order_fills_with_cookies(
         self,
         market_pubkey: Optional[str],
         limit: Optional[int],
         cursor: Optional[str],
-        auth_token: str,
+        cookie_header: str,
     ) -> UserOrderFillsResponse:
-        """Same as :meth:`get_user_order_fills`, with an explicit per-call ``auth_token``.
+        """Same as :meth:`get_user_order_fills`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / route handlers)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
-        url = _build_user_order_fills_authenticated_url(market_pubkey, limit, cursor)
-        data = await self._client._http.get_with_auth(url, auth_token=auth_token)
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get_with_cookies(
+            "/api/users/order-fills", cookie_header=cookie_header, params=params or None
+        )
         return UserOrderFillsResponse.from_dict(data)
 
     async def get_user_order_fills_by_wallet(
@@ -249,10 +275,16 @@ class Orders:
         Takes the user's wallet via the URL path
         (``GET /api/users/{wallet}/order-fills``) and requires no auth.
         """
-        url = _build_user_order_fills_by_wallet_url(
-            wallet_address, market_pubkey, limit, cursor
+        params: dict[str, str] = {}
+        if market_pubkey is not None:
+            params["market_pubkey"] = market_pubkey
+        if limit is not None:
+            params["limit"] = str(limit)
+        if cursor is not None:
+            params["cursor"] = cursor
+        data = await self._client._http.get(
+            f"/api/users/{wallet_address}/order-fills", params=params or None
         )
-        data = await self._client._http.get(url)
         return UserOrderFillsResponse.from_dict(data)
 
     # ── Unified cancel (dispatches based on client signing strategy) ────
@@ -263,8 +295,8 @@ class Orders:
         maker: str,
     ) -> CancelSuccess:
         """Cancel an order using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_order_message, sign_cancel_order
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
 
@@ -282,7 +314,6 @@ class Orders:
                 sig_bytes = await strategy.signer.sign_message(message)
             except Exception as exc:
                 raise classify_signer_error(str(exc)) from exc
-            import bs58 as _bs58
 
             sig_hex = sig_bytes.hex()
             body = CancelBody(order_hash=order_hash, maker=maker, signature=sig_hex)
@@ -296,7 +327,7 @@ class Orders:
             )
             return CancelSuccess(
                 order_hash=result.get("order_hash", order_hash),
-                remaining=result.get("remaining", 0),
+                remaining=result.get("remaining", "0"),
             )
 
         raise SigningError(f"Unsupported signing strategy: {strategy.kind}")
@@ -309,8 +340,8 @@ class Orders:
         orderbook_id: Optional[str] = None,
     ) -> CancelAllSuccess:
         """Cancel all orders using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_all_message, sign_cancel_all
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
         resolved_ob_id = orderbook_id or ""
@@ -367,8 +398,8 @@ class Orders:
         maker: str,
     ) -> CancelTriggerSuccess:
         """Cancel a trigger order using the client's signing strategy."""
-        from ...shared.signing import SigningStrategyKind, classify_signer_error
         from ...program.orders import cancel_trigger_order_message
+        from ...shared.signing import SigningStrategyKind, classify_signer_error
 
         strategy = self._client._require_signing_strategy()
 
@@ -414,34 +445,49 @@ class Orders:
     # ── On-chain instruction builders ────────────────────────────────────
 
     def cancel_order_ix(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, operator: Pubkey, market: Pubkey, order: SignedOrder
     ) -> Instruction:
         """Build CancelOrder instruction (on-chain cancellation)."""
         return build_cancel_order_instruction(
-            maker, market, order, self._client.program_id
+            operator, market, order, self._client.program_id
         )
 
     def increment_nonce_ix(self, user: Pubkey) -> Instruction:
         """Build IncrementNonce instruction."""
         return build_increment_nonce_instruction(user, self._client.program_id)
 
+    def close_order_status_ix(
+        self,
+        params: CloseOrderStatusParams,
+    ) -> Instruction:
+        """Build CloseOrderStatus instruction."""
+        return build_close_order_status_instruction(params, self._client.program_id)
+
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
-        self, maker: Pubkey, market: Pubkey, order: SignedOrder
+        self, operator: Pubkey, market: Pubkey, order: SignedOrder
     ) -> Transaction:
         """Build CancelOrder transaction."""
-        ix = self.cancel_order_ix(maker, market, order)
-        return Transaction.new_with_payer([ix], maker)
+        ix = self.cancel_order_ix(operator, market, order)
+        return Transaction.new_with_payer([ix], operator)
 
     def increment_nonce_tx(self, user: Pubkey) -> Transaction:
         """Build IncrementNonce transaction."""
         ix = self.increment_nonce_ix(user)
         return Transaction.new_with_payer([ix], user)
 
+    def close_order_status_tx(
+        self,
+        params: CloseOrderStatusParams,
+    ) -> Transaction:
+        """Build CloseOrderStatus transaction."""
+        ix = self.close_order_status_ix(params)
+        return Transaction.new_with_payer([ix], params.operator)
+
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_status(self, order_hash: bytes) -> Optional[OnchainOrderStatus]:
+    async def get_status(self, order_hash: bytes) -> Optional[OrderStatus]:
         """Fetch an OrderStatus account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.status_pda(order_hash)
@@ -468,64 +514,12 @@ class Orders:
         return nonce
 
 
-def _build_user_orders_authenticated_url(
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = "/api/users/orders"
-    sep = "?"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
-
-
-def _build_user_order_fills_authenticated_url(
-    market_pubkey: Optional[str],
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = "/api/users/order-fills"
-    sep = "?"
-    if market_pubkey is not None:
-        url += f"{sep}market_pubkey={market_pubkey}"
-        sep = "&"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
-
-
-def _build_user_order_fills_by_wallet_url(
-    wallet_address: str,
-    market_pubkey: Optional[str],
-    limit: Optional[int],
-    cursor: Optional[str],
-) -> str:
-    url = f"/api/users/{wallet_address}/order-fills"
-    sep = "?"
-    if market_pubkey is not None:
-        url += f"{sep}market_pubkey={market_pubkey}"
-        sep = "&"
-    if limit is not None:
-        url += f"{sep}limit={limit}"
-        sep = "&"
-    if cursor is not None:
-        url += f"{sep}cursor={cursor}"
-    return url
-
 
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:
     return UserOrdersResponse(
         user_pubkey=data.get("user_pubkey", wallet),
         orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
-        balances=[
-            UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])
-        ],
+        balances=[UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])],
         next_cursor=data.get("next_cursor"),
         has_more=data.get("has_more", False),
     )

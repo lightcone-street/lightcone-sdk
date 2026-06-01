@@ -118,7 +118,7 @@ export class Metrics {
    * user: distinct outcomes traded, total USD volume across all the
    * wallet's trades, and the number of times the wallet's referral codes
    * have been redeemed. The wallet is resolved server-side from the
-   * `auth_token` cookie.
+   * auth cookie.
    *
    * `GET /api/metrics/user`
    */
@@ -128,16 +128,16 @@ export class Metrics {
   }
 
   /**
-   * Same as {@link user} but uses the supplied `authToken` for this call
+   * Same as {@link user} but uses the supplied `cookieHeader` for this call
    * instead of the SDK's process-wide cookie store. For server-side cookie
    * forwarding (SSR / route handlers).
    */
-  async userWithAuth(authToken: string): Promise<UserMetrics> {
+  async userWithCookies(cookieHeader: string): Promise<UserMetrics> {
     const url = `${this.client.http.baseUrl()}/api/metrics/user`;
-    return this.client.http.getWithAuth<UserMetrics>(
+    return this.client.http.getWithCookies<UserMetrics>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 

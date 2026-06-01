@@ -218,7 +218,7 @@ Authentication is only required for user-specific endpoints. Authentication is s
 
 ### Cookie handling
 
-After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: auth_token=…` on every authenticated request. Behaviour depends on the runtime:
+After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. Behaviour depends on the runtime:
 
 - **Node / non-browser**: token is stored on the `LightconeHttp` instance and added as a `Cookie` header per request.
 - **Browser**: requests use `credentials: "include"` and the runtime supplies the cookie automatically — the SDK's internal store is unused.
@@ -288,7 +288,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 |---------|-------------|
 | [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
-| [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination |
+| [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.ts) | User positions across all markets and per-market |
 
@@ -417,3 +417,7 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 - **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
+
+## Trigger Orders
+
+Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.

@@ -24,11 +24,15 @@ def deposit_asset(mint: str) -> DepositAsset:
         symbol=mint,
         description=None,
         decimals=6,
-        icon_url="",
+        icon_url_low="",
+        icon_url_medium="",
+        icon_url_high="",
     )
 
 
-def orderbook_pair(base_mint: str, quote_mint: str, outcome_index: int) -> OrderBookPair:
+def orderbook_pair(
+    base_mint: str, quote_mint: str, outcome_index: int
+) -> OrderBookPair:
     base = ConditionalToken(
         pubkey=f"cond-base-{outcome_index}",
         outcome_index=outcome_index,
@@ -111,14 +115,25 @@ class TestSortByDisplayPriority:
             for symbol in ["USDC", "SOL", "WETH", "AAA", "WBTC", "ETH", "BTC", "ZZZ"]
         ]
         sorted_symbols = [asset.symbol for asset in sort_by_display_priority(assets)]
-        assert sorted_symbols == ["BTC", "WBTC", "ETH", "WETH", "SOL", "AAA", "USDC", "ZZZ"]
+        assert sorted_symbols == [
+            "BTC",
+            "WBTC",
+            "ETH",
+            "WETH",
+            "SOL",
+            "AAA",
+            "USDC",
+            "ZZZ",
+        ]
 
     def test_sort_pairs_via_symbol_property(self):
         # DepositAssetPair exposes `symbol` via a property delegating to base —
         # so the same sort helper works on pairs.
         pairs = [
             DepositAssetPair(
-                id=f"{symbol}-DAI", base=deposit_asset(symbol), quote=deposit_asset("DAI")
+                id=f"{symbol}-DAI",
+                base=deposit_asset(symbol),
+                quote=deposit_asset("DAI"),
             )
             for symbol in ["USDC", "SOL", "BTC", "ETH"]
         ]

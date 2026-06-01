@@ -75,17 +75,18 @@ impl<'a> Metrics<'a> {
         &self,
         deposit_asset: Option<&str>,
     ) -> Result<OrderbookTickersResponse, SdkError> {
-        let mut url = format!(
+        let url = format!(
             "{}/api/metrics/orderbooks/tickers",
             self.client.http.base_url()
         );
+        let mut query = Vec::new();
         if let Some(mint) = deposit_asset.map(str::trim).filter(|s| !s.is_empty()) {
-            append_query(
-                &mut url,
-                &format!("deposit_asset={}", urlencoding::encode(mint)),
-            );
+            query.push(("deposit_asset", mint.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Fetch metrics for a single orderbook, broken down by base/quote/USD volume.
@@ -146,14 +147,18 @@ impl<'a> Metrics<'a> {
     ///
     /// `GET /api/metrics/leaderboard/markets`
     pub async fn leaderboard(&self, limit: Option<u32>) -> Result<Leaderboard, SdkError> {
-        let mut url = format!(
+        let url = format!(
             "{}/api/metrics/leaderboard/markets",
             self.client.http.base_url()
         );
+        let mut query = Vec::new();
         if let Some(limit) = limit {
-            append_query(&mut url, &format!("limit={limit}"));
+            query.push(("limit", limit.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Fetch a time-series of volume buckets for the given scope and scope key.
@@ -186,7 +191,7 @@ impl<'a> Metrics<'a> {
     /// user: distinct outcomes traded, total USD volume across all the
     /// wallet's trades, and the number of times the wallet's referral codes
     /// have been redeemed. The wallet is resolved server-side from the
-    /// `auth_token` cookie.
+    /// auth cookie.
     ///
     /// `GET /api/metrics/user`
     pub async fn user(&self) -> Result<UserMetrics, SdkError> {
@@ -194,17 +199,17 @@ impl<'a> Metrics<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::user`] but uses the supplied `auth_token` for this
+    /// Same as [`Self::user`] but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for this
     /// call instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / Dioxus server
     /// functions) where the per-request browser cookie can't propagate to
     /// the shared client.
-    pub async fn user_with_auth(&self, auth_token: &str) -> Result<UserMetrics, SdkError> {
+    pub async fn user_with_cookies(&self, cookie_header: &str) -> Result<UserMetrics, SdkError> {
         let url = format!("{}/api/metrics/user", self.client.http.base_url());
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 

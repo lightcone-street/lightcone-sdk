@@ -9,10 +9,6 @@ export {
   Resolution,
   Side,
   TimeInForce,
-  TriggerResultStatus,
-  TriggerStatus,
-  TriggerType,
-  TriggerUpdateType,
   type ApiResponse,
   type OrderBookId,
   type PubkeyStr,
@@ -93,11 +89,21 @@ export type {
   ConditionalTokenResponse,
   DepositAssetResponse,
   DepositMintsResponse,
+  MarketResolutionPayout,
+  MarketResolutionResponse,
 } from "./domain/market/wire";
+
+export {
+  Status,
+  MarketResolutionKind,
+  hasSingleWinningOutcome,
+  isMarketResolved,
+  singleWinningOutcome,
+} from "./domain/market";
 
 export type {
   Market,
-  Status,
+  MarketResolutionContainer,
   Outcome,
   ConditionalToken,
   DepositAsset,
@@ -127,8 +133,6 @@ export type {
   CancelAllSuccess,
   CancelBody,
   CancelSuccess,
-  CancelTriggerBody,
-  CancelTriggerSuccess,
   ConditionalBalance,
   FillInfo,
   GlobalDepositUpdate,
@@ -138,14 +142,11 @@ export type {
   OrderStatus,
   OrderType,
   SubmitOrderResponse,
-  TriggerOrder,
-  TriggerOrderResponse,
-  TriggerOrderUpdate,
   UserSnapshotBalance,
   UserSnapshotOrder,
   UserOrdersResponse,
 } from "./domain/order";
-export type { UserOpenLimitOrders, UserTriggerOrders } from "./domain/order/state";
+export type { UserOpenLimitOrders } from "./domain/order/state";
 
 export type {
   Portfolio,
@@ -201,6 +202,7 @@ export { DepositPriceState, PriceHistoryState } from "./domain/price_history";
 
 export type {
   AuthCredentials,
+  AuthMethod,
   ChainType,
   EmbeddedWallet,
   LinkedAccount,
@@ -210,7 +212,6 @@ export type {
 
 export {
   LimitOrderEnvelope,
-  TriggerOrderEnvelope,
   type OrderEnvelope,
   type OrderPayload,
 } from "./program";

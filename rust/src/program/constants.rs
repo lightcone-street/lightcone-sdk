@@ -18,9 +18,6 @@ lazy_static::lazy_static! {
 /// SPL Token Program ID
 pub const TOKEN_PROGRAM_ID: Pubkey = spl_token::ID;
 
-/// Token-2022 Program ID (for conditional tokens)
-pub const TOKEN_2022_PROGRAM_ID: Pubkey = spl_token_2022::ID;
-
 /// Associated Token Account Program ID
 pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account::ID;
 
@@ -29,6 +26,12 @@ pub const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk_ids::system_program::ID;
 
 /// Rent Sysvar ID
 pub const RENT_SYSVAR_ID: Pubkey = solana_sdk_ids::sysvar::rent::ID;
+
+lazy_static::lazy_static! {
+    /// Metaplex Token Metadata Program ID
+    pub static ref MPL_TOKEN_METADATA_PROGRAM_ID: Pubkey =
+        Pubkey::from_str("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s").unwrap();
+}
 
 // ============================================================================
 // Instruction Discriminators
@@ -59,6 +62,16 @@ pub mod instruction {
     pub const DEPOSIT_AND_SWAP: u8 = 20;
     pub const EXTEND_POSITION_TOKENS: u8 = 21;
     pub const WITHDRAW_FROM_GLOBAL: u8 = 22;
+    pub const CLOSE_POSITION_ALT: u8 = 23;
+    pub const CLOSE_ORDER_STATUS: u8 = 24;
+    pub const CLOSE_POSITION_TOKEN_ACCOUNTS: u8 = 25;
+    pub const CLOSE_ORDERBOOK_ALT: u8 = 26;
+    pub const CLOSE_ORDERBOOK: u8 = 27;
+    pub const SET_MANAGER: u8 = 28;
+    pub const SET_MARKET_FEES: u8 = 29;
+    pub const SET_FEE_RECEIVER: u8 = 30;
+    pub const CREATE_CONDITIONAL_METADATA: u8 = 31;
+    pub const UPDATE_CONDITIONAL_METADATA: u8 = 32;
 }
 
 // ============================================================================
@@ -95,6 +108,8 @@ pub const VAULT_SEED: &[u8] = b"market_deposit_token_account";
 pub const MINT_AUTHORITY_SEED: &[u8] = b"market_mint_authority";
 /// Conditional mint PDA seed
 pub const CONDITIONAL_MINT_SEED: &[u8] = b"conditional_mint";
+/// Condition tombstone PDA seed
+pub const CONDITION_SEED: &[u8] = b"condition";
 /// Order status PDA seed
 pub const ORDER_STATUS_SEED: &[u8] = b"order_status";
 /// User nonce PDA seed
@@ -105,17 +120,21 @@ pub const POSITION_SEED: &[u8] = b"position";
 pub const ORDERBOOK_SEED: &[u8] = b"orderbook";
 /// GlobalDepositToken PDA seed (also used for user global deposit accounts)
 pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
+/// Fee receiver seed exported by the on-chain program.
+pub const FEE_RECEIVER_SEED: &[u8] = b"fee_receiver";
+/// Metaplex metadata PDA seed.
+pub const MPL_METADATA_SEED: &[u8] = b"metadata";
 
 // ============================================================================
 // Account Sizes
 // ============================================================================
 
 /// Exchange account size in bytes
-pub const EXCHANGE_SIZE: usize = 88;
+pub const EXCHANGE_SIZE: usize = 212;
 /// Market account size in bytes
-pub const MARKET_SIZE: usize = 120;
+pub const MARKET_SIZE: usize = 212;
 /// Order status account size in bytes
-pub const ORDER_STATUS_SIZE: usize = 24;
+pub const ORDER_STATUS_SIZE: usize = 32;
 /// User nonce account size in bytes
 pub const USER_NONCE_SIZE: usize = 16;
 /// Position account size in bytes

@@ -217,7 +217,7 @@ async fn get_user_orders(
 ) -> Result<UserOrdersResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's open orders (both limit and trigger) with cursor-based pagination. Wallet is resolved from the `auth_token` cookie. See `get_user_orders_with_auth` for the SSR variant.
+Fetch the **authenticated** user's open orders (both limit and trigger) with cursor-based pagination. Wallet is resolved from the `auth_token` cookie. See `get_user_orders_with_cookies` for the SSR variant.
 
 ### `get_user_order_fills`
 
@@ -230,9 +230,9 @@ async fn get_user_order_fills(
 ) -> Result<UserOrderFillsResponse, SdkError>
 ```
 
-Fetch the **authenticated** user's filled orders (with nested fill events). See `get_user_order_fills_with_auth` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
+Fetch the **authenticated** user's filled orders (with nested fill events). See `get_user_order_fills_with_cookies` for the SSR variant and `get_user_order_fills_by_wallet` for the public path-based variant.
 
-### `get_user_orders_with_auth` / `get_user_order_fills_with_auth`
+### `get_user_orders_with_cookies` / `get_user_order_fills_with_cookies`
 
 SSR / server-function variants — accept an explicit `auth_token: &str` instead of using the SDK's process-wide token store. Same wire contract, different credentials path. See [the top-level Authentication section](../../../README.md#authentication).
 
@@ -273,6 +273,15 @@ fn increment_nonce_tx(&self, user: &Pubkey) -> Result<Transaction, SdkError>
 ```
 
 Build an IncrementNonce instruction/transaction — invalidates all orders with a nonce lower than the new value.
+
+#### `close_order_status_ix` / `close_order_status_tx`
+
+```rust
+fn close_order_status_ix(&self, params: &CloseOrderStatusParams) -> Instruction
+fn close_order_status_tx(&self, params: CloseOrderStatusParams) -> Result<Transaction, SdkError>
+```
+
+Build a CloseOrderStatus instruction/transaction — close a fully-filled order status PDA.
 
 ### Order Helpers
 
@@ -344,6 +353,8 @@ let request = LimitOrderEnvelope::new()
 ```
 
 ### `TriggerOrderEnvelope`
+
+> **Feature-gated** (`trigger_orders`): The types and methods below require the `trigger_orders` Cargo feature, which is disabled by default. Trigger orders are under development and not yet available. For internal use only.
 
 For take-profit and stop-loss orders:
 

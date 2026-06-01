@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
-from urllib.parse import urlencode
-
 from . import LineData
 from ...error import SdkError
 from .wire import (
@@ -51,8 +49,7 @@ class PriceHistoryClient:
         if include_ohlcv:
             params["include_ohlcv"] = "true"
 
-        url = f"/api/price-history?{urlencode(params)}"
-        data = await self._client._http.get(url)
+        data = await self._client._http.get("/api/price-history", params=params)
         return OrderbookPriceHistoryResponse.from_dict(data)
 
     async def get_deposit_asset(
@@ -78,8 +75,7 @@ class PriceHistoryClient:
         if limit is not None:
             params["limit"] = str(_ensure_page_limit(limit))
 
-        url = f"/api/price-history?{urlencode(params)}"
-        data = await self._client._http.get(url)
+        data = await self._client._http.get("/api/price-history", params=params)
         return DepositPriceHistoryResponse.from_dict(data)
 
     async def get_deposit_asset_prices_snapshot(self) -> DepositAssetPricesSnapshotResponse:

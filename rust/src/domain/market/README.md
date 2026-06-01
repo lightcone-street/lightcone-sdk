@@ -45,7 +45,22 @@ A fully validated market with all nested domain types.
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `activated_at` | `Option<DateTime<Utc>>` | When market became active |
 | `settled_at` | `Option<DateTime<Utc>>` | When market was resolved |
-| `winning_outcome` | `Option<i16>` | Winning outcome index (after resolution) |
+| `resolution` | `Option<MarketResolutionResponse>` | Canonical payout-vector settlement data |
+
+Resolution semantics:
+
+- `resolution == None` means the market has not settled yet.
+- `MarketResolutionKind::SingleWinner` preserves winner-takes-all behavior, but payouts are still canonical.
+- `MarketResolutionKind::Scalar` has no single winner; use each payout entry.
+- `single_winning_outcome() == None` does not necessarily mean unresolved. It can also mean a scalar/split resolution. Use `is_resolved()` for settlement state.
+
+Convenience helpers:
+
+```rust
+market.is_resolved();
+market.single_winning_outcome();
+market.has_single_winning_outcome();
+```
 
 ### `Status`
 
@@ -92,11 +107,27 @@ Collateral token accepted by the market.
 |-------|------|-------------|
 | `mint` | `PubkeyStr` | Token mint address (e.g., USDC) |
 | `display_name` | `String` | Human-readable name |
-| `symbol` | `String` | Token symbol (e.g., "USDC") |
+| `symbol` | `String` | Token symbol (e.g., "wBTC") |
+| `short_symbol` | `String` | Display-friendly short symbol (e.g., "BTC" for wBTC) |
 | `decimals` | `u8` | Token decimals |
 | `icon_url_low` | `String` | Token icon (low quality) |
 | `icon_url_medium` | `String` | Token icon (medium quality) |
 | `icon_url_high` | `String` | Token icon (high quality) |
+
+### `TokenMetadata`
+
+Metadata for any token (deposit or conditional), keyed by mint pubkey.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pubkey` | `PubkeyStr` | Token mint address |
+| `symbol` | `String` | Token symbol |
+| `short_symbol` | `String` | Display-friendly short symbol (e.g., "BTC" for wBTC, "Fall-BTC" for conditional tokens) |
+| `decimals` | `u16` | Token decimals |
+| `icon_url_low` | `String` | Token icon (low quality) |
+| `icon_url_medium` | `String` | Token icon (medium quality) |
+| `icon_url_high` | `String` | Token icon (high quality) |
+| `name` | `String` | Human-readable name |
 
 ### `DepositAssetPair`
 

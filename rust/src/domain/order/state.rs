@@ -3,7 +3,9 @@
 use crate::shared::{OrderBookId, PubkeyStr};
 
 use super::wire;
-use super::{LimitOrder, TriggerOrder};
+use super::LimitOrder;
+#[cfg(feature = "trigger_orders")]
+use super::TriggerOrder;
 use std::collections::HashMap;
 
 // ─── UserOpenLimitOrders ────────────────────────────────────────────────────
@@ -69,11 +71,13 @@ impl Default for UserOpenLimitOrders {
 
 // ─── UserTriggerOrders ──────────────────────────────────────────────────────
 
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone)]
 pub struct UserTriggerOrders {
     pub orders: HashMap<PubkeyStr, HashMap<OrderBookId, Vec<TriggerOrder>>>,
 }
 
+#[cfg(feature = "trigger_orders")]
 impl UserTriggerOrders {
     pub fn new() -> Self {
         Self {
@@ -153,6 +157,7 @@ impl UserTriggerOrders {
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 impl Default for UserTriggerOrders {
     fn default() -> Self {
         Self::new()
@@ -269,6 +274,7 @@ mod tests {
 
     // ── UserTriggerOrders tests ─────────────────────────────────────────────
 
+    #[cfg(feature = "trigger_orders")]
     fn make_trigger_order(trigger_id: &str, market: &str, orderbook: &str) -> TriggerOrder {
         use crate::shared::{TimeInForce, TriggerType};
         TriggerOrder {
@@ -287,6 +293,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_insert_and_get() {
         let mut container = UserTriggerOrders::new();
         assert!(container.is_empty());
@@ -303,6 +310,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_get_by_id() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));
@@ -314,6 +322,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_groups_by_market_and_orderbook() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));
@@ -338,6 +347,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_get_by_market() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));
@@ -351,6 +361,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_remove() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));
@@ -365,6 +376,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_clear() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));
@@ -374,6 +386,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_trigger_orders_all() {
         let mut container = UserTriggerOrders::new();
         container.insert(make_trigger_order("t1", "mkt1", "ob1"));

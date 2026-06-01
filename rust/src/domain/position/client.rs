@@ -12,6 +12,7 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{
+    ClosePositionAltParams, ClosePositionTokenAccountsParams, DepositToGlobalAltContext,
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
@@ -62,34 +63,34 @@ impl<'a> Positions<'a> {
     }
 
     /// Get all conditional-token positions for the authenticated user across
-    /// every market. The wallet is resolved server-side from the `auth_token`
-    /// cookie, so no parameter is required. Same response shape as
+    /// every market. The wallet is resolved server-side from the auth cookie,
+    /// so no parameter is required. Same response shape as
     /// [`Positions::get`]; empty `positions` array when the user has none.
     pub async fn positions(&self) -> Result<PositionsResponse, SdkError> {
         let url = format!("{}/api/users/positions", self.client.http.base_url());
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::positions`], but uses the supplied `auth_token` for
+    /// Same as [`Self::positions`], but forwards the supplied raw `Cookie` header (`privy-token` and/or `lightcone-token`) for
     /// this call instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)
     /// where the per-request browser cookie can't propagate to the shared
     /// client. On WASM this is equivalent to [`Self::positions`] because the
     /// browser is already attaching the cookie via credentials mode.
-    pub async fn positions_with_auth(
+    pub async fn positions_with_cookies(
         &self,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<PositionsResponse, SdkError> {
         let url = format!("{}/api/users/positions", self.client.http.base_url());
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Get the authenticated user's positions in a specific market. The
-    /// wallet is resolved server-side from the `auth_token` cookie.
+    /// wallet is resolved server-side from the auth cookie.
     pub async fn positions_for_market(
         &self,
         market_pubkey: &str,
@@ -102,13 +103,14 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::positions_for_market`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
-    /// store. For server-side cookie forwarding (SSR / server functions).
-    pub async fn positions_for_market_with_auth(
+    /// Same as [`Self::positions_for_market`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store. For server-side cookie
+    /// forwarding (SSR / server functions).
+    pub async fn positions_for_market_with_cookies(
         &self,
         market_pubkey: &str,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<MarketPositionsResponse, SdkError> {
         let url = format!(
             "{}/api/users/markets/{}/positions",
@@ -117,13 +119,13 @@ impl<'a> Positions<'a> {
         );
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
     /// Get SPL deposit-token balances for the authenticated user.
     ///
-    /// The wallet is resolved server-side from the `auth_token` cookie, so no
+    /// The wallet is resolved server-side from the auth cookie, so no
     /// parameter is required. Returns balances keyed by mint pubkey for every
     /// deposit token registered in the backend's `deposit_token_metadata`.
     /// An empty map means the user has none of the tracked balances — this is
@@ -138,18 +140,18 @@ impl<'a> Positions<'a> {
         self.client.http.get(&url, RetryPolicy::Idempotent).await
     }
 
-    /// Same as [`Self::deposit_token_balances`], but uses the supplied
-    /// `auth_token` for this call instead of the SDK's process-wide token
-    /// store.
+    /// Same as [`Self::deposit_token_balances`], but forwards the supplied raw
+    /// `Cookie` header (`privy-token` and/or `lightcone-token`) for this call
+    /// instead of the SDK's process-wide token store.
     ///
     /// Intended for server-side cookie forwarding (SSR / server functions)
-    /// where the per-request browser cookie can't propagate to the shared
+    /// where the per-request browser cookies can't propagate to the shared
     /// client. On WASM this is equivalent to
     /// [`Self::deposit_token_balances`] because the browser is already
-    /// attaching the cookie via credentials mode.
-    pub async fn deposit_token_balances_with_auth(
+    /// attaching cookies via credentials mode.
+    pub async fn deposit_token_balances_with_cookies(
         &self,
-        auth_token: &str,
+        cookie_header: &str,
     ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
         let url = format!(
             "{}/api/users/deposit-token-balances",
@@ -157,7 +159,7 @@ impl<'a> Positions<'a> {
         );
         self.client
             .http
-            .get_with_auth(&url, RetryPolicy::Idempotent, auth_token)
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
@@ -167,39 +169,34 @@ impl<'a> Positions<'a> {
     pub fn redeem_winnings_ix(
         &self,
         params: &RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_redeem_winnings_ix(params, winning_outcome, pid)
+        instructions::build_redeem_winnings_ix(params, outcome_index, pid)
     }
 
     /// Build RedeemWinnings transaction.
     pub fn redeem_winnings_tx(
         &self,
         params: RedeemWinningsParams,
-        winning_outcome: u8,
+        outcome_index: u8,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.redeem_winnings_ix(&params, winning_outcome);
+        let ix = self.redeem_winnings_ix(&params, outcome_index);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
     /// Build WithdrawFromPosition instruction.
-    pub fn withdraw_from_position_ix(
-        &self,
-        params: &WithdrawFromPositionParams,
-        is_token_2022: bool,
-    ) -> Instruction {
+    pub fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_withdraw_from_position_ix(params, is_token_2022, pid)
+        instructions::build_withdraw_from_position_ix(params, pid)
     }
 
     /// Build WithdrawFromPosition transaction.
     pub fn withdraw_from_position_tx(
         &self,
         params: WithdrawFromPositionParams,
-        is_token_2022: bool,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.withdraw_from_position_ix(&params, is_token_2022);
+        let ix = self.withdraw_from_position_ix(&params);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
@@ -244,7 +241,46 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionAlt instruction.
+    pub fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_close_position_alt_ix(params, pid)
+    }
+
+    /// Build ClosePositionAlt transaction.
+    pub fn close_position_alt_tx(
+        &self,
+        params: ClosePositionAltParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_alt_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+    }
+
+    /// Build ClosePositionTokenAccounts instruction.
+    pub fn close_position_token_accounts_ix(
+        &self,
+        params: &ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Instruction, SdkError> {
+        let pid = &self.client.program_id;
+        Ok(instructions::build_close_position_token_accounts_ix(
+            params,
+            num_outcomes,
+            pid,
+        )?)
+    }
+
+    /// Build ClosePositionTokenAccounts transaction.
+    pub fn close_position_token_accounts_tx(
+        &self,
+        params: ClosePositionTokenAccountsParams,
+        num_outcomes: u8,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.close_position_token_accounts_ix(&params, num_outcomes)?;
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     /// Build DepositToGlobal instruction.
@@ -253,12 +289,32 @@ impl<'a> Positions<'a> {
         instructions::build_deposit_to_global_ix(params, pid)
     }
 
+    /// Build DepositToGlobal instruction with user deposit ALT create/extend accounts.
+    pub fn deposit_to_global_ix_with_alt(
+        &self,
+        params: &DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Instruction {
+        let pid = &self.client.program_id;
+        instructions::build_deposit_to_global_ix_with_alt(params, alt_context, pid)
+    }
+
     /// Build DepositToGlobal transaction.
     pub fn deposit_to_global_tx(
         &self,
         params: DepositToGlobalParams,
     ) -> Result<Transaction, SdkError> {
         let ix = self.deposit_to_global_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build DepositToGlobal transaction with user deposit ALT create/extend accounts.
+    pub fn deposit_to_global_tx_with_alt(
+        &self,
+        params: DepositToGlobalParams,
+        alt_context: DepositToGlobalAltContext,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.deposit_to_global_ix_with_alt(&params, alt_context);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
@@ -389,7 +445,7 @@ impl<'a> Positions<'a> {
         owner: &Pubkey,
         market: &Pubkey,
     ) -> Result<Option<crate::program::accounts::Position>, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let pda = self.pda(owner, market);
         match rpc.get_account(&pda).await {
             Ok(account) => Ok(Some(crate::program::accounts::Position::deserialize(

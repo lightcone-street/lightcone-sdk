@@ -78,6 +78,23 @@ class TradesResponseWire:
 
 
 @dataclass
+class MarketTradesResponseWire:
+    trades: list[TradeResponseWire]
+    market_pubkey: str = ""
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+
+    @staticmethod
+    def from_dict(d: dict) -> "MarketTradesResponseWire":
+        return MarketTradesResponseWire(
+            trades=[TradeResponseWire.from_dict(t) for t in d.get("trades", [])],
+            market_pubkey=d.get("market_pubkey", ""),
+            next_cursor=d.get("next_cursor"),
+            has_more=d.get("has_more", False),
+        )
+
+
+@dataclass
 class WsTrade:
     orderbook_id: str
     price: str

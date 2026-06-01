@@ -29,6 +29,7 @@ export { requireConnection, requireSigningStrategy, resolveDepositSource, signAn
 // Convenience top-level type exports
 export type {
   AuthCredentials,
+  AuthMethod,
   ChainType,
   EmbeddedWallet,
   LinkedAccount,

@@ -42,20 +42,20 @@ impl<'a> Markets<'a> {
         cursor: Option<i64>,
         limit: Option<u32>,
     ) -> Result<MarketsResult, SdkError> {
-        let base = self.client.http.base_url();
-        let mut url = format!("{}/api/markets", base);
-        let mut params = Vec::new();
-        if let Some(c) = cursor {
-            params.push(format!("cursor={}", c));
+        let url = format!("{}/api/markets", self.client.http.base_url());
+        let mut query = Vec::new();
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
         }
-        if let Some(l) = limit {
-            params.push(format!("limit={}", l));
-        }
-        if !params.is_empty() {
-            url = format!("{}?{}", url, params.join("&"));
+        if let Some(limit) = limit {
+            query.push(("limit", limit.to_string()));
         }
 
-        let resp: MarketsResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+        let resp: MarketsResponse = self
+            .client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await?;
 
         let mut markets = Vec::new();
         let mut validation_errors = Vec::new();
@@ -120,18 +120,22 @@ impl<'a> Markets<'a> {
         limit: Option<u32>,
     ) -> Result<Vec<MarketSearchResult>, SdkError> {
         let encoded = urlencoding::encode(query);
-        let mut url = format!(
+        let url = format!(
             "{}/api/markets/search/by-query/{}",
             self.client.http.base_url(),
             encoded
         );
-        if let Some(l) = limit {
-            url = format!("{}?limit={}", url, l);
+        let mut query_params = Vec::new();
+        if let Some(limit) = limit {
+            query_params.push(("limit", limit.to_string()));
         }
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        self.client
+            .http
+            .get_with_query(&url, &query_params, RetryPolicy::Idempotent)
+            .await
     }
 
-    /// Get featured markets. Only returns Active and Resolved markets.
+    /// Get featured markets. Only returns Active markets.
     pub async fn featured(&self) -> Result<Vec<MarketSearchResult>, SdkError> {
         let url = format!(
             "{}/api/markets/search/featured",
@@ -142,7 +146,7 @@ impl<'a> Markets<'a> {
 
         let (kept, skipped): (Vec<_>, Vec<_>) = results
             .into_iter()
-            .partition(|r| matches!(r.market_status, Status::Active | Status::Resolved));
+            .partition(|r| matches!(r.market_status, Status::Active));
 
         for r in &skipped {
             tracing::debug!(
@@ -246,7 +250,7 @@ impl<'a> Markets<'a> {
         &self,
         market: &Pubkey,
     ) -> Result<crate::program::accounts::Market, SdkError> {
-        let rpc = crate::rpc::require_solana_rpc(self.client)?;
+        let rpc = crate::rpc::resolve_solana_rpc(self.client).await?;
         let account = rpc.get_account(market).await.map_err(|e| {
             SdkError::Program(crate::program::error::SdkError::AccountNotFound(format!(
                 "Market: {}",

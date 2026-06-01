@@ -11,7 +11,9 @@ use crate::program::error::SdkError;
 use crate::program::orders::{generate_salt, OrderPayload};
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{align_price_to_tick, scale_price_size, ScalingError};
-use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce, TriggerType};
+#[cfg(feature = "trigger_orders")]
+use crate::shared::TriggerType;
+use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce};
 
 // ─── Shared base fields ─────────────────────────────────────────────────────
 
@@ -396,6 +398,8 @@ impl LimitOrderEnvelope {
 /// nonce if not explicitly set (falling back to 0). When using `sign()`/`finalize()`
 /// directly, `nonce` defaults to 0. `salt` is auto-generated when omitted.
 ///
+/// Requires the `trigger_orders` feature.
+///
 /// # Example (via client builder — recommended)
 ///
 /// ```rust,ignore
@@ -420,6 +424,7 @@ impl LimitOrderEnvelope {
 ///     .stop_loss(0.30)
 ///     .sign(&keypair, &orderbook)?;
 /// ```
+#[cfg(feature = "trigger_orders")]
 #[derive(Debug, Clone, Default)]
 pub struct TriggerOrderEnvelope {
     fields: OrderFields,
@@ -428,6 +433,7 @@ pub struct TriggerOrderEnvelope {
     trigger_type: Option<TriggerType>,
 }
 
+#[cfg(feature = "trigger_orders")]
 impl OrderEnvelope for TriggerOrderEnvelope {
     impl_base_methods!(TriggerOrderEnvelope);
 
@@ -483,6 +489,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 impl TriggerOrderEnvelope {
     /// Set time-in-force policy (GTC, IOC, FOK, ALO).
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
@@ -594,26 +601,11 @@ impl LimitOrderEnvelope {
                 let request = self.finalize(&sig_bs58, orderbook)?;
                 client.orders().submit(&request).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let envelope = crate::privy::PrivyOrderEnvelope::from_limit(
-                    &self,
-                    orderbook.orderbook_id.as_str(),
-                )?;
-                let result = client
-                    .privy()
-                    .sign_and_send_order(&wallet_id, envelope)
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    crate::error::SdkError::Other(format!(
-                        "failed to parse submit order response: {error}"
-                    ))
-                })
-            }
         }
     }
 }
 
-#[cfg(feature = "http")]
+#[cfg(all(feature = "http", feature = "trigger_orders"))]
 impl TriggerOrderEnvelope {
     /// Submit this trigger order using the client's signing strategy.
     ///
@@ -670,21 +662,6 @@ impl TriggerOrderEnvelope {
                 let request = self.finalize(&sig_bs58, orderbook)?;
                 client.orders().submit_trigger(&request).await
             }
-            SigningStrategy::Privy { wallet_id } => {
-                let envelope = crate::privy::PrivyOrderEnvelope::from_trigger(
-                    &self,
-                    orderbook.orderbook_id.as_str(),
-                )?;
-                let result = client
-                    .privy()
-                    .sign_and_send_order(&wallet_id, envelope)
-                    .await?;
-                serde_json::from_value(result).map_err(|error| {
-                    crate::error::SdkError::Other(format!(
-                        "failed to parse trigger order response: {error}"
-                    ))
-                })
-            }
         }
     }
 }
@@ -727,6 +704,7 @@ impl LimitOrderEnvelope {
     }
 }
 
+#[cfg(feature = "trigger_orders")]
 impl TriggerOrderEnvelope {
     pub fn get_salt(&self) -> Option<u64> {
         self.fields.salt

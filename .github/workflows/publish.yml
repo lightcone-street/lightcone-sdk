@@ -1,0 +1,158 @@
+name: Publish
+
+on:
+  workflow_call:
+    inputs:
+      dry-run:
+        required: true
+        type: boolean
+        description: "If true, validate packaging only. If false, bump versions, publish, and sync."
+
+jobs:
+  # ── Dry-run: validate packaging ──
+
+  validate-packaging:
+    if: ${{ inputs.dry-run }}
+    name: Validate Packaging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cargo publish dry-run
+        working-directory: rust
+        run: cargo publish --dry-run
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: npm pack dry-run
+        working-directory: typescript
+        run: |
+          npm install
+          npm pack --dry-run
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python build validation
+        working-directory: python
+        run: |
+          pip install build
+          python -m build --sdist
+
+  # ── Real publish: bump → publish → sync ──
+
+  bump-versions:
+    if: ${{ ! inputs.dry-run }}
+    name: Bump Patch Versions
+    runs-on: ubuntu-latest
+    outputs:
+      rust-version: ${{ steps.bump.outputs.rust_version }}
+      ts-version: ${{ steps.bump.outputs.ts_version }}
+      python-version: ${{ steps.bump.outputs.python_version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+          fetch-depth: 0
+          token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Bump versions
+        id: bump
+        run: |
+          chmod +x .github/scripts/bump-versions.sh
+          .github/scripts/bump-versions.sh
+
+      - name: Commit and push version bumps
+        env:
+          RUST_VERSION: ${{ steps.bump.outputs.rust_version }}
+          TS_VERSION: ${{ steps.bump.outputs.ts_version }}
+          PYTHON_VERSION: ${{ steps.bump.outputs.python_version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml
+          git commit -m "chore: bump versions to rust=$RUST_VERSION ts=$TS_VERSION python=$PYTHON_VERSION [skip ci]"
+          git push origin prod
+
+  publish-rust:
+    if: ${{ ! inputs.dry-run }}
+    name: Publish Rust Crate
+    needs: [bump-versions]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify
+
+  publish-typescript:
+    if: ${{ ! inputs.dry-run }}
+    name: Publish TypeScript Package
+    needs: [bump-versions]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: prod
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install
+
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+  sync-staging:
+    if: ${{ ! inputs.dry-run }}
+    name: Merge Back to Staging
+    needs: [publish-rust, publish-typescript]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+          fetch-depth: 0
+          token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
+
+      - name: Merge prod into staging
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin prod
+          git merge origin/prod -m "chore: merge prod version bumps back to staging [skip ci]"
+          git push origin staging

@@ -103,16 +103,6 @@ export class OrderBuilder {
     return this;
   }
 
-  /** @deprecated Use amountIn() */
-  makerAmount(value: bigint): this {
-    return this.amountIn(value);
-  }
-
-  /** @deprecated Use amountOut() */
-  takerAmount(value: bigint): this {
-    return this.amountOut(value);
-  }
-
   /** Set expiration timestamp (0 = no expiration) */
   expiration(value: bigint): this {
     this._expiration = value;

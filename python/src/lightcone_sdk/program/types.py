@@ -8,6 +8,8 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ..shared.types import DepositSource
+from .constants import MAX_OUTCOMES, MIN_OUTCOMES
+from .errors import InvalidOutcomeCountError, InvalidOutcomeIndexError
 
 
 class MarketStatus(IntEnum):
@@ -32,10 +34,12 @@ class Exchange:
 
     authority: Pubkey
     operator: Pubkey
+    manager: Pubkey
     market_count: int
     paused: bool
     bump: int
     deposit_token_count: int = 0
+    fee_receiver: Pubkey = Pubkey.from_bytes(bytes(32))
 
 
 @dataclass
@@ -45,12 +49,14 @@ class Market:
     market_id: int
     num_outcomes: int
     status: MarketStatus
-    winning_outcome: int  # u8 raw value (255 = no winner)
-    has_winning_outcome: bool
     bump: int
+    maker_fee_bps: int
+    taker_fee_bps: int
     oracle: Pubkey
     question_id: bytes
     condition_id: bytes
+    payout_numerators: tuple[int, int, int, int, int, int]
+    payout_denominator: int
 
 
 @dataclass
@@ -67,6 +73,7 @@ class OrderStatus:
     """Order status account data."""
 
     remaining: int
+    base_remaining: int
     is_cancelled: bool
 
 
@@ -134,15 +141,6 @@ CompactOrder = Order
 
 
 @dataclass
-class OutcomeMetadata:
-    """Metadata for a market outcome."""
-
-    name: str
-    symbol: str
-    uri: str
-
-
-@dataclass
 class MakerFill:
     """Per-maker fill info for deposit_and_swap."""
 
@@ -168,19 +166,20 @@ class InitializeParams:
 class CreateMarketParams:
     """Parameters for creating a new market."""
 
-    authority: Pubkey
+    manager: Pubkey
     num_outcomes: int
     oracle: Pubkey
     question_id: bytes
+    maker_fee_bps: int
+    taker_fee_bps: int
 
 
 @dataclass
 class AddDepositMintParams:
     """Parameters for adding a deposit mint to a market."""
 
-    authority: Pubkey
+    manager: Pubkey
     deposit_mint: Pubkey
-    outcome_metadata: list[OutcomeMetadata]
 
 
 @dataclass
@@ -209,7 +208,41 @@ class SettleMarketParams:
 
     oracle: Pubkey
     market_id: int
-    winning_outcome: int
+    payout_numerators: list[int]
+
+    @classmethod
+    def winner_takes_all(
+        cls,
+        oracle: Pubkey,
+        market_id: int,
+        winning_outcome: int,
+        num_outcomes: int,
+    ) -> "SettleMarketParams":
+        """Construct settlement params for a winner-takes-all resolution."""
+
+        _validate_num_outcomes(num_outcomes)
+        if winning_outcome < 0 or winning_outcome >= num_outcomes:
+            raise InvalidOutcomeIndexError(winning_outcome, num_outcomes - 1)
+
+        payout_numerators = [0] * num_outcomes
+        payout_numerators[winning_outcome] = 1
+        return cls(
+            oracle=oracle,
+            market_id=market_id,
+            payout_numerators=payout_numerators,
+        )
+
+
+@dataclass(frozen=True)
+class ScalarResolutionParams:
+    """Integer fixed-point metadata for two-sided scalar settlement."""
+
+    min_value: int
+    max_value: int
+    resolved_value: int
+    lower_outcome_index: int
+    upper_outcome_index: int
+    num_outcomes: int
 
 
 @dataclass
@@ -220,6 +253,11 @@ class RedeemWinningsParams:
     market: Pubkey
     deposit_mint: Pubkey
     amount: int
+
+
+def _validate_num_outcomes(num_outcomes: int) -> None:
+    if num_outcomes < MIN_OUTCOMES or num_outcomes > MAX_OUTCOMES:
+        raise InvalidOutcomeCountError(num_outcomes)
 
 
 @dataclass
@@ -237,7 +275,7 @@ class WithdrawFromPositionParams:
 class ActivateMarketParams:
     """Parameters for activating a market."""
 
-    authority: Pubkey
+    manager: Pubkey
     market_id: int
 
 
@@ -249,6 +287,7 @@ class MatchOrdersMultiParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    fee_receiver: Pubkey
     taker_order: SignedOrder
     maker_orders: list[SignedOrder]
     maker_fill_amounts: list[int]
@@ -260,12 +299,17 @@ class MatchOrdersMultiParams:
 class CreateOrderbookParams:
     """Parameters for creating an orderbook."""
 
-    authority: Pubkey
+    manager: Pubkey
     market: Pubkey
     mint_a: Pubkey
     mint_b: Pubkey
+    fee_receiver: Pubkey
+    mint_a_deposit_mint: Pubkey
+    mint_b_deposit_mint: Pubkey
     recent_slot: int
     base_index: int
+    mint_a_outcome_index: int
+    mint_b_outcome_index: int
 
 
 @dataclass
@@ -274,6 +318,52 @@ class SetAuthorityParams:
 
     current_authority: Pubkey
     new_authority: Pubkey
+
+
+@dataclass
+class SetManagerParams:
+    """Parameters for setting a new manager."""
+
+    authority: Pubkey
+    new_manager: Pubkey
+
+
+@dataclass
+class MarketFeeUpdate:
+    """One per-market fee update."""
+
+    market: Pubkey
+    maker_fee_bps: int
+    taker_fee_bps: int
+
+
+@dataclass
+class SetMarketFeesParams:
+    """Parameters for setting fees on one or more markets."""
+
+    manager: Pubkey
+    updates: list[MarketFeeUpdate]
+
+
+@dataclass
+class SetFeeReceiverParams:
+    """Parameters for setting the exchange fee receiver."""
+
+    authority: Pubkey
+    new_fee_receiver: Pubkey
+
+
+@dataclass
+class ConditionalMetadataParams:
+    """Parameters for creating or updating conditional mint metadata."""
+
+    manager: Pubkey
+    market: Pubkey
+    deposit_mint: Pubkey
+    outcome_index: int
+    name: str
+    symbol: str
+    uri: str
 
 
 @dataclass
@@ -333,6 +423,23 @@ class DepositToGlobalParams:
     amount: int
 
 
+@dataclass(frozen=True)
+class DepositToGlobalAltContext:
+    """ALT context for adding user global-deposit accounts to a lookup table."""
+
+    kind: str
+    recent_slot: Optional[int] = None
+    lookup_table: Optional[Pubkey] = None
+
+    @classmethod
+    def create(cls, recent_slot: int) -> "DepositToGlobalAltContext":
+        return cls(kind="create", recent_slot=recent_slot)
+
+    @classmethod
+    def extend(cls, lookup_table: Pubkey) -> "DepositToGlobalAltContext":
+        return cls(kind="extend", lookup_table=lookup_table)
+
+
 @dataclass
 class GlobalToMarketDepositParams:
     """Parameters for transferring from global deposit to a market vault."""
@@ -362,6 +469,7 @@ class DepositAndSwapParams:
     market: Pubkey
     base_mint: Pubkey
     quote_mint: Pubkey
+    fee_receiver: Pubkey
     taker_order: SignedOrder
     taker_is_full_fill: bool
     taker_is_deposit: bool
@@ -374,7 +482,7 @@ class DepositAndSwapParams:
 class ExtendPositionTokensParams:
     """Parameters for extending a position ALT with new deposit mints."""
 
-    payer: Pubkey
+    operator: Pubkey
     user: Pubkey
     market: Pubkey
     lookup_table: Pubkey
@@ -388,6 +496,54 @@ class WithdrawFromGlobalParams:
     user: Pubkey
     mint: Pubkey
     amount: int
+
+
+@dataclass
+class ClosePositionAltParams:
+    """Parameters for deactivating or closing a position ALT."""
+
+    operator: Pubkey
+    position: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+
+
+@dataclass
+class CloseOrderStatusParams:
+    """Parameters for closing a fully-filled order status PDA."""
+
+    operator: Pubkey
+    order_hash: bytes
+
+
+@dataclass
+class ClosePositionTokenAccountsParams:
+    """Parameters for closing empty position-owned conditional token accounts."""
+
+    operator: Pubkey
+    market: Pubkey
+    position: Pubkey
+    deposit_mints: list[Pubkey]
+
+
+@dataclass
+class CloseOrderbookAltParams:
+    """Parameters for deactivating or closing an orderbook ALT."""
+
+    operator: Pubkey
+    orderbook: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
+
+
+@dataclass
+class CloseOrderbookParams:
+    """Parameters for closing an orderbook PDA after its ALT has been closed."""
+
+    operator: Pubkey
+    orderbook: Pubkey
+    market: Pubkey
+    lookup_table: Pubkey
 
 
 @dataclass
@@ -425,7 +581,6 @@ class MarketWithdrawContext:
 
     market: object  # domain Market (has .pubkey str, .outcomes list)
     outcome_index: int
-    is_token_2022: bool = False
 
 
 @dataclass

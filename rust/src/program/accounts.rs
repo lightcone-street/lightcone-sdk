@@ -7,9 +7,9 @@ use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
     EXCHANGE_DISCRIMINATOR, EXCHANGE_SIZE, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
-    GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, ORDERBOOK_DISCRIMINATOR,
-    ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE, POSITION_DISCRIMINATOR,
-    POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
+    GLOBAL_DEPOSIT_TOKEN_SIZE, MARKET_DISCRIMINATOR, MARKET_SIZE, MAX_OUTCOMES,
+    ORDERBOOK_DISCRIMINATOR, ORDERBOOK_SIZE, ORDER_STATUS_DISCRIMINATOR, ORDER_STATUS_SIZE,
+    POSITION_DISCRIMINATOR, POSITION_SIZE, USER_NONCE_DISCRIMINATOR, USER_NONCE_SIZE,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::MarketStatus;
@@ -34,8 +34,14 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
     u64::from_le_bytes(read_bytes::<8>(data, offset))
 }
 
+/// Helper to read a u32 from data (little-endian)
+#[inline]
+fn read_u32(data: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(read_bytes::<4>(data, offset))
+}
+
 // ============================================================================
-// Exchange Account (88 bytes)
+// Exchange Account (212 bytes)
 // ============================================================================
 
 /// Exchange account - singleton state for the exchange
@@ -44,19 +50,23 @@ fn read_u64(data: &[u8], offset: usize) -> u64 {
 /// - [0..8]   discriminator (8 bytes)
 /// - [8..40]  authority (32 bytes)
 /// - [40..72] operator (32 bytes)
-/// - [72..80] market_count (8 bytes)
-/// - [80]     paused (1 byte)
-/// - [81]     bump (1 byte)
-/// - [82..84] deposit_token_count (2 bytes)
-/// - [84..88] _padding (4 bytes)
+/// - [72..104] manager (32 bytes)
+/// - [104..112] market_count (8 bytes)
+/// - [112]    paused (1 byte)
+/// - [113]    bump (1 byte)
+/// - [114..116] deposit_token_count (2 bytes)
+/// - [116..148] fee_receiver (32 bytes)
+/// - [148..212] _reserved (64 bytes)
 #[derive(Debug, Clone)]
 pub struct Exchange {
     /// Account discriminator
     pub discriminator: [u8; 8],
-    /// Exchange authority (can pause, set operator, create markets)
+    /// Exchange authority (can pause and rotate privileged roles)
     pub authority: Pubkey,
-    /// Operator (can match orders)
+    /// Operator (can match orders and run operational cleanup)
     pub operator: Pubkey,
+    /// Manager (can create and activate markets/orderbooks)
+    pub manager: Pubkey,
     /// Number of markets created
     pub market_count: u64,
     /// Whether the exchange is paused
@@ -65,6 +75,8 @@ pub struct Exchange {
     pub bump: u8,
     /// Number of whitelisted deposit tokens
     pub deposit_token_count: u16,
+    /// Protocol fee receiver for quote-leg fees.
+    pub fee_receiver: Pubkey,
 }
 
 impl Exchange {
@@ -92,10 +104,12 @@ impl Exchange {
             discriminator,
             authority: read_pubkey(data, 8),
             operator: read_pubkey(data, 40),
-            market_count: read_u64(data, 72),
-            paused: data[80] != 0,
-            bump: data[81],
-            deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 82)),
+            manager: read_pubkey(data, 72),
+            market_count: read_u64(data, 104),
+            paused: data[112] != 0,
+            bump: data[113],
+            deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 114)),
+            fee_receiver: read_pubkey(data, 116),
         })
     }
 
@@ -106,7 +120,7 @@ impl Exchange {
 }
 
 // ============================================================================
-// Market Account (120 bytes)
+// Market Account (212 bytes)
 // ============================================================================
 
 /// Market account - represents a market
@@ -116,13 +130,16 @@ impl Exchange {
 /// - [8..16]   market_id (8 bytes)
 /// - [16]       num_outcomes (1 byte)
 /// - [17]       status (1 byte)
-/// - [18]       winning_outcome (1 byte)
-/// - [19]       has_winning_outcome (1 byte)
-/// - [20]       bump (1 byte)
-/// - [21..24]   _padding (3 bytes)
+/// - [18]       bump (1 byte)
+/// - [19]       _padding (1 byte)
+/// - [20..22]   maker_fee_bps (i16)
+/// - [22..24]   taker_fee_bps (i16)
 /// - [24..56]   oracle (32 bytes)
 /// - [56..88]   question_id (32 bytes)
 /// - [88..120]  condition_id (32 bytes)
+/// - [120..144] payout_numerators ([u32; 6])
+/// - [144..148] payout_denominator (u32)
+/// - [148..212] _reserved (64 bytes)
 #[derive(Debug, Clone)]
 pub struct Market {
     /// Account discriminator
@@ -133,18 +150,23 @@ pub struct Market {
     pub num_outcomes: u8,
     /// Current market status
     pub status: MarketStatus,
-    /// Winning outcome index (255 if not resolved)
-    pub winning_outcome: u8,
-    /// Whether a winning outcome has been set
-    pub has_winning_outcome: bool,
     /// PDA bump seed
     pub bump: u8,
+    /// Maker fee in basis points. May be negative for rebates.
+    pub maker_fee_bps: i16,
+    /// Taker fee in basis points. May be negative for rebates.
+    pub taker_fee_bps: i16,
     /// Oracle pubkey that can settle this market
     pub oracle: Pubkey,
     /// Question ID (32 bytes)
     pub question_id: [u8; 32],
     /// Condition ID derived from oracle + question_id + num_outcomes
     pub condition_id: [u8; 32],
+    /// Payout numerators for each possible outcome. Only the first
+    /// `num_outcomes` entries are meaningful.
+    pub payout_numerators: [u32; MAX_OUTCOMES as usize],
+    /// Payout denominator computed by the program as the numerator sum.
+    pub payout_denominator: u32,
 }
 
 impl Market {
@@ -168,17 +190,24 @@ impl Market {
             });
         }
 
+        let mut payout_numerators = [0u32; MAX_OUTCOMES as usize];
+        for (index, numerator) in payout_numerators.iter_mut().enumerate() {
+            *numerator = read_u32(data, 120 + (index * 4));
+        }
+
         Ok(Self {
             discriminator,
             market_id: read_u64(data, 8),
             num_outcomes: data[16],
             status: MarketStatus::try_from(data[17])?,
-            winning_outcome: data[18],
-            has_winning_outcome: data[19] != 0,
-            bump: data[20],
+            bump: data[18],
+            maker_fee_bps: i16::from_le_bytes(read_bytes::<2>(data, 20)),
+            taker_fee_bps: i16::from_le_bytes(read_bytes::<2>(data, 22)),
             oracle: read_pubkey(data, 24),
             question_id: read_bytes::<32>(data, 56),
             condition_id: read_bytes::<32>(data, 88),
+            payout_numerators,
+            payout_denominator: read_u32(data, 144),
         })
     }
 
@@ -248,7 +277,7 @@ impl Position {
 }
 
 // ============================================================================
-// OrderStatus Account (24 bytes)
+// OrderStatus Account (32 bytes)
 // ============================================================================
 
 /// Order status account - tracks partial fills and cancellations
@@ -256,14 +285,17 @@ impl Position {
 /// Layout:
 /// - [0..8]   discriminator (8 bytes)
 /// - [8..16]  remaining (8 bytes)
-/// - [16]     is_cancelled (1 byte)
-/// - [17..24] _padding (7 bytes)
+/// - [16..24] base_remaining (8 bytes)
+/// - [24]     is_cancelled (1 byte)
+/// - [25..32] _padding (7 bytes)
 #[derive(Debug, Clone)]
 pub struct OrderStatus {
     /// Account discriminator
     pub discriminator: [u8; 8],
     /// Remaining amount_in to be filled
     pub remaining: u64,
+    /// Remaining base amount to be filled
+    pub base_remaining: u64,
     /// Whether the order has been cancelled
     pub is_cancelled: bool,
 }
@@ -292,7 +324,8 @@ impl OrderStatus {
         Ok(Self {
             discriminator,
             remaining: read_u64(data, 8),
-            is_cancelled: data[16] != 0,
+            base_remaining: read_u64(data, 16),
+            is_cancelled: data[24] != 0,
         })
     }
 
@@ -498,18 +531,26 @@ mod tests {
         data[8..40].copy_from_slice(&[1u8; 32]);
         // operator at offset 40
         data[40..72].copy_from_slice(&[2u8; 32]);
-        // market_count at offset 72
-        data[72..80].copy_from_slice(&5u64.to_le_bytes());
-        // paused at offset 80
-        data[80] = 0;
-        // bump at offset 81
-        data[81] = 255;
+        // manager at offset 72
+        data[72..104].copy_from_slice(&[3u8; 32]);
+        // market_count at offset 104
+        data[104..112].copy_from_slice(&5u64.to_le_bytes());
+        // paused at offset 112
+        data[112] = 0;
+        // bump at offset 113
+        data[113] = 255;
+        // deposit_token_count at offset 114
+        data[114..116].copy_from_slice(&7u16.to_le_bytes());
+        // fee_receiver at offset 116
+        data[116..148].copy_from_slice(&[4u8; 32]);
 
         let exchange = Exchange::deserialize(&data).unwrap();
+        assert_eq!(exchange.manager, Pubkey::new_from_array([3u8; 32]));
         assert_eq!(exchange.market_count, 5);
         assert!(!exchange.paused);
         assert_eq!(exchange.bump, 255);
-        assert_eq!(exchange.deposit_token_count, 0);
+        assert_eq!(exchange.deposit_token_count, 7);
+        assert_eq!(exchange.fee_receiver, Pubkey::new_from_array([4u8; 32]));
     }
 
     #[test]
@@ -522,19 +563,27 @@ mod tests {
         data[16] = 3;
         // status at offset 17
         data[17] = 1; // Active
-                      // winning_outcome at offset 18
-        data[18] = 255;
-        // has_winning_outcome at offset 19
-        data[19] = 0;
-        // bump at offset 20
-        data[20] = 254;
+                      // bump at offset 18
+        data[18] = 254;
+        // fees at offsets 20 and 22
+        data[20..22].copy_from_slice(&(-10i16).to_le_bytes());
+        data[22..24].copy_from_slice(&25i16.to_le_bytes());
+        // payout_numerators at offset 120
+        data[120..124].copy_from_slice(&7u32.to_le_bytes());
+        data[124..128].copy_from_slice(&3u32.to_le_bytes());
+        // payout_denominator at offset 144
+        data[144..148].copy_from_slice(&10u32.to_le_bytes());
 
         let market = Market::deserialize(&data).unwrap();
         assert_eq!(market.market_id, 42);
         assert_eq!(market.num_outcomes, 3);
         assert_eq!(market.status, MarketStatus::Active);
-        assert_eq!(market.winning_outcome, 255);
-        assert!(!market.has_winning_outcome);
+        assert_eq!(market.bump, 254);
+        assert_eq!(market.maker_fee_bps, -10);
+        assert_eq!(market.taker_fee_bps, 25);
+        assert_eq!(market.payout_numerators[0], 7);
+        assert_eq!(market.payout_numerators[1], 3);
+        assert_eq!(market.payout_denominator, 10);
     }
 
     #[test]
@@ -558,11 +607,14 @@ mod tests {
         data[0..8].copy_from_slice(&ORDER_STATUS_DISCRIMINATOR);
         // remaining at offset 8
         data[8..16].copy_from_slice(&1000u64.to_le_bytes());
-        // is_cancelled at offset 16
-        data[16] = 0;
+        // base_remaining at offset 16
+        data[16..24].copy_from_slice(&750u64.to_le_bytes());
+        // is_cancelled at offset 24
+        data[24] = 0;
 
         let order_status = OrderStatus::deserialize(&data).unwrap();
         assert_eq!(order_status.remaining, 1000);
+        assert_eq!(order_status.base_remaining, 750);
         assert!(!order_status.is_cancelled);
     }
 

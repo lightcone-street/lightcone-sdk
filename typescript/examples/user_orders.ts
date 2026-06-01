@@ -6,29 +6,19 @@ async function main() {
   await login(client, keypair);
 
   const snapshot = await client.orders().getUserOrders(50);
-  const counts = snapshot.orders.reduce<[number, number]>(
-    (acc, order) =>
-      order.order_type === "limit"
-        ? [acc[0] + 1, acc[1]]
-        : [acc[0], acc[1] + 1],
-    [0, 0]
+  const limitOrders = snapshot.orders.filter(
+    (order) => order.order_type === "limit"
   );
 
-  console.log(`orders: ${counts[0]} limit / ${counts[1]} trigger`);
+  console.log(`orders: ${limitOrders.length} limit`);
   console.log(`balances: ${snapshot.balances.length} market`);
   console.log(`has more: ${snapshot.has_more}`);
 
-  const firstOrder = snapshot.orders[0];
+  const firstOrder = limitOrders[0];
   if (firstOrder) {
-    if (firstOrder.order_type === "limit") {
-      console.log(
-        `first limit: ${firstOrder.order_hash} ${firstOrder.side} @ ${firstOrder.price}`
-      );
-    } else {
-      console.log(
-        `first trigger: ${firstOrder.trigger_order_id} ${firstOrder.side} @ ${firstOrder.price} (trigger ${firstOrder.trigger_price})`
-      );
-    }
+    console.log(
+      `first limit: ${firstOrder.order_hash} ${firstOrder.side} @ ${firstOrder.price}`
+    );
   }
 
   if (snapshot.has_more && snapshot.next_cursor) {

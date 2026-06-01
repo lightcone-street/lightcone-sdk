@@ -21,15 +21,18 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
+const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
+
 /// Auth mode for HTTP requests.
 enum AuthMode {
     /// User auth via cookie (native) or credentials (WASM).
     Cookie,
-    /// Per-call user auth token override. Used for server-side cookie
-    /// forwarding (e.g. SSR / server functions) where the per-request browser
-    /// cookie can't propagate to the SDK's process-wide token store. On
-    /// WASM this is equivalent to `Cookie` because the browser already
-    /// attaches credentials.
+    /// Per-call raw `Cookie` header override, sent verbatim. Used for
+    /// server-side cookie forwarding (e.g. SSR / server functions) where the
+    /// per-request browser cookies can't propagate to the SDK's process-wide
+    /// token store. Carries whatever auth cookies the browser sent (e.g.
+    /// `"privy-token=…; lightcone-token=…"`). On WASM this is equivalent to
+    /// `Cookie` because the browser already attaches credentials.
     CookieOverride(String),
     /// Admin auth via cookie (native) or credentials (WASM).
     AdminCookie,
@@ -58,7 +61,7 @@ impl LightconeHttp {
         #[cfg(not(target_arch = "wasm32"))]
         {
             builder = builder
-                .timeout(Duration::from_secs(30))
+                .timeout(Duration::from_secs(DEFAULT_HTTP_TIMEOUT_SECS))
                 .pool_max_idle_per_host(10);
         }
 
@@ -129,31 +132,57 @@ impl LightconeHttp {
         url: &str,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
+        self.get_with_query(url, &[], retry).await
+    }
+
+    /// GET with retry and URL-encoded query parameters. Uses cookie auth.
+    pub(crate) async fn get_with_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
             AuthMode::Cookie,
         )
         .await
     }
 
-    /// GET with retry, using an explicit per-call `auth_token` instead of
-    /// the SDK's process-wide token store. Intended for server-side cookie
-    /// forwarding (SSR / server functions).
-    pub(crate) async fn get_with_auth<T: DeserializeOwned>(
+    /// GET with retry, forwarding an explicit per-call raw `Cookie` header
+    /// instead of the SDK's process-wide token store. Intended for server-side
+    /// cookie forwarding (SSR / server functions), where the browser's auth
+    /// cookies must be relayed to the backend verbatim.
+    pub(crate) async fn get_with_cookies<T: DeserializeOwned>(
         &self,
         url: &str,
         retry: RetryPolicy,
-        auth_token: &str,
+        cookie_header: &str,
+    ) -> Result<T, SdkError> {
+        self.get_with_cookies_and_query(url, &[], retry, cookie_header)
+            .await
+    }
+
+    /// GET with retry and URL-encoded query parameters, forwarding an explicit
+    /// per-call raw `Cookie` header.
+    pub(crate) async fn get_with_cookies_and_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+        cookie_header: &str,
     ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
-            AuthMode::CookieOverride(auth_token.to_string()),
+            AuthMode::CookieOverride(cookie_header.to_string()),
         )
         .await
     }
@@ -169,6 +198,7 @@ impl LightconeHttp {
             reqwest::Method::POST,
             url,
             Some(body),
+            &[],
             retry,
             AuthMode::Cookie,
         )
@@ -186,6 +216,7 @@ impl LightconeHttp {
             reqwest::Method::POST,
             url,
             Some(body),
+            &[],
             retry,
             AuthMode::AdminCookie,
         )
@@ -198,10 +229,21 @@ impl LightconeHttp {
         url: &str,
         retry: RetryPolicy,
     ) -> Result<T, SdkError> {
+        self.admin_get_with_query(url, &[], retry).await
+    }
+
+    /// GET with retry and URL-encoded query parameters. Uses admin cookie auth.
+    pub(crate) async fn admin_get_with_query<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        query: &[(&str, String)],
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
             url,
             None::<&()>,
+            query,
             retry,
             AuthMode::AdminCookie,
         )
@@ -213,12 +255,15 @@ impl LightconeHttp {
         method: reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         retry: RetryPolicy,
         auth_mode: AuthMode,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
-                return self.send_and_parse(&method, url, body, &auth_mode).await;
+                return self
+                    .send_and_parse(&method, url, body, query, &auth_mode)
+                    .await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
             RetryPolicy::Custom(c) => c.clone(),
@@ -228,7 +273,7 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_request::<ApiResponse<T>, B>(&method, url, body, &auth_mode)
+                .send_request::<ApiResponse<T>, B>(&method, url, body, query, &auth_mode)
                 .await
             {
                 Ok((api_resp, request_id)) => {
@@ -291,10 +336,11 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         auth_mode: &AuthMode,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_request::<ApiResponse<T>, B>(method, url, body, auth_mode)
+            .send_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
             .await?;
         Self::parse_api_response(api_resp, request_id)
     }
@@ -318,18 +364,22 @@ impl LightconeHttp {
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
+        query: &[(&str, String)],
         auth_mode: &AuthMode,
     ) -> Result<(T, String), HttpError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
+        if !query.is_empty() {
+            req = req.query(query);
+        }
 
         match auth_mode {
             AuthMode::Cookie => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
                     if let Some(token) = self.auth_token.read().await.as_ref() {
-                        req = req.header("Cookie", format!("auth_token={}", token));
+                        req = req.header("Cookie", format!("lightcone-token={}", token));
                     }
                 }
 
@@ -338,16 +388,16 @@ impl LightconeHttp {
                     req = req.fetch_credentials_include();
                 }
             }
-            AuthMode::CookieOverride(token) => {
+            AuthMode::CookieOverride(cookie_header) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    req = req.header("Cookie", format!("auth_token={}", token));
+                    req = req.header("Cookie", cookie_header);
                 }
-                // On WASM the browser is already attaching the cookie via
-                // credentials mode; the per-call token is unused.
+                // On WASM the browser is already attaching the cookies via
+                // credentials mode; the per-call header is unused.
                 #[cfg(target_arch = "wasm32")]
                 {
-                    let _ = token;
+                    let _ = cookie_header;
                     req = req.fetch_credentials_include();
                 }
             }
@@ -378,7 +428,7 @@ impl LightconeHttp {
                 for value in resp.headers().get_all("set-cookie").iter() {
                     if let Ok(header_str) = value.to_str() {
                         if let Some(token) = header_str
-                            .strip_prefix("auth_token=")
+                            .strip_prefix("lightcone-token=")
                             .and_then(|rest| rest.split(';').next())
                         {
                             if !token.is_empty() {

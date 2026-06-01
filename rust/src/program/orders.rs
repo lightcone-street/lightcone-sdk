@@ -18,7 +18,7 @@ use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
 use crate::shared::SubmitOrderRequest;
 
 // ============================================================================
-// Signed Order (225 bytes)
+// Signed Order (233 bytes)
 // ============================================================================
 
 /// Signed order structure with full context and signature.
@@ -102,7 +102,7 @@ impl OrderPayload {
         }
     }
 
-    /// Build the raw 161-byte order message from the signed fields.
+    /// Build the raw 169-byte order message from the signed fields.
     /// This is hashed (keccak256) and hex-encoded to produce the bytes that users sign.
     fn signing_message(&self) -> [u8; Self::HASH_SIZE] {
         let mut data = [0u8; Self::HASH_SIZE];
@@ -323,7 +323,7 @@ impl OrderPayload {
 }
 
 // ============================================================================
-// Order (29 bytes)
+// Order (37 bytes)
 // ============================================================================
 
 /// Compact order format for on-chain transaction data.
@@ -511,6 +511,7 @@ pub fn cancel_order_message(order_hash: &str) -> Vec<u8> {
 /// Build the message bytes for cancelling a trigger order.
 ///
 /// The message is the trigger_order_id as UTF-8 bytes.
+#[cfg(feature = "trigger_orders")]
 pub fn cancel_trigger_order_message(trigger_order_id: &str) -> Vec<u8> {
     trigger_order_id.as_bytes().to_vec()
 }
@@ -922,6 +923,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "trigger_orders")]
     fn test_cancel_trigger_order_message() {
         let id = "trigger-order-uuid-123";
         let message = cancel_trigger_order_message(id);

@@ -27,7 +27,7 @@ from .retry import RetryPolicy, delay_for_attempt
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TIMEOUT_SECS = 30
+DEFAULT_TIMEOUT_SECS = 180
 
 
 class _AuthMode(str, Enum):
@@ -135,6 +135,8 @@ class LightconeHttp:
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
         """Make a GET request with user auth cookie injection."""
         return await self._request_with_retry(
@@ -142,29 +144,32 @@ class LightconeHttp:
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE,
+            params=params,
         )
 
-    async def get_with_auth(
+    async def get_with_cookies(
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
-        auth_token: str,
+        cookie_header: str,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
-        """Make a GET request with an explicit per-call ``auth_token`` cookie.
+        """Make a GET request forwarding an explicit per-call raw ``Cookie`` header.
 
-        Intended for server-side cookie forwarding (SSR / server functions)
-        where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. Bypasses both the stored ``auth_token``
-        and the response-side ``Set-Cookie`` capture so per-call overrides
-        never mutate shared state.
+        The header (e.g. ``"privy-token=…; lightcone-token=…"``) is sent verbatim.
+        Intended for server-side cookie forwarding (SSR / server functions) where
+        the per-request browser cookies can't propagate to the SDK's process-wide
+        cookie store. Bypasses both the stored ``auth_token`` and the response-side
+        ``Set-Cookie`` capture so per-call overrides never mutate shared state.
         """
         return await self._request_with_retry(
             "GET",
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE_OVERRIDE,
-            auth_token_override=auth_token,
+            cookie_header_override=cookie_header,
+            params=params,
         )
 
     async def post(
@@ -201,6 +206,8 @@ class LightconeHttp:
         self,
         path: str,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
+        *,
+        params: Optional[dict[str, str]] = None,
     ) -> Any:
         """Make a GET request with admin cookie injection."""
         return await self._request_with_retry(
@@ -208,6 +215,7 @@ class LightconeHttp:
             path,
             retry_policy=retry_policy,
             auth_mode=_AuthMode.ADMIN_COOKIE,
+            params=params,
         )
 
     async def _request_with_retry(
@@ -217,7 +225,8 @@ class LightconeHttp:
         *,
         retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
         """Make an HTTP request with retry logic and ApiResponse unwrapping."""
@@ -228,7 +237,8 @@ class LightconeHttp:
                 method,
                 path,
                 auth_mode=auth_mode,
-                auth_token_override=auth_token_override,
+                cookie_header_override=cookie_header_override,
+                params=params,
                 **kwargs,
             )
 
@@ -240,7 +250,8 @@ class LightconeHttp:
                     method,
                     path,
                     auth_mode=auth_mode,
-                    auth_token_override=auth_token_override,
+                    cookie_header_override=cookie_header_override,
+                    params=params,
                     **kwargs,
                 )
             except ApiRejected:
@@ -302,14 +313,16 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> Any:
         payload, request_id = await self._send_request(
             method,
             path,
             auth_mode=auth_mode,
-            auth_token_override=auth_token_override,
+            cookie_header_override=cookie_header_override,
+            params=params,
             **kwargs,
         )
         return self._parse_api_response(payload, request_id)
@@ -336,7 +349,8 @@ class LightconeHttp:
         path: str,
         *,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
+        params: Optional[dict[str, str]] = None,
         **kwargs: Any,
     ) -> tuple[Any, str]:
         """Send one request and return the raw decoded JSON payload plus request id."""
@@ -344,12 +358,13 @@ class LightconeHttp:
         request_id = str(uuid.uuid4())
         headers = dict(kwargs.pop("headers", {}))
         headers["x-request-id"] = request_id
-        headers.update(self._auth_headers(auth_mode, auth_token_override))
+        headers.update(self._auth_headers(auth_mode, cookie_header_override))
 
         async with session.request(
             method,
             self._resolve_url(path),
             headers=headers,
+            params=params,
             **kwargs,
         ) as response:
             if 200 <= response.status < 300:
@@ -382,14 +397,16 @@ class LightconeHttp:
     def _auth_headers(
         self,
         auth_mode: _AuthMode,
-        auth_token_override: Optional[str] = None,
+        cookie_header_override: Optional[str] = None,
     ) -> dict[str, str]:
         headers: dict[str, str] = {}
         if auth_mode == _AuthMode.COOKIE_OVERRIDE:
-            if auth_token_override:
-                headers["Cookie"] = f"auth_token={auth_token_override}"
+            if cookie_header_override:
+                # Forward the supplied Cookie header verbatim (may carry
+                # privy-token and/or lightcone-token).
+                headers["Cookie"] = cookie_header_override
         elif auth_mode == _AuthMode.COOKIE and self._auth_token:
-            headers["Cookie"] = f"auth_token={self._auth_token}"
+            headers["Cookie"] = f"lightcone-token={self._auth_token}"
         elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:
             headers["Cookie"] = f"admin_token={self._admin_token}"
         return headers
@@ -399,8 +416,8 @@ class LightconeHttp:
         if hasattr(headers, "getall"):
             set_cookie_headers = list(headers.getall("set-cookie", []))
         for cookie_header in set_cookie_headers:
-            if cookie_header.startswith("auth_token="):
-                token = cookie_header.split("auth_token=", 1)[1].split(";", 1)[0]
+            if cookie_header.startswith("lightcone-token="):
+                token = cookie_header.split("lightcone-token=", 1)[1].split(";", 1)[0]
                 if token:
                     self._auth_token = token
             elif cookie_header.startswith("admin_token="):

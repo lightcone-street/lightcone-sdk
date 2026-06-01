@@ -17,6 +17,7 @@ import { LightconeHttp, RetryPolicy } from "./http";
 import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "./env";
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
+import { RpcFailoverState } from "./rpcFailover";
 import { DepositSource, type PubkeyStr } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
@@ -44,18 +45,27 @@ class AuthState {
 export class LightconeClient implements ClientContext {
   readonly http: LightconeHttp;
   readonly programId: PublicKey;
-  readonly connection?: Connection;
+  readonly primaryConnection?: Connection;
+  readonly backupConnection?: Connection;
+  readonly rpcFailoverState: RpcFailoverState;
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
   private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
 
+  /** @deprecated Use primaryConnection — kept for ClientContext compat. */
+  get connection(): Connection | undefined {
+    return this.primaryConnection;
+  }
+
   constructor(params: {
     http: LightconeHttp;
     wsConfig: WsConfig;
     programId?: PublicKey;
-    connection?: Connection;
+    primaryConnection?: Connection;
+    backupConnection?: Connection;
+    rpcFailoverState?: RpcFailoverState;
     depositSource?: DepositSource;
     signingStrategy?: SigningStrategy;
     orderNonce?: number;
@@ -64,7 +74,10 @@ export class LightconeClient implements ClientContext {
   }) {
     this.http = params.http;
     this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
-    this.connection = params.connection;
+    this.primaryConnection = params.primaryConnection;
+    this.backupConnection = params.backupConnection;
+    this.rpcFailoverState =
+      params.rpcFailoverState ?? new RpcFailoverState();
     this.depositSourceValue = params.depositSource ?? DepositSource.Global;
     this.signingStrategyValue = params.signingStrategy;
     this.orderNonceValue = params.orderNonce;
@@ -115,9 +128,9 @@ export class LightconeClient implements ClientContext {
   // ── Auth token (cookie) ─────────────────────────────────────────────
 
   /**
-   * Get the current `auth_token` cookie value, if any. Populated by the SDK
+   * Get the current `lightcone-token` cookie value, if any. Populated by the SDK
    * after a successful login, then attached on every authed request. Useful
-   * for forwarding the token through the `*WithAuth` methods, or
+   * for forwarding the token through the `*WithCookies` methods, or
    * persisting the session across processes.
    */
   async authToken(): Promise<string | undefined> {
@@ -125,9 +138,9 @@ export class LightconeClient implements ClientContext {
   }
 
   /**
-   * Clear the cached `auth_token`. Subsequent authed calls will go out
+   * Clear the cached `lightcone-token`. Subsequent authed calls will go out
    * without a `Cookie` header (and 401) unless they use a
-   * `*WithAuth` variant.
+   * `*WithCookies` variant.
    */
   async clearAuthToken(): Promise<void> {
     await this.http.clearAuthToken();
@@ -234,9 +247,13 @@ export class LightconeClient implements ClientContext {
       http: this.http,
       wsConfig: { ...this.wsConfigValue },
       programId: this.programId,
-      connection: this.connection
-        ? new Connection(this.connection.rpcEndpoint)
+      primaryConnection: this.primaryConnection
+        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed" })
         : undefined,
+      backupConnection: this.backupConnection
+        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed" })
+        : undefined,
+      rpcFailoverState: this.rpcFailoverState,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
       orderNonce: this.orderNonceValue,
@@ -252,7 +269,8 @@ export class LightconeClientBuilder {
   private programIdValue: PublicKey = envProgramId(LightconeEnv.Prod);
   private depositSourceValue: DepositSource = DepositSource.Global;
   private signingStrategyValue?: SigningStrategy;
-  private rpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
+  private primaryRpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
+  private backupRpcUrlValue?: string;
 
   /**
    * Set the deployment environment. Configures the API URL, WebSocket URL,
@@ -265,7 +283,7 @@ export class LightconeClientBuilder {
     this.baseUrlValue = apiUrl(environment);
     this.wsUrlValue = wsUrl(environment);
     this.programIdValue = envProgramId(environment);
-    this.rpcUrlValue = rpcUrl(environment);
+    this.primaryRpcUrlValue = rpcUrl(environment);
     return this;
   }
 
@@ -322,7 +340,13 @@ export class LightconeClientBuilder {
   }
 
   rpcUrl(url: string): LightconeClientBuilder {
-    this.rpcUrlValue = url;
+    this.primaryRpcUrlValue = url;
+    return this;
+  }
+
+  /** Set a backup Solana RPC URL for automatic failover. */
+  backupRpcUrl(url: string): LightconeClientBuilder {
+    this.backupRpcUrlValue = url;
     return this;
   }
 
@@ -340,8 +364,11 @@ export class LightconeClientBuilder {
       programId: this.programIdValue,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
-      connection: this.rpcUrlValue
-        ? new Connection(this.rpcUrlValue)
+      primaryConnection: this.primaryRpcUrlValue
+        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed" })
+        : undefined,
+      backupConnection: this.backupRpcUrlValue
+        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed" })
         : undefined,
       authCredentials: this.authCredentials,
     });

@@ -8,8 +8,11 @@ import {
   buildInitPositionTokensIx,
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
+  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
+  buildClosePositionAltIx,
+  buildClosePositionTokenAccountsIx,
 } from "../../program/instructions";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
@@ -20,8 +23,11 @@ import type {
   InitPositionTokensParams,
   ExtendPositionTokensParams,
   DepositToGlobalParams,
+  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
+  ClosePositionAltParams,
+  ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { PubkeyStr } from "../../shared";
 import type { DepositTokenBalance } from "./index";
@@ -62,8 +68,8 @@ export class Positions {
 
   /**
    * Get all conditional-token positions for the authenticated user across
-   * every market. The wallet is resolved server-side from the `auth_token`
-   * cookie, so no parameter is required. Same response shape as `get()`.
+   * every market. The wallet is resolved server-side from the auth cookie,
+   * so no parameter is required. Same response shape as `get()`.
    *
    * `GET /api/users/positions`
    */
@@ -73,7 +79,7 @@ export class Positions {
   }
 
   /**
-   * Same as {@link positions}, but uses the supplied `authToken` for this
+   * Same as {@link positions}, but uses the supplied `cookieHeader` for this
    * call instead of the SDK's process-wide cookie store.
    *
    * Intended for server-side cookie forwarding (SSR / server functions)
@@ -82,18 +88,18 @@ export class Positions {
    * because the runtime is already attaching the cookie via
    * `credentials: "include"`.
    */
-  async positionsWithAuth(authToken: string): Promise<PositionsResponse> {
+  async positionsWithCookies(cookieHeader: string): Promise<PositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/positions`;
-    return this.client.http.getWithAuth<PositionsResponse>(
+    return this.client.http.getWithCookies<PositionsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
   /**
    * Get the authenticated user's positions in a specific market. The wallet
-   * is resolved server-side from the `auth_token` cookie.
+   * is resolved server-side from the auth cookie.
    *
    * `GET /api/users/markets/{market_pubkey}/positions`
    */
@@ -103,26 +109,26 @@ export class Positions {
   }
 
   /**
-   * Same as {@link positionsForMarket}, but uses the supplied `authToken`
+   * Same as {@link positionsForMarket}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store. For
    * server-side cookie forwarding (SSR / server functions).
    */
-  async positionsForMarketWithAuth(
+  async positionsForMarketWithCookies(
     marketPubkey: string,
-    authToken: string,
+    cookieHeader: string,
   ): Promise<MarketPositionsResponse> {
     const url = `${this.client.http.baseUrl()}/api/users/markets/${encodeURIComponent(marketPubkey)}/positions`;
-    return this.client.http.getWithAuth<MarketPositionsResponse>(
+    return this.client.http.getWithCookies<MarketPositionsResponse>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
   /**
    * Get SPL deposit-token balances for the authenticated user.
    *
-   * The wallet is resolved server-side from the `auth_token` cookie, so no
+   * The wallet is resolved server-side from the auth cookie, so no
    * parameter is required. Returns balances keyed by mint pubkey for every
    * deposit token registered in the backend's `deposit_token_metadata`.
    * An empty object means the user has none of the tracked balances — this
@@ -137,7 +143,7 @@ export class Positions {
   }
 
   /**
-   * Same as {@link depositTokenBalances}, but uses the supplied `authToken`
+   * Same as {@link depositTokenBalances}, but uses the supplied `cookieHeader`
    * for this call instead of the SDK's process-wide cookie store.
    *
    * Intended for server-side cookie forwarding (SSR / server functions)
@@ -146,14 +152,14 @@ export class Positions {
    * {@link depositTokenBalances} because the runtime is already attaching
    * the cookie via `credentials: "include"`.
    */
-  async depositTokenBalancesWithAuth(
-    authToken: string,
+  async depositTokenBalancesWithCookies(
+    cookieHeader: string,
   ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
     const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
-    return this.client.http.getWithAuth<Record<PubkeyStr, DepositTokenBalance>>(
+    return this.client.http.getWithCookies<Record<PubkeyStr, DepositTokenBalance>>(
       url,
       RetryPolicy.Idempotent,
-      authToken,
+      cookieHeader,
     );
   }
 
@@ -161,16 +167,15 @@ export class Positions {
 
   redeemWinningsIx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): TransactionInstruction {
-    return buildRedeemWinningsIx(params, winningOutcome, this.client.programId);
+    return buildRedeemWinningsIx(params, outcomeIndex, this.client.programId);
   }
 
   withdrawFromPositionIx(
-    params: WithdrawFromPositionParams,
-    isToken2022: boolean
+    params: WithdrawFromPositionParams
   ): TransactionInstruction {
-    return buildWithdrawFromPositionIx(params, isToken2022, this.client.programId);
+    return buildWithdrawFromPositionIx(params, this.client.programId);
   }
 
   initPositionTokensIx(
@@ -191,6 +196,13 @@ export class Positions {
     return buildDepositToGlobalIx(params, this.client.programId);
   }
 
+  depositToGlobalIxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): TransactionInstruction {
+    return buildDepositToGlobalIxWithAlt(params, altContext, this.client.programId);
+  }
+
   globalToMarketDepositIx(
     params: GlobalToMarketDepositParams,
     numOutcomes: number
@@ -202,21 +214,33 @@ export class Positions {
     return buildWithdrawFromGlobalIx(params, this.client.programId);
   }
 
+  closePositionAltIx(params: ClosePositionAltParams): TransactionInstruction {
+    return buildClosePositionAltIx(params, this.client.programId);
+  }
+
+  closePositionTokenAccountsIx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): TransactionInstruction {
+    return buildClosePositionTokenAccountsIx(
+      params,
+      numOutcomes,
+      this.client.programId
+    );
+  }
+
   // ── Transaction builders (_tx convenience wrappers) ─────────────────
 
   redeemWinningsTx(
     params: RedeemWinningsParams,
-    winningOutcome: number
+    outcomeIndex: number
   ): Transaction {
-    const ix = this.redeemWinningsIx(params, winningOutcome);
+    const ix = this.redeemWinningsIx(params, outcomeIndex);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
-  withdrawFromPositionTx(
-    params: WithdrawFromPositionParams,
-    isToken2022: boolean
-  ): Transaction {
-    const ix = this.withdrawFromPositionIx(params, isToken2022);
+  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
+    const ix = this.withdrawFromPositionIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
@@ -233,11 +257,19 @@ export class Positions {
     numOutcomes: number
   ): Transaction {
     const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   depositToGlobalTx(params: DepositToGlobalParams): Transaction {
     const ix = this.depositToGlobalIx(params);
+    return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  depositToGlobalTxWithAlt(
+    params: DepositToGlobalParams,
+    altContext: DepositToGlobalAltContext
+  ): Transaction {
+    const ix = this.depositToGlobalIxWithAlt(params, altContext);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
@@ -252,6 +284,19 @@ export class Positions {
   withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
     const ix = this.withdrawFromGlobalIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  closePositionAltTx(params: ClosePositionAltParams): Transaction {
+    const ix = this.closePositionAltIx(params);
+    return new Transaction({ feePayer: params.operator }).add(ix);
+  }
+
+  closePositionTokenAccountsTx(
+    params: ClosePositionTokenAccountsParams,
+    numOutcomes: number
+  ): Transaction {
+    const ix = this.closePositionTokenAccountsIx(params, numOutcomes);
+    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   // ── Builder factories ──────────────────────────────────────────────

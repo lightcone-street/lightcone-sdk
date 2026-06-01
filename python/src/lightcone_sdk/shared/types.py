@@ -27,7 +27,7 @@ class Side(IntEnum):
     ASK = 1
 
     def label(self) -> str:
-        return "Bid" if self == Side.BID else "Ask"
+        return "Buy" if self == Side.BID else "Sell"
 
     def as_wire(self) -> str:
         return "bid" if self == Side.BID else "ask"

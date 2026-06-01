@@ -23,11 +23,11 @@ export enum LightconeEnv {
 export function apiUrl(environment: LightconeEnv): string {
   switch (environment) {
     case LightconeEnv.Local:
-      return "https://local-api.lightcone.xyz";
+      return "https://api.local.lightcone.xyz";
     case LightconeEnv.Staging:
-      return "https://tapi2.lightcone.xyz";
+      return "https://api.staging.lightcone.xyz";
     case LightconeEnv.Prod:
-      return "https://tapi.lightcone.xyz";
+      return "https://api.lightcone.xyz";
   }
 }
 
@@ -35,11 +35,11 @@ export function apiUrl(environment: LightconeEnv): string {
 export function wsUrl(environment: LightconeEnv): string {
   switch (environment) {
     case LightconeEnv.Local:
-      return "wss://local-ws.lightcone.xyz/ws";
+      return "wss://ws.local.lightcone.xyz/ws";
     case LightconeEnv.Staging:
-      return "wss://tws2.lightcone.xyz/ws";
+      return "wss://ws.staging.lightcone.xyz/ws";
     case LightconeEnv.Prod:
-      return "wss://tws.lightcone.xyz/ws";
+      return "wss://ws.lightcone.xyz/ws";
   }
 }
 
@@ -55,14 +55,24 @@ export function rpcUrl(environment: LightconeEnv): string {
   }
 }
 
-/** On-chain Lightcone program ID for the given environment. */
+/**
+ * On-chain Lightcone program ID for the given environment.
+ *
+ * If the `SDK_PROGRAM_ID` environment variable is set, its value is used
+ * regardless of the selected environment.
+ */
 export function programId(environment: LightconeEnv): PublicKey {
+  const override_id = typeof process !== "undefined" ? process.env.SDK_PROGRAM_ID : undefined;
+  if (override_id) {
+    return new PublicKey(override_id);
+  }
   switch (environment) {
     case LightconeEnv.Local:
+      return new PublicKey("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago");
     case LightconeEnv.Staging:
-      return new PublicKey("H3qkHTWUDUUw4ZvGNPdwdU4CYqks69bijo1CzVR12mq");
+      return new PublicKey("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE");
     case LightconeEnv.Prod:
-      return new PublicKey("8nzsoyHZFYig3uN3M717Q47MtLqzx2V2UAKaPTqDy5rV");
+      return new PublicKey("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK");
   }
 }
 

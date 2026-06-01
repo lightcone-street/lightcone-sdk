@@ -291,7 +291,20 @@ async fn run_task(mut state: TaskState) {
                 state.emit(WsEvent::MaxReconnectReached);
                 return;
             }
-            DisconnectReason::PongTimeout | DisconnectReason::Error(_) => {
+            DisconnectReason::PongTimeout => {
+                if state.should_reconnect() {
+                    state
+                        .ready_state
+                        .store(ReadyState::Connecting as u16, Ordering::SeqCst);
+                    backoff_sleep(&mut state, false).await;
+                    drain_commands_to_pending(&mut state);
+                    continue;
+                }
+                state.emit(WsEvent::MaxReconnectReached);
+                return;
+            }
+            DisconnectReason::Error(reason) => {
+                tracing::debug!("WebSocket reconnecting after error: {}", reason);
                 if state.should_reconnect() {
                     state
                         .ready_state
@@ -461,7 +474,7 @@ async fn run_connected(
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /// Attempt to establish a WebSocket connection with a 30-second timeout.
-/// If an auth token is available, includes it as a `Cookie: auth_token=<jwt>` header
+/// If an auth token is available, includes it as a `Cookie: lightcone-token=<jwt>` header
 /// in the HTTP upgrade request.
 async fn attempt_connect(
     url: &str,
@@ -475,7 +488,7 @@ async fn attempt_connect(
         if let Some(token) = token_lock.read().await.as_ref() {
             request.headers_mut().insert(
                 "Cookie",
-                format!("auth_token={}", token)
+                format!("lightcone-token={}", token)
                     .parse()
                     .map_err(|e| format!("Invalid cookie header: {}", e))?,
             );

@@ -15,7 +15,9 @@ pub use accounts::{
     Exchange, GlobalDepositToken, Market, OrderStatus, Orderbook, Position, UserNonce,
 };
 pub use constants::*;
-pub use envelope::{LimitOrderEnvelope, OrderEnvelope, TriggerOrderEnvelope};
+#[cfg(feature = "trigger_orders")]
+pub use envelope::TriggerOrderEnvelope;
+pub use envelope::{LimitOrderEnvelope, OrderEnvelope};
 pub use error::{SdkError, SdkResult};
 pub use instructions::*;
 pub use orders::{

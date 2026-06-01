@@ -93,7 +93,7 @@ Fetch positions for a user in a specific market. Public path-based endpoint; no 
 async fn positions(&self) -> Result<PositionsResponse, SdkError>
 ```
 
-Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_auth` story.
+Fetch all positions for the **authenticated** user across every market. The wallet is resolved server-side from the `auth_token` cookie. See [the Authentication section](../../../README.md#authentication) for the cookie / `_with_cookies` story.
 
 ### `positions_for_market`
 
@@ -106,7 +106,7 @@ async fn positions_for_market(
 
 Fetch positions for the authenticated user in a specific market.
 
-### `positions_with_auth` / `positions_for_market_with_auth` / `deposit_token_balances_with_auth`
+### `positions_with_cookies` / `positions_for_market_with_cookies` / `deposit_token_balances_with_cookies`
 
 Same as the no-arg authed variants above, but accept an explicit `auth_token: &str`. For SSR / Dioxus server-function callers that need to forward the per-request cookie. See [the Authentication section](../../../README.md#authentication).
 
@@ -117,17 +117,17 @@ Each operation has an `_ix` method returning an `Instruction` (or `Result<Instru
 #### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
-fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, winning_outcome: u8) -> Instruction
-fn redeem_winnings_tx(&self, params: RedeemWinningsParams, winning_outcome: u8) -> Result<Transaction, SdkError>
+fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, outcome_index: u8) -> Instruction
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) -> Result<Transaction, SdkError>
 ```
 
-Build a RedeemWinnings instruction/transaction — redeem winning conditional tokens for the deposit collateral after market resolution.
+Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
 
 #### `withdraw_from_position_ix` / `withdraw_from_position_tx`
 
 ```rust
-fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams, is_token_2022: bool) -> Instruction
-fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams, is_token_2022: bool) -> Result<Transaction, SdkError>
+fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction
+fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Result<Transaction, SdkError>
 ```
 
 Build a WithdrawFromPosition instruction/transaction — withdraw conditional tokens from a position account to the user's wallet.
@@ -168,6 +168,24 @@ fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_o
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
 
+#### `close_position_alt_ix` / `close_position_alt_tx`
+
+```rust
+fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction
+fn close_position_alt_tx(&self, params: ClosePositionAltParams) -> Result<Transaction, SdkError>
+```
+
+Build a ClosePositionAlt instruction/transaction — deactivate or close a resolved position lookup table.
+
+#### `close_position_token_accounts_ix` / `close_position_token_accounts_tx`
+
+```rust
+fn close_position_token_accounts_ix(&self, params: &ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Instruction, SdkError>
+fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+```
+
+Build a ClosePositionTokenAccounts instruction/transaction — close empty position-owned conditional token accounts.
+
 ### Deposit / Withdraw / Merge Builders
 
 The preferred way to build deposit, withdraw, and merge instructions.
@@ -190,7 +208,7 @@ async fn withdraw(&self) -> WithdrawBuilder<'a>
 
 Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
 
-For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` and `.token_2022()` as needed.
+For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` as needed.
 
 #### `merge`
 
@@ -253,7 +271,7 @@ Raw response types are available in `lightcone::domain::position::wire`, includi
 pub struct GlobalDeposit {
     pub deposit_mint: String,
     pub symbol: String,
-    pub balance: String,
+    pub balance: Decimal,
 }
 ```
 
