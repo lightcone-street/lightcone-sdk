@@ -49,25 +49,8 @@ jobs:
         run: cargo cooldown check
 
       - name: Run all examples
-        run: |
-          for file in examples/*.rs; do
-            name=$(basename "$file" .rs)
-            case "$name" in
-              admin_*)
-                echo "::group::$name (skipped — requires admin keypair)"
-                echo "::endgroup::"
-                continue
-                ;;
-              faucet_claim)
-                echo "::group::$name (skipped)"
-                echo "::endgroup::"
-                continue
-                ;;
-            esac
-            echo "::group::$name"
-            timeout 120 cargo run --example "$name" --features "native,trigger_orders"
-            echo "::endgroup::"
-          done
+        working-directory: .
+        run: ./scripts/run-examples.sh --sdk rs
 
   typescript-examples:
     name: TypeScript Examples
@@ -93,29 +76,11 @@ jobs:
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
-        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+        run: echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
       - name: Run all examples
-        run: |
-          for file in examples/*.ts; do
-            name=$(basename "$file" .ts)
-            if [ "$name" = "common" ]; then continue; fi
-            case "$name" in
-              admin_*)
-                echo "::group::$name (skipped — requires admin keypair)"
-                echo "::endgroup::"
-                continue
-                ;;
-              faucet_claim)
-                echo "::group::$name (skipped)"
-                echo "::endgroup::"
-                continue
-                ;;
-            esac
-            echo "::group::$name"
-            timeout 120 npx tsx "$file"
-            echo "::endgroup::"
-          done
+        working-directory: .
+        run: ./scripts/run-examples.sh --sdk ts
 
   python-examples:
     name: Python Examples
@@ -140,26 +105,8 @@ jobs:
         run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
 
       - name: Set wallet path
-        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+        run: echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
       - name: Run all examples
-        run: |
-          for file in examples/*.py; do
-            name=$(basename "$file" .py)
-            if [ "$name" = "common" ]; then continue; fi
-            case "$name" in
-              admin_*)
-                echo "::group::$name (skipped — requires admin keypair)"
-                echo "::endgroup::"
-                continue
-                ;;
-              faucet_claim)
-                echo "::group::$name (skipped)"
-                echo "::endgroup::"
-                continue
-                ;;
-            esac
-            echo "::group::$name"
-            timeout 120 python "$file"
-            echo "::endgroup::"
-          done
+        working-directory: .
+        run: ./scripts/run-examples.sh --sdk py
