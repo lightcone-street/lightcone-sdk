@@ -266,6 +266,8 @@ let client = LightconeClient::builder()
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.base_url()`, `.ws_url()`, `.rpc_url()`) take precedence when called after `.env()`.
 
+The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
+
 `LightconeEnv::Local` targets `https://api.local.lightcone.xyz` for REST and `wss://ws.local.lightcone.xyz/ws` for WebSocket connections.
 
 ### RPC Failover

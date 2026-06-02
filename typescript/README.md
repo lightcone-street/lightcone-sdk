@@ -271,6 +271,8 @@ const localClient = LightconeClient.builder()
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual URL overrides (`.baseUrl()`, `.wsUrl()`, `.rpcUrl()`) take precedence when called after `.env()`.
 
+The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
+
 ## Examples
 
 All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.

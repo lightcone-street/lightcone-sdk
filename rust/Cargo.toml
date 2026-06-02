@@ -203,5 +203,5 @@ solana-rpc = ["dep:solana-client", "dep:solana-commitment-config"]
 trigger_orders = []
 
 # Convenience bundles
-native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls", "dep:tokio"]
+native = ["http", "native-auth", "ws-native", "solana-rpc", "reqwest/rustls-tls-native-roots", "dep:tokio"]
 wasm = ["http", "ws-wasm"]

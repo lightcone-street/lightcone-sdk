@@ -43,8 +43,15 @@ export function wsUrl(environment: LightconeEnv): string {
   }
 }
 
-/** Solana RPC URL for the given environment. */
+/**
+ * Solana RPC URL for the given environment.
+ *
+ * If the `SDK_RPC_URL` environment variable is set, its value is used
+ * regardless of the selected environment.
+ */
 export function rpcUrl(environment: LightconeEnv): string {
+  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_RPC_URL : undefined;
+  if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
       return "https://api.devnet.solana.com";

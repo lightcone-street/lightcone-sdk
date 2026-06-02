@@ -46,7 +46,14 @@ class LightconeEnv(Enum):
 
     @property
     def rpc_url(self) -> str:
-        """Solana RPC URL for this environment."""
+        """Solana RPC URL for this environment.
+
+        If the ``SDK_RPC_URL`` environment variable is set, its value is used
+        regardless of the selected environment.
+        """
+        override = os.environ.get("SDK_RPC_URL")
+        if override:
+            return override
         return {
             LightconeEnv.LOCAL: "https://api.devnet.solana.com",
             LightconeEnv.STAGING: "https://api.devnet.solana.com",

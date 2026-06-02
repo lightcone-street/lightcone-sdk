@@ -134,6 +134,8 @@ local_client = (
 
 Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-chain program ID automatically. Individual overrides such as `.base_url()`, `.ws_url()`, and `.rpc_url()` still take precedence when called after `.env()`.
 
+The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
+
 ### Step 1: Find a Market
 
 ```python
