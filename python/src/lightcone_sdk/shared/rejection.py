@@ -22,6 +22,17 @@ class RejectionCode(str):
         "NOT_ORDER_MAKER": "Not Order Maker",
         "ORDER_ALREADY_FILLED": "Order Already Filled",
         "ORDER_ALREADY_CANCELLED": "Order Already Cancelled",
+        "DUPLICATE_ORDER": "Duplicate Order",
+        "POST_ONLY_WOULD_CROSS": "Post Only Would Cross",
+        "FOK_NO_FILL": "FOK No Fill",
+        "IOC_NO_FILL": "IOC No Fill",
+        "WOULD_CROSS_UNAVAILABLE_LIQUIDITY": "Would Cross Unavailable Liquidity",
+        "WOULD_CROSS_BOOK": "Would Cross Book",
+        "MARKET_NOT_FOUND": "Market Not Found",
+        "ORDERBOOK_NOT_FOUND": "Orderbook Not Found",
+        "TOKEN_PAIR_MISMATCH": "Token Pair Mismatch",
+        "INSUFFICIENT_MARKET_FEE_BUFFER": "Insufficient Market Fee Buffer",
+        "SIGNATURE_EXPIRED": "Signature Expired",
     }
 
     def __new__(cls, value: str) -> "RejectionCode":

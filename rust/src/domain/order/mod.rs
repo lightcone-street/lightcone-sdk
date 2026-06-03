@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 pub use client::{
     CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, FillInfo, SubmitOrderResponse,
-    UserOrdersResponse,
+    SubmitOrderStatus, UserOrdersResponse,
 };
 #[cfg(feature = "trigger_orders")]
 pub use client::{CancelTriggerBody, CancelTriggerSuccess, TriggerOrderResponse};

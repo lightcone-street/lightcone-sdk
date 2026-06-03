@@ -6,6 +6,7 @@ from . import (
     LimitOrder,
     OrderStatus,
     SubmitOrderResponse,
+    SubmitOrderStatus,
     FillInfo,
     TriggerOrder,
     UserSnapshotOrder,
@@ -49,6 +50,7 @@ def submit_response_from_dict(d: dict) -> SubmitOrderResponse:
     ]
     return SubmitOrderResponse(
         order_hash=d.get("order_hash", ""),
+        status=SubmitOrderStatus(d.get("status", "accepted")),
         filled=d.get("filled", "0"),
         remaining=d.get("remaining", "0"),
         fills=fills,

@@ -399,6 +399,17 @@ Machine-readable rejection codes with a human-readable `.label()` method. Unreco
 | `NotOrderMaker` | "Not Order Maker" | Caller is not the order maker |
 | `OrderAlreadyFilled` | "Order Already Filled" | Order has already been fully filled |
 | `OrderAlreadyCancelled` | "Order Already Cancelled" | Order was already cancelled |
+| `DuplicateOrder` | "Duplicate Order" | Order already exists on this orderbook |
+| `PostOnlyWouldCross` | "Post Only Would Cross" | Post-only order would cross resting liquidity |
+| `FokNoFill` | "FOK No Fill" | Fill-or-kill order could not be fully filled |
+| `IocNoFill` | "IOC No Fill" | Immediate-or-cancel order got no fill |
+| `WouldCrossUnavailableLiquidity` | "Would Cross Unavailable Liquidity" | Would cross liquidity unavailable for matching |
+| `WouldCrossBook` | "Would Cross Book" | Order remainder would leave orderbook crossed |
+| `MarketNotFound` | "Market Not Found" | Market does not exist |
+| `OrderbookNotFound` | "Orderbook Not Found" | Orderbook does not exist |
+| `TokenPairMismatch` | "Token Pair Mismatch" | Token pair doesn't match orderbook |
+| `InsufficientMarketFeeBuffer` | "Insufficient Market Fee Buffer" | Not enough market fee buffer |
+| `SignatureExpired` | "Signature Expired" | Order signature has expired |
 | `Unknown(String)` | *(raw code)* | Unrecognized code (forward compatible) |
 
 ```rust

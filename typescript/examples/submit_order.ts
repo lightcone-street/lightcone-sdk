@@ -72,7 +72,7 @@ async function main() {
     .salt(generateSalt())
     .submit(client, orderbook);
   console.log(
-    `submitted: ${response.order_hash} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
+    `submitted: ${response.order_hash} status=${response.status} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
   );
 }
 

@@ -70,8 +70,9 @@ async fn main() -> ExampleResult {
         .submit(&client, &orderbook)
         .await?;
     println!(
-        "submitted: {} filled={} remaining={} fills={}",
+        "submitted: {} status={:?} filled={} remaining={} fills={}",
         response.order_hash,
+        response.status,
         response.filled,
         response.remaining,
         response.fills.len()
