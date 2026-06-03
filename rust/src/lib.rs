@@ -75,8 +75,9 @@ pub mod prelude {
     pub use crate::domain::order::{
         AnyOrder, CancelAllBody, CancelAllSuccess, CancelBody, CancelSuccess, ConditionalBalance,
         FillInfo, GlobalDepositBalance, GlobalDepositUpdate, LimitOrder, Order, OrderEvent,
-        OrderStatus, OrderType, SubmitOrderResponse, TriggerOrderUpdate, UserOpenLimitOrders,
-        UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
+        OrderStatus, OrderType, SubmitOrderResponse, SubmitOrderStatus, TriggerOrderUpdate,
+        UserOpenLimitOrders, UserOrdersResponse, UserSnapshotBalance, UserSnapshotOrder,
+        UserSnapshotOrderCommon,
     };
     #[cfg(feature = "trigger_orders")]
     pub use crate::domain::order::{

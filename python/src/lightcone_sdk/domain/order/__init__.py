@@ -27,6 +27,12 @@ class OrderStatus(str, Enum):
     PENDING = "PENDING"
 
 
+class SubmitOrderStatus(str, Enum):
+    ACCEPTED = "accepted"
+    PARTIAL_FILL = "partial_fill"
+    FILLED = "filled"
+
+
 @dataclass
 class FillInfo:
     counterparty: str
@@ -110,6 +116,7 @@ class TriggerOrderResponse:
 @dataclass
 class SubmitOrderResponse:
     order_hash: str
+    status: SubmitOrderStatus = SubmitOrderStatus.ACCEPTED
     remaining: str = "0"
     filled: str = "0"
     fills: list[FillInfo] = field(default_factory=list)
@@ -340,6 +347,7 @@ __all__ = [
     "TriggerOrder",
     "TriggerOrderResponse",
     "SubmitOrderResponse",
+    "SubmitOrderStatus",
     "CancelBody",
     "CancelSuccess",
     "CancelAllBody",

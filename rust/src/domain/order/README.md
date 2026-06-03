@@ -143,6 +143,38 @@ An order the user participated in (as maker or taker), with nested fill events.
 | `Maker` | User placed the order |
 | `Taker` | User filled against the order |
 
+### `SubmitOrderStatus`
+
+Status of a successfully submitted order.
+
+| Variant | Serializes as | Description |
+|---------|---------------|-------------|
+| `Accepted` | `"accepted"` | Order resting on the book, no immediate fills |
+| `PartialFill` | `"partial_fill"` | Order partially filled, remainder resting |
+| `Filled` | `"filled"` | Order fully filled immediately |
+
+### `SubmitOrderResponse`
+
+Response from a successful order submission.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `order_hash` | `String` | Unique order identifier |
+| `status` | `SubmitOrderStatus` | Outcome of the submission |
+| `remaining` | `Decimal` | Remaining size after any immediate fills |
+| `filled` | `Decimal` | Size filled immediately |
+| `fills` | `Vec<FillInfo>` | Details of each immediate fill |
+
+### `FillInfo`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `counterparty` | `PubkeyStr` | Counterparty maker pubkey |
+| `counterparty_order_hash` | `String` | Hash of the matched order |
+| `fill_amount` | `Decimal` | Amount filled |
+| `price` | `Decimal` | Effective fill price |
+| `is_maker` | `bool` | Whether this order was the maker |
+
 ## Client Methods
 
 Access via `client.orders()`.

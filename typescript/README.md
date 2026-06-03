@@ -373,6 +373,17 @@ Machine-readable rejection codes expose a human-readable `.label()` method. Unre
 | `NOT_ORDER_MAKER` | "Not Order Maker" | Caller is not the order maker |
 | `ORDER_ALREADY_FILLED` | "Order Already Filled" | Order has already been fully filled |
 | `ORDER_ALREADY_CANCELLED` | "Order Already Cancelled" | Order was already cancelled |
+| `DUPLICATE_ORDER` | "Duplicate Order" | Order already exists on this orderbook |
+| `POST_ONLY_WOULD_CROSS` | "Post Only Would Cross" | Post-only order would cross resting liquidity |
+| `FOK_NO_FILL` | "FOK No Fill" | Fill-or-kill order could not be fully filled |
+| `IOC_NO_FILL` | "IOC No Fill" | Immediate-or-cancel order got no fill |
+| `WOULD_CROSS_UNAVAILABLE_LIQUIDITY` | "Would Cross Unavailable Liquidity" | Would cross liquidity unavailable for matching |
+| `WOULD_CROSS_BOOK` | "Would Cross Book" | Order remainder would leave orderbook crossed |
+| `MARKET_NOT_FOUND` | "Market Not Found" | Market does not exist |
+| `ORDERBOOK_NOT_FOUND` | "Orderbook Not Found" | Orderbook does not exist |
+| `TOKEN_PAIR_MISMATCH` | "Token Pair Mismatch" | Token pair doesn't match orderbook |
+| `INSUFFICIENT_MARKET_FEE_BUFFER` | "Insufficient Market Fee Buffer" | Not enough market fee buffer |
+| `SIGNATURE_EXPIRED` | "Signature Expired" | Order signature has expired |
 
 ```typescript
 import { SdkError } from "@lightconexyz/lightcone-sdk";

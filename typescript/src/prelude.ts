@@ -142,6 +142,7 @@ export type {
   OrderStatus,
   OrderType,
   SubmitOrderResponse,
+  SubmitOrderStatus,
   UserSnapshotBalance,
   UserSnapshotOrder,
   UserOrdersResponse,

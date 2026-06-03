@@ -315,7 +315,7 @@ When the backend rejects a request, the SDK raises `ApiRejected(details)` where 
 | `error_log_id` | `str \| None` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `str \| None` | SDK-generated `x-request-id` header for tracing |
 
-Known rejection codes include `INSUFFICIENT_BALANCE`, `EXPIRED`, `NONCE_MISMATCH`, `SELF_TRADE`, `MARKET_INACTIVE`, `BELOW_MIN_ORDER_SIZE`, `INVALID_NONCE`, `BROADCAST_FAILURE`, `ORDER_NOT_FOUND`, `NOT_ORDER_MAKER`, `ORDER_ALREADY_FILLED`, and `ORDER_ALREADY_CANCELLED`. Unknown codes are preserved verbatim for forward compatibility.
+Known rejection codes include `INSUFFICIENT_BALANCE`, `EXPIRED`, `NONCE_MISMATCH`, `SELF_TRADE`, `MARKET_INACTIVE`, `BELOW_MIN_ORDER_SIZE`, `INVALID_NONCE`, `BROADCAST_FAILURE`, `ORDER_NOT_FOUND`, `NOT_ORDER_MAKER`, `ORDER_ALREADY_FILLED`, `ORDER_ALREADY_CANCELLED`, `DUPLICATE_ORDER`, `POST_ONLY_WOULD_CROSS`, `FOK_NO_FILL`, `IOC_NO_FILL`, `WOULD_CROSS_UNAVAILABLE_LIQUIDITY`, `WOULD_CROSS_BOOK`, `MARKET_NOT_FOUND`, `ORDERBOOK_NOT_FOUND`, `TOKEN_PAIR_MISMATCH`, `INSUFFICIENT_MARKET_FEE_BUFFER`, and `SIGNATURE_EXPIRED`. Unknown codes are preserved verbatim for forward compatibility.
 
 ```python
 from lightcone_sdk import ApiRejected

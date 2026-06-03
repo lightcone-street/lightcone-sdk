@@ -70,7 +70,7 @@ async def main():
     )
     print(
         f"submitted: {response.order_hash} "
-        f"filled={response.filled} remaining={response.remaining} "
+        f"status={response.status.value} filled={response.filled} remaining={response.remaining} "
         f"fills={len(response.fills)}"
     )
 

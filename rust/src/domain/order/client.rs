@@ -165,6 +165,14 @@ impl CancelTriggerBody {
 // ─── Response types ──────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SubmitOrderStatus {
+    Accepted,
+    PartialFill,
+    Filled,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct FillInfo {
     pub counterparty: PubkeyStr,
     pub counterparty_order_hash: String,
@@ -176,6 +184,7 @@ pub struct FillInfo {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SubmitOrderResponse {
     pub order_hash: String,
+    pub status: SubmitOrderStatus,
     pub remaining: Decimal,
     pub filled: Decimal,
     pub fills: Vec<FillInfo>,

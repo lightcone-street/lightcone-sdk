@@ -153,8 +153,11 @@ export interface FillInfo {
   is_maker: boolean;
 }
 
+export type SubmitOrderStatus = "accepted" | "partial_fill" | "filled";
+
 export interface SubmitOrderResponse {
   order_hash: string;
+  status: SubmitOrderStatus;
   remaining: string;
   filled: string;
   fills: FillInfo[];
