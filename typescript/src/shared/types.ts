@@ -1,4 +1,5 @@
 import { SdkError } from "../error";
+import type { OrderBookPair } from "../domain/orderbook";
 
 export type Branded<T, Brand extends string> = T & { readonly __brand: Brand };
 
@@ -26,6 +27,27 @@ export function parseSide(value: string): Side {
 
 export function sideLabel(side: Side): "Buy" | "Sell" {
   return side === Side.Bid ? "Buy" : "Sell";
+}
+
+export function defaultDenominator(side: Side): Denominator {
+  return side === Side.Bid ? Denominator.Quote : Denominator.Base;
+}
+
+export enum Denominator {
+  Base = "Base",
+  Quote = "Quote",
+}
+
+export function allDenominators(): Denominator[] {
+  return [Denominator.Quote, Denominator.Base];
+}
+
+export function denominatorSymbol(denominator: Denominator, pair: OrderBookPair): string {
+  return denominator === Denominator.Base ? pair.base.symbol : pair.quote.symbol;
+}
+
+export function denominatorDepositSymbol(denominator: Denominator, pair: OrderBookPair): string {
+  return denominator === Denominator.Base ? pair.base.depositSymbol : pair.quote.depositSymbol;
 }
 
 export enum TimeInForce {

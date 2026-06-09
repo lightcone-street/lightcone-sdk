@@ -20,6 +20,8 @@ pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingErr
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
 
+use crate::prelude::{OrderBookPair, Token};
+
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 
 /// Newtype for orderbook identifiers (e.g. `"7BgBvyjr_EPjFWdd5"`).
@@ -156,6 +158,33 @@ impl<'de> Deserialize<'de> for PubkeyStr {
     }
 }
 
+// ─── Denominator ─────────────────────────────────────────────────────────────
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum Denominator {
+    Base,
+    Quote,
+}
+
+impl Denominator {
+    pub fn all() -> Vec<Denominator> {
+        vec![Denominator::Quote, Denominator::Base]
+    }
+
+    pub fn symbol(&self, pair: &OrderBookPair) -> String {
+        match self {
+            Denominator::Base => pair.base.symbol().to_string(),
+            Denominator::Quote => pair.quote.symbol().to_string(),
+        }
+    }
+
+    pub fn deposit_symbol(&self, pair: &OrderBookPair) -> String {
+        match self {
+            Denominator::Base => pair.base.deposit_symbol.clone(),
+            Denominator::Quote => pair.quote.deposit_symbol.clone(),
+        }
+    }
+}
+
 // ─── Side ────────────────────────────────────────────────────────────────────
 
 /// Order side: Bid (buy) or Ask (sell).
@@ -175,6 +204,13 @@ impl Side {
         match self {
             Side::Bid => "Buy",
             Side::Ask => "Sell",
+        }
+    }
+
+    pub fn default_denominator(&self) -> Denominator {
+        match self {
+            Side::Bid => Denominator::Quote,
+            Side::Ask => Denominator::Base,
         }
     }
 }

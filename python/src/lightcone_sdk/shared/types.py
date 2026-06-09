@@ -44,6 +44,30 @@ class Side(IntEnum):
                 return cls.ASK
         return cls(int(value))
 
+    def default_denominator(self) -> "Denominator":
+        return Denominator.QUOTE if self == Side.BID else Denominator.BASE
+
+
+class Denominator(str, Enum):
+    """Order denomination: base or quote asset."""
+
+    BASE = "Base"
+    QUOTE = "Quote"
+
+    @classmethod
+    def all(cls) -> list["Denominator"]:
+        return [cls.QUOTE, cls.BASE]
+
+    def symbol(self, pair: "OrderBookPair") -> str:
+        if self == Denominator.BASE:
+            return pair.base.symbol
+        return pair.quote.symbol
+
+    def deposit_symbol(self, pair: "OrderBookPair") -> str:
+        if self == Denominator.BASE:
+            return pair.base.deposit_symbol
+        return pair.quote.deposit_symbol
+
 
 class TimeInForce(IntEnum):
     """Time-in-force policy for orders."""
@@ -342,6 +366,7 @@ __all__ = [
     "OrderBookId",
     "PubkeyStr",
     "Side",
+    "Denominator",
     "TimeInForce",
     "TriggerType",
     "TriggerStatus",
