@@ -120,24 +120,27 @@ pub mod prelude {
     // Domain types — faucet
     pub use crate::domain::faucet::{FaucetRequest, FaucetResponse, FaucetToken};
 
-    // Domain types — market wire (deposit-asset responses exposed by
-    // `client.markets().deposit_assets(...)`)
+    // Domain types — market wire (raw market and deposit-asset responses)
     pub use crate::domain::market::wire::{
         ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse, MarketResponse,
     };
 
-    // Domain types — admin (referral config/codes and logs)
+    // Domain types — admin (referral config/codes, logs, metadata, and dashboard tables)
     pub use crate::domain::admin::{
         AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminCategoriesQuery,
-        AdminCategoriesResponse, AdminCategoryRow, AdminDepositTokenMetadataListResponse,
-        AdminDepositTokenMetadataResponse, AdminDepositTokenRow, AdminDepositTokensQuery,
-        AdminDepositTokensResponse, AdminImageVariants, AdminLogEvent, AdminLogEventsQuery,
-        AdminLogEventsResponse, AdminLogMetricBreakdown, AdminLogMetricHistoryQuery,
-        AdminLogMetricHistoryResponse, AdminLogMetricPoint, AdminLogMetricSummary,
-        AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketMetadataResponse, AdminMarketRow,
-        AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
-        AdminMetricsTableQuery, CodeListEntry, ConditionalTokenMetadataJsonResponse,
-        ConditionalTokenMetadataPayload, CriticalLogErrors24hCountResponse,
+        AdminCategoriesResponse, AdminCategoryRow, AdminConditionalMintRow,
+        AdminConditionalTokenMetadataEntry, AdminConditionalTokenMetadataRow,
+        AdminDepositTokenMetadataListResponse, AdminDepositTokenMetadataResponse,
+        AdminDepositTokenRow, AdminDepositTokensQuery, AdminDepositTokensResponse,
+        AdminImageVariants, AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse,
+        AdminLogMetricBreakdown, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
+        AdminLogMetricPoint, AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse,
+        AdminMarketDepositAsset, AdminMarketMetadataResponse, AdminMarketMetadataRow,
+        AdminMarketRow, AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery,
+        AdminMarketsResponse, AdminMetadataMarket, AdminMetricsTableQuery, AdminMissingMetadata,
+        AdminOutcomeMetadataEntry, AdminOutcomeMetadataRow, CodeListEntry,
+        ConditionalTokenMetadataJsonResponse, ConditionalTokenMetadataPayload,
+        ConditionalTokenMetadataRow, CriticalLogErrors24hCountResponse,
         DepositTokenMetadataPayload, DepositTokenMetadataResponse, ListCodesRequest,
         ListCodesResponse, MarketMetadataPayload, MarketsToSettleCountResponse,
         MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse,

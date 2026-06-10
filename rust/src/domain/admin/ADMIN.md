@@ -781,13 +781,13 @@ Returned in `UnifiedMetadataResponse.deposit_tokens` after `upsert_metadata`.
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `i64` | Metadata row ID |
-| `deposit_asset` | `String` | Mint/address identifier |
+| `deposit_asset` | `PubkeyStr` | Mint/address identifier |
 | `display_name` / `symbol` | `String` | Non-null display fields |
 | `token_symbol` / `binance_symbol` / `okx_inst_id` | `Option<String>` | Optional symbol fields |
 | `binance_enabled` | `bool` | Binance integration flag |
 | `description`, icon URLs, `metadata_uri` | `Option<String>` | Optional metadata fields |
 | `decimals` | `Option<i16>` | Token decimals |
-| `min_order_size` | `i64` | Raw integer token units; non-null in responses |
+| `min_order_size` | `Option<i64>` | Raw integer token units; `None` when the backend omits or nulls the value. `0` means no minimum |
 | `created_at` / `updated_at` | `DateTime<Utc>` | Backend timestamps |
 
 ### `MetadataCategoriesResponse`

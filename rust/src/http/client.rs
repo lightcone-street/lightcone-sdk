@@ -223,7 +223,7 @@ impl LightconeHttp {
         .await
     }
 
-    /// POST without a request body. Uses admin cookie auth.
+    /// POST with retry, without a request body. Uses admin cookie auth.
     pub(crate) async fn admin_post_empty<T: DeserializeOwned>(
         &self,
         url: &str,

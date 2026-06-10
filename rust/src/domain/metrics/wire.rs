@@ -386,6 +386,8 @@ pub struct DepositTokensMetrics {
     pub deposit_tokens: Vec<DepositTokenVolumeMetrics>,
 }
 
+// ─── Deposit-token volume history ────────────────────────────────────────────
+
 /// Token summary entry in `GET /api/metrics/deposit-tokens/volume-history`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DepositTokenVolumeHistoryToken {
@@ -414,7 +416,6 @@ pub struct DepositTokenVolumeHistoryPoint {
     pub bucket_start_date: String,
     pub total_volume_usd: Decimal,
     pub cumulative_volume_usd: Decimal,
-    #[serde(default)]
     pub deposit_token_volumes: Vec<DepositTokenVolumeHistoryPointToken>,
 }
 
@@ -427,11 +428,11 @@ pub struct DepositTokenVolumeHistory {
     pub to: i64,
     pub volume_total_usd: Decimal,
     pub total_days: u32,
-    #[serde(default)]
     pub deposit_tokens: Vec<DepositTokenVolumeHistoryToken>,
-    #[serde(default)]
     pub points: Vec<DepositTokenVolumeHistoryPoint>,
 }
+
+// ─── Open-interest history ───────────────────────────────────────────────────
 
 /// Deposit-asset summary entry in `GET /api/metrics/open-interest/history`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -461,7 +462,6 @@ pub struct OpenInterestHistoryPoint {
     /// UTC calendar day label in `YYYY-MM-DD` format.
     pub bucket_start_date: String,
     pub total_open_interest_usd: Decimal,
-    #[serde(default)]
     pub deposit_asset_open_interest: Vec<OpenInterestHistoryPointDepositAsset>,
 }
 
@@ -474,11 +474,11 @@ pub struct OpenInterestHistory {
     pub to: i64,
     pub latest_open_interest_usd: Decimal,
     pub total_days: u32,
-    #[serde(default)]
     pub deposit_assets: Vec<OpenInterestHistoryDepositAsset>,
-    #[serde(default)]
     pub points: Vec<OpenInterestHistoryPoint>,
 }
+
+// ─── Unique-traders history ──────────────────────────────────────────────────
 
 /// Scope vocabulary for `GET /api/metrics/unique-traders/history`.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -492,7 +492,7 @@ pub enum UniqueTradersHistoryScope {
 }
 
 /// Daily point in `GET /api/metrics/unique-traders/history`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UniqueTradersHistoryPoint {
     /// Bucket start, Unix epoch milliseconds for the UTC day start.
     pub bucket_start: i64,
@@ -502,7 +502,7 @@ pub struct UniqueTradersHistoryPoint {
 }
 
 /// `GET /api/metrics/unique-traders/history` response.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UniqueTradersHistory {
     pub timestamp: i64,
     pub resolution: String,
@@ -512,7 +512,6 @@ pub struct UniqueTradersHistory {
     pub to: i64,
     pub latest_unique_traders: u64,
     pub total_days: u32,
-    #[serde(default)]
     pub points: Vec<UniqueTradersHistoryPoint>,
 }
 
@@ -601,7 +600,7 @@ pub struct OpenInterestHistoryQuery {
 }
 
 /// Query parameters for `GET /api/metrics/unique-traders/history`.
-#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct UniqueTradersHistoryQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scope: Option<UniqueTradersHistoryScope>,

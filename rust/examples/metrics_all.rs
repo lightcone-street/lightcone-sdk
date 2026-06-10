@@ -98,6 +98,7 @@ async fn main() -> ExampleResult {
     let deposit_tokens = client.metrics().deposit_tokens().await?;
     println!("deposit tokens: {}", deposit_tokens.deposit_tokens.len());
 
+    // ── Deposit-token volume history ─────────────────────────────────────
     let deposit_token_history = client
         .metrics()
         .deposit_tokens_volume_history(&DepositTokenVolumeHistoryQuery::default())
@@ -109,6 +110,7 @@ async fn main() -> ExampleResult {
         deposit_token_history.volume_total_usd
     );
 
+    // ── Open-interest history ────────────────────────────────────────────
     let open_interest_history = client
         .metrics()
         .open_interest_history(&OpenInterestHistoryQuery::default())
@@ -120,6 +122,7 @@ async fn main() -> ExampleResult {
         open_interest_history.latest_open_interest_usd
     );
 
+    // ── Unique-traders history ───────────────────────────────────────────
     let unique_traders_history = client
         .metrics()
         .unique_traders_history(&UniqueTradersHistoryQuery::default())

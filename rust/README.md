@@ -310,7 +310,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
-| [`metrics_all`](examples/metrics_all.rs) | Exercise every endpoint on `client.metrics()` — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
+| [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
 
 ### Admin & Testnet
 
@@ -369,7 +369,7 @@ All SDK operations return `Result<T, SdkError>`:
 
 ### API Rejections
 
-When the backend rejects a request (insufficient balance, expired order, etc.), the SDK returns `SdkError::ApiRejected(details)` where `details` is an `ApiRejectedDetails` containing:
+The backend reports rejections (insufficient balance, expired order, validation failures, etc.) through a structured error envelope — `{"status": "error", "error_details": {...}}` — which it may attach to a 2xx response or to a non-retryable 4xx status such as 400, 401, 403, 404, or 409. Whenever the SDK finds that envelope, it returns `SdkError::ApiRejected(details)` where `details` is an `ApiRejectedDetails` containing:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -438,11 +438,17 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 | `Reqwest(reqwest::Error)` | Network/transport failure |
 | `ServerError { status, body }` | Non-2xx response from the backend |
 | `RateLimited { retry_after_ms }` | 429 - back off and retry |
-| `Unauthorized` | 401 - session expired or missing |
-| `NotFound(String)` | 404 - resource not found |
-| `BadRequest(String)` | 400 - invalid request |
+| `Unauthorized` | 401 - session expired or missing (body had no error envelope) |
+| `NotFound(String)` | 404 - resource not found (body had no error envelope) |
+| `BadRequest(String)` | 400 - invalid request (body had no error envelope) |
 | `Timeout` | Request timed out |
 | `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
+
+Status-to-error mapping order:
+
+1. Statuses configured as retryable by the active `RetryPolicy` (429/502/503/504 for `Idempotent`) stay `HttpError`s so the retry loop can act on them — they are never parsed into `ApiRejected`, even when the backend wraps them in a structured envelope.
+2. Any other 4xx status except 429 whose body parses as the structured error envelope surfaces as `SdkError::ApiRejected(details)`, preserving `error_code`, `rejection_code`, and `error_log_id`. 429 always maps to `RateLimited` and 5xx to `ServerError`.
+3. Anything else (including envelope-less bodies) falls back to the `HttpError` variants above.
 
 ## Retry Strategy
 

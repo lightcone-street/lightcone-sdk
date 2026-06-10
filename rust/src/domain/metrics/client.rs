@@ -165,7 +165,9 @@ impl<'a> Metrics<'a> {
     /// Fetch daily platform open-interest snapshots by deposit asset.
     ///
     /// Open interest is a live snapshot metric, not cumulative. Do not sum
-    /// values across days. `GET /api/metrics/open-interest/history`
+    /// values across days.
+    ///
+    /// `GET /api/metrics/open-interest/history`
     pub async fn open_interest_history(
         &self,
         query: &OpenInterestHistoryQuery,

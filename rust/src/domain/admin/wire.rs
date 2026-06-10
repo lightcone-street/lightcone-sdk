@@ -197,7 +197,7 @@ pub struct UnifiedMetadataResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DepositTokenMetadataResponse {
     pub id: i64,
-    pub deposit_asset: String,
+    pub deposit_asset: PubkeyStr,
     pub display_name: String,
     pub symbol: String,
     #[serde(default)]
@@ -221,7 +221,7 @@ pub struct DepositTokenMetadataResponse {
     #[serde(default)]
     pub decimals: Option<i16>,
     #[serde(default)]
-    pub min_order_size: i64,
+    pub min_order_size: Option<i64>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -502,6 +502,11 @@ pub struct UpdateMarketMetadataPayload {
     pub featured_rank: Option<i16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata_uri: Option<String>,
+    /// Resolution deadline update.
+    ///
+    /// - `None` omits the field and preserves the backend value.
+    /// - `Some(Some(ms))` sends a Unix timestamp in milliseconds and sets the deadline.
+    /// - `Some(None)` sends JSON `null` and clears the deadline.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -511,11 +516,13 @@ pub struct UpdateMarketMetadataPayload {
 }
 
 impl UpdateMarketMetadataPayload {
+    /// Set or update the market's resolution deadline.
     pub fn with_resolution_by(mut self, resolution_by_ms: i64) -> Self {
         self.resolution_by = Some(Some(resolution_by_ms));
         self
     }
 
+    /// Clear the market's configured resolution deadline.
     pub fn with_cleared_resolution_by(mut self) -> Self {
         self.resolution_by = Some(None);
         self
@@ -563,6 +570,8 @@ pub type UpdateMarketMetadataResponse = UnifiedMetadataResponse;
 
 /// Request body for rewriting conditional token metadata JSON.
 ///
+/// `PUT /api/admin/metadata/markets/{market_id}/conditional-tokens/{conditional_mint_id}/metadata-json`
+///
 /// Image fields must be WebP data URLs when provided. The backend reuses
 /// existing database image URLs for omitted variants; a high image URL must
 /// already exist or be provided as `image_data_url_high`.
@@ -581,6 +590,8 @@ pub struct UpdateConditionalTokenMetadataJsonRequest {
 }
 
 /// Response from rewriting conditional token metadata JSON.
+///
+/// `PUT /api/admin/metadata/markets/{market_id}/conditional-tokens/{conditional_mint_id}/metadata-json`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConditionalTokenMetadataJsonResponse {
     pub conditional_mint: PubkeyStr,
@@ -597,6 +608,8 @@ pub struct ConditionalTokenMetadataJsonResponse {
 }
 
 /// Response from resyncing derived conditional-token metadata fields.
+///
+/// `POST /api/admin/metadata/markets/{market_id}/conditional-tokens/resync-derived`
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResyncConditionalTokenDerivedMetadataResponse {
     #[serde(default)]
@@ -650,7 +663,7 @@ pub struct UploadDepositTokenImagesRequest {
     pub icon: AdminImageVariants,
 }
 
-/// Response from uploading first-time deposit token icon images.
+/// Response from `POST /api/admin/metadata/deposit-tokens/{deposit_asset}/images/upload`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UploadDepositTokenImagesResponse {
     pub deposit_asset: PubkeyStr,
@@ -662,7 +675,8 @@ pub struct UploadDepositTokenImagesResponse {
     pub invalidation_paths: Vec<String>,
 }
 
-/// Image replacement response from focused metadata image endpoints.
+/// Image replacement response from `PUT /api/admin/metadata/markets/{market_id}/images`
+/// and `PUT /api/admin/metadata/deposit-tokens/{deposit_asset}/images`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MetadataImageUpdateResponse {
     #[serde(default)]
@@ -957,7 +971,7 @@ pub enum AdminMarketStatusFilter {
 pub type AdminMarketStatus = Status;
 
 /// Query parameters for `GET /api/admin/markets`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct AdminMarketsQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<u64>,
@@ -1034,7 +1048,7 @@ pub struct AdminMarketsQuery {
 /// Shared query parameters for admin metrics table endpoints.
 ///
 /// Used by `GET /api/admin/deposit-tokens` and `GET /api/admin/categories`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq)]
 pub struct AdminMetricsTableQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<u64>,
@@ -1132,9 +1146,13 @@ pub struct AdminMarketRow {
     pub market_id: i64,
     pub market_pubkey: PubkeyStr,
     pub market_status: AdminMarketStatus,
+    #[serde(default)]
     pub slug: Option<String>,
+    #[serde(default)]
     pub market_name: Option<String>,
+    #[serde(default)]
     pub category: Option<String>,
+    #[serde(default)]
     pub icon_url: Option<String>,
     pub num_outcomes: u32,
     #[serde(default)]
@@ -1153,7 +1171,9 @@ pub struct AdminMarketRow {
     pub fees_30d_usd: Decimal,
     pub fees_total_usd: Decimal,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
     pub activated_at: Option<DateTime<Utc>>,
+    #[serde(default)]
     pub settled_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
 }
@@ -1177,7 +1197,7 @@ pub struct AdminDepositTokensResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AdminDepositTokenRow {
     pub rank: u64,
-    pub deposit_asset: String,
+    pub deposit_asset: PubkeyStr,
     #[serde(default)]
     pub display_name: Option<String>,
     #[serde(default)]
@@ -1272,7 +1292,7 @@ pub struct MarketsToSettleCountResponse {
 ///
 /// Pagination is cursor-based using the previous response's `next_cursor`
 /// value, which is a `market_id`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, PartialEq, Eq)]
 pub struct MarketsToSettleQuery {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<i64>,
@@ -2442,11 +2462,37 @@ mod tests {
 
         assert_eq!(response.deposit_tokens.len(), 1);
         let token = &response.deposit_tokens[0];
-        assert_eq!(token.deposit_asset, "TOKEN_MINT");
+        assert_eq!(token.deposit_asset.as_str(), "TOKEN_MINT");
         assert_eq!(token.binance_symbol.as_deref(), Some("BTCUSDT"));
         assert!(token.binance_enabled);
         assert_eq!(token.okx_inst_id.as_deref(), Some("BTC-USDT"));
-        assert_eq!(token.min_order_size, 100_000);
+        assert_eq!(token.min_order_size, Some(100_000));
+    }
+
+    #[test]
+    fn deposit_token_metadata_response_accepts_null_and_missing_min_order_size() {
+        let with_null: DepositTokenMetadataResponse = serde_json::from_value(json!({
+            "id": 1,
+            "deposit_asset": "TOKEN_MINT",
+            "display_name": "Bitcoin",
+            "symbol": "BTC",
+            "min_order_size": null,
+            "created_at": "2026-05-12T00:00:00Z",
+            "updated_at": "2026-05-12T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(with_null.min_order_size, None);
+
+        let with_missing: DepositTokenMetadataResponse = serde_json::from_value(json!({
+            "id": 1,
+            "deposit_asset": "TOKEN_MINT",
+            "display_name": "Bitcoin",
+            "symbol": "BTC",
+            "created_at": "2026-05-12T00:00:00Z",
+            "updated_at": "2026-05-12T00:00:00Z"
+        }))
+        .unwrap();
+        assert_eq!(with_missing.min_order_size, None);
     }
 
     #[test]
