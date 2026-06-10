@@ -123,7 +123,7 @@ pub mod prelude {
     // Domain types — market wire (deposit-asset responses exposed by
     // `client.markets().deposit_assets(...)`)
     pub use crate::domain::market::wire::{
-        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse,
+        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse, MarketResponse,
     };
 
     // Domain types — admin (referral config/codes and logs)
@@ -136,15 +136,17 @@ pub mod prelude {
         AdminLogMetricHistoryResponse, AdminLogMetricPoint, AdminLogMetricSummary,
         AdminLogMetricsQuery, AdminLogMetricsResponse, AdminMarketMetadataResponse, AdminMarketRow,
         AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery, AdminMarketsResponse,
-        AdminMetricsTableQuery, CodeListEntry, ConditionalTokenMetadataPayload,
-        CriticalLogErrors24hCountResponse, DepositTokenMetadataPayload,
-        DepositTokenMetadataResponse, ListCodesRequest, ListCodesResponse, MarketMetadataPayload,
-        MarketsToSettleCountResponse, MarketsToSettleQuery, MarketsToSettleResponse,
-        MetadataCategoriesResponse, MetadataImageTargetType, MetadataImageUpdate,
-        MetadataImageUpdateResponse, OutcomeMetadataPayload, ReferralConfig,
+        AdminMetricsTableQuery, CodeListEntry, ConditionalTokenMetadataJsonResponse,
+        ConditionalTokenMetadataPayload, CriticalLogErrors24hCountResponse,
+        DepositTokenMetadataPayload, DepositTokenMetadataResponse, ListCodesRequest,
+        ListCodesResponse, MarketMetadataPayload, MarketsToSettleCountResponse,
+        MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse,
+        MetadataImageTargetType, MetadataImageUpdate, MetadataImageUpdateResponse,
+        OutcomeMetadataPayload, ReferralConfig, ResyncConditionalTokenDerivedMetadataResponse,
         UnifiedMetadataRequest, UnifiedMetadataResponse, UpdateCodeRequest, UpdateCodeResponse,
-        UpdateConditionalTokenImageRequest, UpdateConditionalTokenMetadataPayload,
-        UpdateConfigRequest, UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
+        UpdateConditionalTokenImageRequest, UpdateConditionalTokenMetadataJsonRequest,
+        UpdateConditionalTokenMetadataPayload, UpdateConfigRequest,
+        UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
         UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataPayload,
         UpdateMarketMetadataRequest, UpdateMarketMetadataResponse, UpdateOutcomeImageRequest,
         UpdateOutcomeMetadataPayload, UploadDepositTokenImagesRequest,

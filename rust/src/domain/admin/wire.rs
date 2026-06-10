@@ -1,6 +1,6 @@
 //! Wire types for admin requests and responses.
 
-use crate::domain::market::wire::MarketResponse;
+use crate::domain::market::{wire::MarketResponse, Status};
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -950,11 +950,11 @@ pub enum AdminMarketStatusFilter {
 }
 
 /// Market lifecycle values returned by `GET /api/admin/markets`.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum AdminMarketStatus {
-    Active,
-    Resolved,
-}
+///
+/// The admin table currently exposes only `Active` and `Resolved` rows, but this
+/// reuses the SDK's canonical market lifecycle type so the wire shape stays
+/// aligned with the rest of the Rust SDK.
+pub type AdminMarketStatus = Status;
 
 /// Query parameters for `GET /api/admin/markets`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -1281,6 +1281,11 @@ pub struct MarketsToSettleQuery {
 }
 
 /// Response from `GET /api/admin/markets-to-settle`.
+///
+/// `markets` intentionally uses the raw public REST [`MarketResponse`] shape
+/// rather than the validated [`crate::domain::market::Market`] domain shape.
+/// Admin settlement views must see ready-to-settle rows even when optional
+/// enrichment is incomplete, while domain conversion can reject incomplete rows.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MarketsToSettleResponse {
     #[serde(default)]

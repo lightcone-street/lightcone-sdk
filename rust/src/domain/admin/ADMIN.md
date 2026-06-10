@@ -383,7 +383,9 @@ async fn markets_to_settle(
 ) -> Result<MarketsToSettleResponse, SdkError>
 ```
 
-List active markets ready to settle using the existing market response shape. Pagination uses `market_id` as the cursor: pass the previous response's `next_cursor` to continue. The backend default limit is `200` and max limit is `1000`. Requires prior `admin_login()`.
+List active markets ready to settle using the existing raw public `MarketResponse` wire shape. Pagination uses `market_id` as the cursor: pass the previous response's `next_cursor` to continue. The backend default limit is `200` and max limit is `1000`. Requires prior `admin_login()`.
+
+The response intentionally exposes raw market wire rows rather than validated `Market` domain values. Admin settlement workflows must see rows even when optional metadata/orderbook enrichment is incomplete, while the normal market domain conversion may reject incomplete rows.
 
 ### `get_referral_config`
 
@@ -1026,7 +1028,7 @@ Do not send `settled` as a market status filter. Resolved markets are selected w
 | `has_more` | `bool` | Whether another page is available |
 | `markets` | `Vec<AdminMarketRow>` | Current page of admin market table rows |
 
-`AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (`Active` or `Resolved`), optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
+`AdminMarketRow` includes market identity/display fields, `market_status: AdminMarketStatus` (alias of the SDK `Status` type; this admin table currently returns `Active` or `Resolved`), optional `resolution_by`, outcome count, decimal USD metrics, unique-trader metrics, and lifecycle timestamps. USD values deserialize from API strings into `Decimal`.
 
 ### `AdminMetricsTableQuery`
 
@@ -1064,7 +1066,7 @@ Paged response for `GET /api/admin/categories`. `AdminCategoryRow` includes cate
 | Field | Type | Description |
 |-------|------|-------------|
 | `markets_to_settle_count` | `u64` | Count of active markets past their resolution time |
-| `markets` | `Vec<MarketResponse>` | Ready-to-settle markets using the existing market response shape |
+| `markets` | `Vec<MarketResponse>` | Ready-to-settle markets using the existing raw public market wire shape |
 | `next_cursor` | `Option<i64>` | Cursor for the next page |
 | `has_more` | `bool` | Whether another page is available |
 

@@ -308,7 +308,14 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_request::<ApiResponse<T>, B>(&method, url, body, query, &auth_mode)
+                .send_api_response::<T, B>(
+                    &method,
+                    url,
+                    body,
+                    query,
+                    &auth_mode,
+                    &config.retryable_statuses,
+                )
                 .await
             {
                 Ok((api_resp, request_id)) => {
@@ -375,7 +382,7 @@ impl LightconeHttp {
         auth_mode: &AuthMode,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
+            .send_api_response::<T, B>(method, url, body, query, auth_mode, &[])
             .await?;
         Self::parse_api_response(api_resp, request_id)
     }
@@ -391,17 +398,15 @@ impl LightconeHttp {
         }
     }
 
-    /// Low-level HTTP request: sends request, handles auth/cookies/errors.
-    /// Returns the raw deserialized body and request_id.
-    /// Used by retry logic (needs `HttpError` for retry decisions).
-    async fn send_request<T: DeserializeOwned, B: Serialize>(
+    /// Low-level HTTP request: sends request and injects auth/cookies.
+    async fn send_http<B: Serialize>(
         &self,
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
         query: &[(&str, String)],
         auth_mode: &AuthMode,
-    ) -> Result<(T, String), HttpError> {
+    ) -> Result<(reqwest::Response, String), HttpError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
@@ -455,56 +460,93 @@ impl LightconeHttp {
         }
 
         let resp = req.send().await?;
+        Ok((resp, request_id))
+    }
+
+    /// Sends a Lightcone API request and returns the structured ApiResponse envelope.
+    ///
+    /// Retryable statuses must remain HTTP-layer errors so retry policy can make
+    /// the decision before API error envelopes are converted into `ApiRejected`.
+    async fn send_api_response<T: DeserializeOwned, B: Serialize>(
+        &self,
+        method: &reqwest::Method,
+        url: &str,
+        body: Option<&B>,
+        query: &[(&str, String)],
+        auth_mode: &AuthMode,
+        retryable_statuses: &[u16],
+    ) -> Result<(ApiResponse<T>, String), HttpError> {
+        let (resp, request_id) = self.send_http(method, url, body, query, auth_mode).await?;
         let status = resp.status();
 
         if status.is_success() {
-            #[cfg(not(target_arch = "wasm32"))]
-            {
-                for value in resp.headers().get_all("set-cookie").iter() {
-                    if let Ok(header_str) = value.to_str() {
-                        if let Some(token) = header_str
-                            .strip_prefix("lightcone-token=")
-                            .and_then(|rest| rest.split(';').next())
-                        {
-                            if !token.is_empty() {
-                                *self.auth_token.write().await = Some(token.to_string());
-                            }
-                        }
-                        if let Some(token) = header_str
-                            .strip_prefix("admin_token=")
-                            .and_then(|rest| rest.split(';').next())
-                        {
-                            if !token.is_empty() {
-                                *self.admin_token.write().await = Some(token.to_string());
-                            }
-                        }
-                    }
-                }
-            }
+            self.capture_auth_cookies(&resp).await;
 
-            let parsed = resp.json::<T>().await?;
+            let parsed = resp.json::<ApiResponse<T>>().await?;
             return Ok((parsed, request_id));
         }
 
         let status_code = status.as_u16();
         let body_text = resp.text().await.unwrap_or_default();
-        if status_code != 429 {
-            if let Ok(parsed) = serde_json::from_str::<T>(&body_text) {
-                return Ok((parsed, request_id));
+
+        if retryable_statuses.contains(&status_code) {
+            return Err(Self::http_error_for_status(status_code, body_text));
+        }
+
+        if Self::should_parse_api_rejection(status_code) {
+            if let Ok(ApiResponse::Rejected { details }) =
+                serde_json::from_str::<ApiResponse<T>>(&body_text)
+            {
+                return Ok((ApiResponse::Rejected { details }, request_id));
             }
         }
 
+        Err(Self::http_error_for_status(status_code, body_text))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    async fn capture_auth_cookies(&self, resp: &reqwest::Response) {
+        for value in resp.headers().get_all("set-cookie").iter() {
+            if let Ok(header_str) = value.to_str() {
+                if let Some(token) = header_str
+                    .strip_prefix("lightcone-token=")
+                    .and_then(|rest| rest.split(';').next())
+                {
+                    if !token.is_empty() {
+                        *self.auth_token.write().await = Some(token.to_string());
+                    }
+                }
+                if let Some(token) = header_str
+                    .strip_prefix("admin_token=")
+                    .and_then(|rest| rest.split(';').next())
+                {
+                    if !token.is_empty() {
+                        *self.admin_token.write().await = Some(token.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    async fn capture_auth_cookies(&self, _resp: &reqwest::Response) {}
+
+    fn should_parse_api_rejection(status_code: u16) -> bool {
+        matches!(status_code, 400..=499) && status_code != 429
+    }
+
+    fn http_error_for_status(status_code: u16, body_text: String) -> HttpError {
         match status_code {
-            401 => Err(HttpError::Unauthorized),
-            404 => Err(HttpError::NotFound(body_text)),
-            429 => Err(HttpError::RateLimited {
+            401 => HttpError::Unauthorized,
+            404 => HttpError::NotFound(body_text),
+            429 => HttpError::RateLimited {
                 retry_after_ms: None,
-            }),
-            400..=499 => Err(HttpError::BadRequest(body_text)),
-            _ => Err(HttpError::ServerError {
+            },
+            400..=499 => HttpError::BadRequest(body_text),
+            _ => HttpError::ServerError {
                 status: status_code,
                 body: body_text,
-            }),
+            },
         }
     }
 }
@@ -516,6 +558,222 @@ impl Clone for LightconeHttp {
             client: self.client.clone(),
             auth_token: self.auth_token.clone(),
             admin_token: self.admin_token.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[derive(Clone)]
+    struct TestResponse {
+        status: u16,
+        body: &'static str,
+    }
+
+    async fn spawn_server(responses: Vec<TestResponse>) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let responses = Arc::new(Mutex::new(VecDeque::from(responses)));
+        let attempts = Arc::new(AtomicUsize::new(0));
+
+        let server_responses = Arc::clone(&responses);
+        let server_attempts = Arc::clone(&attempts);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let responses = Arc::clone(&server_responses);
+                let attempts = Arc::clone(&server_attempts);
+
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let _ = socket.read(&mut buffer).await;
+
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    let response = responses.lock().unwrap().pop_front().unwrap_or(TestResponse {
+                        status: 500,
+                        body: r#"{"status":"error","error_details":{"reason":"unexpected extra request"}}"#,
+                    });
+
+                    let status_text = match response.status {
+                        200 => "OK",
+                        400 => "Bad Request",
+                        404 => "Not Found",
+                        429 => "Too Many Requests",
+                        503 => "Service Unavailable",
+                        _ => "Error",
+                    };
+                    let raw_response = format!(
+                        "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        response.status,
+                        status_text,
+                        response.body.len(),
+                        response.body
+                    );
+                    let _ = socket.write_all(raw_response.as_bytes()).await;
+                });
+            }
+        });
+
+        (format!("http://{addr}"), attempts)
+    }
+
+    fn fast_retry(statuses: Vec<u16>) -> RetryPolicy {
+        RetryPolicy::Custom(RetryConfig {
+            max_retries: 1,
+            initial_delay: Duration::from_millis(0),
+            max_delay: Duration::from_millis(0),
+            backoff_factor: 1.0,
+            jitter: false,
+            retryable_statuses: statuses,
+        })
+    }
+
+    #[tokio::test]
+    async fn structured_400_returns_api_rejected_details() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: r#"{"status":"error","error_details":{"reason":"invalid tif","error_code":"INVALID_TIF","error_log_id":"LCERR_400"}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/test"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "invalid tif");
+                assert_eq!(details.error_code.as_deref(), Some("INVALID_TIF"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_400"));
+                assert!(details.request_id.is_some());
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_404_returns_api_rejected_details() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 404,
+            body: r#"{"status":"error","error_details":{"reason":"market not found","error_code":"NOT_FOUND","error_log_id":"LCERR_404"}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/missing"), RetryPolicy::None)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "market not found");
+                assert_eq!(details.error_code.as_deref(), Some("NOT_FOUND"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_404"));
+                assert!(details.request_id.is_some());
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_503_retries_before_parsing_api_rejection() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 503,
+                body: r#"{"status":"error","error_details":{"reason":"temporarily unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503"}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let body = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
+            .await
+            .unwrap();
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn structured_429_remains_retryable() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 429,
+                body: r#"{"status":"error","error_details":{"reason":"rate limited","error_code":"RATE_LIMITED"}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let body = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![429]))
+            .await
+            .unwrap();
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn malformed_400_falls_back_to_http_error() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: "not json",
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/bad"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Http(HttpError::BadRequest(body)) => assert_eq!(body, "not json"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn non_success_status_with_success_envelope_is_not_success() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: r#"{"status":"success","body":{"ok":true}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/bad"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Http(HttpError::BadRequest(body)) => {
+                assert!(body.contains(r#""status":"success""#));
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
         }
     }
 }
