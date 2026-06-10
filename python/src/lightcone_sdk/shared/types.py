@@ -1,6 +1,7 @@
 """Shared type definitions used across the Lightcone SDK."""
 
 from dataclasses import dataclass
+from decimal import Decimal
 from enum import Enum, IntEnum
 from typing import NewType, Optional
 
@@ -43,6 +44,75 @@ class Side(IntEnum):
             if normalized in {"ask", "sell"}:
                 return cls.ASK
         return cls(int(value))
+
+    def spend_denominator(self) -> "Denominator":
+        """The denomination of the asset this side spends (Bid spends quote,
+        Ask spends base). Also a trade form's default display denomination."""
+        return Denominator.QUOTE if self == Side.BID else Denominator.BASE
+
+    def receive_denominator(self) -> "Denominator":
+        """The denomination of the asset this side receives (Bid receives
+        base, Ask receives quote)."""
+        return Denominator.BASE if self == Side.BID else Denominator.QUOTE
+
+    def apply_impact_protection(
+        self, worst_fill_price: Decimal, protection_percent: Decimal
+    ) -> Optional[Decimal]:
+        """The price to submit with a market (IOC) order: the worst book fill
+        price padded by the impact-protection percentage in the direction that
+        lets the order fill.
+
+        Returns None unless both inputs are positive.
+        """
+        if worst_fill_price <= 0 or protection_percent <= 0:
+            return None
+        factor = protection_percent / Decimal(100)
+        if self == Side.BID:
+            # buying: willing to pay more
+            return worst_fill_price * (Decimal(1) + factor)
+        # selling: willing to receive less
+        return worst_fill_price * (Decimal(1) - factor)
+
+
+class Denominator(str, Enum):
+    """Order denomination: base or quote asset."""
+
+    BASE = "Base"
+    QUOTE = "Quote"
+
+    @classmethod
+    def all(cls) -> list["Denominator"]:
+        return [cls.QUOTE, cls.BASE]
+
+    def token(self, pair: "OrderBookPair") -> "ConditionalToken":
+        """The conditional token this denomination refers to on ``pair``."""
+        return pair.base if self == Denominator.BASE else pair.quote
+
+    def symbol(self, pair: "OrderBookPair") -> str:
+        return self.token(pair).symbol
+
+    def deposit_symbol(self, pair: "OrderBookPair") -> str:
+        return self.token(pair).deposit_symbol
+
+    def convert_to(
+        self,
+        target: "Denominator",
+        amount: Decimal,
+        base_price_in_quote: Decimal,
+    ) -> Optional[Decimal]:
+        """Convert ``amount`` from this denomination into ``target`` at the
+        given price (quote per one base).
+
+        Same-denomination conversion is the identity and never needs a price;
+        crossing denominations requires a positive price — None otherwise.
+        """
+        if self == target:
+            return amount
+        if base_price_in_quote <= 0:
+            return None
+        if self == Denominator.BASE:
+            return amount * base_price_in_quote
+        return amount / base_price_in_quote
 
 
 class TimeInForce(IntEnum):
@@ -342,6 +412,7 @@ __all__ = [
     "OrderBookId",
     "PubkeyStr",
     "Side",
+    "Denominator",
     "TimeInForce",
     "TriggerType",
     "TriggerStatus",
