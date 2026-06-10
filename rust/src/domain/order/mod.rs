@@ -41,7 +41,7 @@ pub trait Order {
 
 // ─── OrderType ───────────────────────────────────────────────────────────────
 
-#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Default, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum OrderType {
     Limit,
     #[default]

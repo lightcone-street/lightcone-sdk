@@ -9,7 +9,7 @@ use crate::domain::market::Market;
 use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::OrderPayload;
-use crate::shared::DepositSource;
+use crate::shared::{DepositSource, Side};
 
 // ============================================================================
 // Enums
@@ -61,6 +61,15 @@ impl TryFrom<u8> for OrderSide {
             0 => Ok(OrderSide::Bid),
             1 => Ok(OrderSide::Ask),
             _ => Err(SdkError::InvalidSide(value)),
+        }
+    }
+}
+
+impl From<Side> for OrderSide {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::Bid => OrderSide::Bid,
+            Side::Ask => OrderSide::Ask,
         }
     }
 }

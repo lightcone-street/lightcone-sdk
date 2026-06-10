@@ -17,10 +17,11 @@ pub use price::{format_decimal, parse_decimal};
 pub use rejection::RejectionCode;
 pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
 
+use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::str::FromStr;
 
-use crate::prelude::{OrderBookPair, Token};
+use crate::prelude::{ConditionalToken, OrderBookPair, Token};
 
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 
@@ -170,17 +171,44 @@ impl Denominator {
         vec![Denominator::Quote, Denominator::Base]
     }
 
-    pub fn symbol(&self, pair: &OrderBookPair) -> String {
+    /// The conditional token this denomination refers to on `pair`.
+    pub fn token<'pair>(&self, pair: &'pair OrderBookPair) -> &'pair ConditionalToken {
         match self {
-            Denominator::Base => pair.base.symbol().to_string(),
-            Denominator::Quote => pair.quote.symbol().to_string(),
+            Denominator::Base => &pair.base,
+            Denominator::Quote => &pair.quote,
         }
     }
 
+    pub fn symbol(&self, pair: &OrderBookPair) -> String {
+        self.token(pair).symbol().to_string()
+    }
+
     pub fn deposit_symbol(&self, pair: &OrderBookPair) -> String {
-        match self {
-            Denominator::Base => pair.base.deposit_symbol.clone(),
-            Denominator::Quote => pair.quote.deposit_symbol.clone(),
+        self.token(pair).deposit_symbol.clone()
+    }
+
+    /// Convert `amount` from this denomination into `target` at the given price
+    /// (quote per one base).
+    ///
+    /// Same-denomination conversion is the identity and never needs a price;
+    /// crossing denominations requires a positive price — `None` otherwise.
+    pub fn convert_to(
+        &self,
+        target: Denominator,
+        amount: Decimal,
+        base_price_in_quote: Decimal,
+    ) -> Option<Decimal> {
+        let price_is_usable = base_price_in_quote > Decimal::ZERO;
+        match (self, target) {
+            (Denominator::Base, Denominator::Base) | (Denominator::Quote, Denominator::Quote) => {
+                Some(amount)
+            }
+            (Denominator::Base, Denominator::Quote) => {
+                price_is_usable.then(|| amount * base_price_in_quote)
+            }
+            (Denominator::Quote, Denominator::Base) => {
+                price_is_usable.then(|| amount / base_price_in_quote)
+            }
         }
     }
 }
@@ -207,11 +235,41 @@ impl Side {
         }
     }
 
-    pub fn default_denominator(&self) -> Denominator {
+    /// The denomination of the asset this side spends (Bid spends quote, Ask spends base).
+    /// Also a trade form's default display denomination.
+    pub fn spend_denominator(&self) -> Denominator {
         match self {
             Side::Bid => Denominator::Quote,
             Side::Ask => Denominator::Base,
         }
+    }
+
+    /// The denomination of the asset this side receives (Bid receives base, Ask receives quote).
+    pub fn receive_denominator(&self) -> Denominator {
+        match self {
+            Side::Bid => Denominator::Base,
+            Side::Ask => Denominator::Quote,
+        }
+    }
+
+    /// The price to submit with a market (IOC) order: the worst book fill price padded
+    /// by the impact-protection percentage in the direction that lets the order fill.
+    ///
+    /// `None` unless both inputs are positive.
+    pub fn apply_impact_protection(
+        &self,
+        worst_fill_price: Decimal,
+        protection_percent: Decimal,
+    ) -> Option<Decimal> {
+        if worst_fill_price <= Decimal::ZERO || protection_percent <= Decimal::ZERO {
+            return None;
+        }
+        let factor = protection_percent / Decimal::from(100);
+        let price = match self {
+            Side::Bid => worst_fill_price * (Decimal::ONE + factor), // buying: willing to pay more
+            Side::Ask => worst_fill_price * (Decimal::ONE - factor), // selling: willing to receive less
+        };
+        Some(price)
     }
 }
 
@@ -467,6 +525,99 @@ mod tests {
         assert_eq!(bid, Side::Bid);
         let ask: Side = serde_json::from_str("\"ask\"").unwrap();
         assert_eq!(ask, Side::Ask);
+    }
+
+    #[test]
+    fn test_spend_and_receive_denominators() {
+        assert_eq!(Side::Bid.spend_denominator(), Denominator::Quote);
+        assert_eq!(Side::Bid.receive_denominator(), Denominator::Base);
+        assert_eq!(Side::Ask.spend_denominator(), Denominator::Base);
+        assert_eq!(Side::Ask.receive_denominator(), Denominator::Quote);
+    }
+
+    #[test]
+    fn test_convert_to_same_denomination_is_identity() {
+        let amount = Decimal::new(425, 2); // 4.25
+                                           // Price is irrelevant for the identity conversion, even when unusable
+        assert_eq!(
+            Denominator::Base.convert_to(Denominator::Base, amount, Decimal::ZERO),
+            Some(amount)
+        );
+        assert_eq!(
+            Denominator::Quote.convert_to(Denominator::Quote, amount, Decimal::ZERO),
+            Some(amount)
+        );
+    }
+
+    #[test]
+    fn test_convert_to_crosses_at_price() {
+        let base_price_in_quote = Decimal::new(25, 2); // 0.25 quote per base
+        assert_eq!(
+            Denominator::Base.convert_to(Denominator::Quote, Decimal::from(8), base_price_in_quote),
+            Some(Decimal::from(2))
+        );
+        assert_eq!(
+            Denominator::Quote.convert_to(Denominator::Base, Decimal::from(2), base_price_in_quote),
+            Some(Decimal::from(8))
+        );
+    }
+
+    #[test]
+    fn test_convert_to_requires_positive_price_to_cross() {
+        let amount = Decimal::from(10);
+        assert_eq!(
+            Denominator::Base.convert_to(Denominator::Quote, amount, Decimal::ZERO),
+            None
+        );
+        assert_eq!(
+            Denominator::Quote.convert_to(Denominator::Base, amount, Decimal::ZERO),
+            None
+        );
+        assert_eq!(
+            Denominator::Quote.convert_to(Denominator::Base, amount, Decimal::from(-1)),
+            None
+        );
+    }
+
+    #[test]
+    fn test_convert_to_round_trips() {
+        let base_price_in_quote = Decimal::new(37, 1); // 3.7
+        let amount = Decimal::from(12);
+        let quote_amount = Denominator::Base
+            .convert_to(Denominator::Quote, amount, base_price_in_quote)
+            .unwrap();
+        let base_amount = Denominator::Quote
+            .convert_to(Denominator::Base, quote_amount, base_price_in_quote)
+            .unwrap();
+        assert_eq!(base_amount, amount);
+    }
+
+    #[test]
+    fn test_apply_impact_protection_directions() {
+        let worst_fill_price = Decimal::from(100);
+        let protection_percent = Decimal::from(10);
+        // buying: willing to pay more
+        assert_eq!(
+            Side::Bid.apply_impact_protection(worst_fill_price, protection_percent),
+            Some(Decimal::from(110))
+        );
+        // selling: willing to receive less
+        assert_eq!(
+            Side::Ask.apply_impact_protection(worst_fill_price, protection_percent),
+            Some(Decimal::from(90))
+        );
+    }
+
+    #[test]
+    fn test_apply_impact_protection_requires_positive_inputs() {
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::ZERO, Decimal::from(10)),
+            None
+        );
+        assert_eq!(
+            Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::ZERO),
+            None
+        );
     }
 
     #[test]
