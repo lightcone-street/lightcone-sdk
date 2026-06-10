@@ -10,6 +10,7 @@ from common import (
     quote_deposit_mint,
     wait_for_global_balance,
 )
+from lightcone_sdk.error import ApiRejected
 from lightcone_sdk.program.orders import generate_salt
 from lightcone_sdk.rpc import require_connection
 from lightcone_sdk.shared.signing import SigningStrategy
@@ -56,18 +57,38 @@ async def main():
 
     # 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     #    subsequent orders that omit .nonce() use this cached value.
-    nonce = await client.orders().current_nonce(keypair.pubkey())
-    client.set_order_nonce(nonce)
-
-    response = await (
-        client.orders().limit_order()
-        .maker(keypair.pubkey())
-        .bid()
-        .price("0.55")
-        .size("2")
-        .salt(generate_salt())
-        .submit(client, orderbook)
-    )
+    #
+    #    The on-chain nonce can briefly run ahead of the backend's indexed
+    #    view (the onchain_transactions example bumps it on-chain shortly
+    #    before this one in CI runs). A Nonce Mismatch rejection only means
+    #    the backend hasn't caught up yet, so retry until it converges.
+    max_nonce_attempts = 6
+    for attempt in range(1, max_nonce_attempts + 1):
+        nonce = await client.orders().current_nonce(keypair.pubkey())
+        client.set_order_nonce(nonce)
+        try:
+            response = await (
+                client.orders().limit_order()
+                .maker(keypair.pubkey())
+                .bid()
+                .price("0.55")
+                .size("2")
+                .salt(generate_salt())
+                .submit(client, orderbook)
+            )
+            break
+        except ApiRejected as err:
+            nonce_mismatch = (
+                err.details.rejection_code is not None
+                and err.details.rejection_code.wire_name() == "NONCE_MISMATCH"
+            )
+            if not nonce_mismatch or attempt >= max_nonce_attempts:
+                raise
+            print(
+                f"nonce mismatch (chain nonce {nonce}); "
+                f"waiting for backend to catch up (attempt {attempt})"
+            )
+            await asyncio.sleep(5)
     print(
         f"submitted: {response.order_hash} "
         f"status={response.status.value} filled={response.filled} remaining={response.remaining} "

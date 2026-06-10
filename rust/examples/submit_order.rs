@@ -5,6 +5,7 @@ use common::{
     wait_for_global_balance, ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::shared::rejection::RejectionCode;
 use solana_signer::Signer;
 use solana_transaction::Transaction;
 use std::sync::Arc;
@@ -55,20 +56,44 @@ async fn main() -> ExampleResult {
 
     // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     //    subsequent orders that omit `.nonce()` use this cached value.
-    let nonce = fresh_order_nonce(&client, &maker).await?;
-    client.set_order_nonce(nonce).await;
+    //
+    //    The on-chain nonce can briefly run ahead of the backend's indexed
+    //    view (the `onchain_transactions` example bumps it on-chain shortly
+    //    before this one in CI runs). A Nonce Mismatch rejection only means
+    //    the backend hasn't caught up yet, so retry until it converges.
+    const MAX_NONCE_ATTEMPTS: u32 = 6;
+    let mut attempt = 0u32;
+    let response = loop {
+        attempt += 1;
+        let nonce = fresh_order_nonce(&client, &maker).await?;
+        client.set_order_nonce(nonce).await;
 
-    let response = client
-        .orders()
-        .limit_order()
-        .await
-        .maker(maker)
-        .bid()
-        .price("0.55")
-        .size("2")
-        .salt(lightcone::program::orders::generate_salt())
-        .submit(&client, &orderbook)
-        .await?;
+        let result = client
+            .orders()
+            .limit_order()
+            .await
+            .maker(maker)
+            .bid()
+            .price("0.55")
+            .size("2")
+            .salt(lightcone::program::orders::generate_salt())
+            .submit(&client, &orderbook)
+            .await;
+
+        match result {
+            Ok(response) => break response,
+            Err(SdkError::ApiRejected(details))
+                if attempt < MAX_NONCE_ATTEMPTS
+                    && details.rejection_code == Some(RejectionCode::NonceMismatch) =>
+            {
+                println!(
+                    "nonce mismatch (chain nonce {nonce}); waiting for backend to catch up (attempt {attempt})"
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    };
     println!(
         "submitted: {} status={:?} filled={} remaining={} fills={}",
         response.order_hash,

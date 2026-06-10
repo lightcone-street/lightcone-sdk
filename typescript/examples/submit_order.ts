@@ -1,4 +1,5 @@
 import { Transaction } from "@solana/web3.js";
+import { SdkError } from "../src";
 import { generateSalt } from "../src/program";
 import {
   confirmTransactionOrThrow,
@@ -59,18 +60,40 @@ async function main() {
 
   // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
   //    subsequent orders that omit `.nonce()` use this cached value.
-  const nonce = await freshOrderNonce(client, keypair.publicKey);
-  client.setOrderNonce(nonce);
-
-  const response = await client
-    .orders()
-    .limitOrder()
-    .maker(keypair.publicKey)
-    .bid()
-    .price("0.55")
-    .size("2")
-    .salt(generateSalt())
-    .submit(client, orderbook);
+  //
+  //    The on-chain nonce can briefly run ahead of the backend's indexed
+  //    view (the `onchain_transactions` example bumps it on-chain shortly
+  //    before this one in CI runs). A Nonce Mismatch rejection only means
+  //    the backend hasn't caught up yet, so retry until it converges.
+  const MAX_NONCE_ATTEMPTS = 6;
+  const response = await (async () => {
+    for (let attempt = 1; ; attempt++) {
+      const nonce = await freshOrderNonce(client, keypair.publicKey);
+      client.setOrderNonce(nonce);
+      try {
+        return await client
+          .orders()
+          .limitOrder()
+          .maker(keypair.publicKey)
+          .bid()
+          .price("0.55")
+          .size("2")
+          .salt(generateSalt())
+          .submit(client, orderbook);
+      } catch (err) {
+        const nonceMismatch =
+          err instanceof SdkError &&
+          err.apiRejectedDetails?.rejectionCode?.wireName() === "NONCE_MISMATCH";
+        if (!nonceMismatch || attempt >= MAX_NONCE_ATTEMPTS) {
+          throw err;
+        }
+        console.log(
+          `nonce mismatch (chain nonce ${nonce}); waiting for backend to catch up (attempt ${attempt})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+      }
+    }
+  })();
   console.log(
     `submitted: ${response.order_hash} status=${response.status} filled=${response.filled} remaining=${response.remaining} fills=${response.fills.length}`
   );
