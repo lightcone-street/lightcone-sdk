@@ -1,18 +1,19 @@
 """Authentication types and utilities for the Lightcone SDK."""
 
 from dataclasses import dataclass, field
-from typing import Optional, Literal, ClassVar
+from typing import Optional, Literal, Union
+
+from ..shared.fmt.str import shorten
 
 
 # ---------------------------------------------------------------------------
 # Type aliases
 # ---------------------------------------------------------------------------
 
-LinkedAccountType = Literal["wallet", "twitter_oauth", "google_oauth"]
 ChainType = Literal["solana", "ethereum"]
 # How a session authenticated, as reported by the backend (derived from which
 # token verified the request). "privy" => embedded wallet is the trading
-# identity; "lightcone" => self-custody session, the linked wallet is.
+# identity; "lightcone" => self-custody session, the identity wallet is.
 AuthMethod = Literal["privy", "lightcone"]
 
 
@@ -22,47 +23,161 @@ AuthMethod = Literal["privy", "lightcone"]
 
 
 @dataclass
-class LinkedAccount:
-    """A linked identity (wallet, Google OAuth, X OAuth) associated with a user."""
+class PrivyEmbeddedWallet:
+    """A Privy-managed embedded wallet."""
 
-    id: str = ""
-    type: LinkedAccountType = "wallet"
-    chain: Optional[ChainType] = None
-    address: str = ""
+    privy_id: str
+    chain: ChainType
+    address: str
 
 
 @dataclass
-class EmbeddedWallet:
-    """A Privy-managed embedded wallet."""
+class UserPrivyData:
+    """Privy account data attached to an identity."""
 
-    privy_id: str = ""
-    chain: ChainType = "solana"
-    address: str = ""
+    id: str
+    """The Privy DID (`did:privy:...`)."""
+    wallet: PrivyEmbeddedWallet
+    """Always present: Privy registration provisions the embedded wallet in
+    the same transaction that creates the user."""
+
+
+@dataclass
+class XAccountData:
+    """X account data — the same shape whether X is the login identity or a
+    connected account on a Google/wallet identity."""
+
+    username: str
+    user_id: Optional[str] = None
+    """X numeric user id (Privy `subject`); absent on legacy rows."""
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+@dataclass
+class GoogleAccountData:
+    """Google account data for a Google login identity."""
+
+    email: str
+    name: Optional[str] = None
+    given_name: Optional[str] = None
+    family_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+# The login identity — how the user authenticates, discriminated by `type`.
+# Privy data lives on the variant because its presence is determined by the
+# identity type: Google/X login only exists via Privy OAuth (guaranteed DID +
+# embedded wallet), while wallet users opt into Privy (SIWS) or stay
+# self-custody.
+
+
+@dataclass
+class GoogleIdentity:
+    account: GoogleAccountData
+    privy: UserPrivyData
+    type: Literal["google"] = "google"
+
+
+@dataclass
+class XIdentity:
+    account: XAccountData
+    privy: UserPrivyData
+    type: Literal["x"] = "x"
+
+
+@dataclass
+class WalletIdentity:
+    address: str
+    chain: ChainType
+    privy: Optional[UserPrivyData] = None
+    type: Literal["wallet"] = "wallet"
+
+
+UserIdentity = Union[GoogleIdentity, XIdentity, WalletIdentity]
+
+
+def identity_text(identity: UserIdentity) -> str:
+    """Human-readable login-method label ("Google" / "X" / "Solana")."""
+    if isinstance(identity, GoogleIdentity):
+        return "Google"
+    if isinstance(identity, XIdentity):
+        return "X"
+    return "Solana"
 
 
 @dataclass
 class User:
-    """Full user profile from the Lightcone platform."""
+    """Full user profile — the `user` object of `SessionResponse`."""
 
-    id: str = ""
-    wallet_address: str = ""
-    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
-    privy_id: Optional[str] = None
-    embedded_wallet: Optional[EmbeddedWallet] = None
-    x_username: Optional[str] = None
-    x_user_id: Optional[str] = None
-    x_display_name: Optional[str] = None
-    google_email: Optional[str] = None
-    auth_method: AuthMethod = "lightcone"
+    user_id: str
+    identity: UserIdentity
+    connected_x: Optional[XAccountData] = None
+    """X account connected by a non-X-identity user; None when identity is X."""
+
+    def privy(self) -> Optional[UserPrivyData]:
+        """Privy account data, regardless of identity type."""
+        return self.identity.privy
+
+    def x_account(self) -> Optional[XAccountData]:
+        """The X account, whether it is the login identity or a connected account."""
+        if isinstance(self.identity, XIdentity):
+            return self.identity.account
+        return self.connected_x
+
+    def trading_wallet(self, auth_method: AuthMethod) -> str:
+        """The wallet this session operates as.
+
+        Google/X identities only exist via Privy registration, which always
+        provisions an embedded wallet — that wallet is the answer regardless
+        of auth method. Wallet identities depend on the session: a Privy
+        (SIWS) session trades via the embedded wallet, a Lightcone session
+        trades via the wallet that signed in.
+        """
+        if isinstance(self.identity, (GoogleIdentity, XIdentity)):
+            return self.identity.privy.wallet.address
+        if auth_method == "privy" and self.identity.privy is not None:
+            return self.identity.privy.wallet.address
+        return self.identity.address
+
+    def display_name(self) -> str:
+        """Best display name. Google: name -> email fallback; X: display_name
+        -> username fallback; wallet identities show the shortened address
+        ("FRGk...WcPR")."""
+        if isinstance(self.identity, GoogleIdentity):
+            return self.identity.account.name or self.identity.account.email
+        if isinstance(self.identity, XIdentity):
+            return self.identity.account.display_name or self.identity.account.username
+        return shorten(self.identity.address, 8)
+
+    def avatar_url(self) -> Optional[str]:
+        """Avatar URL from the login identity's OAuth provider, if any."""
+        if isinstance(self.identity, (GoogleIdentity, XIdentity)):
+            return self.identity.account.avatar_url
+        return None
+
+
+@dataclass
+class SessionResponse:
+    """Session envelope returned by login, register-privy, and GET /api/auth/me.
+
+    There is no `wallet_address` field — derive the session's trading wallet
+    with `session.user.trading_wallet(session.auth_method)`.
+    """
+
+    user: User
+    expires_at: int
+    auth_method: AuthMethod
+    is_beta: bool
 
 
 @dataclass
 class AuthCredentials:
     """Internal auth session state. Token is NOT exposed."""
 
-    user_id: str = ""
-    wallet_address: str = ""
-    expires_at: int = 0
+    user_id: str
+    wallet_address: str
+    expires_at: int
 
     def is_authenticated(self) -> bool:
         """Whether the session is still valid (not expired)."""
@@ -78,40 +193,6 @@ class LoginRequest:
     signature_bs58: str = ""
     pubkey_bytes: list[int] = field(default_factory=list)
     use_embedded_wallet: Optional[bool] = None
-
-
-@dataclass
-class LoginResponse:
-    """Login response from the backend."""
-
-    user_id: str = ""
-    wallet_address: str = ""
-    expires_at: int = 0
-    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
-    privy_id: Optional[str] = None
-    embedded_wallet: Optional[EmbeddedWallet] = None
-    x_username: Optional[str] = None
-    x_user_id: Optional[str] = None
-    x_display_name: Optional[str] = None
-    google_email: Optional[str] = None
-    auth_method: AuthMethod = "lightcone"
-
-
-@dataclass
-class MeResponse:
-    """Response from GET /api/auth/me."""
-
-    user_id: str = ""
-    wallet_address: str = ""
-    linked_account: LinkedAccount = field(default_factory=LinkedAccount)
-    privy_id: Optional[str] = None
-    embedded_wallet: Optional[EmbeddedWallet] = None
-    x_username: Optional[str] = None
-    x_user_id: Optional[str] = None
-    x_display_name: Optional[str] = None
-    google_email: Optional[str] = None
-    expires_at: int = 0
-    auth_method: AuthMethod = "lightcone"
 
 
 @dataclass
@@ -135,16 +216,21 @@ def generate_signin_message(nonce: str) -> str:
 
 
 __all__ = [
-    "LinkedAccountType",
     "ChainType",
     "AuthMethod",
-    "LinkedAccount",
-    "EmbeddedWallet",
+    "PrivyEmbeddedWallet",
+    "UserPrivyData",
+    "XAccountData",
+    "GoogleAccountData",
+    "GoogleIdentity",
+    "XIdentity",
+    "WalletIdentity",
+    "UserIdentity",
+    "identity_text",
     "User",
+    "SessionResponse",
     "AuthCredentials",
     "LoginRequest",
-    "LoginResponse",
-    "MeResponse",
     "NonceResponse",
     "generate_signin_message",
 ]

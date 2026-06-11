@@ -1,7 +1,8 @@
 import { SdkError } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
-import type { AuthCredentials, LoginRequest, LoginResponse, MeResponse, NonceResponse, User } from "./index";
+import { tradingWallet } from "./index";
+import type { AuthCredentials, LoginRequest, NonceResponse, SessionResponse } from "./index";
 
 interface AuthState {
   getCredentials(): AuthCredentials | undefined;
@@ -28,7 +29,7 @@ export class Auth {
     signatureBs58: string,
     pubkeyBytes: Uint8Array,
     useEmbeddedWallet?: boolean
-  ): Promise<User> {
+  ): Promise<SessionResponse> {
     const url = `${this.client.http.baseUrl()}/api/auth/login_or_register_with_message`;
     const body: LoginRequest = {
       message,
@@ -37,62 +38,31 @@ export class Auth {
       use_embedded_wallet: useEmbeddedWallet,
     };
 
-    const response = await this.client.http.post<LoginResponse, LoginRequest>(
+    const session = await this.client.http.post<SessionResponse, LoginRequest>(
       url,
       body,
       RetryPolicy.None
     );
 
-    const credentials: AuthCredentials = {
-      user_id: response.user_id,
-      wallet_address: asPubkeyStr(response.wallet_address),
-      expires_at: parseExpiry(response.expires_at),
-    };
-    this.client.authState.setCredentials(credentials);
+    this.client.authState.setCredentials(credentialsFromSession(session));
 
-    return {
-      id: response.user_id,
-      wallet_address: response.wallet_address,
-      linked_account: response.linked_account,
-      privy_id: response.privy_id,
-      embedded_wallet: response.embedded_wallet,
-      x_username: response.x_username,
-      x_user_id: response.x_user_id,
-      x_display_name: response.x_display_name,
-      google_email: response.google_email,
-      auth_method: response.auth_method,
-    };
+    return session;
   }
 
-  async checkSession(): Promise<User> {
+  async checkSession(): Promise<SessionResponse> {
     const url = `${this.client.http.baseUrl()}/api/auth/me`;
 
-    let response: MeResponse;
+    let session: SessionResponse;
     try {
-      response = await this.client.http.get<MeResponse>(url, RetryPolicy.Idempotent);
+      session = await this.client.http.get<SessionResponse>(url, RetryPolicy.Idempotent);
     } catch (error) {
       this.client.authState.setCredentials(undefined);
       throw SdkError.from(error);
     }
 
-    this.client.authState.setCredentials({
-      user_id: response.user_id,
-      wallet_address: asPubkeyStr(response.wallet_address),
-      expires_at: parseExpiry(response.expires_at),
-    });
+    this.client.authState.setCredentials(credentialsFromSession(session));
 
-    return {
-      id: response.user_id,
-      wallet_address: response.wallet_address,
-      linked_account: response.linked_account,
-      privy_id: response.privy_id,
-      embedded_wallet: response.embedded_wallet,
-      x_username: response.x_username,
-      x_user_id: response.x_user_id,
-      x_display_name: response.x_display_name,
-      google_email: response.google_email,
-      auth_method: response.auth_method,
-    };
+    return session;
   }
 
   async logout(): Promise<void> {
@@ -128,6 +98,18 @@ export class Auth {
     }
     return Date.now() < credentials.expires_at.getTime();
   }
+}
+
+/**
+ * Derive session credentials from the envelope. The trading wallet comes from
+ * the identity + auth method.
+ */
+function credentialsFromSession(session: SessionResponse): AuthCredentials {
+  return {
+    user_id: session.user.user_id,
+    wallet_address: asPubkeyStr(tradingWallet(session.user, session.auth_method)),
+    expires_at: parseExpiry(session.expires_at),
+  };
 }
 
 function parseExpiry(timestamp: number): Date {

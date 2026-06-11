@@ -61,12 +61,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Authenticate
     let nonce = client.auth().get_nonce().await?;
     let signed = sign_login_message(&keypair, &nonce);
-    let user = client.auth().login_with_message(
+    let session = client.auth().login_with_message(
         &signed.message,
         &signed.signature_bs58,
         &signed.pubkey_bytes,
         None,
     ).await?;
+    println!("signed in as {}", session.user.user_id);
 
     // 2. Find a market
     let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();

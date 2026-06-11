@@ -139,7 +139,8 @@ pub mod prelude {
 
     // Auth + User types
     pub use crate::auth::{
-        AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
+        AuthCredentials, AuthMethod, ChainType, GoogleAccountData, PrivyEmbeddedWallet,
+        SessionResponse, User, UserIdentity, UserPrivyData, XAccountData,
     };
 
     // Program — order envelopes, trait, payload

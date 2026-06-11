@@ -4,7 +4,7 @@ import * as path from "path";
 import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 
 import { LightconeClient, LightconeEnv, type Market, type OrderBookPair } from "../src";
-import { signLoginMessage, type User } from "../src/auth";
+import { signLoginMessage, type SessionResponse } from "../src/auth";
 
 const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
 
@@ -56,7 +56,7 @@ export async function login(
   client: LightconeClient,
   keypair: Keypair,
   useEmbeddedWallet = false
-): Promise<User> {
+): Promise<SessionResponse> {
   const nonce = await client.auth().getNonce();
   const signed = signLoginMessage(keypair, nonce);
   return client.auth().loginWithMessage(

@@ -6,11 +6,12 @@ use common::{get_keypair, login, rest_client, ExampleResult};
 async fn main() -> ExampleResult {
     let client = rest_client()?;
     let keypair = get_keypair()?;
-    let user = login(&client, &keypair, false).await?;
+    let session = login(&client, &keypair, false).await?;
+    let wallet = session.user.trading_wallet(session.auth_method);
 
     let balances = client.positions().deposit_token_balances().await?;
 
-    println!("wallet: {}", user.wallet_address);
+    println!("wallet: {}", wallet);
     println!("tracked balances: {}", balances.len());
 
     let mut entries: Vec<_> = balances.values().collect();
