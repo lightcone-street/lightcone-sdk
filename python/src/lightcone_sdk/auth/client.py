@@ -10,11 +10,19 @@ from solders.keypair import Keypair
 
 from . import (
     AuthCredentials,
+    GoogleAccountData,
+    GoogleIdentity,
+    PrivyEmbeddedWallet,
+    SessionResponse,
     User,
-    LinkedAccount,
-    EmbeddedWallet,
+    UserIdentity,
+    UserPrivyData,
+    WalletIdentity,
+    XAccountData,
+    XIdentity,
     generate_signin_message,
 )
+from ..error import DeserializationError, _require
 from ..http.retry import RetryPolicy
 
 if TYPE_CHECKING:
@@ -63,8 +71,8 @@ class Auth:
         signature_bs58: str,
         pubkey_bytes: list[int],
         use_embedded_wallet: Optional[bool] = None,
-    ) -> User:
-        """Login with a pre-signed message and return the full user profile.
+    ) -> SessionResponse:
+        """Login with a pre-signed message and return the session envelope.
 
         Args:
             message: The signed message
@@ -73,7 +81,7 @@ class Auth:
             use_embedded_wallet: If True, provision a Privy embedded wallet
 
         Returns:
-            Full User profile
+            The session envelope with the full user profile
         """
         body: dict = {
             "message": message,
@@ -89,23 +97,20 @@ class Auth:
             retry_policy=RetryPolicy.NONE,
         )
 
+        session = _session_from_dict(data)
         # Store credentials (token is extracted from set-cookie by the HTTP layer)
-        self._credentials = AuthCredentials(
-            user_id=data.get("user_id", ""),
-            wallet_address=data.get("wallet_address", ""),
-            expires_at=data.get("expires_at", 0),
-        )
+        self._credentials = _credentials_from_session(session)
 
-        return _user_from_dict(data)
+        return session
 
-    async def login(self, keypair: Keypair) -> User:
+    async def login(self, keypair: Keypair) -> SessionResponse:
         """Full login flow: get nonce, sign, submit.
 
         Args:
             keypair: Solana keypair for signing
 
         Returns:
-            Full User profile
+            The session envelope with the full user profile
         """
         # Step 1: Get nonce
         nonce = await self.get_nonce()
@@ -118,14 +123,14 @@ class Auth:
             message, signature_b58, pubkey_bytes
         )
 
-    async def check_session(self) -> User:
-        """Validate the current session and return the full user profile.
+    async def check_session(self) -> SessionResponse:
+        """Validate the current session and return the session envelope.
 
         On success, updates internal credentials. On failure, clears
         credentials and re-raises the error.
 
         Returns:
-            Full User profile
+            The session envelope with the full user profile
 
         Raises:
             SdkError: If session is invalid or expired
@@ -135,17 +140,15 @@ class Auth:
                 "/api/auth/me",
                 retry_policy=RetryPolicy.IDEMPOTENT,
             )
+            session = _session_from_dict(data)
+            credentials = _credentials_from_session(session)
         except Exception:
             self._credentials = None
             raise
 
-        self._credentials = AuthCredentials(
-            user_id=data.get("user_id", ""),
-            wallet_address=data.get("wallet_address", ""),
-            expires_at=data.get("expires_at", 0),
-        )
+        self._credentials = credentials
 
-        return _user_from_dict(data)
+        return session
 
     async def logout(self) -> None:
         """Logout — clears server-side cookie, internal token, and credentials."""
@@ -177,39 +180,108 @@ class Auth:
 # ---------------------------------------------------------------------------
 
 
-def _user_from_dict(d: dict) -> User:
-    """Parse a User from an API response dict."""
-    la = d.get("linked_account")
-    if la and isinstance(la, dict):
-        linked_account = LinkedAccount(
-            id=la.get("id", ""),
-            type=la.get("type", "wallet"),
-            chain=la.get("chain"),
-            address=la.get("address", ""),
-        )
-    else:
-        linked_account = LinkedAccount()
+def _privy_from_dict(d: dict) -> UserPrivyData:
+    wallet_dict = _require(d, "wallet", "privy data")
+    if not isinstance(wallet_dict, dict):
+        raise DeserializationError("privy data has malformed wallet")
+    return UserPrivyData(
+        id=str(_require(d, "id", "privy data")),
+        wallet=PrivyEmbeddedWallet(
+            privy_id=str(_require(wallet_dict, "privy_id", "privy wallet")),
+            chain=_require(wallet_dict, "chain", "privy wallet"),  # type: ignore[arg-type]
+            address=str(_require(wallet_dict, "address", "privy wallet")),
+        ),
+    )
 
-    embedded_wallet = None
-    ew = d.get("embedded_wallet")
-    if ew and isinstance(ew, dict):
-        embedded_wallet = EmbeddedWallet(
-            privy_id=ew.get("privy_id", ""),
-            chain=ew.get("chain", "solana"),
-            address=ew.get("address", ""),
+
+def _x_account_from_dict(d: dict) -> XAccountData:
+    return XAccountData(
+        username=str(_require(d, "username", "x account")),
+        user_id=d.get("user_id"),
+        display_name=d.get("display_name"),
+        avatar_url=d.get("avatar_url"),
+    )
+
+
+def _google_account_from_dict(d: dict) -> GoogleAccountData:
+    return GoogleAccountData(
+        email=str(_require(d, "email", "google account")),
+        name=d.get("name"),
+        given_name=d.get("given_name"),
+        family_name=d.get("family_name"),
+        avatar_url=d.get("avatar_url"),
+    )
+
+
+def _identity_from_dict(d: dict) -> UserIdentity:
+    identity_type = _require(d, "type", "identity")
+    if identity_type == "google":
+        account = _require(d, "account", "google identity")
+        privy = _require(d, "privy", "google identity")
+        if not isinstance(account, dict) or not isinstance(privy, dict):
+            raise DeserializationError("google identity has malformed account/privy")
+        return GoogleIdentity(
+            account=_google_account_from_dict(account),
+            privy=_privy_from_dict(privy),
         )
+    if identity_type == "x":
+        account = _require(d, "account", "x identity")
+        privy = _require(d, "privy", "x identity")
+        if not isinstance(account, dict) or not isinstance(privy, dict):
+            raise DeserializationError("x identity has malformed account/privy")
+        return XIdentity(
+            account=_x_account_from_dict(account),
+            privy=_privy_from_dict(privy),
+        )
+    if identity_type == "wallet":
+        privy_dict = d.get("privy")
+        privy = _privy_from_dict(privy_dict) if isinstance(privy_dict, dict) else None
+        return WalletIdentity(
+            address=str(_require(d, "address", "wallet identity")),
+            chain=_require(d, "chain", "wallet identity"),  # type: ignore[arg-type]
+            privy=privy,
+        )
+    raise DeserializationError(f"unknown identity type: {identity_type!r}")
+
+
+def _user_from_dict(d: dict) -> User:
+    """Parse a User from the session envelope's `user` object."""
+    identity_dict = _require(d, "identity", "user")
+    if not isinstance(identity_dict, dict):
+        raise DeserializationError("user has malformed identity")
+
+    connected_x = None
+    connected_x_dict = d.get("connected_x")
+    if isinstance(connected_x_dict, dict):
+        connected_x = _x_account_from_dict(connected_x_dict)
 
     return User(
-        id=d.get("user_id", d.get("id", "")),
-        wallet_address=d.get("wallet_address", ""),
-        linked_account=linked_account,
-        privy_id=d.get("privy_id"),
-        embedded_wallet=embedded_wallet,
-        x_username=d.get("x_username"),
-        x_user_id=d.get("x_user_id"),
-        x_display_name=d.get("x_display_name"),
-        google_email=d.get("google_email"),
-        auth_method=d.get("auth_method", "lightcone"),
+        user_id=str(_require(d, "user_id", "user")),
+        identity=_identity_from_dict(identity_dict),
+        connected_x=connected_x,
+    )
+
+
+def _session_from_dict(d: dict) -> SessionResponse:
+    """Parse the session envelope from an auth response."""
+    user_dict = _require(d, "user", "session response")
+    if not isinstance(user_dict, dict):
+        raise DeserializationError("session response has malformed user")
+    return SessionResponse(
+        user=_user_from_dict(user_dict),
+        expires_at=int(_require(d, "expires_at", "session response")),  # type: ignore[call-overload]
+        auth_method=_require(d, "auth_method", "session response"),  # type: ignore[arg-type]
+        is_beta=bool(d.get("is_beta", False)),
+    )
+
+
+def _credentials_from_session(session: SessionResponse) -> AuthCredentials:
+    """Derive session credentials from the envelope. The trading wallet comes
+    from the identity + auth method."""
+    return AuthCredentials(
+        user_id=session.user.user_id,
+        wallet_address=session.user.trading_wallet(session.auth_method),
+        expires_at=session.expires_at,
     )
 
 

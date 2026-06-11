@@ -69,7 +69,7 @@ pub async fn login(
     client: &LightconeClient,
     keypair: &Keypair,
     use_embedded_wallet: bool,
-) -> ExampleResult<User> {
+) -> ExampleResult<SessionResponse> {
     let nonce = client.auth().get_nonce().await?;
     let signed = sign_login_message(keypair, &nonce);
     Ok(client

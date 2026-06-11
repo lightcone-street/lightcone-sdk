@@ -1,13 +1,15 @@
+import { tradingWallet } from "../src/auth";
 import { restClient, getKeypair, login, runExample } from "./common";
 
 async function main() {
   const client = restClient();
   const keypair = getKeypair();
-  const user = await login(client, keypair);
+  const session = await login(client, keypair);
+  const wallet = tradingWallet(session.user, session.auth_method);
 
   const balances = await client.positions().depositTokenBalances();
 
-  console.log("wallet:", user.wallet_address);
+  console.log("wallet:", wallet);
   console.log("tracked balances:", Object.keys(balances).length);
 
   const entries = Object.values(balances).sort((a, b) =>

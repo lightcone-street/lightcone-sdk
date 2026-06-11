@@ -41,54 +41,100 @@ Client-side clearing alone is insufficient -- the backend must be told to invali
 
 ## Types
 
+### `SessionResponse`
+
+Session envelope returned by `login_with_message()` and `check_session()`:
+the durable user profile plus session-scoped facts. There is no
+`wallet_address` field — derive the session's trading wallet with
+`session.user.trading_wallet(session.auth_method)`.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user` | `User` | Full user profile |
+| `expires_at` | `i64` | Session expiry (Unix seconds) |
+| `auth_method` | `AuthMethod` | `Privy` or `Lightcone` (which token verified the session) |
+| `is_beta` | `bool` | Whether the user has beta access |
+
 ### `User`
 
-Full user profile returned by `login_with_message()` and `check_session()`.
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_id` | `String` | User ID |
+| `identity` | `UserIdentity` | The login identity (tagged union) |
+| `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
+
+**Methods:**
+- `privy()` — Privy account data regardless of identity type
+- `x_account()` — the X account, whether login identity or connected account
+- `trading_wallet(auth_method)` — the wallet this session operates as. Google/X identities always trade via their Privy embedded wallet; wallet identities trade via the embedded wallet on Privy (SIWS) sessions and via the sign-in wallet on Lightcone sessions
+- `display_name()` — Google: `name` → email fallback; X: `display_name` → username fallback; wallet: shortened address (`FRGk...WcPR`)
+- `avatar_url()` — avatar from the login identity's OAuth provider
+
+### `UserIdentity`
+
+How the user authenticates. Serializes as a tagged union on `type`
+(`"google"` / `"x"` / `"wallet"`). Privy data lives on the variant because
+Google/X login only exists via Privy (always present), while wallet users opt
+in (SIWS) or stay self-custody (`None`).
+
+| Variant | Fields |
+|---------|--------|
+| `Google` | `account: GoogleAccountData`, `privy: UserPrivyData` |
+| `X` | `account: XAccountData`, `privy: UserPrivyData` |
+| `Wallet` | `address: String`, `chain: ChainType`, `privy: Option<UserPrivyData>` |
+
+**Methods:**
+- `text()` — human-readable label: `"Google"` / `"X"` / `"Solana"`
+
+### `GoogleAccountData`
+
+| Field | Type |
+|-------|------|
+| `email` | `String` |
+| `name` | `Option<String>` |
+| `given_name` | `Option<String>` |
+| `family_name` | `Option<String>` |
+| `avatar_url` | `Option<String>` |
+
+### `XAccountData`
+
+Same shape whether X is the login identity or a connected account.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `String` | User ID |
-| `wallet_address` | `String` | Primary Solana wallet address |
-| `linked_account` | `LinkedAccount` | Primary linked identity |
-| `privy_id` | `Option<String>` | Privy user ID (if embedded wallet) |
-| `embedded_wallet` | `Option<EmbeddedWallet>` | Privy embedded wallet info |
-| `x_username` | `Option<String>` | Linked X (Twitter) username |
-| `x_user_id` | `Option<String>` | Linked X user ID |
-| `x_display_name` | `Option<String>` | Linked X display name |
+| `user_id` | `Option<String>` | X numeric user id |
+| `username` | `String` | X handle |
+| `display_name` | `Option<String>` | Profile display name |
+| `avatar_url` | `Option<String>` | Profile picture URL |
 
-### `LinkedAccount`
-
-A linked identity associated with a user.
+### `UserPrivyData`
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `id` | `String` | Account ID |
-| `account_type` | `LinkedAccountType` | `Wallet`, `TwitterOauth`, or `GoogleOauth` |
-| `chain` | `Option<ChainType>` | `Solana` or `Ethereum` (for wallets) |
-| `address` | `String` | Account address/identifier |
+| `id` | `String` | Privy DID (`did:privy:...`) |
+| `wallet` | `PrivyEmbeddedWallet` | Embedded trading wallet (always provisioned at registration) |
+
+### `PrivyEmbeddedWallet`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `privy_id` | `String` | Privy wallet identifier |
+| `chain` | `ChainType` | `Solana` or `Ethereum` |
+| `address` | `String` | Wallet address |
 
 ### `AuthCredentials`
 
-Session state (token is never exposed).
+Session state (token is never exposed). The `wallet_address` is derived from
+the session via `trading_wallet`.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `user_id` | `String` | Authenticated user ID |
-| `wallet_address` | `PubkeyStr` | User's wallet address |
+| `wallet_address` | `PubkeyStr` | The session's active trading wallet |
 | `expires_at` | `DateTime<Utc>` | Session expiration time |
 
 **Methods:**
 - `is_authenticated()` -- whether the session is still valid (not expired)
-
-### `EmbeddedWallet`
-
-A Privy-managed embedded wallet.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `privy_id` | `String` | Privy identifier |
-| `chain` | `ChainType` | `Solana` or `Ethereum` |
-| `address` | `String` | Wallet address |
 
 ## Client Methods
 
@@ -111,20 +157,31 @@ async fn login_with_message(
     signature_bs58: &str,
     pubkey_bytes: &[u8; 32],
     use_embedded_wallet: Option<bool>,
-) -> Result<User, SdkError>
+) -> Result<SessionResponse, SdkError>
 ```
 
-Authenticate with a pre-signed message. Returns the full user profile. On native, stores the auth token internally. On WASM, the backend sets an HTTP-only cookie.
+Authenticate with a pre-signed message. Returns the session envelope with the full user profile. On native, stores the auth token internally. On WASM, the backend sets an HTTP-only cookie.
 
 Set `use_embedded_wallet` to `Some(true)` to provision a Privy embedded wallet during login.
 
 ### `check_session`
 
 ```rust
-async fn check_session(&self) -> Result<User, SdkError>
+async fn check_session(&self) -> Result<SessionResponse, SdkError>
 ```
 
-Validate the current session and return the full user profile. Works on both WASM (browser sends cookie) and native (SDK injects cookie header). Clears credentials on failure.
+Validate the current session and return the session envelope. Works on both WASM (browser sends cookie) and native (SDK injects cookie header). Clears credentials on failure.
+
+### `check_session_with_cookies`
+
+```rust
+async fn check_session_with_cookies(
+    &self,
+    cookie_header: &str,
+) -> Result<(SessionResponse, AuthCredentials), SdkError>
+```
+
+Same as `check_session`, but forwards the supplied raw `Cookie` header for this call and does **not** mutate the shared credentials (safe under concurrent SSR). Returns the parsed credentials alongside the envelope.
 
 ### `logout`
 
@@ -175,7 +232,7 @@ use lightcone::prelude::*;
 use lightcone::auth::native::sign_login_message;
 use solana_keypair::Keypair;
 
-async fn login(client: &LightconeClient, keypair: &Keypair) -> Result<User, SdkError> {
+async fn login(client: &LightconeClient, keypair: &Keypair) -> Result<SessionResponse, SdkError> {
     // 1. Fetch a single-use nonce (5-minute TTL, consumed on login)
     let nonce = client.auth().get_nonce().await?;
 
@@ -183,15 +240,16 @@ async fn login(client: &LightconeClient, keypair: &Keypair) -> Result<User, SdkE
     let signed = sign_login_message(keypair, &nonce);
 
     // 3. Authenticate
-    let user = client.auth().login_with_message(
+    let session = client.auth().login_with_message(
         &signed.message,
         &signed.signature_bs58,
         &signed.pubkey_bytes,
         None,
     ).await?;
 
-    println!("Logged in as: {} ({})", user.id, user.wallet_address);
-    Ok(user)
+    let wallet = session.user.trading_wallet(session.auth_method);
+    println!("Logged in as: {} ({})", session.user.user_id, wallet);
+    Ok(session)
 }
 ```
 
@@ -226,8 +284,9 @@ use lightcone::prelude::*;
 async fn manage_session(client: &LightconeClient) -> Result<(), SdkError> {
     // Check if we have a valid session
     if client.auth().is_authenticated().await {
-        let user = client.auth().check_session().await?;
-        println!("Authenticated as: {}", user.wallet_address);
+        let session = client.auth().check_session().await?;
+        println!("Authenticated as: {}", session.user.trading_wallet(session.auth_method));
+        println!("Signed-in via {}", session.user.identity.text());
     } else {
         println!("Not authenticated");
     }

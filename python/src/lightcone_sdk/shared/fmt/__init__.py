@@ -14,6 +14,7 @@ from .num import (
     from_decimal_value,
     to_decimal_value,
 )
+from .str import shorten
 
 __all__ = [
     "abbr_number",
@@ -24,6 +25,7 @@ __all__ = [
     "display_pct_decimal",
     "display_with_decimals",
     "from_decimal_value",
+    "shorten",
     "to_base_units",
     "to_decimal_value",
 ]
