@@ -1,11 +1,13 @@
 #![doc = include_str!("README.md")]
 
+pub mod aggregation;
 pub mod client;
 mod convert;
 pub mod state;
 pub mod ticker;
 pub mod wire;
 
+pub use aggregation::BookAggregation;
 pub use ticker::TickerData;
 
 use crate::domain::market::tokens::{self, HasDisplayToken, Token};

@@ -53,19 +53,52 @@ def ping() -> dict[str, Any]:
     return {"method": "ping"}
 
 
-def subscribe_books(orderbook_ids: list[str]) -> dict[str, Any]:
-    """Create a book_update subscribe message."""
+def _book_params_dict(
+    orderbook_ids: list[str],
+    n_sig_figs: Optional[int],
+    mantissa: Optional[int],
+) -> dict[str, Any]:
+    """Book params in wire shape: camelCase ``nSigFigs``, keys omitted when
+    absent (the backend rejects unknown/null params), normalized so
+    ``(5, None)`` is sent as ``(5, 1)``."""
+    from ..domain.orderbook.aggregation import BookAggregation
+
+    aggregation = BookAggregation(
+        n_sig_figs=n_sig_figs, mantissa=mantissa
+    ).normalized()
+    params: dict[str, Any] = {"type": "book_update", "orderbook_ids": orderbook_ids}
+    if aggregation.n_sig_figs is not None:
+        params["nSigFigs"] = aggregation.n_sig_figs
+    if aggregation.mantissa is not None:
+        params["mantissa"] = aggregation.mantissa
+    return params
+
+
+def subscribe_books(
+    orderbook_ids: list[str],
+    n_sig_figs: Optional[int] = None,
+    mantissa: Optional[int] = None,
+) -> dict[str, Any]:
+    """Create a book_update subscribe message, optionally aggregated
+    (Hyperliquid-style). Validate combos with
+    ``BookAggregation.validate(n_sig_figs, mantissa)`` first — invalid ones
+    are rejected server-side with ``INVALID_ORDERBOOK_SUBSCRIPTION``."""
     return {
         "method": "subscribe",
-        "params": {"type": "book_update", "orderbook_ids": orderbook_ids},
+        "params": _book_params_dict(orderbook_ids, n_sig_figs, mantissa),
     }
 
 
-def unsubscribe_books(orderbook_ids: list[str]) -> dict[str, Any]:
-    """Create a book_update unsubscribe message."""
+def unsubscribe_books(
+    orderbook_ids: list[str],
+    n_sig_figs: Optional[int] = None,
+    mantissa: Optional[int] = None,
+) -> dict[str, Any]:
+    """Create a book_update unsubscribe message. The aggregation must match
+    the one subscribed (normalized) or the server removes nothing."""
     return {
         "method": "unsubscribe",
-        "params": {"type": "book_update", "orderbook_ids": orderbook_ids},
+        "params": _book_params_dict(orderbook_ids, n_sig_figs, mantissa),
     }
 
 
@@ -409,10 +442,22 @@ class WsErrorData:
     error: str = ""
     code: Optional[str] = None
     orderbook_id: Optional[str] = None
+    #: Aggregation of the affected book subscription on book-scoped errors
+    #: (``ENGINE_UNAVAILABLE``, ``SUBSCRIPTION_LIMIT_REACHED``,
+    #: ``INVALID_ORDERBOOK_SUBSCRIPTION``). ``None`` = full precision.
+    n_sig_figs: Optional[int] = None
+    mantissa: Optional[int] = None
     wallet_address: Optional[str] = None
     deposit_asset: Optional[str] = None
     hint: Optional[str] = None
     details: Optional[str] = None
+
+    def aggregation(self) -> "BookAggregation":
+        """The ``(orderbook, aggregation)`` subscription a book-scoped error
+        refers to, paired with :attr:`orderbook_id`."""
+        from ..domain.orderbook.aggregation import BookAggregation
+
+        return BookAggregation.from_frame(self.n_sig_figs, self.mantissa)
 
     @staticmethod
     def from_dict(d: dict) -> "WsErrorData":
@@ -420,6 +465,8 @@ class WsErrorData:
             error=d.get("error", ""),
             code=d.get("code"),
             orderbook_id=d.get("orderbook_id"),
+            n_sig_figs=d.get("n_sig_figs"),
+            mantissa=d.get("mantissa"),
             wallet_address=d.get("wallet_address"),
             deposit_asset=d.get("deposit_asset"),
             hint=d.get("hint"),

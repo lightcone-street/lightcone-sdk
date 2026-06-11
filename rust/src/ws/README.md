@@ -19,7 +19,7 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 
 | Channel | Subscribe with | Events | Description |
 |---------|---------------|--------|-------------|
-| Books | `SubscribeParams::Books { orderbook_ids }` | `Kind::BookUpdate` | Orderbook snapshots + deltas |
+| Books | `SubscribeParams::Books { orderbook_ids, n_sig_figs, mantissa }` | `Kind::BookUpdate` | Top-20 orderbook snapshots (full replacement per frame, optional aggregation) |
 | Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Individual trade executions |
 | User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Order updates, balance changes, snapshots |
 | Price History | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` | OHLCV snapshots + updates |
@@ -32,8 +32,8 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 
 | Constructor | Description |
 |-------------|-------------|
-| `MessageOut::subscribe_books(ids)` | Subscribe to orderbook updates |
-| `MessageOut::unsubscribe_books(ids)` | Unsubscribe from orderbooks |
+| `MessageOut::subscribe_books(ids, aggregation)` | Subscribe to orderbook snapshots (`BookAggregation::FULL` for the raw book) |
+| `MessageOut::unsubscribe_books(ids, aggregation)` | Unsubscribe from orderbooks (aggregation must match the subscription) |
 | `MessageOut::subscribe_trades(ids)` | Subscribe to trade events |
 | `MessageOut::unsubscribe_trades(ids)` | Unsubscribe from trades |
 | `MessageOut::subscribe_user(wallet)` | Subscribe to user events (requires auth) |
@@ -51,8 +51,18 @@ You can also construct subscribe/unsubscribe messages from `SubscribeParams` and
 ```rust
 let msg = MessageOut::Subscribe(SubscribeParams::Books {
     orderbook_ids: vec![OrderBookId::from("7BgBvyjr_EPjFWdd5")],
+    n_sig_figs: None,
+    mantissa: None,
 });
 ```
+
+### Book aggregation
+
+Book subscriptions accept an optional Hyperliquid-style aggregation: `n_sig_figs` (2, 3, 4, or 5) and `mantissa` (1, 2, or 5 — only valid with `n_sig_figs = 5`). `(5, None)` normalizes to `(5, 1)`. Omit both for the full-precision book. Bids bucket by flooring, asks by ceiling. Validate combinations with `BookAggregation::validate` before sending — the server rejects invalid ones with `INVALID_ORDERBOOK_SUBSCRIPTION`. On the wire the field is spelled camelCase `nSigFigs` and omitted when absent (the SDK handles this via serde renames).
+
+Every incoming `book_update` frame is tagged with its (normalized) aggregation as `n_sig_figs`/`mantissa`, omitted for full precision — `OrderBook::aggregation()` returns the view's `BookAggregation`. Each `(orderbook, aggregation)` pair is a **distinct subscription**: one connection may hold multiple aggregation views of the same orderbook simultaneously (key your `OrderbookState` instances by `(orderbook_id, aggregation)`), each counts against the per-connection subscription limit, and unsubscribe must repeat the same aggregation to match. Book-scoped error frames (`ENGINE_UNAVAILABLE` — subscribe rolled back, retry; `SUBSCRIPTION_LIMIT_REACHED`; `INVALID_ORDERBOOK_SUBSCRIPTION`) carry `orderbook_id` plus the same tag fields (`WsError::aggregation()`) so retries can target the exact subscription.
+
+The stream is **snapshot-only**: every data frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale, last-write-wins. `seq` is strictly increasing but non-contiguous, and the initial snapshot after every (re)subscribe is `seq: 0` — never gate frames on `seq`. A `resync: true` frame (also tagged) means unsubscribe and re-subscribe that exact `(orderbook, aggregation)`.
 
 ## Inbound Messages
 
@@ -66,7 +76,7 @@ Discriminated union of all inbound message types:
 
 | Variant | Payload | Channel |
 |---------|---------|---------|
-| `Kind::BookUpdate(OrderBook)` | Orderbook snapshot or delta | `book_update` |
+| `Kind::BookUpdate(OrderBook)` | Orderbook snapshot (top-20, replaces wholesale; tagged with its aggregation) | `book_update` |
 | `Kind::Trade(WsTrade)` | Single trade execution | `trades` |
 | `Kind::User(UserUpdate)` | User snapshot, order update, or balance update | `user` |
 | `Kind::PriceHistory(PriceHistory)` | Price candle snapshot or update | `price_history` |
@@ -205,6 +215,8 @@ async fn run_market_maker(
     // Subscribe to book updates and user events
     ws.subscribe(SubscribeParams::Books {
         orderbook_ids: vec![orderbook_id.clone()],
+        n_sig_figs: None,
+        mantissa: None,
     }).unwrap();
     ws.subscribe(SubscribeParams::User {
         wallet_address: wallet,
@@ -251,9 +263,11 @@ async fn run_market_maker(
 use lightcone::prelude::*;
 
 fn setup_subscriptions(ws: &lightcone::ws::native::WsClient, orderbook_ids: Vec<OrderBookId>) {
-    // Book depth
+    // Book depth (full precision; pass n_sig_figs/mantissa for grouping)
     ws.subscribe(SubscribeParams::Books {
         orderbook_ids: orderbook_ids.clone(),
+        n_sig_figs: None,
+        mantissa: None,
     }).unwrap();
 
     // Live trades

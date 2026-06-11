@@ -28,6 +28,9 @@ export interface RestBookLevel {
   orders?: number;
 }
 
+/**
+ * REST depth response. Depth is capped server-side at 20 levels per side.
+ */
 export interface OrderbookDepthResponse {
   orderbook_id: OrderBookId;
   market_pubkey?: string;
@@ -37,6 +40,20 @@ export interface OrderbookDepthResponse {
   tick_size?: string;
   bids: RestBookLevel[];
   asks: RestBookLevel[];
+  /**
+   * Display decimals for prices and sizes. Always sent by current backends;
+   * optional for tolerance of older payloads.
+   */
+  decimals?: OrderbookDepthDecimals;
+}
+
+/**
+ * Price/size display decimals from the depth endpoint. Distinct from
+ * `DecimalsResponse` (the `/decimals` endpoint).
+ */
+export interface OrderbookDepthDecimals {
+  price: number;
+  size: number;
 }
 
 export interface DecimalsResponse {
@@ -52,6 +69,14 @@ export interface WsBookLevel {
   size: string;
 }
 
+/**
+ * WS orderbook snapshot frame.
+ *
+ * The stream is snapshot-only: every data frame carries the full top-20
+ * levels per side and replaces the previous book wholesale (last-write-wins).
+ * `seq` is strictly increasing but non-contiguous, and the initial snapshot
+ * after every (re)subscribe is `seq: 0` — informational only, never a gate.
+ */
 export interface OrderBook {
   orderbook_id: OrderBookId;
   is_snapshot?: boolean;
@@ -60,6 +85,14 @@ export interface OrderBook {
   timestamp?: string;
   bids: WsBookLevel[];
   asks: WsBookLevel[];
+  /**
+   * Aggregation tags echoed by the backend (omitted = full precision).
+   * Always normalized server-side ((5, none) arrives as (5, 1)). Use
+   * `aggregationFromFrame(book.n_sig_figs, book.mantissa)` to key
+   * per-`(orderbook, aggregation)` book state.
+   */
+  n_sig_figs?: number;
+  mantissa?: number;
 }
 
 export interface WsTickerData {

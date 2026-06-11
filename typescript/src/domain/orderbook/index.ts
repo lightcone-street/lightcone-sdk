@@ -4,6 +4,7 @@ import type { OrderBookId, PubkeyStr } from "../../shared";
 import type { OrderbookDecimals } from "../../shared/scaling";
 import type { ConditionalToken } from "../market";
 
+export * from "./aggregation";
 export * from "./client";
 export * from "./wire";
 export * from "./state";

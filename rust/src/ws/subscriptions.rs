@@ -1,5 +1,6 @@
 //! Subscription types, tracking, and matching.
 
+use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::shared::{OrderBookId, PubkeyStr, Resolution};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -11,8 +12,20 @@ use std::collections::HashSet;
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(tag = "type")]
 pub enum SubscribeParams {
+    /// Book snapshots, optionally aggregated (Hyperliquid-style).
+    ///
+    /// Each `(orderbook, aggregation)` pair is a distinct subscription — one
+    /// connection may hold multiple aggregation views of the same orderbook.
+    /// The wire spelling is camelCase `nSigFigs` and both keys are omitted
+    /// when absent (the backend rejects unknown/snake_case params).
     #[serde(rename = "book_update")]
-    Books { orderbook_ids: Vec<OrderBookId> },
+    Books {
+        orderbook_ids: Vec<OrderBookId>,
+        #[serde(default, rename = "nSigFigs", skip_serializing_if = "Option::is_none")]
+        n_sig_figs: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mantissa: Option<u32>,
+    },
     #[serde(rename = "trades")]
     Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
@@ -47,8 +60,17 @@ pub enum SubscribeParams {
 #[derive(Debug, Clone, Serialize, Deserialize, Hash, Eq, PartialEq)]
 #[serde(tag = "type")]
 pub enum UnsubscribeParams {
+    /// Unsubscribe is matched server-side on `(orderbook_ids, normalized
+    /// aggregation)` — repeat the same `n_sig_figs`/`mantissa` that were
+    /// subscribed or nothing is removed.
     #[serde(rename = "book_update")]
-    Books { orderbook_ids: Vec<OrderBookId> },
+    Books {
+        orderbook_ids: Vec<OrderBookId>,
+        #[serde(default, rename = "nSigFigs", skip_serializing_if = "Option::is_none")]
+        n_sig_figs: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mantissa: Option<u32>,
+    },
     #[serde(rename = "trades")]
     Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
@@ -86,8 +108,14 @@ impl Subscription for SubscribeParams {
 
     fn to_unsubscribe_params(&self) -> UnsubscribeParams {
         match self {
-            SubscribeParams::Books { orderbook_ids } => UnsubscribeParams::Books {
+            SubscribeParams::Books {
+                orderbook_ids,
+                n_sig_figs,
+                mantissa,
+            } => UnsubscribeParams::Books {
                 orderbook_ids: orderbook_ids.clone(),
+                n_sig_figs: *n_sig_figs,
+                mantissa: *mantissa,
             },
             SubscribeParams::Trades { orderbook_ids } => UnsubscribeParams::Trades {
                 orderbook_ids: orderbook_ids.clone(),
@@ -129,14 +157,21 @@ impl Subscription for SubscribeParams {
             (
                 SubscribeParams::Books {
                     orderbook_ids: sub_ids,
+                    n_sig_figs: sub_n_sig_figs,
+                    mantissa: sub_mantissa,
                 },
                 UnsubscribeParams::Books {
                     orderbook_ids: unsub_ids,
+                    n_sig_figs: unsub_n_sig_figs,
+                    mantissa: unsub_mantissa,
                 },
             ) => {
                 let sub_set: HashSet<_> = sub_ids.iter().collect();
                 let unsub_set: HashSet<_> = unsub_ids.iter().collect();
-                sub_set == unsub_set
+                let sub_aggregation = BookAggregation::from_frame(*sub_n_sig_figs, *sub_mantissa);
+                let unsub_aggregation =
+                    BookAggregation::from_frame(*unsub_n_sig_figs, *unsub_mantissa);
+                sub_set == unsub_set && sub_aggregation == unsub_aggregation
             }
             (
                 SubscribeParams::Trades {
@@ -213,8 +248,23 @@ impl Subscription for SubscribeParams {
 
     fn subscription_key(&self) -> String {
         match self {
-            SubscribeParams::Books { orderbook_ids } => {
-                format!("book:{}", ids_key(orderbook_ids))
+            SubscribeParams::Books {
+                orderbook_ids,
+                n_sig_figs,
+                mantissa,
+            } => {
+                let aggregation = BookAggregation::from_frame(*n_sig_figs, *mantissa);
+                if aggregation.is_full() {
+                    // Unchanged from the pre-aggregation key so existing
+                    // consumers' tracked subscriptions stay stable.
+                    format!("book:{}", ids_key(orderbook_ids))
+                } else {
+                    format!(
+                        "book:{}:{}",
+                        ids_key(orderbook_ids),
+                        aggregation.key_suffix()
+                    )
+                }
             }
             SubscribeParams::Trades { orderbook_ids } => {
                 format!("trades:{}", ids_key(orderbook_ids))
@@ -258,18 +308,42 @@ mod tests {
     fn test_subscribe_params_serialization() {
         let params = SubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("abc")],
+            n_sig_figs: None,
+            mantissa: None,
         };
         let json = serde_json::to_string(&params).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["type"], "book_update");
         assert_eq!(parsed["orderbook_ids"][0], "abc");
+        // Full precision must omit the aggregation keys entirely — the
+        // backend rejects unknown fields and nulls.
+        assert!(parsed.get("nSigFigs").is_none());
+        assert!(parsed.get("n_sig_figs").is_none());
+        assert!(parsed.get("mantissa").is_none());
+    }
+
+    #[test]
+    fn test_subscribe_params_aggregation_serializes_camel_case() {
+        let params = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("abc")],
+            n_sig_figs: Some(5),
+            mantissa: Some(2),
+        };
+        let json = serde_json::to_string(&params).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["nSigFigs"], 5);
+        assert_eq!(parsed["mantissa"], 2);
+        assert!(parsed.get("n_sig_figs").is_none());
     }
 
     #[test]
     fn test_unsubscribe_params_uses_type_tag() {
         let params = UnsubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("abc")],
+            n_sig_figs: None,
+            mantissa: None,
         };
         let json = serde_json::to_string(&params).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -324,12 +398,18 @@ mod tests {
     fn test_matches_unsubscribe_books_set_equality() {
         let sub = SubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("a"), OrderBookId::new("b")],
+            n_sig_figs: None,
+            mantissa: None,
         };
         let unsub_same = UnsubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("b"), OrderBookId::new("a")],
+            n_sig_figs: None,
+            mantissa: None,
         };
         let unsub_diff = UnsubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("c")],
+            n_sig_figs: None,
+            mantissa: None,
         };
 
         assert!(sub.matches_unsubscribe(&unsub_same));
@@ -337,9 +417,42 @@ mod tests {
     }
 
     #[test]
+    fn test_matches_unsubscribe_books_compares_normalized_aggregation() {
+        let sub = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: None,
+        };
+        let unsub_normalized = UnsubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: Some(1),
+        };
+        let unsub_full = UnsubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: None,
+            mantissa: None,
+        };
+        let unsub_other_grouping = UnsubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: Some(2),
+        };
+
+        // (5, none) and (5, 1) are the same subscription.
+        assert!(sub.matches_unsubscribe(&unsub_normalized));
+        // A grouped subscription is never matched by a full-precision or
+        // differently grouped unsubscribe.
+        assert!(!sub.matches_unsubscribe(&unsub_full));
+        assert!(!sub.matches_unsubscribe(&unsub_other_grouping));
+    }
+
+    #[test]
     fn test_matches_unsubscribe_cross_type_no_match() {
         let sub = SubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: None,
+            mantissa: None,
         };
         let unsub = UnsubscribeParams::Trades {
             orderbook_ids: vec![OrderBookId::new("a")],
@@ -352,8 +465,37 @@ mod tests {
     fn test_subscription_key_deterministic() {
         let sub = SubscribeParams::Books {
             orderbook_ids: vec![OrderBookId::new("b"), OrderBookId::new("a")],
+            n_sig_figs: None,
+            mantissa: None,
         };
+        // Full precision keeps the pre-aggregation key shape.
         assert_eq!(sub.subscription_key(), "book:a,b");
+    }
+
+    #[test]
+    fn test_subscription_key_distinguishes_aggregations() {
+        let grouped = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: Some(2),
+        };
+        assert_eq!(grouped.subscription_key(), "book:a:sig5m2");
+
+        let normalized = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: None,
+        };
+        let explicit = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("a")],
+            n_sig_figs: Some(5),
+            mantissa: Some(1),
+        };
+        assert_eq!(
+            normalized.subscription_key(),
+            explicit.subscription_key(),
+            "(5, none) and (5, 1) must produce the same key"
+        );
     }
 
     #[test]

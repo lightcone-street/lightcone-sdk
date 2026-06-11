@@ -343,21 +343,33 @@ class WsClient:
             setattr(self, attr, None)
 
 
+def _params_to_wire_dict(params: SubscribeParams) -> dict:
+    """Convert params to their wire shape.
+
+    Drops ``None`` values and renames ``n_sig_figs`` to its camelCase wire
+    spelling ``nSigFigs`` — the backend's strict parsing rejects unknown,
+    snake_case, or null fields (``PARSE_ERROR``), so a raw ``asdict`` of
+    optional fields would break the subscription.
+    """
+    from dataclasses import asdict
+
+    wire = {key: value for key, value in asdict(params).items() if value is not None}
+    if "n_sig_figs" in wire:
+        wire["nSigFigs"] = wire.pop("n_sig_figs")
+    return wire
+
+
 def _subscribe_params_to_message(params: SubscribeParams) -> dict:
     """Convert SubscribeParams to a wire message dict."""
-    from dataclasses import asdict
-    d = asdict(params)
-    # Remove include_ohlcv if False (default) for cleaner wire
-    return {"method": "subscribe", "params": d}
+    return {"method": "subscribe", "params": _params_to_wire_dict(params)}
 
 
 def _unsubscribe_params_to_message(params: SubscribeParams) -> dict:
     """Convert SubscribeParams to an unsubscribe wire message dict."""
-    from dataclasses import asdict
-    d = asdict(params)
+    wire = _params_to_wire_dict(params)
     # Remove fields not needed for unsubscribe
-    d.pop("include_ohlcv", None)
-    return {"method": "unsubscribe", "params": d}
+    wire.pop("include_ohlcv", None)
+    return {"method": "unsubscribe", "params": wire}
 
 
 __all__ = ["WsClient"]

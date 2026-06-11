@@ -1,6 +1,7 @@
 //! Orderbooks sub-client — depth and on-chain orderbook operations.
 
 use crate::client::LightconeClient;
+use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::domain::orderbook::wire::OrderbookDepthResponse;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -24,12 +25,22 @@ impl<'a> Orderbooks<'a> {
 
     // ── HTTP methods ─────────────────────────────────────────────────────
 
-    /// Get live orderbook depth (always fresh).
+    /// Get live orderbook depth, optionally aggregated (Hyperliquid-style).
+    ///
+    /// `depth` is capped server-side at 20 levels per side (omitted, `0`, or
+    /// `>20` all serve 20). Pass [`BookAggregation::FULL`] for the raw book.
+    /// Invalid aggregation combinations are rejected client-side before any
+    /// request is made (the server would 400 with `INVALID_ORDERBOOK_QUERY`),
+    /// and unknown query params are rejected server-side — only `depth`,
+    /// `nSigFigs`, and `mantissa` are ever sent.
     pub async fn get(
         &self,
         orderbook_id: &str,
         depth: Option<u32>,
+        aggregation: BookAggregation,
     ) -> Result<OrderbookDepthResponse, SdkError> {
+        let aggregation = BookAggregation::validate(aggregation.n_sig_figs, aggregation.mantissa)
+            .map_err(|message| SdkError::Validation(message.to_string()))?;
         let url = format!(
             "{}/api/orderbook/{}",
             self.client.http.base_url(),
@@ -38,6 +49,12 @@ impl<'a> Orderbooks<'a> {
         let mut query = Vec::new();
         if let Some(depth) = depth {
             query.push(("depth", depth.to_string()));
+        }
+        if let Some(n_sig_figs) = aggregation.n_sig_figs {
+            query.push(("nSigFigs", n_sig_figs.to_string()));
+        }
+        if let Some(mantissa) = aggregation.mantissa {
+            query.push(("mantissa", mantissa.to_string()));
         }
         self.client
             .http

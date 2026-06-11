@@ -2,30 +2,39 @@ import Decimal from "decimal.js";
 import type { OrderBookId } from "../../shared";
 import type { OrderBook } from "./wire";
 
+/**
+ * The `book_update` stream is snapshot-only: every data frame carries the
+ * full top-20 levels per side and replaces the previous book wholesale
+ * (last-write-wins). Consumers holding multiple aggregation views of one
+ * orderbook on the same connection key their `OrderbookState` instances by
+ * `(orderbook_id, aggregation)` using
+ * `aggregationFromFrame(book.n_sig_figs, book.mantissa)`.
+ */
 export type OrderbookApplyResult =
   | { kind: "applied" }
-  | { kind: "ignored"; reason: OrderbookIgnoreReason }
   | { kind: "refresh_required"; reason: OrderbookRefreshReason };
 
-export type OrderbookIgnoreReason =
-  | { kind: "invalid_delta_sequence"; got: number }
-  | { kind: "stale_delta"; current: number; got: number }
-  | { kind: "already_awaiting_snapshot"; got: number };
-
 export type OrderbookRefreshReason =
-  | { kind: "missing_snapshot"; got: number }
-  | { kind: "sequence_gap"; expected: number; got: number }
-  | { kind: "server_resync"; got: number };
+  /**
+   * The backend explicitly requested a resync: unsubscribe and re-subscribe
+   * with the same parameters (including aggregation) to receive a fresh
+   * snapshot.
+   */
+  { kind: "server_resync" };
 
 export class OrderbookState {
   readonly orderbookId: OrderBookId;
+  /**
+   * Projection version of the last applied frame. Strictly increasing but
+   * non-contiguous server-side (conflation skips versions), and the initial
+   * snapshot after every (re)subscribe is `seq: 0` — informational only,
+   * never used to gate frames.
+   */
   seq: number;
   private readonly bidsMap: Map<string, string>;
   private readonly asksMap: Map<string, string>;
   private cachedBestBid: string | undefined | null;
   private cachedBestAsk: string | undefined | null;
-  private hasSnapshot: boolean;
-  private awaitingSnapshot: boolean;
 
   constructor(orderbookId: OrderBookId) {
     this.orderbookId = orderbookId;
@@ -34,95 +43,40 @@ export class OrderbookState {
     this.asksMap = new Map();
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
-    this.hasSnapshot = false;
-    this.awaitingSnapshot = false;
   }
 
   /**
-   * Apply a WS orderbook message (snapshot replaces, delta merges).
+   * Apply a WS orderbook frame (snapshot-only stream, last-write-wins).
    *
-   * Server resync messages take precedence and return `refresh_required`.
-   * Otherwise, snapshots are applied and deltas with a `seq` at or below the
-   * current value are ignored to prevent stale updates. Deltas that skip one
-   * or more expected sequence values are rejected so callers can refresh from
-   * a fresh snapshot instead of mutating a corrupted book.
+   * `resync` frames take precedence and leave the book untouched — the
+   * caller must re-subscribe with the same parameters. Every other data
+   * frame is a full snapshot by contract and replaces the book wholesale
+   * (the `is_snapshot` flag is not consulted), including the `seq: 0`
+   * initial snapshot delivered after every (re)subscribe: gating on `seq`
+   * would freeze the book after a resync or aggregation change, so `seq` is
+   * stored as informational only.
    */
   apply(book: OrderBook): OrderbookApplyResult {
-    const seq = book.seq ?? 0;
-
     if (book.resync) {
-      this.awaitingSnapshot = true;
       return {
         kind: "refresh_required",
-        reason: { kind: "server_resync", got: seq },
+        reason: { kind: "server_resync" },
       };
     }
 
-    if (book.is_snapshot) {
-      this.bidsMap.clear();
-      this.asksMap.clear();
-      this.hasSnapshot = true;
-      this.awaitingSnapshot = false;
-    } else {
-      if (this.awaitingSnapshot) {
-        return {
-          kind: "ignored",
-          reason: { kind: "already_awaiting_snapshot", got: seq },
-        };
-      }
-
-      // The backend sends snapshots with seq=0 and starts delta seq at 1.
-      // A delta with seq=0 means it has no valid sequence, so drop it.
-      if (seq <= 0) {
-        return {
-          kind: "ignored",
-          reason: { kind: "invalid_delta_sequence", got: seq },
-        };
-      }
-
-      if (!this.hasSnapshot) {
-        this.awaitingSnapshot = true;
-        return {
-          kind: "refresh_required",
-          reason: { kind: "missing_snapshot", got: seq },
-        };
-      }
-
-      if (seq <= this.seq) {
-        return {
-          kind: "ignored",
-          reason: { kind: "stale_delta", current: this.seq, got: seq },
-        };
-      }
-
-      const expected = this.seq + 1;
-      if (seq !== expected) {
-        this.awaitingSnapshot = true;
-        return {
-          kind: "refresh_required",
-          reason: { kind: "sequence_gap", expected, got: seq },
-        };
-      }
-    }
-
-    this.seq = seq;
-
+    this.bidsMap.clear();
+    this.asksMap.clear();
     for (const level of book.bids) {
-      if (new Decimal(level.size).isZero()) {
-        this.bidsMap.delete(level.price);
-      } else {
+      if (!new Decimal(level.size).isZero()) {
         this.bidsMap.set(level.price, level.size);
       }
     }
-
     for (const level of book.asks) {
-      if (new Decimal(level.size).isZero()) {
-        this.asksMap.delete(level.price);
-      } else {
+      if (!new Decimal(level.size).isZero()) {
         this.asksMap.set(level.price, level.size);
       }
     }
-
+    this.seq = book.seq ?? 0;
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
 
@@ -196,7 +150,5 @@ export class OrderbookState {
     this.seq = 0;
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
-    this.hasSnapshot = false;
-    this.awaitingSnapshot = false;
   }
 }
