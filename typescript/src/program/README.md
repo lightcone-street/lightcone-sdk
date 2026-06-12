@@ -28,7 +28,6 @@ const client = LightconeClient.builder()
 
 | Sub-client | Access | On-chain capabilities |
 |------------|--------|----------------------|
-| `client.admin()` | Admin operations | initialize, createMarket, addDepositMint, activateMarket, settleMarket, setPaused, setOperator, setAuthority, whitelistDepositToken, createOrderbook, matchOrdersMulti, depositAndSwap |
 | `client.orders()` | Order management | cancelOrder, incrementNonce, closeOrderStatus, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
 | `client.markets()` | Market queries | mintCompleteSet, mergeCompleteSet, deriveConditionId, getConditionalMints, getOnchain |
 | `client.positions()` | Position management | redeemWinnings, withdrawFromPosition, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionAlt, closePositionTokenAccounts, getOnchain |
@@ -41,8 +40,9 @@ All `*Ix()` methods are synchronous and return a `TransactionInstruction`. The c
 
 ```typescript
 import { Transaction } from "@solana/web3.js";
+import { buildInitializeIx } from "@lightconexyz/lightcone-sdk";
 
-const ix = client.admin().initializeIx(authority);
+const ix = buildInitializeIx({ authority });
 const tx = new Transaction().add(ix);
 tx.feePayer = authority;
 tx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
@@ -201,8 +201,8 @@ async function main() {
     maker
   );
 
-  // Build match instruction via admin sub-client
-  const matchIx = client.admin().matchOrdersMultiIx({
+  // Build match instruction via the raw encoder (operator-only on-chain)
+  const matchIx = buildMatchOrdersMultiIx({
     operator: operatorPubkey,
     market: marketPda,
     baseMint: yesMint,

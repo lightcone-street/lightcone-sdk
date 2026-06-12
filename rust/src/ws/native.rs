@@ -625,6 +625,7 @@ async fn backoff_sleep(state: &mut TaskState, rate_limited: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::orderbook::BookAggregation;
     use crate::shared::OrderBookId;
 
     #[test]
@@ -643,7 +644,7 @@ mod tests {
     #[test]
     fn test_track_subscription_add() {
         let mut subs = Vec::new();
-        let msg = MessageOut::subscribe_books(vec![OrderBookId::new("ob1")]);
+        let msg = MessageOut::subscribe_books(vec![OrderBookId::new("ob1")], BookAggregation::FULL);
         track_subscription(&mut subs, &msg);
         assert_eq!(subs.len(), 1);
 
@@ -655,11 +656,13 @@ mod tests {
     #[test]
     fn test_track_subscription_remove() {
         let mut subs = Vec::new();
-        let sub_msg = MessageOut::subscribe_books(vec![OrderBookId::new("ob1")]);
+        let sub_msg =
+            MessageOut::subscribe_books(vec![OrderBookId::new("ob1")], BookAggregation::FULL);
         track_subscription(&mut subs, &sub_msg);
         assert_eq!(subs.len(), 1);
 
-        let unsub_msg = MessageOut::unsubscribe_books(vec![OrderBookId::new("ob1")]);
+        let unsub_msg =
+            MessageOut::unsubscribe_books(vec![OrderBookId::new("ob1")], BookAggregation::FULL);
         track_subscription(&mut subs, &unsub_msg);
         assert_eq!(subs.len(), 0);
     }

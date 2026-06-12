@@ -7,7 +7,6 @@
 //! - `state.rs` — State containers with update methods (for WS-driven data)
 //! - `client.rs` — Sub-client with HTTP methods and caching
 
-pub mod admin;
 pub mod faucet;
 pub mod market;
 pub mod metrics;

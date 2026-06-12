@@ -42,7 +42,6 @@ export type {
 export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
 
 export type {
-  AdminClient,
   GlobalDepositAssetsResult,
   MarketsClient,
   MarketsResult,

@@ -8,7 +8,6 @@
 
 use crate::auth::client::Auth;
 use crate::auth::AuthCredentials;
-use crate::domain::admin::client::Admin;
 use crate::domain::faucet::{FaucetRequest, FaucetResponse};
 use crate::domain::market::client::Markets;
 use crate::domain::metrics::client::Metrics;
@@ -42,7 +41,6 @@ use std::sync::Arc;
 
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
-pub use crate::domain::admin::client::Admin as AdminClient;
 pub use crate::domain::market::client::{
     GlobalDepositAssetsResult, Markets as MarketsClient, MarketsResult,
 };
@@ -124,10 +122,6 @@ impl LightconeClient {
         PriceHistoryClient { client: self }
     }
 
-    pub fn admin(&self) -> Admin<'_> {
-        Admin { client: self }
-    }
-
     pub fn auth(&self) -> Auth<'_> {
         Auth { client: self }
     }
@@ -149,6 +143,13 @@ impl LightconeClient {
     /// RPC sub-client — PDA helpers, account fetchers, and blockhash access.
     pub fn rpc(&self) -> Rpc<'_> {
         Rpc { client: self }
+    }
+
+    /// The HTTP transport this client is built on. Exposed so external crates
+    /// can implement additional sub-clients against the same base URL, retry
+    /// policies, and cookie sessions.
+    pub fn http(&self) -> &LightconeHttp {
+        &self.http
     }
 
     /// Get the WS config for creating a WebSocket connection.

@@ -176,56 +176,6 @@ let solana_rpc = rpc.inner().await?;
 
 Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a `Transaction` and return `Result<Transaction, SdkError>`.
 
-**Admin — Exchange Management (`client.admin()`):**
-```rust
-// Instructions (for custom transaction composition)
-let ix = client.admin().initialize_ix(&authority);
-let ix = client.admin().set_paused_ix(&authority, true);
-let ix = client.admin().set_operator_ix(&authority, &new_operator);
-let ix = client.admin().set_authority_ix(&SetAuthorityParams { ... });
-let ix = client.admin().set_manager_ix(&SetManagerParams { ... });
-let ix = client.admin().whitelist_deposit_token_ix(&WhitelistDepositTokenParams { ... });
-
-// Transactions (ready to sign)
-let tx = client.admin().initialize_tx(&authority)?;
-let tx = client.admin().set_paused_tx(&authority, true)?;
-```
-
-**Admin — Market Lifecycle (`client.admin()`):**
-```rust
-// create_market_ix is async (fetches next market ID via RPC)
-let ix = client.admin().create_market_ix(CreateMarketParams {
-    manager,
-    oracle,
-    question_id,
-    num_outcomes,
-    maker_fee_bps,
-    taker_fee_bps,
-}).await?;
-
-let ix = client.admin().add_deposit_mint_ix(&AddDepositMintParams {
-    manager,
-    deposit_mint: usdc_mint,
-}, &market, num_outcomes)?;
-
-let ix = client.admin().activate_market_ix(&ActivateMarketParams {
-    manager,
-    market_id,
-});
-
-let ix = client.admin().settle_market_ix(&SettleMarketParams {
-    oracle,
-    market_id,
-    payout_numerators: vec![7, 3],
-})?;
-```
-
-**Admin — Operator (`client.admin()`):**
-```rust
-let ix = client.admin().match_orders_multi_ix(&MatchOrdersMultiParams { ... })?;
-let ix = client.admin().deposit_and_swap_ix(&DepositAndSwapParams { ... })?;
-```
-
 **Positions — Deposit/Merge/Withdraw (`client.positions()`):**
 ```rust
 // Deposit (dispatches on deposit source: Global or Market)

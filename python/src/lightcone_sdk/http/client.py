@@ -2,7 +2,7 @@
 
 ``get()`` and ``post()`` return the unwrapped API body directly. They handle:
 - ``x-request-id`` generation and header injection
-- auth/admin cookie injection
+- auth cookie injection
 - deserialization of the ``ApiResponse`` wrapper
 - conversion of backend rejections into ``ApiRejected``
 
@@ -33,7 +33,6 @@ DEFAULT_TIMEOUT_SECS = 180
 class _AuthMode(str, Enum):
     COOKIE = "cookie"
     COOKIE_OVERRIDE = "cookie_override"
-    ADMIN_COOKIE = "admin_cookie"
 
 
 class LightconeHttp:
@@ -46,7 +45,6 @@ class LightconeHttp:
     ):
         self._base_url = base_url.rstrip("/")
         self._auth_token: Optional[str] = None
-        self._admin_token: Optional[str] = None
         self._timeout = aiohttp.ClientTimeout(total=timeout)
         self._session: Optional[aiohttp.ClientSession] = None
 
@@ -69,22 +67,6 @@ class LightconeHttp:
 
     def has_auth_token(self) -> bool:
         return self._auth_token is not None
-
-    @property
-    def admin_token(self) -> Optional[str]:
-        """Public accessor for the admin token."""
-        return self._admin_token
-
-    def set_admin_token(self, token: Optional[str]) -> None:
-        """Set or clear the admin token."""
-        self._admin_token = token
-
-    def clear_admin_token(self) -> None:
-        """Clear the admin token."""
-        self._admin_token = None
-
-    def has_admin_token(self) -> bool:
-        return self._admin_token is not None
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self._session is None or self._session.closed:
@@ -185,37 +167,6 @@ class LightconeHttp:
             retry_policy=retry_policy,
             auth_mode=_AuthMode.COOKIE,
             json=body,
-        )
-
-    async def admin_post(
-        self,
-        path: str,
-        body: Any,
-        retry_policy: RetryPolicy = RetryPolicy.NONE,
-    ) -> Any:
-        """Make a POST request with admin cookie injection."""
-        return await self._request_with_retry(
-            "POST",
-            path,
-            retry_policy=retry_policy,
-            auth_mode=_AuthMode.ADMIN_COOKIE,
-            json=body,
-        )
-
-    async def admin_get(
-        self,
-        path: str,
-        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
-        *,
-        params: Optional[dict[str, str]] = None,
-    ) -> Any:
-        """Make a GET request with admin cookie injection."""
-        return await self._request_with_retry(
-            "GET",
-            path,
-            retry_policy=retry_policy,
-            auth_mode=_AuthMode.ADMIN_COOKIE,
-            params=params,
         )
 
     async def _request_with_retry(
@@ -407,8 +358,6 @@ class LightconeHttp:
                 headers["Cookie"] = cookie_header_override
         elif auth_mode == _AuthMode.COOKIE and self._auth_token:
             headers["Cookie"] = f"lightcone-token={self._auth_token}"
-        elif auth_mode == _AuthMode.ADMIN_COOKIE and self._admin_token:
-            headers["Cookie"] = f"admin_token={self._admin_token}"
         return headers
 
     def _capture_cookies(self, headers: aiohttp.typedefs.LooseHeaders) -> None:
@@ -420,10 +369,6 @@ class LightconeHttp:
                 token = cookie_header.split("lightcone-token=", 1)[1].split(";", 1)[0]
                 if token:
                     self._auth_token = token
-            elif cookie_header.startswith("admin_token="):
-                token = cookie_header.split("admin_token=", 1)[1].split(";", 1)[0]
-                if token:
-                    self._admin_token = token
 
     def _map_status_error(
         self,

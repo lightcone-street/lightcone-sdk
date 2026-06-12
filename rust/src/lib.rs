@@ -124,15 +124,6 @@ pub mod prelude {
         ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse,
     };
 
-    // Domain types — admin (referral config/codes and logs)
-    pub use crate::domain::admin::{
-        AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse, AdminLogMetricBreakdown,
-        AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse, AdminLogMetricPoint,
-        AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse, CodeListEntry,
-        ListCodesRequest, ListCodesResponse, ReferralConfig, UpdateCodeRequest, UpdateCodeResponse,
-        UpdateConfigRequest,
-    };
-
     // Errors
     pub use crate::error::SdkError;
 
@@ -174,13 +165,15 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AdminClient, AuthClient, GlobalDepositAssetsResult, LightconeClient,
-        LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient, NotificationsClient,
-        OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient,
-        RpcClient, TradesClient,
+        AuthClient, GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder,
+        MarketsClient, MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient,
+        OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient,
+        TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
+    #[cfg(feature = "http")]
+    pub use crate::http::{CookieSession, LightconeHttp};
     #[cfg(feature = "http")]
     pub use crate::rpc_failover::ActiveRpc;
 
