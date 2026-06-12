@@ -27,7 +27,6 @@ export { Rpc } from "./rpc";
 export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
-export { Admin } from "./domain/admin";
 export { Markets } from "./domain/market";
 export { Metrics } from "./domain/metrics";
 export { Orderbooks } from "./domain/orderbook";
@@ -37,26 +36,6 @@ export { Trades } from "./domain/trade";
 export { PriceHistoryClient } from "./domain/price_history";
 export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
-
-export type {
-  AdminLogEvent,
-  AdminLogEventsQuery,
-  AdminLogEventsResponse,
-  AdminLogMetricBreakdown,
-  AdminLogMetricHistoryQuery,
-  AdminLogMetricHistoryResponse,
-  AdminLogMetricPoint,
-  AdminLogMetricSummary,
-  AdminLogMetricsQuery,
-  AdminLogMetricsResponse,
-  CodeListEntry,
-  ListCodesRequest,
-  ListCodesResponse,
-  ReferralConfig,
-  UpdateCodeRequest,
-  UpdateCodeResponse,
-  UpdateConfigRequest,
-} from "./domain/admin";
 
 export type {
   CategoriesMetrics,
@@ -282,7 +261,6 @@ export type {
 export { subscribeBooks, unsubscribeBooks } from "./ws";
 
 export type AuthClient = import("./auth").Auth;
-export type AdminClient = import("./domain/admin").Admin;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
 export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;

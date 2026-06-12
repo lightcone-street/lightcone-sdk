@@ -8,15 +8,13 @@ import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry
 
 type AuthMode =
   | { kind: "cookie" }
-  | { kind: "cookieOverride"; cookieHeader: string }
-  | { kind: "adminCookie" };
+  | { kind: "cookieOverride"; cookieHeader: string };
 
 const DEFAULT_HTTP_TIMEOUT_MS = 180_000;
 
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
   private authToken: string | undefined;
-  private adminToken: string | undefined;
 
   constructor(baseUrl: string) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -32,24 +30,6 @@ export class LightconeHttp {
 
   authTokenRef(): () => Promise<string | undefined> {
     return async () => this.authToken;
-  }
-
-  clearAdminToken(): void {
-    this.adminToken = undefined;
-  }
-
-  async adminGet<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>(
-      "GET",
-      url,
-      undefined,
-      retry,
-      { kind: "adminCookie" }
-    );
-  }
-
-  async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, { kind: "adminCookie" });
   }
 
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
@@ -229,11 +209,6 @@ export class LightconeHttp {
       if (authToken) {
         this.authToken = authToken;
       }
-
-      const adminToken = extractCookieValue(cookieHeader, "admin_token");
-      if (adminToken) {
-        this.adminToken = adminToken;
-      }
     }
   }
 
@@ -243,8 +218,6 @@ export class LightconeHttp {
     }
 
     switch (authMode.kind) {
-      case "adminCookie":
-        return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
       case "cookieOverride":
         // Forward the supplied Cookie header verbatim (may carry privy-token
         // and/or lightcone-token).

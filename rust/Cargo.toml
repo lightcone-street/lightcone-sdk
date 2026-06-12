@@ -1,6 +1,6 @@
 [package]
 name = "lightcone"
-version = "0.7.1"
+version = "0.8.0"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
 license = "MIT"
@@ -73,6 +73,11 @@ gloo-timers = { version = "0.3", features = ["futures"], optional = true }
 # Async utilities (WASM-compatible)
 async-stream = "0.3"
 pin-project-lite = "0.2"
+
+# uuid needs an explicit randomness source on wasm32-unknown-unknown; without
+# this, the crate only compiles for wasm when the consumer enables uuid/js.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+uuid = { version = "1", features = ["v4", "js"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }

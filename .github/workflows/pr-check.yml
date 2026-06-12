@@ -9,6 +9,34 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  rust_tests:
+    name: Rust Unit Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-tests-${{ hashFiles('rust/Cargo.lock') }}
+          restore-keys: rust-tests-
+
+      - name: Unit tests (native)
+        run: cargo test --features native
+
+      - name: Unit tests (native + trigger_orders)
+        run: cargo test --features native,trigger_orders
+
   test_examples:
     uses: ./.github/workflows/test-examples.yml
     with:
@@ -16,7 +44,7 @@ jobs:
     secrets: inherit
 
   publish:
-    needs: [test_examples]
+    needs: [test_examples, rust_tests]
     uses: ./.github/workflows/publish.yml
     with:
       dry-run: true

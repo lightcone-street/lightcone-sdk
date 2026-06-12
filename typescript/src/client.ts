@@ -2,7 +2,6 @@ import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
 import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
-import { Admin } from "./domain/admin";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
@@ -209,10 +208,6 @@ export class LightconeClient implements ClientContext {
       { wallet_address: walletAddress },
       RetryPolicy.None
     );
-  }
-
-  admin(): Admin {
-    return new Admin(this);
   }
 
   auth(): Auth {

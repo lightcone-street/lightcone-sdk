@@ -91,6 +91,12 @@ impl LightconeEnv {
         if let Ok(override_id) = std::env::var("SDK_PROGRAM_ID") {
             return Pubkey::from_str(&override_id).expect("SDK_PROGRAM_ID must be a valid pubkey");
         }
+        self.default_program_id()
+    }
+
+    /// The built-in program ID for this environment, ignoring the
+    /// `SDK_PROGRAM_ID` override.
+    fn default_program_id(&self) -> Pubkey {
         match self {
             Self::Local => Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
                 .expect("valid program id"),
@@ -132,7 +138,10 @@ mod tests {
 
     #[test]
     fn local_environment_uses_deployed_program() {
-        let program_id = LightconeEnv::Local.program_id();
+        // default_program_id, not program_id: the latter honors the
+        // SDK_PROGRAM_ID env override and would make this test depend on
+        // the ambient shell environment.
+        let program_id = LightconeEnv::Local.default_program_id();
         let (exchange_pda, _) = crate::program::pda::get_exchange_pda(&program_id);
 
         assert_eq!(

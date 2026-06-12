@@ -313,13 +313,11 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise every endpoint on `client.metrics()` — platform, markets, categories, orderbook, leaderboard, history |
 
-### Admin & Testnet
+### Testnet
 
 | Example | Description |
 |---------|-------------|
 | [`faucet_claim`](examples/faucet_claim.rs) | Request testnet SOL + deposit tokens via `client.claim()` |
-
-Admin API methods (`client.admin()`) live in the SDK but are not exercised by an example because they require an admin keypair the CI runner doesn't have. See [`domain/admin/ADMIN.md`](src/domain/admin/ADMIN.md) for usage.
 
 ### Placing Orders
 

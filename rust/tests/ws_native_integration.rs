@@ -16,6 +16,7 @@ use std::time::Duration;
 use futures_util::StreamExt;
 use tokio::time::timeout;
 
+use lightcone::domain::orderbook::BookAggregation;
 use lightcone::prelude::{LightconeClient, LightconeEnv};
 use lightcone::shared::OrderBookId;
 use lightcone::ws::native::WsClient;
@@ -135,7 +136,10 @@ async fn subscribe_books_receives_snapshot() {
 
     let ob_id = test_orderbook_id().await;
     client
-        .send(MessageOut::subscribe_books(vec![ob_id]))
+        .send(MessageOut::subscribe_books(
+            vec![ob_id],
+            BookAggregation::FULL,
+        ))
         .expect("subscribe books");
 
     let event = next_matching(&client, |ev| {
@@ -180,7 +184,10 @@ async fn subscribe_and_unsubscribe_books() {
 
     let ob_id = test_orderbook_id().await;
     client
-        .send(MessageOut::subscribe_books(vec![ob_id.clone()]))
+        .send(MessageOut::subscribe_books(
+            vec![ob_id.clone()],
+            BookAggregation::FULL,
+        ))
         .expect("subscribe books");
 
     // Wait for the initial snapshot
@@ -191,7 +198,10 @@ async fn subscribe_and_unsubscribe_books() {
 
     // Unsubscribe
     client
-        .send(MessageOut::unsubscribe_books(vec![ob_id]))
+        .send(MessageOut::unsubscribe_books(
+            vec![ob_id],
+            BookAggregation::FULL,
+        ))
         .expect("unsubscribe books");
 
     // After unsubscribing, send a ping and verify we get a pong back
@@ -235,7 +245,10 @@ async fn multiple_subscriptions() {
     let ob_id = test_orderbook_id().await;
 
     client
-        .send(MessageOut::subscribe_books(vec![ob_id.clone()]))
+        .send(MessageOut::subscribe_books(
+            vec![ob_id.clone()],
+            BookAggregation::FULL,
+        ))
         .expect("subscribe books");
     client
         .send(MessageOut::subscribe_ticker(vec![ob_id]))

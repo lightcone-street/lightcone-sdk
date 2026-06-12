@@ -11,7 +11,6 @@ from solders.pubkey import Pubkey
 
 from .auth import AuthCredentials
 from .auth.client import Auth
-from .domain.admin.client import Admin
 from .domain.faucet import FaucetRequest, FaucetResponse
 from .domain.market.client import Markets
 from .domain.metrics.client import Metrics
@@ -75,7 +74,6 @@ class LightconeClient:
         self._positions = Positions(self)
         self._trades = Trades(self)
         self._price_history = PriceHistoryClient(self)
-        self._admin = Admin(self)
         self._auth = Auth(self, auth_credentials)
         self._privy = Privy(self)
         self._referrals = Referrals(self)
@@ -295,9 +293,6 @@ class LightconeClient:
 
     def price_history(self) -> PriceHistoryClient:
         return self._price_history
-
-    def admin(self) -> Admin:
-        return self._admin
 
     def auth(self) -> Auth:
         return self._auth
