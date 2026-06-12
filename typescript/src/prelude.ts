@@ -116,15 +116,25 @@ export type {
 export type {
   OrderBook,
   OrderBookPair,
+  OrderbookDepthDecimals,
   OutcomeImpact,
   TickerData,
   WsBookLevel,
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
+export type { BookAggregation } from "./domain/orderbook/aggregation";
+export {
+  aggregationFromFrame,
+  aggregationKeySuffix,
+  aggregationsEqual,
+  FULL_PRECISION,
+  isFullPrecision,
+  normalizeAggregation,
+  validateAggregation,
+} from "./domain/orderbook/aggregation";
 export { OrderbookState } from "./domain/orderbook/state";
 export type {
   OrderbookApplyResult,
-  OrderbookIgnoreReason,
   OrderbookRefreshReason,
 } from "./domain/orderbook/state";
 
@@ -269,6 +279,7 @@ export type {
   WsConfig,
   WsEvent,
 } from "./ws";
+export { subscribeBooks, unsubscribeBooks } from "./ws";
 
 export type AuthClient = import("./auth").Auth;
 export type AdminClient = import("./domain/admin").Admin;

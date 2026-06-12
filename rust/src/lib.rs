@@ -70,7 +70,9 @@ pub mod prelude {
     };
 
     // Domain types — orderbook
-    pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};
+    pub use crate::domain::orderbook::{
+        BookAggregation, OrderBookPair, OrderBookValidationError, OutcomeImpact,
+    };
 
     // Domain types — order
     pub use crate::domain::order::{
@@ -186,8 +188,6 @@ pub mod prelude {
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};
 
     // State containers
-    pub use crate::domain::orderbook::state::{
-        ApplyResult, IgnoreReason, OrderbookState, RefreshReason,
-    };
+    pub use crate::domain::orderbook::state::{ApplyResult, OrderbookState, RefreshReason};
     pub use crate::domain::trade::TradeHistory;
 }

@@ -183,6 +183,12 @@ await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
 await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ```
 
+Book streams are snapshot-only: every `book_update` frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale (`OrderbookState` handles this; never gate on `seq` — the initial snapshot after every (re)subscribe is `seq: 0`). Subscriptions accept an optional Hyperliquid-style aggregation (`n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs=5`; validate with `BookAggregation.validate`; sent on the wire as camelCase `nSigFigs` with `None` fields omitted). Each `(orderbook, aggregation)` pair is a distinct subscription, so one connection can hold the full-precision and a grouped view of the same book simultaneously — incoming frames are tagged (absent = full precision); key state by `frame.aggregation()`. See [`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
+
+```python
+await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id], n_sig_figs=5, mantissa=2))
+```
+
 ### Step 5: Cancel an Order
 
 ```python

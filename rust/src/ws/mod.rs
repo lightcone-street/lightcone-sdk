@@ -10,6 +10,7 @@ pub mod wasm;
 
 use crate::domain::market::wire::MarketEvent;
 use crate::domain::order::wire::{AuthUpdate, UserUpdate};
+use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
 use crate::domain::price_history::wire::{DepositAssetPriceEvent, DepositPrice, PriceHistory};
 use crate::domain::trade::wire::WsTrade;
@@ -58,12 +59,38 @@ impl MessageOut {
         MessageOut::Ping
     }
 
-    pub fn subscribe_books(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
-        SubscribeParams::Books { orderbook_ids }.into()
+    /// Subscribe to book snapshots, optionally aggregated (Hyperliquid-style).
+    ///
+    /// Pass [`BookAggregation::FULL`] for the raw book. The aggregation is
+    /// normalized before sending ((5, none) → (5, 1)); validate with
+    /// [`BookAggregation::validate`] first — invalid combinations are
+    /// rejected server-side with `INVALID_ORDERBOOK_SUBSCRIPTION`.
+    pub fn subscribe_books(
+        orderbook_ids: Vec<OrderBookId>,
+        aggregation: BookAggregation,
+    ) -> MessageOut {
+        let aggregation = aggregation.normalized();
+        SubscribeParams::Books {
+            orderbook_ids,
+            n_sig_figs: aggregation.n_sig_figs,
+            mantissa: aggregation.mantissa,
+        }
+        .into()
     }
 
-    pub fn unsubscribe_books(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
-        UnsubscribeParams::Books { orderbook_ids }.into()
+    /// Unsubscribe a book subscription. The aggregation must match the one
+    /// subscribed (normalized) or the server removes nothing.
+    pub fn unsubscribe_books(
+        orderbook_ids: Vec<OrderBookId>,
+        aggregation: BookAggregation,
+    ) -> MessageOut {
+        let aggregation = aggregation.normalized();
+        UnsubscribeParams::Books {
+            orderbook_ids,
+            n_sig_figs: aggregation.n_sig_figs,
+            mantissa: aggregation.mantissa,
+        }
+        .into()
     }
 
     pub fn subscribe_trades(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
@@ -203,6 +230,13 @@ pub struct WsError {
     pub code: Option<String>,
     #[serde(default)]
     pub orderbook_id: Option<String>,
+    /// Aggregation of the affected book subscription on book-scoped errors
+    /// (`ENGINE_UNAVAILABLE`, `SUBSCRIPTION_LIMIT_REACHED`,
+    /// `INVALID_ORDERBOOK_SUBSCRIPTION`). Absent = full precision.
+    #[serde(default)]
+    pub n_sig_figs: Option<u32>,
+    #[serde(default)]
+    pub mantissa: Option<u32>,
     #[serde(default)]
     pub wallet_address: Option<String>,
     #[serde(default)]
@@ -211,6 +245,14 @@ pub struct WsError {
     pub hint: Option<String>,
     #[serde(default)]
     pub details: Option<String>,
+}
+
+impl WsError {
+    /// The `(orderbook, aggregation)` subscription a book-scoped error refers
+    /// to, paired with [`Self::orderbook_id`] (untagged = full precision).
+    pub fn aggregation(&self) -> BookAggregation {
+        BookAggregation::from_frame(self.n_sig_figs, self.mantissa)
+    }
 }
 
 impl std::fmt::Display for WsError {
@@ -312,7 +354,7 @@ mod tests {
 
     #[test]
     fn test_message_out_subscribe_serialization() {
-        let msg = MessageOut::subscribe_books(vec![OrderBookId::new("abc")]);
+        let msg = MessageOut::subscribe_books(vec![OrderBookId::new("abc")], BookAggregation::FULL);
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -323,12 +365,84 @@ mod tests {
 
     #[test]
     fn test_message_out_unsubscribe_serialization() {
-        let msg = MessageOut::unsubscribe_books(vec![OrderBookId::new("abc")]);
+        let msg =
+            MessageOut::unsubscribe_books(vec![OrderBookId::new("abc")], BookAggregation::FULL);
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
 
         assert_eq!(parsed["method"], "unsubscribe");
         assert_eq!(parsed["params"]["type"], "book_update");
+    }
+
+    #[test]
+    fn test_message_out_aggregated_books_normalizes_and_uses_camel_case() {
+        let msg = MessageOut::subscribe_books(
+            vec![OrderBookId::new("abc")],
+            BookAggregation {
+                n_sig_figs: Some(5),
+                mantissa: None,
+            },
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed["params"]["nSigFigs"], 5);
+        // (5, none) is sent in its normalized form (5, 1).
+        assert_eq!(parsed["params"]["mantissa"], 1);
+        assert!(parsed["params"].get("n_sig_figs").is_none());
+
+        // Full precision stays byte-identical to the pre-aggregation
+        // message: no aggregation keys at all.
+        let full =
+            MessageOut::subscribe_books(vec![OrderBookId::new("abc")], BookAggregation::FULL);
+        let full_json = serde_json::to_string(&full).unwrap();
+        assert!(!full_json.contains("nSigFigs"));
+        assert!(!full_json.contains("mantissa"));
+    }
+
+    #[test]
+    fn test_kind_book_update_aggregation_tags() {
+        let json = r#"{"type": "book_update", "data": {"orderbook_id": "abc", "is_snapshot": true, "seq": 0, "bids": [], "asks": [], "n_sig_figs": 5, "mantissa": 2}, "version": 0.1}"#;
+        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        match msg.kind {
+            Kind::BookUpdate(book) => {
+                assert_eq!(
+                    book.aggregation(),
+                    BookAggregation {
+                        n_sig_figs: Some(5),
+                        mantissa: Some(2),
+                    }
+                );
+            }
+            _ => panic!("expected Kind::BookUpdate"),
+        }
+
+        // Untagged frames (old backends / full precision) are full precision.
+        let untagged = r#"{"type": "book_update", "data": {"orderbook_id": "abc", "is_snapshot": true, "seq": 0, "bids": [], "asks": []}, "version": 0.1}"#;
+        let msg: MessageIn = serde_json::from_str(untagged).unwrap();
+        match msg.kind {
+            Kind::BookUpdate(book) => assert!(book.aggregation().is_full()),
+            _ => panic!("expected Kind::BookUpdate"),
+        }
+    }
+
+    #[test]
+    fn test_ws_error_aggregation_tags() {
+        let json = r#"{"type": "error", "data": {"error": "Engine unreachable, cannot subscribe", "code": "ENGINE_UNAVAILABLE", "orderbook_id": "abc", "n_sig_figs": 4}, "version": 0.1}"#;
+        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        match msg.kind {
+            Kind::Error(error) => {
+                assert_eq!(error.orderbook_id.as_deref(), Some("abc"));
+                assert_eq!(
+                    error.aggregation(),
+                    BookAggregation {
+                        n_sig_figs: Some(4),
+                        mantissa: None,
+                    }
+                );
+            }
+            _ => panic!("expected Kind::Error"),
+        }
     }
 
     #[test]

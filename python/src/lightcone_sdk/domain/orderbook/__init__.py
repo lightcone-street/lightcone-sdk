@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 
+from .aggregation import BookAggregation, FULL_PRECISION
+
 if TYPE_CHECKING:
     from ..market import ConditionalToken
 
@@ -110,6 +112,8 @@ class OrderBookValidationError(Exception):
 
 
 __all__ = [
+    "BookAggregation",
+    "FULL_PRECISION",
     "OrderBookPair",
     "OutcomeImpact",
     "OrderBookValidationError",

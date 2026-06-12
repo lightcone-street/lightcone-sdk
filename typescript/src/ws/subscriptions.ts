@@ -1,7 +1,25 @@
+import {
+  aggregationKeySuffix,
+  aggregationsEqual,
+  isFullPrecision,
+} from "../domain/orderbook/aggregation";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
 
+/**
+ * Book subscriptions optionally carry a Hyperliquid-style aggregation
+ * (`nSigFigs`/`mantissa`, wire spelling — omit both for full precision; the
+ * backend rejects unknown/snake_case params). Each `(orderbook, aggregation)`
+ * pair is a distinct subscription: one connection may hold multiple
+ * aggregation views of the same orderbook, and unsubscribe must repeat the
+ * same (normalized) aggregation to match.
+ */
 export type SubscribeParams =
-  | { type: "book_update"; orderbook_ids: OrderBookId[] }
+  | {
+      type: "book_update";
+      orderbook_ids: OrderBookId[];
+      nSigFigs?: number;
+      mantissa?: number;
+    }
   | { type: "trades"; orderbook_ids: OrderBookId[] }
   | { type: "user"; wallet_address: PubkeyStr }
   | {
@@ -16,7 +34,12 @@ export type SubscribeParams =
   | { type: "deposit_asset_price"; deposit_asset: string };
 
 export type UnsubscribeParams =
-  | { type: "book_update"; orderbook_ids: OrderBookId[] }
+  | {
+      type: "book_update";
+      orderbook_ids: OrderBookId[];
+      nSigFigs?: number;
+      mantissa?: number;
+    }
   | { type: "trades"; orderbook_ids: OrderBookId[] }
   | { type: "user"; wallet_address: PubkeyStr }
   | { type: "price_history"; orderbook_id: OrderBookId; resolution: Resolution }
@@ -34,8 +57,14 @@ export interface Subscription {
 
 export function subscriptionKey(params: SubscribeParams): string {
   switch (params.type) {
-    case "book_update":
-      return `book:${idsKey(params.orderbook_ids)}`;
+    case "book_update": {
+      const aggregation = { nSigFigs: params.nSigFigs, mantissa: params.mantissa };
+      // Full precision keeps the pre-aggregation key shape so existing
+      // consumers' tracked subscriptions stay stable.
+      return isFullPrecision(aggregation)
+        ? `book:${idsKey(params.orderbook_ids)}`
+        : `book:${idsKey(params.orderbook_ids)}:${aggregationKeySuffix(aggregation)}`;
+    }
     case "trades":
       return `trades:${idsKey(params.orderbook_ids)}`;
     case "user":
@@ -62,8 +91,20 @@ export function unsubscribeMatches(
   }
 
   switch (subscribe.type) {
-    case "book_update":
-      return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
+    case "book_update": {
+      const unsubscribeBooks = unsubscribe as {
+        orderbook_ids: OrderBookId[];
+        nSigFigs?: number;
+        mantissa?: number;
+      };
+      return (
+        idsKey(subscribe.orderbook_ids) === idsKey(unsubscribeBooks.orderbook_ids) &&
+        aggregationsEqual(
+          { nSigFigs: subscribe.nSigFigs, mantissa: subscribe.mantissa },
+          { nSigFigs: unsubscribeBooks.nSigFigs, mantissa: unsubscribeBooks.mantissa }
+        )
+      );
+    }
     case "trades":
       return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
     case "ticker":

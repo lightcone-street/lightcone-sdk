@@ -14,6 +14,11 @@ import type {
   CloseOrderbookParams,
   Orderbook as ProgramOrderbook,
 } from "../../program/types";
+import {
+  FULL_PRECISION,
+  validateAggregation,
+  type BookAggregation,
+} from "./aggregation";
 import type { OrderbookDepthResponse } from "./wire";
 
 export class Orderbooks {
@@ -27,9 +32,33 @@ export class Orderbooks {
 
   // ── HTTP methods ─────────────────────────────────────────────────────
 
-  async get(orderbookId: string, depth?: number): Promise<OrderbookDepthResponse> {
-    const query = depth !== undefined ? `?depth=${depth}` : "";
-    const url = `${this.client.http.baseUrl()}/api/orderbook/${encodeURIComponent(orderbookId)}${query}`;
+  /**
+   * Get live orderbook depth, optionally aggregated (Hyperliquid-style).
+   *
+   * `depth` is capped server-side at 20 levels per side (omitted, `0`, or
+   * `>20` all serve 20). Invalid aggregation combinations throw client-side
+   * before any request is made (the server would 400 with
+   * `INVALID_ORDERBOOK_QUERY`), and unknown query params are rejected
+   * server-side — only `depth`, `nSigFigs`, and `mantissa` are ever sent.
+   */
+  async get(
+    orderbookId: string,
+    depth?: number,
+    aggregation: BookAggregation = FULL_PRECISION
+  ): Promise<OrderbookDepthResponse> {
+    const validated = validateAggregation(aggregation);
+    const query = new URLSearchParams();
+    if (depth !== undefined) {
+      query.set("depth", String(depth));
+    }
+    if (validated.nSigFigs !== undefined) {
+      query.set("nSigFigs", String(validated.nSigFigs));
+    }
+    if (validated.mantissa !== undefined) {
+      query.set("mantissa", String(validated.mantissa));
+    }
+    const queryString = query.toString();
+    const url = `${this.client.http.baseUrl()}/api/orderbook/${encodeURIComponent(orderbookId)}${queryString ? `?${queryString}` : ""}`;
     return this.client.http.get<OrderbookDepthResponse>(url, RetryPolicy.Idempotent);
   }
 

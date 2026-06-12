@@ -8,6 +8,7 @@ from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
+from .aggregation import BookAggregation
 from .wire import OrderbookDepthResponse
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
@@ -71,14 +72,32 @@ class Orderbooks:
     # ── HTTP methods ─────────────────────────────────────────────────────
 
     async def get(
-        self, orderbook_id: str, depth: Optional[int] = None
+        self,
+        orderbook_id: str,
+        depth: Optional[int] = None,
+        *,
+        n_sig_figs: Optional[int] = None,
+        mantissa: Optional[int] = None,
     ) -> OrderbookDepthResponse:
-        """Get orderbook depth."""
-        params: dict[str, str] | None = None
+        """Get live orderbook depth, optionally aggregated (Hyperliquid-style).
+
+        ``depth`` is capped server-side at 20 levels per side (omitted, 0, or
+        >20 all serve 20). Invalid aggregation combinations raise
+        ``ValueError`` client-side before any request is made (the server
+        would 400 with ``INVALID_ORDERBOOK_QUERY``), and unknown query params
+        are rejected server-side — only ``depth``, ``nSigFigs``, and
+        ``mantissa`` are ever sent.
+        """
+        aggregation = BookAggregation.validate(n_sig_figs, mantissa)
+        params: dict[str, str] = {}
         if depth is not None:
-            params = {"depth": str(depth)}
+            params["depth"] = str(depth)
+        if aggregation.n_sig_figs is not None:
+            params["nSigFigs"] = str(aggregation.n_sig_figs)
+        if aggregation.mantissa is not None:
+            params["mantissa"] = str(aggregation.mantissa)
         data = await self._client._http.get(
-            f"/api/orderbook/{orderbook_id}", params=params
+            f"/api/orderbook/{orderbook_id}", params=params or None
         )
         return OrderbookDepthResponse.from_dict(data)
 
