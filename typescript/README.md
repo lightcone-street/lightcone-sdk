@@ -177,6 +177,12 @@ ws.subscribe({
 });
 ```
 
+Book streams are snapshot-only: every `book_update` frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale (`OrderbookState` handles this; never gate on `seq` — the initial snapshot after every (re)subscribe is `seq: 0`). Subscriptions accept an optional Hyperliquid-style aggregation (`nSigFigs` 2–5, `mantissa` 1/2/5 only with `nSigFigs: 5`; validate with `validateAggregation`). Each `(orderbook, aggregation)` pair is a distinct subscription, so one connection can hold the full-precision and a grouped view of the same book simultaneously — incoming frames are tagged with snake_case `n_sig_figs`/`mantissa` (absent = full precision); key state by `aggregationFromFrame(frame.n_sig_figs, frame.mantissa)`. See [`examples/ws_book_and_trades.ts`](examples/ws_book_and_trades.ts).
+
+```typescript
+ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
+```
+
 ### Step 5: Cancel an Order
 
 ```typescript

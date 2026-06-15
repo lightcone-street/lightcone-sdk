@@ -7,7 +7,7 @@ from typing import Optional
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from ..shared.types import DepositSource
+from ..shared.types import DepositSource, Side
 from .constants import MAX_OUTCOMES, MIN_OUTCOMES
 from .errors import InvalidOutcomeCountError, InvalidOutcomeIndexError
 
@@ -26,6 +26,11 @@ class OrderSide(IntEnum):
 
     BID = 0  # Buyer wants base tokens, gives quote tokens
     ASK = 1  # Seller offers base tokens, receives quote tokens
+
+    @classmethod
+    def from_side(cls, side: "Side | int") -> "OrderSide":
+        """Map a wire/domain :class:`Side` onto the on-chain order side."""
+        return cls(int(side))
 
 
 @dataclass

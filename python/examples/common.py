@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
 from lightcone_sdk.auth.client import sign_login_message
-from lightcone_sdk.auth import User
+from lightcone_sdk.auth import SessionResponse
 from lightcone_sdk.domain.market import Market, OrderBookPair
 
 DEFAULT_WALLET_PATH = "~/.config/solana/id.json"
@@ -61,7 +61,7 @@ async def login(
     client: LightconeClient,
     keypair: Keypair,
     use_embedded_wallet: bool = False,
-) -> User:
+) -> SessionResponse:
     nonce = await client.auth().get_nonce()
     message, signature_bs58, pubkey_bytes = sign_login_message(keypair, nonce)
     return await client.auth().login_with_message(

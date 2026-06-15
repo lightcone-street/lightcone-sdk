@@ -1,5 +1,7 @@
 """Tests for payout-vector market resolution API payloads."""
 
+from decimal import Decimal
+
 from lightcone_sdk import (
     MarketResolutionKind,
     MarketResolutionPayout,
@@ -9,7 +11,6 @@ from lightcone_sdk.domain.market.convert import market_from_wire
 from lightcone_sdk.domain.market.wire import MarketWire
 from lightcone_sdk.domain.notification import Notification
 from lightcone_sdk.domain.notification.client import _parse_notification
-
 
 NOW = "2026-05-06T13:00:00Z"
 
@@ -164,7 +165,7 @@ def test_market_conversion_preserves_scalar_resolution() -> None:
     assert market.resolution is not None
     assert market.resolution.kind == MarketResolutionKind.SCALAR
     assert [p.payout_numerator for p in market.resolution.payouts] == [7, 3]
-    assert market.deposit_assets[0].min_order_size == 1_000_000
+    assert market.deposit_assets[0].min_order_size == Decimal("1")
 
 
 def test_market_conversion_preserves_single_winner_resolution() -> None:

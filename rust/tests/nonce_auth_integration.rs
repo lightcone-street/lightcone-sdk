@@ -117,7 +117,7 @@ async fn happy_path_login_with_valid_nonce() {
     let nonce = client.auth().get_nonce().await.expect("get_nonce failed");
     let signed = auth::native::sign_login_message(&kp, &nonce);
 
-    let user = client
+    let session = client
         .auth()
         .login_with_message(
             &signed.message,
@@ -128,8 +128,9 @@ async fn happy_path_login_with_valid_nonce() {
         .await
         .expect("login should succeed");
 
-    assert_eq!(user.wallet_address, kp.pubkey().to_string());
-    println!("logged in as user {} ({})", user.id, user.wallet_address);
+    let wallet = session.user.trading_wallet(session.auth_method);
+    assert_eq!(wallet, kp.pubkey().to_string());
+    println!("logged in as user {} ({})", session.user.user_id, wallet);
 }
 
 #[tokio::test]

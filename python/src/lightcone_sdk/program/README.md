@@ -403,65 +403,18 @@ validate_signed_order(order)  # Also verifies signature
 
 All transaction builders return a `Transaction` ready for signing.
 
-### Exchange Administration
+### Exchange Administration & Market Lifecycle
 
-```python
-# Initialize exchange (one-time)
-tx = await client.initialize(authority_pubkey)
-
-# Pause/unpause trading
-tx = await client.set_paused(authority_pubkey, paused=True)
-
-# Change operator
-tx = await client.set_operator(authority_pubkey, new_operator_pubkey)
-```
-
-### Market Lifecycle
+Exchange administration and market lifecycle instructions (initialize, create/activate/settle market, pause, operator changes) are exposed as raw encoders for advanced usage:
 
 ```python
 from lightcone_sdk.program import (
-    ActivateMarketParams,
-    AddDepositMintParams,
-    OutcomeMetadata,
     ScalarResolutionParams,
-    SettleMarketParams,
+    build_create_market_instruction,
+    build_set_paused_instruction,
+    build_settle_market_instruction,
     scalar_to_payout_numerators,
 )
-
-# Create market
-tx = await client.create_market(
-    authority=authority_pubkey,
-    num_outcomes=2,
-    oracle=oracle_pubkey,
-    question_id=question_id_bytes,  # 32 bytes
-)
-
-# Add deposit mint (with outcome metadata)
-tx = await client.add_deposit_mint(
-    AddDepositMintParams(
-        payer=payer_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        outcome_metadata=[
-            OutcomeMetadata(name="Yes", symbol="YES", uri=""),
-            OutcomeMetadata(name="No", symbol="NO", uri=""),
-        ],
-    ),
-    num_outcomes=2,
-)
-
-# Activate market
-tx = await client.activate_market(ActivateMarketParams(
-    authority=authority_pubkey,
-    market=market_pubkey,
-))
-
-# Settle market
-tx = await client.settle_market(SettleMarketParams(
-    oracle=oracle_pubkey,
-    market_id=market_id,
-    payout_numerators=[1, 0],
-))
 
 # Scalar settlement uses integer fixed-point metadata off-chain.
 payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(

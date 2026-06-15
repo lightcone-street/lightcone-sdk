@@ -6,6 +6,11 @@
 //! - Deserialization of the `ApiResponse<T>` wrapper
 //! - Unwrapping success body or converting errors to `SdkError::ApiRejected`
 //!
+//! Auth is modeled as a [`CookieSession`] — a named cookie with a shared token
+//! store. The SDK's own endpoints use the built-in user session
+//! (`lightcone-token`); external crates can drive additional sessions through
+//! the `*_with_session` methods.
+//!
 //! `raw_post()` bypasses all of this for non-API calls (e.g. Solana JSON-RPC).
 
 use crate::error::{HttpError, SdkError};
@@ -21,21 +26,111 @@ use std::time::Duration;
 use tracing;
 use uuid::Uuid;
 
+#[cfg(not(target_arch = "wasm32"))]
 const DEFAULT_HTTP_TIMEOUT_SECS: u64 = 180;
 
+/// Cookie name for the SDK's built-in user session.
+const USER_COOKIE: &str = "lightcone-token";
+
+/// A named cookie session: one auth cookie plus its shared token store.
+///
+/// - **Native**: after a successful response carrying
+///   `Set-Cookie: <name>=<token>`, the token is captured into the store and
+///   attached as `Cookie: <name>=<token>` on subsequent requests using this
+///   session.
+/// - **WASM**: the browser cookie jar stores and attaches the cookie itself
+///   (requests are sent with credentials included), so the token store stays
+///   empty and [`CookieSession::token`] returns `None`.
+///
+/// Cloning shares the token store, so a session captured through one clone of
+/// the client is visible to all clones.
+#[derive(Clone)]
+pub struct CookieSession {
+    name: String,
+    token: Arc<RwLock<Option<String>>>,
+}
+
+impl CookieSession {
+    pub fn new(cookie_name: impl Into<String>) -> Self {
+        Self {
+            name: cookie_name.into(),
+            token: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// The cookie name this session attaches and captures.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The captured token, if any. Always `None` on WASM (the browser owns
+    /// the cookie).
+    pub async fn token(&self) -> Option<String> {
+        self.token.read().await.clone()
+    }
+
+    /// Seed the session with a token obtained elsewhere (e.g. persisted from
+    /// a previous process).
+    pub async fn set_token(&self, token: String) {
+        *self.token.write().await = Some(token);
+    }
+
+    /// Drop the captured token. Subsequent requests on this session go out
+    /// without a `Cookie` header.
+    pub async fn clear_token(&self) {
+        *self.token.write().await = None;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn token_ref(&self) -> Arc<RwLock<Option<String>>> {
+        self.token.clone()
+    }
+}
+
 /// Auth mode for HTTP requests.
-enum AuthMode {
-    /// User auth via cookie (native) or credentials (WASM).
-    Cookie,
+enum AuthMode<'a> {
+    /// Auth via a named cookie session (cookie on native, credentials on WASM).
+    Session(&'a CookieSession),
     /// Per-call raw `Cookie` header override, sent verbatim. Used for
     /// server-side cookie forwarding (e.g. SSR / server functions) where the
     /// per-request browser cookies can't propagate to the SDK's process-wide
     /// token store. Carries whatever auth cookies the browser sent (e.g.
     /// `"privy-token=…; lightcone-token=…"`). On WASM this is equivalent to
-    /// `Cookie` because the browser already attaches credentials.
+    /// `Session` because the browser already attaches credentials.
     CookieOverride(String),
-    /// Admin auth via cookie (native) or credentials (WASM).
-    AdminCookie,
+}
+
+#[derive(Debug)]
+enum ApiRequestError {
+    HttpStatus {
+        status: u16,
+        body: String,
+        request_id: String,
+        retry_after_ms: Option<u64>,
+    },
+    Http(HttpError),
+}
+
+impl From<HttpError> for ApiRequestError {
+    fn from(error: HttpError) -> Self {
+        Self::Http(error)
+    }
+}
+
+impl From<reqwest::Error> for ApiRequestError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Http(error.into())
+    }
+}
+
+impl ApiRequestError {
+    fn retry_after_ms(&self) -> Option<u64> {
+        match self {
+            Self::HttpStatus { retry_after_ms, .. } => *retry_after_ms,
+            Self::Http(HttpError::RateLimited { retry_after_ms }) => *retry_after_ms,
+            _ => None,
+        }
+    }
 }
 
 /// Generic HTTP transport for the Lightcone REST API.
@@ -51,12 +146,12 @@ enum AuthMode {
 pub struct LightconeHttp {
     base_url: String,
     client: Client,
-    auth_token: Arc<RwLock<Option<String>>>,
-    admin_token: Arc<RwLock<Option<String>>>,
+    user_session: CookieSession,
 }
 
 impl LightconeHttp {
     pub fn new(base_url: &str) -> Self {
+        #[cfg_attr(target_arch = "wasm32", allow(unused_mut))]
         let mut builder = Client::builder();
         #[cfg(not(target_arch = "wasm32"))]
         {
@@ -68,35 +163,35 @@ impl LightconeHttp {
         Self {
             base_url: base_url.trim_end_matches('/').to_string(),
             client: builder.build().expect("Failed to build HTTP client"),
-            auth_token: Arc::new(RwLock::new(None)),
-            admin_token: Arc::new(RwLock::new(None)),
+            user_session: CookieSession::new(USER_COOKIE),
         }
     }
 
-    pub(crate) fn base_url(&self) -> &str {
+    /// The API base URL this transport targets (no trailing slash).
+    pub fn base_url(&self) -> &str {
         &self.base_url
     }
 
+    /// The built-in user session (`lightcone-token` cookie). Populated by the
+    /// SDK after a successful login. Useful for persisting the session across
+    /// processes, or as the session argument to the `*_with_session` methods.
+    pub fn user_session(&self) -> &CookieSession {
+        &self.user_session
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) async fn clear_auth_token(&self) {
-        *self.auth_token.write().await = None;
+        self.user_session.clear_token().await;
     }
 
     #[allow(dead_code)]
     pub(crate) async fn has_auth_token(&self) -> bool {
-        self.auth_token.read().await.is_some()
+        self.user_session.token().await.is_some()
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn auth_token_ref(&self) -> Arc<RwLock<Option<String>>> {
-        self.auth_token.clone()
-    }
-
-    #[allow(dead_code)]
-    pub(crate) async fn set_admin_token(&self, token: String) {
-        *self.admin_token.write().await = Some(token);
-    }
-
-    pub(crate) async fn clear_admin_token(&self) {
-        *self.admin_token.write().await = None;
+        self.user_session.token_ref()
     }
 
     /// Raw POST to an arbitrary URL (no auth, no retry, no ApiResponse wrapping).
@@ -126,7 +221,7 @@ impl LightconeHttp {
         resp.json().await.map_err(Into::into)
     }
 
-    /// GET with retry. Uses cookie auth.
+    /// GET with retry. Uses the user session.
     pub(crate) async fn get<T: DeserializeOwned>(
         &self,
         url: &str,
@@ -135,7 +230,7 @@ impl LightconeHttp {
         self.get_with_query(url, &[], retry).await
     }
 
-    /// GET with retry and URL-encoded query parameters. Uses cookie auth.
+    /// GET with retry and URL-encoded query parameters. Uses the user session.
     pub(crate) async fn get_with_query<T: DeserializeOwned>(
         &self,
         url: &str,
@@ -148,7 +243,8 @@ impl LightconeHttp {
             None::<&()>,
             query,
             retry,
-            AuthMode::Cookie,
+            AuthMode::Session(&self.user_session),
+            true,
         )
         .await
     }
@@ -183,11 +279,12 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::CookieOverride(cookie_header.to_string()),
+            true,
         )
         .await
     }
 
-    /// POST with retry. Uses cookie auth.
+    /// POST with retry. Uses the user session.
     pub(crate) async fn post<T: DeserializeOwned, B: Serialize>(
         &self,
         url: &str,
@@ -200,79 +297,28 @@ impl LightconeHttp {
             Some(body),
             &[],
             retry,
-            AuthMode::Cookie,
+            AuthMode::Session(&self.user_session),
+            true,
         )
         .await
     }
 
-    /// POST with retry. Uses admin cookie auth.
-    pub(crate) async fn admin_post<T: DeserializeOwned, B: Serialize>(
-        &self,
-        url: &str,
-        body: &B,
-        retry: RetryPolicy,
-    ) -> Result<T, SdkError> {
-        self.request_with_retry(
-            reqwest::Method::POST,
-            url,
-            Some(body),
-            &[],
-            retry,
-            AuthMode::AdminCookie,
-        )
-        .await
-    }
+    // ── Session-parameterized requests (extension surface) ─────────────────
+    //
+    // These let external crates build sub-clients on top of `LightconeHttp`
+    // with their own named cookie sessions. Unlike the user-session methods
+    // above, a non-2xx response body that parses as the standard
+    // `ApiResponse` envelope is surfaced as `SdkError::ApiRejected` instead
+    // of an opaque HTTP error.
 
-    /// POST with retry, without a request body. Uses admin cookie auth.
-    pub(crate) async fn admin_post_empty<T: DeserializeOwned>(
-        &self,
-        url: &str,
-        retry: RetryPolicy,
-    ) -> Result<T, SdkError> {
-        self.request_with_retry(
-            reqwest::Method::POST,
-            url,
-            None::<&()>,
-            &[],
-            retry,
-            AuthMode::AdminCookie,
-        )
-        .await
-    }
-
-    /// PUT with retry. Uses admin cookie auth.
-    pub(crate) async fn admin_put<T: DeserializeOwned, B: Serialize>(
-        &self,
-        url: &str,
-        body: &B,
-        retry: RetryPolicy,
-    ) -> Result<T, SdkError> {
-        self.request_with_retry(
-            reqwest::Method::PUT,
-            url,
-            Some(body),
-            &[],
-            retry,
-            AuthMode::AdminCookie,
-        )
-        .await
-    }
-
-    /// GET with retry. Uses admin cookie auth.
-    pub(crate) async fn admin_get<T: DeserializeOwned>(
-        &self,
-        url: &str,
-        retry: RetryPolicy,
-    ) -> Result<T, SdkError> {
-        self.admin_get_with_query(url, &[], retry).await
-    }
-
-    /// GET with retry and URL-encoded query parameters. Uses admin cookie auth.
-    pub(crate) async fn admin_get_with_query<T: DeserializeOwned>(
+    /// GET with retry and URL-encoded query parameters, authenticated with
+    /// the given [`CookieSession`].
+    pub async fn get_with_session<T: DeserializeOwned>(
         &self,
         url: &str,
         query: &[(&str, String)],
         retry: RetryPolicy,
+        session: &CookieSession,
     ) -> Result<T, SdkError> {
         self.request_with_retry(
             reqwest::Method::GET,
@@ -280,11 +326,55 @@ impl LightconeHttp {
             None::<&()>,
             query,
             retry,
-            AuthMode::AdminCookie,
+            AuthMode::Session(session),
+            true,
         )
         .await
     }
 
+    /// POST with retry, authenticated with the given [`CookieSession`].
+    /// Pass `None::<&()>` as the body for an empty POST.
+    pub async fn post_with_session<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: Option<&B>,
+        retry: RetryPolicy,
+        session: &CookieSession,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::POST,
+            url,
+            body,
+            &[],
+            retry,
+            AuthMode::Session(session),
+            true,
+        )
+        .await
+    }
+
+    /// PUT with retry, authenticated with the given [`CookieSession`].
+    /// Pass `None::<&()>` as the body for an empty PUT.
+    pub async fn put_with_session<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: Option<&B>,
+        retry: RetryPolicy,
+        session: &CookieSession,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::PUT,
+            url,
+            body,
+            &[],
+            retry,
+            AuthMode::Session(session),
+            true,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn request_with_retry<T: DeserializeOwned, B: Serialize>(
         &self,
         method: reqwest::Method,
@@ -292,12 +382,20 @@ impl LightconeHttp {
         body: Option<&B>,
         query: &[(&str, String)],
         retry: RetryPolicy,
-        auth_mode: AuthMode,
+        auth_mode: AuthMode<'_>,
+        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
                 return self
-                    .send_and_parse(&method, url, body, query, &auth_mode)
+                    .send_and_parse(
+                        &method,
+                        url,
+                        body,
+                        query,
+                        &auth_mode,
+                        parse_rejected_error_body,
+                    )
                     .await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
@@ -308,45 +406,21 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_api_response::<T, B>(
-                    &method,
-                    url,
-                    body,
-                    query,
-                    &auth_mode,
-                    &config.retryable_statuses,
-                )
+                .send_api_request::<ApiResponse<T>, B>(&method, url, body, query, &auth_mode)
                 .await
             {
                 Ok((api_resp, request_id)) => {
                     return Self::parse_api_response(api_resp, request_id);
                 }
                 Err(e) => {
-                    let should_retry = match &e {
-                        HttpError::ServerError { status, .. } => {
-                            config.retryable_statuses.contains(status)
-                        }
-                        HttpError::RateLimited { retry_after_ms } => {
-                            if let Some(ms) = retry_after_ms {
-                                let delay = Duration::from_millis(*ms);
-                                futures_timer::Delay::new(delay).await;
-                            }
-                            true
-                        }
-                        HttpError::Timeout => true,
-                        #[cfg(feature = "http")]
-                        HttpError::Reqwest(re) => {
-                            #[cfg(not(target_arch = "wasm32"))]
-                            let retryable = re.is_connect() || re.is_timeout() || re.is_request();
-                            #[cfg(target_arch = "wasm32")]
-                            let retryable = re.is_timeout() || re.is_request();
-                            retryable
-                        }
-                        _ => false,
-                    };
+                    let should_retry =
+                        Self::should_retry_request_error(&e, &config.retryable_statuses);
 
                     if should_retry && attempt < config.max_retries {
-                        let delay = config.delay_for_attempt(attempt);
+                        let delay = e
+                            .retry_after_ms()
+                            .map(Duration::from_millis)
+                            .unwrap_or_else(|| config.delay_for_attempt(attempt));
                         tracing::debug!(
                             attempt = attempt + 1,
                             max = config.max_retries,
@@ -354,10 +428,13 @@ impl LightconeHttp {
                             "Retrying request to {}",
                             url
                         );
+                        last_error = Some(Self::request_error_message(&e));
                         futures_timer::Delay::new(delay).await;
-                        last_error = Some(e);
                     } else {
-                        return Err(e.into());
+                        return Err(Self::request_error_to_sdk::<T>(
+                            e,
+                            parse_rejected_error_body,
+                        ));
                     }
                 }
             }
@@ -365,9 +442,7 @@ impl LightconeHttp {
 
         Err(HttpError::MaxRetriesExceeded {
             attempts: config.max_retries + 1,
-            last_error: last_error
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "unknown".to_string()),
+            last_error: last_error.unwrap_or_else(|| "unknown".to_string()),
         }
         .into())
     }
@@ -379,11 +454,13 @@ impl LightconeHttp {
         url: &str,
         body: Option<&B>,
         query: &[(&str, String)],
-        auth_mode: &AuthMode,
+        auth_mode: &AuthMode<'_>,
+        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_api_response::<T, B>(method, url, body, query, auth_mode, &[])
-            .await?;
+            .send_api_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
+            .await
+            .map_err(|e| Self::request_error_to_sdk::<T>(e, parse_rejected_error_body))?;
         Self::parse_api_response(api_resp, request_id)
     }
 
@@ -398,15 +475,18 @@ impl LightconeHttp {
         }
     }
 
-    /// Low-level HTTP request: sends request and injects auth/cookies.
-    async fn send_http<B: Serialize>(
+    /// Low-level HTTP request: sends request and captures auth cookies.
+    /// Returns the raw deserialized body and request_id.
+    /// Non-success HTTP statuses are returned with raw status/body so retry
+    /// policy can decide before a backend rejection envelope is unwrapped.
+    async fn send_api_request<T: DeserializeOwned, B: Serialize>(
         &self,
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
         query: &[(&str, String)],
-        auth_mode: &AuthMode,
-    ) -> Result<(reqwest::Response, String), HttpError> {
+        auth_mode: &AuthMode<'_>,
+    ) -> Result<(T, String), ApiRequestError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
@@ -415,16 +495,17 @@ impl LightconeHttp {
         }
 
         match auth_mode {
-            AuthMode::Cookie => {
+            AuthMode::Session(session) => {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    if let Some(token) = self.auth_token.read().await.as_ref() {
-                        req = req.header("Cookie", format!("lightcone-token={}", token));
+                    if let Some(token) = session.token.read().await.as_ref() {
+                        req = req.header("Cookie", format!("{}={}", session.name, token));
                     }
                 }
 
                 #[cfg(target_arch = "wasm32")]
                 {
+                    let _ = session;
                     req = req.fetch_credentials_include();
                 }
             }
@@ -441,18 +522,6 @@ impl LightconeHttp {
                     req = req.fetch_credentials_include();
                 }
             }
-            AuthMode::AdminCookie => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    if let Some(token) = self.admin_token.read().await.as_ref() {
-                        req = req.header("Cookie", format!("admin_token={}", token));
-                    }
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    req = req.fetch_credentials_include();
-                }
-            }
         }
 
         if let Some(b) = body {
@@ -460,88 +529,138 @@ impl LightconeHttp {
         }
 
         let resp = req.send().await?;
-        Ok((resp, request_id))
-    }
-
-    /// Sends a Lightcone API request and returns the structured ApiResponse envelope.
-    ///
-    /// Retryable statuses must remain HTTP-layer errors so retry policy can make
-    /// the decision before API error envelopes are converted into `ApiRejected`.
-    async fn send_api_response<T: DeserializeOwned, B: Serialize>(
-        &self,
-        method: &reqwest::Method,
-        url: &str,
-        body: Option<&B>,
-        query: &[(&str, String)],
-        auth_mode: &AuthMode,
-        retryable_statuses: &[u16],
-    ) -> Result<(ApiResponse<T>, String), HttpError> {
-        let (resp, request_id) = self.send_http(method, url, body, query, auth_mode).await?;
         let status = resp.status();
 
         if status.is_success() {
-            self.capture_auth_cookies(&resp).await;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                // Capture a rotated/issued token for the session this request
+                // ran under. `CookieOverride` carries the browser's cookies on
+                // behalf of the user, so its capture target is the user session.
+                let capture_session = match auth_mode {
+                    AuthMode::Session(session) => *session,
+                    AuthMode::CookieOverride(_) => &self.user_session,
+                };
+                let cookie_prefix = format!("{}=", capture_session.name);
+                for value in resp.headers().get_all("set-cookie").iter() {
+                    if let Ok(header_str) = value.to_str() {
+                        if let Some(token) = header_str
+                            .strip_prefix(&cookie_prefix)
+                            .and_then(|rest| rest.split(';').next())
+                        {
+                            if !token.is_empty() {
+                                capture_session.set_token(token.to_string()).await;
+                            }
+                        }
+                    }
+                }
+            }
 
-            let parsed = resp.json::<ApiResponse<T>>().await?;
+            let parsed = resp.json::<T>().await?;
             return Ok((parsed, request_id));
         }
 
         let status_code = status.as_u16();
+        let retry_after_ms = Self::retry_after_ms(resp.headers());
         let body_text = resp.text().await.unwrap_or_default();
 
-        if retryable_statuses.contains(&status_code) {
-            return Err(Self::http_error_for_status(status_code, body_text));
-        }
-
-        if Self::should_parse_api_rejection(status_code) {
-            if let Ok(ApiResponse::Rejected { details }) =
-                serde_json::from_str::<ApiResponse<T>>(&body_text)
-            {
-                return Ok((ApiResponse::Rejected { details }, request_id));
-            }
-        }
-
-        Err(Self::http_error_for_status(status_code, body_text))
+        Err(ApiRequestError::HttpStatus {
+            status: status_code,
+            body: body_text,
+            request_id,
+            retry_after_ms,
+        })
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    async fn capture_auth_cookies(&self, resp: &reqwest::Response) {
-        for value in resp.headers().get_all("set-cookie").iter() {
-            if let Ok(header_str) = value.to_str() {
-                if let Some(token) = header_str
-                    .strip_prefix("lightcone-token=")
-                    .and_then(|rest| rest.split(';').next())
-                {
-                    if !token.is_empty() {
-                        *self.auth_token.write().await = Some(token.to_string());
+    fn should_retry_request_error(error: &ApiRequestError, retryable_statuses: &[u16]) -> bool {
+        match error {
+            ApiRequestError::HttpStatus { status, .. } => retryable_statuses.contains(status),
+            ApiRequestError::Http(HttpError::ServerError { status, .. }) => {
+                retryable_statuses.contains(status)
+            }
+            ApiRequestError::Http(HttpError::RateLimited { .. }) => {
+                retryable_statuses.contains(&429)
+            }
+            ApiRequestError::Http(HttpError::Timeout) => true,
+            #[cfg(feature = "http")]
+            ApiRequestError::Http(HttpError::Reqwest(re)) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                let retryable = re.is_connect() || re.is_timeout() || re.is_request();
+                #[cfg(target_arch = "wasm32")]
+                let retryable = re.is_timeout() || re.is_request();
+                retryable
+            }
+            _ => false,
+        }
+    }
+
+    fn request_error_to_sdk<T: DeserializeOwned>(
+        error: ApiRequestError,
+        parse_rejected_error_body: bool,
+    ) -> SdkError {
+        match error {
+            ApiRequestError::HttpStatus {
+                status,
+                body,
+                request_id,
+                retry_after_ms,
+            } => {
+                if parse_rejected_error_body {
+                    if let Some(error) = Self::parse_http_rejection::<T>(&body, request_id) {
+                        return error;
                     }
                 }
-                if let Some(token) = header_str
-                    .strip_prefix("admin_token=")
-                    .and_then(|rest| rest.split(';').next())
-                {
-                    if !token.is_empty() {
-                        *self.admin_token.write().await = Some(token.to_string());
-                    }
-                }
+                Self::http_error_for_status(status, body, retry_after_ms).into()
             }
+            ApiRequestError::Http(error) => error.into(),
         }
     }
 
-    #[cfg(target_arch = "wasm32")]
-    async fn capture_auth_cookies(&self, _resp: &reqwest::Response) {}
-
-    fn should_parse_api_rejection(status_code: u16) -> bool {
-        matches!(status_code, 400..=499) && status_code != 429
+    fn parse_http_rejection<T: DeserializeOwned>(
+        body_text: &str,
+        request_id: String,
+    ) -> Option<SdkError> {
+        match serde_json::from_str::<ApiResponse<T>>(body_text) {
+            Ok(ApiResponse::Rejected { mut details }) => {
+                details.request_id = Some(request_id);
+                Some(SdkError::ApiRejected(details))
+            }
+            _ => None,
+        }
     }
 
-    fn http_error_for_status(status_code: u16, body_text: String) -> HttpError {
+    fn request_error_message(error: &ApiRequestError) -> String {
+        match error {
+            ApiRequestError::HttpStatus { status, body, .. } => {
+                format!("HTTP status {status}: {body}")
+            }
+            ApiRequestError::Http(error) => error.to_string(),
+        }
+    }
+
+    fn retry_after_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+        headers
+            .get("retry-after-ms")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .or_else(|| {
+                headers
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .map(|seconds| (seconds * 1000.0).round().max(0.0) as u64)
+            })
+    }
+
+    fn http_error_for_status(
+        status_code: u16,
+        body_text: String,
+        retry_after_ms: Option<u64>,
+    ) -> HttpError {
         match status_code {
             401 => HttpError::Unauthorized,
             404 => HttpError::NotFound(body_text),
-            429 => HttpError::RateLimited {
-                retry_after_ms: None,
-            },
+            429 => HttpError::RateLimited { retry_after_ms },
             400..=499 => HttpError::BadRequest(body_text),
             _ => HttpError::ServerError {
                 status: status_code,
@@ -556,8 +675,7 @@ impl Clone for LightconeHttp {
         Self {
             base_url: self.base_url.clone(),
             client: self.client.clone(),
-            auth_token: self.auth_token.clone(),
-            admin_token: self.admin_token.clone(),
+            user_session: self.user_session.clone(),
         }
     }
 }
@@ -607,7 +725,9 @@ mod tests {
                         200 => "OK",
                         400 => "Bad Request",
                         404 => "Not Found",
+                        409 => "Conflict",
                         429 => "Too Many Requests",
+                        500 => "Internal Server Error",
                         503 => "Service Unavailable",
                         _ => "Error",
                     };
@@ -663,36 +783,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn structured_404_returns_api_rejected_details() {
+    async fn structured_500_returns_api_rejected_details() {
         let (base_url, _) = spawn_server(vec![TestResponse {
-            status: 404,
-            body: r#"{"status":"error","error_details":{"reason":"market not found","error_code":"NOT_FOUND","error_log_id":"LCERR_404"}}"#,
+            status: 500,
+            body: r#"{"status":"error","error_details":{"reason":"engine failed","error_code":"ENGINE","error_log_id":"LCERR_500"}}"#,
         }])
         .await;
         let http = LightconeHttp::new(&base_url);
 
         let error = http
-            .get::<serde_json::Value>(&format!("{base_url}/missing"), RetryPolicy::None)
+            .get::<serde_json::Value>(&format!("{base_url}/test"), RetryPolicy::Idempotent)
             .await
             .unwrap_err();
 
         match error {
             SdkError::ApiRejected(details) => {
-                assert_eq!(details.reason, "market not found");
-                assert_eq!(details.error_code.as_deref(), Some("NOT_FOUND"));
-                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_404"));
-                assert!(details.request_id.is_some());
+                assert_eq!(details.reason, "engine failed");
+                assert_eq!(details.error_code.as_deref(), Some("ENGINE"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_500"));
             }
             other => panic!("expected ApiRejected, got {other:?}"),
         }
     }
 
     #[tokio::test]
-    async fn structured_503_retries_before_parsing_api_rejection() {
+    async fn custom_retry_policy_retries_raw_409_status() {
         let (base_url, attempts) = spawn_server(vec![
             TestResponse {
-                status: 503,
-                body: r#"{"status":"error","error_details":{"reason":"temporarily unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503"}}"#,
+                status: 409,
+                body: r#"{"status":"error","error_details":{"reason":"nonce mismatch","error_code":"NONCE_MISMATCH"}}"#,
             },
             TestResponse {
                 status: 200,
@@ -703,7 +822,7 @@ mod tests {
         let http = LightconeHttp::new(&base_url);
 
         let body = http
-            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![409]))
             .await
             .unwrap();
 
@@ -712,11 +831,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn structured_429_remains_retryable() {
+    async fn custom_retry_policy_does_not_retry_429_when_excluded() {
         let (base_url, attempts) = spawn_server(vec![
             TestResponse {
                 status: 429,
-                body: r#"{"status":"error","error_details":{"reason":"rate limited","error_code":"RATE_LIMITED"}}"#,
+                body: r#"{"status":"error","error_details":{"reason":"rate limited","error_code":"RATE_LIMITED","error_log_id":"LCERR_429"}}"#,
             },
             TestResponse {
                 status: 200,
@@ -726,12 +845,49 @@ mod tests {
         .await;
         let http = LightconeHttp::new(&base_url);
 
-        let body = http
-            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![429]))
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
             .await
-            .unwrap();
+            .unwrap_err();
 
-        assert_eq!(body["ok"], true);
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "rate limited");
+                assert_eq!(details.error_code.as_deref(), Some("RATE_LIMITED"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_429"));
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_exhaustion_preserves_structured_503_details() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 503,
+                body: r#"{"status":"error","error_details":{"reason":"temporarily unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503A"}}"#,
+            },
+            TestResponse {
+                status: 503,
+                body: r#"{"status":"error","error_details":{"reason":"still unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503B"}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "still unavailable");
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_503B"));
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
         assert_eq!(attempts.load(Ordering::SeqCst), 2);
     }
 

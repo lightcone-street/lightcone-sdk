@@ -1,4 +1,9 @@
+import Decimal from "decimal.js";
+
 import { SdkError } from "../error";
+import type { OrderBookPair } from "../domain/orderbook";
+import type { ConditionalToken } from "../domain/market/tokens";
+import { OrderSide } from "../program/types";
 
 export type Branded<T, Brand extends string> = T & { readonly __brand: Brand };
 
@@ -26,6 +31,94 @@ export function parseSide(value: string): Side {
 
 export function sideLabel(side: Side): "Buy" | "Sell" {
   return side === Side.Bid ? "Buy" : "Sell";
+}
+
+/**
+ * The denomination of the asset this side spends (Bid spends quote, Ask spends
+ * base). Also a trade form's default display denomination.
+ */
+export function spendDenominator(side: Side): Denominator {
+  return side === Side.Bid ? Denominator.Quote : Denominator.Base;
+}
+
+/**
+ * The denomination of the asset this side receives (Bid receives base, Ask
+ * receives quote).
+ */
+export function receiveDenominator(side: Side): Denominator {
+  return side === Side.Bid ? Denominator.Base : Denominator.Quote;
+}
+
+/**
+ * The price to submit with a market (IOC) order: the worst book fill price
+ * padded by the impact-protection percentage in the direction that lets the
+ * order fill.
+ *
+ * Returns null unless both inputs are positive.
+ */
+export function applyImpactProtection(
+  side: Side,
+  worstFillPrice: Decimal,
+  protectionPercent: Decimal
+): Decimal | null {
+  if (worstFillPrice.lte(0) || protectionPercent.lte(0)) {
+    return null;
+  }
+  const factor = protectionPercent.div(100);
+  return side === Side.Bid
+    ? worstFillPrice.mul(factor.add(1)) // buying: willing to pay more
+    : worstFillPrice.mul(new Decimal(1).sub(factor)); // selling: willing to receive less
+}
+
+/** Map a wire/domain `Side` onto the on-chain `OrderSide`. */
+export function toOrderSide(side: Side): OrderSide {
+  return side === Side.Bid ? OrderSide.BID : OrderSide.ASK;
+}
+
+export enum Denominator {
+  Base = "Base",
+  Quote = "Quote",
+}
+
+export function allDenominators(): Denominator[] {
+  return [Denominator.Quote, Denominator.Base];
+}
+
+/** The conditional token this denomination refers to on `pair`. */
+export function denominatorToken(denominator: Denominator, pair: OrderBookPair): ConditionalToken {
+  return denominator === Denominator.Base ? pair.base : pair.quote;
+}
+
+export function denominatorSymbol(denominator: Denominator, pair: OrderBookPair): string {
+  return denominatorToken(denominator, pair).symbol;
+}
+
+export function denominatorDepositSymbol(denominator: Denominator, pair: OrderBookPair): string {
+  return denominatorToken(denominator, pair).depositSymbol;
+}
+
+/**
+ * Convert `amount` from one denomination into another at the given price
+ * (quote per one base).
+ *
+ * Same-denomination conversion is the identity and never needs a price;
+ * crossing denominations requires a positive price — null otherwise.
+ */
+export function convertDenomination(
+  from: Denominator,
+  to: Denominator,
+  amount: Decimal,
+  basePriceInQuote: Decimal
+): Decimal | null {
+  if (from === to) {
+    return amount;
+  }
+  if (basePriceInQuote.lte(0)) {
+    return null;
+  }
+  return from === Denominator.Base
+    ? amount.mul(basePriceInQuote)
+    : amount.div(basePriceInQuote);
 }
 
 export enum TimeInForce {

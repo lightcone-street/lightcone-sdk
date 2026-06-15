@@ -27,7 +27,6 @@ export { Rpc } from "./rpc";
 export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
-export { Admin } from "./domain/admin";
 export { Markets } from "./domain/market";
 export { Metrics } from "./domain/metrics";
 export { Orderbooks } from "./domain/orderbook";
@@ -37,45 +36,6 @@ export { Trades } from "./domain/trade";
 export { PriceHistoryClient } from "./domain/price_history";
 export { Notifications } from "./domain/notification";
 export { Referrals } from "./domain/referral";
-
-export type {
-  AddMetadataCategoryRequest,
-  AddMetadataCategoryResponse,
-  AdminLogEvent,
-  AdminLogEventsQuery,
-  AdminLogEventsResponse,
-  AdminLogMetricBreakdown,
-  AdminLogMetricHistoryQuery,
-  AdminLogMetricHistoryResponse,
-  AdminLogMetricPoint,
-  AdminLogMetricSummary,
-  AdminLogMetricsQuery,
-  AdminLogMetricsResponse,
-  AdminMarketRow,
-  AdminMarketStatus,
-  AdminMarketStatusFilter,
-  AdminMarketsQuery,
-  AdminMarketsResponse,
-  AdminMarketsRangeValue,
-  CodeListEntry,
-  ConditionalTokenMetadataPayload,
-  ConditionalTokenMetadataResponse,
-  DepositTokenMetadataPayload,
-  DepositTokenMetadataResponse,
-  ListCodesRequest,
-  ListCodesResponse,
-  MarketMetadataPayload,
-  MarketMetadataResponse,
-  MetadataCategoriesResponse,
-  OutcomeMetadataPayload,
-  OutcomeMetadataResponse,
-  ReferralConfig,
-  UnifiedMetadataRequest,
-  UnifiedMetadataResponse,
-  UpdateCodeRequest,
-  UpdateCodeResponse,
-  UpdateConfigRequest,
-} from "./domain/admin";
 
 export type {
   CategoriesMetrics,
@@ -149,15 +109,25 @@ export type {
 export type {
   OrderBook,
   OrderBookPair,
+  OrderbookDepthDecimals,
   OutcomeImpact,
   TickerData,
   WsBookLevel,
 } from "./domain/orderbook";
 export { OrderBookValidationError } from "./domain/orderbook";
+export type { BookAggregation } from "./domain/orderbook/aggregation";
+export {
+  aggregationFromFrame,
+  aggregationKeySuffix,
+  aggregationsEqual,
+  FULL_PRECISION,
+  isFullPrecision,
+  normalizeAggregation,
+  validateAggregation,
+} from "./domain/orderbook/aggregation";
 export { OrderbookState } from "./domain/orderbook/state";
 export type {
   OrderbookApplyResult,
-  OrderbookIgnoreReason,
   OrderbookRefreshReason,
 } from "./domain/orderbook/state";
 
@@ -238,11 +208,15 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
-  EmbeddedWallet,
-  LinkedAccount,
-  LinkedAccountType,
+  GoogleAccountData,
+  PrivyEmbeddedWallet,
+  SessionResponse,
   User,
+  UserIdentity,
+  UserPrivyData,
+  XAccountData,
 } from "./auth";
+export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
 
 export {
   LimitOrderEnvelope,
@@ -298,9 +272,9 @@ export type {
   WsConfig,
   WsEvent,
 } from "./ws";
+export { subscribeBooks, unsubscribeBooks } from "./ws";
 
 export type AuthClient = import("./auth").Auth;
-export type AdminClient = import("./domain/admin").Admin;
 export type MarketsClient = import("./domain/market").Markets;
 export type MarketsResult = import("./domain/market").MarketsResult;
 export type GlobalDepositAssetsResult = import("./domain/market").GlobalDepositAssetsResult;

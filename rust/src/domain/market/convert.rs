@@ -366,6 +366,7 @@ mod tests {
         assert_eq!(resolution.kind, wire::MarketResolutionKind::Scalar);
         assert_eq!(resolution.payout_denominator, 10);
         assert_eq!(resolution.payouts.len(), 2);
+        assert_eq!(market.deposit_assets[0].min_order_size, Some(Decimal::ONE));
     }
 
     #[test]

@@ -136,7 +136,7 @@ describe("market resolution", () => {
       market.resolution?.payouts.map((payout) => payout.payout_numerator),
       [7, 3],
     );
-    assert.equal(market.depositAssets[0]?.minOrderSize, 1_000_000);
+    assert.equal(market.depositAssets[0]?.minOrderSize?.toString(), "1");
   });
 
   it("derives the single winner from single-winner resolution", () => {

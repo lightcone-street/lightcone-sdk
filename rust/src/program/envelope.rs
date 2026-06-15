@@ -845,7 +845,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-auth")]
+    #[cfg(all(feature = "native-auth", feature = "trigger_orders"))]
     fn test_trigger_envelope_sign() {
         let keypair = Keypair::new();
         let maker = keypair.pubkey();
@@ -874,7 +874,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-auth")]
+    #[cfg(all(feature = "native-auth", feature = "trigger_orders"))]
     fn test_trigger_envelope_missing_trigger_fields() {
         let keypair = Keypair::new();
         let ob = test_orderbook();
@@ -896,7 +896,7 @@ mod tests {
     }
 
     #[test]
-    #[cfg(feature = "native-auth")]
+    #[cfg(all(feature = "native-auth", feature = "trigger_orders"))]
     fn test_trigger_envelope_stop_loss() {
         use crate::shared::{TimeInForce, TriggerType};
 

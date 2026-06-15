@@ -73,6 +73,7 @@ async fn get(
     &self,
     orderbook_id: &str,
     depth: Option<u32>,
+    aggregation: BookAggregation,
 ) -> Result<OrderbookDepthResponse, SdkError>
 ```
 
@@ -80,7 +81,12 @@ Fetch the current orderbook depth (bids and asks at each price level).
 
 **Parameters:**
 - `orderbook_id` -- the orderbook to query
-- `depth` -- maximum number of price levels per side (default: all)
+- `depth` -- maximum number of price levels per side. Capped server-side at 20 (omitted, `0`, or `>20` all serve 20).
+- `aggregation` -- Hyperliquid-style grouping (`BookAggregation::FULL` for the raw book). Invalid combinations are rejected client-side (`SdkError::Validation`) before any request; the server would 400 with `INVALID_ORDERBOOK_QUERY`. Unknown query params are rejected server-side — only `depth`, `nSigFigs`, and `mantissa` are sent.
+
+### `BookAggregation`
+
+Shared aggregation value type (re-exported in the prelude): `n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs = 5`, `(5, None)` normalized to `(5, 1)`. Key helpers: `validate(n, m)`, `normalized()`, `from_frame(n, m)` (untagged ⇒ full precision), `is_full()`, `key_suffix()`. Bids bucket by flooring, asks by ceiling, sizes summed per bucket.
 
 ### `decimals`
 
@@ -122,11 +128,13 @@ use lightcone::prelude::*;
 let mut book = OrderbookState::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"));
 ```
 
+One connection may hold multiple aggregation views of the same orderbook — key your `OrderbookState` instances by `(orderbook_id, aggregation)` using `OrderBook::aggregation()` on each incoming frame.
+
 ### Methods
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `apply` | `fn apply(&mut self, book: &OrderBook) -> ApplyResult` | Apply a WS book message. Snapshots replace all state; deltas merge. Zero-size levels are removed. Returns the outcome of the apply. |
+| `apply` | `fn apply(&mut self, book: &OrderBook) -> ApplyResult` | Apply a WS book frame. The stream is snapshot-only: every snapshot replaces the book wholesale (last-write-wins). Zero-size levels are skipped. Returns the outcome of the apply. |
 | `bids` | `fn bids(&self) -> &BTreeMap<Decimal, Decimal>` | All bids, sorted by price descending |
 | `asks` | `fn asks(&self) -> &BTreeMap<Decimal, Decimal>` | All asks, sorted by price ascending |
 | `best_bid` | `fn best_bid(&self) -> Option<Decimal>` | Highest bid price |
@@ -142,11 +150,10 @@ Returned by `apply()` to indicate what happened:
 
 | Variant | Description |
 |---------|-------------|
-| `Applied` | The snapshot or delta was successfully merged into the book. |
-| `Ignored(IgnoreReason)` | The update was dropped and the consumer should take no recovery action. Reasons include an invalid zero-sequence delta, a stale/duplicate delta, or a later delta while the book is already awaiting a snapshot. |
-| `RefreshRequired(RefreshReason)` | The book cannot be trusted until a fresh snapshot is applied. Reasons include a missing initial snapshot, a skipped sequence, or a backend resync request. |
+| `Applied` | The snapshot replaced the book. Every non-resync data frame is a snapshot by contract; the `is_snapshot` flag is not consulted. |
+| `RefreshRequired(RefreshReason::ServerResync)` | The backend requested a resync: unsubscribe and re-subscribe with the same parameters (including aggregation) to receive a fresh snapshot. The book is left untouched. |
 
-**Sequence protocol:** The backend sends snapshots with `seq = 0` and starts delta sequences at `1`. Deltas are applied only when `seq == current + 1`. Out-of-order or duplicate deltas are ignored, and gaps trigger a re-snapshot. After `RefreshRequired`, later deltas are ignored with `IgnoreReason::AlreadyAwaitingSnapshot` until a snapshot is applied.
+**Sequence protocol:** Every data frame is a full snapshot of the top-20 levels per side, conflated to ~50ms. `seq` is strictly increasing per book but **non-contiguous** (conflation skips versions), and the initial snapshot after every (re)subscribe is always `seq: 0` — so `seq` is stored as informational only and never gates a frame. Apply every snapshot, last-write-wins; any seq-based guard would freeze the book after a resync or aggregation change.
 
 ## Examples
 
@@ -156,9 +163,18 @@ Returned by `apply()` to indicate what happened:
 use lightcone::prelude::*;
 
 async fn show_depth(client: &LightconeClient, orderbook_id: &str) -> Result<(), SdkError> {
-    let depth = client.orderbooks().get(orderbook_id, Some(10)).await?;
+    let depth = client
+        .orderbooks()
+        .get(orderbook_id, Some(10), BookAggregation::FULL)
+        .await?;
     println!("Bids: {:?}", depth.bids);
     println!("Asks: {:?}", depth.asks);
+
+    // Grouped to 5 significant figures with a mantissa-2 sub-step:
+    let aggregation = BookAggregation::validate(Some(5), Some(2))
+        .map_err(|message| SdkError::Validation(message.to_string()))?;
+    let grouped = client.orderbooks().get(orderbook_id, None, aggregation).await?;
+    println!("Grouped bids: {:?}", grouped.bids);
     Ok(())
 }
 ```
@@ -174,6 +190,8 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
     ws.connect().await.unwrap();
     ws.subscribe(SubscribeParams::Books {
         orderbook_ids: vec![orderbook_id.clone()],
+        n_sig_figs: None,
+        mantissa: None,
     }).unwrap();
 
     let mut snapshot = OrderbookState::new(orderbook_id);
@@ -203,7 +221,7 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse`, `DecimalsResponse`, `BookOrder`, `OrderBook`, and `WsTickerData`.
+Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse` (with `decimals: Option<OrderbookDepthDecimals>`), `DecimalsResponse`, `OrderBook` (with optional `n_sig_figs`/`mantissa` aggregation tags and an `aggregation()` helper), `WsBookLevel`, and `WsTickerData`.
 
 ---
 

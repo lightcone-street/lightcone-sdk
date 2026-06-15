@@ -55,7 +55,8 @@ pub mod client;
 pub mod prelude {
     // Shared newtypes
     pub use crate::shared::{
-        DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce, TriggerType,
+        Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
+        TriggerType,
     };
 
     // Domain types — market (includes outcome + tokens)
@@ -69,7 +70,9 @@ pub mod prelude {
     };
 
     // Domain types — orderbook
-    pub use crate::domain::orderbook::{OrderBookPair, OrderBookValidationError, OutcomeImpact};
+    pub use crate::domain::orderbook::{
+        BookAggregation, OrderBookPair, OrderBookValidationError, OutcomeImpact,
+    };
 
     // Domain types — order
     pub use crate::domain::order::{
@@ -125,37 +128,6 @@ pub mod prelude {
         ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse, MarketResponse,
     };
 
-    // Domain types — admin (referral config/codes, logs, metadata, and dashboard tables)
-    pub use crate::domain::admin::{
-        AddMetadataCategoryRequest, AddMetadataCategoryResponse, AdminCategoriesQuery,
-        AdminCategoriesResponse, AdminCategoryRow, AdminConditionalMintRow,
-        AdminConditionalTokenMetadataEntry, AdminConditionalTokenMetadataRow,
-        AdminDepositTokenMetadataListResponse, AdminDepositTokenMetadataResponse,
-        AdminDepositTokenRow, AdminDepositTokensQuery, AdminDepositTokensResponse,
-        AdminImageVariants, AdminLogEvent, AdminLogEventsQuery, AdminLogEventsResponse,
-        AdminLogMetricBreakdown, AdminLogMetricHistoryQuery, AdminLogMetricHistoryResponse,
-        AdminLogMetricPoint, AdminLogMetricSummary, AdminLogMetricsQuery, AdminLogMetricsResponse,
-        AdminMarketDepositAsset, AdminMarketMetadataResponse, AdminMarketMetadataRow,
-        AdminMarketRow, AdminMarketStatus, AdminMarketStatusFilter, AdminMarketsQuery,
-        AdminMarketsResponse, AdminMetadataMarket, AdminMetricsTableQuery, AdminMissingMetadata,
-        AdminOutcomeMetadataEntry, AdminOutcomeMetadataRow, CodeListEntry,
-        ConditionalTokenMetadataJsonResponse, ConditionalTokenMetadataPayload,
-        ConditionalTokenMetadataRow, CriticalLogErrors24hCountResponse,
-        DepositTokenMetadataPayload, DepositTokenMetadataResponse, ListCodesRequest,
-        ListCodesResponse, MarketMetadataPayload, MarketsToSettleCountResponse,
-        MarketsToSettleQuery, MarketsToSettleResponse, MetadataCategoriesResponse,
-        MetadataImageTargetType, MetadataImageUpdate, MetadataImageUpdateResponse,
-        OutcomeMetadataPayload, ReferralConfig, ResyncConditionalTokenDerivedMetadataResponse,
-        UnifiedMetadataRequest, UnifiedMetadataResponse, UpdateCodeRequest, UpdateCodeResponse,
-        UpdateConditionalTokenImageRequest, UpdateConditionalTokenMetadataJsonRequest,
-        UpdateConditionalTokenMetadataPayload, UpdateConfigRequest,
-        UpdateDepositTokenImagesRequest, UpdateDepositTokenMetadataRequest,
-        UpdateDepositTokenMetadataResponse, UpdateMarketImagesRequest, UpdateMarketMetadataPayload,
-        UpdateMarketMetadataRequest, UpdateMarketMetadataResponse, UpdateOutcomeImageRequest,
-        UpdateOutcomeMetadataPayload, UploadDepositTokenImagesRequest,
-        UploadDepositTokenImagesResponse,
-    };
-
     // Errors
     pub use crate::error::SdkError;
 
@@ -164,7 +136,8 @@ pub mod prelude {
 
     // Auth + User types
     pub use crate::auth::{
-        AuthCredentials, ChainType, EmbeddedWallet, LinkedAccount, LinkedAccountType, User,
+        AuthCredentials, AuthMethod, ChainType, GoogleAccountData, PrivyEmbeddedWallet,
+        SessionResponse, User, UserIdentity, UserPrivyData, XAccountData,
     };
 
     // Program — order envelopes, trait, payload
@@ -196,13 +169,15 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AdminClient, AuthClient, GlobalDepositAssetsResult, LightconeClient,
-        LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient, NotificationsClient,
-        OrderbooksClient, OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient,
-        RpcClient, TradesClient,
+        AuthClient, GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder,
+        MarketsClient, MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient,
+        OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient,
+        TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};
+    #[cfg(feature = "http")]
+    pub use crate::http::{CookieSession, LightconeHttp};
     #[cfg(feature = "http")]
     pub use crate::rpc_failover::ActiveRpc;
 
@@ -210,8 +185,6 @@ pub mod prelude {
     pub use crate::ws::{Kind, MessageIn, MessageOut, SubscribeParams, UnsubscribeParams, WsEvent};
 
     // State containers
-    pub use crate::domain::orderbook::state::{
-        ApplyResult, IgnoreReason, OrderbookState, RefreshReason,
-    };
+    pub use crate::domain::orderbook::state::{ApplyResult, OrderbookState, RefreshReason};
     pub use crate::domain::trade::TradeHistory;
 }

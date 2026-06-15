@@ -8,15 +8,29 @@ import { delayForAttempt, retryConfigForPolicy, type RetryPolicy } from "./retry
 
 type AuthMode =
   | { kind: "cookie" }
-  | { kind: "cookieOverride"; cookieHeader: string }
-  | { kind: "adminCookie" };
+  | { kind: "cookieOverride"; cookieHeader: string };
 
 const DEFAULT_HTTP_TIMEOUT_MS = 180_000;
+
+class HttpStatusError extends Error {
+  readonly status: number;
+  readonly body: string;
+  readonly headers: Headers;
+  readonly requestId: string;
+
+  constructor(status: number, body: string, headers: Headers, requestId: string) {
+    super(`HTTP status ${status}: ${body}`);
+    this.name = "HttpStatusError";
+    this.status = status;
+    this.body = body;
+    this.headers = headers;
+    this.requestId = requestId;
+  }
+}
 
 export class LightconeHttp {
   private readonly normalizedBaseUrl: string;
   private authToken: string | undefined;
-  private adminToken: string | undefined;
 
   constructor(baseUrl: string) {
     this.normalizedBaseUrl = baseUrl.replace(/\/+$/, "");
@@ -32,24 +46,6 @@ export class LightconeHttp {
 
   authTokenRef(): () => Promise<string | undefined> {
     return async () => this.authToken;
-  }
-
-  clearAdminToken(): void {
-    this.adminToken = undefined;
-  }
-
-  async adminGet<T>(url: string, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>(
-      "GET",
-      url,
-      undefined,
-      retry,
-      { kind: "adminCookie" }
-    );
-  }
-
-  async adminPost<T, B extends object>(url: string, body: B, retry: RetryPolicy): Promise<T> {
-    return this.requestWithRetry<T>("POST", url, body, retry, { kind: "adminCookie" });
   }
 
   async get<T>(url: string, retry: RetryPolicy): Promise<T> {
@@ -87,7 +83,14 @@ export class LightconeHttp {
   ): Promise<T> {
     const config = retryConfigForPolicy(policy);
     if (!config) {
-      return this.sendAndParse<T>(method, url, body, authMode);
+      try {
+        return await this.sendAndParse<T>(method, url, body, authMode);
+      } catch (error) {
+        if (error instanceof HttpStatusError) {
+          throw this.statusErrorToSdk(error);
+        }
+        throw error;
+      }
     }
 
     let lastError: HttpError | undefined;
@@ -102,6 +105,20 @@ export class LightconeHttp {
         );
         return parseApiResponse<T>(apiResponse, requestId);
       } catch (error) {
+        if (error instanceof HttpStatusError) {
+          const shouldRetry = config.retryableStatuses.includes(error.status);
+          if (!shouldRetry || attempt >= config.maxRetries) {
+            throw this.statusErrorToSdk(error);
+          }
+
+          lastError = HttpError.serverError(error.status, error.body);
+          const retryAfter = retryAfterMs(error.headers);
+          const delay = retryAfter ?? delayForAttempt(config, attempt);
+
+          await sleep(delay);
+          continue;
+        }
+
         if (!(error instanceof HttpError)) {
           throw error;
         }
@@ -133,10 +150,7 @@ export class LightconeHttp {
       case "Request":
         return true;
       case "RateLimited":
-        if (error.retryAfterMs !== undefined) {
-          await sleep(error.retryAfterMs);
-        }
-        return true;
+        return retryableStatuses.includes(429);
       case "ServerError":
         return error.status !== undefined && retryableStatuses.includes(error.status);
       default:
@@ -220,7 +234,7 @@ export class LightconeHttp {
     }
 
     const bodyText = await response.text().catch(() => "");
-    throw this.mapStatusError(response.status, bodyText, response.headers);
+    throw new HttpStatusError(response.status, bodyText, response.headers, requestId);
   }
 
   private captureCookies(response: Response): void {
@@ -228,11 +242,6 @@ export class LightconeHttp {
       const authToken = extractCookieValue(cookieHeader, "lightcone-token");
       if (authToken) {
         this.authToken = authToken;
-      }
-
-      const adminToken = extractCookieValue(cookieHeader, "admin_token");
-      if (adminToken) {
-        this.adminToken = adminToken;
       }
     }
   }
@@ -243,8 +252,6 @@ export class LightconeHttp {
     }
 
     switch (authMode.kind) {
-      case "adminCookie":
-        return this.adminToken ? `admin_token=${this.adminToken}` : undefined;
       case "cookieOverride":
         // Forward the supplied Cookie header verbatim (may carry privy-token
         // and/or lightcone-token).
@@ -269,6 +276,14 @@ export class LightconeHttp {
     }
     return HttpError.serverError(statusCode, bodyText);
   }
+
+  private statusErrorToSdk(error: HttpStatusError): Error {
+    const rejected = parseRejectedBody(error.body, error.requestId);
+    if (rejected) {
+      return rejected;
+    }
+    return this.mapStatusError(error.status, error.body, error.headers);
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -287,6 +302,23 @@ function parseApiResponse<T>(payload: unknown, requestId: string): T {
   }
 
   throw SdkError.apiRejected(
+    ApiRejectedDetails.fromWire(payload.error_details, requestId)
+  );
+}
+
+function parseRejectedBody(body: string, requestId: string): SdkError | undefined {
+  let payload: unknown;
+  try {
+    payload = JSON.parse(body);
+  } catch {
+    return undefined;
+  }
+
+  if (!isApiResponse<unknown>(payload) || payload.status !== "error") {
+    return undefined;
+  }
+
+  return SdkError.apiRejected(
     ApiRejectedDetails.fromWire(payload.error_details, requestId)
   );
 }

@@ -10,7 +10,7 @@ async fn main() -> ExampleResult {
 
     let nonce = client.auth().get_nonce().await?;
     let signed = sign_login_message(&keypair, &nonce);
-    let user = client
+    let session = client
         .auth()
         .login_with_message(
             &signed.message,
@@ -20,15 +20,17 @@ async fn main() -> ExampleResult {
         )
         .await?;
 
-    println!("logged in: {} ({})", user.id, user.wallet_address);
+    let wallet = session.user.trading_wallet(session.auth_method);
+    println!("logged in: {} ({})", session.user.user_id, wallet);
+    println!("identity: {}", session.user.identity.text());
+    println!("display name: {}", session.user.display_name());
     println!(
         "cached auth state: {}",
         client.auth().is_authenticated().await
     );
-    println!(
-        "session wallet: {}",
-        client.auth().check_session().await?.wallet_address
-    );
+
+    let me = client.auth().check_session().await?;
+    println!("session wallet: {}", me.user.trading_wallet(me.auth_method));
 
     client.auth().logout().await?;
     println!("logged out");

@@ -1,52 +1,47 @@
 //! Orderbook state containers — app-owned, SDK-provided update logic.
+//!
+//! The `book_update` stream is snapshot-only: every data frame carries the
+//! full top-20 levels per side and replaces the previous book wholesale
+//! (last-write-wins). Consumers holding multiple aggregation views of one
+//! orderbook on the same connection key their [`OrderbookState`] instances by
+//! `(orderbook_id, aggregation)` using
+//! [`OrderBook::aggregation`](crate::domain::orderbook::wire::OrderBook::aggregation).
 
 use crate::domain::orderbook::wire::OrderBook;
 use crate::shared::OrderBookId;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
 
-/// Result of applying an orderbook snapshot or delta.
+/// Result of applying a WS orderbook frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyResult {
     Applied,
-    Ignored(IgnoreReason),
     RefreshRequired(RefreshReason),
 }
 
-/// A dropped update that does not require consumer action.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IgnoreReason {
-    /// Deltas must have a positive sequence. Snapshots may have `seq == 0`.
-    InvalidDeltaSequence { got: u64 },
-    /// The delta arrived at or behind the current book sequence.
-    StaleDelta { current: u64, got: u64 },
-    /// The book is already waiting for a snapshot after a gap or resync signal.
-    AlreadyAwaitingSnapshot { got: u64 },
-}
-
-/// A dropped update that means consumers should request a fresh snapshot.
+/// A dropped frame that means consumers should refresh the subscription.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefreshReason {
-    /// A delta arrived before any snapshot initialized this book.
-    MissingSnapshot { got: u64 },
-    /// A delta skipped the next expected sequence.
-    SequenceGap { expected: u64, got: u64 },
-    /// The backend explicitly requested a resync.
-    ServerResync { got: u64 },
+    /// The backend explicitly requested a resync: unsubscribe and
+    /// re-subscribe with the same parameters (including aggregation) to
+    /// receive a fresh snapshot.
+    ServerResync,
 }
 
-/// Live orderbook state that can apply snapshots and deltas.
+/// Live orderbook state replaced wholesale by snapshot frames.
 ///
 /// The app owns instances of this type (e.g. inside a Dioxus `Signal`).
 /// The SDK provides the update methods.
 #[derive(Debug, Clone, Default)]
 pub struct OrderbookState {
     pub orderbook_id: OrderBookId,
+    /// Projection version of the last applied frame. Strictly increasing but
+    /// non-contiguous server-side (conflation skips versions), and the
+    /// initial snapshot after every (re)subscribe is `seq: 0` — informational
+    /// only, never used to gate frames.
     pub seq: u64,
     bids: BTreeMap<Decimal, Decimal>,
     asks: BTreeMap<Decimal, Decimal>,
-    has_snapshot: bool,
-    awaiting_snapshot: bool,
 }
 
 impl OrderbookState {
@@ -56,84 +51,37 @@ impl OrderbookState {
             seq: 0,
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
-            has_snapshot: false,
-            awaiting_snapshot: false,
         }
     }
 
-    /// Apply a WS orderbook message (snapshot replaces, delta merges).
+    /// Apply a WS orderbook frame (snapshot-only stream, last-write-wins).
     ///
-    /// Server resync messages take precedence and return `RefreshRequired`.
-    /// Otherwise, snapshots are applied and deltas with a `seq` at or below
-    /// the current value are ignored to prevent stale or duplicate updates from
-    /// corrupting the book. Deltas that skip one or more expected sequence
-    /// values return `RefreshRequired` so callers can request a fresh snapshot
-    /// instead of mutating a corrupted book.
+    /// `resync` frames take precedence and leave the book untouched — the
+    /// caller must re-subscribe with the same parameters. Every other data
+    /// frame is a full snapshot by contract and replaces the book wholesale
+    /// (the `is_snapshot` flag is not consulted), including the `seq: 0`
+    /// initial snapshot delivered after every (re)subscribe: gating on `seq`
+    /// would freeze the book after a resync or aggregation change, so `seq`
+    /// is stored as informational only.
     pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
         if book.resync {
-            self.awaiting_snapshot = true;
-            return ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: book.seq });
+            return ApplyResult::RefreshRequired(RefreshReason::ServerResync);
         }
 
-        if book.is_snapshot {
-            self.bids.clear();
-            self.asks.clear();
-            self.has_snapshot = true;
-            self.awaiting_snapshot = false;
-        } else {
-            if self.awaiting_snapshot {
-                return ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot {
-                    got: book.seq,
-                });
-            }
-
-            // The backend sends snapshots with seq=0 and starts delta seq at 1.
-            // A delta with seq=0 means it has no valid sequence, so drop it.
-            if book.seq == 0 {
-                return ApplyResult::Ignored(IgnoreReason::InvalidDeltaSequence { got: book.seq });
-            }
-
-            if !self.has_snapshot {
-                self.awaiting_snapshot = true;
-                return ApplyResult::RefreshRequired(RefreshReason::MissingSnapshot {
-                    got: book.seq,
-                });
-            }
-
-            if book.seq <= self.seq {
-                return ApplyResult::Ignored(IgnoreReason::StaleDelta {
-                    current: self.seq,
-                    got: book.seq,
-                });
-            }
-
-            let expected = self.seq + 1;
-            if book.seq != expected {
-                self.awaiting_snapshot = true;
-                return ApplyResult::RefreshRequired(RefreshReason::SequenceGap {
-                    expected,
-                    got: book.seq,
-                });
-            }
-        }
-
-        self.seq = book.seq;
+        self.bids.clear();
+        self.asks.clear();
 
         for order in &book.bids {
-            if order.size.is_zero() {
-                self.bids.remove(&order.price);
-            } else {
+            if !order.size.is_zero() {
                 self.bids.insert(order.price, order.size);
             }
         }
-
         for order in &book.asks {
-            if order.size.is_zero() {
-                self.asks.remove(&order.price);
-            } else {
+            if !order.size.is_zero() {
                 self.asks.insert(order.price, order.size);
             }
         }
+        self.seq = book.seq;
 
         ApplyResult::Applied
     }
@@ -182,8 +130,6 @@ impl OrderbookState {
         self.bids.clear();
         self.asks.clear();
         self.seq = 0;
-        self.has_snapshot = false;
-        self.awaiting_snapshot = false;
     }
 }
 
@@ -227,6 +173,8 @@ mod tests {
                     size: Decimal::try_from(size).unwrap(),
                 })
                 .collect(),
+            n_sig_figs: None,
+            mantissa: None,
         }
     }
 
@@ -253,83 +201,88 @@ mod tests {
     }
 
     #[test]
-    fn test_delta_merges_with_snapshot() {
+    fn test_lower_seq_snapshot_still_applies_last_write_wins() {
         let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
-            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            snap.apply(&order_book(true, 42, vec![(50.0, 10.0)], vec![])),
             ApplyResult::Applied
         );
+        assert_eq!(snap.seq, 42);
+
+        // A snapshot with a lower seq (e.g. queued behind a re-subscribe)
+        // still replaces the book — seq never gates.
         assert_eq!(
-            snap.apply(&order_book(
-                false,
-                2,
-                vec![(49.0, 15.0), (48.0, 3.0)],
-                vec![(52.0, 2.0)],
-            )),
+            snap.apply(&order_book(true, 7, vec![(49.0, 20.0)], vec![])),
             ApplyResult::Applied
         );
-        assert_eq!(snap.bids().len(), 3);
-        assert_eq!(snap.asks().len(), 2);
-        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
-        assert_eq!(snap.best_ask(), Some(Decimal::try_from(51.0).unwrap()));
+        assert_eq!(snap.seq, 7);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(49.0).unwrap()));
     }
 
     #[test]
-    fn test_first_delta_after_zero_sequence_snapshot_applies() {
+    fn test_post_resync_seq_zero_snapshot_applies() {
         let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
-            snap.apply(&order_book(true, 0, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
+            snap.apply(&order_book(true, 42, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
         );
 
-        assert_eq!(
-            snap.apply(&order_book(false, 1, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::Applied
-        );
-
-        assert_eq!(snap.seq, 1);
-        assert_eq!(snap.bids().len(), 2);
-        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
-    }
-
-    #[test]
-    fn test_resync_signal_leaves_book_unchanged() {
-        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
-        assert_eq!(
-            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
-            ApplyResult::Applied
-        );
-
-        let mut resync = order_book(false, 2, vec![(49.0, 20.0)], vec![]);
+        let mut resync = order_book(false, 0, vec![], vec![]);
         resync.resync = true;
         assert_eq!(
             snap.apply(&resync),
-            ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: 2 })
+            ApplyResult::RefreshRequired(RefreshReason::ServerResync)
         );
-
-        assert_eq!(snap.seq, 1);
+        // Resync leaves the book untouched.
+        assert_eq!(snap.seq, 42);
         assert_eq!(snap.bids().len(), 1);
-        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
 
+        // The fresh snapshot after re-subscribing is always seq 0 and MUST
+        // apply — gating on seq here would freeze the book forever.
         assert_eq!(
-            snap.apply(&order_book(false, 3, vec![(48.0, 20.0)], vec![])),
-            ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot { got: 3 })
+            snap.apply(&order_book(true, 0, vec![(48.0, 5.0)], vec![(52.0, 2.0)])),
+            ApplyResult::Applied
         );
+        assert_eq!(snap.seq, 0);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(48.0).unwrap()));
+        assert_eq!(snap.best_ask(), Some(Decimal::try_from(52.0).unwrap()));
     }
 
     #[test]
-    fn test_zero_size_removes_level() {
+    fn test_data_frames_replace_regardless_of_snapshot_flag() {
         let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
             ApplyResult::Applied
         );
+
+        // Every non-resync data frame is a snapshot by contract — the
+        // is_snapshot flag is not consulted, so a server omitting it cannot
+        // freeze the book.
         assert_eq!(
-            snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
+            snap.apply(&order_book(false, 2, vec![(49.0, 20.0)], vec![])),
             ApplyResult::Applied
         );
-        assert_eq!(snap.bids().len(), 0);
-        assert_eq!(snap.best_bid(), None);
+        assert_eq!(snap.seq, 2);
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.asks().len(), 0);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(49.0).unwrap()));
+    }
+
+    #[test]
+    fn test_zero_size_levels_are_skipped() {
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(
+                true,
+                1,
+                vec![(50.0, 10.0), (49.0, 0.0)],
+                vec![(51.0, 5.0)],
+            )),
+            ApplyResult::Applied
+        );
+        assert_eq!(snap.bids().len(), 1);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
     }
 
     #[test]
@@ -341,104 +294,6 @@ mod tests {
         );
         assert_eq!(snap.mid_price(), Some(Decimal::try_from(51.0).unwrap()));
         assert_eq!(snap.spread(), Some(Decimal::try_from(2.0).unwrap()));
-    }
-
-    #[test]
-    fn test_stale_delta_is_dropped() {
-        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
-        assert_eq!(
-            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
-            ApplyResult::Applied
-        );
-        assert_eq!(
-            snap.apply(&order_book(false, 2, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::Applied
-        );
-        assert_eq!(snap.seq, 2);
-        assert_eq!(snap.bids().len(), 2);
-
-        // Stale delta (seq <= current) should be ignored
-        assert_eq!(
-            snap.apply(&order_book(false, 1, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::Ignored(IgnoreReason::StaleDelta { current: 2, got: 1 })
-        );
-        assert_eq!(snap.seq, 2);
-        assert_eq!(snap.bids().len(), 2); // unchanged
-
-        // Duplicate seq should also be ignored
-        assert_eq!(
-            snap.apply(&order_book(false, 2, vec![(50.0, 0.0)], vec![])),
-            ApplyResult::Ignored(IgnoreReason::StaleDelta { current: 2, got: 2 })
-        );
-        assert_eq!(snap.bids().len(), 2); // unchanged
-
-        // Snapshot always applies regardless of seq
-        assert_eq!(
-            snap.apply(&order_book(true, 1, vec![(48.0, 5.0)], vec![])),
-            ApplyResult::Applied
-        );
-        assert_eq!(snap.seq, 1);
-        assert_eq!(snap.bids().len(), 1);
-    }
-
-    #[test]
-    fn test_gap_delta_is_detected_and_not_applied() {
-        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
-        assert_eq!(
-            snap.apply(&order_book(true, 1, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
-            ApplyResult::Applied
-        );
-
-        assert_eq!(
-            snap.apply(&order_book(false, 3, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::RefreshRequired(RefreshReason::SequenceGap {
-                expected: 2,
-                got: 3,
-            })
-        );
-        assert_eq!(snap.seq, 1);
-        assert_eq!(snap.bids().len(), 1);
-        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
-
-        let mut resync = order_book(false, 4, vec![(48.0, 20.0)], vec![]);
-        resync.resync = true;
-        assert_eq!(
-            snap.apply(&resync),
-            ApplyResult::RefreshRequired(RefreshReason::ServerResync { got: 4 })
-        );
-
-        assert_eq!(
-            snap.apply(&order_book(false, 5, vec![(47.0, 20.0)], vec![])),
-            ApplyResult::Ignored(IgnoreReason::AlreadyAwaitingSnapshot { got: 5 })
-        );
-    }
-
-    #[test]
-    fn test_delta_before_snapshot_is_detected_as_gap() {
-        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
-
-        assert_eq!(
-            snap.apply(&order_book(false, 1, vec![(50.0, 10.0)], vec![])),
-            ApplyResult::RefreshRequired(RefreshReason::MissingSnapshot { got: 1 })
-        );
-        assert_eq!(snap.seq, 0);
-        assert!(snap.is_empty());
-    }
-
-    #[test]
-    fn test_zero_sequence_delta_is_ignored() {
-        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
-        assert_eq!(
-            snap.apply(&order_book(true, 0, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
-            ApplyResult::Applied
-        );
-
-        assert_eq!(
-            snap.apply(&order_book(false, 0, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::Ignored(IgnoreReason::InvalidDeltaSequence { got: 0 })
-        );
-        assert_eq!(snap.seq, 0);
-        assert_eq!(snap.bids().len(), 1);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 use super::resolve_icon_urls;
 use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -137,7 +138,7 @@ pub struct DepositAsset {
     pub short_symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
-    pub min_order_size: Option<i64>,
+    pub min_order_size: Option<Decimal>,
     pub icon_url_low: String,
     pub icon_url_medium: String,
     pub icon_url_high: String,
@@ -267,6 +268,10 @@ impl DepositAsset {
             ""
         }
     }
+}
+
+fn base_units_to_decimal(value: i64, decimals: u16) -> Decimal {
+    Decimal::new(value, decimals as u32)
 }
 
 // ─── DepositAssetPair ────────────────────────────────────────────────────────
@@ -617,7 +622,9 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 short_symbol,
                 description: source.description,
                 decimals,
-                min_order_size: source.min_order_size,
+                min_order_size: source
+                    .min_order_size
+                    .map(|value| base_units_to_decimal(value, decimals)),
                 icon_url_low,
                 icon_url_medium,
                 icon_url_high,
@@ -677,7 +684,7 @@ mod tests {
         let resp = minimal_deposit_asset_response();
         let validated = ValidatedTokens::try_from(resp).unwrap();
         assert_eq!(validated.token.symbol, "USDC");
-        assert_eq!(validated.token.min_order_size, Some(1_000_000));
+        assert_eq!(validated.token.min_order_size, Some(Decimal::ONE));
         assert_eq!(validated.conditionals.len(), 1);
         assert_eq!(validated.conditionals[0].symbol(), "YES");
 

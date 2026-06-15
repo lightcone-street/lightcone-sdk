@@ -31,14 +31,17 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
-  EmbeddedWallet,
-  LinkedAccount,
-  LinkedAccountType,
+  GoogleAccountData,
+  PrivyEmbeddedWallet,
+  SessionResponse,
   User,
+  UserIdentity,
+  UserPrivyData,
+  XAccountData,
 } from "./auth";
+export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
 
 export type {
-  AdminClient,
   GlobalDepositAssetsResult,
   MarketsClient,
   MarketsResult,

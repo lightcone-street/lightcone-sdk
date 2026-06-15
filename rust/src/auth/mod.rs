@@ -15,25 +15,6 @@ use crate::shared::PubkeyStr;
 // User profile types
 // ============================================================================
 
-/// Full user profile from the Lightcone platform.
-///
-/// Returned by `client.auth().check_session()` and `client.auth().login_with_message()`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct User {
-    pub id: String,
-    pub wallet_address: String,
-    pub linked_account: LinkedAccount,
-    pub privy_id: Option<String>,
-    pub embedded_wallet: Option<EmbeddedWallet>,
-    pub x_username: Option<String>,
-    pub x_user_id: Option<String>,
-    pub x_display_name: Option<String>,
-    pub google_email: Option<String>,
-    /// How this session authenticated. `Privy` ⇒ the embedded wallet is the
-    /// trading identity; `Lightcone` ⇒ self-custody session, the linked wallet is.
-    pub auth_method: AuthMethod,
-}
-
 /// How a session authenticated, as reported by the backend (derived from which
 /// token verified the request).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,55 +24,164 @@ pub enum AuthMethod {
     Lightcone,
 }
 
-/// A linked identity (wallet, Google OAuth, X OAuth) associated with a user.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct LinkedAccount {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub account_type: LinkedAccountType,
-    pub chain: Option<ChainType>,
-    pub address: String,
-}
-
-/// Type of linked account.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LinkedAccountType {
-    Wallet,
-    TwitterOauth,
-    GoogleOauth,
-}
-
-impl LinkedAccountType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Wallet => "wallet",
-            Self::TwitterOauth => "twitter_oauth",
-            Self::GoogleOauth => "google_oauth",
-        }
-    }
-
-    pub fn text(&self) -> &'static str {
-        match self {
-            Self::Wallet => "Solana",
-            Self::TwitterOauth => "X",
-            Self::GoogleOauth => "Google",
-        }
-    }
-}
-
-impl std::fmt::Display for LinkedAccountType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.as_str())
-    }
-}
-
 /// A Privy-managed embedded wallet.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EmbeddedWallet {
+pub struct PrivyEmbeddedWallet {
     pub privy_id: String,
     pub chain: ChainType,
     pub address: String,
+}
+
+/// Privy account data attached to an identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UserPrivyData {
+    /// The Privy DID (`did:privy:...`).
+    pub id: String,
+    /// Always present: Privy registration provisions the embedded wallet in
+    /// the same transaction that creates the user.
+    pub wallet: PrivyEmbeddedWallet,
+}
+
+/// X account data — the same shape whether X is the login identity or a
+/// connected account on a Google/wallet identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct XAccountData {
+    /// X numeric user id (Privy `subject`); absent on legacy rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    pub username: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// Google account data for a Google login identity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GoogleAccountData {
+    pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub given_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub family_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar_url: Option<String>,
+}
+
+/// The login identity — how the user authenticates.
+/// Serializes as a tagged union: `{"type": "google", "account": ..., "privy": ...}`.
+///
+/// Privy data lives on the variant because its presence is determined by the
+/// identity type: Google/X login only exists via Privy OAuth (guaranteed DID +
+/// embedded wallet), while wallet users opt into Privy (SIWS) or stay
+/// self-custody (RS256).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum UserIdentity {
+    Google {
+        account: GoogleAccountData,
+        privy: UserPrivyData,
+    },
+    X {
+        account: XAccountData,
+        privy: UserPrivyData,
+    },
+    Wallet {
+        address: String,
+        chain: ChainType,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        privy: Option<UserPrivyData>,
+    },
+}
+
+impl UserIdentity {
+    /// Human-readable login-method label ("Google" / "X" / "Solana"),
+    /// e.g. for "Signed-in via {…}".
+    pub fn text(&self) -> &'static str {
+        match self {
+            Self::Google { .. } => "Google",
+            Self::X { .. } => "X",
+            Self::Wallet { .. } => "Solana",
+        }
+    }
+}
+
+/// Full user profile — the `user` object of [`SessionResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct User {
+    pub user_id: String,
+    pub identity: UserIdentity,
+    /// X account connected by a non-X-identity user; `None` when identity is X.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connected_x: Option<XAccountData>,
+}
+
+impl User {
+    /// Privy account data, regardless of identity type.
+    pub fn privy(&self) -> Option<&UserPrivyData> {
+        match &self.identity {
+            UserIdentity::Google { privy, .. } | UserIdentity::X { privy, .. } => Some(privy),
+            UserIdentity::Wallet { privy, .. } => privy.as_ref(),
+        }
+    }
+
+    /// The X account, whether it is the login identity or a connected account.
+    pub fn x_account(&self) -> Option<&XAccountData> {
+        match &self.identity {
+            UserIdentity::X { account, .. } => Some(account),
+            _ => self.connected_x.as_ref(),
+        }
+    }
+
+    /// The wallet this session operates as.
+    ///
+    /// Google/X identities only exist via Privy registration, which always
+    /// provisions an embedded wallet — that wallet is the answer regardless
+    /// of auth method. Wallet identities depend on the session: a Privy
+    /// (SIWS) session trades via the embedded wallet, a Lightcone (RS256)
+    /// session trades via the wallet that signed in.
+    pub fn trading_wallet(&self, auth_method: AuthMethod) -> &str {
+        match &self.identity {
+            UserIdentity::Google { privy, .. } | UserIdentity::X { privy, .. } => {
+                &privy.wallet.address
+            }
+            UserIdentity::Wallet { address, privy, .. } => match auth_method {
+                AuthMethod::Privy => privy
+                    .as_ref()
+                    .map(|privy_data| privy_data.wallet.address.as_str())
+                    .unwrap_or(address),
+                AuthMethod::Lightcone => address,
+            },
+        }
+    }
+
+    /// Best display name for the user. Google: `name`, falling back to the
+    /// email; X: `display_name`, falling back to the username; wallet
+    /// identities show the shortened address (`FRGk...WcPR`).
+    pub fn display_name(&self) -> String {
+        match &self.identity {
+            UserIdentity::Google { account, .. } => account
+                .name
+                .clone()
+                .unwrap_or_else(|| account.email.clone()),
+            UserIdentity::X { account, .. } => account
+                .display_name
+                .clone()
+                .unwrap_or_else(|| account.username.clone()),
+            UserIdentity::Wallet { address, .. } => crate::shared::fmt::str::shorten(address, 8),
+        }
+    }
+
+    /// Avatar URL from the login identity's OAuth provider, if any.
+    pub fn avatar_url(&self) -> Option<&str> {
+        match &self.identity {
+            UserIdentity::Google { account, .. } => account.avatar_url.as_deref(),
+            UserIdentity::X { account, .. } => account.avatar_url.as_deref(),
+            UserIdentity::Wallet { .. } => None,
+        }
+    }
 }
 
 /// Blockchain network.
@@ -161,40 +251,17 @@ pub struct LoginRequest {
     pub use_embedded_wallet: Option<bool>,
 }
 
-/// Login response from the backend.
+/// Session envelope returned by `login_with_message`, `register-privy`, and
+/// `GET /api/auth/me`: the durable user profile plus the session-scoped facts.
 ///
-/// Includes the full user profile so no separate `check_session()` is needed
-/// after login. The backend uses direct joins for new users (guaranteed fresh)
-/// and the materialized view for existing users (fast).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LoginResponse {
-    pub user_id: String,
-    pub wallet_address: String,
-    pub expires_at: i64,
-    pub linked_account: LinkedAccount,
-    pub privy_id: Option<String>,
-    pub embedded_wallet: Option<EmbeddedWallet>,
-    pub x_username: Option<String>,
-    pub x_user_id: Option<String>,
-    pub x_display_name: Option<String>,
-    pub google_email: Option<String>,
-    pub auth_method: AuthMethod,
-}
-
-/// Response from `GET /api/auth/me`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MeResponse {
-    pub user_id: String,
-    pub wallet_address: String,
-    pub linked_account: LinkedAccount,
-    pub privy_id: Option<String>,
-    pub embedded_wallet: Option<EmbeddedWallet>,
-    pub x_username: Option<String>,
-    pub x_user_id: Option<String>,
-    pub x_display_name: Option<String>,
-    pub google_email: Option<String>,
+/// There is no `wallet_address` field — the session's trading wallet is
+/// derived via [`User::trading_wallet`] from `user` + `auth_method`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionResponse {
+    pub user: User,
     pub expires_at: i64,
     pub auth_method: AuthMethod,
+    pub is_beta: bool,
 }
 
 /// Response from `GET /api/auth/nonce`.

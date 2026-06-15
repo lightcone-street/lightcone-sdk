@@ -11,13 +11,25 @@ async fn main() -> ExampleResult {
     let (_, orderbook) = market_and_orderbook(&client).await?;
     let mut ws = client.ws_native();
     let orderbook_id = orderbook.orderbook_id.clone();
-    let mut book = OrderbookState::new(orderbook_id.clone());
+
+    // One connection can hold multiple aggregation views of the same book.
+    // Key the local state by the frame's aggregation: full precision for
+    // pricing, a grouped view (5 sig figs, mantissa 2) for display.
+    let grouped_aggregation =
+        BookAggregation::validate(Some(5), Some(2)).map_err(|message| other(message))?;
+    let mut full_book = OrderbookState::new(orderbook_id.clone());
+    let mut grouped_book = OrderbookState::new(orderbook_id.clone());
     let mut trades = TradeHistory::new(orderbook_id.clone(), 20);
 
     ws.connect().await?;
-    ws.subscribe(SubscribeParams::Books {
-        orderbook_ids: vec![orderbook_id.clone()],
-    })?;
+    ws.send(MessageOut::subscribe_books(
+        vec![orderbook_id.clone()],
+        BookAggregation::FULL,
+    ))?;
+    ws.send(MessageOut::subscribe_books(
+        vec![orderbook_id.clone()],
+        grouped_aggregation,
+    ))?;
     ws.subscribe(SubscribeParams::Trades {
         orderbook_ids: vec![orderbook_id.clone()],
     })?;
@@ -36,9 +48,32 @@ async fn main() -> ExampleResult {
 
             match event {
                 WsEvent::Message(Kind::BookUpdate(update)) => {
+                    // Untagged frames are the full-precision view; frames from
+                    // the grouped subscription carry n_sig_figs/mantissa.
+                    let aggregation = update.aggregation();
+                    if update.resync {
+                        // Refresh exactly the affected view: re-subscribe with
+                        // the SAME aggregation. The fresh snapshot arrives with
+                        // seq 0 and replaces the book (last-write-wins).
+                        ws.send(MessageOut::unsubscribe_books(
+                            vec![update.id.clone()],
+                            aggregation,
+                        ))?;
+                        ws.send(MessageOut::subscribe_books(
+                            vec![update.id.clone()],
+                            aggregation,
+                        ))?;
+                        continue;
+                    }
+                    let book = if aggregation == grouped_aggregation {
+                        &mut grouped_book
+                    } else {
+                        &mut full_book
+                    };
                     book.apply(&update);
                     println!(
-                        "book: seq={} bid={:?} ask={:?}",
+                        "book[{}]: seq={} bid={:?} ask={:?}",
+                        aggregation.key_suffix(),
                         book.seq,
                         book.best_bid(),
                         book.best_ask()

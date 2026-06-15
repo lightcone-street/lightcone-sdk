@@ -61,12 +61,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 1. Authenticate
     let nonce = client.auth().get_nonce().await?;
     let signed = sign_login_message(&keypair, &nonce);
-    let user = client.auth().login_with_message(
+    let session = client.auth().login_with_message(
         &signed.message,
         &signed.signature_bs58,
         &signed.pubkey_bytes,
         None,
     ).await?;
+    println!("signed in as {}", session.user.user_id);
 
     // 2. Find a market
     let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
@@ -312,13 +313,11 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
 
-### Admin & Testnet
+### Testnet
 
 | Example | Description |
 |---------|-------------|
 | [`faucet_claim`](examples/faucet_claim.rs) | Request testnet SOL + deposit tokens via `client.claim()` |
-
-Admin API methods (`client.admin()`) live in the SDK but are not exercised by an example because they require an admin keypair the CI runner doesn't have. See [`domain/admin/ADMIN.md`](src/domain/admin/ADMIN.md) for usage.
 
 ### Placing Orders
 

@@ -22,7 +22,22 @@ class PriceLevel:
 
 
 @dataclass
+class OrderbookDepthDecimals:
+    """Price/size display decimals from the depth endpoint. Distinct from
+    ``DecimalsResponse`` (the ``/decimals`` endpoint)."""
+
+    price: int = 0
+    size: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "OrderbookDepthDecimals":
+        return OrderbookDepthDecimals(price=d.get("price", 0), size=d.get("size", 0))
+
+
+@dataclass
 class OrderbookDepthResponse:
+    """REST depth response. Depth is capped server-side at 20 levels per side."""
+
     bids: list[PriceLevel] = field(default_factory=list)
     asks: list[PriceLevel] = field(default_factory=list)
     orderbook_id: Optional[str] = None
@@ -31,9 +46,13 @@ class OrderbookDepthResponse:
     best_ask: Optional[str] = None
     spread: Optional[str] = None
     tick_size: Optional[str] = None
+    #: Display decimals for prices and sizes. Always sent by current backends;
+    #: optional for tolerance of older payloads.
+    decimals: Optional[OrderbookDepthDecimals] = None
 
     @staticmethod
     def from_dict(d: dict) -> "OrderbookDepthResponse":
+        decimals_raw = d.get("decimals")
         return OrderbookDepthResponse(
             bids=[PriceLevel.from_dict(b) if isinstance(b, dict) else PriceLevel.from_list(b) for b in d.get("bids", [])],
             asks=[PriceLevel.from_dict(a) if isinstance(a, dict) else PriceLevel.from_list(a) for a in d.get("asks", [])],
@@ -43,6 +62,7 @@ class OrderbookDepthResponse:
             best_ask=d.get("best_ask"),
             spread=d.get("spread"),
             tick_size=d.get("tick_size"),
+            decimals=OrderbookDepthDecimals.from_dict(decimals_raw) if isinstance(decimals_raw, dict) else None,
         )
 
 
@@ -116,13 +136,33 @@ class WsBookLevel:
 
 @dataclass
 class WsOrderBook:
-    """WebSocket orderbook snapshot/delta."""
+    """WebSocket orderbook snapshot frame.
+
+    The stream is snapshot-only: every data frame carries the full top-20
+    levels per side and replaces the previous book wholesale
+    (last-write-wins). ``seq`` is strictly increasing but non-contiguous, and
+    the initial snapshot after every (re)subscribe is ``seq: 0`` —
+    informational only, never a gate.
+    """
     orderbook_id: str
     is_snapshot: bool = False
     seq: int = 0
     resync: bool = False
     bids: list[WsBookLevel] = field(default_factory=list)
     asks: list[WsBookLevel] = field(default_factory=list)
+    #: Aggregation tags echoed by the backend (``None`` = full precision).
+    #: Always normalized server-side ((5, none) arrives as (5, 1)).
+    n_sig_figs: Optional[int] = None
+    mantissa: Optional[int] = None
+
+    def aggregation(self) -> "BookAggregation":
+        """The aggregation view this frame belongs to (untagged = full
+        precision). Use it to key per-``(orderbook_id, aggregation)`` book
+        state when one connection holds multiple aggregation views of the
+        same orderbook."""
+        from .aggregation import BookAggregation
+
+        return BookAggregation.from_frame(self.n_sig_figs, self.mantissa)
 
     @staticmethod
     def from_dict(d: dict) -> "WsOrderBook":
@@ -137,6 +177,8 @@ class WsOrderBook:
             resync=d.get("resync", False),
             bids=[WsBookLevel.from_dict(b) for b in d.get("bids", [])],
             asks=[WsBookLevel.from_dict(a) for a in d.get("asks", [])],
+            n_sig_figs=d.get("n_sig_figs"),
+            mantissa=d.get("mantissa"),
         )
 
 

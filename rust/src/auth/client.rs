@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::auth::{AuthCredentials, LoginRequest, LoginResponse, MeResponse, NonceResponse, User};
+use crate::auth::{AuthCredentials, LoginRequest, NonceResponse, SessionResponse};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -25,7 +25,7 @@ impl<'a> Auth<'a> {
         Ok(body.nonce)
     }
 
-    /// Login with a pre-signed message and return the full user profile.
+    /// Login with a pre-signed message and return the session envelope.
     ///
     /// The caller signs a message externally (wallet adapter on WASM, keypair
     /// on native) and passes the result here.
@@ -33,7 +33,7 @@ impl<'a> Auth<'a> {
     /// - On native: stores the token internally for cookie header injection.
     /// - On WASM: the backend sets an HTTP-only cookie; the SDK never touches the token.
     ///
-    /// The backend returns the full user profile in the login response, so no
+    /// The backend returns the full user profile in the session envelope, so no
     /// separate `check_session()` call is needed. For new users the backend uses
     /// direct DB joins (guaranteed fresh); for existing users it uses the MV.
     ///
@@ -45,7 +45,7 @@ impl<'a> Auth<'a> {
         signature_bs58: &str,
         pubkey_bytes: &[u8; 32],
         use_embedded_wallet: Option<bool>,
-    ) -> Result<User, SdkError> {
+    ) -> Result<SessionResponse, SdkError> {
         let request = LoginRequest {
             message: message.to_string(),
             signature_bs58: signature_bs58.to_string(),
@@ -57,35 +57,19 @@ impl<'a> Auth<'a> {
             "{}/api/auth/login_or_register_with_message",
             self.client.http.base_url()
         );
-        let login_resp: LoginResponse = self
+        let session: SessionResponse = self
             .client
             .http
             .post(&url, &request, RetryPolicy::None)
             .await?;
 
-        let expires_at = parse_expires_at(login_resp.expires_at);
-        let credentials = AuthCredentials {
-            user_id: login_resp.user_id.clone(),
-            wallet_address: PubkeyStr::from(login_resp.wallet_address.as_str()),
-            expires_at,
-        };
+        let credentials = credentials_from_session(&session);
         *self.client.auth_credentials.write().await = Some(credentials);
 
-        Ok(User {
-            id: login_resp.user_id,
-            wallet_address: login_resp.wallet_address,
-            linked_account: login_resp.linked_account,
-            privy_id: login_resp.privy_id,
-            embedded_wallet: login_resp.embedded_wallet,
-            x_username: login_resp.x_username,
-            x_user_id: login_resp.x_user_id,
-            x_display_name: login_resp.x_display_name,
-            google_email: login_resp.google_email,
-            auth_method: login_resp.auth_method,
-        })
+        Ok(session)
     }
 
-    /// Validate the current session and return the full user profile.
+    /// Validate the current session and return the session envelope.
     ///
     /// Calls `GET /api/auth/me` — works on both WASM (browser sends cookie
     /// automatically) and native (SDK injects cookie header).
@@ -93,13 +77,13 @@ impl<'a> Auth<'a> {
     /// On success, updates internal `AuthCredentials` so `is_authenticated()`
     /// returns correct results. On failure (401, expired, no cookie), clears
     /// internal credentials and returns an error.
-    pub async fn check_session(&self) -> Result<User, SdkError> {
+    pub async fn check_session(&self) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
-        let me: MeResponse = match self
+        let session: SessionResponse = match self
             .client
             .http
-            .get::<MeResponse>(&url, RetryPolicy::Idempotent)
+            .get::<SessionResponse>(&url, RetryPolicy::Idempotent)
             .await
         {
             Ok(body) => body,
@@ -109,27 +93,10 @@ impl<'a> Auth<'a> {
             }
         };
 
-        let expires_at = parse_expires_at(me.expires_at);
-
-        let credentials = AuthCredentials {
-            user_id: me.user_id.clone(),
-            wallet_address: PubkeyStr::from(me.wallet_address.as_str()),
-            expires_at,
-        };
+        let credentials = credentials_from_session(&session);
         *self.client.auth_credentials.write().await = Some(credentials);
 
-        Ok(User {
-            id: me.user_id,
-            wallet_address: me.wallet_address,
-            linked_account: me.linked_account,
-            privy_id: me.privy_id,
-            embedded_wallet: me.embedded_wallet,
-            x_username: me.x_username,
-            x_user_id: me.x_user_id,
-            x_display_name: me.x_display_name,
-            google_email: me.google_email,
-            auth_method: me.auth_method,
-        })
+        Ok(session)
     }
 
     /// Same as [`Self::check_session`], but forwards the supplied raw `Cookie`
@@ -138,42 +105,23 @@ impl<'a> Auth<'a> {
     /// SSR). The header should carry whichever auth cookies the browser sent
     /// (e.g. `"privy-token=…; lightcone-token=…"`) so the backend authenticates
     /// the SSR request exactly as it would a client request. Returns both the
-    /// validated `User` and the parsed `AuthCredentials` so SSR consumers can
+    /// session envelope and the parsed `AuthCredentials` so SSR consumers can
     /// read the wallet + token expiry without making a follow-up call.
     pub async fn check_session_with_cookies(
         &self,
         cookie_header: &str,
-    ) -> Result<(User, AuthCredentials), SdkError> {
+    ) -> Result<(SessionResponse, AuthCredentials), SdkError> {
         let url = format!("{}/api/auth/me", self.client.http.base_url());
 
-        let me: MeResponse = self
+        let session: SessionResponse = self
             .client
             .http
-            .get_with_cookies::<MeResponse>(&url, RetryPolicy::Idempotent, cookie_header)
+            .get_with_cookies::<SessionResponse>(&url, RetryPolicy::Idempotent, cookie_header)
             .await?;
 
-        let expires_at = parse_expires_at(me.expires_at);
+        let credentials = credentials_from_session(&session);
 
-        let credentials = AuthCredentials {
-            user_id: me.user_id.clone(),
-            wallet_address: PubkeyStr::from(me.wallet_address.as_str()),
-            expires_at,
-        };
-
-        let user = User {
-            id: me.user_id,
-            wallet_address: me.wallet_address,
-            linked_account: me.linked_account,
-            privy_id: me.privy_id,
-            embedded_wallet: me.embedded_wallet,
-            x_username: me.x_username,
-            x_user_id: me.x_user_id,
-            x_display_name: me.x_display_name,
-            google_email: me.google_email,
-            auth_method: me.auth_method,
-        };
-
-        Ok((user, credentials))
+        Ok((session, credentials))
     }
 
     /// Logout — clears server-side cookie + internal token + all caches.
@@ -238,6 +186,16 @@ impl<'a> Auth<'a> {
             .as_ref()
             .map(|c| c.is_authenticated())
             .unwrap_or(false)
+    }
+}
+
+/// Derive session credentials from the envelope. The trading wallet comes
+/// from the identity + auth method.
+fn credentials_from_session(session: &SessionResponse) -> AuthCredentials {
+    AuthCredentials {
+        user_id: session.user.user_id.clone(),
+        wallet_address: PubkeyStr::from(session.user.trading_wallet(session.auth_method)),
+        expires_at: parse_expires_at(session.expires_at),
     }
 }
 

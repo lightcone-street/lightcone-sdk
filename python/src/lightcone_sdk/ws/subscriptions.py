@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
+from ..domain.orderbook.aggregation import BookAggregation
+
 
 # ---------------------------------------------------------------------------
 # Subscribe/Unsubscribe parameter types
@@ -11,8 +13,20 @@ from typing import Optional, Union
 
 @dataclass
 class BookUpdateParams:
+    """Book snapshots, optionally aggregated (Hyperliquid-style).
+
+    Each ``(orderbook, aggregation)`` pair is a distinct subscription — one
+    connection may hold multiple aggregation views of the same orderbook, and
+    unsubscribe must repeat the same (normalized) aggregation to match. On the
+    wire ``n_sig_figs`` is spelled ``nSigFigs`` and ``None`` fields are
+    omitted (the backend rejects unknown/null params); the client handles
+    that mapping when sending.
+    """
+
     type: str = "book_update"
     orderbook_ids: list[str] = field(default_factory=list)
+    n_sig_figs: Optional[int] = None
+    mantissa: Optional[int] = None
 
 
 @dataclass
@@ -89,7 +103,13 @@ def subscription_key(params: SubscribeParams) -> str:
     """Generate a unique key for a subscription for deduplication."""
     if isinstance(params, BookUpdateParams):
         ids = ",".join(sorted(params.orderbook_ids))
-        return f"book:{ids}"
+        aggregation = BookAggregation.from_frame(params.n_sig_figs, params.mantissa)
+        # Full precision keeps the pre-aggregation key shape so existing
+        # consumers' tracked subscriptions stay stable. Normalization makes
+        # (5, None) and (5, 1) the same subscription.
+        if aggregation.is_full():
+            return f"book:{ids}"
+        return f"book:{ids}:{aggregation.key_suffix()}"
     elif isinstance(params, TradesParams):
         ids = ",".join(sorted(params.orderbook_ids))
         return f"trades:{ids}"

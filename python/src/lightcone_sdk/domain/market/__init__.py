@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 from enum import Enum
 from typing import Optional, Protocol, TypeVar
 
@@ -35,7 +36,9 @@ _T = TypeVar("_T", bound=_HasSymbol)
 
 def sort_by_display_priority(tokens: list[_T]) -> list[_T]:
     """Return a new list ordered by display priority then alphabetical by symbol."""
-    return sorted(tokens, key=lambda token: (token_display_priority(token), token.symbol))
+    return sorted(
+        tokens, key=lambda token: (token_display_priority(token), token.symbol)
+    )
 
 
 class Status(str, Enum):
@@ -142,7 +145,7 @@ class DepositAsset:
     short_symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
-    min_order_size: Optional[int] = None
+    min_order_size: Optional[Decimal] = None
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""
@@ -156,6 +159,7 @@ class DepositAssetPair:
     conversion; one entry per unique ``(base.deposit_asset, quote.deposit_asset)``
     combination across the market's orderbook pairs.
     """
+
     id: str
     base: DepositAsset
     quote: DepositAsset
@@ -173,6 +177,7 @@ class GlobalDepositAsset:
 
     Distinct from ``DepositAsset``, which is bound to a specific market.
     """
+
     id: int = 0
     deposit_asset: str = ""
     name: str = ""
@@ -209,6 +214,7 @@ class TokenMetadata:
 @dataclass
 class Market:
     """Rich market domain type."""
+
     id: int
     pubkey: str
     name: str
@@ -263,6 +269,7 @@ class GlobalDepositAssetsResult:
     Assets that fail validation are skipped and their errors are reported
     separately.
     """
+
     assets: list[GlobalDepositAsset] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
 

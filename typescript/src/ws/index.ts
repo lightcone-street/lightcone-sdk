@@ -1,6 +1,11 @@
 import type { MarketEvent } from "../domain/market";
 import { normalizeUserUpdate, type AuthUpdate, type UserUpdate } from "../domain/order/wire";
 import type { OrderBook, WsTickerData } from "../domain/orderbook";
+import {
+  FULL_PRECISION,
+  normalizeAggregation,
+  type BookAggregation,
+} from "../domain/orderbook/aggregation";
 import type {
   DepositAssetPriceEvent,
   DepositPrice,
@@ -39,6 +44,14 @@ export interface WsError {
   error: string;
   code?: string;
   orderbook_id?: string;
+  /**
+   * Aggregation of the affected book subscription on book-scoped errors
+   * (`ENGINE_UNAVAILABLE`, `SUBSCRIPTION_LIMIT_REACHED`,
+   * `INVALID_ORDERBOOK_SUBSCRIPTION`). Absent = full precision; pass to
+   * `aggregationFromFrame` to identify the `(orderbook, aggregation)` pair.
+   */
+  n_sig_figs?: number;
+  mantissa?: number;
   wallet_address?: string;
   deposit_asset?: string;
   hint?: string;
@@ -95,22 +108,48 @@ export function ping(): MessageOut {
   return { method: "ping" };
 }
 
-export function subscribeBooks(orderbookIds: OrderBookId[]): MessageOut {
+/**
+ * Subscribe to book snapshots, optionally aggregated (Hyperliquid-style).
+ *
+ * Omit `aggregation` for the raw book. The aggregation is normalized before
+ * sending ((5, none) → (5, 1)); validate with `validateAggregation` first —
+ * invalid combinations are rejected server-side with
+ * `INVALID_ORDERBOOK_SUBSCRIPTION`. `undefined` fields are dropped by
+ * `JSON.stringify`, so full precision stays byte-identical to the
+ * pre-aggregation message.
+ */
+export function subscribeBooks(
+  orderbookIds: OrderBookId[],
+  aggregation: BookAggregation = FULL_PRECISION
+): MessageOut {
+  const normalized = normalizeAggregation(aggregation);
   return {
     method: "subscribe",
     params: {
       type: "book_update",
       orderbook_ids: orderbookIds,
+      nSigFigs: normalized.nSigFigs,
+      mantissa: normalized.mantissa,
     },
   };
 }
 
-export function unsubscribeBooks(orderbookIds: OrderBookId[]): MessageOut {
+/**
+ * Unsubscribe a book subscription. The aggregation must match the one
+ * subscribed (normalized) or the server removes nothing.
+ */
+export function unsubscribeBooks(
+  orderbookIds: OrderBookId[],
+  aggregation: BookAggregation = FULL_PRECISION
+): MessageOut {
+  const normalized = normalizeAggregation(aggregation);
   return {
     method: "unsubscribe",
     params: {
       type: "book_update",
       orderbook_ids: orderbookIds,
+      nSigFigs: normalized.nSigFigs,
+      mantissa: normalized.mantissa,
     },
   };
 }

@@ -1,11 +1,13 @@
 #![doc = include_str!("README.md")]
 
+pub mod aggregation;
 pub mod client;
 mod convert;
 pub mod state;
 pub mod ticker;
 pub mod wire;
 
+pub use aggregation::BookAggregation;
 pub use ticker::TickerData;
 
 use crate::domain::market::tokens::{self, HasDisplayToken, Token};
@@ -151,7 +153,6 @@ impl OrderBookPair {
         quote_decimals: u16,
         tick_size: i64,
     ) -> Self {
-        use chrono::Utc;
         let mut base = tokens::ConditionalToken::test_new("base_mint", 0);
         let mut quote = tokens::ConditionalToken::test_new("quote_mint", 1);
         // Override decimals via serde round-trip (fields are private)
