@@ -445,9 +445,9 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 
 Status-to-error mapping order:
 
-1. Statuses configured as retryable by the active `RetryPolicy` (429/502/503/504 for `Idempotent`) stay `HttpError`s so the retry loop can act on them — they are never parsed into `ApiRejected`, even when the backend wraps them in a structured envelope.
-2. Any other 4xx status except 429 whose body parses as the structured error envelope surfaces as `SdkError::ApiRejected(details)`, preserving `error_code`, `rejection_code`, and `error_log_id`. 429 always maps to `RateLimited` and 5xx to `ServerError`.
-3. Anything else (including envelope-less bodies) falls back to the `HttpError` variants above.
+1. While retry attempts remain, statuses configured as retryable by the active `RetryPolicy` are classified from their raw HTTP status before envelope parsing, so the retry loop can act on them. `429` is retried only when the active policy includes `429`.
+2. Once no retry will happen, any non-2xx response whose body parses as the structured rejection envelope surfaces as `SdkError::ApiRejected(details)`, preserving `error_code`, `rejection_code`, `error_log_id`, and the SDK request id. This includes envelope-bearing `429` or `5xx` responses after retry exhaustion or under a policy that does not retry them.
+3. Anything else, including envelope-less bodies and non-2xx success envelopes, falls back to the `HttpError` variants above.
 
 ## Retry Strategy
 
