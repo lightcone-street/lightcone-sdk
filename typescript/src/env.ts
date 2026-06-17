@@ -58,7 +58,7 @@ export function rpcUrl(environment: LightconeEnv): string {
     case LightconeEnv.Staging:
       return "https://api.devnet.solana.com";
     case LightconeEnv.Prod:
-      return "https://api.devnet.solana.com";
+      return "https://api.mainnet-beta.solana.com";
   }
 }
 

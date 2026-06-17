@@ -78,7 +78,7 @@ impl LightconeEnv {
         match self {
             Self::Local => "https://api.devnet.solana.com",
             Self::Staging => "https://api.devnet.solana.com",
-            Self::Prod => "https://api.devnet.solana.com",
+            Self::Prod => "https://api.mainnet-beta.solana.com",
         }
         .to_string()
     }
