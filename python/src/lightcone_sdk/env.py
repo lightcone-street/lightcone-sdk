@@ -28,7 +28,14 @@ class LightconeEnv(Enum):
 
     @property
     def api_url(self) -> str:
-        """REST API base URL for this environment."""
+        """REST API base URL for this environment.
+
+        If the ``SDK_API_URL`` environment variable is set, its value is used
+        regardless of the selected environment.
+        """
+        override = os.environ.get("SDK_API_URL")
+        if override:
+            return override
         return {
             LightconeEnv.LOCAL: "https://api.local.lightcone.xyz",
             LightconeEnv.STAGING: "https://api.staging.lightcone.xyz",
@@ -37,7 +44,14 @@ class LightconeEnv(Enum):
 
     @property
     def ws_url(self) -> str:
-        """WebSocket URL for this environment."""
+        """WebSocket URL for this environment.
+
+        If the ``SDK_WS_URL`` environment variable is set, its value is used
+        regardless of the selected environment.
+        """
+        override = os.environ.get("SDK_WS_URL")
+        if override:
+            return override
         return {
             LightconeEnv.LOCAL: "wss://ws.local.lightcone.xyz/ws",
             LightconeEnv.STAGING: "wss://ws.staging.lightcone.xyz/ws",

@@ -19,8 +19,15 @@ export enum LightconeEnv {
   Prod = "prod",
 }
 
-/** REST API base URL for the given environment. */
+/**
+ * REST API base URL for the given environment.
+ *
+ * If the `SDK_API_URL` environment variable is set, its value is used
+ * regardless of the selected environment.
+ */
 export function apiUrl(environment: LightconeEnv): string {
+  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_API_URL : undefined;
+  if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
       return "https://api.local.lightcone.xyz";
@@ -31,8 +38,15 @@ export function apiUrl(environment: LightconeEnv): string {
   }
 }
 
-/** WebSocket URL for the given environment. */
+/**
+ * WebSocket URL for the given environment.
+ *
+ * If the `SDK_WS_URL` environment variable is set, its value is used
+ * regardless of the selected environment.
+ */
 export function wsUrl(environment: LightconeEnv): string {
+  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_WS_URL : undefined;
+  if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
       return "wss://ws.local.lightcone.xyz/ws";

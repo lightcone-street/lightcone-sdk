@@ -16,5 +16,5 @@ jobs:
   publish:
     uses: ./.github/workflows/publish.yml
     with:
-      dry-run: false
+      mode: release
     secrets: inherit

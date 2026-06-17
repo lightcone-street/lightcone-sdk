@@ -47,5 +47,5 @@ jobs:
     needs: [test_examples, rust_tests]
     uses: ./.github/workflows/publish.yml
     with:
-      dry-run: true
+      mode: dry-run
     secrets: inherit
