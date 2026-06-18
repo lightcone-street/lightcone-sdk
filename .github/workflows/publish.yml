@@ -109,7 +109,7 @@ jobs:
           npm version "$RC" --no-git-tag-version
           echo "Publishing ts RC $RC"
 
-      # --tag next so the RC never becomes the `latest` dist-tag.
+      # tag next so the RC never becomes the `latest` dist-tag.
       - name: Publish prerelease to npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
