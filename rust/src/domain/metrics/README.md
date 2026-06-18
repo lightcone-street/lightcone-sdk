@@ -1,6 +1,6 @@
 # Metrics
 
-Platform, market, orderbook, category, and deposit-token volume metrics, plus the market leaderboard and time-series history.
+Platform, market, orderbook, category, and deposit-token volume metrics, plus deposit-token volume history, open-interest history, unique-trader history, the market leaderboard, and time-series history.
 
 [← Overview](../../../README.md)
 
@@ -22,6 +22,8 @@ All monetary / percentage fields are `rust_decimal::Decimal` (deserialized from 
 | `taker_bid_volume_{24h,7d,30d,total}_usd` | `Decimal` | Taker-bid-side USD volume |
 | `taker_ask_volume_{24h,7d,30d,total}_usd` | `Decimal` | Taker-ask-side USD volume |
 | `taker_bid_ask_imbalance_{24h,7d,30d,total}_pct` | `Decimal` | Bid/ask imbalance (%) |
+| `open_interest_usd` | `Decimal` | Current open interest in USD |
+| `fees_{24h,7d,30d}_usd` | `Decimal` | Fee totals per window. The backend currently returns `"0"` for each fee window |
 | `unique_traders_{24h,7d,30d}` | `i32` | Unique trader counts |
 | `active_markets` / `active_orderbooks` | `i64` | Currently active entities |
 | `deposit_token_volumes` | `Vec<DepositTokenVolumeMetrics>` | Per-deposit-token breakdown |
@@ -49,6 +51,24 @@ Per-orderbook totals with volume expressed in USD, base token, and quote token a
 
 Single-dimension summaries with the same four-window shape. See [`wire.rs`](./wire.rs) for exact fields.
 
+### `DepositTokenVolumeHistory`
+
+Daily platform volume history broken down by deposit token. The response has `resolution: Resolution::Day1`, inclusive `from`, exclusive `to`, `volume_total_usd`, `total_days`, a `deposit_tokens` legend sorted by total range volume, and `points`.
+
+Each `DepositTokenVolumeHistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms), `bucket_start_date: NaiveDate`, `total_volume_usd`, `cumulative_volume_usd`, and `deposit_token_volumes` for the stacked-bar breakdown. All USD fields are `Decimal`.
+
+### `OpenInterestHistory`
+
+Daily platform open-interest snapshots broken down by deposit asset. The response has `resolution: Resolution::Day1`, inclusive `from`, exclusive `to`, `latest_open_interest_usd`, `total_days`, a `deposit_assets` legend sorted by latest open interest, and `points`.
+
+Open interest is a snapshot metric, not cumulative. Do not sum values across days. Explicit zero values are preserved as `Decimal::ZERO` when an asset's open interest drops to zero.
+
+### `UniqueTradersHistory`
+
+Daily unique trader counts for the platform or a scoped entity. The response has `resolution: Resolution::Day1`, `scope`, `scope_key`, inclusive `from`, exclusive `to`, `latest_unique_traders`, `total_days`, and `points`.
+
+Each `UniqueTradersHistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms for the UTC day start), `bucket_start_date: NaiveDate`, and `unique_traders`. Missing days are returned with `unique_traders: 0`.
+
 ### `CategoriesMetrics`, `DepositTokensMetrics`, `MarketsMetrics`, `Leaderboard`
 
 Plural envelopes holding a `Vec<_>` of their single-dimension counterparts (plus `total` / `period` metadata where relevant).
@@ -59,7 +79,7 @@ Plural envelopes holding a `Vec<_>` of their single-dimension counterparts (plus
 
 ### `MetricsHistory` / `HistoryPoint`
 
-Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: i64` (Unix epoch ms) and `volume_usd: Decimal`.
+Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms) and `volume_usd: Decimal`.
 
 ### `UserMetrics` — response of `metrics().user()`, `metrics().user_with_cookies()`, and `metrics().user_by_wallet()`
 
@@ -142,6 +162,39 @@ async fn deposit_tokens(&self) -> Result<DepositTokensMetrics, SdkError>
 
 Per-deposit-token platform-wide volumes.
 
+### `deposit_tokens_volume_history`
+
+```rust
+async fn deposit_tokens_volume_history(
+    &self,
+    query: &DepositTokenVolumeHistoryQuery,
+) -> Result<DepositTokenVolumeHistory, SdkError>
+```
+
+Daily platform volume history by deposit token from `GET /api/metrics/deposit-tokens/volume-history`. `DepositTokenVolumeHistoryQuery::default()` lets the backend choose its range. Optional query params are `from` (inclusive epoch ms), `to` (exclusive epoch ms), and `limit` (backend default/max is `5000`).
+
+### `open_interest_history`
+
+```rust
+async fn open_interest_history(
+    &self,
+    query: &OpenInterestHistoryQuery,
+) -> Result<OpenInterestHistory, SdkError>
+```
+
+Daily platform open-interest snapshots by deposit asset from `GET /api/metrics/open-interest/history`. `OpenInterestHistoryQuery::default()` lets the backend choose its range. Optional query params are `from` (inclusive epoch ms), `to` (exclusive epoch ms), and `limit` (backend default is `5000`).
+
+### `unique_traders_history`
+
+```rust
+async fn unique_traders_history(
+    &self,
+    query: &UniqueTradersHistoryQuery,
+) -> Result<UniqueTradersHistory, SdkError>
+```
+
+Daily unique trader counts from `GET /api/metrics/unique-traders/history`. `UniqueTradersHistoryQuery::default()` returns platform-wide history. Optional query params are `scope`, `scope_key`, `from` (inclusive epoch ms), `to` (exclusive epoch ms), and `limit` (backend default is `5000`). For non-platform scopes, set both `scope` and `scope_key`.
+
 ### `leaderboard`
 
 ```rust
@@ -161,7 +214,7 @@ async fn history(
 ) -> Result<MetricsHistory, SdkError>
 ```
 
-Time-series of volume buckets. `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`. `MetricsHistoryQuery::default()` uses `"1h"` resolution with no time bounds.
+Time-series of volume buckets. `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`. `MetricsHistoryQuery::default()` uses `Resolution::Hour1` with no time bounds.
 
 ### `user`
 

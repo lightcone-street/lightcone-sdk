@@ -5,6 +5,7 @@
 use super::resolve_icon_urls;
 use super::wire::{DepositAssetResponse, GlobalDepositAssetResponse};
 use crate::shared::PubkeyStr;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -137,6 +138,7 @@ pub struct DepositAsset {
     pub short_symbol: String,
     pub description: Option<String>,
     pub decimals: u16,
+    pub min_order_size: Option<Decimal>,
     pub icon_url_low: String,
     pub icon_url_medium: String,
     pub icon_url_high: String,
@@ -616,6 +618,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 short_symbol,
                 description: source.description,
                 decimals,
+                min_order_size: source.min_order_size,
                 icon_url_low,
                 icon_url_medium,
                 icon_url_high,
@@ -648,6 +651,7 @@ mod tests {
             icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
+            min_order_size: Some(Decimal::ONE),
             conditional_mints: vec![ConditionalTokenResponse {
                 id: 10,
                 outcome_index: 0,
@@ -674,6 +678,7 @@ mod tests {
         let resp = minimal_deposit_asset_response();
         let validated = ValidatedTokens::try_from(resp).unwrap();
         assert_eq!(validated.token.symbol, "USDC");
+        assert_eq!(validated.token.min_order_size, Some(Decimal::ONE));
         assert_eq!(validated.conditionals.len(), 1);
         assert_eq!(validated.conditionals[0].symbol(), "YES");
 

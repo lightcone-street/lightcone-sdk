@@ -9,11 +9,27 @@ can wrap a field in ``decimal.Decimal`` themselves.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
+
+from ...shared.types import Resolution
 
 
 def _str_list(raw: list) -> list[str]:
     return [str(x) for x in raw]
+
+
+def _resolution_value(value: str | Resolution) -> str:
+    if isinstance(value, Resolution):
+        return value.as_str()
+    return value
+
+
+def _parse_resolution(value: object, default: Resolution) -> Resolution:
+    if isinstance(value, Resolution):
+        return value
+    if isinstance(value, str) and value:
+        return Resolution.from_str(value)
+    return default
 
 
 # ─── Deposit token ──────────────────────────────────────────────────────────
@@ -88,6 +104,254 @@ class DepositTokensMetrics:
             deposit_tokens=[
                 DepositTokenVolumeMetrics.from_dict(x)
                 for x in d.get("deposit_tokens", [])
+            ],
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistoryToken:
+    """Token legend/summary entry in /api/metrics/deposit-tokens/volume-history."""
+
+    rank: int = 0
+    deposit_asset: str = ""
+    volume_total_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryToken":
+        return DepositTokenVolumeHistoryToken(
+            rank=int(d.get("rank", 0)),
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            volume_total_usd=str(d.get("volume_total_usd", "0")),
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistoryPointToken:
+    """Per-token stacked-bar entry for a daily deposit-token history point."""
+
+    deposit_asset: str = ""
+    volume_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryPointToken":
+        return DepositTokenVolumeHistoryPointToken(
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            volume_usd=str(d.get("volume_usd", "0")),
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistoryPoint:
+    """Daily point in /api/metrics/deposit-tokens/volume-history."""
+
+    bucket_start: int = 0
+    bucket_start_date: str = ""
+    total_volume_usd: str = "0"
+    cumulative_volume_usd: str = "0"
+    deposit_token_volumes: list[DepositTokenVolumeHistoryPointToken] = field(
+        default_factory=list
+    )
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistoryPoint":
+        return DepositTokenVolumeHistoryPoint(
+            bucket_start=int(d.get("bucket_start", 0)),
+            bucket_start_date=d.get("bucket_start_date", ""),
+            total_volume_usd=str(d.get("total_volume_usd", "0")),
+            cumulative_volume_usd=str(d.get("cumulative_volume_usd", "0")),
+            deposit_token_volumes=[
+                DepositTokenVolumeHistoryPointToken.from_dict(x)
+                for x in d.get("deposit_token_volumes", [])
+            ],
+        )
+
+
+@dataclass
+class DepositTokenVolumeHistory:
+    """Response of /api/metrics/deposit-tokens/volume-history."""
+
+    timestamp: int = 0
+    resolution: Resolution = Resolution.ONE_DAY
+    from_ms: int = 0
+    to_ms: int = 0
+    volume_total_usd: str = "0"
+    total_days: int = 0
+    deposit_tokens: list[DepositTokenVolumeHistoryToken] = field(default_factory=list)
+    points: list[DepositTokenVolumeHistoryPoint] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "DepositTokenVolumeHistory":
+        return DepositTokenVolumeHistory(
+            timestamp=int(d.get("timestamp", 0)),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
+            from_ms=int(d.get("from", 0)),
+            to_ms=int(d.get("to", 0)),
+            volume_total_usd=str(d.get("volume_total_usd", "0")),
+            total_days=int(d.get("total_days", 0)),
+            deposit_tokens=[
+                DepositTokenVolumeHistoryToken.from_dict(x)
+                for x in d.get("deposit_tokens", [])
+            ],
+            points=[
+                DepositTokenVolumeHistoryPoint.from_dict(x)
+                for x in d.get("points", [])
+            ],
+        )
+
+
+@dataclass
+class OpenInterestHistoryDepositAsset:
+    """Deposit-asset summary entry in /api/metrics/open-interest/history."""
+
+    rank: int = 0
+    deposit_asset: str = ""
+    latest_open_interest_usd: str = "0"
+    max_open_interest_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "OpenInterestHistoryDepositAsset":
+        return OpenInterestHistoryDepositAsset(
+            rank=int(d.get("rank", 0)),
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            latest_open_interest_usd=str(d.get("latest_open_interest_usd", "0")),
+            max_open_interest_usd=str(d.get("max_open_interest_usd", "0")),
+        )
+
+
+@dataclass
+class OpenInterestHistoryPointDepositAsset:
+    """Per-deposit-asset entry for one daily open-interest history point."""
+
+    deposit_asset: str = ""
+    open_interest_usd: str = "0"
+    symbol: Optional[str] = None
+
+    @staticmethod
+    def from_dict(d: dict) -> "OpenInterestHistoryPointDepositAsset":
+        return OpenInterestHistoryPointDepositAsset(
+            deposit_asset=d.get("deposit_asset", ""),
+            symbol=d.get("symbol"),
+            open_interest_usd=str(d.get("open_interest_usd", "0")),
+        )
+
+
+@dataclass
+class OpenInterestHistoryPoint:
+    """Daily point in /api/metrics/open-interest/history."""
+
+    bucket_start: int = 0
+    bucket_start_date: str = ""
+    total_open_interest_usd: str = "0"
+    deposit_asset_open_interest: list[OpenInterestHistoryPointDepositAsset] = field(
+        default_factory=list
+    )
+
+    @staticmethod
+    def from_dict(d: dict) -> "OpenInterestHistoryPoint":
+        return OpenInterestHistoryPoint(
+            bucket_start=int(d.get("bucket_start", 0)),
+            bucket_start_date=d.get("bucket_start_date", ""),
+            total_open_interest_usd=str(d.get("total_open_interest_usd", "0")),
+            deposit_asset_open_interest=[
+                OpenInterestHistoryPointDepositAsset.from_dict(x)
+                for x in d.get("deposit_asset_open_interest", [])
+            ],
+        )
+
+
+@dataclass
+class OpenInterestHistory:
+    """Response of /api/metrics/open-interest/history."""
+
+    timestamp: int = 0
+    resolution: Resolution = Resolution.ONE_DAY
+    from_ms: int = 0
+    to_ms: int = 0
+    latest_open_interest_usd: str = "0"
+    total_days: int = 0
+    deposit_assets: list[OpenInterestHistoryDepositAsset] = field(default_factory=list)
+    points: list[OpenInterestHistoryPoint] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "OpenInterestHistory":
+        return OpenInterestHistory(
+            timestamp=int(d.get("timestamp", 0)),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
+            from_ms=int(d.get("from", 0)),
+            to_ms=int(d.get("to", 0)),
+            latest_open_interest_usd=str(d.get("latest_open_interest_usd", "0")),
+            total_days=int(d.get("total_days", 0)),
+            deposit_assets=[
+                OpenInterestHistoryDepositAsset.from_dict(x)
+                for x in d.get("deposit_assets", [])
+            ],
+            points=[
+                OpenInterestHistoryPoint.from_dict(x)
+                for x in d.get("points", [])
+            ],
+        )
+
+
+UniqueTradersHistoryScope = Literal[
+    "platform",
+    "market",
+    "orderbook",
+    "category",
+    "outcome",
+]
+
+
+@dataclass
+class UniqueTradersHistoryPoint:
+    """Daily point in /api/metrics/unique-traders/history."""
+
+    bucket_start: int = 0
+    bucket_start_date: str = ""
+    unique_traders: int = 0
+
+    @staticmethod
+    def from_dict(d: dict) -> "UniqueTradersHistoryPoint":
+        return UniqueTradersHistoryPoint(
+            bucket_start=int(d.get("bucket_start", 0)),
+            bucket_start_date=d.get("bucket_start_date", ""),
+            unique_traders=int(d.get("unique_traders", 0)),
+        )
+
+
+@dataclass
+class UniqueTradersHistory:
+    """Response of /api/metrics/unique-traders/history."""
+
+    timestamp: int = 0
+    resolution: Resolution = Resolution.ONE_DAY
+    scope: UniqueTradersHistoryScope = "platform"
+    scope_key: str = "platform"
+    from_ms: int = 0
+    to_ms: int = 0
+    latest_unique_traders: int = 0
+    total_days: int = 0
+    points: list[UniqueTradersHistoryPoint] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UniqueTradersHistory":
+        return UniqueTradersHistory(
+            timestamp=int(d.get("timestamp", 0)),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
+            scope=d.get("scope", "platform"),
+            scope_key=d.get("scope_key", "platform"),
+            from_ms=int(d.get("from", 0)),
+            to_ms=int(d.get("to", 0)),
+            latest_unique_traders=int(d.get("latest_unique_traders", 0)),
+            total_days=int(d.get("total_days", 0)),
+            points=[
+                UniqueTradersHistoryPoint.from_dict(x)
+                for x in d.get("points", [])
             ],
         )
 
@@ -179,6 +443,10 @@ class PlatformMetrics:
     taker_bid_ask_imbalance_7d_pct: str = "0"
     taker_bid_ask_imbalance_30d_pct: str = "0"
     taker_bid_ask_imbalance_total_pct: str = "0"
+    open_interest_usd: str = "0"
+    fees_24h_usd: str = "0"
+    fees_7d_usd: str = "0"
+    fees_30d_usd: str = "0"
     unique_traders_24h: int = 0
     unique_traders_7d: int = 0
     unique_traders_30d: int = 0
@@ -214,6 +482,10 @@ class PlatformMetrics:
             taker_bid_ask_imbalance_total_pct=str(
                 d.get("taker_bid_ask_imbalance_total_pct", "0")
             ),
+            open_interest_usd=str(d.get("open_interest_usd", "0")),
+            fees_24h_usd=str(d.get("fees_24h_usd", "0")),
+            fees_7d_usd=str(d.get("fees_7d_usd", "0")),
+            fees_30d_usd=str(d.get("fees_30d_usd", "0")),
             unique_traders_24h=int(d.get("unique_traders_24h", 0)),
             unique_traders_7d=int(d.get("unique_traders_7d", 0)),
             unique_traders_30d=int(d.get("unique_traders_30d", 0)),
@@ -868,7 +1140,7 @@ class MetricsHistory:
 
     scope: str = ""
     scope_key: str = ""
-    resolution: str = ""
+    resolution: Resolution = Resolution.ONE_HOUR
     points: list[HistoryPoint] = field(default_factory=list)
 
     @staticmethod
@@ -876,7 +1148,7 @@ class MetricsHistory:
         return MetricsHistory(
             scope=d.get("scope", ""),
             scope_key=d.get("scope_key", ""),
-            resolution=d.get("resolution", ""),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_HOUR),
             points=[HistoryPoint.from_dict(x) for x in d.get("points", [])],
         )
 
@@ -888,14 +1160,77 @@ class MetricsHistory:
 class MetricsHistoryQuery:
     """Query for /api/metrics/history/{scope}/{scope_key}."""
 
-    resolution: str = "1h"
+    resolution: str | Resolution = Resolution.ONE_HOUR
     from_ms: Optional[int] = None
     to_ms: Optional[int] = None
     limit: Optional[int] = None
 
     def to_query(self) -> dict[str, str]:
-        params: dict[str, str] = {"resolution": self.resolution}
+        params: dict[str, str] = {"resolution": _resolution_value(self.resolution)}
         # Backend handler query is `from: Option<i64>, to: Option<i64>, limit: usize`.
+        if self.from_ms is not None:
+            params["from"] = str(self.from_ms)
+        if self.to_ms is not None:
+            params["to"] = str(self.to_ms)
+        if self.limit is not None:
+            params["limit"] = str(self.limit)
+        return params
+
+
+@dataclass
+class DepositTokenVolumeHistoryQuery:
+    """Query for /api/metrics/deposit-tokens/volume-history."""
+
+    from_ms: Optional[int] = None
+    to_ms: Optional[int] = None
+    limit: Optional[int] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        if self.from_ms is not None:
+            params["from"] = str(self.from_ms)
+        if self.to_ms is not None:
+            params["to"] = str(self.to_ms)
+        if self.limit is not None:
+            params["limit"] = str(self.limit)
+        return params
+
+
+@dataclass
+class OpenInterestHistoryQuery:
+    """Query for /api/metrics/open-interest/history."""
+
+    from_ms: Optional[int] = None
+    to_ms: Optional[int] = None
+    limit: Optional[int] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        if self.from_ms is not None:
+            params["from"] = str(self.from_ms)
+        if self.to_ms is not None:
+            params["to"] = str(self.to_ms)
+        if self.limit is not None:
+            params["limit"] = str(self.limit)
+        return params
+
+
+@dataclass
+class UniqueTradersHistoryQuery:
+    """Query for /api/metrics/unique-traders/history."""
+
+    scope: Optional[UniqueTradersHistoryScope] = None
+    scope_key: Optional[str] = None
+    from_ms: Optional[int] = None
+    to_ms: Optional[int] = None
+    limit: Optional[int] = None
+
+    def to_query(self) -> dict[str, str]:
+        params: dict[str, str] = {}
+        if self.scope is not None:
+            params["scope"] = self.scope
+        if self.scope_key is not None:
+            params["scope_key"] = self.scope_key
         if self.from_ms is not None:
             params["from"] = str(self.from_ms)
         if self.to_ms is not None:
@@ -931,6 +1266,20 @@ class UserMetrics:
 __all__ = [
     "DepositTokenVolumeMetrics",
     "DepositTokensMetrics",
+    "DepositTokenVolumeHistoryToken",
+    "DepositTokenVolumeHistoryPointToken",
+    "DepositTokenVolumeHistoryPoint",
+    "DepositTokenVolumeHistory",
+    "DepositTokenVolumeHistoryQuery",
+    "OpenInterestHistoryDepositAsset",
+    "OpenInterestHistoryPointDepositAsset",
+    "OpenInterestHistoryPoint",
+    "OpenInterestHistory",
+    "OpenInterestHistoryQuery",
+    "UniqueTradersHistoryScope",
+    "UniqueTradersHistoryPoint",
+    "UniqueTradersHistory",
+    "UniqueTradersHistoryQuery",
     "PlatformMetrics",
     "MarketVolumeMetrics",
     "MarketsMetrics",

@@ -65,8 +65,11 @@ pub enum HttpError {
     #[error("Timeout")]
     Timeout,
 
-    #[error("Max retries exceeded after {attempts} attempts: {last_error}")]
-    MaxRetriesExceeded { attempts: u32, last_error: String },
+    #[error("Max retries exceeded after {attempts} attempts: {last_error:?}")]
+    MaxRetriesExceeded {
+        attempts: u32,
+        last_error: Option<String>,
+    },
 }
 
 /// WebSocket errors.

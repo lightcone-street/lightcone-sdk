@@ -247,6 +247,7 @@ mod tests {
             icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
+            min_order_size: Some(Decimal::ONE),
             conditional_mints: vec![
                 conditional_token_response(10, 0, "yes_mint", "Yes", "YES"),
                 conditional_token_response(11, 1, "no_mint", "No", "NO"),
@@ -365,6 +366,7 @@ mod tests {
         assert_eq!(resolution.kind, wire::MarketResolutionKind::Scalar);
         assert_eq!(resolution.payout_denominator, 10);
         assert_eq!(resolution.payouts.len(), 2);
+        assert_eq!(market.deposit_assets[0].min_order_size, Some(Decimal::ONE));
     }
 
     #[test]
@@ -475,6 +477,7 @@ mod tests {
             short_symbol: mint.to_string(),
             description: None,
             decimals: 6,
+            min_order_size: None,
             icon_url_low: String::new(),
             icon_url_medium: String::new(),
             icon_url_high: String::new(),

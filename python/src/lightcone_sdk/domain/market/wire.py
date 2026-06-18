@@ -73,6 +73,7 @@ class DepositAssetWire:
     symbol: str = ""
     description: Optional[str] = None
     decimals: int = 6
+    min_order_size: Optional[str] = None
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""
@@ -90,6 +91,7 @@ class DepositAssetWire:
             symbol=d.get("symbol", ""),
             description=d.get("description"),
             decimals=d.get("decimals") or 6,
+            min_order_size=d.get("min_order_size"),
             icon_url_low=d.get("icon_url_low", ""),
             icon_url_medium=d.get("icon_url_medium", ""),
             icon_url_high=d.get("icon_url_high", ""),

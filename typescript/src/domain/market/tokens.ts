@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 import type { PubkeyStr } from "../../shared";
 import { asPubkeyStr } from "../../shared";
 import { resolveIconUrls } from "./icon";
@@ -85,6 +86,7 @@ export interface DepositAsset extends Token {
   marketPda: PubkeyStr;
   depositAsset: PubkeyStr;
   numOutcomes: number;
+  minOrderSize?: Decimal;
 }
 
 /**
@@ -160,6 +162,10 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   const name = source.display_name;
   const symbol = source.symbol;
   const decimals = source.decimals;
+  const minOrderSize =
+    source.min_order_size === undefined || source.min_order_size === null
+      ? undefined
+      : new Decimal(source.min_order_size);
 
   if (!iconUrls) errors.push("Missing icon URL");
   if (!name) errors.push("Missing display name");
@@ -210,6 +216,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
       shortSymbol: name ?? "",
       description: source.description,
       decimals: decimals ?? 0,
+      minOrderSize,
       iconUrlLow: iconUrls?.low ?? "",
       iconUrlMedium: iconUrls?.medium ?? "",
       iconUrlHigh: iconUrls?.high ?? "",

@@ -24,9 +24,10 @@ async fn main() -> ExampleResult {
     // ── Platform ─────────────────────────────────────────────────────────
     let platform = client.metrics().platform().await?;
     println!(
-        "platform: 24h=${}, 7d=${}, active_markets={}, active_orderbooks={}",
+        "platform: 24h=${}, 7d=${}, open_interest=${}, active_markets={}, active_orderbooks={}",
         platform.volume_24h_usd,
         platform.volume_7d_usd,
+        platform.open_interest_usd,
         platform.active_markets,
         platform.active_orderbooks
     );
@@ -96,6 +97,42 @@ async fn main() -> ExampleResult {
     // ── Deposit tokens ──────────────────────────────────────────────────
     let deposit_tokens = client.metrics().deposit_tokens().await?;
     println!("deposit tokens: {}", deposit_tokens.deposit_tokens.len());
+
+    // ── Deposit-token volume history ─────────────────────────────────────
+    let deposit_token_history = client
+        .metrics()
+        .deposit_tokens_volume_history(&DepositTokenVolumeHistoryQuery::default())
+        .await?;
+    println!(
+        "deposit token volume history @ {}: {} days, total=${}",
+        deposit_token_history.resolution,
+        deposit_token_history.points.len(),
+        deposit_token_history.volume_total_usd
+    );
+
+    // ── Open-interest history ────────────────────────────────────────────
+    let open_interest_history = client
+        .metrics()
+        .open_interest_history(&OpenInterestHistoryQuery::default())
+        .await?;
+    println!(
+        "open interest history @ {}: {} days, latest=${}",
+        open_interest_history.resolution,
+        open_interest_history.points.len(),
+        open_interest_history.latest_open_interest_usd
+    );
+
+    // ── Unique-traders history ───────────────────────────────────────────
+    let unique_traders_history = client
+        .metrics()
+        .unique_traders_history(&UniqueTradersHistoryQuery::default())
+        .await?;
+    println!(
+        "unique traders history @ {}: {} days, latest={}",
+        unique_traders_history.resolution,
+        unique_traders_history.points.len(),
+        unique_traders_history.latest_unique_traders
+    );
 
     // ── Leaderboard ──────────────────────────────────────────────────────
     let board = client.metrics().leaderboard(Some(5)).await?;

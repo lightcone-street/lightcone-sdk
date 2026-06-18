@@ -108,20 +108,24 @@ pub mod prelude {
 
     // Domain types — metrics
     pub use crate::domain::metrics::{
-        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeMetrics,
+        CategoriesMetrics, CategoryMetricsQuery, CategoryVolumeMetrics, DepositTokenVolumeHistory,
+        DepositTokenVolumeHistoryPoint, DepositTokenVolumeHistoryPointToken,
+        DepositTokenVolumeHistoryQuery, DepositTokenVolumeHistoryToken, DepositTokenVolumeMetrics,
         DepositTokensMetrics, HistoryPoint, Leaderboard, LeaderboardEntry, MarketDetailMetrics,
         MarketMetricsQuery, MarketOrderbookVolumeMetrics, MarketVolumeMetrics, MarketsMetrics,
-        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OrderbookMetricsQuery,
-        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics,
+        MarketsMetricsQuery, MetricsHistory, MetricsHistoryQuery, OpenInterestHistory,
+        OpenInterestHistoryDepositAsset, OpenInterestHistoryPoint,
+        OpenInterestHistoryPointDepositAsset, OpenInterestHistoryQuery, OrderbookMetricsQuery,
+        OrderbookVolumeMetrics, OutcomeVolumeMetrics, PlatformMetrics, UniqueTradersHistory,
+        UniqueTradersHistoryPoint, UniqueTradersHistoryQuery, UniqueTradersHistoryScope,
     };
 
     // Domain types — faucet
     pub use crate::domain::faucet::{FaucetRequest, FaucetResponse, FaucetToken};
 
-    // Domain types — market wire (deposit-asset responses exposed by
-    // `client.markets().deposit_assets(...)`)
+    // Domain types — market wire (raw market and deposit-asset responses)
     pub use crate::domain::market::wire::{
-        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse,
+        ConditionalTokenResponse, DepositAssetResponse, DepositMintsResponse, MarketResponse,
     };
 
     // Errors

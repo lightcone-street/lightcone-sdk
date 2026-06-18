@@ -100,6 +100,42 @@ enum AuthMode<'a> {
     CookieOverride(String),
 }
 
+#[derive(Debug)]
+enum ApiRequestError {
+    NonSuccessStatus {
+        status: u16,
+        body: String,
+        request_id: String,
+        headers_retry_after_ms: Option<u64>,
+    },
+    Http(HttpError),
+}
+
+impl From<HttpError> for ApiRequestError {
+    fn from(error: HttpError) -> Self {
+        Self::Http(error)
+    }
+}
+
+impl From<reqwest::Error> for ApiRequestError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Http(error.into())
+    }
+}
+
+impl ApiRequestError {
+    fn headers_retry_after_ms(&self) -> Option<u64> {
+        match self {
+            Self::NonSuccessStatus {
+                headers_retry_after_ms,
+                ..
+            } => *headers_retry_after_ms,
+            Self::Http(HttpError::RateLimited { retry_after_ms }) => *retry_after_ms,
+            _ => None,
+        }
+    }
+}
+
 /// Generic HTTP transport for the Lightcone REST API.
 ///
 /// Provides `get` and `post` with retry policies, auth token injection,
@@ -211,7 +247,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::Session(&self.user_session),
-            false,
         )
         .await
     }
@@ -246,7 +281,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::CookieOverride(cookie_header.to_string()),
-            false,
         )
         .await
     }
@@ -265,7 +299,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(&self.user_session),
-            false,
         )
         .await
     }
@@ -294,7 +327,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -315,7 +347,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -336,7 +367,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -350,19 +380,11 @@ impl LightconeHttp {
         query: &[(&str, String)],
         retry: RetryPolicy,
         auth_mode: AuthMode<'_>,
-        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
                 return self
-                    .send_and_parse(
-                        &method,
-                        url,
-                        body,
-                        query,
-                        &auth_mode,
-                        parse_rejected_error_body,
-                    )
+                    .send_and_parse(&method, url, body, query, &auth_mode)
                     .await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
@@ -373,45 +395,21 @@ impl LightconeHttp {
 
         for attempt in 0..=config.max_retries {
             match self
-                .send_request::<ApiResponse<T>, B>(
-                    &method,
-                    url,
-                    body,
-                    query,
-                    &auth_mode,
-                    parse_rejected_error_body,
-                )
+                .send_api_request::<ApiResponse<T>, B>(&method, url, body, query, &auth_mode)
                 .await
             {
                 Ok((api_resp, request_id)) => {
                     return Self::parse_api_response(api_resp, request_id);
                 }
                 Err(e) => {
-                    let should_retry = match &e {
-                        HttpError::ServerError { status, .. } => {
-                            config.retryable_statuses.contains(status)
-                        }
-                        HttpError::RateLimited { retry_after_ms } => {
-                            if let Some(ms) = retry_after_ms {
-                                let delay = Duration::from_millis(*ms);
-                                futures_timer::Delay::new(delay).await;
-                            }
-                            true
-                        }
-                        HttpError::Timeout => true,
-                        #[cfg(feature = "http")]
-                        HttpError::Reqwest(re) => {
-                            #[cfg(not(target_arch = "wasm32"))]
-                            let retryable = re.is_connect() || re.is_timeout() || re.is_request();
-                            #[cfg(target_arch = "wasm32")]
-                            let retryable = re.is_timeout() || re.is_request();
-                            retryable
-                        }
-                        _ => false,
-                    };
+                    let should_retry =
+                        Self::should_retry_request_error(&e, &config.retryable_statuses);
 
                     if should_retry && attempt < config.max_retries {
-                        let delay = config.delay_for_attempt(attempt);
+                        let delay = e
+                            .headers_retry_after_ms()
+                            .map(Duration::from_millis)
+                            .unwrap_or_else(|| config.delay_for_attempt(attempt));
                         tracing::debug!(
                             attempt = attempt + 1,
                             max = config.max_retries,
@@ -419,10 +417,10 @@ impl LightconeHttp {
                             "Retrying request to {}",
                             url
                         );
+                        last_error = Some(Self::request_error_message(&e));
                         futures_timer::Delay::new(delay).await;
-                        last_error = Some(e);
                     } else {
-                        return Err(e.into());
+                        return Err(Self::request_error_to_sdk::<T>(e));
                     }
                 }
             }
@@ -430,9 +428,7 @@ impl LightconeHttp {
 
         Err(HttpError::MaxRetriesExceeded {
             attempts: config.max_retries + 1,
-            last_error: last_error
-                .map(|e| e.to_string())
-                .unwrap_or_else(|| "unknown".to_string()),
+            last_error,
         }
         .into())
     }
@@ -445,18 +441,11 @@ impl LightconeHttp {
         body: Option<&B>,
         query: &[(&str, String)],
         auth_mode: &AuthMode<'_>,
-        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
-            .send_request::<ApiResponse<T>, B>(
-                method,
-                url,
-                body,
-                query,
-                auth_mode,
-                parse_rejected_error_body,
-            )
-            .await?;
+            .send_api_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
+            .await
+            .map_err(Self::request_error_to_sdk::<T>)?;
         Self::parse_api_response(api_resp, request_id)
     }
 
@@ -471,18 +460,18 @@ impl LightconeHttp {
         }
     }
 
-    /// Low-level HTTP request: sends request, handles auth/cookies/errors.
+    /// Low-level HTTP request: sends request and captures auth cookies.
     /// Returns the raw deserialized body and request_id.
-    /// Used by retry logic (needs `HttpError` for retry decisions).
-    async fn send_request<T: DeserializeOwned, B: Serialize>(
+    /// Non-success HTTP statuses are returned with raw status/body so retry
+    /// policy can decide before a backend rejection envelope is unwrapped.
+    async fn send_api_request<T: DeserializeOwned, B: Serialize>(
         &self,
         method: &reqwest::Method,
         url: &str,
         body: Option<&B>,
         query: &[(&str, String)],
         auth_mode: &AuthMode<'_>,
-        parse_rejected_error_body: bool,
-    ) -> Result<(T, String), HttpError> {
+    ) -> Result<(T, String), ApiRequestError> {
         let request_id = Uuid::new_v4().to_string();
         let mut req = self.client.request(method.clone(), url);
         req = req.header("x-request-id", &request_id);
@@ -557,29 +546,106 @@ impl LightconeHttp {
         }
 
         let status_code = status.as_u16();
+        let headers_retry_after_ms = Self::retry_after_ms(resp.headers());
         let body_text = resp.text().await.unwrap_or_default();
 
-        // Some endpoints return the standard `ApiResponse` envelope on error
-        // statuses. When requested, surface those as a parsed response (the
-        // caller maps `Rejected` to `SdkError::ApiRejected`) instead of an
-        // opaque HTTP error. 429 is excluded so rate limits keep retrying.
-        if parse_rejected_error_body && status_code != 429 {
-            if let Ok(parsed) = serde_json::from_str::<T>(&body_text) {
-                return Ok((parsed, request_id));
-            }
-        }
+        Err(ApiRequestError::NonSuccessStatus {
+            status: status_code,
+            body: body_text,
+            request_id,
+            headers_retry_after_ms,
+        })
+    }
 
+    fn should_retry_request_error(error: &ApiRequestError, retryable_statuses: &[u16]) -> bool {
+        match error {
+            ApiRequestError::NonSuccessStatus { status, .. } => retryable_statuses.contains(status),
+            ApiRequestError::Http(HttpError::ServerError { status, .. }) => {
+                retryable_statuses.contains(status)
+            }
+            ApiRequestError::Http(HttpError::RateLimited { .. }) => {
+                retryable_statuses.contains(&429)
+            }
+            ApiRequestError::Http(HttpError::Timeout) => true,
+            #[cfg(feature = "http")]
+            ApiRequestError::Http(HttpError::Reqwest(re)) => {
+                #[cfg(not(target_arch = "wasm32"))]
+                let retryable = re.is_connect() || re.is_timeout() || re.is_request();
+                #[cfg(target_arch = "wasm32")]
+                let retryable = re.is_timeout() || re.is_request();
+                retryable
+            }
+            _ => false,
+        }
+    }
+
+    fn request_error_to_sdk<T: DeserializeOwned>(error: ApiRequestError) -> SdkError {
+        match error {
+            ApiRequestError::NonSuccessStatus {
+                status,
+                body,
+                request_id,
+                headers_retry_after_ms,
+            } => {
+                if let Some(error) = Self::parse_http_rejection::<T>(&body, request_id) {
+                    return error;
+                }
+                Self::http_error_for_status(status, body, headers_retry_after_ms).into()
+            }
+            ApiRequestError::Http(error) => error.into(),
+        }
+    }
+
+    fn parse_http_rejection<T: DeserializeOwned>(
+        body_text: &str,
+        request_id: String,
+    ) -> Option<SdkError> {
+        match serde_json::from_str::<ApiResponse<T>>(body_text) {
+            Ok(ApiResponse::Rejected { mut details }) => {
+                details.request_id = Some(request_id);
+                Some(SdkError::ApiRejected(details))
+            }
+            _ => None,
+        }
+    }
+
+    fn request_error_message(error: &ApiRequestError) -> String {
+        match error {
+            ApiRequestError::NonSuccessStatus { status, body, .. } => {
+                format!("HTTP status {status}: {body}")
+            }
+            ApiRequestError::Http(error) => error.to_string(),
+        }
+    }
+
+    fn retry_after_ms(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+        headers
+            .get("retry-after-ms")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<u64>().ok())
+            .or_else(|| {
+                headers
+                    .get("retry-after")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .map(|seconds| (seconds * 1000.0).round().max(0.0) as u64)
+            })
+    }
+
+    fn http_error_for_status(
+        status_code: u16,
+        body_text: String,
+        retry_after_ms: Option<u64>,
+    ) -> HttpError {
         match status_code {
-            401 => Err(HttpError::Unauthorized),
-            404 => Err(HttpError::NotFound(body_text)),
-            429 => Err(HttpError::RateLimited {
-                retry_after_ms: None,
-            }),
-            400..=499 => Err(HttpError::BadRequest(body_text)),
-            _ => Err(HttpError::ServerError {
+            401 => HttpError::Unauthorized,
+            404 => HttpError::NotFound(body_text),
+            429 => HttpError::RateLimited { retry_after_ms },
+            400..=499 => HttpError::BadRequest(body_text),
+            _ => HttpError::ServerError {
                 status: status_code,
                 body: body_text,
-            }),
+            },
         }
     }
 }
@@ -590,6 +656,260 @@ impl Clone for LightconeHttp {
             base_url: self.base_url.clone(),
             client: self.client.clone(),
             user_session: self.user_session.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    #[derive(Clone)]
+    struct TestResponse {
+        status: u16,
+        body: &'static str,
+    }
+
+    async fn spawn_server(responses: Vec<TestResponse>) -> (String, Arc<AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let responses = Arc::new(Mutex::new(VecDeque::from(responses)));
+        let attempts = Arc::new(AtomicUsize::new(0));
+
+        let server_responses = Arc::clone(&responses);
+        let server_attempts = Arc::clone(&attempts);
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    break;
+                };
+                let responses = Arc::clone(&server_responses);
+                let attempts = Arc::clone(&server_attempts);
+
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let _ = socket.read(&mut buffer).await;
+
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    let response = responses.lock().unwrap().pop_front().unwrap_or(TestResponse {
+                        status: 500,
+                        body: r#"{"status":"error","error_details":{"reason":"unexpected extra request"}}"#,
+                    });
+
+                    let status_text = match response.status {
+                        200 => "OK",
+                        400 => "Bad Request",
+                        404 => "Not Found",
+                        409 => "Conflict",
+                        429 => "Too Many Requests",
+                        500 => "Internal Server Error",
+                        503 => "Service Unavailable",
+                        _ => "Error",
+                    };
+                    let raw_response = format!(
+                        "HTTP/1.1 {} {}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        response.status,
+                        status_text,
+                        response.body.len(),
+                        response.body
+                    );
+                    let _ = socket.write_all(raw_response.as_bytes()).await;
+                });
+            }
+        });
+
+        (format!("http://{addr}"), attempts)
+    }
+
+    fn fast_retry(statuses: Vec<u16>) -> RetryPolicy {
+        RetryPolicy::Custom(RetryConfig {
+            max_retries: 1,
+            initial_delay: Duration::from_millis(0),
+            max_delay: Duration::from_millis(0),
+            backoff_factor: 1.0,
+            jitter: false,
+            retryable_statuses: statuses,
+        })
+    }
+
+    #[tokio::test]
+    async fn structured_400_returns_api_rejected_details() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: r#"{"status":"error","error_details":{"reason":"invalid tif","error_code":"INVALID_TIF","error_log_id":"LCERR_400"}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/test"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "invalid tif");
+                assert_eq!(details.error_code.as_deref(), Some("INVALID_TIF"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_400"));
+                assert!(details.request_id.is_some());
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn structured_500_returns_api_rejected_details() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 500,
+            body: r#"{"status":"error","error_details":{"reason":"engine failed","error_code":"ENGINE","error_log_id":"LCERR_500"}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/test"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "engine failed");
+                assert_eq!(details.error_code.as_deref(), Some("ENGINE"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_500"));
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn custom_retry_policy_retries_raw_409_status() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 409,
+                body: r#"{"status":"error","error_details":{"reason":"nonce mismatch","error_code":"NONCE_MISMATCH"}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let body = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![409]))
+            .await
+            .unwrap();
+
+        assert_eq!(body["ok"], true);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn custom_retry_policy_does_not_retry_429_when_excluded() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 429,
+                body: r#"{"status":"error","error_details":{"reason":"rate limited","error_code":"RATE_LIMITED","error_log_id":"LCERR_429"}}"#,
+            },
+            TestResponse {
+                status: 200,
+                body: r#"{"status":"success","body":{"ok":true}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "rate limited");
+                assert_eq!(details.error_code.as_deref(), Some("RATE_LIMITED"));
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_429"));
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn retry_exhaustion_preserves_structured_503_details() {
+        let (base_url, attempts) = spawn_server(vec![
+            TestResponse {
+                status: 503,
+                body: r#"{"status":"error","error_details":{"reason":"temporarily unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503A"}}"#,
+            },
+            TestResponse {
+                status: 503,
+                body: r#"{"status":"error","error_details":{"reason":"still unavailable","error_code":"UNAVAILABLE","error_log_id":"LCERR_503B"}}"#,
+            },
+        ])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/retry"), fast_retry(vec![503]))
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::ApiRejected(details) => {
+                assert_eq!(details.reason, "still unavailable");
+                assert_eq!(details.error_log_id.as_deref(), Some("LCERR_503B"));
+            }
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn malformed_400_falls_back_to_http_error() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: "not json",
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/bad"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Http(HttpError::BadRequest(body)) => assert_eq!(body, "not json"),
+            other => panic!("expected BadRequest, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn non_success_status_with_success_envelope_is_not_success() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 400,
+            body: r#"{"status":"success","body":{"ok":true}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/bad"), RetryPolicy::Idempotent)
+            .await
+            .unwrap_err();
+
+        match error {
+            SdkError::Http(HttpError::BadRequest(body)) => {
+                assert!(body.contains(r#""status":"success""#));
+            }
+            other => panic!("expected BadRequest, got {other:?}"),
         }
     }
 }

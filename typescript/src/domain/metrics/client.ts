@@ -1,18 +1,24 @@
 import type { ClientContext } from "../../context";
 import { RetryPolicy } from "../../http";
-import type { OrderBookId, PubkeyStr } from "../../shared";
+import { Resolution, type OrderBookId, type PubkeyStr } from "../../shared";
 import type {
   CategoriesMetrics,
   CategoryVolumeMetrics,
+  DepositTokenVolumeHistory,
+  DepositTokenVolumeHistoryQuery,
   DepositTokensMetrics,
   Leaderboard,
   MarketDetailMetrics,
   MarketsMetrics,
   MetricsHistory,
   MetricsHistoryQuery,
+  OpenInterestHistory,
+  OpenInterestHistoryQuery,
   OrderbookTickersResponse,
   OrderbookVolumeMetrics,
   PlatformMetrics,
+  UniqueTradersHistory,
+  UniqueTradersHistoryQuery,
   UserMetrics,
 } from "./wire";
 
@@ -84,6 +90,65 @@ export class Metrics {
     return this.client.http.get<DepositTokensMetrics>(url, RetryPolicy.Idempotent);
   }
 
+  /** `GET /api/metrics/deposit-tokens/volume-history` */
+  async depositTokensVolumeHistory(
+    query: DepositTokenVolumeHistoryQuery = {}
+  ): Promise<DepositTokenVolumeHistory> {
+    const search = new URLSearchParams();
+    if (query.from !== undefined) search.set("from", String(query.from));
+    if (query.to !== undefined) search.set("to", String(query.to));
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+
+    const qs = search.toString();
+    const url =
+      `${this.client.http.baseUrl()}/api/metrics/deposit-tokens/volume-history` +
+      (qs ? `?${qs}` : "");
+    return this.client.http.get<DepositTokenVolumeHistory>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
+  /** `GET /api/metrics/open-interest/history` */
+  async openInterestHistory(
+    query: OpenInterestHistoryQuery = {}
+  ): Promise<OpenInterestHistory> {
+    const search = new URLSearchParams();
+    if (query.from !== undefined) search.set("from", String(query.from));
+    if (query.to !== undefined) search.set("to", String(query.to));
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+
+    const qs = search.toString();
+    const url =
+      `${this.client.http.baseUrl()}/api/metrics/open-interest/history` +
+      (qs ? `?${qs}` : "");
+    return this.client.http.get<OpenInterestHistory>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
+  /** `GET /api/metrics/unique-traders/history` */
+  async uniqueTradersHistory(
+    query: UniqueTradersHistoryQuery = {}
+  ): Promise<UniqueTradersHistory> {
+    const search = new URLSearchParams();
+    if (query.scope !== undefined) search.set("scope", query.scope);
+    if (query.scope_key !== undefined) search.set("scope_key", query.scope_key);
+    if (query.from !== undefined) search.set("from", String(query.from));
+    if (query.to !== undefined) search.set("to", String(query.to));
+    if (query.limit !== undefined) search.set("limit", String(query.limit));
+
+    const qs = search.toString();
+    const url =
+      `${this.client.http.baseUrl()}/api/metrics/unique-traders/history` +
+      (qs ? `?${qs}` : "");
+    return this.client.http.get<UniqueTradersHistory>(
+      url,
+      RetryPolicy.Idempotent
+    );
+  }
+
   /** `GET /api/metrics/leaderboard/markets` */
   async leaderboard(limit?: number): Promise<Leaderboard> {
     let url = `${this.client.http.baseUrl()}/api/metrics/leaderboard/markets`;
@@ -104,7 +169,7 @@ export class Metrics {
     query: MetricsHistoryQuery = {}
   ): Promise<MetricsHistory> {
     const search = new URLSearchParams();
-    search.set("resolution", query.resolution ?? "1h");
+    search.set("resolution", query.resolution ?? Resolution.Hour1);
     if (query.from !== undefined) search.set("from", String(query.from));
     if (query.to !== undefined) search.set("to", String(query.to));
     if (query.limit !== undefined) search.set("limit", String(query.limit));

@@ -312,7 +312,7 @@ mod tests {
         assert!(!is_infrastructure_error_http(
             &HttpError::MaxRetriesExceeded {
                 attempts: 3,
-                last_error: "timeout".into(),
+                last_error: Some("timeout".into()),
             }
         ));
     }

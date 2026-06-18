@@ -45,7 +45,7 @@ pub fn resolve_icon_urls(
 // ─── Status ──────────────────────────────────────────────────────────────────
 
 /// Market lifecycle status.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Status {
     Pending,
     Active,

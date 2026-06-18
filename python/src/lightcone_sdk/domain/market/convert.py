@@ -1,12 +1,22 @@
 """Market wire-to-domain conversion."""
 
+from decimal import Decimal
 from typing import Optional
-from . import (
-    Market, MarketValidationError, Status, Outcome, ConditionalToken, DepositAsset,
-    DepositAssetPair, GlobalDepositAsset, TokenMetadata, sort_by_display_priority,
-)
+
 from ...error import SdkError
 from ..orderbook import OrderBookPair
+from . import (
+    ConditionalToken,
+    DepositAsset,
+    DepositAssetPair,
+    GlobalDepositAsset,
+    Market,
+    MarketValidationError,
+    Outcome,
+    Status,
+    TokenMetadata,
+    sort_by_display_priority,
+)
 from .wire import GlobalDepositAssetWire, MarketWire
 
 
@@ -33,6 +43,12 @@ def _parse_status(s: Optional[str]) -> Status:
     return Status.from_str(s)
 
 
+def _decimal_string_to_decimal(value: str | None) -> Decimal | None:
+    if value is None:
+        return None
+    return Decimal(value)
+
+
 def validation_errors_from_wire(wire: MarketWire) -> list[str]:
     errors: list[str] = []
 
@@ -44,11 +60,26 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing description")
     if not wire.definition:
         errors.append("Missing definition")
-    if _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high) is None:
+    if (
+        _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
+        is None
+    ):
         errors.append("Missing thumbnail image")
-    if _resolve_icon_urls(wire.banner_image_url_low, wire.banner_image_url_medium, wire.banner_image_url_high) is None:
+    if (
+        _resolve_icon_urls(
+            wire.banner_image_url_low,
+            wire.banner_image_url_medium,
+            wire.banner_image_url_high,
+        )
+        is None
+    ):
         errors.append("Missing banner image")
-    if wire.market_status and wire.market_status not in {"Pending", "Active", "Resolved", "Cancelled"}:
+    if wire.market_status and wire.market_status not in {
+        "Pending",
+        "Active",
+        "Resolved",
+        "Cancelled",
+    }:
         errors.append("Invalid status")
 
     if not errors:
@@ -62,14 +93,18 @@ def market_from_wire(wire: MarketWire) -> Market:
     """Convert a MarketWire to a Market domain type."""
     outcomes = []
     for o in wire.outcomes:
-        outcome_icons = _resolve_icon_urls(o.icon_url_low, o.icon_url_medium, o.icon_url_high)
-        outcomes.append(Outcome(
-            index=o.index,
-            name=o.name,
-            icon_url_low=outcome_icons[0] if outcome_icons else "",
-            icon_url_medium=outcome_icons[1] if outcome_icons else "",
-            icon_url_high=outcome_icons[2] if outcome_icons else "",
-        ))
+        outcome_icons = _resolve_icon_urls(
+            o.icon_url_low, o.icon_url_medium, o.icon_url_high
+        )
+        outcomes.append(
+            Outcome(
+                index=o.index,
+                name=o.name,
+                icon_url_low=outcome_icons[0] if outcome_icons else "",
+                icon_url_medium=outcome_icons[1] if outcome_icons else "",
+                icon_url_high=outcome_icons[2] if outcome_icons else "",
+            )
+        )
 
     conditional_tokens: list[ConditionalToken] = []
     token_metadata: dict[str, TokenMetadata] = {}
@@ -78,46 +113,55 @@ def market_from_wire(wire: MarketWire) -> Market:
 
     for da in wire.deposit_assets:
         da_symbol = da.token_symbol or da.symbol
-        da_icons = _resolve_icon_urls(da.icon_url_low, da.icon_url_medium, da.icon_url_high)
+        da_icons = _resolve_icon_urls(
+            da.icon_url_low, da.icon_url_medium, da.icon_url_high
+        )
         da_short_symbol = da.display_name or da_symbol
-        deposit_assets.append(DepositAsset(
-            id=da.id,
-            market_pda=da.market_pubkey,
-            deposit_asset=da.deposit_asset,
-            num_outcomes=da.num_outcomes,
-            name=da.display_name,
-            symbol=da_symbol,
-            short_symbol=da_short_symbol,
-            description=da.description,
-            decimals=da.decimals,
-            icon_url_low=da_icons[0] if da_icons else "",
-            icon_url_medium=da_icons[1] if da_icons else "",
-            icon_url_high=da_icons[2] if da_icons else "",
-        ))
+        deposit_assets.append(
+            DepositAsset(
+                id=da.id,
+                market_pda=da.market_pubkey,
+                deposit_asset=da.deposit_asset,
+                num_outcomes=da.num_outcomes,
+                name=da.display_name,
+                symbol=da_symbol,
+                short_symbol=da_short_symbol,
+                description=da.description,
+                decimals=da.decimals,
+                min_order_size=_decimal_string_to_decimal(da.min_order_size),
+                icon_url_low=da_icons[0] if da_icons else "",
+                icon_url_medium=da_icons[1] if da_icons else "",
+                icon_url_high=da_icons[2] if da_icons else "",
+            )
+        )
 
         for ct in da.conditional_mints:
             ct_name = ct.outcome
             ct_short_symbol = ct.short_symbol or ct.symbol
             ct_full_symbol = ct.symbol or ct.short_symbol
-            ct_icons = _resolve_icon_urls(ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high)
+            ct_icons = _resolve_icon_urls(
+                ct.icon_url_low, ct.icon_url_medium, ct.icon_url_high
+            )
             if ct_icons is None and da_icons is not None:
                 ct_icons = da_icons
-            conditional_tokens.append(ConditionalToken(
-                pubkey=ct.token_address,
-                outcome_index=ct.outcome_index,
-                id=ct.id,
-                outcome=ct.outcome,
-                deposit_asset=da.deposit_asset,
-                deposit_symbol=da_symbol,
-                name=ct_name,
-                symbol=ct_full_symbol,
-                short_symbol=ct_short_symbol,
-                description=ct.description,
-                decimals=ct.decimals,
-                icon_url_low=ct_icons[0] if ct_icons else "",
-                icon_url_medium=ct_icons[1] if ct_icons else "",
-                icon_url_high=ct_icons[2] if ct_icons else "",
-            ))
+            conditional_tokens.append(
+                ConditionalToken(
+                    pubkey=ct.token_address,
+                    outcome_index=ct.outcome_index,
+                    id=ct.id,
+                    outcome=ct.outcome,
+                    deposit_asset=da.deposit_asset,
+                    deposit_symbol=da_symbol,
+                    name=ct_name,
+                    symbol=ct_full_symbol,
+                    short_symbol=ct_short_symbol,
+                    description=ct.description,
+                    decimals=ct.decimals,
+                    icon_url_low=ct_icons[0] if ct_icons else "",
+                    icon_url_medium=ct_icons[1] if ct_icons else "",
+                    icon_url_high=ct_icons[2] if ct_icons else "",
+                )
+            )
             if ct.token_address:
                 token_metadata[ct.token_address] = TokenMetadata(
                     pubkey=ct.token_address,
@@ -131,26 +175,34 @@ def market_from_wire(wire: MarketWire) -> Market:
                 )
 
     # Build a lookup from pubkey to ConditionalToken for orderbook pairs.
-    ct_by_pubkey: dict[str, ConditionalToken] = {ct.pubkey: ct for ct in conditional_tokens}
+    ct_by_pubkey: dict[str, ConditionalToken] = {
+        ct.pubkey: ct for ct in conditional_tokens
+    }
 
     orderbook_pairs = []
     for ob in wire.orderbooks:
-        base_ct = ct_by_pubkey.get(ob.base_token, ConditionalToken(pubkey=ob.base_token, outcome_index=0))
-        quote_ct = ct_by_pubkey.get(ob.quote_token, ConditionalToken(pubkey=ob.quote_token, outcome_index=0))
-        orderbook_pairs.append(OrderBookPair(
-            id=ob.id,
-            market_pubkey=ob.market_pubkey or wire.market_pubkey,
-            orderbook_id=ob.orderbook_id,
-            base=base_ct,
-            quote=quote_ct,
-            outcome_index=ob.outcome_index,
-            tick_size=int(ob.tick_size) if ob.tick_size is not None else 0,
-            total_bids=ob.total_bids,
-            total_asks=ob.total_asks,
-            last_trade_price=ob.last_trade_price,
-            last_trade_time=ob.last_trade_time,
-            active=ob.active,
-        ))
+        base_ct = ct_by_pubkey.get(
+            ob.base_token, ConditionalToken(pubkey=ob.base_token, outcome_index=0)
+        )
+        quote_ct = ct_by_pubkey.get(
+            ob.quote_token, ConditionalToken(pubkey=ob.quote_token, outcome_index=0)
+        )
+        orderbook_pairs.append(
+            OrderBookPair(
+                id=ob.id,
+                market_pubkey=ob.market_pubkey or wire.market_pubkey,
+                orderbook_id=ob.orderbook_id,
+                base=base_ct,
+                quote=quote_ct,
+                outcome_index=ob.outcome_index,
+                tick_size=int(ob.tick_size) if ob.tick_size is not None else 0,
+                total_bids=ob.total_bids,
+                total_asks=ob.total_asks,
+                last_trade_price=ob.last_trade_price,
+                last_trade_time=ob.last_trade_time,
+                active=ob.active,
+            )
+        )
         if ob.orderbook_id:
             orderbook_ids.append(ob.orderbook_id)
 
@@ -166,10 +218,14 @@ def market_from_wire(wire: MarketWire) -> Market:
         )
 
     banner_icons = _resolve_icon_urls(
-        wire.banner_image_url_low, wire.banner_image_url_medium, wire.banner_image_url_high,
+        wire.banner_image_url_low,
+        wire.banner_image_url_medium,
+        wire.banner_image_url_high,
     )
     market_icons = _resolve_icon_urls(
-        wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high,
+        wire.icon_url_low,
+        wire.icon_url_medium,
+        wire.icon_url_high,
     )
 
     return Market(
@@ -251,7 +307,9 @@ def global_deposit_asset_from_wire(
         errors.append(f"Missing display name: {wire.mint}")
     if wire.symbol is None:
         errors.append(f"Missing symbol: {wire.mint}")
-    global_icons = _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
+    global_icons = _resolve_icon_urls(
+        wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high
+    )
     if global_icons is None:
         errors.append(f"Missing icon URL: {wire.mint}")
     if wire.decimals is None:
@@ -259,12 +317,12 @@ def global_deposit_asset_from_wire(
 
     if errors:
         rendered = "\n".join(f"  - {error}" for error in errors)
-        raise SdkError(
-            f"Token validation errors ({wire.mint}):\n{rendered}"
-        )
+        raise SdkError(f"Token validation errors ({wire.mint}):\n{rendered}")
 
     # Re-resolve after validation (global_icons may be None if error was appended)
-    resolved_icons = _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
+    resolved_icons = _resolve_icon_urls(
+        wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high
+    )
 
     return GlobalDepositAsset(
         id=wire.id,

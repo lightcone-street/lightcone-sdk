@@ -71,7 +71,7 @@ class LightconeEnv(Enum):
         return {
             LightconeEnv.LOCAL: "https://api.devnet.solana.com",
             LightconeEnv.STAGING: "https://api.devnet.solana.com",
-            LightconeEnv.PROD: "https://api.devnet.solana.com",
+            LightconeEnv.PROD: "https://api.mainnet-beta.solana.com",
         }[self]
 
     @property
