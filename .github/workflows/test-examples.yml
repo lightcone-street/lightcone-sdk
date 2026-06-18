@@ -48,6 +48,12 @@ jobs:
       - name: Check dependency cooldown
         run: cargo cooldown check
 
+      - name: Point at dev + wait for backend version match
+        uses: ./.github/actions/wait-for-dev
+        with:
+          lightcone-env: ${{ inputs.lightcone-env }}
+          gh-token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
+
       - name: Run all examples
         working-directory: .
         run: ./scripts/run-examples.sh --sdk rs
@@ -78,6 +84,12 @@ jobs:
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
+      - name: Point at dev + wait for backend version match
+        uses: ./.github/actions/wait-for-dev
+        with:
+          lightcone-env: ${{ inputs.lightcone-env }}
+          gh-token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
+
       - name: Run all examples
         working-directory: .
         run: ./scripts/run-examples.sh --sdk ts
@@ -106,6 +118,12 @@ jobs:
 
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+
+      - name: Point at dev + wait for backend version match
+        uses: ./.github/actions/wait-for-dev
+        with:
+          lightcone-env: ${{ inputs.lightcone-env }}
+          gh-token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
 
       - name: Run all examples
         working-directory: .

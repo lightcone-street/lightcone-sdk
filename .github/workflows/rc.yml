@@ -1,0 +1,27 @@
+name: RC
+
+# Every push to staging (i.e. a merged PR) that passes the example tests against the dev
+# tier is published as a prerelease X.Y.Z-rc.<run>. Consumers (web/admin) can pin the RC
+# and validate against dev before the final ships from prod. The auto version-sync commit
+# from a release carries [skip ci], so it won't trigger an RC.
+on:
+  push:
+    branches: [staging]
+
+concurrency:
+  group: rc
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/test-examples.yml
+    with:
+      lightcone-env: staging
+    secrets: inherit
+
+  rc:
+    needs: test
+    uses: ./.github/workflows/publish.yml
+    with:
+      mode: rc
+    secrets: inherit

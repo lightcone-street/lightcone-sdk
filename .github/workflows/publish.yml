@@ -3,16 +3,18 @@ name: Publish
 on:
   workflow_call:
     inputs:
-      dry-run:
+      mode:
         required: true
-        type: boolean
-        description: "If true, validate packaging only. If false, bump versions, publish, and sync."
+        type: string
+        description: >
+          dry-run  = validate packaging only (PRs);
+          rc       = publish a prerelease X.Y.Z-rc.N from staging (no commit/sync);
+          release  = bump + publish the final X.Y.Z from prod, then sync staging.
 
 jobs:
-  # ── Dry-run: validate packaging ──
-
+  # ── dry-run: validate packaging (no publish) ──
   validate-packaging:
-    if: ${{ inputs.dry-run }}
+    if: ${{ inputs.mode == 'dry-run' }}
     name: Validate Packaging
     runs-on: ubuntu-latest
     steps:
@@ -47,10 +49,75 @@ jobs:
           pip install build
           python -m build --sdist
 
-  # ── Real publish: bump → publish → sync ──
+  # ── rc: publish a prerelease from staging (rust + ts; no commit, no sync).
+  # The eventual prod release commits the same <next patch> as the final,
+  # so the final is the promoted RC code, just with the -rc suffix dropped.
+  publish-rc-rust:
+    if: ${{ inputs.mode == 'rc' }}
+    name: Publish Rust RC
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: rust
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
 
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set RC version
+        run: |
+          OLD=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+          IFS='.' read -r MA MI PA <<< "$OLD"
+          RC="${MA}.${MI}.$((PA + 1))-rc.${GITHUB_RUN_NUMBER}"
+          sed -i "0,/^version = \"${OLD}\"/s//version = \"${RC}\"/" Cargo.toml
+          sed -i "/^name = \"lightcone\"/{n;s/version = \"${OLD}\"/version = \"${RC}\"/;}" Cargo.lock
+          echo "Publishing rust RC $RC"
+
+      - name: Publish prerelease to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish --no-verify --allow-dirty
+
+  publish-rc-typescript:
+    if: ${{ inputs.mode == 'rc' }}
+    name: Publish TypeScript RC
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: typescript
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: staging
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      - run: npm install
+
+      - name: Set RC version
+        run: |
+          OLD=$(node -p "require('./package.json').version")
+          IFS='.' read -r MA MI PA <<< "$OLD"
+          RC="${MA}.${MI}.$((PA + 1))-rc.${GITHUB_RUN_NUMBER}"
+          npm version "$RC" --no-git-tag-version
+          echo "Publishing ts RC $RC"
+
+      # tag next so the RC never becomes the `latest` dist-tag.
+      - name: Publish prerelease to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public --tag next
+
+  # ── release: bump → publish final → sync (from prod) ──
   bump-versions:
-    if: ${{ ! inputs.dry-run }}
+    if: ${{ inputs.mode == 'release' }}
     name: Bump Patch Versions
     runs-on: ubuntu-latest
     outputs:
@@ -91,7 +158,7 @@ jobs:
           git push origin prod
 
   publish-rust:
-    if: ${{ ! inputs.dry-run }}
+    if: ${{ inputs.mode == 'release' }}
     name: Publish Rust Crate
     needs: [bump-versions]
     runs-on: ubuntu-latest
@@ -112,7 +179,7 @@ jobs:
         run: cargo publish --no-verify
 
   publish-typescript:
-    if: ${{ ! inputs.dry-run }}
+    if: ${{ inputs.mode == 'release' }}
     name: Publish TypeScript Package
     needs: [bump-versions]
     runs-on: ubuntu-latest
@@ -138,7 +205,7 @@ jobs:
         run: npm publish --access public
 
   sync-staging:
-    if: ${{ ! inputs.dry-run }}
+    if: ${{ inputs.mode == 'release' }}
     name: Merge Back to Staging
     needs: [publish-rust, publish-typescript]
     runs-on: ubuntu-latest
