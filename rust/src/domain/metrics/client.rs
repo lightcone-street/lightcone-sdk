@@ -225,8 +225,8 @@ impl<'a> Metrics<'a> {
     ///
     /// `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`.
     /// `scope_key` is the corresponding identifier (e.g. an orderbook ID for
-    /// `scope = "orderbook"`). `MetricsHistoryQuery::default()` yields `"1h"` resolution
-    /// with no time bounds.
+    /// `scope = "orderbook"`). `MetricsHistoryQuery::default()` yields
+    /// `Resolution::Hour1` with no time bounds.
     ///
     /// `GET /api/metrics/history/{scope}/{scope_key}`
     pub async fn history(

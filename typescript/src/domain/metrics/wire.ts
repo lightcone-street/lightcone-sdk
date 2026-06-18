@@ -1,4 +1,4 @@
-import type { OrderBookId, PubkeyStr } from "../../shared";
+import type { OrderBookId, PubkeyStr, Resolution } from "../../shared";
 
 // Decimal-bearing fields arrive as strings from the backend.
 
@@ -353,7 +353,7 @@ export interface DepositTokenVolumeHistoryPoint {
 
 export interface DepositTokenVolumeHistory {
   timestamp: number;
-  resolution: string;
+  resolution: Resolution;
   from: number;
   to: number;
   volume_total_usd: string;
@@ -394,7 +394,7 @@ export interface OpenInterestHistoryPoint {
 
 export interface OpenInterestHistory {
   timestamp: number;
-  resolution: string;
+  resolution: Resolution;
   from: number;
   to: number;
   latest_open_interest_usd: string;
@@ -427,7 +427,7 @@ export interface UniqueTradersHistoryPoint {
 
 export interface UniqueTradersHistory {
   timestamp: number;
-  resolution: string;
+  resolution: Resolution;
   scope: UniqueTradersHistoryScope;
   scope_key: string;
   from: number;
@@ -475,14 +475,14 @@ export interface HistoryPoint {
 export interface MetricsHistory {
   scope: string;
   scope_key: string;
-  resolution: string;
+  resolution: Resolution;
   points: HistoryPoint[];
 }
 
 /** Query for `GET /api/metrics/history/{scope}/{scope_key}`. */
 export interface MetricsHistoryQuery {
-  /** Defaults to `"1h"` on the backend. */
-  resolution?: string;
+  /** Defaults to `Resolution.Hour1` on the backend. */
+  resolution?: Resolution;
   from?: number;
   to?: number;
   limit?: number;

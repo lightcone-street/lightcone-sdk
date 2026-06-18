@@ -11,9 +11,25 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from ...shared.types import Resolution
+
 
 def _str_list(raw: list) -> list[str]:
     return [str(x) for x in raw]
+
+
+def _resolution_value(value: str | Resolution) -> str:
+    if isinstance(value, Resolution):
+        return value.as_str()
+    return value
+
+
+def _parse_resolution(value: object, default: Resolution) -> Resolution:
+    if isinstance(value, Resolution):
+        return value
+    if isinstance(value, str) and value:
+        return Resolution.from_str(value)
+    return default
 
 
 # ─── Deposit token ──────────────────────────────────────────────────────────
@@ -159,7 +175,7 @@ class DepositTokenVolumeHistory:
     """Response of /api/metrics/deposit-tokens/volume-history."""
 
     timestamp: int = 0
-    resolution: str = ""
+    resolution: Resolution = Resolution.ONE_DAY
     from_ms: int = 0
     to_ms: int = 0
     volume_total_usd: str = "0"
@@ -171,7 +187,7 @@ class DepositTokenVolumeHistory:
     def from_dict(d: dict) -> "DepositTokenVolumeHistory":
         return DepositTokenVolumeHistory(
             timestamp=int(d.get("timestamp", 0)),
-            resolution=d.get("resolution", ""),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
             from_ms=int(d.get("from", 0)),
             to_ms=int(d.get("to", 0)),
             volume_total_usd=str(d.get("volume_total_usd", "0")),
@@ -254,7 +270,7 @@ class OpenInterestHistory:
     """Response of /api/metrics/open-interest/history."""
 
     timestamp: int = 0
-    resolution: str = ""
+    resolution: Resolution = Resolution.ONE_DAY
     from_ms: int = 0
     to_ms: int = 0
     latest_open_interest_usd: str = "0"
@@ -266,7 +282,7 @@ class OpenInterestHistory:
     def from_dict(d: dict) -> "OpenInterestHistory":
         return OpenInterestHistory(
             timestamp=int(d.get("timestamp", 0)),
-            resolution=d.get("resolution", ""),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
             from_ms=int(d.get("from", 0)),
             to_ms=int(d.get("to", 0)),
             latest_open_interest_usd=str(d.get("latest_open_interest_usd", "0")),
@@ -313,7 +329,7 @@ class UniqueTradersHistory:
     """Response of /api/metrics/unique-traders/history."""
 
     timestamp: int = 0
-    resolution: str = ""
+    resolution: Resolution = Resolution.ONE_DAY
     scope: UniqueTradersHistoryScope = "platform"
     scope_key: str = "platform"
     from_ms: int = 0
@@ -326,7 +342,7 @@ class UniqueTradersHistory:
     def from_dict(d: dict) -> "UniqueTradersHistory":
         return UniqueTradersHistory(
             timestamp=int(d.get("timestamp", 0)),
-            resolution=d.get("resolution", ""),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_DAY),
             scope=d.get("scope", "platform"),
             scope_key=d.get("scope_key", "platform"),
             from_ms=int(d.get("from", 0)),
@@ -1124,7 +1140,7 @@ class MetricsHistory:
 
     scope: str = ""
     scope_key: str = ""
-    resolution: str = ""
+    resolution: Resolution = Resolution.ONE_HOUR
     points: list[HistoryPoint] = field(default_factory=list)
 
     @staticmethod
@@ -1132,7 +1148,7 @@ class MetricsHistory:
         return MetricsHistory(
             scope=d.get("scope", ""),
             scope_key=d.get("scope_key", ""),
-            resolution=d.get("resolution", ""),
+            resolution=_parse_resolution(d.get("resolution"), Resolution.ONE_HOUR),
             points=[HistoryPoint.from_dict(x) for x in d.get("points", [])],
         )
 
@@ -1144,13 +1160,13 @@ class MetricsHistory:
 class MetricsHistoryQuery:
     """Query for /api/metrics/history/{scope}/{scope_key}."""
 
-    resolution: str = "1h"
+    resolution: str | Resolution = Resolution.ONE_HOUR
     from_ms: Optional[int] = None
     to_ms: Optional[int] = None
     limit: Optional[int] = None
 
     def to_query(self) -> dict[str, str]:
-        params: dict[str, str] = {"resolution": self.resolution}
+        params: dict[str, str] = {"resolution": _resolution_value(self.resolution)}
         # Backend handler query is `from: Option<i64>, to: Option<i64>, limit: usize`.
         if self.from_ms is not None:
             params["from"] = str(self.from_ms)

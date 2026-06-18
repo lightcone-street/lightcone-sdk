@@ -53,21 +53,21 @@ Single-dimension summaries with the same four-window shape. See [`wire.rs`](./wi
 
 ### `DepositTokenVolumeHistory`
 
-Daily platform volume history broken down by deposit token. The response has `resolution: "1d"`, inclusive `from`, exclusive `to`, `volume_total_usd`, `total_days`, a `deposit_tokens` legend sorted by total range volume, and `points`.
+Daily platform volume history broken down by deposit token. The response has `resolution: Resolution::Day1`, inclusive `from`, exclusive `to`, `volume_total_usd`, `total_days`, a `deposit_tokens` legend sorted by total range volume, and `points`.
 
-Each `DepositTokenVolumeHistoryPoint` has `bucket_start` (Unix epoch ms), `bucket_start_date` (`YYYY-MM-DD`), `total_volume_usd`, `cumulative_volume_usd`, and `deposit_token_volumes` for the stacked-bar breakdown. All USD fields are `Decimal`.
+Each `DepositTokenVolumeHistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms), `bucket_start_date: NaiveDate`, `total_volume_usd`, `cumulative_volume_usd`, and `deposit_token_volumes` for the stacked-bar breakdown. All USD fields are `Decimal`.
 
 ### `OpenInterestHistory`
 
-Daily platform open-interest snapshots broken down by deposit asset. The response has `resolution: "1d"`, inclusive `from`, exclusive `to`, `latest_open_interest_usd`, `total_days`, a `deposit_assets` legend sorted by latest open interest, and `points`.
+Daily platform open-interest snapshots broken down by deposit asset. The response has `resolution: Resolution::Day1`, inclusive `from`, exclusive `to`, `latest_open_interest_usd`, `total_days`, a `deposit_assets` legend sorted by latest open interest, and `points`.
 
 Open interest is a snapshot metric, not cumulative. Do not sum values across days. Explicit zero values are preserved as `Decimal::ZERO` when an asset's open interest drops to zero.
 
 ### `UniqueTradersHistory`
 
-Daily unique trader counts for the platform or a scoped entity. The response has `resolution: "1d"`, `scope`, `scope_key`, inclusive `from`, exclusive `to`, `latest_unique_traders`, `total_days`, and `points`.
+Daily unique trader counts for the platform or a scoped entity. The response has `resolution: Resolution::Day1`, `scope`, `scope_key`, inclusive `from`, exclusive `to`, `latest_unique_traders`, `total_days`, and `points`.
 
-Each `UniqueTradersHistoryPoint` has `bucket_start` (Unix epoch ms for the UTC day start), `bucket_start_date` (`YYYY-MM-DD`), and `unique_traders`. Missing days are returned with `unique_traders: 0`.
+Each `UniqueTradersHistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms for the UTC day start), `bucket_start_date: NaiveDate`, and `unique_traders`. Missing days are returned with `unique_traders: 0`.
 
 ### `CategoriesMetrics`, `DepositTokensMetrics`, `MarketsMetrics`, `Leaderboard`
 
@@ -79,7 +79,7 @@ Plural envelopes holding a `Vec<_>` of their single-dimension counterparts (plus
 
 ### `MetricsHistory` / `HistoryPoint`
 
-Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: i64` (Unix epoch ms) and `volume_usd: Decimal`.
+Time-series of volume buckets for a given scope + key. Each `HistoryPoint` has `bucket_start: DateTime<Utc>` (deserialized from Unix epoch ms) and `volume_usd: Decimal`.
 
 ### `UserMetrics` — response of `metrics().user()`, `metrics().user_with_cookies()`, and `metrics().user_by_wallet()`
 
@@ -214,7 +214,7 @@ async fn history(
 ) -> Result<MetricsHistory, SdkError>
 ```
 
-Time-series of volume buckets. `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`. `MetricsHistoryQuery::default()` uses `"1h"` resolution with no time bounds.
+Time-series of volume buckets. `scope` is one of `"orderbook" | "market" | "category" | "deposit_token" | "platform"`. `MetricsHistoryQuery::default()` uses `Resolution::Hour1` with no time bounds.
 
 ### `user`
 

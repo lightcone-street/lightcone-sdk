@@ -165,7 +165,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   const minOrderSize =
     source.min_order_size === undefined || source.min_order_size === null
       ? undefined
-      : new Decimal(source.min_order_size).div(new Decimal(10).pow(decimals ?? 0));
+      : new Decimal(source.min_order_size);
 
   if (!iconUrls) errors.push("Missing icon URL");
   if (!name) errors.push("Missing display name");

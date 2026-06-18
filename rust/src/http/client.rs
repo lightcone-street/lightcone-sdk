@@ -102,11 +102,11 @@ enum AuthMode<'a> {
 
 #[derive(Debug)]
 enum ApiRequestError {
-    HttpStatus {
+    NonSuccessStatus {
         status: u16,
         body: String,
         request_id: String,
-        retry_after_ms: Option<u64>,
+        headers_retry_after_ms: Option<u64>,
     },
     Http(HttpError),
 }
@@ -124,9 +124,12 @@ impl From<reqwest::Error> for ApiRequestError {
 }
 
 impl ApiRequestError {
-    fn retry_after_ms(&self) -> Option<u64> {
+    fn headers_retry_after_ms(&self) -> Option<u64> {
         match self {
-            Self::HttpStatus { retry_after_ms, .. } => *retry_after_ms,
+            Self::NonSuccessStatus {
+                headers_retry_after_ms,
+                ..
+            } => *headers_retry_after_ms,
             Self::Http(HttpError::RateLimited { retry_after_ms }) => *retry_after_ms,
             _ => None,
         }
@@ -244,7 +247,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::Session(&self.user_session),
-            true,
         )
         .await
     }
@@ -279,7 +281,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::CookieOverride(cookie_header.to_string()),
-            true,
         )
         .await
     }
@@ -298,7 +299,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(&self.user_session),
-            true,
         )
         .await
     }
@@ -327,7 +327,6 @@ impl LightconeHttp {
             query,
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -348,7 +347,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -369,7 +367,6 @@ impl LightconeHttp {
             &[],
             retry,
             AuthMode::Session(session),
-            true,
         )
         .await
     }
@@ -383,19 +380,11 @@ impl LightconeHttp {
         query: &[(&str, String)],
         retry: RetryPolicy,
         auth_mode: AuthMode<'_>,
-        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let config = match &retry {
             RetryPolicy::None => {
                 return self
-                    .send_and_parse(
-                        &method,
-                        url,
-                        body,
-                        query,
-                        &auth_mode,
-                        parse_rejected_error_body,
-                    )
+                    .send_and_parse(&method, url, body, query, &auth_mode)
                     .await;
             }
             RetryPolicy::Idempotent => RetryConfig::idempotent(),
@@ -418,7 +407,7 @@ impl LightconeHttp {
 
                     if should_retry && attempt < config.max_retries {
                         let delay = e
-                            .retry_after_ms()
+                            .headers_retry_after_ms()
                             .map(Duration::from_millis)
                             .unwrap_or_else(|| config.delay_for_attempt(attempt));
                         tracing::debug!(
@@ -431,10 +420,7 @@ impl LightconeHttp {
                         last_error = Some(Self::request_error_message(&e));
                         futures_timer::Delay::new(delay).await;
                     } else {
-                        return Err(Self::request_error_to_sdk::<T>(
-                            e,
-                            parse_rejected_error_body,
-                        ));
+                        return Err(Self::request_error_to_sdk::<T>(e));
                     }
                 }
             }
@@ -442,7 +428,7 @@ impl LightconeHttp {
 
         Err(HttpError::MaxRetriesExceeded {
             attempts: config.max_retries + 1,
-            last_error: last_error.unwrap_or_else(|| "unknown".to_string()),
+            last_error,
         }
         .into())
     }
@@ -455,12 +441,11 @@ impl LightconeHttp {
         body: Option<&B>,
         query: &[(&str, String)],
         auth_mode: &AuthMode<'_>,
-        parse_rejected_error_body: bool,
     ) -> Result<T, SdkError> {
         let (api_resp, request_id) = self
             .send_api_request::<ApiResponse<T>, B>(method, url, body, query, auth_mode)
             .await
-            .map_err(|e| Self::request_error_to_sdk::<T>(e, parse_rejected_error_body))?;
+            .map_err(Self::request_error_to_sdk::<T>)?;
         Self::parse_api_response(api_resp, request_id)
     }
 
@@ -561,20 +546,20 @@ impl LightconeHttp {
         }
 
         let status_code = status.as_u16();
-        let retry_after_ms = Self::retry_after_ms(resp.headers());
+        let headers_retry_after_ms = Self::retry_after_ms(resp.headers());
         let body_text = resp.text().await.unwrap_or_default();
 
-        Err(ApiRequestError::HttpStatus {
+        Err(ApiRequestError::NonSuccessStatus {
             status: status_code,
             body: body_text,
             request_id,
-            retry_after_ms,
+            headers_retry_after_ms,
         })
     }
 
     fn should_retry_request_error(error: &ApiRequestError, retryable_statuses: &[u16]) -> bool {
         match error {
-            ApiRequestError::HttpStatus { status, .. } => retryable_statuses.contains(status),
+            ApiRequestError::NonSuccessStatus { status, .. } => retryable_statuses.contains(status),
             ApiRequestError::Http(HttpError::ServerError { status, .. }) => {
                 retryable_statuses.contains(status)
             }
@@ -594,23 +579,18 @@ impl LightconeHttp {
         }
     }
 
-    fn request_error_to_sdk<T: DeserializeOwned>(
-        error: ApiRequestError,
-        parse_rejected_error_body: bool,
-    ) -> SdkError {
+    fn request_error_to_sdk<T: DeserializeOwned>(error: ApiRequestError) -> SdkError {
         match error {
-            ApiRequestError::HttpStatus {
+            ApiRequestError::NonSuccessStatus {
                 status,
                 body,
                 request_id,
-                retry_after_ms,
+                headers_retry_after_ms,
             } => {
-                if parse_rejected_error_body {
-                    if let Some(error) = Self::parse_http_rejection::<T>(&body, request_id) {
-                        return error;
-                    }
+                if let Some(error) = Self::parse_http_rejection::<T>(&body, request_id) {
+                    return error;
                 }
-                Self::http_error_for_status(status, body, retry_after_ms).into()
+                Self::http_error_for_status(status, body, headers_retry_after_ms).into()
             }
             ApiRequestError::Http(error) => error.into(),
         }
@@ -631,7 +611,7 @@ impl LightconeHttp {
 
     fn request_error_message(error: &ApiRequestError) -> String {
         match error {
-            ApiRequestError::HttpStatus { status, body, .. } => {
+            ApiRequestError::NonSuccessStatus { status, body, .. } => {
                 format!("HTTP status {status}: {body}")
             }
             ApiRequestError::Http(error) => error.to_string(),

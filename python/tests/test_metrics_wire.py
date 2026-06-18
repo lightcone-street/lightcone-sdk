@@ -7,6 +7,7 @@ from lightcone_sdk.domain.metrics import (
     UniqueTradersHistory,
     UniqueTradersHistoryQuery,
 )
+from lightcone_sdk.shared import Resolution
 
 
 def test_platform_metrics_reads_open_interest_and_fee_fields():
@@ -110,7 +111,7 @@ def test_deposit_token_volume_history_reads_daily_points():
         }
     )
 
-    assert history.resolution == "1d"
+    assert history.resolution == Resolution.ONE_DAY
     assert history.from_ms == 1_704_067_200_000
     assert history.to_ms == 1_760_000_000_000
     assert history.volume_total_usd == "123456.78"
@@ -177,7 +178,7 @@ def test_open_interest_history_reads_daily_snapshots_and_preserves_zero_values()
         }
     )
 
-    assert history.resolution == "1d"
+    assert history.resolution == Resolution.ONE_DAY
     assert history.from_ms == 1_704_067_200_000
     assert history.to_ms == 1_760_000_000_000
     assert history.latest_open_interest_usd == "123456.78"
@@ -240,7 +241,7 @@ def test_unique_traders_history_reads_daily_counts_and_preserves_zero_days():
         }
     )
 
-    assert history.resolution == "1d"
+    assert history.resolution == Resolution.ONE_DAY
     assert history.scope == "platform"
     assert history.scope_key == "platform"
     assert history.from_ms == 1_710_000_000_000

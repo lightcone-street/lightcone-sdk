@@ -9,6 +9,7 @@ import type {
   UniqueTradersHistory,
   UniqueTradersHistoryQuery,
 } from "../src/domain/metrics";
+import { Resolution } from "../src/shared";
 
 describe("metrics wire types", () => {
   it("reads platform open interest and fee fields", () => {
@@ -67,7 +68,7 @@ describe("metrics wire types", () => {
   it("reads deposit-token volume history response shape", () => {
     const history: DepositTokenVolumeHistory = {
       timestamp: 1_760_000_000_000,
-      resolution: "1d",
+      resolution: Resolution.Day1,
       from: 1_704_067_200_000,
       to: 1_760_000_000_000,
       volume_total_usd: "123456.78",
@@ -95,7 +96,7 @@ describe("metrics wire types", () => {
       }],
     };
 
-    assert.equal(history.resolution, "1d");
+    assert.equal(history.resolution, Resolution.Day1);
     assert.equal(history.volume_total_usd, "123456.78");
     assert.equal(history.deposit_tokens[0]?.volume_total_usd, "90000.00");
     assert.equal(history.points[0]?.total_volume_usd, "1000.00");
@@ -123,7 +124,7 @@ describe("metrics wire types", () => {
   it("reads open-interest history response shape and preserves zero snapshots", () => {
     const history: OpenInterestHistory = {
       timestamp: 1_760_000_000_000,
-      resolution: "1d",
+      resolution: Resolution.Day1,
       from: 1_704_067_200_000,
       to: 1_760_000_000_000,
       latest_open_interest_usd: "123456.78",
@@ -151,7 +152,7 @@ describe("metrics wire types", () => {
       }],
     };
 
-    assert.equal(history.resolution, "1d");
+    assert.equal(history.resolution, Resolution.Day1);
     assert.equal(history.latest_open_interest_usd, "123456.78");
     assert.equal(history.deposit_assets[0]?.latest_open_interest_usd, "90000.00");
     assert.equal(history.deposit_assets[0]?.max_open_interest_usd, "100000.00");
@@ -190,7 +191,7 @@ describe("metrics wire types", () => {
   it("reads unique-traders history response shape and preserves zero days", () => {
     const history: UniqueTradersHistory = {
       timestamp: 1_760_000_000_000,
-      resolution: "1d",
+      resolution: Resolution.Day1,
       scope: "platform",
       scope_key: "platform",
       from: 1_710_000_000_000,
@@ -208,7 +209,7 @@ describe("metrics wire types", () => {
       }],
     };
 
-    assert.equal(history.resolution, "1d");
+    assert.equal(history.resolution, Resolution.Day1);
     assert.equal(history.scope, "platform");
     assert.equal(history.scope_key, "platform");
     assert.equal(history.latest_unique_traders, 42);

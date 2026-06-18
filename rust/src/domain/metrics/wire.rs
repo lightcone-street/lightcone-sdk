@@ -4,8 +4,8 @@
 //! from JSON strings via `rust_decimal`'s `serde-str` feature; `PubkeyStr` and
 //! `OrderBookId` newtypes are serialization-transparent.
 
-use crate::shared::{OrderBookId, PubkeyStr};
-use chrono::{DateTime, Utc};
+use crate::shared::{OrderBookId, PubkeyStr, Resolution};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
@@ -410,10 +410,11 @@ pub struct DepositTokenVolumeHistoryPointToken {
 /// Daily point in `GET /api/metrics/deposit-tokens/volume-history`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DepositTokenVolumeHistoryPoint {
-    /// Bucket start, Unix epoch milliseconds.
-    pub bucket_start: i64,
+    /// Bucket start, deserialized from Unix epoch milliseconds.
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub bucket_start: DateTime<Utc>,
     /// Calendar day label in `YYYY-MM-DD` format.
-    pub bucket_start_date: String,
+    pub bucket_start_date: NaiveDate,
     pub total_volume_usd: Decimal,
     pub cumulative_volume_usd: Decimal,
     pub deposit_token_volumes: Vec<DepositTokenVolumeHistoryPointToken>,
@@ -422,10 +423,13 @@ pub struct DepositTokenVolumeHistoryPoint {
 /// `GET /api/metrics/deposit-tokens/volume-history` response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct DepositTokenVolumeHistory {
-    pub timestamp: i64,
-    pub resolution: String,
-    pub from: i64,
-    pub to: i64,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub timestamp: DateTime<Utc>,
+    pub resolution: Resolution,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub from: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub to: DateTime<Utc>,
     pub volume_total_usd: Decimal,
     pub total_days: u32,
     pub deposit_tokens: Vec<DepositTokenVolumeHistoryToken>,
@@ -457,10 +461,11 @@ pub struct OpenInterestHistoryPointDepositAsset {
 /// Daily point in `GET /api/metrics/open-interest/history`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpenInterestHistoryPoint {
-    /// Bucket start, Unix epoch milliseconds for the UTC day start.
-    pub bucket_start: i64,
+    /// Bucket start, deserialized from Unix epoch milliseconds for the UTC day start.
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub bucket_start: DateTime<Utc>,
     /// UTC calendar day label in `YYYY-MM-DD` format.
-    pub bucket_start_date: String,
+    pub bucket_start_date: NaiveDate,
     pub total_open_interest_usd: Decimal,
     pub deposit_asset_open_interest: Vec<OpenInterestHistoryPointDepositAsset>,
 }
@@ -468,10 +473,13 @@ pub struct OpenInterestHistoryPoint {
 /// `GET /api/metrics/open-interest/history` response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct OpenInterestHistory {
-    pub timestamp: i64,
-    pub resolution: String,
-    pub from: i64,
-    pub to: i64,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub timestamp: DateTime<Utc>,
+    pub resolution: Resolution,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub from: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub to: DateTime<Utc>,
     pub latest_open_interest_usd: Decimal,
     pub total_days: u32,
     pub deposit_assets: Vec<OpenInterestHistoryDepositAsset>,
@@ -494,22 +502,26 @@ pub enum UniqueTradersHistoryScope {
 /// Daily point in `GET /api/metrics/unique-traders/history`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UniqueTradersHistoryPoint {
-    /// Bucket start, Unix epoch milliseconds for the UTC day start.
-    pub bucket_start: i64,
+    /// Bucket start, deserialized from Unix epoch milliseconds for the UTC day start.
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub bucket_start: DateTime<Utc>,
     /// UTC calendar day label in `YYYY-MM-DD` format.
-    pub bucket_start_date: String,
+    pub bucket_start_date: NaiveDate,
     pub unique_traders: u64,
 }
 
 /// `GET /api/metrics/unique-traders/history` response.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UniqueTradersHistory {
-    pub timestamp: i64,
-    pub resolution: String,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub timestamp: DateTime<Utc>,
+    pub resolution: Resolution,
     pub scope: UniqueTradersHistoryScope,
     pub scope_key: String,
-    pub from: i64,
-    pub to: i64,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub from: DateTime<Utc>,
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub to: DateTime<Utc>,
     pub latest_unique_traders: u64,
     pub total_days: u32,
     pub points: Vec<UniqueTradersHistoryPoint>,
@@ -545,8 +557,9 @@ pub struct Leaderboard {
 /// Bucket in `GET /api/metrics/history/{scope}/{scope_key}`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HistoryPoint {
-    /// Bucket start, Unix epoch milliseconds.
-    pub bucket_start: i64,
+    /// Bucket start, deserialized from Unix epoch milliseconds.
+    #[serde(with = "chrono::serde::ts_milliseconds")]
+    pub bucket_start: DateTime<Utc>,
     pub volume_usd: Decimal,
 }
 
@@ -555,7 +568,7 @@ pub struct HistoryPoint {
 pub struct MetricsHistory {
     pub scope: String,
     pub scope_key: String,
-    pub resolution: String,
+    pub resolution: Resolution,
     pub points: Vec<HistoryPoint>,
 }
 
@@ -617,7 +630,7 @@ pub struct UniqueTradersHistoryQuery {
 /// Query parameters for `GET /api/metrics/history/{scope}/{scope_key}`.
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct MetricsHistoryQuery {
-    pub resolution: String,
+    pub resolution: Resolution,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -629,7 +642,7 @@ pub struct MetricsHistoryQuery {
 impl Default for MetricsHistoryQuery {
     fn default() -> Self {
         Self {
-            resolution: "1h".to_string(),
+            resolution: Resolution::Hour1,
             from: None,
             to: None,
             limit: None,
@@ -653,6 +666,14 @@ mod tests {
     use rust_decimal::Decimal;
     use serde_json::json;
     use std::str::FromStr;
+
+    fn dt(ms: i64) -> DateTime<Utc> {
+        DateTime::<Utc>::from_timestamp_millis(ms).unwrap()
+    }
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).unwrap()
+    }
 
     #[test]
     fn platform_metrics_deserializes_open_interest_and_fee_fields() {
@@ -744,7 +765,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(history.resolution, "1d");
+        assert_eq!(history.resolution, Resolution::Day1);
         assert_eq!(
             history.volume_total_usd,
             Decimal::from_str("123456.78").unwrap()
@@ -763,8 +784,8 @@ mod tests {
         );
 
         let point = &history.points[0];
-        assert_eq!(point.bucket_start, 1_704_067_200_000);
-        assert_eq!(point.bucket_start_date, "2024-01-01");
+        assert_eq!(point.bucket_start, dt(1_704_067_200_000));
+        assert_eq!(point.bucket_start_date, date(2024, 1, 1));
         assert_eq!(
             point.total_volume_usd,
             Decimal::from_str("1000.00").unwrap()
@@ -825,7 +846,7 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(history.resolution, "1d");
+        assert_eq!(history.resolution, Resolution::Day1);
         assert_eq!(
             history.latest_open_interest_usd,
             Decimal::from_str("123456.78").unwrap()
@@ -848,8 +869,8 @@ mod tests {
         );
 
         let point = &history.points[0];
-        assert_eq!(point.bucket_start, 1_704_067_200_000);
-        assert_eq!(point.bucket_start_date, "2024-01-01");
+        assert_eq!(point.bucket_start, dt(1_704_067_200_000));
+        assert_eq!(point.bucket_start_date, date(2024, 1, 1));
         assert_eq!(
             point.total_open_interest_usd,
             Decimal::from_str("123456.78").unwrap()
@@ -912,17 +933,17 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(history.resolution, "1d");
+        assert_eq!(history.resolution, Resolution::Day1);
         assert_eq!(history.scope, UniqueTradersHistoryScope::Platform);
         assert_eq!(history.scope_key, "platform");
-        assert_eq!(history.from, 1_710_000_000_000);
-        assert_eq!(history.to, 1_720_000_000_000);
+        assert_eq!(history.from, dt(1_710_000_000_000));
+        assert_eq!(history.to, dt(1_720_000_000_000));
         assert_eq!(history.latest_unique_traders, 42);
         assert_eq!(history.total_days, 30);
         assert_eq!(history.points.len(), 2);
-        assert_eq!(history.points[0].bucket_start_date, "2024-03-09");
+        assert_eq!(history.points[0].bucket_start_date, date(2024, 3, 9));
         assert_eq!(history.points[0].unique_traders, 42);
-        assert_eq!(history.points[1].bucket_start_date, "2024-03-10");
+        assert_eq!(history.points[1].bucket_start_date, date(2024, 3, 10));
         assert_eq!(history.points[1].unique_traders, 0);
     }
 }

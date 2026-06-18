@@ -80,7 +80,7 @@ function marketResponse(
         num_outcomes: 2,
         icon_url_low: "https://example.com/usdc-low.png",
         decimals: 6,
-        min_order_size: 1_000_000,
+        min_order_size: "1.000000",
         conditional_mints: [
           {
             id: 10,

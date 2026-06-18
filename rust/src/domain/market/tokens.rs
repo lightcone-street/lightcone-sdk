@@ -270,10 +270,6 @@ impl DepositAsset {
     }
 }
 
-fn base_units_to_decimal(value: i64, decimals: u16) -> Decimal {
-    Decimal::new(value, decimals as u32)
-}
-
 // ─── DepositAssetPair ────────────────────────────────────────────────────────
 
 /// A pair of deposit assets that can be traded against each other as base/quote.
@@ -622,9 +618,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
                 short_symbol,
                 description: source.description,
                 decimals,
-                min_order_size: source
-                    .min_order_size
-                    .map(|value| base_units_to_decimal(value, decimals)),
+                min_order_size: source.min_order_size,
                 icon_url_low,
                 icon_url_medium,
                 icon_url_high,
@@ -657,7 +651,7 @@ mod tests {
             icon_url_high: Some("https://example.com/usdc_high.png".to_string()),
             metadata_uri: None,
             decimals: Some(6),
-            min_order_size: Some(1_000_000),
+            min_order_size: Some(Decimal::ONE),
             conditional_mints: vec![ConditionalTokenResponse {
                 id: 10,
                 outcome_index: 0,

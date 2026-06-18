@@ -1,6 +1,6 @@
 import type { ClientContext } from "../../context";
 import { RetryPolicy } from "../../http";
-import type { OrderBookId, PubkeyStr } from "../../shared";
+import { Resolution, type OrderBookId, type PubkeyStr } from "../../shared";
 import type {
   CategoriesMetrics,
   CategoryVolumeMetrics,
@@ -169,7 +169,7 @@ export class Metrics {
     query: MetricsHistoryQuery = {}
   ): Promise<MetricsHistory> {
     const search = new URLSearchParams();
-    search.set("resolution", query.resolution ?? "1h");
+    search.set("resolution", query.resolution ?? Resolution.Hour1);
     if (query.from !== undefined) search.set("from", String(query.from));
     if (query.to !== undefined) search.set("to", String(query.to));
     if (query.limit !== undefined) search.set("limit", String(query.limit));
