@@ -18,7 +18,7 @@ async def main():
     limit_orders = [o for o in snapshot.orders if o.order_type == "limit"]
 
     print(f"orders: {len(limit_orders)} limit")
-    print(f"balances: {len(snapshot.balances)} market")
+    print(f"market balances: {len(snapshot.market_balances)}")
     print(f"has more: {snapshot.has_more}")
 
     if limit_orders:
