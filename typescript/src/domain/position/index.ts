@@ -64,8 +64,14 @@ export interface TokenBalanceComputedBase {
 
 export interface DepositAssetMetadata {
   symbol: string;
+  short_symbol: string;
   name: string;
-  iconUrl: string;
+  deposit_asset: PubkeyStr;
+  icon_url_low: string;
+  icon_url_medium: string;
+  icon_url_high: string;
+  description: string | null;
+  decimals: number;
 }
 
 export interface DepositTokenBalance {

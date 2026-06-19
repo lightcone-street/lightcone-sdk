@@ -531,7 +531,8 @@ impl WsClient {
             MessageOut::Subscribe(params) => {
                 ACTIVE_SUBSCRIPTIONS.with(|subs| {
                     if let Ok(mut subs_ref) = subs.try_borrow_mut() {
-                        if !subs_ref.iter().any(|sub| sub == params) {
+                        let key = params.subscription_key();
+                        if !subs_ref.iter().any(|sub| sub.subscription_key() == key) {
                             tracing::info!("Tracking subscription: {:?}", params);
                             subs_ref.push(params.clone());
                         }

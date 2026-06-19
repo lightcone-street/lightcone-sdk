@@ -524,7 +524,8 @@ fn extract_close(frame: Option<&CloseFrame>) -> (u16, String) {
 fn track_subscription(subs: &mut Vec<SubscribeParams>, msg: &MessageOut) {
     match msg {
         MessageOut::Subscribe(params) => {
-            if !subs.iter().any(|s| s == params) {
+            let key = params.subscription_key();
+            if !subs.iter().any(|s| s.subscription_key() == key) {
                 tracing::debug!("Tracking subscription: {:?}", params);
                 subs.push(params.clone());
             }

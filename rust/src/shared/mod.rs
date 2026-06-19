@@ -26,7 +26,7 @@ use crate::prelude::{ConditionalToken, OrderBookPair, Token};
 // ─── OrderBookId ─────────────────────────────────────────────────────────────
 
 /// Newtype for orderbook identifiers (e.g. `"7BgBvyjr_EPjFWdd5"`).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct OrderBookId(String);
 
 impl OrderBookId {

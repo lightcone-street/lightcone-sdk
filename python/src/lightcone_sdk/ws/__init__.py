@@ -66,7 +66,7 @@ def _book_params_dict(
     aggregation = BookAggregation(
         n_sig_figs=n_sig_figs, mantissa=mantissa
     ).normalized()
-    params: dict[str, Any] = {"type": "book_update", "orderbook_ids": orderbook_ids}
+    params: dict[str, Any] = {"type": "book_update", "orderbook_ids": sorted(orderbook_ids)}
     if aggregation.n_sig_figs is not None:
         params["nSigFigs"] = aggregation.n_sig_figs
     if aggregation.mantissa is not None:
@@ -106,7 +106,7 @@ def subscribe_trades(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a trades subscribe message."""
     return {
         "method": "subscribe",
-        "params": {"type": "trades", "orderbook_ids": orderbook_ids},
+        "params": {"type": "trades", "orderbook_ids": sorted(orderbook_ids)},
     }
 
 
@@ -114,7 +114,7 @@ def unsubscribe_trades(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a trades unsubscribe message."""
     return {
         "method": "unsubscribe",
-        "params": {"type": "trades", "orderbook_ids": orderbook_ids},
+        "params": {"type": "trades", "orderbook_ids": sorted(orderbook_ids)},
     }
 
 
@@ -167,7 +167,7 @@ def subscribe_ticker(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a ticker subscribe message."""
     return {
         "method": "subscribe",
-        "params": {"type": "ticker", "orderbook_ids": orderbook_ids},
+        "params": {"type": "ticker", "orderbook_ids": sorted(orderbook_ids)},
     }
 
 
@@ -175,7 +175,7 @@ def unsubscribe_ticker(orderbook_ids: list[str]) -> dict[str, Any]:
     """Create a ticker unsubscribe message."""
     return {
         "method": "unsubscribe",
-        "params": {"type": "ticker", "orderbook_ids": orderbook_ids},
+        "params": {"type": "ticker", "orderbook_ids": sorted(orderbook_ids)},
     }
 
 

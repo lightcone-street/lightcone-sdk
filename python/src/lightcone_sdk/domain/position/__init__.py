@@ -63,8 +63,14 @@ class WalletHolding:
 @dataclass
 class DepositAssetMetadata:
     symbol: str = ""
+    short_symbol: str = ""
     name: str = ""
-    icon_url: str = ""
+    deposit_asset: str = ""
+    icon_url_low: str = ""
+    icon_url_medium: str = ""
+    icon_url_high: str = ""
+    description: Optional[str] = None
+    decimals: int = 0
 
 
 @dataclass

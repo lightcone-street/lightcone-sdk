@@ -66,9 +66,10 @@ impl MessageOut {
     /// [`BookAggregation::validate`] first — invalid combinations are
     /// rejected server-side with `INVALID_ORDERBOOK_SUBSCRIPTION`.
     pub fn subscribe_books(
-        orderbook_ids: Vec<OrderBookId>,
+        mut orderbook_ids: Vec<OrderBookId>,
         aggregation: BookAggregation,
     ) -> MessageOut {
+        orderbook_ids.sort();
         let aggregation = aggregation.normalized();
         SubscribeParams::Books {
             orderbook_ids,
@@ -81,9 +82,10 @@ impl MessageOut {
     /// Unsubscribe a book subscription. The aggregation must match the one
     /// subscribed (normalized) or the server removes nothing.
     pub fn unsubscribe_books(
-        orderbook_ids: Vec<OrderBookId>,
+        mut orderbook_ids: Vec<OrderBookId>,
         aggregation: BookAggregation,
     ) -> MessageOut {
+        orderbook_ids.sort();
         let aggregation = aggregation.normalized();
         UnsubscribeParams::Books {
             orderbook_ids,
@@ -93,11 +95,13 @@ impl MessageOut {
         .into()
     }
 
-    pub fn subscribe_trades(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+    pub fn subscribe_trades(mut orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+        orderbook_ids.sort();
         SubscribeParams::Trades { orderbook_ids }.into()
     }
 
-    pub fn unsubscribe_trades(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+    pub fn unsubscribe_trades(mut orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+        orderbook_ids.sort();
         UnsubscribeParams::Trades { orderbook_ids }.into()
     }
 
@@ -132,11 +136,13 @@ impl MessageOut {
         .into()
     }
 
-    pub fn subscribe_ticker(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+    pub fn subscribe_ticker(mut orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+        orderbook_ids.sort();
         SubscribeParams::Ticker { orderbook_ids }.into()
     }
 
-    pub fn unsubscribe_ticker(orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+    pub fn unsubscribe_ticker(mut orderbook_ids: Vec<OrderBookId>) -> MessageOut {
+        orderbook_ids.sort();
         UnsubscribeParams::Ticker { orderbook_ids }.into()
     }
 

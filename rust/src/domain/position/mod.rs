@@ -129,12 +129,17 @@ pub struct TokenBalanceComputedBase {
     pub price: String,
 }
 
-/// Metadata for a deposit asset fetched from on-chain or DAS.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositAssetMetadata {
     pub symbol: String,
+    pub short_symbol: String,
     pub name: String,
-    pub icon_url: String,
+    pub deposit_asset: PubkeyStr,
+    pub icon_url_low: String,
+    pub icon_url_medium: String,
+    pub icon_url_high: String,
+    pub description: Option<String>,
+    pub decimals: u16,
 }
 
 /// Combined balance + metadata for a deposit token.

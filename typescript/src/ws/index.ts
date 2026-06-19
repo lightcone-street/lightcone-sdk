@@ -122,12 +122,13 @@ export function subscribeBooks(
   orderbookIds: OrderBookId[],
   aggregation: BookAggregation = FULL_PRECISION
 ): MessageOut {
+  const sorted = [...orderbookIds].sort();
   const normalized = normalizeAggregation(aggregation);
   return {
     method: "subscribe",
     params: {
       type: "book_update",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: sorted,
       nSigFigs: normalized.nSigFigs,
       mantissa: normalized.mantissa,
     },
@@ -142,12 +143,13 @@ export function unsubscribeBooks(
   orderbookIds: OrderBookId[],
   aggregation: BookAggregation = FULL_PRECISION
 ): MessageOut {
+  const sorted = [...orderbookIds].sort();
   const normalized = normalizeAggregation(aggregation);
   return {
     method: "unsubscribe",
     params: {
       type: "book_update",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: sorted,
       nSigFigs: normalized.nSigFigs,
       mantissa: normalized.mantissa,
     },
@@ -159,7 +161,7 @@ export function subscribeTrades(orderbookIds: OrderBookId[]): MessageOut {
     method: "subscribe",
     params: {
       type: "trades",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: [...orderbookIds].sort(),
     },
   };
 }
@@ -169,7 +171,7 @@ export function unsubscribeTrades(orderbookIds: OrderBookId[]): MessageOut {
     method: "unsubscribe",
     params: {
       type: "trades",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: [...orderbookIds].sort(),
     },
   };
 }
@@ -222,7 +224,7 @@ export function subscribeTicker(orderbookIds: OrderBookId[]): MessageOut {
     method: "subscribe",
     params: {
       type: "ticker",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: [...orderbookIds].sort(),
     },
   };
 }
@@ -232,7 +234,7 @@ export function unsubscribeTicker(orderbookIds: OrderBookId[]): MessageOut {
     method: "unsubscribe",
     params: {
       type: "ticker",
-      orderbook_ids: orderbookIds,
+      orderbook_ids: [...orderbookIds].sort(),
     },
   };
 }

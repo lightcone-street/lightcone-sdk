@@ -506,4 +506,48 @@ mod tests {
         let unsub = sub.to_unsubscribe_params();
         assert!(sub.matches_unsubscribe(&unsub));
     }
+
+    #[test]
+    fn test_subscription_key_books_reordered_ids_match() {
+        let sub_a = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("CbGk"), OrderBookId::new("EqtCT")],
+            n_sig_figs: None,
+            mantissa: None,
+        };
+        let sub_b = SubscribeParams::Books {
+            orderbook_ids: vec![OrderBookId::new("EqtCT"), OrderBookId::new("CbGk")],
+            n_sig_figs: None,
+            mantissa: None,
+        };
+        assert_eq!(
+            sub_a.subscription_key(),
+            sub_b.subscription_key(),
+            "Books with the same ids in different order must produce the same key"
+        );
+    }
+
+    #[test]
+    fn test_subscription_key_trades_reordered_ids_match() {
+        let sub_a = SubscribeParams::Trades {
+            orderbook_ids: vec![OrderBookId::new("b"), OrderBookId::new("a")],
+        };
+        let sub_b = SubscribeParams::Trades {
+            orderbook_ids: vec![OrderBookId::new("a"), OrderBookId::new("b")],
+        };
+        assert_eq!(sub_a.subscription_key(), sub_b.subscription_key());
+    }
+
+    #[test]
+    fn test_subscribe_books_sorts_orderbook_ids() {
+        use crate::ws::MessageOut;
+
+        let msg = MessageOut::subscribe_books(
+            vec![OrderBookId::new("EqtCT"), OrderBookId::new("CbGk")],
+            BookAggregation::FULL,
+        );
+        let json = serde_json::to_string(&msg).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["params"]["orderbook_ids"][0], "CbGk");
+        assert_eq!(parsed["params"]["orderbook_ids"][1], "EqtCT");
+    }
 }
