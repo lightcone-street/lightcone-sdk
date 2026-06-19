@@ -24,8 +24,9 @@ pub use state::UserOpenLimitOrders;
 pub use state::UserTriggerOrders;
 pub use wire::{
     ConditionalBalance, FillStatus, GlobalDepositBalance, GlobalDepositUpdate, NonceUpdate,
-    NotificationUpdate, OrderEvent, OrderFillEvent, Role, TriggerOrderUpdate, UserOrderFill,
-    UserOrderFillsResponse, UserSnapshotBalance, UserSnapshotOrder, UserSnapshotOrderCommon,
+    NotificationUpdate, OrderEvent, OrderFillEvent, Role, TriggerOrderUpdate, UserBalanceUpdate,
+    UserDepositAssetBalance, UserMarketBalance, UserOrderFill, UserOrderFillsResponse,
+    UserOutcomeBalance, UserSnapshotOrder, UserSnapshotOrderCommon, UserUpdate,
 };
 
 // ─── Order (trait) ──────────────────────────────────────────────────────────

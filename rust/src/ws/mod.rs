@@ -526,6 +526,32 @@ mod tests {
     }
 
     #[test]
+    fn test_kind_user_market_balance_update_deserialization() {
+        let json = r#"{
+            "type": "user",
+            "data": {
+                "event_type": "market_balance_update",
+                "market_pubkey": "market-1",
+                "market_balance": {
+                    "market_pubkey": "market-1",
+                    "deposit_assets": []
+                },
+                "timestamp": "2026-06-19T12:34:56Z"
+            },
+            "version": 0.1
+        }"#;
+
+        let msg: MessageIn = serde_json::from_str(json).unwrap();
+        match msg.kind {
+            Kind::User(UserUpdate::BalanceUpdate(update)) => {
+                assert_eq!(update.market_pubkey.as_str(), "market-1");
+                assert!(update.market_balance.deposit_assets.is_empty());
+            }
+            other => panic!("expected user market balance update, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_ws_config_default() {
         let config = WsConfig::default();
         assert_eq!(config.max_reconnect_attempts, 10);

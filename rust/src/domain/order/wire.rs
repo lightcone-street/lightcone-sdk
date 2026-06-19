@@ -15,33 +15,41 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct ConditionalBalance {
     pub outcome_index: i16,
-    #[serde(alias = "conditional_token")]
-    pub mint: PubkeyStr,
+    pub conditional_token: PubkeyStr,
     pub idle: Decimal,
     pub on_book: Decimal,
 }
 
-/// WS user balance update.
+/// WS user market balance update.
 #[derive(Deserialize, Debug, Clone)]
 pub struct UserBalanceUpdate {
     pub market_pubkey: PubkeyStr,
-    pub orderbook_id: OrderBookId,
-    pub balance: BalanceUpdateOutcomes,
+    pub market_balance: UserMarketBalance,
     pub timestamp: DateTime<Utc>,
 }
 
-/// WS balance update payload.
-#[derive(Deserialize, Debug, Clone)]
-pub struct BalanceUpdateOutcomes {
-    pub outcomes: Vec<ConditionalBalance>,
+/// User balances for a single market.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UserMarketBalance {
+    pub market_pubkey: PubkeyStr,
+    pub deposit_assets: Vec<UserDepositAssetBalance>,
 }
 
-/// WS user snapshot balance.
+/// User balances for a single deposit asset within a market.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UserSnapshotBalance {
-    pub market_pubkey: PubkeyStr,
-    pub orderbook_id: OrderBookId,
-    pub outcomes: Vec<ConditionalBalance>,
+pub struct UserDepositAssetBalance {
+    pub deposit_asset: PubkeyStr,
+    pub outcomes: Vec<UserOutcomeBalance>,
+}
+
+/// User balance for one conditional token/outcome.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UserOutcomeBalance {
+    pub outcome_index: i16,
+    pub conditional_token: PubkeyStr,
+    pub balance: Decimal,
+    pub balance_idle: Decimal,
+    pub balance_on_book: Decimal,
 }
 
 /// Global deposit balance for a single mint (used in snapshots).
@@ -180,7 +188,7 @@ pub struct UserOrderUpdateBalance {
 #[derive(Deserialize, Debug, Clone)]
 pub struct UserSnapshot {
     pub orders: Vec<UserSnapshotOrder>,
-    pub balances: std::collections::HashMap<OrderBookId, UserSnapshotBalance>,
+    pub market_balances: Vec<UserMarketBalance>,
     #[serde(default)]
     pub global_deposits: Vec<GlobalDepositBalance>,
     #[serde(default)]
@@ -269,7 +277,7 @@ pub enum UserUpdate {
     Snapshot(UserSnapshot),
     #[serde(rename = "order")]
     Order(OrderEvent),
-    #[serde(rename = "balance_update")]
+    #[serde(rename = "market_balance_update")]
     BalanceUpdate(UserBalanceUpdate),
     #[serde(rename = "global_deposit_update")]
     GlobalDepositUpdate(GlobalDepositUpdate),

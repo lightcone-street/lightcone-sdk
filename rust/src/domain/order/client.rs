@@ -1,6 +1,6 @@
 //! Orders sub-client — submit, cancel, query, and on-chain order operations.
 
-use super::wire::{UserSnapshotBalance, UserSnapshotOrder};
+use super::wire::{UserMarketBalance, UserSnapshotOrder};
 use crate::client::LightconeClient;
 use crate::domain::order::UserOrderFillsResponse;
 use crate::error::SdkError;
@@ -224,7 +224,7 @@ pub struct UserOrdersResponse {
     /// All orders (both limit and trigger) in a single array.
     /// Discriminated by `order_type` field on each order.
     pub orders: Vec<UserSnapshotOrder>,
-    pub balances: Vec<UserSnapshotBalance>,
+    pub market_balances: Vec<UserMarketBalance>,
     pub next_cursor: Option<String>,
     pub has_more: bool,
 }
