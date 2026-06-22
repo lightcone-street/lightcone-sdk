@@ -24,7 +24,7 @@ async fn main() -> ExampleResult {
         "orders: {} limit / {} trigger",
         limit_orders, trigger_orders
     );
-    println!("balances: {} market", snapshot.balances.len());
+    println!("market balances: {}", snapshot.market_balances.len());
     println!("has more: {}", snapshot.has_more);
 
     if let Some(order) = snapshot.orders.first() {

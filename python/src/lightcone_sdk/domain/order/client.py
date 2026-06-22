@@ -9,7 +9,7 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from ...error import SigningError
+from ...error import SigningError, _require
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
 from ...program.envelope import LimitOrderEnvelope, TriggerOrderEnvelope
 from ...program.errors import ArithmeticOverflowError
@@ -51,7 +51,7 @@ from . import (
     TriggerOrderResponse,
     UserOrderFillsResponse,
     UserOrdersResponse,
-    UserSnapshotBalance,
+    UserMarketBalance,
     UserSnapshotOrder,
 )
 from .convert import submit_response_from_dict
@@ -519,7 +519,10 @@ def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersRespon
     return UserOrdersResponse(
         user_pubkey=data.get("user_pubkey", wallet),
         orders=[UserSnapshotOrder.from_dict(o) for o in data.get("orders", [])],
-        balances=[UserSnapshotBalance.from_dict(b) for b in data.get("balances", [])],
+        market_balances=[
+            UserMarketBalance.from_dict(b)
+            for b in _require(data, "market_balances", "UserOrdersResponse")
+        ],
         next_cursor=data.get("next_cursor"),
         has_more=data.get("has_more", False),
     )

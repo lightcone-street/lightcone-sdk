@@ -5,6 +5,7 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Optional
 
+from ...error import _require
 from ...shared.types import TimeInForce, TriggerType
 
 
@@ -191,7 +192,7 @@ class CancelTriggerSuccess:
 @dataclass
 class ConditionalBalance:
     outcome_index: int = 0
-    mint: str = ""
+    conditional_token: str = ""
     idle: str = "0"
     on_book: str = "0"
 
@@ -199,9 +200,9 @@ class ConditionalBalance:
     def from_dict(d: dict) -> "ConditionalBalance":
         return ConditionalBalance(
             outcome_index=d.get("outcome_index", 0),
-            mint=d.get("mint") or d.get("conditional_token", ""),
-            idle=d.get("idle", "0"),
-            on_book=d.get("on_book", "0"),
+            conditional_token=_require(d, "conditional_token", "ConditionalBalance"),
+            idle=str(d.get("idle", "0")),
+            on_book=str(d.get("on_book", "0")),
         )
 
 
@@ -219,17 +220,53 @@ class GlobalDepositBalance:
 
 
 @dataclass
-class UserSnapshotBalance:
-    market_pubkey: str = ""
-    orderbook_id: str = ""
-    outcomes: list[ConditionalBalance] = field(default_factory=list)
+class UserOutcomeBalance:
+    outcome_index: int = 0
+    conditional_token: str = ""
+    balance: str = "0"
+    balance_idle: str = "0"
+    balance_on_book: str = "0"
 
     @staticmethod
-    def from_dict(d: dict) -> "UserSnapshotBalance":
-        return UserSnapshotBalance(
-            market_pubkey=d.get("market_pubkey", ""),
-            orderbook_id=d.get("orderbook_id", ""),
-            outcomes=[ConditionalBalance.from_dict(c) for c in d.get("outcomes", [])],
+    def from_dict(d: dict) -> "UserOutcomeBalance":
+        return UserOutcomeBalance(
+            outcome_index=d.get("outcome_index", 0),
+            conditional_token=_require(d, "conditional_token", "UserOutcomeBalance"),
+            balance=str(_require(d, "balance", "UserOutcomeBalance")),
+            balance_idle=str(_require(d, "balance_idle", "UserOutcomeBalance")),
+            balance_on_book=str(_require(d, "balance_on_book", "UserOutcomeBalance")),
+        )
+
+
+@dataclass
+class UserDepositAssetBalance:
+    deposit_asset: str = ""
+    outcomes: list[UserOutcomeBalance] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserDepositAssetBalance":
+        return UserDepositAssetBalance(
+            deposit_asset=_require(d, "deposit_asset", "UserDepositAssetBalance"),
+            outcomes=[
+                UserOutcomeBalance.from_dict(c)
+                for c in _require(d, "outcomes", "UserDepositAssetBalance")
+            ],
+        )
+
+
+@dataclass
+class UserMarketBalance:
+    market_pubkey: str = ""
+    deposit_assets: list[UserDepositAssetBalance] = field(default_factory=list)
+
+    @staticmethod
+    def from_dict(d: dict) -> "UserMarketBalance":
+        return UserMarketBalance(
+            market_pubkey=_require(d, "market_pubkey", "UserMarketBalance"),
+            deposit_assets=[
+                UserDepositAssetBalance.from_dict(c)
+                for c in _require(d, "deposit_assets", "UserMarketBalance")
+            ],
         )
 
 
@@ -325,7 +362,7 @@ def _sum_decimal_strings(left: str, right: str) -> str:
 class UserOrdersResponse:
     user_pubkey: str = ""
     orders: list[UserSnapshotOrder] = field(default_factory=list)
-    balances: list[UserSnapshotBalance] = field(default_factory=list)
+    market_balances: list[UserMarketBalance] = field(default_factory=list)
     next_cursor: Optional[str] = None
     has_more: bool = False
 
@@ -356,7 +393,9 @@ __all__ = [
     "CancelTriggerSuccess",
     "ConditionalBalance",
     "GlobalDepositBalance",
-    "UserSnapshotBalance",
+    "UserMarketBalance",
+    "UserDepositAssetBalance",
+    "UserOutcomeBalance",
     "UserSnapshotOrder",
     "UserOrdersResponse",
     "Role",

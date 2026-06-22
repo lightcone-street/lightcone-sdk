@@ -146,9 +146,13 @@ export type {
   OrderType,
   SubmitOrderResponse,
   SubmitOrderStatus,
-  UserSnapshotBalance,
+  UserBalanceUpdate,
+  UserDepositAssetBalance,
+  UserMarketBalance,
+  UserOutcomeBalance,
   UserSnapshotOrder,
   UserOrdersResponse,
+  UserUpdate,
 } from "./domain/order";
 export type { UserOpenLimitOrders } from "./domain/order/state";
 
