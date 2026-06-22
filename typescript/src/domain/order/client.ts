@@ -47,7 +47,7 @@ import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "..
 import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
 import {
   normalizeUserOrdersPayload,
-  type UserSnapshotBalance,
+  type UserMarketBalance,
   type UserSnapshotOrder,
   type UserOrderFillsResponse,
 } from "./wire";
@@ -188,7 +188,7 @@ export interface CancelTriggerSuccess {
 export interface UserOrdersResponse {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
-  balances: UserSnapshotBalance[];
+  market_balances: UserMarketBalance[];
   next_cursor?: string;
   has_more: boolean;
 }
@@ -606,7 +606,7 @@ export class Orders {
 interface UserOrdersRawResponse {
   user_pubkey: PubkeyStr;
   orders?: UserSnapshotOrder[];
-  balances?: UserSnapshotBalance[];
+  market_balances: UserMarketBalance[];
   next_cursor?: string | null;
   has_more?: boolean;
 }

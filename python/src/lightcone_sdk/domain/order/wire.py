@@ -5,11 +5,11 @@ from decimal import Decimal, InvalidOperation
 from enum import Enum
 from typing import Optional, Union
 
-from ...error import _require
+from ...error import DeserializationError, _require
 from ...shared.types import Side, TimeInForce, TriggerType
 from . import (
     UserSnapshotOrder,
-    UserSnapshotBalance,
+    UserMarketBalance,
     GlobalDepositBalance,
     ConditionalBalance,
     TriggerOrder,
@@ -189,20 +189,16 @@ class UserBalanceUpdate:
     """WebSocket user balance update."""
 
     market_pubkey: str = ""
-    orderbook_id: str = ""
-    balance: Optional[UserSnapshotBalance] = None
+    market_balance: UserMarketBalance = field(default_factory=UserMarketBalance)
     timestamp: Optional[str] = None
 
     @staticmethod
     def from_dict(d: dict) -> "UserBalanceUpdate":
-        bal_raw = d.get("balance")
-        bal = None
-        if isinstance(bal_raw, dict):
-            bal = UserSnapshotBalance.from_dict(bal_raw)
         return UserBalanceUpdate(
-            market_pubkey=d.get("market_pubkey", ""),
-            orderbook_id=d.get("orderbook_id", ""),
-            balance=bal,
+            market_pubkey=_require(d, "market_pubkey", "UserBalanceUpdate"),
+            market_balance=UserMarketBalance.from_dict(
+                _require(d, "market_balance", "UserBalanceUpdate")
+            ),
             timestamp=d.get("timestamp"),
         )
 
@@ -261,29 +257,19 @@ class UserSnapshot:
     """WebSocket user snapshot."""
 
     orders: list[UserSnapshotOrder] = field(default_factory=list)
-    balances: list[UserSnapshotBalance] = field(default_factory=list)
+    market_balances: list[UserMarketBalance] = field(default_factory=list)
     global_deposits: list[GlobalDepositBalance] = field(default_factory=list)
     notifications: list[Notification] = field(default_factory=list)
     nonce: int = 0
 
     @staticmethod
     def from_dict(d: dict) -> "UserSnapshot":
-        balances_raw = d.get("balances", [])
-        if isinstance(balances_raw, dict):
-            balances_raw = [
-                {
-                    **(
-                        {"orderbook_id": orderbook_id}
-                        if isinstance(balance, dict) and "orderbook_id" not in balance
-                        else {}
-                    ),
-                    **(balance if isinstance(balance, dict) else {}),
-                }
-                for orderbook_id, balance in balances_raw.items()
-            ]
         return UserSnapshot(
             orders=[UserSnapshotOrder.from_dict(o) for o in d.get("orders", [])],
-            balances=[UserSnapshotBalance.from_dict(b) for b in balances_raw],
+            market_balances=[
+                UserMarketBalance.from_dict(b)
+                for b in _require(d, "market_balances", "UserSnapshot")
+            ],
             global_deposits=[
                 GlobalDepositBalance.from_dict(g) for g in d.get("global_deposits", [])
             ],
@@ -318,7 +304,7 @@ class UserUpdate:
             payload = UserSnapshot.from_dict(d)
         elif event_type == "order":
             payload = _parse_order_event(d)
-        elif event_type == "balance_update":
+        elif event_type == "market_balance_update":
             payload = UserBalanceUpdate.from_dict(d)
         elif event_type == "global_deposit_update":
             payload = GlobalDepositUpdate.from_dict(d)
@@ -327,7 +313,9 @@ class UserUpdate:
         elif event_type == "notification":
             payload = NotificationUpdate.from_dict(d)
         else:
-            payload = d
+            raise DeserializationError(
+                f"Invalid user update event_type '{event_type}'"
+            )
 
         return UserUpdate(event_type=event_type, data=payload)
 

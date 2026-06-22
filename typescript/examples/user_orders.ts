@@ -11,7 +11,7 @@ async function main() {
   );
 
   console.log(`orders: ${limitOrders.length} limit`);
-  console.log(`balances: ${snapshot.balances.length} market`);
+  console.log(`market balances: ${snapshot.market_balances.length}`);
   console.log(`has more: ${snapshot.has_more}`);
 
   const firstOrder = limitOrders[0];

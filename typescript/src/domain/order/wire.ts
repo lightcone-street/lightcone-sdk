@@ -13,15 +13,27 @@ import type { OrderStatus, TriggerOrder } from "./index";
 
 export interface ConditionalBalance {
   outcome_index: number;
-  mint: PubkeyStr;
+  conditional_token: PubkeyStr;
   idle: string;
   on_book: string;
 }
 
-export interface UserSnapshotBalance {
+export interface UserMarketBalance {
   market_pubkey: PubkeyStr;
-  orderbook_id: OrderBookId;
-  outcomes: ConditionalBalance[];
+  deposit_assets: UserDepositAssetBalance[];
+}
+
+export interface UserDepositAssetBalance {
+  deposit_asset: PubkeyStr;
+  outcomes: UserOutcomeBalance[];
+}
+
+export interface UserOutcomeBalance {
+  outcome_index: number;
+  conditional_token: PubkeyStr;
+  balance: string;
+  balance_idle: string;
+  balance_on_book: string;
 }
 
 export interface GlobalDepositBalance {
@@ -100,7 +112,7 @@ export type UserSnapshotOrder =
 
 export interface UserSnapshot {
   orders: UserSnapshotOrder[];
-  balances: Record<string, UserSnapshotBalance>;
+  market_balances: UserMarketBalance[];
   global_deposits: GlobalDepositBalance[];
   notifications: Notification[];
   nonce?: number;
@@ -153,15 +165,14 @@ export interface NotificationUpdate {
 
 export interface UserBalanceUpdate {
   market_pubkey: PubkeyStr;
-  orderbook_id: OrderBookId;
-  balance: { outcomes: ConditionalBalance[] };
+  market_balance: UserMarketBalance;
   timestamp: string;
 }
 
 export type UserUpdate =
   | ({ event_type: "snapshot" } & UserSnapshot)
   | ({ event_type: "order" } & OrderEvent)
-  | ({ event_type: "balance_update" } & UserBalanceUpdate)
+  | ({ event_type: "market_balance_update" } & UserBalanceUpdate)
   | ({ event_type: "global_deposit_update" } & GlobalDepositUpdate)
   | ({ event_type: "nonce" } & NonceUpdate)
   | ({ event_type: "notification" } & NotificationUpdate);
@@ -206,9 +217,22 @@ export interface UserOrderFillsResponse {
   has_more: boolean;
 }
 
-type RawConditionalBalance = Omit<ConditionalBalance, "mint"> & {
-  mint?: string;
-  conditional_token?: string;
+type RawConditionalBalance = Omit<ConditionalBalance, "conditional_token"> & {
+  conditional_token: string;
+};
+
+type RawUserOutcomeBalance = Omit<UserOutcomeBalance, "conditional_token"> & {
+  conditional_token: string;
+};
+
+type RawUserDepositAssetBalance = Omit<UserDepositAssetBalance, "deposit_asset" | "outcomes"> & {
+  deposit_asset: string;
+  outcomes: RawUserOutcomeBalance[];
+};
+
+type RawUserMarketBalance = Omit<UserMarketBalance, "market_pubkey" | "deposit_assets"> & {
+  market_pubkey: string;
+  deposit_assets: RawUserDepositAssetBalance[];
 };
 
 type RawUserOrderUpdateBalance = {
@@ -240,24 +264,21 @@ type RawUserSnapshotOrder =
       time_in_force?: TimeInForce;
     } & RawUserSnapshotOrderCommon);
 
-type RawUserSnapshotBalance = Omit<UserSnapshotBalance, "outcomes"> & {
-  outcomes: RawConditionalBalance[];
-};
-
-type RawUserSnapshot = Omit<UserSnapshot, "orders" | "balances"> & {
+type RawUserSnapshot = Omit<UserSnapshot, "orders" | "market_balances"> & {
   orders: RawUserSnapshotOrder[];
-  balances: Record<string, RawUserSnapshotBalance>;
+  market_balances: RawUserMarketBalance[];
 };
 
-type RawUserBalanceUpdate = Omit<UserBalanceUpdate, "balance"> & {
-  balance: RawUserOrderUpdateBalance;
+type RawUserBalanceUpdate = Omit<UserBalanceUpdate, "market_pubkey" | "market_balance"> & {
+  market_pubkey: string;
+  market_balance: RawUserMarketBalance;
 };
 
 type RawUserUpdate =
   | ({ event_type: "snapshot" } & RawUserSnapshot)
   | ({ event_type: "order" } & ({ order_type: "limit" } & RawOrderUpdate))
   | ({ event_type: "order" } & ({ order_type: "trigger" } & TriggerOrderUpdate))
-  | ({ event_type: "balance_update" } & RawUserBalanceUpdate)
+  | ({ event_type: "market_balance_update" } & RawUserBalanceUpdate)
   | ({ event_type: "global_deposit_update" } & GlobalDepositUpdate)
   | ({ event_type: "nonce" | "nonce_update" } & NonceUpdate)
   | ({ event_type: "notification" } & NotificationUpdate);
@@ -265,20 +286,19 @@ type RawUserUpdate =
 type RawUserOrdersPayload = {
   user_pubkey: PubkeyStr;
   orders?: RawUserSnapshotOrder[];
-  balances?: RawUserSnapshotBalance[];
+  market_balances: RawUserMarketBalance[];
   next_cursor?: string | null;
   has_more?: boolean;
 };
 
 export function normalizeConditionalBalance(balance: RawConditionalBalance): ConditionalBalance {
-  const mint = balance.mint ?? balance.conditional_token;
-  if (!mint) {
-    throw new Error("Invalid conditional balance: missing mint");
+  if (!balance.conditional_token) {
+    throw new Error("Invalid conditional balance: missing conditional_token");
   }
 
   return {
     outcome_index: balance.outcome_index,
-    mint: asPubkeyStr(mint),
+    conditional_token: asPubkeyStr(balance.conditional_token),
     idle: balance.idle,
     on_book: balance.on_book,
   };
@@ -356,24 +376,58 @@ export function normalizeUserSnapshotOrder(
   throw new Error(`Invalid user snapshot order: unsupported order_type "${rawOrderType}"`);
 }
 
-export function normalizeUserSnapshotBalance(
-  balance: RawUserSnapshotBalance
-): UserSnapshotBalance {
+function requireArray<T>(value: T[] | undefined, context: string): T[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`Invalid ${context}: expected array`);
+  }
+  return value;
+}
+
+export function normalizeUserOutcomeBalance(
+  balance: RawUserOutcomeBalance
+): UserOutcomeBalance {
+  if (!balance.conditional_token) {
+    throw new Error("Invalid user outcome balance: missing conditional_token");
+  }
+
   return {
-    ...balance,
-    outcomes: balance.outcomes.map(normalizeConditionalBalance),
+    outcome_index: balance.outcome_index,
+    conditional_token: asPubkeyStr(balance.conditional_token),
+    balance: balance.balance,
+    balance_idle: balance.balance_idle,
+    balance_on_book: balance.balance_on_book,
   };
 }
 
-function normalizeUserSnapshotBalancesRecord(
-  balances: Record<string, RawUserSnapshotBalance>
-): Record<string, UserSnapshotBalance> {
-  return Object.fromEntries(
-    Object.entries(balances).map(([orderbookId, balance]) => [
-      orderbookId,
-      normalizeUserSnapshotBalance(balance),
-    ])
-  );
+export function normalizeUserDepositAssetBalance(
+  balance: RawUserDepositAssetBalance
+): UserDepositAssetBalance {
+  if (!balance.deposit_asset) {
+    throw new Error("Invalid user deposit asset balance: missing deposit_asset");
+  }
+
+  return {
+    deposit_asset: asPubkeyStr(balance.deposit_asset),
+    outcomes: requireArray(balance.outcomes, "user deposit asset balance outcomes").map(
+      normalizeUserOutcomeBalance
+    ),
+  };
+}
+
+export function normalizeUserMarketBalance(
+  balance: RawUserMarketBalance
+): UserMarketBalance {
+  if (!balance.market_pubkey) {
+    throw new Error("Invalid user market balance: missing market_pubkey");
+  }
+
+  return {
+    market_pubkey: asPubkeyStr(balance.market_pubkey),
+    deposit_assets: requireArray(
+      balance.deposit_assets,
+      "user market balance deposit_assets"
+    ).map(normalizeUserDepositAssetBalance),
+  };
 }
 
 export function normalizeUserOrdersPayload(
@@ -381,14 +435,17 @@ export function normalizeUserOrdersPayload(
 ): {
   user_pubkey: PubkeyStr;
   orders: UserSnapshotOrder[];
-  balances: UserSnapshotBalance[];
+  market_balances: UserMarketBalance[];
   next_cursor?: string;
   has_more: boolean;
 } {
   return {
     user_pubkey: response.user_pubkey,
     orders: (response.orders ?? []).map(normalizeUserSnapshotOrder),
-    balances: (response.balances ?? []).map(normalizeUserSnapshotBalance),
+    market_balances: requireArray(
+      response.market_balances,
+      "user orders response market_balances"
+    ).map(normalizeUserMarketBalance),
     next_cursor: response.next_cursor ?? undefined,
     has_more: response.has_more ?? false,
   };
@@ -401,7 +458,10 @@ export function normalizeUserUpdate(raw: RawUserUpdate): UserUpdate {
         ...raw,
         event_type: "snapshot",
         orders: raw.orders.map(normalizeUserSnapshotOrder),
-        balances: normalizeUserSnapshotBalancesRecord(raw.balances),
+        market_balances: requireArray(
+          raw.market_balances,
+          "user snapshot market_balances"
+        ).map(normalizeUserMarketBalance),
         global_deposits: raw.global_deposits ?? [],
         notifications: raw.notifications ?? [],
         nonce: raw.nonce ?? 0,
@@ -424,11 +484,12 @@ export function normalizeUserUpdate(raw: RawUserUpdate): UserUpdate {
       throw new Error(
         `Invalid user order event: unsupported order_type "${(raw as { order_type: string }).order_type}"`
       );
-    case "balance_update":
+    case "market_balance_update":
       return {
         ...raw,
-        event_type: "balance_update",
-        balance: normalizeUserOrderUpdateBalance(raw.balance),
+        event_type: "market_balance_update",
+        market_pubkey: asPubkeyStr(raw.market_pubkey),
+        market_balance: normalizeUserMarketBalance(raw.market_balance),
       };
     case "global_deposit_update":
       return raw;
@@ -440,5 +501,9 @@ export function normalizeUserUpdate(raw: RawUserUpdate): UserUpdate {
       };
     case "notification":
       return raw;
+    default:
+      throw new Error(
+        `Invalid user update event_type "${(raw as { event_type: string }).event_type}"`
+      );
   }
 }
