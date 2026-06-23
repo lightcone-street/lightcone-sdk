@@ -237,6 +237,13 @@ class UserOutcomeBalance:
             balance_on_book=str(_require(d, "balance_on_book", "UserOutcomeBalance")),
         )
 
+    def is_zero(self) -> bool:
+        """True when the outcome holds nothing idle and nothing resting on the book."""
+        return not (
+            Decimal(self.balance_idle) > Decimal(0)
+            or Decimal(self.balance_on_book) > Decimal(0)
+        )
+
 
 @dataclass
 class UserDepositAssetBalance:

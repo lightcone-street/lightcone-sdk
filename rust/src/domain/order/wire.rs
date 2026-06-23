@@ -35,13 +35,6 @@ pub struct UserMarketBalance {
     pub deposit_assets: Vec<UserDepositAssetBalance>,
 }
 
-/// User balances for a single deposit asset within a market.
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub struct UserDepositAssetBalance {
-    pub deposit_asset: PubkeyStr,
-    pub outcomes: Vec<UserOutcomeBalance>,
-}
-
 /// User balance for one conditional token/outcome.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UserOutcomeBalance {
@@ -50,6 +43,19 @@ pub struct UserOutcomeBalance {
     pub balance: Decimal,
     pub balance_idle: Decimal,
     pub balance_on_book: Decimal,
+}
+
+impl UserOutcomeBalance {
+    pub fn is_zero(&self) -> bool {
+        !(self.balance_idle > Decimal::ZERO || self.balance_on_book > Decimal::ZERO)
+    }
+}
+
+/// User balances for a single deposit asset within a market.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UserDepositAssetBalance {
+    pub deposit_asset: PubkeyStr,
+    pub outcomes: Vec<UserOutcomeBalance>,
 }
 
 /// Global deposit balance for a single mint (used in snapshots).
