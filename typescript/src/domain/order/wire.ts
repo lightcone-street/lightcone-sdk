@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 import { asPubkeyStr, TimeInForce, TriggerType } from "../../shared";
 import type {
   OrderBookId,
@@ -34,6 +35,13 @@ export interface UserOutcomeBalance {
   balance: string;
   balance_idle: string;
   balance_on_book: string;
+}
+
+/** True when the outcome holds nothing idle and nothing resting on the book. */
+export function userOutcomeBalanceIsZero(balance: UserOutcomeBalance): boolean {
+  return !(
+    new Decimal(balance.balance_idle).gt(0) || new Decimal(balance.balance_on_book).gt(0)
+  );
 }
 
 export interface GlobalDepositBalance {
