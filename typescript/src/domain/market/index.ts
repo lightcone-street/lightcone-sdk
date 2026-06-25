@@ -46,10 +46,9 @@ export interface Market {
   bannerImageUrlHigh: string;
   iconUrlLow: string;
   iconUrlMedium: string;
-  iconUrlHigh: string;
-  featuredRank?: number;
-  volume: string;
-  slug: string;
+    iconUrlHigh: string;
+    featuredRank?: number;
+    slug: string;
   status: Status;
   createdAt: Date;
   activatedAt?: Date;

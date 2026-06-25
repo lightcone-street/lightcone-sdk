@@ -8,7 +8,6 @@ use super::wire;
 use super::{Market, Status, ValidationError};
 use crate::domain::orderbook;
 use crate::shared::PubkeyStr;
-use rust_decimal::Decimal;
 use std::collections::HashMap;
 
 impl TryFrom<wire::MarketResponse> for Market {
@@ -114,7 +113,6 @@ impl TryFrom<wire::MarketResponse> for Market {
         Ok(Market {
             id: source.market_id,
             pubkey: source.market_pubkey.into(),
-            volume: Decimal::ZERO,
             featured_rank: source.featured_rank,
             slug,
             name,
@@ -181,6 +179,7 @@ fn derive_deposit_asset_pairs(
 mod tests {
     use super::*;
     use chrono::Utc;
+    use rust_decimal::Decimal;
 
     fn minimal_market_response() -> wire::MarketResponse {
         wire::MarketResponse {

@@ -225,7 +225,6 @@ class Market:
     icon_url_medium: str = ""
     icon_url_high: str = ""
     featured_rank: Optional[int] = None
-    volume: str = "0"
     slug: str = ""
     status: Status = Status.PENDING
     created_at: Optional[str] = None

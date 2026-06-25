@@ -210,7 +210,6 @@ class MarketWire:
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
     resolution: Optional[MarketResolutionResponse] = None
-    volume: Optional[str] = None
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
@@ -258,7 +257,6 @@ class MarketWire:
                 if isinstance(resolution_raw, dict)
                 else None
             ),
-            volume=d.get("volume"),
             created_at=d.get("created_at"),
             activated_at=d.get("activated_at"),
             settled_at=d.get("settled_at"),

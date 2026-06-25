@@ -239,7 +239,6 @@ def market_from_wire(wire: MarketWire) -> Market:
         icon_url_medium=market_icons[1] if market_icons else "",
         icon_url_high=market_icons[2] if market_icons else "",
         featured_rank=wire.featured_rank,
-        volume=wire.volume or "0",
         slug=wire.slug or "",
         status=_parse_status(wire.market_status),
         created_at=wire.created_at,

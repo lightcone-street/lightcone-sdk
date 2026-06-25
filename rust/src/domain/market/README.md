@@ -24,7 +24,6 @@ A fully validated market with all nested domain types.
 | `name` | `String` | Market title (e.g., "Who wins the 2024 election?") |
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
-| `volume` | `Decimal` | Total traded volume |
 | `description` | `String` | Detailed market description |
 | `definition` | `String` | Resolution criteria |
 | `category` | `Option<String>` | Market category |
@@ -281,7 +280,6 @@ async fn inspect_market(client: &LightconeClient) -> Result<(), SdkError> {
     let market = client.markets().get(None, Some(1)).await?.markets.into_iter().next().unwrap();
 
     println!("Market: {} ({})", market.name, market.status.as_str());
-    println!("Volume: {}", market.volume);
 
     for outcome in &market.outcomes {
         println!("  Outcome {}: {}", outcome.index, outcome.name);

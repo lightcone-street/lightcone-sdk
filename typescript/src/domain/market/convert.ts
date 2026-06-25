@@ -87,7 +87,6 @@ export function marketFromWire(source: MarketResponse): Market {
     iconUrlMedium: iconUrls?.medium ?? "",
     iconUrlHigh: iconUrls?.high ?? "",
     featuredRank: source.featured_rank,
-    volume: "0",
     slug: source.slug ?? "",
     status: status ?? Status.Pending,
     createdAt: new Date(source.created_at),

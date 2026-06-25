@@ -12,7 +12,6 @@ pub use self::wire::{MarketResolutionKind, MarketResolutionPayout, MarketResolut
 use crate::domain::orderbook;
 use crate::shared::{OrderBookId, PubkeyStr};
 use chrono::{DateTime, Utc};
-use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -89,7 +88,6 @@ pub struct Market {
     pub icon_url_medium: String,
     pub icon_url_high: String,
     pub featured_rank: Option<i16>,
-    pub volume: Decimal,
     pub slug: String,
     pub status: Status,
     pub created_at: DateTime<Utc>,

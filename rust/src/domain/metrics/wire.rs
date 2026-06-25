@@ -80,7 +80,7 @@ pub struct PlatformMetrics {
 // ─── Market (listing + detail) ───────────────────────────────────────────────
 
 /// Entry in `GET /api/metrics/markets`.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct MarketVolumeMetrics {
     pub market_pubkey: PubkeyStr,
     #[serde(default)]
