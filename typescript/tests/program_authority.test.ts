@@ -3,12 +3,17 @@ import assert from "node:assert/strict";
 import { PublicKey } from "@solana/web3.js";
 import {
   ACCOUNT_SIZE,
+  ASSOCIATED_TOKEN_PROGRAM_ID,
   ALT_PROGRAM_ID,
   DISCRIMINATOR,
   INSTRUCTION,
   MarketStatus,
   OrderSide,
+  PendingRoleKind,
   ProgramSdkError,
+  buildAcceptAuthorityIx,
+  buildAcceptManagerIx,
+  buildAcceptOperatorIx,
   buildAddDepositMintIx,
   buildCancelOrderIx,
   buildCloseOrderStatusIx,
@@ -28,7 +33,11 @@ import {
   buildIncrementNonceIx,
   buildMatchOrdersMultiIx,
   buildRedeemWinningsIx,
+  buildRefreshOrderbookAltIx,
+  buildSetDepositTokenStatusIx,
   buildSetFeeReceiverIx,
+  buildSetFeeReceiverWithAtasIx,
+  buildSetOracleIx,
   buildSetManagerIx,
   buildSetMarketFeesIx,
   buildSettleMarketIx,
@@ -37,6 +46,7 @@ import {
   buildWithdrawFromGlobalIx,
   deriveConditionId,
   deserializeExchange,
+  deserializeGlobalDepositToken,
   deserializeMarket,
   deserializeOrderStatus,
   getConditionalMintPda,
@@ -82,7 +92,7 @@ function order(seed: number, market = pubkey(30), baseMint = pubkey(40), quoteMi
 }
 
 describe("program authority/account alignment", () => {
-  it("deserializes the 212-byte Exchange layout with manager and fee receiver", () => {
+  it("deserializes the 216-byte Exchange layout with pending role fields", () => {
     const data = Buffer.alloc(ACCOUNT_SIZE.EXCHANGE);
     DISCRIMINATOR.EXCHANGE.copy(data, 0);
     pubkey(1).toBuffer().copy(data, 8);
@@ -93,6 +103,8 @@ describe("program authority/account alignment", () => {
     data[113] = 7;
     data.writeUInt16LE(5, 114);
     pubkey(4).toBuffer().copy(data, 116);
+    pubkey(5).toBuffer().copy(data, 148);
+    data[180] = PendingRoleKind.Manager;
 
     const exchange = deserializeExchange(data);
 
@@ -104,6 +116,21 @@ describe("program authority/account alignment", () => {
     assert.equal(exchange.bump, 7);
     assert.equal(exchange.depositTokenCount, 5);
     assert.equal(exchange.feeReceiver.toBase58(), pubkey(4).toBase58());
+    assert.equal(exchange.pendingRole.toBase58(), pubkey(5).toBase58());
+    assert.equal(exchange.pendingRoleKind, PendingRoleKind.Manager);
+  });
+
+  it("rejects unknown Exchange pending role kind values", () => {
+    const data = Buffer.alloc(ACCOUNT_SIZE.EXCHANGE);
+    DISCRIMINATOR.EXCHANGE.copy(data, 0);
+    data[180] = 9;
+
+    assert.throws(
+      () => deserializeExchange(data),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "InvalidPendingRoleKind"
+    );
   });
 
   it("deserializes the 32-byte OrderStatus layout with baseRemaining", () => {
@@ -120,7 +147,7 @@ describe("program authority/account alignment", () => {
     assert.equal(status.isCancelled, true);
   });
 
-  it("deserializes the 212-byte Market payout-vector and fee layout", () => {
+  it("deserializes the 216-byte Market payout-vector and fee layout", () => {
     const data = Buffer.alloc(ACCOUNT_SIZE.MARKET);
     const questionId = Buffer.alloc(32, 4);
     const conditionId = Buffer.alloc(32, 5);
@@ -152,6 +179,22 @@ describe("program authority/account alignment", () => {
     assert.deepEqual(market.conditionId, conditionId);
     assert.deepEqual(market.payoutNumerators, [1, 2, 3, 0, 0, 0]);
     assert.equal(market.payoutDenominator, 6);
+  });
+
+  it("deserializes the 47-byte GlobalDepositToken layout", () => {
+    const data = Buffer.alloc(ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN);
+    DISCRIMINATOR.GLOBAL_DEPOSIT_TOKEN.copy(data, 0);
+    pubkey(7).toBuffer().copy(data, 8);
+    data[40] = 251;
+    data.writeUInt16LE(42, 41);
+    data[43] = 1;
+
+    const gdt = deserializeGlobalDepositToken(data);
+
+    assert.equal(gdt.mint.toBase58(), pubkey(7).toBase58());
+    assert.equal(gdt.bump, 251);
+    assert.equal(gdt.index, 42);
+    assert.equal(gdt.active, true);
   });
 
   it("derives orderbook PDAs with canonical mint ordering", () => {
@@ -260,6 +303,62 @@ describe("program authority/account alignment", () => {
     assert.deepEqual(ix.data.subarray(1), newManager.toBuffer());
   });
 
+  it("builds accept role instructions", () => {
+    const programId = pubkey(110);
+    const incomingRole = pubkey(1);
+    const [exchange] = getExchangePda(programId);
+
+    const authorityIx = buildAcceptAuthorityIx({ incomingRole }, programId);
+    const managerIx = buildAcceptManagerIx({ incomingRole }, programId);
+    const operatorIx = buildAcceptOperatorIx({ incomingRole }, programId);
+
+    for (const ix of [authorityIx, managerIx, operatorIx]) {
+      assert.equal(ix.keys.length, 2);
+      assert.equal(ix.keys[0]!.pubkey.toBase58(), incomingRole.toBase58());
+      assert.equal(ix.keys[0]!.isSigner, true);
+      assert.equal(ix.keys[0]!.isWritable, false);
+      assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
+      assert.equal(ix.keys[1]!.isWritable, true);
+      assert.equal(ix.data.length, 1);
+    }
+
+    assert.equal(authorityIx.data[0], INSTRUCTION.ACCEPT_AUTHORITY);
+    assert.equal(managerIx.data[0], INSTRUCTION.ACCEPT_MANAGER);
+    assert.equal(operatorIx.data[0], INSTRUCTION.ACCEPT_OPERATOR);
+  });
+
+  it("builds setOracle and rejects the zero oracle", () => {
+    const programId = pubkey(112);
+    const authority = pubkey(1);
+    const market = pubkey(2);
+    const newOracle = pubkey(3);
+    const [exchange] = getExchangePda(programId);
+
+    const ix = buildSetOracleIx({ authority, market, newOracle }, programId);
+
+    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), authority.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+    assert.equal(ix.keys[0]!.isWritable, false);
+    assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
+    assert.equal(ix.keys[2]!.isWritable, true);
+    assert.equal(ix.data.length, 33);
+    assert.equal(ix.data[0], INSTRUCTION.SET_ORACLE);
+    assert.deepEqual(ix.data.subarray(1), newOracle.toBuffer());
+
+    assert.throws(
+      () =>
+        buildSetOracleIx(
+          { authority, market, newOracle: pubkey(0) },
+          programId
+        ),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "InvalidOracle"
+    );
+  });
+
   it("builds market fee and fee receiver admin instructions", () => {
     const programId = pubkey(111);
     const market = pubkey(2);
@@ -286,6 +385,39 @@ describe("program authority/account alignment", () => {
     assert.equal(receiverIx.keys.length, 2);
     assert.equal(receiverIx.data.length, 33);
     assert.equal(receiverIx.data[0], INSTRUCTION.SET_FEE_RECEIVER);
+
+    const quoteMintA = pubkey(5);
+    const quoteMintB = pubkey(6);
+    const newFeeReceiver = pubkey(7);
+    const withAtasIx = buildSetFeeReceiverWithAtasIx(
+      {
+        authority: pubkey(3),
+        newFeeReceiver,
+        quoteMints: [quoteMintA, quoteMintB],
+      },
+      programId
+    );
+
+    assert.equal(withAtasIx.keys.length, 10);
+    assert.equal(withAtasIx.keys[2]!.pubkey.toBase58(), newFeeReceiver.toBase58());
+    assert.equal(withAtasIx.keys[6]!.pubkey.toBase58(), quoteMintA.toBase58());
+    assert.equal(
+      withAtasIx.keys[7]!.pubkey.toBase58(),
+      getConditionalTokenAta(quoteMintA, newFeeReceiver).toBase58()
+    );
+    assert.equal(withAtasIx.keys[8]!.pubkey.toBase58(), quoteMintB.toBase58());
+    assert.equal(withAtasIx.data[0], INSTRUCTION.SET_FEE_RECEIVER);
+
+    assert.throws(
+      () =>
+        buildSetFeeReceiverWithAtasIx(
+          { authority: pubkey(3), newFeeReceiver, quoteMints: [] },
+          programId
+        ),
+      (error) =>
+        error instanceof ProgramSdkError &&
+        error.variant === "MissingField"
+    );
   });
 
   it("builds conditional metadata create and update instructions", () => {
@@ -470,6 +602,45 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data[11], 5);
   });
 
+  it("builds refreshOrderbookAlt with current fee receiver ATA accounts", () => {
+    const programId = pubkey(113);
+    const manager = pubkey(1);
+    const market = pubkey(2);
+    const orderbook = pubkey(3);
+    const lookupTable = pubkey(4);
+    const quoteMint = pubkey(5);
+    const feeReceiver = pubkey(6);
+
+    const ix = buildRefreshOrderbookAltIx(
+      {
+        manager,
+        market,
+        orderbook,
+        lookupTable,
+        quoteMint,
+        feeReceiver,
+      },
+      programId
+    );
+
+    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), manager.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+    assert.equal(ix.keys[0]!.isWritable, true);
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
+    assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
+    assert.equal(ix.keys[4]!.pubkey.toBase58(), lookupTable.toBase58());
+    assert.equal(ix.keys[4]!.isWritable, true);
+    assert.equal(ix.keys[5]!.pubkey.toBase58(), quoteMint.toBase58());
+    assert.equal(ix.keys[6]!.pubkey.toBase58(), feeReceiver.toBase58());
+    assert.equal(
+      ix.keys[7]!.pubkey.toBase58(),
+      getConditionalTokenAta(quoteMint, feeReceiver).toBase58()
+    );
+    assert.equal(ix.keys[9]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
+    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]));
+  });
+
   it("includes orderbook in matchOrdersMulti fixed accounts", () => {
     const programId = pubkey(96);
     const market = pubkey(2);
@@ -494,6 +665,12 @@ describe("program authority/account alignment", () => {
     );
 
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
+    assert.equal(
+      ix.keys[13]!.pubkey.toBase58(),
+      getConditionalTokenAta(quoteMint, pubkey(6)).toBase58()
+    );
+    assert.equal(ix.keys[14]!.pubkey.toBase58(), pubkey(6).toBase58());
+    assert.equal(ix.keys[15]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
     assert.equal(ix.data.length, 221);
   });
 
@@ -520,6 +697,28 @@ describe("program authority/account alignment", () => {
     assert.equal(withAlt.keys[9]!.pubkey.toBase58(), lookupTable.toBase58());
     assert.equal(withAlt.keys[10]!.pubkey.toBase58(), ALT_PROGRAM_ID.toBase58());
     assert.equal(withAlt.data.length, 17);
+  });
+
+  it("builds setDepositTokenStatus with manager signer and GDT PDA", () => {
+    const programId = pubkey(114);
+    const manager = pubkey(1);
+    const mint = pubkey(2);
+    const [exchange] = getExchangePda(programId);
+    const [globalDepositToken] = getGlobalDepositTokenPda(mint, programId);
+
+    const ix = buildSetDepositTokenStatusIx(
+      { manager, mint, active: false },
+      programId
+    );
+
+    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), manager.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+    assert.equal(ix.keys[0]!.isWritable, false);
+    assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), globalDepositToken.toBase58());
+    assert.equal(ix.keys[2]!.isWritable, true);
+    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.SET_DEPOSIT_TOKEN_STATUS, 0]));
   });
 
   it("builds withdrawFromGlobal with exchange pause-validation account", () => {
@@ -643,6 +842,12 @@ describe("program authority/account alignment", () => {
     );
 
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
+    assert.equal(
+      ix.keys[6]!.pubkey.toBase58(),
+      getConditionalTokenAta(quoteMint, pubkey(6)).toBase58()
+    );
+    assert.equal(ix.keys[7]!.pubkey.toBase58(), pubkey(6).toBase58());
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
   });
 
   it("builds extendPositionTokens with operator signer", () => {

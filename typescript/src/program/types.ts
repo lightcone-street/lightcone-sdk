@@ -24,6 +24,16 @@ export enum OrderSide {
   ASK = 1,
 }
 
+/**
+ * Pending privileged role transfer kind stored in the Exchange account.
+ */
+export enum PendingRoleKind {
+  None = 0,
+  Authority = 1,
+  Manager = 2,
+  Operator = 3,
+}
+
 // ============================================================================
 // ACCOUNT TYPES
 // ============================================================================
@@ -31,7 +41,7 @@ export enum OrderSide {
 /**
  * Exchange account - singleton central state
  * PDA: ["central_state"]
- * Size: 212 bytes
+ * Size: 216 bytes
  */
 export interface Exchange {
   discriminator: Buffer; // 8 bytes
@@ -43,12 +53,14 @@ export interface Exchange {
   bump: number; // u8
   depositTokenCount: number; // u16 - number of whitelisted deposit tokens
   feeReceiver: PublicKey; // 32 bytes - quote-leg fee receiver
+  pendingRole: PublicKey; // 32 bytes - pending privileged-role recipient
+  pendingRoleKind: PendingRoleKind; // u8 - role kind for pendingRole
 }
 
 /**
  * Market account
  * PDA: ["market", market_id (u64)]
- * Size: 212 bytes
+ * Size: 216 bytes
  */
 export interface Market {
   discriminator: Buffer; // 8 bytes
@@ -119,14 +131,14 @@ export interface Orderbook {
 /**
  * GlobalDepositToken whitelist account.
  * PDA: ["global_deposit", mint]
- * Size: 48 bytes
+ * Size: 47 bytes
  */
 export interface GlobalDepositToken {
   discriminator: Buffer; // 8 bytes
   mint: PublicKey; // 32 bytes
-  active: boolean; // u8
   bump: number; // u8
   index: number; // u16 - ALT ordering index
+  active: boolean; // u8 - backend-visible status flag
 }
 
 // ============================================================================
@@ -277,6 +289,9 @@ export interface SetPausedParams {
 
 /**
  * Parameters for setOperator instruction
+ *
+ * The on-chain operator changes only after the proposed operator signs
+ * AcceptOperator.
  */
 export interface SetOperatorParams {
   authority: PublicKey;
@@ -320,6 +335,9 @@ export interface MatchOrdersMultiParams {
 
 /**
  * Parameters for setAuthority instruction
+ *
+ * The on-chain authority changes only after the proposed authority signs
+ * AcceptAuthority.
  */
 export interface SetAuthorityParams {
   currentAuthority: PublicKey;
@@ -345,10 +363,41 @@ export interface CreateOrderbookParams {
 
 /**
  * Parameters for setManager instruction
+ *
+ * The on-chain manager changes only after the proposed manager signs
+ * AcceptManager.
  */
 export interface SetManagerParams {
   authority: PublicKey;
   newManager: PublicKey;
+}
+
+/**
+ * Parameters for accepting a pending privileged-role transfer.
+ */
+export interface AcceptRoleParams {
+  incomingRole: PublicKey;
+}
+
+/**
+ * Parameters for reassigning a market oracle.
+ */
+export interface SetOracleParams {
+  authority: PublicKey;
+  market: PublicKey;
+  newOracle: PublicKey;
+}
+
+/**
+ * Parameters for refreshing an orderbook ALT after fee receiver rotation.
+ */
+export interface RefreshOrderbookAltParams {
+  manager: PublicKey;
+  market: PublicKey;
+  orderbook: PublicKey;
+  lookupTable: PublicKey;
+  quoteMint: PublicKey;
+  feeReceiver: PublicKey;
 }
 
 /**
@@ -377,6 +426,15 @@ export interface SetFeeReceiverParams {
 }
 
 /**
+ * Parameters for setting the exchange fee receiver while ensuring quote ATAs.
+ */
+export interface SetFeeReceiverWithAtasParams {
+  authority: PublicKey;
+  newFeeReceiver: PublicKey;
+  quoteMints: PublicKey[];
+}
+
+/**
  * Parameters for create/update conditional mint metadata instructions.
  */
 export interface ConditionalMetadataParams {
@@ -395,6 +453,15 @@ export interface ConditionalMetadataParams {
 export interface WhitelistDepositTokenParams {
   authority: PublicKey;
   mint: PublicKey;
+}
+
+/**
+ * Parameters for updating the backend-visible global deposit token status flag.
+ */
+export interface SetDepositTokenStatusParams {
+  manager: PublicKey;
+  mint: PublicKey;
+  active: boolean;
 }
 
 /**
