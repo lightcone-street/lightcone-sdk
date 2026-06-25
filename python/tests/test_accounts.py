@@ -7,14 +7,18 @@ from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
     EXCHANGE_DISCRIMINATOR,
+    GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
     MARKET_DISCRIMINATOR,
     ORDER_STATUS_DISCRIMINATOR,
     POSITION_DISCRIMINATOR,
     USER_NONCE_DISCRIMINATOR,
     InvalidAccountDataError,
     InvalidDiscriminatorError,
+    InvalidPendingRoleKindError,
     MarketStatus,
+    PendingRoleKind,
     deserialize_exchange,
+    deserialize_global_deposit_token,
     deserialize_market,
     deserialize_order_status,
     deserialize_position,
@@ -30,6 +34,8 @@ def build_exchange_data(
     paused: bool,
     bump: int,
     fee_receiver: Pubkey | None = None,
+    pending_role: Pubkey | None = None,
+    pending_role_kind: PendingRoleKind = PendingRoleKind.NONE,
 ) -> bytes:
     """Build Exchange account data for testing."""
     data = bytearray()
@@ -42,7 +48,9 @@ def build_exchange_data(
     data.append(bump)
     data.extend(struct.pack("<H", 0))
     data.extend(bytes(fee_receiver or Pubkey.from_bytes(bytes(32))))
-    data.extend(bytes(64))  # reserved
+    data.extend(bytes(pending_role or Pubkey.from_bytes(bytes(32))))
+    data.append(int(pending_role_kind))
+    data.extend(bytes(35))  # reserved
     return bytes(data)
 
 
@@ -75,7 +83,24 @@ def build_market_data(
     for numerator in payout_numerators:
         data.extend(struct.pack("<I", numerator))
     data.extend(struct.pack("<I", payout_denominator))
-    data.extend(bytes(64))  # reserved
+    data.extend(bytes(68))  # reserved
+    return bytes(data)
+
+
+def build_global_deposit_token_data(
+    mint: Pubkey,
+    bump: int,
+    index: int,
+    active: bool,
+) -> bytes:
+    """Build GlobalDepositToken account data for testing."""
+    data = bytearray()
+    data.extend(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR)
+    data.extend(bytes(mint))
+    data.append(bump)
+    data.extend(struct.pack("<H", index))
+    data.append(1 if active else 0)
+    data.extend(bytes(3))  # padding
     return bytes(data)
 
 
@@ -117,6 +142,7 @@ class TestDeserializeExchange:
         operator = Pubkey.new_unique()
         manager = Pubkey.new_unique()
         fee_receiver = Pubkey.new_unique()
+        pending_role = Pubkey.new_unique()
         data = build_exchange_data(
             authority=authority,
             operator=operator,
@@ -125,6 +151,8 @@ class TestDeserializeExchange:
             paused=False,
             bump=255,
             fee_receiver=fee_receiver,
+            pending_role=pending_role,
+            pending_role_kind=PendingRoleKind.MANAGER,
         )
 
         exchange = deserialize_exchange(data)
@@ -136,6 +164,8 @@ class TestDeserializeExchange:
         assert exchange.paused is False
         assert exchange.bump == 255
         assert exchange.fee_receiver == fee_receiver
+        assert exchange.pending_role == pending_role
+        assert exchange.pending_role_kind == PendingRoleKind.MANAGER
 
     def test_deserialize_paused_exchange(self):
         data = build_exchange_data(
@@ -161,6 +191,22 @@ class TestDeserializeExchange:
 
         with pytest.raises(InvalidAccountDataError):
             deserialize_exchange(data)
+
+    def test_invalid_pending_role_kind(self):
+        data = bytearray(
+            build_exchange_data(
+                authority=Pubkey.new_unique(),
+                operator=Pubkey.new_unique(),
+                manager=Pubkey.new_unique(),
+                market_count=0,
+                paused=False,
+                bump=1,
+            )
+        )
+        data[180] = 9
+
+        with pytest.raises(InvalidPendingRoleKindError):
+            deserialize_exchange(bytes(data))
 
 
 class TestDeserializeMarket:
@@ -293,3 +339,33 @@ class TestDeserializeUserNonce:
 
         with pytest.raises(InvalidDiscriminatorError):
             deserialize_user_nonce(data)
+
+
+class TestDeserializeGlobalDepositToken:
+    def test_deserialize_current_layout(self):
+        mint = Pubkey.new_unique()
+        data = build_global_deposit_token_data(
+            mint=mint,
+            bump=251,
+            index=42,
+            active=True,
+        )
+
+        token = deserialize_global_deposit_token(data)
+
+        assert token.mint == mint
+        assert token.bump == 251
+        assert token.index == 42
+        assert token.active is True
+
+    def test_deserialize_inactive_status(self):
+        data = build_global_deposit_token_data(
+            mint=Pubkey.new_unique(),
+            bump=1,
+            index=0,
+            active=False,
+        )
+
+        token = deserialize_global_deposit_token(data)
+
+        assert token.active is False
