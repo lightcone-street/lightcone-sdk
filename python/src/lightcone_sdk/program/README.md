@@ -52,7 +52,9 @@ OrderSide.ASK  # 1 - Seller gives base, receives quote
 ```python
 from lightcone_sdk.program import (
     Exchange,
+    GlobalDepositToken,
     Market,
+    PendingRoleKind,
     Position,
     OrderStatus,
     UserNonce,
@@ -70,6 +72,9 @@ from lightcone_sdk.program import (
 | `paused` | bool | Trading paused |
 | `bump` | int | PDA bump seed |
 | `deposit_token_count` | int | Number of whitelisted deposit tokens |
+| `fee_receiver` | Pubkey | Current protocol fee receiver |
+| `pending_role` | Pubkey | Pending privileged-role recipient |
+| `pending_role_kind` | PendingRoleKind | Pending role kind: none, authority, manager, or operator |
 
 #### Market
 
@@ -79,11 +84,22 @@ from lightcone_sdk.program import (
 | `num_outcomes` | int | Number of outcomes |
 | `status` | MarketStatus | Current status |
 | `bump` | int | PDA bump seed |
+| `maker_fee_bps` | int | Maker fee in basis points |
+| `taker_fee_bps` | int | Taker fee in basis points |
 | `oracle` | Pubkey | Oracle authority |
 | `question_id` | bytes | Question identifier |
 | `condition_id` | bytes | Computed condition ID |
 | `payout_numerators` | tuple[int, int, int, int, int, int] | Resolution vector; first `num_outcomes` entries are meaningful |
 | `payout_denominator` | int | Sum of meaningful payout numerators |
+
+#### GlobalDepositToken
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `mint` | Pubkey | Whitelisted deposit mint |
+| `bump` | int | PDA bump seed |
+| `index` | int | Deposit token ordering index |
+| `active` | bool | Backend-visible status flag |
 
 #### Position
 
@@ -167,12 +183,11 @@ from lightcone_sdk.program import (
 from lightcone_sdk.program import (
     PROGRAM_ID,
     TOKEN_PROGRAM_ID,
-    TOKEN_2022_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     SYSTEM_PROGRAM_ID,
     RENT_SYSVAR_ID,
     INSTRUCTIONS_SYSVAR_ID,
-    ED25519_PROGRAM_ID,
+    INITIALIZE_AUTHORITY,
 )
 ```
 
@@ -180,12 +195,21 @@ from lightcone_sdk.program import (
 |----------|-------|-------------|
 | `PROGRAM_ID` | Production default, derived from `LightconeEnv.PROD` | Lightcone program |
 | `TOKEN_PROGRAM_ID` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` | SPL Token program |
-| `TOKEN_2022_PROGRAM_ID` | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` | Token-2022 program |
 | `ASSOCIATED_TOKEN_PROGRAM_ID` | `ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL` | ATA program |
 | `SYSTEM_PROGRAM_ID` | `11111111111111111111111111111111` | System program |
 | `RENT_SYSVAR_ID` | `SysvarRent111111111111111111111111111111111` | Rent sysvar |
 | `INSTRUCTIONS_SYSVAR_ID` | `Sysvar1nstructions1111111111111111111111111` | Instructions sysvar |
-| `ED25519_PROGRAM_ID` | `Ed25519SigVerify111111111111111111111111111` | Ed25519 verify program |
+| `INITIALIZE_AUTHORITY` | `2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb` | Program initialization authority |
+
+### Current Program Alignment Notes
+
+- `Exchange` and `Market` accounts are 216 bytes.
+- `GlobalDepositToken` accounts are 47 bytes, with `bump` at offset 40, `index` at 41..43, and `active` at offset 43.
+- `set_authority`, `set_manager`, and `set_operator` now propose role transfers. The matching `accept_authority`, `accept_manager`, or `accept_operator` instruction performs the effective role change.
+- `match_orders_multi` and `deposit_and_swap` include the fee receiver and associated token program in their fixed account lists.
+- `set_fee_receiver_with_atas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
+- `refresh_orderbook_alt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
+- Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`.
 
 ### PDA Seeds
 
@@ -219,11 +243,12 @@ from lightcone_sdk.program import (
 ```python
 from lightcone_sdk.program import (
     # Account sizes
-    EXCHANGE_SIZE,      # 120 bytes
-    MARKET_SIZE,        # 148 bytes
+    EXCHANGE_SIZE,      # 216 bytes
+    MARKET_SIZE,        # 216 bytes
     ORDER_STATUS_SIZE,  # 32 bytes
     USER_NONCE_SIZE,    # 16 bytes
     POSITION_SIZE,      # 80 bytes
+    GLOBAL_DEPOSIT_TOKEN_SIZE, # 47 bytes
 
     # Order sizes
     FULL_ORDER_SIZE,    # 233 bytes
@@ -678,9 +703,17 @@ from lightcone_sdk.program import (
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
     build_create_orderbook_instruction,
+    build_refresh_orderbook_alt_instruction,
     build_set_authority_instruction,
     build_set_manager_instruction,
+    build_accept_authority_instruction,
+    build_accept_manager_instruction,
+    build_accept_operator_instruction,
+    build_set_oracle_instruction,
+    build_set_fee_receiver_instruction,
+    build_set_fee_receiver_with_atas_instruction,
     build_whitelist_deposit_token_instruction,
+    build_set_deposit_token_status_instruction,
     build_deposit_to_global_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,

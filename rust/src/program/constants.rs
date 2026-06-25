@@ -31,6 +31,9 @@ lazy_static::lazy_static! {
     /// Metaplex Token Metadata Program ID
     pub static ref MPL_TOKEN_METADATA_PROGRAM_ID: Pubkey =
         Pubkey::from_str("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s").unwrap();
+    /// Pubkey allowed by the on-chain program to initialize the exchange.
+    pub static ref INITIALIZE_AUTHORITY: Pubkey =
+        Pubkey::from_str("2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb").unwrap();
 }
 
 // ============================================================================
@@ -72,6 +75,12 @@ pub mod instruction {
     pub const SET_FEE_RECEIVER: u8 = 30;
     pub const CREATE_CONDITIONAL_METADATA: u8 = 31;
     pub const UPDATE_CONDITIONAL_METADATA: u8 = 32;
+    pub const SET_ORACLE: u8 = 33;
+    pub const REFRESH_ORDERBOOK_ALT: u8 = 34;
+    pub const ACCEPT_AUTHORITY: u8 = 35;
+    pub const ACCEPT_MANAGER: u8 = 36;
+    pub const ACCEPT_OPERATOR: u8 = 37;
+    pub const SET_DEPOSIT_TOKEN_STATUS: u8 = 38;
 }
 
 // ============================================================================
@@ -130,9 +139,9 @@ pub const MPL_METADATA_SEED: &[u8] = b"metadata";
 // ============================================================================
 
 /// Exchange account size in bytes
-pub const EXCHANGE_SIZE: usize = 212;
+pub const EXCHANGE_SIZE: usize = 216;
 /// Market account size in bytes
-pub const MARKET_SIZE: usize = 212;
+pub const MARKET_SIZE: usize = 216;
 /// Order status account size in bytes
 pub const ORDER_STATUS_SIZE: usize = 32;
 /// User nonce account size in bytes
@@ -142,7 +151,7 @@ pub const POSITION_SIZE: usize = 80;
 /// Orderbook account size in bytes
 pub const ORDERBOOK_SIZE: usize = 144;
 /// GlobalDepositToken account size in bytes
-pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 48;
+pub const GLOBAL_DEPOSIT_TOKEN_SIZE: usize = 47;
 
 // ============================================================================
 // Order Sizes

@@ -33,6 +33,15 @@ class OrderSide(IntEnum):
         return cls(int(side))
 
 
+class PendingRoleKind(IntEnum):
+    """Pending privileged role transfer kind stored in Exchange."""
+
+    NONE = 0
+    AUTHORITY = 1
+    MANAGER = 2
+    OPERATOR = 3
+
+
 @dataclass
 class Exchange:
     """Exchange account data."""
@@ -45,6 +54,8 @@ class Exchange:
     bump: int
     deposit_token_count: int = 0
     fee_receiver: Pubkey = Pubkey.from_bytes(bytes(32))
+    pending_role: Pubkey = Pubkey.from_bytes(bytes(32))
+    pending_role_kind: PendingRoleKind = PendingRoleKind.NONE
 
 
 @dataclass
@@ -319,7 +330,7 @@ class CreateOrderbookParams:
 
 @dataclass
 class SetAuthorityParams:
-    """Parameters for setting a new authority."""
+    """Parameters for proposing a new authority."""
 
     current_authority: Pubkey
     new_authority: Pubkey
@@ -327,10 +338,38 @@ class SetAuthorityParams:
 
 @dataclass
 class SetManagerParams:
-    """Parameters for setting a new manager."""
+    """Parameters for proposing a new manager."""
 
     authority: Pubkey
     new_manager: Pubkey
+
+
+@dataclass
+class AcceptRoleParams:
+    """Parameters for accepting a pending privileged-role transfer."""
+
+    incoming_role: Pubkey
+
+
+@dataclass
+class SetOracleParams:
+    """Parameters for reassigning a market oracle."""
+
+    authority: Pubkey
+    market: Pubkey
+    new_oracle: Pubkey
+
+
+@dataclass
+class RefreshOrderbookAltParams:
+    """Parameters for refreshing an orderbook ALT after fee receiver rotation."""
+
+    manager: Pubkey
+    market: Pubkey
+    orderbook: Pubkey
+    lookup_table: Pubkey
+    quote_mint: Pubkey
+    fee_receiver: Pubkey
 
 
 @dataclass
@@ -356,6 +395,15 @@ class SetFeeReceiverParams:
 
     authority: Pubkey
     new_fee_receiver: Pubkey
+
+
+@dataclass
+class SetFeeReceiverWithAtasParams:
+    """Parameters for setting the fee receiver while ensuring quote ATAs."""
+
+    authority: Pubkey
+    new_fee_receiver: Pubkey
+    quote_mints: list[Pubkey]
 
 
 @dataclass
@@ -403,12 +451,12 @@ class AskOrderParams:
 
 @dataclass
 class GlobalDepositToken:
-    """Global deposit token account data (48 bytes)."""
+    """Global deposit token account data (47 bytes)."""
 
     mint: Pubkey
-    active: bool
     bump: int
     index: int  # u16
+    active: bool
 
 
 @dataclass
@@ -417,6 +465,15 @@ class WhitelistDepositTokenParams:
 
     authority: Pubkey
     mint: Pubkey
+
+
+@dataclass
+class SetDepositTokenStatusParams:
+    """Parameters for updating the backend-visible GDT status flag."""
+
+    manager: Pubkey
+    mint: Pubkey
+    active: bool
 
 
 @dataclass

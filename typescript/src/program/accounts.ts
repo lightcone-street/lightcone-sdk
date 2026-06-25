@@ -6,6 +6,7 @@ import {
   GlobalDepositToken,
   Market,
   MarketStatus,
+  PendingRoleKind,
   OrderStatus,
   UserNonce,
   Position,
@@ -32,6 +33,21 @@ function validateDiscriminator(
       expected.toString("hex"),
       actual.toString("hex"),
     );
+  }
+}
+
+function parsePendingRoleKind(value: number): PendingRoleKind {
+  switch (value) {
+    case PendingRoleKind.None:
+      return PendingRoleKind.None;
+    case PendingRoleKind.Authority:
+      return PendingRoleKind.Authority;
+    case PendingRoleKind.Manager:
+      return PendingRoleKind.Manager;
+    case PendingRoleKind.Operator:
+      return PendingRoleKind.Operator;
+    default:
+      throw ProgramSdkError.invalidPendingRoleKind(value);
   }
 }
 
@@ -98,7 +114,7 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
 /**
  * Deserialize Exchange account data
  *
- * Layout (212 bytes):
+ * Layout (216 bytes):
  * - discriminator: [u8; 8]
  * - authority: Pubkey (32 bytes)
  * - operator: Pubkey (32 bytes)
@@ -108,7 +124,9 @@ export function isGlobalDepositTokenAccount(data: Buffer): boolean {
  * - bump: u8 (1 byte)
  * - deposit_token_count: u16 (2 bytes)
  * - fee_receiver: Pubkey (32 bytes)
- * - _reserved: [u8; 64]
+ * - pending_role: Pubkey (32 bytes)
+ * - pending_role_kind: u8 (1 byte)
+ * - _reserved: [u8; 35]
  */
 export function deserializeExchange(data: Buffer): Exchange {
   if (data.length < ACCOUNT_SIZE.EXCHANGE) {
@@ -146,6 +164,12 @@ export function deserializeExchange(data: Buffer): Exchange {
   const feeReceiver = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
+  const pendingRole = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const pendingRoleKind = parsePendingRoleKind(data[offset]);
+  offset += 1;
+
   return {
     discriminator,
     authority,
@@ -156,13 +180,15 @@ export function deserializeExchange(data: Buffer): Exchange {
     bump,
     depositTokenCount,
     feeReceiver,
+    pendingRole,
+    pendingRoleKind,
   };
 }
 
 /**
  * Deserialize Market account data
  *
- * Layout (212 bytes):
+ * Layout (216 bytes):
  * - discriminator: [u8; 8]
  * - market_id: u64 (8 bytes)
  * - num_outcomes: u8 (1 byte)
@@ -176,6 +202,7 @@ export function deserializeExchange(data: Buffer): Exchange {
  * - condition_id: [u8; 32]
  * - payout_numerators: [u32; 6]
  * - payout_denominator: u32
+ * - _reserved: [u8; 68]
  */
 export function deserializeMarket(data: Buffer): Market {
   if (data.length < ACCOUNT_SIZE.MARKET) {
@@ -432,12 +459,13 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
 /**
  * Deserialize GlobalDepositToken account data
  *
- * Layout (48 bytes):
+ * Layout (47 bytes):
  * - discriminator: [u8; 8]
  * - mint: Pubkey (32 bytes)
- * - active: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 6]
+ * - index: u16 (2 bytes)
+ * - active: u8 (1 byte)
+ * - _padding: [u8; 3]
  */
 export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken {
   if (data.length < ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN) {
@@ -453,20 +481,20 @@ export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken 
   const mint = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
-  const active = data[offset] !== 0;
-  offset += 1;
-
   const bump = data[offset];
   offset += 1;
 
   const index = data.readUInt16LE(offset);
   offset += 2;
 
+  const active = data[offset] !== 0;
+  offset += 1;
+
   return {
     discriminator,
     mint,
-    active,
     bump,
     index,
+    active,
   };
 }

@@ -41,7 +41,7 @@ fn read_u32(data: &[u8], offset: usize) -> u32 {
 }
 
 // ============================================================================
-// Exchange Account (212 bytes)
+// Exchange Account (216 bytes)
 // ============================================================================
 
 /// Exchange account - singleton state for the exchange
@@ -56,7 +56,9 @@ fn read_u32(data: &[u8], offset: usize) -> u32 {
 /// - [113]    bump (1 byte)
 /// - [114..116] deposit_token_count (2 bytes)
 /// - [116..148] fee_receiver (32 bytes)
-/// - [148..212] _reserved (64 bytes)
+/// - [148..180] pending_role (32 bytes)
+/// - [180]    pending_role_kind (1 byte)
+/// - [181..216] _reserved (35 bytes)
 #[derive(Debug, Clone)]
 pub struct Exchange {
     /// Account discriminator
@@ -77,6 +79,38 @@ pub struct Exchange {
     pub deposit_token_count: u16,
     /// Protocol fee receiver for quote-leg fees.
     pub fee_receiver: Pubkey,
+    /// Pending privileged-role transfer recipient. Zero pubkey means no pending transfer.
+    pub pending_role: Pubkey,
+    /// Kind of pending role transfer.
+    pub pending_role_kind: PendingRoleKind,
+}
+
+/// Pending privileged role transfer kind stored in the Exchange account.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PendingRoleKind {
+    /// No pending role transfer.
+    None = 0,
+    /// Pending exchange authority transfer.
+    Authority = 1,
+    /// Pending manager transfer.
+    Manager = 2,
+    /// Pending operator transfer.
+    Operator = 3,
+}
+
+impl TryFrom<u8> for PendingRoleKind {
+    type Error = SdkError;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Authority),
+            2 => Ok(Self::Manager),
+            3 => Ok(Self::Operator),
+            other => Err(SdkError::InvalidPendingRoleKind(other)),
+        }
+    }
 }
 
 impl Exchange {
@@ -110,6 +144,8 @@ impl Exchange {
             bump: data[113],
             deposit_token_count: u16::from_le_bytes(read_bytes::<2>(data, 114)),
             fee_receiver: read_pubkey(data, 116),
+            pending_role: read_pubkey(data, 148),
+            pending_role_kind: PendingRoleKind::try_from(data[180])?,
         })
     }
 
@@ -120,7 +156,7 @@ impl Exchange {
 }
 
 // ============================================================================
-// Market Account (212 bytes)
+// Market Account (216 bytes)
 // ============================================================================
 
 /// Market account - represents a market
@@ -139,7 +175,7 @@ impl Exchange {
 /// - [88..120]  condition_id (32 bytes)
 /// - [120..144] payout_numerators ([u32; 6])
 /// - [144..148] payout_denominator (u32)
-/// - [148..212] _reserved (64 bytes)
+/// - [148..216] _reserved (68 bytes)
 #[derive(Debug, Clone)]
 pub struct Market {
     /// Account discriminator
@@ -457,7 +493,7 @@ impl Orderbook {
 }
 
 // ============================================================================
-// GlobalDepositToken Account (48 bytes)
+// GlobalDepositToken Account (47 bytes)
 // ============================================================================
 
 /// GlobalDepositToken account - whitelist entry for global deposits
@@ -465,22 +501,22 @@ impl Orderbook {
 /// Layout:
 /// - [0..8]   discriminator (8 bytes)
 /// - [8..40]  mint (32 bytes)
-/// - [40]     active (1 byte)
-/// - [41]     bump (1 byte)
-/// - [42..44] index (2 bytes)
-/// - [44..48] _padding (4 bytes)
+/// - [40]     bump (1 byte)
+/// - [41..43] index (2 bytes)
+/// - [43]     active (1 byte)
+/// - [44..47] _padding (3 bytes)
 #[derive(Debug, Clone)]
 pub struct GlobalDepositToken {
     /// Account discriminator
     pub discriminator: [u8; 8],
     /// The whitelisted token mint
     pub mint: Pubkey,
-    /// Whether this deposit token is currently active
-    pub active: bool,
     /// PDA bump seed
     pub bump: u8,
     /// Sequential index assigned at whitelist time
     pub index: u16,
+    /// Backend-visible status flag. Current on-chain user flows do not gate on this flag.
+    pub active: bool,
 }
 
 impl GlobalDepositToken {
@@ -507,9 +543,9 @@ impl GlobalDepositToken {
         Ok(Self {
             discriminator,
             mint: read_pubkey(data, 8),
-            active: data[40] != 0,
-            bump: data[41],
-            index: u16::from_le_bytes(read_bytes::<2>(data, 42)),
+            bump: data[40],
+            index: u16::from_le_bytes(read_bytes::<2>(data, 41)),
+            active: data[43] != 0,
         })
     }
 
@@ -543,6 +579,10 @@ mod tests {
         data[114..116].copy_from_slice(&7u16.to_le_bytes());
         // fee_receiver at offset 116
         data[116..148].copy_from_slice(&[4u8; 32]);
+        // pending_role at offset 148
+        data[148..180].copy_from_slice(&[5u8; 32]);
+        // pending_role_kind at offset 180
+        data[180] = PendingRoleKind::Manager as u8;
 
         let exchange = Exchange::deserialize(&data).unwrap();
         assert_eq!(exchange.manager, Pubkey::new_from_array([3u8; 32]));
@@ -551,6 +591,20 @@ mod tests {
         assert_eq!(exchange.bump, 255);
         assert_eq!(exchange.deposit_token_count, 7);
         assert_eq!(exchange.fee_receiver, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(exchange.pending_role, Pubkey::new_from_array([5u8; 32]));
+        assert_eq!(exchange.pending_role_kind, PendingRoleKind::Manager);
+    }
+
+    #[test]
+    fn test_exchange_invalid_pending_role_kind() {
+        let mut data = vec![0u8; EXCHANGE_SIZE];
+        data[0..8].copy_from_slice(&EXCHANGE_DISCRIMINATOR);
+        data[180] = 9;
+
+        assert!(matches!(
+            Exchange::deserialize(&data),
+            Err(SdkError::InvalidPendingRoleKind(9))
+        ));
     }
 
     #[test]
@@ -670,21 +724,22 @@ mod tests {
         let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
         data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
         data[8..40].copy_from_slice(&[5u8; 32]);
-        data[40] = 1;
-        data[41] = 251;
+        data[40] = 251;
+        data[41..43].copy_from_slice(&42u16.to_le_bytes());
+        data[43] = 1;
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
         assert_eq!(gdt.mint, Pubkey::new_from_array([5u8; 32]));
-        assert!(gdt.active);
         assert_eq!(gdt.bump, 251);
-        assert_eq!(gdt.index, 0);
+        assert_eq!(gdt.index, 42);
+        assert!(gdt.active);
     }
 
     #[test]
     fn test_global_deposit_token_inactive() {
         let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
         data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
-        data[40] = 0;
+        data[43] = 0;
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
         assert!(!gdt.active);

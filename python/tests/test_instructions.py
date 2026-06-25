@@ -1,26 +1,38 @@
 """Tests for on-chain instruction account layouts."""
 
+import pytest
 from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
     ALT_PROGRAM_ID,
-    CloseOrderStatusParams,
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    AcceptRoleParams,
+    ArithmeticOverflowError,
     CloseOrderbookAltParams,
     CloseOrderbookParams,
+    CloseOrderStatusParams,
     ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
     ConditionalMetadataParams,
     DepositToGlobalAltContext,
+    InvalidOracleError,
     InvalidOutcomeCountError,
     InvalidPayoutNumeratorsError,
-    ArithmeticOverflowError,
     MakerFill,
     MarketFeeUpdate,
+    MissingFieldError,
     OrderSide,
-    SignedOrder,
+    RefreshOrderbookAltParams,
+    SetDepositTokenStatusParams,
     SetFeeReceiverParams,
+    SetFeeReceiverWithAtasParams,
     SetMarketFeesParams,
-    TOKEN_PROGRAM_ID,
+    SetOracleParams,
+    SignedOrder,
+    build_accept_authority_instruction,
+    build_accept_manager_instruction,
+    build_accept_operator_instruction,
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
     build_close_order_status_instruction,
@@ -39,19 +51,23 @@ from lightcone_sdk.program import (
     build_match_orders_multi_instruction,
     build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
+    build_refresh_orderbook_alt_instruction,
+    build_set_deposit_token_status_instruction,
     build_set_fee_receiver_instruction,
+    build_set_fee_receiver_with_atas_instruction,
     build_set_manager_instruction,
     build_set_market_fees_instruction,
+    build_set_oracle_instruction,
     build_settle_market_instruction,
     build_update_conditional_metadata_instruction,
-    build_withdraw_from_position_instruction,
     build_withdraw_from_global_instruction,
+    build_withdraw_from_position_instruction,
     derive_condition_id,
-    get_associated_token_address,
     get_alt_pda,
-    get_conditional_token_ata,
-    get_conditional_mint_pda,
+    get_associated_token_address,
     get_condition_tombstone_pda,
+    get_conditional_mint_pda,
+    get_conditional_token_ata,
     get_exchange_pda,
     get_global_deposit_pda,
     get_market_pda,
@@ -60,13 +76,11 @@ from lightcone_sdk.program import (
     get_order_status_pda,
     get_orderbook_pda,
     get_position_pda,
-    get_user_nonce_pda,
     get_user_global_deposit_pda,
+    get_user_nonce_pda,
     get_vault_pda,
     hash_order,
 )
-
-import pytest
 
 
 def fixed_pubkey(value: int) -> Pubkey:
@@ -215,6 +229,43 @@ def test_create_orderbook_canonicalizes_mints_and_data():
     assert ix.data[11] == 4
 
 
+def test_refresh_orderbook_alt_instruction_layout():
+    manager = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    orderbook = Pubkey.new_unique()
+    lookup_table = Pubkey.new_unique()
+    quote_mint = Pubkey.new_unique()
+    fee_receiver = Pubkey.new_unique()
+
+    ix = build_refresh_orderbook_alt_instruction(
+        RefreshOrderbookAltParams(
+            manager=manager,
+            market=market,
+            orderbook=orderbook,
+            lookup_table=lookup_table,
+            quote_mint=quote_mint,
+            fee_receiver=fee_receiver,
+        )
+    )
+
+    assert len(ix.accounts) == 12
+    assert ix.accounts[0].pubkey == manager
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[0].is_writable is True
+    assert ix.accounts[2].pubkey == market
+    assert ix.accounts[3].pubkey == orderbook
+    assert ix.accounts[4].pubkey == lookup_table
+    assert ix.accounts[4].is_writable is True
+    assert ix.accounts[5].pubkey == quote_mint
+    assert ix.accounts[6].pubkey == fee_receiver
+    assert ix.accounts[7].pubkey == get_conditional_token_ata(
+        fee_receiver,
+        quote_mint,
+    )
+    assert ix.accounts[9].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
+    assert ix.data == bytes([34])
+
+
 def test_set_manager_instruction_layout():
     authority = Pubkey.new_unique()
     new_manager = Pubkey.new_unique()
@@ -225,6 +276,62 @@ def test_set_manager_instruction_layout():
     assert ix.accounts[0].pubkey == authority
     assert ix.accounts[0].is_signer is True
     assert ix.data == bytes([28]) + bytes(new_manager)
+
+
+def test_accept_role_instruction_layouts():
+    incoming_role = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+    params = AcceptRoleParams(incoming_role=incoming_role)
+
+    authority_ix = build_accept_authority_instruction(params)
+    manager_ix = build_accept_manager_instruction(params)
+    operator_ix = build_accept_operator_instruction(params)
+
+    for ix in (authority_ix, manager_ix, operator_ix):
+        assert len(ix.accounts) == 2
+        assert ix.accounts[0].pubkey == incoming_role
+        assert ix.accounts[0].is_signer is True
+        assert ix.accounts[0].is_writable is False
+        assert ix.accounts[1].pubkey == exchange
+        assert ix.accounts[1].is_writable is True
+        assert len(ix.data) == 1
+
+    assert authority_ix.data == bytes([35])
+    assert manager_ix.data == bytes([36])
+    assert operator_ix.data == bytes([37])
+
+
+def test_set_oracle_instruction_layout_and_zero_validation():
+    authority = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    new_oracle = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+
+    ix = build_set_oracle_instruction(
+        SetOracleParams(
+            authority=authority,
+            market=market,
+            new_oracle=new_oracle,
+        )
+    )
+
+    assert len(ix.accounts) == 3
+    assert ix.accounts[0].pubkey == authority
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[0].is_writable is False
+    assert ix.accounts[1].pubkey == exchange
+    assert ix.accounts[2].pubkey == market
+    assert ix.accounts[2].is_writable is True
+    assert ix.data == bytes([33]) + bytes(new_oracle)
+
+    with pytest.raises(InvalidOracleError):
+        build_set_oracle_instruction(
+            SetOracleParams(
+                authority=authority,
+                market=market,
+                new_oracle=Pubkey.from_bytes(bytes(32)),
+            )
+        )
 
 
 def test_fee_admin_instruction_layouts():
@@ -258,6 +365,36 @@ def test_fee_admin_instruction_layouts():
 
     assert len(receiver_ix.accounts) == 2
     assert receiver_ix.data == bytes([30]) + bytes(fee_receiver)
+
+    quote_mint_a = Pubkey.new_unique()
+    quote_mint_b = Pubkey.new_unique()
+    receiver_with_atas = build_set_fee_receiver_with_atas_instruction(
+        SetFeeReceiverWithAtasParams(
+            authority=authority,
+            new_fee_receiver=fee_receiver,
+            quote_mints=[quote_mint_a, quote_mint_b],
+        )
+    )
+
+    assert len(receiver_with_atas.accounts) == 10
+    assert receiver_with_atas.accounts[2].pubkey == fee_receiver
+    assert receiver_with_atas.accounts[6].pubkey == quote_mint_a
+    assert receiver_with_atas.accounts[7].pubkey == get_conditional_token_ata(
+        fee_receiver,
+        quote_mint_a,
+    )
+    assert receiver_with_atas.accounts[7].is_writable is True
+    assert receiver_with_atas.accounts[8].pubkey == quote_mint_b
+    assert receiver_with_atas.data == bytes([30]) + bytes(fee_receiver)
+
+    with pytest.raises(MissingFieldError):
+        build_set_fee_receiver_with_atas_instruction(
+            SetFeeReceiverWithAtasParams(
+                authority=authority,
+                new_fee_receiver=fee_receiver,
+                quote_mints=[],
+            )
+        )
 
 
 def test_conditional_metadata_instruction_layouts():
@@ -372,6 +509,7 @@ def test_match_orders_multi_includes_orderbook_at_fixed_index():
     maker_order = signed_order(
         Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, nonce=2
     )
+    fee_receiver = Pubkey.new_unique()
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint)
 
     ix = build_match_orders_multi_instruction(
@@ -379,7 +517,7 @@ def test_match_orders_multi_includes_orderbook_at_fixed_index():
         market=market,
         base_mint=base_mint,
         quote_mint=quote_mint,
-        fee_receiver=Pubkey.new_unique(),
+        fee_receiver=fee_receiver,
         taker_order=taker_order,
         maker_orders=[maker_order],
         maker_fill_amounts=[100],
@@ -388,6 +526,12 @@ def test_match_orders_multi_includes_orderbook_at_fixed_index():
 
     assert ix.accounts[3].pubkey == orderbook
     assert ix.accounts[3].is_writable is False
+    assert ix.accounts[13].pubkey == get_conditional_token_ata(
+        fee_receiver,
+        quote_mint,
+    )
+    assert ix.accounts[14].pubkey == fee_receiver
+    assert ix.accounts[15].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
 
 
 def test_deposit_and_swap_includes_orderbook_at_fixed_index():
@@ -399,6 +543,7 @@ def test_deposit_and_swap_includes_orderbook_at_fixed_index():
     maker_order = signed_order(
         Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, nonce=2
     )
+    fee_receiver = Pubkey.new_unique()
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint)
 
     ix = build_deposit_and_swap_instruction(
@@ -406,7 +551,7 @@ def test_deposit_and_swap_includes_orderbook_at_fixed_index():
         market=market,
         base_mint=base_mint,
         quote_mint=quote_mint,
-        fee_receiver=Pubkey.new_unique(),
+        fee_receiver=fee_receiver,
         taker_order=taker_order,
         makers=[
             MakerFill(
@@ -419,6 +564,12 @@ def test_deposit_and_swap_includes_orderbook_at_fixed_index():
     )
 
     assert ix.accounts[3].pubkey == orderbook
+    assert ix.accounts[6].pubkey == get_conditional_token_ata(
+        fee_receiver,
+        quote_mint,
+    )
+    assert ix.accounts[7].pubkey == fee_receiver
+    assert ix.accounts[8].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
 
 
 def test_deposit_to_global_includes_exchange_and_optional_alt_context():
@@ -445,6 +596,30 @@ def test_deposit_to_global_includes_exchange_and_optional_alt_context():
     assert alt_ix.accounts[8].pubkey == user_nonce
     assert alt_ix.accounts[9].pubkey == lookup_table
     assert len(alt_ix.data) == 17
+
+
+def test_set_deposit_token_status_instruction_layout():
+    manager = Pubkey.new_unique()
+    mint = Pubkey.new_unique()
+    exchange, _ = get_exchange_pda()
+    global_deposit_token, _ = get_global_deposit_pda(mint)
+
+    ix = build_set_deposit_token_status_instruction(
+        SetDepositTokenStatusParams(
+            manager=manager,
+            mint=mint,
+            active=False,
+        )
+    )
+
+    assert len(ix.accounts) == 3
+    assert ix.accounts[0].pubkey == manager
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[0].is_writable is False
+    assert ix.accounts[1].pubkey == exchange
+    assert ix.accounts[2].pubkey == global_deposit_token
+    assert ix.accounts[2].is_writable is True
+    assert ix.data == bytes([38, 0])
 
 
 def test_withdraw_from_global_includes_exchange():

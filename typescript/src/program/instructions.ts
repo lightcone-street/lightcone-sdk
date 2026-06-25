@@ -30,8 +30,12 @@ import {
   MatchOrdersMultiParams,
   SetAuthorityParams,
   SetManagerParams,
+  AcceptRoleParams,
+  SetOracleParams,
+  RefreshOrderbookAltParams,
   CreateOrderbookParams,
   WhitelistDepositTokenParams,
+  SetDepositTokenStatusParams,
   DepositToGlobalParams,
   DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
@@ -47,6 +51,7 @@ import {
   SignedOrder,
   ConditionalMetadataParams,
   SetFeeReceiverParams,
+  SetFeeReceiverWithAtasParams,
   SetMarketFeesParams,
   OrderSide,
 } from "./types";
@@ -675,6 +680,9 @@ export function buildSetPausedIx(
 /**
  * Build SetOperator instruction
  *
+ * Proposes a new exchange operator. The active operator changes only after the
+ * proposed operator signs AcceptOperator.
+ *
  * Accounts:
  * 0. authority (signer)
  * 1. exchange (mut)
@@ -800,6 +808,8 @@ export function buildActivateMarketIx(
  * token_program (readonly)
  * system_program (readonly)
  * fee_receiver_quote_ata (mut)
+ * fee_receiver (readonly)
+ * ata_program (readonly)
  * Per maker:
  *   [maker_order_status if bit_i=0] (mut)
  *   maker_nonce (readonly)
@@ -875,6 +885,8 @@ export function buildMatchOrdersMultiIx(
   keys.push(readonly(TOKEN_PROGRAM_ID));
   keys.push(readonly(SYSTEM_PROGRAM_ID));
   keys.push(writable(feeReceiverQuoteAta));
+  keys.push(readonly(params.feeReceiver));
+  keys.push(readonly(ASSOCIATED_TOKEN_PROGRAM_ID));
 
   // Add maker accounts
   for (let i = 0; i < params.makerOrders.length; i++) {
@@ -934,6 +946,9 @@ export function buildMatchOrdersMultiIx(
 
 /**
  * Build SetAuthority instruction
+ *
+ * Proposes a new exchange authority. The active authority changes only after
+ * the proposed authority signs AcceptAuthority.
  *
  * Accounts:
  * 0. authority (signer)
@@ -1031,7 +1046,48 @@ export function buildCreateOrderbookIx(
 }
 
 /**
+ * Build RefreshOrderbookAlt instruction.
+ *
+ * Ensures the current fee receiver quote ATA exists and appends it to the
+ * orderbook ALT when absent. This does not fully reshape old ALTs.
+ */
+export function buildRefreshOrderbookAltIx(
+  params: RefreshOrderbookAltParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const feeReceiverQuoteAta = getConditionalTokenAta(
+    params.quoteMint,
+    params.feeReceiver
+  );
+
+  const keys: AccountMeta[] = [
+    signerMut(params.manager),
+    readonly(exchange),
+    readonly(params.market),
+    readonly(params.orderbook),
+    writable(params.lookupTable),
+    readonly(params.quoteMint),
+    readonly(params.feeReceiver),
+    writable(feeReceiverQuoteAta),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(ALT_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]),
+  });
+}
+
+/**
  * Build SetManager instruction
+ *
+ * Proposes a new exchange manager. The active manager changes only after the
+ * proposed manager signs AcceptManager.
  *
  * Accounts:
  * 0. authority (signer)
@@ -1059,6 +1115,82 @@ export function buildSetManagerIx(
     keys,
     programId,
     data,
+  });
+}
+
+function buildAcceptRoleIx(
+  params: AcceptRoleParams,
+  discriminator: number,
+  programId: PublicKey
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const keys: AccountMeta[] = [
+    signer(params.incomingRole),
+    writable(exchange),
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.from([discriminator]),
+  });
+}
+
+/**
+ * Build AcceptAuthority instruction.
+ */
+export function buildAcceptAuthorityIx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  return buildAcceptRoleIx(params, INSTRUCTION.ACCEPT_AUTHORITY, programId);
+}
+
+/**
+ * Build AcceptManager instruction.
+ */
+export function buildAcceptManagerIx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  return buildAcceptRoleIx(params, INSTRUCTION.ACCEPT_MANAGER, programId);
+}
+
+/**
+ * Build AcceptOperator instruction.
+ */
+export function buildAcceptOperatorIx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  return buildAcceptRoleIx(params, INSTRUCTION.ACCEPT_OPERATOR, programId);
+}
+
+/**
+ * Build SetOracle instruction.
+ */
+export function buildSetOracleIx(
+  params: SetOracleParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  if (params.newOracle.equals(zeroPubkey())) {
+    throw ProgramSdkError.invalidOracle();
+  }
+
+  const [exchange] = getExchangePda(programId);
+  const keys: AccountMeta[] = [
+    signer(params.authority),
+    readonly(exchange),
+    writable(params.market),
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.concat([
+      Buffer.from([INSTRUCTION.SET_ORACLE]),
+      params.newOracle.toBuffer(),
+    ]),
   });
 }
 
@@ -1110,6 +1242,49 @@ export function buildSetFeeReceiverIx(
     signerMut(params.authority),
     writable(exchange),
   ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.concat([
+      Buffer.from([INSTRUCTION.SET_FEE_RECEIVER]),
+      params.newFeeReceiver.toBuffer(),
+    ]),
+  });
+}
+
+/**
+ * Build SetFeeReceiver instruction with optional ATA creation accounts.
+ *
+ * Uses the same discriminator and data as buildSetFeeReceiverIx, while
+ * appending the optional account block used by the on-chain program to create
+ * receiver quote ATAs.
+ */
+export function buildSetFeeReceiverWithAtasIx(
+  params: SetFeeReceiverWithAtasParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  if (params.newFeeReceiver.equals(zeroPubkey())) {
+    throw ProgramSdkError.invalidFeeReceiver();
+  }
+  if (params.quoteMints.length === 0) {
+    throw ProgramSdkError.missingField("quote_mints");
+  }
+
+  const [exchange] = getExchangePda(programId);
+  const keys: AccountMeta[] = [
+    signerMut(params.authority),
+    writable(exchange),
+    readonly(params.newFeeReceiver),
+    readonly(TOKEN_PROGRAM_ID),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+    readonly(SYSTEM_PROGRAM_ID),
+  ];
+
+  for (const quoteMint of params.quoteMints) {
+    keys.push(readonly(quoteMint));
+    keys.push(writable(getConditionalTokenAta(quoteMint, params.newFeeReceiver)));
+  }
 
   return new TransactionInstruction({
     keys,
@@ -1220,6 +1395,35 @@ export function buildWhitelistDepositTokenIx(
     keys,
     programId,
     data: Buffer.from([INSTRUCTION.WHITELIST_DEPOSIT_TOKEN]),
+  });
+}
+
+/**
+ * Build SetDepositTokenStatus instruction.
+ *
+ * Updates the backend-visible active flag on a whitelisted GlobalDepositToken.
+ * Current on-chain user flows do not gate on this flag.
+ */
+export function buildSetDepositTokenStatusIx(
+  params: SetDepositTokenStatusParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  const [exchange] = getExchangePda(programId);
+  const [globalDepositToken] = getGlobalDepositTokenPda(params.mint, programId);
+
+  const keys: AccountMeta[] = [
+    signer(params.manager),
+    readonly(exchange),
+    writable(globalDepositToken),
+  ];
+
+  return new TransactionInstruction({
+    keys,
+    programId,
+    data: Buffer.from([
+      INSTRUCTION.SET_DEPOSIT_TOKEN_STATUS,
+      params.active ? 1 : 0,
+    ]),
   });
 }
 
@@ -1536,6 +1740,10 @@ export function buildExtendPositionTokensIx(
 /**
  * Build DepositAndSwap instruction.
  * Supports a mix of global deposits and token swaps in a single instruction.
+ *
+ * Fixed accounts:
+ * operator, exchange, market, orderbook, mint_authority, token_program,
+ * fee_receiver_quote_ata, fee_receiver, ata_program
  */
 export function buildDepositAndSwapIx(
   params: DepositAndSwapParams,
@@ -1592,6 +1800,8 @@ export function buildDepositAndSwapIx(
     readonly(mintAuthority),
     readonly(TOKEN_PROGRAM_ID),
     writable(feeReceiverQuoteAta),
+    readonly(params.feeReceiver),
+    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
   ];
 
   if (!params.takerIsFullFill) {
@@ -2089,6 +2299,38 @@ export function buildSetManagerTx(
   return new Transaction({ feePayer: params.authority }).add(ix);
 }
 
+export function buildAcceptAuthorityTx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildAcceptAuthorityIx(params, programId);
+  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+}
+
+export function buildAcceptManagerTx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildAcceptManagerIx(params, programId);
+  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+}
+
+export function buildAcceptOperatorTx(
+  params: AcceptRoleParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildAcceptOperatorIx(params, programId);
+  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+}
+
+export function buildSetOracleTx(
+  params: SetOracleParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetOracleIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
 export function buildSetMarketFeesTx(
   params: SetMarketFeesParams,
   programId: PublicKey = PROGRAM_ID
@@ -2102,6 +2344,14 @@ export function buildSetFeeReceiverTx(
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
   const ix = buildSetFeeReceiverIx(params, programId);
+  return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildSetFeeReceiverWithAtasTx(
+  params: SetFeeReceiverWithAtasParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetFeeReceiverWithAtasIx(params, programId);
   return new Transaction({ feePayer: params.authority }).add(ix);
 }
 
@@ -2129,12 +2379,28 @@ export function buildCreateOrderbookTx(
   return new Transaction({ feePayer: params.manager }).add(ix);
 }
 
+export function buildRefreshOrderbookAltTx(
+  params: RefreshOrderbookAltParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildRefreshOrderbookAltIx(params, programId);
+  return new Transaction({ feePayer: params.manager }).add(ix);
+}
+
 export function buildWhitelistDepositTokenTx(
   params: WhitelistDepositTokenParams,
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
   const ix = buildWhitelistDepositTokenIx(params, programId);
   return new Transaction({ feePayer: params.authority }).add(ix);
+}
+
+export function buildSetDepositTokenStatusTx(
+  params: SetDepositTokenStatusParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildSetDepositTokenStatusIx(params, programId);
+  return new Transaction({ feePayer: params.manager }).add(ix);
 }
 
 export function buildDepositToGlobalTx(

@@ -11,6 +11,7 @@ export type ProgramErrorVariant =
   | "InvalidSide"
   | "InvalidMintOrder"
   | "InvalidMarketStatus"
+  | "InvalidPendingRoleKind"
   | "MissingField"
   | "Overflow"
   | "OrderbookExists"
@@ -20,7 +21,7 @@ export type ProgramErrorVariant =
   | "InvalidOrderbook"
   | "FullFillRequired"
   | "DivisionByZero"
-  | "DepositTokenNotActive"
+  | "Reserved50"
   | "InsufficientGlobalDeposit"
   | "InvalidDepositMintOrder"
   | "ZeroAmount"
@@ -35,6 +36,10 @@ export type ProgramErrorVariant =
   | "InvalidFeeRange"
   | "InvalidFeeSum"
   | "InvalidFeeReceiver"
+  | "InvalidOracle"
+  | "LookupTableDeactivated"
+  | "NoPendingRoleTransfer"
+  | "PendingRoleMismatch"
   | "InvalidScalarRange"
   | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
@@ -129,6 +134,13 @@ export class ProgramSdkError extends Error {
     );
   }
 
+  static invalidPendingRoleKind(value: number): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidPendingRoleKind",
+      `Invalid pending role kind: ${value}`,
+    );
+  }
+
   static missingField(field: string): ProgramSdkError {
     return new ProgramSdkError(
       "MissingField",
@@ -168,10 +180,10 @@ export class ProgramSdkError extends Error {
     return new ProgramSdkError("DivisionByZero", "Division by zero");
   }
 
-  static depositTokenNotActive(): ProgramSdkError {
+  static reserved50(): ProgramSdkError {
     return new ProgramSdkError(
-      "DepositTokenNotActive",
-      "Deposit token not active",
+      "Reserved50",
+      "Reserved custom error code 50",
     );
   }
 
@@ -259,6 +271,31 @@ export class ProgramSdkError extends Error {
 
   static invalidFeeReceiver(): ProgramSdkError {
     return new ProgramSdkError("InvalidFeeReceiver", "Invalid fee receiver");
+  }
+
+  static invalidOracle(): ProgramSdkError {
+    return new ProgramSdkError("InvalidOracle", "Invalid oracle");
+  }
+
+  static lookupTableDeactivated(): ProgramSdkError {
+    return new ProgramSdkError(
+      "LookupTableDeactivated",
+      "Lookup table is deactivated",
+    );
+  }
+
+  static noPendingRoleTransfer(): ProgramSdkError {
+    return new ProgramSdkError(
+      "NoPendingRoleTransfer",
+      "No pending role transfer",
+    );
+  }
+
+  static pendingRoleMismatch(): ProgramSdkError {
+    return new ProgramSdkError(
+      "PendingRoleMismatch",
+      "Pending role transfer mismatch",
+    );
   }
 
   static invalidScalarRange(): ProgramSdkError {

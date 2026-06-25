@@ -77,10 +77,12 @@ OrderSide.ASK  // 1 - Seller gives base, receives quote
 ```typescript
 import type {
   Exchange,
+  GlobalDepositToken,
   Market,
   Position,
   OrderStatus,
   UserNonce,
+  PendingRoleKind,
 } from "@lightconexyz/lightcone-sdk";
 ```
 
@@ -96,6 +98,9 @@ import type {
 | `paused` | boolean | Trading paused |
 | `bump` | number | PDA bump seed |
 | `depositTokenCount` | number | Number of whitelisted deposit tokens |
+| `feeReceiver` | PublicKey | Current protocol fee receiver |
+| `pendingRole` | PublicKey | Pending privileged-role recipient |
+| `pendingRoleKind` | PendingRoleKind | Pending role kind: none, authority, manager, or operator |
 
 #### Market
 
@@ -106,11 +111,23 @@ import type {
 | `numOutcomes` | number | Number of outcomes (2-6) |
 | `status` | MarketStatus | Current status |
 | `bump` | number | PDA bump seed |
+| `makerFeeBps` | number | Maker fee in basis points |
+| `takerFeeBps` | number | Taker fee in basis points |
 | `oracle` | PublicKey | Oracle authority |
 | `questionId` | Buffer | Question identifier (32 bytes) |
 | `conditionId` | Buffer | Computed condition ID (32 bytes) |
 | `payoutNumerators` | [number, number, number, number, number, number] | Resolution vector; first `numOutcomes` entries are meaningful |
 | `payoutDenominator` | number | Sum of meaningful payout numerators |
+
+#### GlobalDepositToken
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `discriminator` | Buffer | 8-byte discriminator |
+| `mint` | PublicKey | Whitelisted deposit mint |
+| `bump` | number | PDA bump seed |
+| `index` | number | Deposit token ordering index |
+| `active` | boolean | Backend-visible status flag |
 
 #### SignedOrder (233 bytes)
 
@@ -141,14 +158,25 @@ Compact order payload without `maker`, `market`, `baseMint`, or `quoteMint`.
 The Lightcone program ID is derived from `LightconeEnv` and accessed via `programId(env)` or `client.programId`. `PROGRAM_ID` is re-exported as a convenience default (production). When targeting staging or local, always pass `programId` explicitly.
 
 ```typescript
-import { PROGRAM_ID, TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
+import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
 ```
 
 | Constant | Value |
 |----------|-------|
 | `PROGRAM_ID` | Production default, derived from `LightconeEnv.Prod` |
 | `TOKEN_PROGRAM_ID` | `TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA` |
-| `TOKEN_2022_PROGRAM_ID` | `TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb` |
+| `ASSOCIATED_TOKEN_PROGRAM_ID` | SPL Associated Token Account program |
+| `INITIALIZE_AUTHORITY` | Pubkey allowed by the program to initialize the exchange |
+
+### Current Program Alignment Notes
+
+- `Exchange` and `Market` accounts are 216 bytes.
+- `GlobalDepositToken` accounts are 47 bytes, with `bump` at offset 40, `index` at 41..43, and `active` at offset 43.
+- `setAuthority`, `setManager`, and `setOperator` now propose role transfers. The corresponding `acceptAuthority`, `acceptManager`, or `acceptOperator` instruction performs the effective role change.
+- `matchOrdersMulti` and `depositAndSwap` include the fee receiver and associated token program in their fixed account lists.
+- `setFeeReceiverWithAtas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
+- `refreshOrderbookAlt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
+- Instruction discriminators are current through `SetDepositTokenStatus = 38`.
 
 ### Limits
 
@@ -207,6 +235,7 @@ async function main() {
     market: marketPda,
     baseMint: yesMint,
     quoteMint: noMint,
+    feeReceiver: exchange.feeReceiver,
     takerOrder: signedTakerOrder,
     makerOrders: [signedOrder],
     makerFillAmounts: [500_000n],
@@ -224,6 +253,7 @@ The `program` module also exports all building blocks directly for advanced usag
 import {
   // Instruction builders
   buildInitializeIx, buildCreateMarketIx, buildMatchOrdersMultiIx,
+  buildRefreshOrderbookAltIx, buildAcceptAuthorityIx, buildSetOracleIx,
   // PDA functions
   getExchangePda, getMarketPda, getOrderStatusPda,
   // Account deserialization

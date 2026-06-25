@@ -16,7 +16,11 @@ from .constants import (
     USER_NONCE_DISCRIMINATOR,
     USER_NONCE_SIZE,
 )
-from .errors import InvalidAccountDataError, InvalidDiscriminatorError
+from .errors import (
+    InvalidAccountDataError,
+    InvalidDiscriminatorError,
+    InvalidPendingRoleKindError,
+)
 from .types import (
     Exchange,
     GlobalDepositToken,
@@ -24,6 +28,7 @@ from .types import (
     MarketStatus,
     Orderbook,
     OrderStatus,
+    PendingRoleKind,
     Position,
     UserNonce,
 )
@@ -47,10 +52,18 @@ def _validate_discriminator(data: bytes, expected: bytes, name: str) -> None:
         raise InvalidDiscriminatorError(expected, actual)
 
 
+def _decode_pending_role_kind(value: int) -> PendingRoleKind:
+    """Decode an Exchange pending-role kind byte."""
+    try:
+        return PendingRoleKind(value)
+    except ValueError as exc:
+        raise InvalidPendingRoleKindError(value) from exc
+
+
 def deserialize_exchange(data: bytes) -> Exchange:
     """Deserialize an Exchange account.
 
-    Layout (212 bytes):
+    Layout (216 bytes):
     - [0..8]: discriminator
     - [8..40]: authority (Pubkey)
     - [40..72]: operator (Pubkey)
@@ -60,7 +73,9 @@ def deserialize_exchange(data: bytes) -> Exchange:
     - [113]: bump (u8)
     - [114..116]: deposit_token_count (u16 LE)
     - [116..148]: fee_receiver (Pubkey)
-    - [148..212]: reserved
+    - [148..180]: pending_role (Pubkey)
+    - [180]: pending_role_kind (u8)
+    - [181..216]: reserved
     """
     _validate_discriminator(data, EXCHANGE_DISCRIMINATOR, "Exchange")
 
@@ -78,13 +93,15 @@ def deserialize_exchange(data: bytes) -> Exchange:
         bump=decode_u8(data, 113),
         deposit_token_count=decode_u16(data, 114),
         fee_receiver=decode_pubkey(data, 116),
+        pending_role=decode_pubkey(data, 148),
+        pending_role_kind=_decode_pending_role_kind(decode_u8(data, 180)),
     )
 
 
 def deserialize_market(data: bytes) -> Market:
     """Deserialize a Market account.
 
-    Layout (212 bytes):
+    Layout (216 bytes):
     - [0..8]: discriminator
     - [8..16]: market_id (u64 LE)
     - [16]: num_outcomes (u8)
@@ -98,6 +115,7 @@ def deserialize_market(data: bytes) -> Market:
     - [88..120]: condition_id (32 bytes)
     - [120..144]: payout_numerators ([u32; 6])
     - [144..148]: payout_denominator (u32)
+    - [148..216]: reserved
     """
     _validate_discriminator(data, MARKET_DISCRIMINATOR, "Market")
 
@@ -263,13 +281,13 @@ def is_global_deposit_token(data: bytes) -> bool:
 def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
     """Deserialize a GlobalDepositToken account.
 
-    Layout (48 bytes):
+    Layout (47 bytes):
     - [0..8]: discriminator
     - [8..40]: mint (Pubkey)
-    - [40]: active (bool)
-    - [41]: bump (u8)
-    - [42..44]: index (u16 LE)
-    - [44..48]: padding
+    - [40]: bump (u8)
+    - [41..43]: index (u16 LE)
+    - [43]: active (bool)
+    - [44..47]: padding
     """
     _validate_discriminator(
         data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken"
@@ -282,7 +300,7 @@ def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
 
     return GlobalDepositToken(
         mint=decode_pubkey(data, 8),
-        active=decode_bool(data, 40),
-        bump=decode_u8(data, 41),
-        index=decode_u16(data, 42),
+        bump=decode_u8(data, 40),
+        index=decode_u16(data, 41),
+        active=decode_bool(data, 43),
     )

@@ -12,7 +12,8 @@ pub mod utils;
 
 // Re-export commonly used items
 pub use accounts::{
-    Exchange, GlobalDepositToken, Market, OrderStatus, Orderbook, Position, UserNonce,
+    Exchange, GlobalDepositToken, Market, OrderStatus, Orderbook, PendingRoleKind, Position,
+    UserNonce,
 };
 pub use constants::*;
 #[cfg(feature = "trigger_orders")]

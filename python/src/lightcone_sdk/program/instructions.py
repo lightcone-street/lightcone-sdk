@@ -10,6 +10,9 @@ from ..env import PROGRAM_ID
 from .constants import (
     ALT_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
+    INSTRUCTION_ACCEPT_AUTHORITY,
+    INSTRUCTION_ACCEPT_MANAGER,
+    INSTRUCTION_ACCEPT_OPERATOR,
     INSTRUCTION_ACTIVATE_MARKET,
     INSTRUCTION_ADD_DEPOSIT_MINT,
     INSTRUCTION_CANCEL_ORDER,
@@ -32,11 +35,14 @@ from .constants import (
     INSTRUCTION_MERGE_COMPLETE_SET,
     INSTRUCTION_MINT_COMPLETE_SET,
     INSTRUCTION_REDEEM_WINNINGS,
+    INSTRUCTION_REFRESH_ORDERBOOK_ALT,
     INSTRUCTION_SET_AUTHORITY,
+    INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS,
     INSTRUCTION_SET_FEE_RECEIVER,
     INSTRUCTION_SET_MANAGER,
     INSTRUCTION_SET_MARKET_FEES,
     INSTRUCTION_SET_OPERATOR,
+    INSTRUCTION_SET_ORACLE,
     INSTRUCTION_SET_PAUSED,
     INSTRUCTION_SETTLE_MARKET,
     INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
@@ -55,6 +61,7 @@ from .errors import (
     ArithmeticOverflowError,
     InvalidFeeReceiverError,
     InvalidMintOrderError,
+    InvalidOracleError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
@@ -81,22 +88,27 @@ from .pda import (
     get_vault_pda,
 )
 from .types import (
-    CloseOrderStatusParams,
+    AcceptRoleParams,
     CloseOrderbookAltParams,
     CloseOrderbookParams,
+    CloseOrderStatusParams,
     ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
     ConditionalMetadataParams,
     DepositToGlobalAltContext,
+    RefreshOrderbookAltParams,
+    SetDepositTokenStatusParams,
     SetFeeReceiverParams,
+    SetFeeReceiverWithAtasParams,
     SetMarketFeesParams,
+    SetOracleParams,
     SignedOrder,
 )
 from .utils import (
     derive_condition_id,
     encode_i16,
-    encode_u32,
     encode_u8,
+    encode_u32,
     encode_u64,
     get_associated_token_address,
     get_conditional_token_ata,
@@ -576,6 +588,9 @@ def build_set_operator_instruction(
 ) -> Instruction:
     """Build the set_operator instruction.
 
+    Proposes a new exchange operator. The active operator changes only after the
+    proposed operator signs accept_operator.
+
     Accounts:
     0. authority (signer, writable)
     1. exchange (writable)
@@ -700,6 +715,8 @@ def build_match_orders_multi_instruction(
     11. token_program
     12. system_program
     13. fee_receiver_quote_ata (writable)
+    14. fee_receiver
+    15. ata_program
     Per maker (5 accounts each, conditionally including order_status based on bitmask):
     - order_status (writable) [only if bit set in bitmask]
     - nonce
@@ -759,6 +776,12 @@ def build_match_orders_multi_instruction(
             AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
             AccountMeta(
                 pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True
+            ),
+            AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False),
+            AccountMeta(
+                pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
+                is_signer=False,
+                is_writable=False,
             ),
         ]
     )
@@ -925,12 +948,60 @@ def build_create_orderbook_instruction(
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
+def build_refresh_orderbook_alt_instruction(
+    params: RefreshOrderbookAltParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the refresh_orderbook_alt instruction.
+
+    Ensures the current fee receiver quote ATA exists and appends it to the
+    orderbook ALT when absent. This does not fully reshape old ALTs.
+    """
+    exchange, _ = get_exchange_pda(program_id)
+    fee_receiver_quote_ata = get_conditional_token_ata(
+        params.fee_receiver,
+        params.quote_mint,
+    )
+
+    accounts = [
+        AccountMeta(pubkey=params.manager, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=params.quote_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.fee_receiver, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=fee_receiver_quote_ata,
+            is_signer=False,
+            is_writable=True,
+        ),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
+            is_signer=False,
+            is_writable=False,
+        ),
+        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    return Instruction(
+        program_id=program_id,
+        accounts=accounts,
+        data=bytes([INSTRUCTION_REFRESH_ORDERBOOK_ALT]),
+    )
+
+
 def build_set_authority_instruction(
     current_authority: Pubkey,
     new_authority: Pubkey,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
     """Build the set_authority instruction.
+
+    Proposes a new exchange authority. The active authority changes only after
+    the proposed authority signs accept_authority.
 
     Accounts:
     0. authority (signer, writable)
@@ -959,6 +1030,9 @@ def build_set_manager_instruction(
 ) -> Instruction:
     """Build the set_manager instruction.
 
+    Proposes a new exchange manager. The active manager changes only after the
+    proposed manager signs accept_manager.
+
     Accounts:
     0. authority (signer, writable)
     1. exchange (writable)
@@ -976,6 +1050,81 @@ def build_set_manager_instruction(
     data.append(INSTRUCTION_SET_MANAGER)
     data.extend(bytes(new_manager))
 
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def _build_accept_role_instruction(
+    params: AcceptRoleParams,
+    discriminator: int,
+    program_id: Pubkey,
+) -> Instruction:
+    exchange, _ = get_exchange_pda(program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.incoming_role, is_signer=True, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
+    ]
+
+    return Instruction(
+        program_id=program_id,
+        accounts=accounts,
+        data=bytes([discriminator]),
+    )
+
+
+def build_accept_authority_instruction(
+    params: AcceptRoleParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the accept_authority instruction."""
+    return _build_accept_role_instruction(
+        params,
+        INSTRUCTION_ACCEPT_AUTHORITY,
+        program_id,
+    )
+
+
+def build_accept_manager_instruction(
+    params: AcceptRoleParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the accept_manager instruction."""
+    return _build_accept_role_instruction(
+        params,
+        INSTRUCTION_ACCEPT_MANAGER,
+        program_id,
+    )
+
+
+def build_accept_operator_instruction(
+    params: AcceptRoleParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the accept_operator instruction."""
+    return _build_accept_role_instruction(
+        params,
+        INSTRUCTION_ACCEPT_OPERATOR,
+        program_id,
+    )
+
+
+def build_set_oracle_instruction(
+    params: SetOracleParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the set_oracle instruction."""
+    if params.new_oracle == _zero_pubkey():
+        raise InvalidOracleError()
+
+    exchange, _ = get_exchange_pda(program_id)
+    accounts = [
+        AccountMeta(pubkey=params.authority, is_signer=True, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=params.market, is_signer=False, is_writable=True),
+    ]
+
+    data = bytearray([INSTRUCTION_SET_ORACLE])
+    data.extend(bytes(params.new_oracle))
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
@@ -1018,6 +1167,55 @@ def build_set_fee_receiver_instruction(
         AccountMeta(pubkey=params.authority, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
     ]
+
+    data = bytearray([INSTRUCTION_SET_FEE_RECEIVER])
+    data.extend(bytes(params.new_fee_receiver))
+    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_set_fee_receiver_with_atas_instruction(
+    params: SetFeeReceiverWithAtasParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build set_fee_receiver with optional receiver ATA creation accounts."""
+    if params.new_fee_receiver == _zero_pubkey():
+        raise InvalidFeeReceiverError()
+    if not params.quote_mints:
+        raise MissingFieldError("quote_mints")
+
+    exchange, _ = get_exchange_pda(program_id)
+    accounts = [
+        AccountMeta(pubkey=params.authority, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
+        AccountMeta(
+            pubkey=params.new_fee_receiver,
+            is_signer=False,
+            is_writable=False,
+        ),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
+            is_signer=False,
+            is_writable=False,
+        ),
+        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
+    ]
+
+    for quote_mint in params.quote_mints:
+        fee_receiver_quote_ata = get_conditional_token_ata(
+            params.new_fee_receiver,
+            quote_mint,
+        )
+        accounts.append(
+            AccountMeta(pubkey=quote_mint, is_signer=False, is_writable=False)
+        )
+        accounts.append(
+            AccountMeta(
+                pubkey=fee_receiver_quote_ata,
+                is_signer=False,
+                is_writable=True,
+            )
+        )
 
     data = bytearray([INSTRUCTION_SET_FEE_RECEIVER])
     data.extend(bytes(params.new_fee_receiver))
@@ -1130,6 +1328,27 @@ def build_whitelist_deposit_token_instruction(
 
     data = bytes([INSTRUCTION_WHITELIST_DEPOSIT_TOKEN])
     return Instruction(program_id=program_id, accounts=accounts, data=data)
+
+
+def build_set_deposit_token_status_instruction(
+    params: SetDepositTokenStatusParams,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Build the set_deposit_token_status instruction."""
+    exchange, _ = get_exchange_pda(program_id)
+    global_deposit_token, _ = get_global_deposit_pda(params.mint, program_id)
+
+    accounts = [
+        AccountMeta(pubkey=params.manager, is_signer=True, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=True),
+    ]
+
+    return Instruction(
+        program_id=program_id,
+        accounts=accounts,
+        data=bytes([INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS, 1 if params.active else 0]),
+    )
 
 
 def build_deposit_to_global_instruction(
@@ -1376,8 +1595,8 @@ def build_deposit_and_swap_instruction(
     conditional tokens in a single instruction.
 
     Account layout:
-      Fixed (7): operator, exchange, market, orderbook, mint_authority, token_program,
-                 fee_receiver_quote_ata
+      Fixed (9): operator, exchange, market, orderbook, mint_authority, token_program,
+                 fee_receiver_quote_ata, fee_receiver, ata_program
       Taker block: [order_status], nonce, position, base_mint, quote_mint,
                    taker_receive_ata, taker_give_ata, system_program
       Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
@@ -1422,7 +1641,7 @@ def build_deposit_and_swap_instruction(
 
     accounts = []
 
-    # Fixed accounts (7)
+    # Fixed accounts (9)
     accounts.append(AccountMeta(pubkey=operator, is_signer=True, is_writable=True))
     accounts.append(AccountMeta(pubkey=exchange, is_signer=False, is_writable=False))
     accounts.append(AccountMeta(pubkey=market, is_signer=False, is_writable=False))
@@ -1435,6 +1654,14 @@ def build_deposit_and_swap_instruction(
     )
     accounts.append(
         AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True)
+    )
+    accounts.append(AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False))
+    accounts.append(
+        AccountMeta(
+            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
+            is_signer=False,
+            is_writable=False,
+        )
     )
 
     # Taker order_status (only if not full fill)

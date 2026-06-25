@@ -173,6 +173,14 @@ class InvalidMarketStatusError(LightconeError):
         super().__init__(f"Invalid market status: {status}")
 
 
+class InvalidPendingRoleKindError(LightconeError):
+    """Raised when an invalid Exchange pending role kind is encountered."""
+
+    def __init__(self, kind: int):
+        self.kind = kind
+        super().__init__(f"Invalid pending role kind: {kind}")
+
+
 class MissingFieldError(LightconeError):
     """Raised when a required field is missing."""
 
@@ -275,10 +283,38 @@ class InvalidFeeSumError(LightconeError):
 
 
 class InvalidFeeReceiverError(LightconeError):
-    """Raised when the exchange fee receiver is invalid."""
+    """Raised when the fee receiver or token account is invalid."""
 
     def __init__(self):
         super().__init__("Invalid fee receiver")
+
+
+class InvalidOracleError(LightconeError):
+    """Raised when a market oracle pubkey is invalid."""
+
+    def __init__(self):
+        super().__init__("Invalid oracle")
+
+
+class LookupTableDeactivatedError(LightconeError):
+    """Raised when a lookup table is deactivated and cannot be extended."""
+
+    def __init__(self):
+        super().__init__("Lookup table is deactivated")
+
+
+class NoPendingRoleTransferError(LightconeError):
+    """Raised when no pending privileged-role transfer exists."""
+
+    def __init__(self):
+        super().__init__("No pending role transfer")
+
+
+class PendingRoleMismatchError(LightconeError):
+    """Raised when a pending role transfer kind or signer does not match."""
+
+    def __init__(self):
+        super().__init__("Pending role transfer mismatch")
 
 
 class InvalidOrderbookError(LightconeError):
@@ -302,11 +338,16 @@ class DivisionByZeroError(LightconeError):
         super().__init__("Division by zero")
 
 
-class DepositTokenNotActiveError(LightconeError):
-    """Raised when a deposit token is not active."""
+class Reserved50Error(LightconeError):
+    """Raised for reserved custom error code 50."""
 
     def __init__(self):
-        super().__init__("Deposit token not active")
+        super().__init__("Reserved custom error code 50")
+
+
+# Backward compatibility alias for older SDK consumers. The current on-chain
+# program reserves error code 50 and no longer emits DepositTokenNotActive.
+DepositTokenNotActiveError = Reserved50Error
 
 
 class InsufficientGlobalDepositError(LightconeError):

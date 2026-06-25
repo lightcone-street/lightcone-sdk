@@ -33,6 +33,13 @@ export const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey(
 );
 
 /**
+ * Pubkey allowed by the on-chain program to initialize the exchange.
+ */
+export const INITIALIZE_AUTHORITY = new PublicKey(
+  "2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb"
+);
+
+/**
  * System Program ID
  */
 export const SYSTEM_PROGRAM_ID = SystemProgram.programId;
@@ -79,6 +86,12 @@ export const INSTRUCTION = {
   SET_FEE_RECEIVER: 30,
   CREATE_CONDITIONAL_METADATA: 31,
   UPDATE_CONDITIONAL_METADATA: 32,
+  SET_ORACLE: 33,
+  REFRESH_ORDERBOOK_ALT: 34,
+  ACCEPT_AUTHORITY: 35,
+  ACCEPT_MANAGER: 36,
+  ACCEPT_OPERATOR: 37,
+  SET_DEPOSIT_TOKEN_STATUS: 38,
 } as const;
 
 /**
@@ -99,13 +112,13 @@ export const DISCRIMINATOR = {
  * Account sizes in bytes
  */
 export const ACCOUNT_SIZE = {
-  EXCHANGE: 212,
-  MARKET: 212,
+  EXCHANGE: 216,
+  MARKET: 216,
   ORDER_STATUS: 32,
   USER_NONCE: 16,
   POSITION: 80,
   ORDERBOOK: 144,
-  GLOBAL_DEPOSIT_TOKEN: 48,
+  GLOBAL_DEPOSIT_TOKEN: 47,
 } as const;
 
 /**
