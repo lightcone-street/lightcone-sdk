@@ -71,6 +71,10 @@ pub enum SdkError {
     #[error("Invalid market status: {0}")]
     InvalidMarketStatus(u8),
 
+    /// Invalid pending privileged-role transfer kind.
+    #[error("Invalid pending role kind: {0}")]
+    InvalidPendingRoleKind(u8),
+
     /// Missing required field
     #[error("Missing required field: {0}")]
     MissingField(String),
@@ -111,9 +115,9 @@ pub enum SdkError {
     #[error("Division by zero")]
     DivisionByZero,
 
-    /// Deposit token not active
-    #[error("Deposit token not active")]
-    DepositTokenNotActive,
+    /// Reserved custom error code 50.
+    #[error("Reserved custom error code 50")]
+    Reserved50,
 
     /// User's global deposit balance is insufficient
     #[error("Insufficient global deposit balance")]
@@ -159,9 +163,25 @@ pub enum SdkError {
     #[error("Invalid fee sum: maker + taker bps must be non-negative")]
     InvalidFeeSum,
 
-    /// Invalid fee receiver.
+    /// Invalid fee receiver address or fee receiver token account owner/mint/authority.
     #[error("Invalid fee receiver")]
     InvalidFeeReceiver,
+
+    /// Invalid oracle pubkey.
+    #[error("Invalid oracle")]
+    InvalidOracle,
+
+    /// Lookup table is deactivated and cannot be extended.
+    #[error("Lookup table is deactivated")]
+    LookupTableDeactivated,
+
+    /// No pending privileged-role transfer exists.
+    #[error("No pending role transfer")]
+    NoPendingRoleTransfer,
+
+    /// Pending role transfer kind or signer does not match.
+    #[error("Pending role transfer mismatch")]
+    PendingRoleMismatch,
 
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
