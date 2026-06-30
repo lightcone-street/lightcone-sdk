@@ -1,0 +1,21 @@
+{
+  "name": "@lightconexyz/lightcone-sdk-rescript",
+  "sources": [
+    { "dir": "src", "subdirs": true },
+    { "dir": "bindings", "subdirs": true },
+    { "dir": "examples", "subdirs": false, "type": "dev" },
+    { "dir": "tests", "subdirs": true, "type": "dev" }
+  ],
+  "package-specs": { "module": "esmodule", "in-source": true },
+  "suffix": ".res.mjs",
+  "dependencies": ["@mununki/ppx-spice", "rescript-bun"],
+  "ppx-flags": ["@mununki/ppx-spice/ppx"],
+  "warnings": { "number": "-32" },
+  "gentypeconfig": {
+    "module": "esmodule",
+    "moduleResolution": "bundler",
+    "generatedFileExtension": ".gen.ts",
+    "shims": {}
+  },
+  "compiler-flags": []
+}

@@ -9,8 +9,10 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 | **Rust** | [`lightcone`](rust/) | `cargo add lightcone` |
 | **TypeScript** | [`@lightconexyz/lightcone-sdk`](typescript/) | `npm install @lightconexyz/lightcone-sdk` |
 | **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python` |
+| **ReScript** | [`@lightconexyz/lightcone-sdk-rescript`](rescript/) | `bun add @lightconexyz/lightcone-sdk-rescript` — authored in ReScript, exported to TypeScript via gentype |
 
-All three SDKs expose the same interface and capabilities.
+All four SDKs expose the same interface and capabilities. The ReScript SDK is consumable from
+ReScript, JavaScript (its compiled output), and TypeScript (via the generated `.gen.ts` types).
 
 ## Features
 
