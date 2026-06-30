@@ -26,7 +26,8 @@ export enum LightconeEnv {
  * regardless of the selected environment.
  */
 export function apiUrl(environment: LightconeEnv): string {
-  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_API_URL : undefined;
+  const overrideUrl =
+    typeof process !== "undefined" ? process.env.SDK_API_URL : undefined;
   if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
@@ -45,7 +46,8 @@ export function apiUrl(environment: LightconeEnv): string {
  * regardless of the selected environment.
  */
 export function wsUrl(environment: LightconeEnv): string {
-  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_WS_URL : undefined;
+  const overrideUrl =
+    typeof process !== "undefined" ? process.env.SDK_WS_URL : undefined;
   if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
@@ -64,7 +66,8 @@ export function wsUrl(environment: LightconeEnv): string {
  * regardless of the selected environment.
  */
 export function rpcUrl(environment: LightconeEnv): string {
-  const overrideUrl = typeof process !== "undefined" ? process.env.SDK_RPC_URL : undefined;
+  const overrideUrl =
+    typeof process !== "undefined" ? process.env.SDK_RPC_URL : undefined;
   if (overrideUrl) return overrideUrl;
   switch (environment) {
     case LightconeEnv.Local:
@@ -83,7 +86,8 @@ export function rpcUrl(environment: LightconeEnv): string {
  * regardless of the selected environment.
  */
 export function programId(environment: LightconeEnv): PublicKey {
-  const override_id = typeof process !== "undefined" ? process.env.SDK_PROGRAM_ID : undefined;
+  const override_id =
+    typeof process !== "undefined" ? process.env.SDK_PROGRAM_ID : undefined;
   if (override_id) {
     return new PublicKey(override_id);
   }
@@ -91,7 +95,7 @@ export function programId(environment: LightconeEnv): PublicKey {
     case LightconeEnv.Local:
       return new PublicKey("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago");
     case LightconeEnv.Staging:
-      return new PublicKey("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE");
+      return new PublicKey("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk");
     case LightconeEnv.Prod:
       return new PublicKey("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK");
   }

@@ -100,7 +100,7 @@ impl LightconeEnv {
         match self {
             Self::Local => Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
                 .expect("valid program id"),
-            Self::Staging => Pubkey::from_str("FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE")
+            Self::Staging => Pubkey::from_str("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk")
                 .expect("valid program id"),
             Self::Prod => Pubkey::from_str("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK")
                 .expect("valid program id"),

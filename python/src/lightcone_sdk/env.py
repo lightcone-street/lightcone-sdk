@@ -85,16 +85,10 @@ class LightconeEnv(Enum):
         if override_id:
             return Pubkey.from_string(override_id)
         if self is LightconeEnv.LOCAL:
-            return Pubkey.from_string(
-                "HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago"
-            )
+            return Pubkey.from_string("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
         if self is LightconeEnv.STAGING:
-            return Pubkey.from_string(
-                "FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE"
-            )
-        return Pubkey.from_string(
-            "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK"
-        )
+            return Pubkey.from_string("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk")
+        return Pubkey.from_string("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK")
 
     def __str__(self) -> str:
         return self.value
