@@ -152,6 +152,7 @@ def market_from_wire(wire: MarketWire) -> Market:
                     outcome=ct.outcome,
                     deposit_asset=da.deposit_asset,
                     deposit_symbol=da_symbol,
+                    deposit_short_symbol=da_short_symbol,
                     name=ct_name,
                     symbol=ct_full_symbol,
                     short_symbol=ct_short_symbol,

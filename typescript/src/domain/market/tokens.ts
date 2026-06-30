@@ -80,6 +80,7 @@ export interface ConditionalToken extends Token {
   outcome: string;
   depositAsset: PubkeyStr;
   depositSymbol: string;
+  depositShortSymbol: string;
 }
 
 export interface DepositAsset extends Token {
@@ -188,7 +189,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   };
 
   const conditionals = source.conditional_mints.map((conditional) =>
-    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrls?.low ?? "", iconUrls?.medium ?? "", iconUrls?.high ?? "")
+    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", name ?? "", iconUrls?.low ?? "", iconUrls?.medium ?? "", iconUrls?.high ?? "")
   );
 
   for (const conditional of conditionals) {
@@ -267,6 +268,7 @@ function conditionalFromWire(
   source: ConditionalTokenResponse,
   depositAsset: string,
   depositSymbol: string,
+  depositShortSymbol: string,
   parentIconUrlLow: string,
   parentIconUrlMedium: string,
   parentIconUrlHigh: string
@@ -291,6 +293,7 @@ function conditionalFromWire(
     outcome: source.outcome ?? "",
     depositAsset: asPubkeyStr(depositAsset),
     depositSymbol,
+    depositShortSymbol,
     pubkey: asPubkeyStr(source.token_address),
     name: source.outcome ?? "",
     symbol: source.symbol ?? source.short_symbol ?? "",

@@ -124,6 +124,7 @@ class ConditionalToken:
     outcome: str = ""
     deposit_asset: str = ""
     deposit_symbol: str = ""
+    deposit_short_symbol: str = ""
     name: str = ""
     symbol: str = ""
     short_symbol: str = ""
