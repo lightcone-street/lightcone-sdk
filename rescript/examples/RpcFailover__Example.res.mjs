@@ -3,6 +3,7 @@
 import * as Rpc from "../src/Rpc.res.mjs";
 import * as Client from "../src/Client.res.mjs";
 import * as SdkError from "../src/SdkError.res.mjs";
+import * as RpcFailover from "../src/RpcFailover.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 
 let deadPrimary = "https://dead-primary.invalid";
@@ -13,12 +14,19 @@ async function main() {
   let client = Client.make(undefined, undefined, undefined, deadPrimary, backupRpc, undefined, undefined, undefined);
   console.log(`primary : ` + client.rpcUrl);
   console.log(`backup  : ` + Stdlib_Option.getOr(client.backupRpcUrl, "(none)"));
+  console.log(`active  : ` + RpcFailover.toString(Rpc.activeRpc(client)));
   let blockhash = await Rpc.getLatestBlockhash(client);
   if (blockhash.TAG === "Ok") {
-    console.log(`blockhash: ` + blockhash._0);
+    console.log(`call #1: ` + blockhash._0 + ` (now active: ` + RpcFailover.toString(Rpc.activeRpc(client)) + `)`);
+  } else {
+    console.error(SdkError.toMessage(blockhash._0));
+  }
+  let blockhash$1 = await Rpc.getLatestBlockhash(client);
+  if (blockhash$1.TAG === "Ok") {
+    console.log(`call #2: ` + blockhash$1._0 + ` (active: ` + RpcFailover.toString(Rpc.activeRpc(client)) + `)`);
     return;
   }
-  console.error(`(expected until failover lands) ` + SdkError.toMessage(blockhash._0));
+  console.error(SdkError.toMessage(blockhash$1._0));
 }
 
 main();

@@ -1,11 +1,14 @@
-// On-chain read sub-client over `client.rpc` (a `SolanaKitRpc.t`). Mirrors
-// rust/src/rpc.rs (the `Rpc` sub-client) plus the per-domain `get_onchain` /
-// `current_nonce` fetchers. Every call returns `promise<result<_, SdkError.t>>`;
-// JS/RPC exceptions are caught and wrapped as `SdkError.Other`, decode failures
-// propagate the `SdkError.Program` from `Accounts`.
+// On-chain read sub-client over the client's kit RPC. Mirrors rust/src/rpc.rs (the
+// `Rpc` sub-client) plus the per-domain `get_onchain` / `current_nonce` fetchers.
+// Every call returns `promise<result<_, SdkError.t>>`; JS/RPC exceptions are caught
+// and wrapped as `SdkError.Other`, decode failures propagate the `SdkError.Program`
+// from `Accounts`.
 //
-// TODO(failover): the Rust SDK fails primary→backup over on infrastructure errors
-// (rust/src/rpc_failover.rs). Here we use the primary `client.rpc` only.
+// The two transport primitives (`getLatestBlockhash` / `getAccountData`) route
+// through `RpcFailover.withFailover`: try the active endpoint, fast-retry, then fail
+// over to `client.backupRpc` (mirrors rust/src/rpc_failover.rs). Their only failures
+// are transport-level, so every error is treated as infrastructure; the typed
+// fetchers below build on `getAccountData` and inherit failover for free.
 
 // ── Response navigation (kit returns typed objects, not plain JSON) ────────────
 // getAccountInfo(encoding=base64) → { value: { data: [base64, "base64"], … } | null }.
@@ -33,14 +36,26 @@ let base64ToBytes: string => Uint8Array.t = %raw(`function (b64) {
   return out;
 }`)
 
-let bigintToFloat: bigint => float = %raw(`(value) => Number(value)`)
-
 let exnMessage = (error: JsExn.t): string => error->JsExn.message->Option.getOr("rpc error")
 
+// ── Endpoint selection + failover ───────────────────────────────────────────────
+// The kit RPC for a failover target. `backupRpc` is always a real handle (it falls
+// back to the primary when no backup URL is set), so this never produces `None` —
+// and a kit RPC must never be wrapped in an `option` anyway: it is a Proxy that
+// answers truthy for every property, which corrupts ReScript's boxed-option tag.
+let rpcFor = (client: Client.t, target: RpcFailover.activeRpc): SolanaKitRpc.t =>
+  switch target {
+  | Primary => client.rpc
+  | Backup => client.backupRpc
+  }
+
+// Which endpoint is currently live (Primary until a failover flips it to Backup).
+let activeRpc = (client: Client.t): RpcFailover.activeRpc => RpcFailover.active(client.rpcFailover)
+
 // ── Blockhash ──────────────────────────────────────────────────────────────────
-// Latest blockhash for transaction building.
-let getLatestBlockhash = async (client: Client.t): result<string, SdkError.t> =>
-  switch await SolanaKitRpc.getLatestBlockhash(client.rpc)->SolanaKitRpc.send {
+// Latest blockhash for transaction building (with primary→backup failover).
+let getLatestBlockhashOn = async (rpc: SolanaKitRpc.t): result<string, SdkError.t> =>
+  switch await SolanaKitRpc.getLatestBlockhash(rpc)->SolanaKitRpc.send {
   | response =>
     switch blockhashOf(response) {
     | Some(blockhash) => Ok(blockhash)
@@ -49,13 +64,20 @@ let getLatestBlockhash = async (client: Client.t): result<string, SdkError.t> =>
   | exception JsExn(error) => Error(SdkError.Other(`getLatestBlockhash failed: ${exnMessage(error)}`))
   }
 
+let getLatestBlockhash = (client: Client.t): promise<result<string, SdkError.t>> =>
+  RpcFailover.withFailover(
+    client.rpcFailover,
+    ~hasBackup=client.backupRpcUrl->Option.isSome,
+    ~tryOn=target => getLatestBlockhashOn(rpcFor(client, target)),
+  )
+
 // ── Raw account data ────────────────────────────────────────────────────────────
-// Account DATA bytes, or `None` when the account doesn't exist.
-let getAccountData = async (
-  client: Client.t,
+// Account DATA bytes, or `None` when the account doesn't exist (with failover).
+let getAccountDataOn = async (
+  rpc: SolanaKitRpc.t,
   address: SolanaKit.address,
 ): result<option<Uint8Array.t>, SdkError.t> =>
-  switch await SolanaKitRpc.getAccountInfo(client.rpc, address, {"encoding": "base64"})->SolanaKitRpc.send {
+  switch await SolanaKitRpc.getAccountInfo(rpc, address, {"encoding": "base64"})->SolanaKitRpc.send {
   | response =>
     switch accountDataBase64(response) {
     | Some(base64) => Ok(Some(base64ToBytes(base64)))
@@ -63,6 +85,16 @@ let getAccountData = async (
     }
   | exception JsExn(error) => Error(SdkError.Other(`getAccountInfo failed: ${exnMessage(error)}`))
   }
+
+let getAccountData = (
+  client: Client.t,
+  address: SolanaKit.address,
+): promise<result<option<Uint8Array.t>, SdkError.t>> =>
+  RpcFailover.withFailover(
+    client.rpcFailover,
+    ~hasBackup=client.backupRpcUrl->Option.isSome,
+    ~tryOn=target => getAccountDataOn(rpcFor(client, target), address),
+  )
 
 // ── PDA accessors (thin wrappers binding `client.programId`) ──────────────────
 // Async (kit derives PDAs via WebCrypto SHA-256); each returns just the address,
@@ -173,7 +205,7 @@ let getNonce = async (client: Client.t, ~user: SolanaKit.address): result<float,
   | Ok(Some(bytes)) =>
     switch Accounts.decodeUserNonce(bytes) {
     | Error(error) => Error(error)
-    | Ok(userNonce) => Ok(bigintToFloat(userNonce.nonce))
+    | Ok(userNonce) => Ok(BigInt.toFloat(userNonce.nonce))
     }
   }
 }

@@ -253,9 +253,9 @@ async function submit(client, request) {
   return await Http.post(client.http, "/api/orders/submit", bodyOfRequest(request), "NoRetry", undefined, submitOrderResponse_decode);
 }
 
-let randomUuid = (() => globalThis.crypto.randomUUID());
-
-let nowSeconds = (() => Math.floor(Date.now() / 1000));
+function nowSeconds() {
+  return Math.floor(Date.now() / 1000.0);
+}
 
 function cancelAllMessage(userPubkey, orderbookId, timestamp, salt) {
   return `cancel_all:` + userPubkey + `:` + orderbookId + `:` + timestamp.toString() + `:` + salt;
@@ -272,7 +272,7 @@ async function cancelBodySigned(orderHash, maker, keypair) {
 
 async function cancelAllBodySigned(userPubkey, orderbookId, keypair) {
   let timestamp = nowSeconds();
-  let salt = randomUuid();
+  let salt = crypto.randomUUID();
   let text = cancelAllMessage(userPubkey, orderbookId, timestamp, salt);
   let message = Kit.getUtf8Encoder().encode(text);
   let signature = await Kit.signBytes(keypair.privateKey, message);

@@ -20,6 +20,8 @@ type t = {
   rpcUrl: string,
   backupRpcUrl: option<string>,
   rpc: SolanaKitRpc.t,
+  backupRpc: SolanaKitRpc.t,
+  rpcFailover: RpcFailover.state,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
   mutable signingStrategy: option<signingStrategy>,

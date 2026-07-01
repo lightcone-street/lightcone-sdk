@@ -349,6 +349,8 @@ let FaucetClient = {
   claim: claim
 };
 
+let activeRpc = Rpc.activeRpc;
+
 function latestBlockhash(client) {
   return SdkError.unwrap(Rpc.getLatestBlockhash(client));
 }
@@ -390,6 +392,7 @@ async function globalDepositTokenPda(client, mint) {
 }
 
 let RpcClient = {
+  activeRpc: activeRpc,
   latestBlockhash: latestBlockhash,
   exchange: exchange,
   market: market$1,

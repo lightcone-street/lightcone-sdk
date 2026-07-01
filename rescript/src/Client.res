@@ -24,6 +24,12 @@ type t = {
   rpcUrl: string,
   backupRpcUrl: option<string>,
   rpc: SolanaKitRpc.t,
+  // Backup kit RPC `Rpc` fails over to on infra errors; equals `rpc` when no
+  // `backupRpcUrl` is set (a kit RPC is a Proxy and must never be wrapped in an
+  // `option` — it answers truthy for every key and corrupts the option tag). Use
+  // `backupRpcUrl->Option.isSome` to tell whether a distinct backup exists.
+  backupRpc: SolanaKitRpc.t,
+  rpcFailover: RpcFailover.state,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
   mutable signingStrategy: option<signingStrategy>,
@@ -42,6 +48,7 @@ let make = (
   (),
 ): t => {
   let resolvedRpcUrl = rpcUrl->Option.getOr(Env.rpcUrl(env))
+  let rpc = SolanaKitRpc.make(resolvedRpcUrl)
   {
     http: Http.make(baseUrl->Option.getOr(Env.apiUrl(env))),
     env,
@@ -49,7 +56,9 @@ let make = (
     wsUrl: wsUrl->Option.getOr(Env.wsUrl(env)),
     rpcUrl: resolvedRpcUrl,
     backupRpcUrl,
-    rpc: SolanaKitRpc.make(resolvedRpcUrl),
+    rpc,
+    backupRpc: backupRpcUrl->Option.mapOr(rpc, url => SolanaKitRpc.make(url)),
+    rpcFailover: RpcFailover.make(),
     depositSource,
     orderNonce: None,
     signingStrategy: None,

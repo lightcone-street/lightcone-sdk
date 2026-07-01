@@ -21,12 +21,10 @@ type t = {
 }
 
 // ── Small platform helpers ────────────────────────────────────────────────────
-@scope("crypto") @val external randomUUID: unit => string = "randomUUID"
-@val external encodeURIComponent: string => string = "encodeURIComponent"
-@val external setTimeout: (unit => unit, int) => unit = "setTimeout"
-
+// `setTimeout` and `encodeURIComponent` are stdlib globals (Stdlib includes
+// Stdlib_Global); `crypto.randomUUID` comes from the WebCrypto binding.
 let sleep = (ms: int): promise<unit> =>
-  Promise.make((resolve, _reject) => setTimeout(() => resolve(), ms))
+  Promise.make((resolve, _reject) => setTimeout(() => resolve(), ms)->ignore)
 
 let parseJson = (text: string): option<JSON.t> =>
   switch JSON.parseOrThrow(text) {
@@ -130,7 +128,7 @@ let request = async (
 
   let rec attempt = async (n: int): result<'a, SdkError.t> => {
     let headers = Dict.make()
-    Dict.set(headers, "x-request-id", randomUUID())
+    Dict.set(headers, "x-request-id", WebCrypto.randomUUID())
     switch body {
     | Some(_) => Dict.set(headers, "content-type", "application/json")
     | None => ()

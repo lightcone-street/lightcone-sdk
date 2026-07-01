@@ -1,39 +1,12 @@
 # TODO — ReScript SDK
 
 Deferred work and verification caveats. None of these touch the request/response,
-auth, order-signing, or on-chain transaction-build paths — those are complete.
+auth, order-signing, on-chain transaction-build, or RPC-failover paths — those are complete.
 Source of truth for everything below is the Rust SDK (`../rust/src`).
 
 ---
 
-## 1. RPC failover — `src/Rpc.res`
-
-**Status:** functional gap. We use the **primary** `client.rpc` only.
-
-**What Rust does** (`../rust/src/rpc_failover.rs`): the client holds a primary + a
-backup RPC URL. On an **infrastructure** error (connection refused, 5xx, timeout —
-*not* a logical "account not found"), it flips the active endpoint to the backup,
-retries, and applies a **cooldown** before probing the primary again. `active_rpc()`
-reports which is live. The `rpc_failover` example proves it: call #1 hits a dead
-primary → transparently retries on the backup → succeeds; call #2 goes straight to
-the backup with no retry delay.
-
-**What we have:** `Rpc.res` builds the kit RPC from the primary only;
-`getLatestBlockhash` / `getAccountData` hit it and, on failure, return an `SdkError`
-with no automatic backup retry. Every read still works against the primary.
-
-**To finish:**
-- Error classification (infrastructure vs logical).
-- Mutable `activeRpc` + cooldown state on `Client.t` / `Rpc`.
-- A second kit RPC instance for the backup URL.
-- A try-primary → flip-on-infra-error → retry wrapper around each RPC call.
-
-`examples/LCEX__RpcFailover.res` already configures primary + backup and will work
-transparently once this lands.
-
----
-
-## 2. WebSocket stateful containers — `src/domain/Orderbook.res`, `src/domain/PriceHistory.res`, `src/ws/Messages.res`
+## 1. WebSocket stateful containers — `src/domain/Orderbook.res`, `src/domain/PriceHistory.res`, `src/ws/Messages.res`
 
 **Status:** largest deferred piece — one cohesive subsystem. The WS **transport,
 reconnect/heartbeat, subscription serialization, and message decoding are done**;
@@ -61,7 +34,7 @@ trees; then type the two `UserUpdate` arms and `@genType`-export them.
 
 ---
 
-## 3. Position — less-common builders — `src/domain/Position.res`
+## 2. Position — less-common builders — `src/domain/Position.res`
 
 **Done:** the core builders (`depositToGlobal`, `withdrawFromGlobal`,
 `globalToMarketDeposit`, `merge`, `redeemWinnings` — each builds + signs + sends a
@@ -75,13 +48,13 @@ Solana tx, in `program/PositionBuilders.res`), the `initPositionTokens` /
 - `closePositionAlt` / `closePositionTokenAccounts` / `withdrawFromPosition`.
 - The low-level `_ix` / `_tx` variants (return an unsigned instruction/transaction for
   the caller to assemble, vs the high-level build+sign+send we ported).
-- The WS balance-index / Decimal-math conversions (part of the WS state work in §2):
+- The WS balance-index / Decimal-math conversions (part of the WS state work in §1):
   `From<ConditionalBalanceDelta>`, `ConditionalBalanceDelta`, `UserMarketBalanceIndex`,
   `DepositAssetMetadata`, `TokenBalance::computed_base` / `computed_quote`.
 
 ---
 
-## 4. Verification caveats (not code TODOs — confirm against a live chain)
+## 3. Verification caveats (not code TODOs — confirm against a live chain)
 
 These compile and are verified against the Rust source, but compile-time cannot prove
 the on-chain program accepts them. The CI on-chain examples (against staging) are the
@@ -100,9 +73,22 @@ real test.
 
 ## Done — formerly TODO, now resolved (kept for context)
 
+- **RPC failover** (`src/RpcFailover.res`, wired into `src/Rpc.res`) — mirrors
+  `rust/src/rpc_failover.rs`. The client holds a primary + a backup kit RPC and a mutable
+  `RpcFailover.state` (`active` + `flippedToBackupAtMs`). The two transport primitives
+  (`getLatestBlockhash` / `getAccountData`) route through `withFailover`: try the active
+  endpoint → 100 ms fast retry → fail over to the backup, flipping state on success, with a
+  120 s cooldown before probing the primary again. `Rpc.activeRpc` (and facade
+  `RpcClient.activeRpc`) report which is live. The typed account fetchers build on
+  `getAccountData`, so they inherit failover for free. Covered by `tests/RpcFailoverTest.res`
+  (state machine + executor, in-process) and the `RpcFailover__Example` on both surfaces
+  (dead primary → devnet backup). NOTE: a kit RPC is a Proxy that answers truthy for every
+  property, so it must never be wrapped in `option<SolanaKitRpc.t>` (it corrupts ReScript's
+  boxed-option tag) — `backupRpc` is a plain handle that equals the primary when unset, and
+  `backupRpcUrl->Option.isSome` tells whether a distinct backup exists.
 - **`getNonce`** (`src/domain/Order.res`) — reads the on-chain UserNonce PDA via
   `Rpc.getNonce`. The envelope still defaults nonce to 0 when the caller doesn't supply
   one; fetch a fresh value via `getNonce` for live submission.
 - **Core program layer** — order keccak256 + ed25519 signing, PDAs, scaling, the order
-  submit/cancel path, the position transaction builders (§3), and the on-chain account
+  submit/cancel path, the position transaction builders (§2), and the on-chain account
   reads are all ported and tested.

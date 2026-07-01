@@ -14,6 +14,7 @@ a `ReadmeChecks` compile-guard, and a coverage matrix (`tests/README.md`).
 | [`sorted-btree`](sorted-btree/) | `sorted-btree` | ordered map backing the orderbook state |
 | [`fetch`](fetch/) | global `fetch` | the HTTP transport (no axios) |
 | [`websocket`](websocket/) | global `WebSocket` | the app-level WebSocket |
+| [`web-crypto`](web-crypto/) | global `crypto` | `randomUUID` for client-generated ids |
 
 These are internal modules of the one SDK package (no per-binding `package.json`/namespace) —
 the skill's "single project sources" option — so SDK code references them directly

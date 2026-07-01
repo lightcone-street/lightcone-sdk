@@ -1,11 +1,7 @@
 // Configures a client with a (dead) primary RPC + a working backup, then calls
-// getLatestBlockhash. Ported from rust/examples/rpc_failover.rs.
-//
-// NOTE: the current Rpc layer uses the primary URL only — automatic failover to
-// the backup is a documented TODO (see `// TODO(failover)` in src/Rpc.res). This
-// example shows the primary/backup configuration and a live blockhash call; once
-// failover lands it will transparently fall back to the backup when the primary
-// is unreachable. ReScript surface (result core).
+// getLatestBlockhash twice — transparently failing over to the backup on the dead
+// primary, then serving the next call straight from the backup with no retry delay.
+// Ported from rust/examples/rpc_failover.rs. ReScript surface (result core).
 let deadPrimary = "https://dead-primary.invalid"
 let backupRpc = "https://api.devnet.solana.com"
 
@@ -13,10 +9,20 @@ let main = async () => {
   let client = Client.make(~rpcUrl=deadPrimary, ~backupRpcUrl=backupRpc, ())
   Console.log(`primary : ${client.rpcUrl}`)
   Console.log(`backup  : ${client.backupRpcUrl->Option.getOr("(none)")}`)
+  Console.log(`active  : ${Rpc.activeRpc(client)->RpcFailover.toString}`)
 
+  // Call #1: the dead primary fails → 100ms fast retry → fail over to the backup.
   switch await Rpc.getLatestBlockhash(client) {
-  | Ok(blockhash) => Console.log(`blockhash: ${blockhash}`)
-  | Error(error) => Console.error(`(expected until failover lands) ${SdkError.toMessage(error)}`)
+  | Ok(blockhash) =>
+    Console.log(`call #1: ${blockhash} (now active: ${Rpc.activeRpc(client)->RpcFailover.toString})`)
+  | Error(error) => Console.error(SdkError.toMessage(error))
+  }
+
+  // Call #2: state is on the backup now → straight there, no retry delay.
+  switch await Rpc.getLatestBlockhash(client) {
+  | Ok(blockhash) =>
+    Console.log(`call #2: ${blockhash} (active: ${Rpc.activeRpc(client)->RpcFailover.toString})`)
+  | Error(error) => Console.error(SdkError.toMessage(error))
   }
 }
 

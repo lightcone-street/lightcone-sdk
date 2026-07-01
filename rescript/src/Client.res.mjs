@@ -3,6 +3,7 @@
 import * as Env from "./Env.res.mjs";
 import * as Http from "./Http.res.mjs";
 import * as Kit from "@solana/kit";
+import * as RpcFailover from "./RpcFailover.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 
@@ -10,6 +11,7 @@ function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSo
   let env = envOpt !== undefined ? envOpt : "prod";
   let depositSource = depositSourceOpt !== undefined ? depositSourceOpt : "global";
   let resolvedRpcUrl = Stdlib_Option.getOr(rpcUrl, Env.rpcUrl(env));
+  let rpc = Kit.createSolanaRpc(resolvedRpcUrl);
   return {
     http: Http.make(Stdlib_Option.getOr(baseUrl, Env.apiUrl(env))),
     env: env,
@@ -17,7 +19,9 @@ function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSo
     wsUrl: Stdlib_Option.getOr(wsUrl, Env.wsUrl(env)),
     rpcUrl: resolvedRpcUrl,
     backupRpcUrl: backupRpcUrl,
-    rpc: Kit.createSolanaRpc(resolvedRpcUrl),
+    rpc: rpc,
+    backupRpc: Stdlib_Option.mapOr(backupRpcUrl, rpc, url => Kit.createSolanaRpc(url)),
+    rpcFailover: RpcFailover.make(),
     depositSource: depositSource,
     orderNonce: undefined,
     signingStrategy: undefined

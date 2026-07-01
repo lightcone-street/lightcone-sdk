@@ -391,6 +391,8 @@ module FaucetClient = {
 // ── Onchain reads + PDA derivation (over the @solana/kit RPC; pubkeys as base58) ──
 @genType
 module RpcClient = {
+  // Which endpoint is currently serving reads ("primary" until a failover flips it).
+  let activeRpc = (client: Client.t): RpcFailover.activeRpc => Rpc.activeRpc(client)
   let latestBlockhash = (client: Client.t): promise<string> =>
     SdkError.unwrap(Rpc.getLatestBlockhash(client))
   let exchange = (client: Client.t): promise<Accounts.exchange> =>

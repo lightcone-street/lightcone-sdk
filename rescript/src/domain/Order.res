@@ -115,8 +115,7 @@ type cancelAllBody = {
 }
 
 let utf8 = text => SolanaKitCodec.encode(SolanaKitCodec.getUtf8Encoder(), text)
-let randomUuid: unit => string = %raw(`() => globalThis.crypto.randomUUID()`)
-let nowSeconds: unit => float = %raw(`() => Math.floor(Date.now() / 1000)`)
+let nowSeconds = (): float => Math.floor(Date.now() /. 1000.0)
 
 // The cancel signing messages (UTF-8 bytes, ed25519-signed, hex-encoded).
 let cancelAllMessage = (~userPubkey, ~orderbookId, ~timestamp: float, ~salt): string =>
@@ -138,7 +137,7 @@ let cancelAllBodySigned = async (
   ~keypair: SolanaKit.cryptoKeyPair,
 ): cancelAllBody => {
   let timestamp = nowSeconds()
-  let salt = randomUuid()
+  let salt = WebCrypto.randomUUID()
   let message = utf8(cancelAllMessage(~userPubkey, ~orderbookId, ~timestamp, ~salt))
   let signature = await SolanaKitKeys.signBytes(keypair.privateKey, message)
   {userPubkey, orderbookId, signatureHex: OrderPayload.signatureHex(signature), timestamp, salt}

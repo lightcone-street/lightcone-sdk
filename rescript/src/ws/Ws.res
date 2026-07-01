@@ -14,13 +14,6 @@
 // Single implementation (no native/browser split) — the binding is the platform
 // `WebSocket`, present on Node 22 / Bun / browsers.
 
-// ── Timer bindings (platform globals) ─────────────────────────────────────────
-type timerId
-@val external setTimeout: (unit => unit, int) => timerId = "setTimeout"
-@val external clearTimeout: timerId => unit = "clearTimeout"
-@val external setInterval: (unit => unit, int) => timerId = "setInterval"
-@val external clearInterval: timerId => unit = "clearInterval"
-
 // ── Config ────────────────────────────────────────────────────────────────────
 type config = {
   reconnect: bool,
@@ -53,21 +46,26 @@ type connection = {
   mutable activeSubscriptions: array<Subscriptions.SubscribeParams.t>,
   mutable reconnectAttempts: int,
   mutable closedByUser: bool,
-  mutable pingTimer: option<timerId>,
-  mutable pongTimer: option<timerId>,
+  mutable pingTimer: option<intervalId>,
+  mutable pongTimer: option<timeoutId>,
 }
 
 // ── Low-level send ────────────────────────────────────────────────────────────
 // Serialize + send a message. `WebSocketClient.send` throws unless the socket is
 // OPEN, so we gate on `readyState` and catch the JS exn defensively.
-let sendMessage = (connection: connection, message: Subscriptions.messageOut): result<unit, SdkError.t> =>
+let sendMessage = (connection: connection, message: Subscriptions.messageOut): result<
+  unit,
+  SdkError.t,
+> =>
   switch connection.socket {
   | Some(socket) if WebSocketClient.readyState(socket) == 1 =>
     let text = JSON.stringify(Subscriptions.toJson(message))
     switch WebSocketClient.send(socket, text) {
     | () => Ok()
     | exception JsExn(error) =>
-      Error(SdkError.Ws(SdkError.SendFailed(error->JsExn.message->Option.getOr("socket send failed"))))
+      Error(
+        SdkError.Ws(SdkError.SendFailed(error->JsExn.message->Option.getOr("socket send failed"))),
+      )
     }
   | _ => Error(SdkError.Ws(SdkError.NotConnected))
   }
@@ -93,7 +91,9 @@ let reconnectDelay = (connection: connection, code: int): int => {
     let raw = connection.reconnectAttempts - 1
     raw > 10 ? 10 : raw
   }
-  let base = Int.toFloat(connection.config.baseReconnectDelayMs) *. Math.pow(2.0, ~exp=Int.toFloat(cappedExponent))
+  let base =
+    Int.toFloat(connection.config.baseReconnectDelayMs) *.
+    Math.pow(2.0, ~exp=Int.toFloat(cappedExponent))
   let (jitterMax, cap) = code == 1008 ? (1000.0, 300000.0) : (500.0, 60000.0)
   let jitter = Math.random() *. jitterMax
   Math.min(base +. jitter, cap)->Float.toInt
@@ -127,7 +127,9 @@ let rec establish = (connection: connection): unit => {
       }
     | exception JsExn(error) =>
       connection.onError(
-        SdkError.Ws(SdkError.DeserializationError(error->JsExn.message->Option.getOr("invalid JSON frame"))),
+        SdkError.Ws(
+          SdkError.DeserializationError(error->JsExn.message->Option.getOr("invalid JSON frame")),
+        ),
       )
     }
   })
@@ -142,6 +144,7 @@ let rec establish = (connection: connection): unit => {
     clearTimers(connection)
     connection.socket = None
     connection.onDisconnected(Some(code), reason)
+
     // 1000 is a normal close; never reconnect after it or a user-initiated close.
     if !connection.closedByUser && connection.config.reconnect && code != 1000 {
       scheduleReconnect(connection, code)
@@ -156,11 +159,9 @@ and startHeartbeat = (connection: connection): unit => {
     switch sendMessage(connection, Subscriptions.Ping) {
     | Ok() =>
       clearPongTimer(connection)
-      connection.pongTimer = Some(
-        setTimeout(() => {
+      connection.pongTimer = Some(setTimeout(() => {
           connection.socket->Option.forEach(socket => WebSocketClient.close(socket))
-        }, connection.config.pongTimeoutMs),
-      )
+        }, connection.config.pongTimeoutMs))
     | Error(_) => ()
     }
   }, connection.config.pingIntervalMs)
@@ -172,7 +173,9 @@ and scheduleReconnect = (connection: connection, code: int): unit =>
     connection.onError(
       SdkError.Ws(
         SdkError.ConnectionFailed(
-          `max reconnect attempts (${Int.toString(connection.config.maxReconnectAttempts)}) reached`,
+          `max reconnect attempts (${Int.toString(
+              connection.config.maxReconnectAttempts,
+            )}) reached`,
         ),
       ),
     )
@@ -226,10 +229,15 @@ let isConnected = (connection: connection): bool =>
 // Track the subscription (deduped by key, so it survives reconnects) and send it.
 // While disconnected the send is a no-op — tracking re-sends it on the next open,
 // so this always reports `Ok`.
-let subscribe = (connection: connection, params: Subscriptions.SubscribeParams.t): result<unit, SdkError.t> => {
+let subscribe = (connection: connection, params: Subscriptions.SubscribeParams.t): result<
+  unit,
+  SdkError.t,
+> => {
   let key = Subscriptions.subscriptionKey(params)
   let alreadyTracked =
-    connection.activeSubscriptions->Array.some(existing => Subscriptions.subscriptionKey(existing) == key)
+    connection.activeSubscriptions->Array.some(existing =>
+      Subscriptions.subscriptionKey(existing) == key
+    )
   if !alreadyTracked {
     connection.activeSubscriptions->Array.push(params)
   }
@@ -239,9 +247,14 @@ let subscribe = (connection: connection, params: Subscriptions.SubscribeParams.t
 
 // Stop tracking the matching subscription(s) and send the unsubscribe (a no-op on
 // the wire if already disconnected — tracking is updated either way).
-let unsubscribe = (connection: connection, params: Subscriptions.UnsubscribeParams.t): result<unit, SdkError.t> => {
+let unsubscribe = (connection: connection, params: Subscriptions.UnsubscribeParams.t): result<
+  unit,
+  SdkError.t,
+> => {
   connection.activeSubscriptions =
-    connection.activeSubscriptions->Array.filter(sub => !Subscriptions.matchesUnsubscribe(sub, params))
+    connection.activeSubscriptions->Array.filter(sub =>
+      !Subscriptions.matchesUnsubscribe(sub, params)
+    )
   switch sendMessage(connection, Subscriptions.Unsubscribe(params)) {
   | Ok() => Ok()
   | Error(_) => Ok()
@@ -250,7 +263,8 @@ let unsubscribe = (connection: connection, params: Subscriptions.UnsubscribePara
 
 // Send an application-level ping immediately (the heartbeat sends these on an
 // interval; this is for manual liveness checks).
-let ping = (connection: connection): result<unit, SdkError.t> => sendMessage(connection, Subscriptions.Ping)
+let ping = (connection: connection): result<unit, SdkError.t> =>
+  sendMessage(connection, Subscriptions.Ping)
 
 // Close the connection and suppress reconnection. Idempotent.
 let disconnect = (connection: connection): unit => {

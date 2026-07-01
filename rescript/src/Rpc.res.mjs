@@ -2,6 +2,7 @@
 
 import * as Pda from "./program/Pda.res.mjs";
 import * as Accounts from "./program/Accounts.res.mjs";
+import * as RpcFailover from "./RpcFailover.res.mjs";
 import * as Stdlib_JsExn from "@rescript/runtime/lib/es6/Stdlib_JsExn.js";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
@@ -27,12 +28,22 @@ let base64ToBytes = (function (b64) {
   return out;
 });
 
-let bigintToFloat = ((value) => Number(value));
+function rpcFor(client, target) {
+  if (target === "primary") {
+    return client.rpc;
+  } else {
+    return client.backupRpc;
+  }
+}
 
-async function getLatestBlockhash(client) {
+function activeRpc(client) {
+  return RpcFailover.active(client.rpcFailover);
+}
+
+async function getLatestBlockhashOn(rpc) {
   let response;
   try {
-    response = await client.rpc.getLatestBlockhash().send();
+    response = await rpc.getLatestBlockhash().send();
   } catch (raw_error) {
     let error = Primitive_exceptions.internalToException(raw_error);
     if (error.RE_EXN_ID === "JsExn") {
@@ -63,10 +74,14 @@ async function getLatestBlockhash(client) {
   }
 }
 
-async function getAccountData(client, address) {
+function getLatestBlockhash(client) {
+  return RpcFailover.withFailover(client.rpcFailover, Stdlib_Option.isSome(client.backupRpcUrl), target => getLatestBlockhashOn(rpcFor(client, target)));
+}
+
+async function getAccountDataOn(rpc, address) {
   let response;
   try {
-    response = await client.rpc.getAccountInfo(address, {
+    response = await rpc.getAccountInfo(address, {
       encoding: "base64"
     }).send();
   } catch (raw_error) {
@@ -94,6 +109,10 @@ async function getAccountData(client, address) {
       _0: undefined
     };
   }
+}
+
+function getAccountData(client, address) {
+  return RpcFailover.withFailover(client.rpcFailover, Stdlib_Option.isSome(client.backupRpcUrl), target => getAccountDataOn(rpcFor(client, target), address));
 }
 
 async function exchangePda(client) {
@@ -232,7 +251,7 @@ async function getNonce(client, user) {
   if (error$1.TAG === "Ok") {
     return {
       TAG: "Ok",
-      _0: bigintToFloat(error$1._0.nonce)
+      _0: Number(error$1._0.nonce)
     };
   } else {
     return {
@@ -243,6 +262,7 @@ async function getNonce(client, user) {
 }
 
 export {
+  activeRpc,
   getLatestBlockhash,
   getAccountData,
   exchangePda,

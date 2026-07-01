@@ -1,10 +1,7 @@
-// TypeScript example — configure a (dead) primary RPC + a working backup, then
-// call latestBlockhash. Entirely via the gentype facade. Ported from
-// rust/examples/rpc_failover.rs.
-//
-// NOTE: the current Rpc layer uses the primary URL only — automatic failover is a
-// documented TODO (see TODO.md / src/Rpc.res). This shows the primary/backup
-// configuration and a live blockhash call.
+// TypeScript example — configure a (dead) primary RPC + a working backup, then call
+// latestBlockhash twice: the dead primary transparently fails over to the backup,
+// then the next call is served straight from the backup. Entirely via the gentype
+// facade. Ported from rust/examples/rpc_failover.rs.
 import { make, RpcClient } from "../src/TypeScriptApi.gen.ts";
 
 const deadPrimary = "https://dead-primary.invalid";
@@ -15,13 +12,15 @@ async function main(): Promise<void> {
   const client = make(undefined, undefined, undefined, deadPrimary, backupRpc, undefined, undefined, undefined);
   console.log(`primary : ${deadPrimary}`);
   console.log(`backup  : ${backupRpc}`);
+  console.log(`active  : ${RpcClient.activeRpc(client)}`);
 
-  try {
-    const blockhash = await RpcClient.latestBlockhash(client);
-    console.log(`blockhash: ${blockhash}`);
-  } catch (error: unknown) {
-    console.error(`(expected until failover lands) ${error instanceof Error ? error.message : error}`);
-  }
+  // Call #1: dead primary → 100ms fast retry → fail over to the backup.
+  const first = await RpcClient.latestBlockhash(client);
+  console.log(`call #1: ${first} (now active: ${RpcClient.activeRpc(client)})`);
+
+  // Call #2: state is on the backup now → straight there, no retry delay.
+  const second = await RpcClient.latestBlockhash(client);
+  console.log(`call #2: ${second} (active: ${RpcClient.activeRpc(client)})`);
 }
 
 main().catch((error: unknown) => {

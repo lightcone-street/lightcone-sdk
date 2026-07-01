@@ -517,8 +517,6 @@ type userMetrics = {
 }
 
 // ── Client functions ───────────────────────────────────────────────────────────
-@val external encodeURIComponent: string => string = "encodeURIComponent"
-
 let optionalQuery = (query, key, value) =>
   value->Option.forEach(value => query->Array.push((key, value)))
 

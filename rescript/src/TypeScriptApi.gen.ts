@@ -17,6 +17,8 @@ import type {UniqueTradersHistoryScope_t as Metrics_UniqueTradersHistoryScope_t}
 
 import type {UnsubscribeParams_t as Subscriptions_UnsubscribeParams_t} from '../src/ws/Subscriptions.gen.ts';
 
+import type {activeRpc as RpcFailover_activeRpc} from './RpcFailover.gen.ts';
+
 import type {cancelAllSuccess as Order_cancelAllSuccess} from '../src/domain/Order.gen.ts';
 
 import type {cancelSuccess as Order_cancelSuccess} from '../src/domain/Order.gen.ts';
@@ -223,6 +225,8 @@ export const ReferralClient_redeem: (client:Client_t, code:string) => Promise<Re
 
 export const FaucetClient_claim: (client:Client_t, walletAddress:string) => Promise<Faucet_faucetResponse> = TypeScriptApiJS.FaucetClient.claim as any;
 
+export const RpcClient_activeRpc: (client:Client_t) => RpcFailover_activeRpc = TypeScriptApiJS.RpcClient.activeRpc as any;
+
 export const RpcClient_latestBlockhash: (client:Client_t) => Promise<string> = TypeScriptApiJS.RpcClient.latestBlockhash as any;
 
 export const RpcClient_exchange: (client:Client_t) => Promise<Accounts_exchange> = TypeScriptApiJS.RpcClient.exchange as any;
@@ -329,6 +333,7 @@ export const RpcClient: {
   exchange: (client:Client_t) => Promise<Accounts_exchange>; 
   orderbook: (client:Client_t, baseMint:string, quoteMint:string) => Promise<Accounts_orderbook>; 
   latestBlockhash: (client:Client_t) => Promise<string>; 
+  activeRpc: (client:Client_t) => RpcFailover_activeRpc; 
   market: (client:Client_t, marketPubkey:string) => Promise<Accounts_market>
 } = TypeScriptApiJS.RpcClient as any;
 

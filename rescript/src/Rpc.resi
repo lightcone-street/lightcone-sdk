@@ -1,6 +1,10 @@
-// On-chain read sub-client over `client.rpc` (@solana/kit). Public surface: latest
-// blockhash, raw account data, PDA derivation, the typed account fetchers, and the
-// user nonce. The response-shape `%raw` helpers + base64 decoding are internal.
+// On-chain read sub-client over the client's kit RPC (@solana/kit). Public surface:
+// latest blockhash, raw account data, PDA derivation, the typed account fetchers, and
+// the user nonce — the blockhash + account reads fail over primary→backup. The
+// response-shape `%raw` helpers, base64 decoding, and per-endpoint variants are internal.
+
+// The endpoint currently serving reads (Primary until a failover flips it to Backup).
+let activeRpc: Client.t => RpcFailover.activeRpc
 
 let getLatestBlockhash: Client.t => promise<result<string, SdkError.t>>
 // Account DATA bytes, or `None` when the account doesn't exist.

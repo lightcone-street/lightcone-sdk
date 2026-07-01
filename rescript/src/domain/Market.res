@@ -16,8 +16,6 @@
 // (`ConditionalToken`), so keeping it in Market.res avoids a module cycle. Other
 // modules reference it as `Market.orderBookPair`.
 
-@val external encodeURIComponent: string => string = "encodeURIComponent"
-
 // ── Domain-local enums ────────────────────────────────────────────────────────
 
 // Market lifecycle status. Wire value = the PascalCase variant name (serde
