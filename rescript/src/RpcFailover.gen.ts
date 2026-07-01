@@ -4,3 +4,5 @@
 /* tslint:disable */
 
 export type activeRpc = "primary" | "backup";
+
+export type state = { active: activeRpc; flippedToBackupAtMs: (undefined | number) };

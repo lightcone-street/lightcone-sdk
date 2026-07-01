@@ -35,6 +35,8 @@ src/
   Client      the client handle (HTTP, env, program id, RPC, signer, deposit source, nonce)
   Auth        nonce + ed25519 signed-message login, session, logout
   domain/     Market, Orderbook, Trade, Position, PriceHistory, Metrics, Notification, Referral, Faucet, Order
+  domain/     OrderbookState, PriceHistoryState, DepositPriceState — WS "apply events → live view" reducers
+              (live sorted book via sorted-btree; rolling candle series); consumed from a Ws onMessage closure
   program/    Constants, Pda, OrderPayload (keccak256 + ed25519 order hashing), Scaling, Instructions,
               Envelope (limit-order build/sign/submit), PositionBuilders (deposit/withdraw/merge/redeem), Accounts
   Rpc         on-chain reads over @solana/kit (latest blockhash, account data, user nonce)

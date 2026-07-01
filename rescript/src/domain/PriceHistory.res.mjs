@@ -583,6 +583,7 @@ export {
   depositPriceCandle_encode,
   depositPriceCandle_encodeJson,
   depositPriceCandle_decode,
+  lineDataOfOrderbookCandle,
   get,
   getDepositAsset,
   getDepositAssetPricesSnapshot,

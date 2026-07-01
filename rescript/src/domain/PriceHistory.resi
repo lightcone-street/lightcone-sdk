@@ -72,6 +72,10 @@ type lineData = {
   value: string,
 }
 
+// Orderbook candle → line-data point (midpoint, else close, else empty). Reused by the WS
+// `PriceHistoryState` container.
+let lineDataOfOrderbookCandle: orderbookPriceCandle => lineData
+
 // Query options for orderbook price-history requests. `fromMs` / `toMs` / `cursor`
 // are unix milliseconds; `limit` is 1..=1000.
 @genType

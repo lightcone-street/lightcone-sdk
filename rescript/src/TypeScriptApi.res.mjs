@@ -18,7 +18,10 @@ import * as Kit from "@solana/kit";
 import * as Notification from "./domain/Notification.res.mjs";
 import * as PriceHistory from "./domain/PriceHistory.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
+import * as OrderbookState from "./domain/OrderbookState.res.mjs";
 import * as PositionBuilders from "./program/PositionBuilders.res.mjs";
+import * as DepositPriceState from "./domain/DepositPriceState.res.mjs";
+import * as PriceHistoryState from "./domain/PriceHistoryState.res.mjs";
 
 function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSourceOpt, param) {
   let env = envOpt !== undefined ? envOpt : "prod";
@@ -431,6 +434,12 @@ let WsClient = {
   isConnected: isConnected
 };
 
+let LiveOrderbook = OrderbookState;
+
+let LivePriceHistory = PriceHistoryState;
+
+let LiveDepositPrice = DepositPriceState;
+
 let unwrap = SdkError.unwrap;
 
 export {
@@ -453,5 +462,8 @@ export {
   FaucetClient,
   RpcClient,
   WsClient,
+  LiveOrderbook,
+  LivePriceHistory,
+  LiveDepositPrice,
 }
 /* Ws Not a pure module */

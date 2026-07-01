@@ -3,7 +3,9 @@
 @genType
 type activeRpc = | @as("primary") Primary | @as("backup") Backup
 
-// Mutable failover state held on the client (Client.t).
+// Mutable failover state held on the client (Client.t). Plain data — exported structurally
+// (which endpoint is live + when it flipped), not opaque.
+@genType
 type state = {
   mutable active: activeRpc,
   mutable flippedToBackupAtMs: option<float>,

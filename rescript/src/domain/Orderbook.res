@@ -179,5 +179,5 @@ let getWithCookies = (
 ): promise<result<orderbookDepthResponse, SdkError.t>> =>
   get(client, ~orderbookId, ~depth?, ~aggregation, ~cookieHeader=?Some(cookieHeader))
 
-// TODO(state): `OrderbookState` (the stateful sorted-book in orderbook/state.rs)
-// is intentionally not ported here — it is handled separately with the WS layer.
+// The stateful sorted-book (`OrderbookState`, mirroring orderbook/state.rs) lives in its own
+// module `src/domain/OrderbookState.res`, fed from a `Ws.connect` `~onMessage` closure.

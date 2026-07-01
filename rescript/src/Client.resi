@@ -1,9 +1,10 @@
-// The SDK client — HTTP transport, environment, program id, RPC handle, and mutable
-// trading state. It is the shared context threaded through every SDK module, so the
-// record stays exposed to ReScript; `@genType.opaque` keeps it an opaque handle to
-// TypeScript. Construct with `make`; the grouped ergonomics live in the facade.
+// The SDK client — HTTP transport, environment, program id, RPC handles, failover state, and
+// mutable trading state. Exported structurally to TypeScript (`@genType`); only the foreign
+// handles it holds are individually opaque (the HTTP transport, the kit RPC clients, and the
+// signer's WebCrypto keys / kit signer). Construct with `make`; ergonomics live in the facade.
 
 // How orders / cancels / transactions get signed. `None` ⇒ manual signing.
+@genType
 type signingStrategy =
   | NativeSigner({
       keypair: SolanaKit.cryptoKeyPair,
@@ -11,7 +12,7 @@ type signingStrategy =
       address: SolanaKit.address,
     })
 
-@genType.opaque
+@genType
 type t = {
   http: Http.t,
   env: Env.t,

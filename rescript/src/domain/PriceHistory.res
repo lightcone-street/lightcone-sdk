@@ -261,7 +261,6 @@ let getLineData = async (
   )
 }
 
-// TODO(state): the stateful WS-driven containers `PriceHistoryState` and
-// `DepositPriceState` (plus `LatestDepositPrice` and their apply/snapshot/update
-// helpers, and the WS wire/tagged-enum types used to feed them) are handled
-// separately.
+// The stateful WS-driven containers live in their own modules:
+// `src/domain/PriceHistoryState.res` (rolling candle series) and
+// `src/domain/DepositPriceState.res` (deposit candles + `LatestDepositPrice`).

@@ -5,10 +5,24 @@
 
 type t<'k, 'v>
 
+// sorted-btree ships as CommonJS (`exports.default = BTree`, `__esModule: true`). Under
+// Node's ESM interop a bare default import yields the module *namespace* rather than the
+// `BTree` class, so resolve the constructor through `.default` (Bun already unwraps it)
+// before `new`. Only the constructor needs this; the `@send` methods below are instance
+// calls with no import interop.
+%%raw(`import SortedBtreeDefault from "sorted-btree"`)
+let makeWith: (option<array<('k, 'v)>>, option<('k, 'k) => int>) => t<'k, 'v> = %raw(`
+  function (entries, compare) {
+    // Node: the default import is module.exports, so the class is at .default; Bun already
+    // unwraps to the class (its .default is undefined), so fall back to the import itself.
+    const BTree = SortedBtreeDefault.default || SortedBtreeDefault;
+    return new BTree(entries, compare);
+  }
+`)
+
 // new BTree(entries?, compare?) — pass a comparator for deterministic ordering.
-@new @module("sorted-btree")
-external make: (~entries: array<('k, 'v)>=?, ~compare: ('k, 'k) => int=?, unit) => t<'k, 'v> =
-  "default"
+let make = (~entries: option<array<('k, 'v)>>=?, ~compare: option<('k, 'k) => int>=?, ()): t<'k, 'v> =>
+  makeWith(entries, compare)
 
 @send external set: (t<'k, 'v>, 'k, 'v) => bool = "set"
 @send external get: (t<'k, 'v>, 'k) => option<'v> = "get"

@@ -11,6 +11,7 @@
 // ── Addresses ────────────────────────────────────────────────────────────────
 // A base58 Solana address. `address()` validates and brands the string; it throws
 // on an invalid address (callers at the SDK layer catch into `result`).
+@genType
 type address
 
 @module("@solana/kit") external address: string => address = "address"
@@ -28,8 +29,17 @@ type codec<'a>
 // ── Shared key types ─────────────────────────────────────────────────────────
 // CryptoKeyPair is a WebCrypto pair; a signer wraps a keypair + its `.address`
 // (used as a transaction fee payer). See the `Keys` module for operations.
+// Opaque: a WebCrypto `CryptoKey` — non-extractable ed25519 key material. It has no
+// structural form (the raw bytes cannot be read back out — that is the security property),
+// so there is nothing for TypeScript to see; it is only ever passed to `Keys`/signing.
+@genType.opaque
 type cryptoKey
+@genType
 type cryptoKeyPair = {privateKey: cryptoKey, publicKey: cryptoKey}
+// Opaque: kit's `KeyPairSigner` — a foreign signing capability object (a keypair + its
+// fee-payer address). No meaningful structure for a consumer; produced by `Keys`, consumed
+// by the transaction layer.
+@genType.opaque
 type keyPairSigner
 
 // ── Shared PDA + instruction types ───────────────────────────────────────────

@@ -19,6 +19,8 @@ import type {UnsubscribeParams_t as Subscriptions_UnsubscribeParams_t} from '../
 
 import type {activeRpc as RpcFailover_activeRpc} from './RpcFailover.gen.ts';
 
+import type {applyResult as OrderbookState_applyResult} from '../src/domain/OrderbookState.gen.ts';
+
 import type {cancelAllSuccess as Order_cancelAllSuccess} from '../src/domain/Order.gen.ts';
 
 import type {cancelSuccess as Order_cancelSuccess} from '../src/domain/Order.gen.ts';
@@ -28,6 +30,8 @@ import type {categoriesMetrics as Metrics_categoriesMetrics} from '../src/domain
 import type {depositAssetPricesSnapshotResponse as PriceHistory_depositAssetPricesSnapshotResponse} from '../src/domain/PriceHistory.gen.ts';
 
 import type {depositMintsResponse as Market_depositMintsResponse} from '../src/domain/Market.gen.ts';
+
+import type {depositPriceCandle as PriceHistory_depositPriceCandle} from '../src/domain/PriceHistory.gen.ts';
 
 import type {depositTokenBalance as Position_depositTokenBalance} from '../src/domain/Position.gen.ts';
 
@@ -40,6 +44,8 @@ import type {exchange as Accounts_exchange} from '../src/program/Accounts.gen.ts
 import type {faucetResponse as Faucet_faucetResponse} from '../src/domain/Faucet.gen.ts';
 
 import type {globalDepositAssetsResult as Market_globalDepositAssetsResult} from '../src/domain/Market.gen.ts';
+
+import type {latestDepositPrice as DepositPriceState_latestDepositPrice} from '../src/domain/DepositPriceState.gen.ts';
 
 import type {leaderboard as Metrics_leaderboard} from '../src/domain/Metrics.gen.ts';
 
@@ -67,7 +73,13 @@ import type {notification as Notification_notification} from '../src/domain/Noti
 
 import type {openInterestHistory as Metrics_openInterestHistory} from '../src/domain/Metrics.gen.ts';
 
+import type {orderBookId as Shared_orderBookId} from './Shared.gen.ts';
+
+import type {orderBook as Orderbook_orderBook} from '../src/domain/Orderbook.gen.ts';
+
 import type {orderbookDepthResponse as Orderbook_orderbookDepthResponse} from '../src/domain/Orderbook.gen.ts';
+
+import type {orderbookPriceCandle as PriceHistory_orderbookPriceCandle} from '../src/domain/PriceHistory.gen.ts';
 
 import type {orderbookPriceHistoryResponse as PriceHistory_orderbookPriceHistoryResponse} from '../src/domain/PriceHistory.gen.ts';
 
@@ -83,6 +95,8 @@ import type {position as Accounts_position} from '../src/program/Accounts.gen.ts
 
 import type {positionsResponse as Position_positionsResponse} from '../src/domain/Position.gen.ts';
 
+import type {pubkeyStr as Shared_pubkeyStr} from './Shared.gen.ts';
+
 import type {redeemResult as Referral_redeemResult} from '../src/domain/Referral.gen.ts';
 
 import type {referralStatus as Referral_referralStatus} from '../src/domain/Referral.gen.ts';
@@ -93,7 +107,13 @@ import type {submitOrderResponse as Order_submitOrderResponse} from '../src/doma
 
 import type {t as Client_t} from './Client.gen.ts';
 
+import type {t as DepositPriceState_t} from '../src/domain/DepositPriceState.gen.ts';
+
 import type {t as Env_t} from './Env.gen.ts';
+
+import type {t as OrderbookState_t} from '../src/domain/OrderbookState.gen.ts';
+
+import type {t as PriceHistoryState_t} from '../src/domain/PriceHistoryState.gen.ts';
 
 import type {t as SdkError_t} from './SdkError.gen.ts';
 
@@ -257,6 +277,56 @@ export const WsClient_disconnect: (connection:WsClient_wsConnection) => void = T
 
 export const WsClient_isConnected: (connection:WsClient_wsConnection) => boolean = TypeScriptApiJS.WsClient.isConnected as any;
 
+export const LiveOrderbook_make: (_1:Shared_orderBookId) => OrderbookState_t = TypeScriptApiJS.LiveOrderbook.make as any;
+
+export const LiveOrderbook_apply: (_1:OrderbookState_t, _2:Orderbook_orderBook) => OrderbookState_applyResult = TypeScriptApiJS.LiveOrderbook.apply as any;
+
+export const LiveOrderbook_bestBid: (_1:OrderbookState_t) => (undefined | string) = TypeScriptApiJS.LiveOrderbook.bestBid as any;
+
+export const LiveOrderbook_bestAsk: (_1:OrderbookState_t) => (undefined | string) = TypeScriptApiJS.LiveOrderbook.bestAsk as any;
+
+export const LiveOrderbook_midPrice: (_1:OrderbookState_t) => (undefined | string) = TypeScriptApiJS.LiveOrderbook.midPrice as any;
+
+export const LiveOrderbook_spread: (_1:OrderbookState_t) => (undefined | string) = TypeScriptApiJS.LiveOrderbook.spread as any;
+
+export const LiveOrderbook_bids: (_1:OrderbookState_t) => Array<[string, string]> = TypeScriptApiJS.LiveOrderbook.bids as any;
+
+export const LiveOrderbook_asks: (_1:OrderbookState_t) => Array<[string, string]> = TypeScriptApiJS.LiveOrderbook.asks as any;
+
+export const LiveOrderbook_isEmpty: (_1:OrderbookState_t) => boolean = TypeScriptApiJS.LiveOrderbook.isEmpty as any;
+
+export const LiveOrderbook_seq: (_1:OrderbookState_t) => number = TypeScriptApiJS.LiveOrderbook.seq as any;
+
+export const LiveOrderbook_orderbookId: (_1:OrderbookState_t) => Shared_orderBookId = TypeScriptApiJS.LiveOrderbook.orderbookId as any;
+
+export const LiveOrderbook_clear: (_1:OrderbookState_t) => void = TypeScriptApiJS.LiveOrderbook.clear as any;
+
+export const LivePriceHistory_make: () => PriceHistoryState_t = TypeScriptApiJS.LivePriceHistory.make as any;
+
+export const LivePriceHistory_applySnapshot: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t, candles:PriceHistory_orderbookPriceCandle[]) => void = TypeScriptApiJS.LivePriceHistory.applySnapshot as any;
+
+export const LivePriceHistory_applyUpdate: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t, candle:PriceHistory_orderbookPriceCandle) => void = TypeScriptApiJS.LivePriceHistory.applyUpdate as any;
+
+export const LivePriceHistory_get: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t) => (undefined | PriceHistory_lineData[]) = TypeScriptApiJS.LivePriceHistory.get as any;
+
+export const LivePriceHistory_clear: (_1:PriceHistoryState_t) => void = TypeScriptApiJS.LivePriceHistory.clear as any;
+
+export const LiveDepositPrice_make: () => DepositPriceState_t = TypeScriptApiJS.LiveDepositPrice.make as any;
+
+export const LiveDepositPrice_applySnapshot: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t, candles:PriceHistory_depositPriceCandle[]) => void = TypeScriptApiJS.LiveDepositPrice.applySnapshot as any;
+
+export const LiveDepositPrice_applyCandle: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t, candle:PriceHistory_depositPriceCandle) => void = TypeScriptApiJS.LiveDepositPrice.applyCandle as any;
+
+export const LiveDepositPrice_applyPriceTick: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, price:string, eventTime:number) => void = TypeScriptApiJS.LiveDepositPrice.applyPriceTick as any;
+
+export const LiveDepositPrice_applyAssetSnapshot: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, price:string) => void = TypeScriptApiJS.LiveDepositPrice.applyAssetSnapshot as any;
+
+export const LiveDepositPrice_getCandles: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t) => (undefined | PriceHistory_depositPriceCandle[]) = TypeScriptApiJS.LiveDepositPrice.getCandles as any;
+
+export const LiveDepositPrice_getLatestPrice: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr) => (undefined | DepositPriceState_latestDepositPrice) = TypeScriptApiJS.LiveDepositPrice.getLatestPrice as any;
+
+export const LiveDepositPrice_clear: (_1:DepositPriceState_t) => void = TypeScriptApiJS.LiveDepositPrice.clear as any;
+
 export const OrderbookClient: { get: (client:Client_t, orderbookId:string, depth:(undefined | number)) => Promise<Orderbook_orderbookDepthResponse> } = TypeScriptApiJS.OrderbookClient as any;
 
 export const OrderClient: {
@@ -336,6 +406,40 @@ export const RpcClient: {
   activeRpc: (client:Client_t) => RpcFailover_activeRpc; 
   market: (client:Client_t, marketPubkey:string) => Promise<Accounts_market>
 } = TypeScriptApiJS.RpcClient as any;
+
+export const LiveOrderbook: {
+  seq: (_1:OrderbookState_t) => number; 
+  spread: (_1:OrderbookState_t) => (undefined | string); 
+  bestAsk: (_1:OrderbookState_t) => (undefined | string); 
+  orderbookId: (_1:OrderbookState_t) => Shared_orderBookId; 
+  midPrice: (_1:OrderbookState_t) => (undefined | string); 
+  asks: (_1:OrderbookState_t) => Array<[string, string]>; 
+  apply: (_1:OrderbookState_t, _2:Orderbook_orderBook) => OrderbookState_applyResult; 
+  make: (_1:Shared_orderBookId) => OrderbookState_t; 
+  bestBid: (_1:OrderbookState_t) => (undefined | string); 
+  clear: (_1:OrderbookState_t) => void; 
+  bids: (_1:OrderbookState_t) => Array<[string, string]>; 
+  isEmpty: (_1:OrderbookState_t) => boolean
+} = TypeScriptApiJS.LiveOrderbook as any;
+
+export const LiveDepositPrice: {
+  applyPriceTick: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, price:string, eventTime:number) => void; 
+  applyAssetSnapshot: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, price:string) => void; 
+  applySnapshot: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t, candles:PriceHistory_depositPriceCandle[]) => void; 
+  applyCandle: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t, candle:PriceHistory_depositPriceCandle) => void; 
+  getCandles: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr, resolution:Shared_Resolution_t) => (undefined | PriceHistory_depositPriceCandle[]); 
+  make: () => DepositPriceState_t; 
+  getLatestPrice: (_1:DepositPriceState_t, depositAsset:Shared_pubkeyStr) => (undefined | DepositPriceState_latestDepositPrice); 
+  clear: (_1:DepositPriceState_t) => void
+} = TypeScriptApiJS.LiveDepositPrice as any;
+
+export const LivePriceHistory: {
+  get: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t) => (undefined | PriceHistory_lineData[]); 
+  applySnapshot: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t, candles:PriceHistory_orderbookPriceCandle[]) => void; 
+  applyUpdate: (_1:PriceHistoryState_t, orderbookId:Shared_orderBookId, resolution:Shared_Resolution_t, candle:PriceHistory_orderbookPriceCandle) => void; 
+  make: () => PriceHistoryState_t; 
+  clear: (_1:PriceHistoryState_t) => void
+} = TypeScriptApiJS.LivePriceHistory as any;
 
 export const PositionClient: {
   redeemWinnings: (client:Client_t, market:string, mint:string, amount:bigint, outcomeIndex:number) => Promise<string>; 

@@ -467,3 +467,44 @@ module WsClient = {
   let disconnect = (connection: wsConnection): unit => Ws.disconnect(connection)
   let isConnected = (connection: wsConnection): bool => Ws.isConnected(connection)
 }
+
+// ── Live WS state containers ──────────────────────────────────────────────────
+// Stateful reducers a consumer feeds from a `WsClient` `~onMessage` closure (see
+// `domain/*State`). Exposed as `Live*` so the facade module never shares a name with —
+// and thus shadows — the domain `*State` module it re-exports.
+@genType
+module LiveOrderbook = {
+  let make = OrderbookState.make
+  let apply = OrderbookState.apply
+  let bestBid = OrderbookState.bestBid
+  let bestAsk = OrderbookState.bestAsk
+  let midPrice = OrderbookState.midPrice
+  let spread = OrderbookState.spread
+  let bids = OrderbookState.bids
+  let asks = OrderbookState.asks
+  let isEmpty = OrderbookState.isEmpty
+  let seq = OrderbookState.seq
+  let orderbookId = OrderbookState.orderbookId
+  let clear = OrderbookState.clear
+}
+
+@genType
+module LivePriceHistory = {
+  let make = PriceHistoryState.make
+  let applySnapshot = PriceHistoryState.applySnapshot
+  let applyUpdate = PriceHistoryState.applyUpdate
+  let get = PriceHistoryState.get
+  let clear = PriceHistoryState.clear
+}
+
+@genType
+module LiveDepositPrice = {
+  let make = DepositPriceState.make
+  let applySnapshot = DepositPriceState.applySnapshot
+  let applyCandle = DepositPriceState.applyCandle
+  let applyPriceTick = DepositPriceState.applyPriceTick
+  let applyAssetSnapshot = DepositPriceState.applyAssetSnapshot
+  let getCandles = DepositPriceState.getCandles
+  let getLatestPrice = DepositPriceState.getLatestPrice
+  let clear = DepositPriceState.clear
+}

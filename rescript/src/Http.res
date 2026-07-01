@@ -15,6 +15,7 @@ type retryPolicy =
 
 type cookieStore = {mutable token: option<string>}
 
+// The transport handle (opaque to TS — see the `.resi`).
 type t = {
   baseUrl: string,
   cookies: cookieStore,

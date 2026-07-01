@@ -8,7 +8,11 @@ type retryPolicy =
   | NoRetry
   | Idempotent
 
-// Opaque HTTP client handle — constructed by `make`, threaded through the verbs.
+// Opaque to TypeScript: the configured HTTP transport is a capability (base URL + a mutable
+// cookie store holding the session token), driven through the verbs below — not data to
+// inspect or build, and structurally exposing it would surface the session token.
+// `authToken` gives read access to the token where a consumer actually needs it.
+@genType.opaque
 type t
 
 let make: string => t
