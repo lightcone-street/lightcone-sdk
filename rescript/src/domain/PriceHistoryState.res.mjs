@@ -45,4 +45,4 @@ export {
   get,
   clear,
 }
-/* PriceHistory Not a pure module */
+/* Shared Not a pure module */

@@ -166,6 +166,43 @@ let getMarket = async (client: Client.t, market: SolanaKit.address): result<Acco
   | Ok(Some(bytes)) => Accounts.decodeMarket(bytes)
   }
 
+// Fetch + decode a Market by its numeric id (derives the PDA first).
+let getMarketById = async (client: Client.t, ~marketId: bigint): result<Accounts.market, SdkError.t> => {
+  let (market, _) = await Pda.market(client.programId, ~marketId)
+  await getMarket(client, market)
+}
+
+// Fetch + decode a whitelisted GlobalDepositToken entry for a mint.
+let getGlobalDepositToken = async (
+  client: Client.t,
+  ~mint: SolanaKit.address,
+): result<Accounts.globalDepositToken, SdkError.t> => {
+  let (pda, _) = await Pda.globalDepositToken(client.programId, ~mint)
+  switch await getAccountData(client, pda) {
+  | Error(error) => Error(error)
+  | Ok(None) => Error(SdkError.Program("GlobalDepositToken: account not found"))
+  | Ok(Some(bytes)) => Accounts.decodeGlobalDepositToken(bytes)
+  }
+}
+
+// Fetch + decode an order's on-chain OrderStatus PDA; `None` when the account
+// does not exist (fully filled + closed, or never created).
+let getOrderStatus = async (
+  client: Client.t,
+  ~orderHash: Uint8Array.t,
+): result<option<Accounts.orderStatus>, SdkError.t> => {
+  let (pda, _) = await Pda.orderStatus(client.programId, ~orderHash)
+  switch await getAccountData(client, pda) {
+  | Error(error) => Error(error)
+  | Ok(None) => Ok(None)
+  | Ok(Some(bytes)) => Accounts.decodeOrderStatus(bytes)->Result.map(status => Some(status))
+  }
+}
+
+// The next available market id (the exchange's market count).
+let nextMarketId = async (client: Client.t): result<bigint, SdkError.t> =>
+  (await getExchange(client))->Result.map(exchange => exchange.marketCount)
+
 // Fetch + decode an Orderbook by its (canonical-sorted) conditional mints.
 let getOrderbook = async (
   client: Client.t,

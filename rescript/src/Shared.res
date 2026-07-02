@@ -12,6 +12,14 @@
 // ── Transparent string newtypes ──────────────────────────────────────────────
 // The Rust newtypes serialize as plain JSON strings; we mirror that with string
 // aliases (spice → string codec, gentype → `string`).
+//
+// `pubkeyStr` deliberately stays a plain string rather than kit's branded
+// `SolanaKit.address` (decision 2026-07: mirrors Rust, where `PubkeyStr` is an
+// UNVALIDATED String newtype converted via `to_pubkey()` only at the program
+// boundary — ours is `SolanaKit.address(...)`, which validates + brands there).
+// Using the branded type wire-wide would cost per-field base58 validation on hot
+// WS paths, break `Dict` keys / URL interpolation across the state containers,
+// and turn every TS-facing pubkey field opaque.
 @spice
 type orderBookId = string
 
@@ -35,12 +43,58 @@ module Side = {
     | Bid => "Buy"
     | Ask => "Sell"
     }
+
+  // The price to submit with a market (IOC) order: the worst book fill price
+  // padded by the impact-protection percentage in the direction that lets the
+  // order fill (bids pay more, asks receive less). `None` unless both inputs
+  // are positive Decimal strings.
+  let applyImpactProtection = (side: t, ~worstFillPrice: string, ~protectionPercent: string): option<string> =>
+    switch (Decimal.fromString(worstFillPrice), Decimal.fromString(protectionPercent)) {
+    | (price, percent) =>
+      let zero = Decimal.fromInt(0)
+      if Decimal.lte(price, zero) || Decimal.lte(percent, zero) {
+        None
+      } else {
+        let factor = Decimal.div(percent, Decimal.fromInt(100))
+        let one = Decimal.fromInt(1)
+        let padded = switch side {
+        | Bid => Decimal.times(price, Decimal.plus(one, factor))
+        | Ask => Decimal.times(price, Decimal.minus(one, factor))
+        }
+        Some(Decimal.toString(padded))
+      }
+    | exception JsExn(_) => None
+    }
 }
 
 // ── Denominator ──────────────────────────────────────────────────────────────
 module Denominator = {
   @spice
   type t = | @as("Base") @spice.as("Base") Base | @as("Quote") @spice.as("Quote") Quote
+
+  // Display order: quote first (mirrors the Rust `Denominator::all`).
+  let all: array<t> = [Quote, Base]
+
+  // Convert `amount` from this denomination into `target` at the given price
+  // (quote per one base, both Decimal strings). Same-denomination conversion is
+  // the identity and never needs a price; crossing denominations requires a
+  // positive price — `None` otherwise (or on malformed input).
+  let convertTo = (
+    denominator: t,
+    ~target: t,
+    ~amount: string,
+    ~basePriceInQuote: string,
+  ): option<string> =>
+    switch (Decimal.fromString(amount), Decimal.fromString(basePriceInQuote)) {
+    | (amount, price) =>
+      let priceIsUsable = Decimal.gt(price, Decimal.fromInt(0))
+      switch (denominator, target) {
+      | (Base, Base) | (Quote, Quote) => Some(Decimal.toString(amount))
+      | (Base, Quote) => priceIsUsable ? Some(Decimal.times(amount, price)->Decimal.toString) : None
+      | (Quote, Base) => priceIsUsable ? Some(Decimal.div(amount, price)->Decimal.toString) : None
+      }
+    | exception JsExn(_) => None
+    }
 }
 
 // Bid spends quote / receives base; Ask spends base / receives quote.
@@ -72,6 +126,20 @@ module TriggerType = {
   type t =
     | @as("TP") @spice.as("TP") TakeProfit
     | @as("SL") @spice.as("SL") StopLoss
+}
+
+// ── OrderStatus (UPPERCASE) ──────────────────────────────────────────────────
+// The engine's real-time order state. Lives in Rust's `domain/order` rather than
+// `shared`, but follows the shared enum-codec convention; wire absence defaults
+// to Open (the Rust `#[default]`).
+module OrderStatus = {
+  @spice
+  type t =
+    | @as("OPEN") @spice.as("OPEN") Open
+    | @as("MATCHING") @spice.as("MATCHING") Matching
+    | @as("CANCELLED") @spice.as("CANCELLED") Cancelled
+    | @as("FILLED") @spice.as("FILLED") Filled
+    | @as("PENDING") @spice.as("PENDING") Pending
 }
 
 // ── TriggerStatus (WS, lowercase) ────────────────────────────────────────────

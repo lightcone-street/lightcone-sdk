@@ -391,6 +391,128 @@ type globalDepositAssetsResult = {
   validationErrors: array<string>,
 }
 
+// ── Token helpers (market/tokens.rs) ──────────────────────────────────────────
+// USD-stablecoin detection + display sorting for token-ish values.
+let usdcMainnet: Shared.pubkeyStr = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+let usdtMainnet: Shared.pubkeyStr = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB"
+let usdcDevnetLc: Shared.pubkeyStr = "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez"
+
+let isUsdStablecoin = (pubkey: Shared.pubkeyStr): bool =>
+  pubkey == usdcMainnet || pubkey == usdtMainnet || pubkey == usdcDevnetLc
+
+// "$" for USD stablecoins, "" otherwise.
+let currencySymbol = (pubkey: Shared.pubkeyStr): string => isUsdStablecoin(pubkey) ? "$" : ""
+
+// Per-type conveniences mirroring the Rust methods: `isUsdStableCoin` checks the
+// backing deposit asset; `…CurrencySymbol` checks the token's own mint.
+let conditionalTokenIsUsdStableCoin = (token: conditionalToken): bool =>
+  isUsdStablecoin(token.depositAsset)
+let conditionalTokenCurrencySymbol = (token: conditionalToken): string => currencySymbol(token.mint)
+let depositAssetIsUsdStableCoin = (asset: depositAsset): bool => isUsdStablecoin(asset.depositAsset)
+let depositAssetCurrencySymbol = (asset: depositAsset): string => currencySymbol(asset.depositAsset)
+let globalDepositAssetIsUsdStableCoin = (asset: globalDepositAsset): bool =>
+  isUsdStablecoin(asset.depositAsset)
+let globalDepositAssetCurrencySymbol = (asset: globalDepositAsset): string =>
+  currencySymbol(asset.depositAsset)
+
+// Display priority for sorting (lower first): BTC/WBTC tie at 0, ETH/WETH at 1,
+// SOL at 2; everything else falls to the alphabetical tail.
+let displayPriority = (symbol: string): int =>
+  switch String.toUpperCase(symbol) {
+  | "BTC" | "WBTC" => 0
+  | "ETH" | "WETH" => 1
+  | "SOL" => 2
+  | _ => 255
+  }
+
+// A new array ordered for display: priority groups first, then the rest
+// alphabetically by symbol. The Rust `HasDisplayToken` trait becomes the
+// `~symbolOf` accessor — pass `token => token.symbol` for tokens or
+// `pair => pair.base.symbol` for composite pairs.
+let sortByDisplayPriority = (items: array<'a>, ~symbolOf: 'a => string): array<'a> =>
+  items->Array.toSorted((left, right) => {
+    let leftSymbol = symbolOf(left)
+    let rightSymbol = symbolOf(right)
+    let byPriority = Int.compare(displayPriority(leftSymbol), displayPriority(rightSymbol))
+    Ordering.isEqual(byPriority) ? String.compare(leftSymbol, rightSymbol) : byPriority
+  })
+
+// ── OrderBookPair helpers (orderbook/mod.rs) ──────────────────────────────────
+// Scaling decimals derived from the pair's token metadata — the recommended way
+// to get `Scaling.orderbookDecimals` (no REST call needed).
+let orderBookPairDecimals = (pair: orderBookPair): Scaling.orderbookDecimals => {
+  let baseDecimals = Float.toInt(pair.base.decimals)
+  let quoteDecimals = Float.toInt(pair.quote.decimals)
+  {
+    baseDecimals,
+    quoteDecimals,
+    priceDecimals: max(6 + quoteDecimals - baseDecimals, 0),
+    tickSize: Math.max(pair.tickSize, 0.0),
+  }
+}
+
+// Calculated impact of a conditional token's price vs its deposit asset.
+type outcomeImpact = {
+  sign: string,
+  pct: float,
+  // Absolute dollar difference, as a Decimal string.
+  dollar: string,
+  isPositive: bool,
+}
+
+let zeroImpact = {sign: "", pct: 0.0, dollar: "0", isPositive: false}
+
+let parseDecimalOpt = (value: string): option<Decimal.t> =>
+  switch Decimal.fromString(value) {
+  | decimal => Some(decimal)
+  | exception JsExn(_) => None
+  }
+
+// Price impact as a percentage relative to the deposit asset price: (pct, sign).
+// Zero / malformed inputs yield (0.0, "").
+let impactPct = (~depositPrice: string, ~conditionalPrice: string): (float, string) =>
+  switch (parseDecimalOpt(depositPrice), parseDecimalOpt(conditionalPrice)) {
+  | (Some(deposit), Some(conditional)) if !Decimal.isZero(deposit) && !Decimal.isZero(conditional) =>
+    let value =
+      Decimal.div(Decimal.minus(conditional, deposit), deposit)
+      ->Decimal.times(Decimal.fromInt(100))
+      ->Decimal.toNumber
+    (value, value > 0.0 ? "+" : "")
+  | _ => (0.0, "")
+  }
+
+// Full impact calculation with sign, percentage, and absolute dollar difference.
+// A zero / malformed deposit price yields the zero impact.
+let impact = (~depositAssetPrice: string, ~conditionalPrice: string): outcomeImpact =>
+  switch (parseDecimalOpt(depositAssetPrice), parseDecimalOpt(conditionalPrice)) {
+  | (Some(deposit), Some(conditional)) if !Decimal.isZero(deposit) =>
+    let pct =
+      Decimal.div(Decimal.minus(conditional, deposit), deposit)
+      ->Decimal.times(Decimal.fromInt(100))
+      ->Decimal.toNumber
+    {
+      sign: pct > 0.0 ? "+" : "-",
+      isPositive: pct > 0.0,
+      pct: Math.abs(pct),
+      dollar: Decimal.minus(conditional, deposit)->Decimal.abs->Decimal.toString,
+    }
+  | _ => zeroImpact
+  }
+
+// ── Denominator pair helpers (shared/mod.rs `impl Denominator`) ───────────────
+// The conditional token a denomination refers to on this pair, plus its symbols.
+let denominatorToken = (denominator: Shared.Denominator.t, pair: orderBookPair): conditionalToken =>
+  switch denominator {
+  | Base => pair.base
+  | Quote => pair.quote
+  }
+
+let denominatorSymbol = (denominator: Shared.Denominator.t, pair: orderBookPair): string =>
+  denominatorToken(denominator, pair).symbol
+
+let denominatorDepositSymbol = (denominator: Shared.Denominator.t, pair: orderBookPair): string =>
+  denominatorToken(denominator, pair).depositSymbol
+
 // ── Conversions ───────────────────────────────────────────────────────────────
 // ISO-8601 (`DateTime<Utc>`) → unix milliseconds. Invalid strings yield NaN
 // rather than throwing.

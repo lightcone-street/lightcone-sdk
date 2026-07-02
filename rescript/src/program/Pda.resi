@@ -70,3 +70,11 @@ let positionAlt: (
   ~position: SolanaKit.address,
   ~recentSlot: bigint,
 ) => promise<(SolanaKit.address, int)>
+
+// Every outcome's conditional mint for (market, deposit_mint), in outcome order.
+let allConditionalMints: (
+  SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~depositMint: SolanaKit.address,
+  ~numOutcomes: int,
+) => promise<array<SolanaKit.address>>

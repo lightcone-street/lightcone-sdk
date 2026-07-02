@@ -146,33 +146,13 @@ module WsDepositAssetPrice: {
     | Price(tick)
 }
 
-// ── User balances ─────────────────────────────────────────────────────────────
-@genType
-type userOutcomeBalance = {
-  outcomeIndex: float,
-  conditionalToken: Shared.pubkeyStr,
-  balance: string,
-  balanceIdle: string,
-  balanceOnBook: string,
-}
-
-@genType
-type userDepositAssetBalance = {
-  depositAsset: Shared.pubkeyStr,
-  outcomes: array<userOutcomeBalance>,
-}
-
-@genType
-type userMarketBalance = {
-  marketPubkey: Shared.pubkeyStr,
-  depositAssets: array<userDepositAssetBalance>,
-}
-
 // ── User leaf events (timestamps are ISO-8601 strings) ────────────────────────
+// The balance tree is `Order.userMarketBalance` — the same type the user
+// snapshot carries (and `Position.UserMarketBalanceIndex` consumes).
 @genType
 type userBalanceUpdate = {
   marketPubkey: Shared.pubkeyStr,
-  marketBalance: userMarketBalance,
+  marketBalance: Order.userMarketBalance,
   timestamp: string,
 }
 
@@ -191,13 +171,13 @@ type nonceUpdate = {
 }
 
 // ── User update ───────────────────────────────────────────────────────────────
-// `Snapshot`/`Order` carry the raw (null-stripped) wire payload until the typed
-// stateful containers land.
+// The `snapshot` / `order` payload types live in `Order.res` (order/wire.rs); the
+// stateful `OrderState` containers consume them.
 module UserUpdate: {
   @genType
   type t =
-    | Snapshot(JSON.t)
-    | Order(JSON.t)
+    | Snapshot(Order.userSnapshot)
+    | Order(Order.OrderEvent.t)
     | BalanceUpdate(userBalanceUpdate)
     | GlobalDepositUpdate(globalDepositUpdate)
     | NonceUpdate(nonceUpdate)

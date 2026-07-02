@@ -18,16 +18,45 @@ let programIdFor = (env: Env.t): SolanaKit.address => SolanaKit.address(Env.prog
 
 // ── Instruction opcodes (data[0]) ─────────────────────────────────────────────
 module Instruction = {
+  let initialize = 0
+  let createMarket = 1
+  let addDepositMint = 2
   let mintCompleteSet = 3
   let mergeCompleteSet = 4
   let cancelOrder = 5
   let incrementNonce = 6
+  let settleMarket = 7
   let redeemWinnings = 8
+  let setPaused = 9
+  let setOperator = 10
+  let withdrawFromPosition = 11
+  let activateMarket = 12
+  let matchOrdersMulti = 13
+  let setAuthority = 14
+  let createOrderbook = 15
+  let whitelistDepositToken = 16
   let depositToGlobal = 17
   let globalToMarketDeposit = 18
   let initPositionTokens = 19
+  let depositAndSwap = 20
   let extendPositionTokens = 21
   let withdrawFromGlobal = 22
+  let closePositionAlt = 23
+  let closeOrderStatus = 24
+  let closePositionTokenAccounts = 25
+  let closeOrderbookAlt = 26
+  let closeOrderbook = 27
+  let setManager = 28
+  let setMarketFees = 29
+  let setFeeReceiver = 30
+  let createConditionalMetadata = 31
+  let updateConditionalMetadata = 32
+  let setOracle = 33
+  let refreshOrderbookAlt = 34
+  let acceptAuthority = 35
+  let acceptManager = 36
+  let acceptOperator = 37
+  let setDepositTokenStatus = 38
 }
 
 // ── Account discriminators (first 8 bytes of account data) ─────────────────────
@@ -47,3 +76,4 @@ let orderSize = 37
 let signatureSize = 64
 let maxOutcomes = 6
 let minOutcomes = 2
+let maxMakers = 5

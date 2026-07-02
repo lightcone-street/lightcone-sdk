@@ -3,10 +3,14 @@
 import * as Http from "../Http.res.mjs";
 import * as Spice from "@mununki/ppx-spice/src/rescript/Spice.res.mjs";
 import * as Shared from "../Shared.res.mjs";
+import DecimalJs from "decimal.js";
 import * as Primitive_int from "@rescript/runtime/lib/es6/Primitive_int.js";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Stdlib_Ordering from "@rescript/runtime/lib/es6/Stdlib_Ordering.js";
+import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 import * as Primitive_string from "@rescript/runtime/lib/es6/Primitive_string.js";
+import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
 
 function t_decode(v) {
   switch (typeof v) {
@@ -1284,6 +1288,182 @@ function globalDepositAssetsListResponse_decode(v) {
   return Spice.error("." + ("assets" + e$1.path), e$1.message, e$1.value);
 }
 
+let usdcMainnet = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+let usdtMainnet = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
+
+let usdcDevnetLc = "7SrxsoXjNR7Y8T3koJCt1yV4FrNUumoAUrJExDt6tQez";
+
+function isUsdStablecoin(pubkey) {
+  if (pubkey === usdcMainnet || pubkey === usdtMainnet) {
+    return true;
+  } else {
+    return pubkey === usdcDevnetLc;
+  }
+}
+
+function currencySymbol(pubkey) {
+  if (isUsdStablecoin(pubkey)) {
+    return "$";
+  } else {
+    return "";
+  }
+}
+
+function conditionalTokenIsUsdStableCoin(token) {
+  return isUsdStablecoin(token.depositAsset);
+}
+
+function conditionalTokenCurrencySymbol(token) {
+  return currencySymbol(token.mint);
+}
+
+function depositAssetIsUsdStableCoin(asset) {
+  return isUsdStablecoin(asset.depositAsset);
+}
+
+function depositAssetCurrencySymbol(asset) {
+  return currencySymbol(asset.depositAsset);
+}
+
+function globalDepositAssetIsUsdStableCoin(asset) {
+  return isUsdStablecoin(asset.depositAsset);
+}
+
+function globalDepositAssetCurrencySymbol(asset) {
+  return currencySymbol(asset.depositAsset);
+}
+
+function displayPriority(symbol) {
+  let match = symbol.toUpperCase();
+  switch (match) {
+    case "SOL" :
+      return 2;
+    case "BTC" :
+    case "WBTC" :
+      return 0;
+    case "ETH" :
+    case "WETH" :
+      return 1;
+    default:
+      return 255;
+  }
+}
+
+function sortByDisplayPriority(items, symbolOf) {
+  return items.toSorted((left, right) => {
+    let leftSymbol = symbolOf(left);
+    let rightSymbol = symbolOf(right);
+    let byPriority = Primitive_int.compare(displayPriority(leftSymbol), displayPriority(rightSymbol));
+    if (Stdlib_Ordering.isEqual(byPriority)) {
+      return Primitive_string.compare(leftSymbol, rightSymbol);
+    } else {
+      return byPriority;
+    }
+  });
+}
+
+function orderBookPairDecimals(pair) {
+  let baseDecimals = pair.base.decimals | 0;
+  let quoteDecimals = pair.quote.decimals | 0;
+  return {
+    baseDecimals: baseDecimals,
+    quoteDecimals: quoteDecimals,
+    priceDecimals: Primitive_int.max((6 + quoteDecimals | 0) - baseDecimals | 0, 0),
+    tickSize: Math.max(pair.tickSize, 0.0)
+  };
+}
+
+let zeroImpact = {
+  sign: "",
+  pct: 0.0,
+  dollar: "0",
+  isPositive: false
+};
+
+function parseDecimalOpt(value) {
+  let decimal;
+  try {
+    decimal = new DecimalJs(value);
+  } catch (raw_exn) {
+    let exn = Primitive_exceptions.internalToException(raw_exn);
+    if (exn.RE_EXN_ID === "JsExn") {
+      return;
+    }
+    throw exn;
+  }
+  return Primitive_option.some(decimal);
+}
+
+function impactPct(depositPrice, conditionalPrice) {
+  let match = parseDecimalOpt(depositPrice);
+  let match$1 = parseDecimalOpt(conditionalPrice);
+  if (match === undefined) {
+    return [
+      0.0,
+      ""
+    ];
+  }
+  if (match$1 === undefined) {
+    return [
+      0.0,
+      ""
+    ];
+  }
+  let conditional = Primitive_option.valFromOption(match$1);
+  let deposit = Primitive_option.valFromOption(match);
+  if (deposit.isZero() || conditional.isZero()) {
+    return [
+      0.0,
+      ""
+    ];
+  }
+  let value = conditional.minus(deposit).div(deposit).times(new DecimalJs(100)).toNumber();
+  return [
+    value,
+    value > 0.0 ? "+" : ""
+  ];
+}
+
+function impact(depositAssetPrice, conditionalPrice) {
+  let match = parseDecimalOpt(depositAssetPrice);
+  let match$1 = parseDecimalOpt(conditionalPrice);
+  if (match === undefined) {
+    return zeroImpact;
+  }
+  if (match$1 === undefined) {
+    return zeroImpact;
+  }
+  let deposit = Primitive_option.valFromOption(match);
+  if (deposit.isZero()) {
+    return zeroImpact;
+  }
+  let conditional = Primitive_option.valFromOption(match$1);
+  let pct = conditional.minus(deposit).div(deposit).times(new DecimalJs(100)).toNumber();
+  return {
+    sign: pct > 0.0 ? "+" : "-",
+    pct: Math.abs(pct),
+    dollar: conditional.minus(deposit).abs().toString(),
+    isPositive: pct > 0.0
+  };
+}
+
+function denominatorToken(denominator, pair) {
+  if (denominator === "Base") {
+    return pair.base;
+  } else {
+    return pair.quote;
+  }
+}
+
+function denominatorSymbol(denominator, pair) {
+  return denominatorToken(denominator, pair).symbol;
+}
+
+function denominatorDepositSymbol(denominator, pair) {
+  return denominatorToken(denominator, pair).depositSymbol;
+}
+
 function formatValidationErrors(label, identifier, messages) {
   return label + ` validation errors (` + identifier + `):\n` + messages.map(message => `  - ` + message).join("\n");
 }
@@ -1514,7 +1694,7 @@ function orderBookPairOfResponse(source, tokens) {
   }
 }
 
-function displayPriority(symbol) {
+function displayPriority$1(symbol) {
   let match = symbol.toUpperCase();
   switch (match) {
     case "SOL" :
@@ -1532,8 +1712,8 @@ function displayPriority(symbol) {
 
 function sortPairsByDisplayPriority(pairs) {
   return pairs.toSorted((left, right) => {
-    let leftPriority = displayPriority(left.base.symbol);
-    let rightPriority = displayPriority(right.base.symbol);
+    let leftPriority = displayPriority$1(left.base.symbol);
+    let rightPriority = displayPriority$1(right.base.symbol);
     if (leftPriority === rightPriority) {
       return Primitive_string.compare(left.base.symbol, right.base.symbol);
     } else {
@@ -1816,6 +1996,25 @@ export {
   isResolved,
   singleWinningOutcome,
   hasSingleWinningOutcome,
+  usdcMainnet,
+  usdtMainnet,
+  usdcDevnetLc,
+  isUsdStablecoin,
+  currencySymbol,
+  conditionalTokenIsUsdStableCoin,
+  conditionalTokenCurrencySymbol,
+  depositAssetIsUsdStableCoin,
+  depositAssetCurrencySymbol,
+  globalDepositAssetIsUsdStableCoin,
+  globalDepositAssetCurrencySymbol,
+  sortByDisplayPriority,
+  resolveIconUrls,
+  orderBookPairDecimals,
+  impactPct,
+  impact,
+  denominatorToken,
+  denominatorSymbol,
+  denominatorDepositSymbol,
   get,
   featured,
   getBySlug,

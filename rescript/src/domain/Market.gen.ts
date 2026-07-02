@@ -3,7 +3,13 @@
 /* eslint-disable */
 /* tslint:disable */
 
+import * as MarketJS from './Market.res.mjs';
+
+import type {Denominator_t as Shared_Denominator_t} from '../../src/Shared.gen.ts';
+
 import type {orderBookId as Shared_orderBookId} from '../../src/Shared.gen.ts';
+
+import type {orderbookDecimals as Scaling_orderbookDecimals} from '../../src/program/Scaling.gen.ts';
 
 import type {pubkeyStr as Shared_pubkeyStr} from '../../src/Shared.gen.ts';
 
@@ -229,3 +235,46 @@ export type market = {
 export type marketsResult = { readonly markets: market[]; readonly validationErrors: string[] };
 
 export type globalDepositAssetsResult = { readonly assets: globalDepositAsset[]; readonly validationErrors: string[] };
+
+export type outcomeImpact = {
+  readonly sign: string; 
+  readonly pct: number; 
+  readonly dollar: string; 
+  readonly isPositive: boolean
+};
+
+export const usdcMainnet: Shared_pubkeyStr = MarketJS.usdcMainnet as any;
+
+export const usdtMainnet: Shared_pubkeyStr = MarketJS.usdtMainnet as any;
+
+export const usdcDevnetLc: Shared_pubkeyStr = MarketJS.usdcDevnetLc as any;
+
+export const isUsdStablecoin: (_1:Shared_pubkeyStr) => boolean = MarketJS.isUsdStablecoin as any;
+
+export const currencySymbol: (_1:Shared_pubkeyStr) => string = MarketJS.currencySymbol as any;
+
+export const conditionalTokenIsUsdStableCoin: (_1:conditionalToken) => boolean = MarketJS.conditionalTokenIsUsdStableCoin as any;
+
+export const conditionalTokenCurrencySymbol: (_1:conditionalToken) => string = MarketJS.conditionalTokenCurrencySymbol as any;
+
+export const depositAssetIsUsdStableCoin: (_1:depositAsset) => boolean = MarketJS.depositAssetIsUsdStableCoin as any;
+
+export const depositAssetCurrencySymbol: (_1:depositAsset) => string = MarketJS.depositAssetCurrencySymbol as any;
+
+export const globalDepositAssetIsUsdStableCoin: (_1:globalDepositAsset) => boolean = MarketJS.globalDepositAssetIsUsdStableCoin as any;
+
+export const globalDepositAssetCurrencySymbol: (_1:globalDepositAsset) => string = MarketJS.globalDepositAssetCurrencySymbol as any;
+
+export const sortByDisplayPriority: <a>(_1:a[], symbolOf:((_1:a) => string)) => a[] = MarketJS.sortByDisplayPriority as any;
+
+export const orderBookPairDecimals: (_1:orderBookPair) => Scaling_orderbookDecimals = MarketJS.orderBookPairDecimals as any;
+
+export const impactPct: (depositPrice:string, conditionalPrice:string) => [number, string] = MarketJS.impactPct as any;
+
+export const impact: (depositAssetPrice:string, conditionalPrice:string) => outcomeImpact = MarketJS.impact as any;
+
+export const denominatorToken: (_1:Shared_Denominator_t, _2:orderBookPair) => conditionalToken = MarketJS.denominatorToken as any;
+
+export const denominatorSymbol: (_1:Shared_Denominator_t, _2:orderBookPair) => string = MarketJS.denominatorSymbol as any;
+
+export const denominatorDepositSymbol: (_1:Shared_Denominator_t, _2:orderBookPair) => string = MarketJS.denominatorDepositSymbol as any;

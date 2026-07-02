@@ -224,21 +224,61 @@ let loginWithMessage = async (
   )
 }
 
-// Convenience: nonce → sign → login, using the client's configured native signer.
+// Convenience: nonce → sign → login, using the client's configured signing
+// strategy (native keypair or external wallet adapter).
 let login = async (client: Client.t, ~useEmbeddedWallet: option<bool>=?): result<
   sessionResponse,
   SdkError.t,
 > =>
-  switch client.signingStrategy {
-  | Some(Client.NativeSigner({keypair})) =>
+  switch Client.signerAddress(client) {
+  | None =>
+    Error(
+      Signing(
+        "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first",
+      ),
+    )
+  | Some(address) =>
     switch await getNonce(client) {
-    | Ok(nonce) =>
-      let signed = await signLoginMessage(keypair, nonce)
-      await loginWithMessage(client, signed, ~useEmbeddedWallet?)
     | Error(error) => Error(error)
+    | Ok(nonce) =>
+      let message = signinMessage(nonce)
+      let messageBytes = SolanaKitCodec.encode(SolanaKitCodec.getUtf8Encoder(), message)
+      switch await Client.signMessageBytes(client, messageBytes) {
+      | Error(error) => Error(error)
+      | Ok(signature) =>
+        let signed = {
+          message,
+          signatureBs58: SolanaKitCodec.decode(SolanaKitCodec.getBase58Decoder(), signature),
+          pubkeyBytes: bytesToIntArray(
+            SolanaKitCodec.encode(SolanaKitCodec.getAddressEncoder(), address),
+          ),
+        }
+        await loginWithMessage(client, signed, ~useEmbeddedWallet?)
+      }
     }
-  | None => Error(Signing("no native signer configured; call Client.useNativeSigner first"))
   }
+
+// Register a Privy-authenticated user in the backend DB. Called after Privy
+// login when `is_new_user: true`; idempotent.
+let registerPrivy = async (client: Client.t): result<unit, SdkError.t> =>
+  await Http.post(
+    client.http,
+    ~path="/api/auth/register-privy",
+    ~body=JSON.Object(Dict.make()),
+    ~decode=_ => Ok(),
+  )
+
+// Disconnect the user's linked X (Twitter) account.
+let disconnectX = async (client: Client.t): result<unit, SdkError.t> =>
+  await Http.post(
+    client.http,
+    ~path="/api/auth/disconnect_x",
+    ~body=JSON.Object(Dict.make()),
+    ~decode=_ => Ok(),
+  )
+
+// The URL for linking an X (Twitter) account via OAuth.
+let connectXUrl = (client: Client.t): string => `${Http.baseUrl(client.http)}/api/auth/oauth/link/x`
 
 let checkSession = async (client: Client.t, ~cookieHeader: option<string>=?): result<
   sessionResponse,

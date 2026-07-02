@@ -33,6 +33,8 @@ external fixDecoderSize: (SolanaKit.decoder<Uint8Array.t>, int) => SolanaKit.dec
 @module("@solana/kit") external getUtf8Decoder: unit => SolanaKit.decoder<string> = "getUtf8Decoder"
 @module("@solana/kit") external getBase16Encoder: unit => SolanaKit.encoder<string> = "getBase16Encoder"
 @module("@solana/kit") external getBase16Decoder: unit => SolanaKit.decoder<string> = "getBase16Decoder"
+@module("@solana/kit") external getBase64Encoder: unit => SolanaKit.encoder<string> = "getBase64Encoder"
+@module("@solana/kit") external getBase64Decoder: unit => SolanaKit.decoder<string> = "getBase64Decoder"
 @module("@solana/kit") external getBase58Encoder: unit => SolanaKit.encoder<string> = "getBase58Encoder"
 @module("@solana/kit") external getBase58Decoder: unit => SolanaKit.decoder<string> = "getBase58Decoder"
 

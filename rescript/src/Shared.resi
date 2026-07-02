@@ -15,11 +15,28 @@ module Side: {
   let toString: t => string
   // UI label: Bid → "Buy", Ask → "Sell".
   let label: t => string
+
+  // The price to submit with a market (IOC) order: the worst book fill price
+  // padded by the impact-protection percentage in the fill direction. `None`
+  // unless both inputs are positive Decimal strings.
+  let applyImpactProtection: (
+    t,
+    ~worstFillPrice: string,
+    ~protectionPercent: string,
+  ) => option<string>
 }
 
 module Denominator: {
   @genType @spice
   type t = | @as("Base") @spice.as("Base") Base | @as("Quote") @spice.as("Quote") Quote
+
+  // Display order: quote first.
+  let all: array<t>
+
+  // Convert `amount` between denominations at `basePriceInQuote` (Decimal
+  // strings). Crossing denominations requires a positive price — `None`
+  // otherwise (or on malformed input).
+  let convertTo: (t, ~target: t, ~amount: string, ~basePriceInQuote: string) => option<string>
 }
 
 let spendDenominator: Side.t => Denominator.t
@@ -39,6 +56,17 @@ module TriggerType: {
   type t =
     | @as("TP") @spice.as("TP") TakeProfit
     | @as("SL") @spice.as("SL") StopLoss
+}
+
+// The engine's real-time order state; wire absence defaults to Open.
+module OrderStatus: {
+  @genType @spice
+  type t =
+    | @as("OPEN") @spice.as("OPEN") Open
+    | @as("MATCHING") @spice.as("MATCHING") Matching
+    | @as("CANCELLED") @spice.as("CANCELLED") Cancelled
+    | @as("FILLED") @spice.as("FILLED") Filled
+    | @as("PENDING") @spice.as("PENDING") Pending
 }
 
 module TriggerStatus: {

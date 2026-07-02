@@ -6,6 +6,7 @@ import * as Client from "./Client.res.mjs";
 import * as Kit from "@solana/kit";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 
 function t_decode(v) {
   switch (typeof v) {
@@ -465,25 +466,58 @@ async function loginWithMessage(client, signed, useEmbeddedWallet) {
 }
 
 async function login(client, useEmbeddedWallet) {
-  let match = client.signingStrategy;
-  if (match === undefined) {
+  let address = Client.signerAddress(client);
+  if (address === undefined) {
     return {
       TAG: "Error",
       _0: {
         TAG: "Signing",
-        _0: "no native signer configured; call Client.useNativeSigner first"
+        _0: "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first"
       }
     };
   }
-  let nonce = await getNonce(client);
-  if (nonce.TAG !== "Ok") {
+  let error = await getNonce(client);
+  if (error.TAG !== "Ok") {
     return {
       TAG: "Error",
-      _0: nonce._0
+      _0: error._0
     };
   }
-  let signed = await signLoginMessage(match.keypair, nonce._0);
+  let message = signinMessage(error._0);
+  let messageBytes = Kit.getUtf8Encoder().encode(message);
+  let error$1 = await Client.signMessageBytes(client, messageBytes);
+  if (error$1.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error$1._0
+    };
+  }
+  let signed_signatureBs58 = Kit.getBase58Decoder().decode(error$1._0);
+  let signed_pubkeyBytes = bytesToIntArray(Kit.getAddressEncoder().encode(Primitive_option.valFromOption(address)));
+  let signed = {
+    message: message,
+    signatureBs58: signed_signatureBs58,
+    pubkeyBytes: signed_pubkeyBytes
+  };
   return await loginWithMessage(client, signed, useEmbeddedWallet);
+}
+
+async function registerPrivy(client) {
+  return await Http.post(client.http, "/api/auth/register-privy", {}, undefined, undefined, param => ({
+    TAG: "Ok",
+    _0: undefined
+  }));
+}
+
+async function disconnectX(client) {
+  return await Http.post(client.http, "/api/auth/disconnect_x", {}, undefined, undefined, param => ({
+    TAG: "Ok",
+    _0: undefined
+  }));
+}
+
+function connectXUrl(client) {
+  return Http.baseUrl(client.http) + `/api/auth/oauth/link/x`;
 }
 
 async function checkSession(client, cookieHeader) {
@@ -517,5 +551,8 @@ export {
   checkSession,
   isAuthenticated,
   logout,
+  registerPrivy,
+  disconnectX,
+  connectXUrl,
 }
 /* Http Not a pure module */

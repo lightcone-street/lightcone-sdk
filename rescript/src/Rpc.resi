@@ -34,6 +34,12 @@ let userGlobalDepositPda: (
 // Typed account fetchers (fetch + decode; verify discriminator + byte layout).
 let getExchange: Client.t => promise<result<Accounts.exchange, SdkError.t>>
 let getMarket: (Client.t, SolanaKit.address) => promise<result<Accounts.market, SdkError.t>>
+// Fetch + decode a Market by its numeric id (derives the PDA first).
+let getMarketById: (Client.t, ~marketId: bigint) => promise<result<Accounts.market, SdkError.t>>
+
+// The next available market id (the exchange's market count).
+let nextMarketId: Client.t => promise<result<bigint, SdkError.t>>
+
 let getOrderbook: (
   Client.t,
   ~mintA: SolanaKit.address,
@@ -47,3 +53,16 @@ let getPosition: (
 
 // Current on-chain nonce for a user; 0 when the account is uninitialized.
 let getNonce: (Client.t, ~user: SolanaKit.address) => promise<result<float, SdkError.t>>
+
+// Fetch + decode a whitelisted GlobalDepositToken entry for a mint.
+let getGlobalDepositToken: (
+  Client.t,
+  ~mint: SolanaKit.address,
+) => promise<result<Accounts.globalDepositToken, SdkError.t>>
+
+// Fetch + decode an order's on-chain OrderStatus PDA; `None` when the account
+// does not exist. `~orderHash` is the 32-byte keccak digest.
+let getOrderStatus: (
+  Client.t,
+  ~orderHash: Uint8Array.t,
+) => promise<result<option<Accounts.orderStatus>, SdkError.t>>

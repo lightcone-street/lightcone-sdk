@@ -90,6 +90,17 @@ type orderBook = {
   mantissa?: int,
 }
 
+// ── Ticker ────────────────────────────────────────────────────────────────────
+// Best bid/ask/mid for an orderbook — the domain twin of the WS `ticker`
+// payload, with prices as Decimal strings.
+@genType
+type tickerData = {
+  orderbookId: Shared.orderBookId,
+  bestBid?: string,
+  bestAsk?: string,
+  midPrice?: string,
+}
+
 // The aggregation view a frame belongs to (untagged = full precision).
 let aggregationOfOrderBook: orderBook => BookAggregation.t
 

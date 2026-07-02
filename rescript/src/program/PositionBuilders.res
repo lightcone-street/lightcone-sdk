@@ -1,57 +1,27 @@
 // High-level position transaction builders: build the instruction, assemble a
 // v0 transaction, sign it with the client's native signer, and broadcast it.
-// Mirrors the Rust `Positions` builder methods (deposit_to_global,
-// withdraw_from_global, global_to_market_deposit, merge, redeem_winnings) plus
-// their `.sign_and_submit()` flow.
+// Covers every Rust `Positions` builder flow — deposit_to_global,
+// withdraw_from_global, global_to_market_deposit, merge, redeem_winnings, the
+// market-level deposit (mint complete set), withdraw_from_position,
+// extend_position_tokens, and the close ops — as that fluent API's idiomatic
+// ReScript counterpart: one labeled-argument function per flow (the Rust
+// `deposit()`/`withdraw()` builders' Global-vs-Market dispatch is realized by
+// picking the explicit function; `Client.depositSource` never gates here).
 //
 // Each function returns `promise<result<string, SdkError.t>>` where the Ok value
-// is the transaction signature. Signing requires a native signer configured via
-// `Client.useNativeSigner`; without one the call returns `Error(Signing(_))`.
+// is the transaction signature. Signing uses the client's signing strategy
+// (`Client.useNativeSigner` or `Client.useExternalSigner`); with none configured
+// the call returns `Error(Signing(_))`. The Rust `_ix` variants are
+// `Instructions.res`; the `_tx` variants collapse to `unsignedTx` below (any
+// instruction + fee payer → unsigned message).
 //
-// NOTE: `~user` is both the instruction's signer account AND the fee payer, so it
-// MUST be the address of the client's configured native signer for the resulting
-// transaction to verify.
+// NOTE: `~user` (or `~operator` on the operator-signed ops) is both the
+// instruction's signer account AND the fee payer, so it MUST be the address of
+// the client's configured signer for the resulting transaction to verify.
 
-// kit's `getLatestBlockhash().send()` resolves to {context, value: {blockhash,
-// lastValidBlockHeight}}. `setTransactionMessageLifetimeUsingBlockhash` wants the
-// inner `value` object verbatim, so we project it out. (The RPC layer types the
-// response loosely as JSON.t; the runtime shape is exactly the lifetime object.)
-let blockhashLifetimeOfResponse: JSON.t => SolanaKitTx.blockhashLifetime = %raw(`function (response) {
-  return response.value;
-}`)
-
-// Sign + broadcast a single-instruction v0 transaction with the client's native
-// signer as fee payer. `makeInstruction` is a thunk so any throwing PDA/ATA
-// derivation is captured under the same error boundary as the RPC/sign calls.
-let signAndSend = async (
-  client: Client.t,
-  makeInstruction: unit => promise<SolanaKit.instruction>,
-): result<string, SdkError.t> =>
-  switch client.signingStrategy {
-  | None =>
-    Error(
-      SdkError.Signing("no native signer configured on the client; call Client.useNativeSigner first"),
-    )
-  | Some(Client.NativeSigner({signer})) =>
-    let run = async () => {
-      let instruction = await makeInstruction()
-      let blockhashResponse = await SolanaKitRpc.getLatestBlockhash(client.rpc)->SolanaKitRpc.send
-      let lifetime = blockhashLifetimeOfResponse(blockhashResponse)
-      let message =
-        SolanaKitTx.create({"version": 0})
-        ->SolanaKitTx.setFeePayerSigner(signer, _)
-        ->SolanaKitTx.appendInstruction(instruction, _)
-        ->SolanaKitTx.setLifetimeUsingBlockhash(lifetime, _)
-      let signedTransaction = await SolanaKitTx.signWithSigners(message)
-      let wire = SolanaKitTx.base64Wire(signedTransaction)
-      await SolanaKitRpc.sendTransaction(client.rpc, wire, {"encoding": "base64"})->SolanaKitRpc.send
-    }
-    switch await run() {
-    | signature => Ok(signature)
-    | exception JsExn(error) =>
-      Error(SdkError.Other(error->JsExn.message->Option.getOr("failed to sign and send transaction")))
-    }
-  }
+// Sign + broadcast with the client's signing strategy (native keypair or
+// external wallet adapter) — see `Transactions.signAndSubmit`.
+let signAndSend = Transactions.signAndSubmit
 
 // Deposit collateral from the user's token account into their global deposit PDA.
 let depositToGlobal = (
@@ -137,3 +107,126 @@ let redeemWinnings = (
       ~outcomeIndex,
     )
   )
+
+// Market-level direct deposit (mint complete set): collateral moves from the
+// user's wallet ATA into the market vault, minting a complete conditional-token
+// set into the position. (The Rust `deposit()` builder with the Market source.)
+let deposit = (
+  client: Client.t,
+  ~user: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~mint: SolanaKit.address,
+  ~amount: bigint,
+  ~numOutcomes: int,
+): promise<result<string, SdkError.t>> =>
+  signAndSend(client, () =>
+    Instructions.deposit(~programId=client.programId, ~user, ~market, ~mint, ~amount, ~numOutcomes)
+  )
+
+// Withdraw conditional tokens from the position's ATA to the user's own ATA
+// (`~mint` is the conditional mint). (The Rust `withdraw()` builder with the
+// Market source / `withdraw_from_position()`.)
+let withdrawFromPosition = (
+  client: Client.t,
+  ~user: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~mint: SolanaKit.address,
+  ~amount: bigint,
+  ~outcomeIndex: int,
+): promise<result<string, SdkError.t>> =>
+  signAndSend(client, () =>
+    Instructions.withdrawFromPosition(
+      ~programId=client.programId,
+      ~user,
+      ~market,
+      ~mint,
+      ~amount,
+      ~outcomeIndex,
+    )
+  )
+
+// Append newly-added deposit mints' ATAs to an existing position ALT (from
+// initPositionTokens). Operator-signed: `~operator` must be the native signer.
+let extendPositionTokens = (
+  client: Client.t,
+  ~operator: SolanaKit.address,
+  ~user: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~lookupTable: SolanaKit.address,
+  ~depositMints: array<SolanaKit.address>,
+  ~numOutcomes: int,
+): promise<result<string, SdkError.t>> =>
+  switch depositMints {
+  | [] => Promise.resolve(Error(SdkError.Validation("deposit_mints is required")))
+  | _ =>
+    signAndSend(client, () =>
+      Instructions.extendPositionTokens(
+        ~programId=client.programId,
+        ~operator,
+        ~user,
+        ~market,
+        ~lookupTable,
+        ~depositMints,
+        ~numOutcomes,
+      )
+    )
+  }
+
+// Deactivate an active position ALT, or close an already-deactivated one.
+// Operator-signed; `~position` is the position PDA address itself.
+let closePositionAlt = (
+  client: Client.t,
+  ~operator: SolanaKit.address,
+  ~position: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~lookupTable: SolanaKit.address,
+): promise<result<string, SdkError.t>> =>
+  signAndSend(client, () =>
+    Instructions.closePositionAlt(
+      ~programId=client.programId,
+      ~operator,
+      ~position,
+      ~market,
+      ~lookupTable,
+    )
+  )
+
+// Close empty SPL conditional ATAs owned by a position PDA after market
+// resolution (non-empty accounts are skipped by the program). Operator-signed;
+// `~position` is the position PDA address itself.
+let closePositionTokenAccounts = (
+  client: Client.t,
+  ~operator: SolanaKit.address,
+  ~market: SolanaKit.address,
+  ~position: SolanaKit.address,
+  ~depositMints: array<SolanaKit.address>,
+  ~numOutcomes: int,
+): promise<result<string, SdkError.t>> =>
+  if Array.length(depositMints) == 0 {
+    Promise.resolve(Error(SdkError.Validation("deposit_mints is required")))
+  } else if numOutcomes < Constants.minOutcomes || numOutcomes > Constants.maxOutcomes {
+    Promise.resolve(
+      Error(SdkError.Validation(`invalid outcome count: ${Int.toString(numOutcomes)}`)),
+    )
+  } else {
+    signAndSend(client, () =>
+      Instructions.closePositionTokenAccounts(
+        ~programId=client.programId,
+        ~operator,
+        ~market,
+        ~position,
+        ~depositMints,
+        ~numOutcomes,
+      )
+    )
+  }
+
+// ── Unsigned transaction assembly ─────────────────────────────────────────────
+// The kit counterpart of the Rust builders' `build_tx` (`Transaction::new_with_payer`):
+// wrap one instruction in an unsigned v0 message with the fee payer set (no
+// lifetime). The caller appends further instructions if needed, sets the
+// blockhash lifetime, and signs with their own signer.
+let unsignedTx = (~feePayer: SolanaKit.address, ~instruction: SolanaKit.instruction): SolanaKitTx.message =>
+  SolanaKitTx.create({"version": 0})
+  ->SolanaKitTx.setFeePayer(feePayer, _)
+  ->SolanaKitTx.appendInstruction(instruction, _)

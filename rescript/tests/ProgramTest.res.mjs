@@ -3,9 +3,13 @@
 import * as Pda from "../src/program/Pda.res.mjs";
 import * as Scaling from "../src/program/Scaling.res.mjs";
 import * as Buntest from "bun:test";
+import * as Constants from "../src/program/Constants.res.mjs";
+import * as SolanaKit from "../bindings/solana-kit/SolanaKit.res.mjs";
 import * as Kit from "@solana/kit";
+import * as Instructions from "../src/program/Instructions.res.mjs";
 import * as OrderPayload from "../src/program/OrderPayload.res.mjs";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Primitive_object from "@rescript/runtime/lib/es6/Primitive_object.js";
 
 let byteLength = ((a) => a.length);
 
@@ -119,6 +123,364 @@ Buntest.describe("Pda", () => {
     let match$1 = await Pda.orderbook(programId, mintA, mintB);
     let match$2 = await Pda.orderbook(programId, mintB, mintA);
     Buntest.expect(match$1[0]).toBe(match$2[0]);
+  });
+});
+
+Buntest.describe("Instructions (position ops)", () => {
+  let programId = Kit.address("9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A");
+  let user = Kit.address("So11111111111111111111111111111111111111112");
+  let market = Kit.address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  let mint = Kit.address("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+  let lookupTable = Kit.address("Vote111111111111111111111111111111111111111");
+  let role = (instruction, index) => instruction.accounts[index].role;
+  let address = (instruction, index) => instruction.accounts[index].address;
+  Buntest.test("deposit (mint complete set): opcode 3 + amount LE; 11 + 2n accounts", async () => {
+    let ix = await Instructions.deposit(programId, user, market, mint, 1000000n, 2);
+    Buntest.expect(byteLength(ix.data)).toBe(9);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(3);
+    Buntest.expect(byteAt(ix.data, 1)).toBe(64);
+    Buntest.expect(byteAt(ix.data, 2)).toBe(66);
+    Buntest.expect(byteAt(ix.data, 3)).toBe(15);
+    Buntest.expect(ix.accounts.length).toBe(15);
+    Buntest.expect(role(ix, 0)).toBe(SolanaKit.Role.writableSigner);
+    Buntest.expect(address(ix, 0)).toBe(user);
+    let match = await Pda.exchange(programId);
+    Buntest.expect(address(ix, 1)).toBe(match[0]);
+    let match$1 = await Pda.position(programId, user, market);
+    Buntest.expect(address(ix, 6)).toBe(match$1[0]);
+    Buntest.expect(role(ix, 6)).toBe(SolanaKit.Role.writable);
+  });
+  Buntest.test("withdrawFromPosition: opcode 11 + amount LE + outcome u8; 8 accounts", async () => {
+    let ix = await Instructions.withdrawFromPosition(programId, user, market, mint, 5n, 1);
+    Buntest.expect(byteLength(ix.data)).toBe(10);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(11);
+    Buntest.expect(byteAt(ix.data, 1)).toBe(5);
+    Buntest.expect(byteAt(ix.data, 9)).toBe(1);
+    Buntest.expect(ix.accounts.length).toBe(8);
+    Buntest.expect(role(ix, 0)).toBe(SolanaKit.Role.writableSigner);
+    let match = await Pda.position(programId, user, market);
+    Buntest.expect(address(ix, 2)).toBe(match[0]);
+    Buntest.expect(role(ix, 2)).toBe(SolanaKit.Role.writable);
+    Buntest.expect(address(ix, 3)).toBe(mint);
+    let match$1 = await Pda.exchange(programId);
+    Buntest.expect(address(ix, 7)).toBe(match$1[0]);
+  });
+  Buntest.test("extendPositionTokens: opcode 21 + mint count; 10 + m*(3+2n) accounts", async () => {
+    let ix = await Instructions.extendPositionTokens(programId, user, user, market, lookupTable, [
+      mint,
+      market
+    ], 2);
+    Buntest.expect(byteLength(ix.data)).toBe(2);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(21);
+    Buntest.expect(byteAt(ix.data, 1)).toBe(2);
+    Buntest.expect(ix.accounts.length).toBe(24);
+    Buntest.expect(role(ix, 0)).toBe(SolanaKit.Role.writableSigner);
+    let match = await Pda.position(programId, user, market);
+    Buntest.expect(address(ix, 4)).toBe(match[0]);
+    Buntest.expect(role(ix, 4)).toBe(SolanaKit.Role.readonly);
+    Buntest.expect(address(ix, 5)).toBe(lookupTable);
+    Buntest.expect(role(ix, 5)).toBe(SolanaKit.Role.writable);
+  });
+  Buntest.test("closePositionAlt: opcode-only data; 6 accounts", async () => {
+    let position = Kit.address("Stake11111111111111111111111111111111111111");
+    let ix = await Instructions.closePositionAlt(programId, user, position, market, lookupTable);
+    Buntest.expect(byteLength(ix.data)).toBe(1);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(23);
+    Buntest.expect(ix.accounts.length).toBe(6);
+    Buntest.expect(role(ix, 0)).toBe(SolanaKit.Role.writableSigner);
+    Buntest.expect(address(ix, 2)).toBe(position);
+    Buntest.expect(address(ix, 4)).toBe(lookupTable);
+    Buntest.expect(role(ix, 4)).toBe(SolanaKit.Role.writable);
+    Buntest.expect(address(ix, 5)).toBe(Constants.altProgram);
+  });
+  Buntest.test("closePositionTokenAccounts: opcode-only data; 5 + m*(1+2n) accounts", async () => {
+    let position = Kit.address("Stake11111111111111111111111111111111111111");
+    let ix = await Instructions.closePositionTokenAccounts(programId, user, market, position, [mint], 3);
+    Buntest.expect(byteLength(ix.data)).toBe(1);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(25);
+    Buntest.expect(ix.accounts.length).toBe(12);
+    Buntest.expect(role(ix, 0)).toBe(SolanaKit.Role.writableSigner);
+    Buntest.expect(address(ix, 3)).toBe(position);
+    Buntest.expect(address(ix, 5)).toBe(mint);
+    Buntest.expect(role(ix, 6)).toBe(SolanaKit.Role.readonly);
+    Buntest.expect(role(ix, 7)).toBe(SolanaKit.Role.writable);
+  });
+});
+
+Buntest.describe("OrderPayload signed-order serialization + helpers", () => {
+  Buntest.test("233-byte roundtrip preserves the payload and verifies", async () => {
+    let seed = (new Uint8Array(32).fill(11));
+    let keypair = await Kit.createKeyPairFromPrivateKeyBytes(seed);
+    let maker = await Kit.getAddressFromPublicKey(keypair.publicKey);
+    let mint = Kit.address("So11111111111111111111111111111111111111112");
+    let order = OrderPayload.newBid(1n, 42n, maker, mint, mint, mint, 65000000n, 100000000n, undefined);
+    let signature = await OrderPayload.sign(order, keypair);
+    let bytes = OrderPayload.serialize(order, signature);
+    Buntest.expect(byteLength(bytes)).toBe(233);
+    let error = OrderPayload.deserialize(bytes);
+    if (error.TAG === "Ok") {
+      let match = error._0;
+      let decodedSignature = match[1];
+      let decoded = match[0];
+      Buntest.expect(decoded).toEqual(order);
+      Buntest.expect(await OrderPayload.verifySignature(decoded, decodedSignature)).toBe(true);
+      let tampered_nonce = decoded.nonce;
+      let tampered_salt = decoded.salt;
+      let tampered_maker = decoded.maker;
+      let tampered_market = decoded.market;
+      let tampered_baseMint = decoded.baseMint;
+      let tampered_quoteMint = decoded.quoteMint;
+      let tampered_side = decoded.side;
+      let tampered_amountOut = decoded.amountOut;
+      let tampered_expiration = decoded.expiration;
+      let tampered = {
+        nonce: tampered_nonce,
+        salt: tampered_salt,
+        maker: tampered_maker,
+        market: tampered_market,
+        baseMint: tampered_baseMint,
+        quoteMint: tampered_quoteMint,
+        side: tampered_side,
+        amountIn: 1n,
+        amountOut: tampered_amountOut,
+        expiration: tampered_expiration
+      };
+      Buntest.expect(await OrderPayload.verifySignature(tampered, decodedSignature)).toBe(false);
+      return;
+    }
+    Buntest.expect(error._0).toBe("roundtrip");
+  });
+  Buntest.test("compact order: 37-byte roundtrip; toOrder truncates the nonce to u32", () => {
+    let compact = {
+      nonce: 7,
+      salt: 5n,
+      side: 1,
+      amountIn: 10n,
+      amountOut: 20n,
+      expiration: 0n
+    };
+    let bytes = OrderPayload.Compact.serialize(compact);
+    Buntest.expect(byteLength(bytes)).toBe(37);
+    Buntest.expect(OrderPayload.Compact.deserialize(bytes)).toEqual({
+      TAG: "Ok",
+      _0: compact
+    });
+    let mint = Kit.address("So11111111111111111111111111111111111111112");
+    let payload = OrderPayload.newAsk(4294967303n, 5n, mint, mint, mint, mint, 10n, 20n, undefined);
+    Buntest.expect(OrderPayload.toOrder(payload).nonce).toBe(7);
+    let restored = OrderPayload.ofOrder(compact, mint, mint, mint, mint);
+    Buntest.expect(restored.nonce.toString()).toBe("7");
+    Buntest.expect(restored.side).toBe(1);
+  });
+  Buntest.test("ordersCanCross + calculateTakerFill", () => {
+    let mint = Kit.address("So11111111111111111111111111111111111111112");
+    let bid = OrderPayload.newBid(1n, 1n, mint, mint, mint, mint, 65n, 100n, undefined);
+    let ask = OrderPayload.newAsk(1n, 1n, mint, mint, mint, mint, 100n, 60n, undefined);
+    Buntest.expect(OrderPayload.ordersCanCross(bid, ask)).toBe(true);
+    let greedyAsk_nonce = ask.nonce;
+    let greedyAsk_salt = ask.salt;
+    let greedyAsk_maker = ask.maker;
+    let greedyAsk_market = ask.market;
+    let greedyAsk_baseMint = ask.baseMint;
+    let greedyAsk_quoteMint = ask.quoteMint;
+    let greedyAsk_side = ask.side;
+    let greedyAsk_amountIn = ask.amountIn;
+    let greedyAsk_expiration = ask.expiration;
+    let greedyAsk = {
+      nonce: greedyAsk_nonce,
+      salt: greedyAsk_salt,
+      maker: greedyAsk_maker,
+      market: greedyAsk_market,
+      baseMint: greedyAsk_baseMint,
+      quoteMint: greedyAsk_quoteMint,
+      side: greedyAsk_side,
+      amountIn: greedyAsk_amountIn,
+      amountOut: 70n,
+      expiration: greedyAsk_expiration
+    };
+    Buntest.expect(OrderPayload.ordersCanCross(bid, greedyAsk)).toBe(false);
+    Buntest.expect(OrderPayload.ordersCanCross(ask, bid)).toBe(false);
+    let fill = OrderPayload.calculateTakerFill(ask, 50n);
+    if (fill.TAG === "Ok") {
+      Buntest.expect(fill._0.toString()).toBe("30");
+    } else {
+      Buntest.expect(fill._0).toBe("ok");
+    }
+    Buntest.expect(Stdlib_Result.isError(OrderPayload.calculateTakerFill({
+      nonce: ask.nonce,
+      salt: ask.salt,
+      maker: ask.maker,
+      market: ask.market,
+      baseMint: ask.baseMint,
+      quoteMint: ask.quoteMint,
+      side: ask.side,
+      amountIn: 0n,
+      amountOut: ask.amountOut,
+      expiration: ask.expiration
+    }, 50n))).toBe(true);
+  });
+  Buntest.test("deriveConditionId is a 32-byte keccak over oracle ‖ question ‖ outcomes", () => {
+    let oracle = Kit.address("So11111111111111111111111111111111111111112");
+    let questionId = (new Uint8Array(32).fill(1));
+    let conditionId = OrderPayload.deriveConditionId(oracle, questionId, 2);
+    Buntest.expect(byteLength(conditionId)).toBe(32);
+    let other = OrderPayload.deriveConditionId(oracle, questionId, 3);
+    Buntest.expect(Primitive_object.equal(conditionId, other)).toBe(false);
+  });
+  Buntest.test("isOrderExpired + deriveOrderbookId + signatureFromBs58", () => {
+    let mint = Kit.address("So11111111111111111111111111111111111111112");
+    let order = OrderPayload.newBid(1n, 1n, mint, mint, mint, mint, 1n, 1n, 100n);
+    Buntest.expect(OrderPayload.isOrderExpired(order, 99n)).toBe(false);
+    Buntest.expect(OrderPayload.isOrderExpired(order, 100n)).toBe(true);
+    Buntest.expect(OrderPayload.isOrderExpired({
+      nonce: order.nonce,
+      salt: order.salt,
+      maker: order.maker,
+      market: order.market,
+      baseMint: order.baseMint,
+      quoteMint: order.quoteMint,
+      side: order.side,
+      amountIn: order.amountIn,
+      amountOut: order.amountOut,
+      expiration: 0n
+    }, 100n)).toBe(false);
+    Buntest.expect(OrderPayload.deriveOrderbookId(order)).toBe("So111111_So111111");
+    Buntest.expect(Stdlib_Result.isError(OrderPayload.signatureFromBs58("not-base58!"))).toBe(true);
+  });
+});
+
+Buntest.describe("Instructions (admin + matching ops)", () => {
+  let programId = Kit.address("9cCFQnmWqWmZF3LNdAVWTh7ECGJK4tCVPtgPMcYum81A");
+  let authority = Kit.address("So11111111111111111111111111111111111111112");
+  let market = Kit.address("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
+  let mint = Kit.address("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
+  Buntest.test("createMarket: opcode 1 + 70-byte data (outcomes, oracle, question, fees)", async () => {
+    let questionId = (new Uint8Array(32).fill(2));
+    let ix = await Instructions.createMarket(programId, authority, 1n, 2, mint, questionId, -25, 75);
+    if (ix.TAG === "Ok") {
+      let ix$1 = ix._0;
+      Buntest.expect(byteLength(ix$1.data)).toBe(70);
+      Buntest.expect(byteAt(ix$1.data, 0)).toBe(1);
+      Buntest.expect(byteAt(ix$1.data, 1)).toBe(2);
+      Buntest.expect(byteAt(ix$1.data, 66)).toBe(231);
+      Buntest.expect(byteAt(ix$1.data, 67)).toBe(255);
+      Buntest.expect(byteAt(ix$1.data, 68)).toBe(75);
+      Buntest.expect(ix$1.accounts.length).toBe(5);
+    } else {
+      Buntest.expect("error").toBe("ok");
+    }
+    Buntest.expect(Stdlib_Result.isError(await Instructions.createMarket(programId, authority, 1n, 2, mint, questionId, -100, 50))).toBe(true);
+  });
+  Buntest.test("settleMarket: opcode 7 + u32 numerators; winnerTakesAll helper", async () => {
+    let numerators = Instructions.winnerTakesAllNumerators(1, 3);
+    if (numerators.TAG === "Ok") {
+      let numerators$1 = numerators._0;
+      Buntest.expect(numerators$1).toEqual([
+        0,
+        1,
+        0
+      ]);
+      let ix = await Instructions.settleMarket(programId, authority, 1n, numerators$1);
+      if (ix.TAG === "Ok") {
+        let ix$1 = ix._0;
+        Buntest.expect(byteLength(ix$1.data)).toBe(13);
+        Buntest.expect(byteAt(ix$1.data, 0)).toBe(7);
+        Buntest.expect(byteAt(ix$1.data, 5)).toBe(1);
+        Buntest.expect(ix$1.accounts[0].role).toBe(SolanaKit.Role.readonlySigner);
+      } else {
+        Buntest.expect("error").toBe("ok");
+      }
+    } else {
+      Buntest.expect("error").toBe("ok");
+    }
+    Buntest.expect(Stdlib_Result.isError(await Instructions.settleMarket(programId, authority, 1n, [
+      0,
+      0
+    ]))).toBe(true);
+  });
+  Buntest.test("matchOrdersMulti: data = 1 + 103 + 117/maker; bitmask trims order-status accounts", async () => {
+    let signature = (new Uint8Array(64).fill(3));
+    let payload = OrderPayload.newBid(1n, 1n, authority, market, mint, mint, 10n, 20n, undefined);
+    let taker = {
+      order: payload,
+      signature: signature
+    };
+    let maker_order = {
+      order: {
+        nonce: payload.nonce,
+        salt: payload.salt,
+        maker: payload.maker,
+        market: payload.market,
+        baseMint: payload.baseMint,
+        quoteMint: payload.quoteMint,
+        side: 1,
+        amountIn: payload.amountIn,
+        amountOut: payload.amountOut,
+        expiration: payload.expiration
+      },
+      signature: signature
+    };
+    let maker = {
+      order: maker_order,
+      makerFillAmount: 5n,
+      takerFillAmount: 10n,
+      isFullFill: true
+    };
+    let ix = await Instructions.matchOrdersMulti(programId, authority, market, mint, mint, authority, taker, true, [maker]);
+    if (ix.TAG === "Ok") {
+      let ix$1 = ix._0;
+      Buntest.expect(byteLength(ix$1.data)).toBe(221);
+      Buntest.expect(byteAt(ix$1.data, 0)).toBe(13);
+      Buntest.expect(byteAt(ix$1.data, 102)).toBe(1);
+      Buntest.expect(byteAt(ix$1.data, 103)).toBe(129);
+      Buntest.expect(ix$1.accounts.length).toBe(19);
+    } else {
+      Buntest.expect("error").toBe("ok");
+    }
+    Buntest.expect(Stdlib_Result.isError(await Instructions.matchOrdersMulti(programId, authority, market, mint, mint, authority, taker, false, []))).toBe(true);
+  });
+  Buntest.test("depositToGlobalWithAlt (Create): base accounts + ALT block; slot appended", async () => {
+    let ix = await Instructions.depositToGlobalWithAlt(programId, authority, mint, 1000000n, {
+      TAG: "Create",
+      recentSlot: 5n
+    });
+    Buntest.expect(ix.accounts.length).toBe(11);
+    Buntest.expect(byteLength(ix.data)).toBe(17);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(17);
+    Buntest.expect(byteAt(ix.data, 9)).toBe(5);
+    let extended = await Instructions.depositToGlobalWithAlt(programId, authority, mint, 1000000n, {
+      TAG: "Extend",
+      lookupTable: market
+    });
+    Buntest.expect(byteLength(extended.data)).toBe(9);
+    Buntest.expect(extended.accounts[9].address).toBe(market);
+  });
+  Buntest.test("closeOrderStatus: opcode 24 + 32-byte hash; 3 accounts", async () => {
+    let orderHash = (new Uint8Array(32).fill(9));
+    let ix = await Instructions.closeOrderStatus(programId, authority, orderHash);
+    Buntest.expect(byteLength(ix.data)).toBe(33);
+    Buntest.expect(byteAt(ix.data, 0)).toBe(24);
+    Buntest.expect(ix.accounts.length).toBe(3);
+  });
+  Buntest.test("conditional metadata: validates lengths; update drops system+rent", async () => {
+    let ix = await Instructions.createConditionalMetadata(programId, authority, market, mint, 0, "Yes", "YES", "https://example.com/yes.json");
+    if (ix.TAG === "Ok") {
+      let ix$1 = ix._0;
+      Buntest.expect(byteAt(ix$1.data, 0)).toBe(31);
+      Buntest.expect(ix$1.accounts.length).toBe(10);
+    } else {
+      Buntest.expect("error").toBe("ok");
+    }
+    let ix$2 = await Instructions.updateConditionalMetadata(programId, authority, market, mint, 0, "Yes", "YES", "https://example.com/yes.json");
+    if (ix$2.TAG === "Ok") {
+      let ix$3 = ix$2._0;
+      Buntest.expect(byteAt(ix$3.data, 0)).toBe(32);
+      Buntest.expect(ix$3.accounts.length).toBe(8);
+      Buntest.expect(ix$3.accounts[0].role).toBe(SolanaKit.Role.readonlySigner);
+    } else {
+      Buntest.expect("error").toBe("ok");
+    }
+    Buntest.expect(Stdlib_Result.isError(await Instructions.createConditionalMetadata(programId, authority, market, mint, 0, "Yes", "WAY-TOO-LONG-SYMBOL", "https://example.com/yes.json"))).toBe(true);
   });
 });
 

@@ -32,9 +32,16 @@ type t
 @send external isZero: t => bool = "isZero"
 @send external isNeg: t => bool = "isNeg"
 
-// toDecimalPlaces(dp, roundingMode). `roundDown` truncates toward zero.
+// toDecimalPlaces(dp, roundingMode). `roundDown` truncates toward zero;
+// `roundHalfUp` rounds ties away from zero (rust_decimal's MidpointAwayFromZero);
+// `roundHalfEven` is banker's rounding (rust_decimal's default / Display rounding).
 @send external toDecimalPlaces: (t, int, int) => t = "toDecimalPlaces"
 let roundDown = 1
+let roundHalfUp = 4
+let roundHalfEven = 6
+
+// toFixed(dp, roundingMode) — exponent-free string with explicit rounding.
+@send external toFixedWithRounding: (t, int, int) => string = "toFixed"
 
 @send external toFixed: (t, int) => string = "toFixed"
 @send external toString: t => string = "toString"

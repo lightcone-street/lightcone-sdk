@@ -3,7 +3,13 @@
 
 let roundDown = 1;
 
+let roundHalfUp = 4;
+
+let roundHalfEven = 6;
+
 export {
   roundDown,
+  roundHalfUp,
+  roundHalfEven,
 }
 /* No side effect */

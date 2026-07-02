@@ -215,6 +215,28 @@ function isConnected(connection) {
   }
 }
 
+function readyState(connection) {
+  let socket = connection.socket;
+  if (socket === undefined) {
+    return "Closed";
+  }
+  let match = Primitive_option.valFromOption(socket).readyState;
+  switch (match) {
+    case 0 :
+      return "Connecting";
+    case 1 :
+      return "Open";
+    case 2 :
+      return "Closing";
+    default:
+      return "Closed";
+  }
+}
+
+function clearAuthedSubscriptions(connection) {
+  connection.activeSubscriptions = connection.activeSubscriptions.filter(subscription => subscription.TAG !== "User");
+}
+
 function subscribe(connection, params) {
   let key = Subscriptions.subscriptionKey(params);
   let alreadyTracked = connection.activeSubscriptions.some(existing => Subscriptions.subscriptionKey(existing) === key);
@@ -264,5 +286,7 @@ export {
   unsubscribe,
   ping,
   disconnect,
+  readyState,
+  clearAuthedSubscriptions,
 }
 /* Messages Not a pure module */

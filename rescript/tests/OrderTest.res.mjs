@@ -2,8 +2,12 @@
 
 import * as Order from "../src/domain/Order.res.mjs";
 import * as Envelope from "../src/program/Envelope.res.mjs";
+import * as Messages from "../src/ws/Messages.res.mjs";
+import * as SdkError from "../src/SdkError.res.mjs";
 import * as Buntest from "bun:test";
 import * as Kit from "@solana/kit";
+import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Primitive_object from "@rescript/runtime/lib/es6/Primitive_object.js";
 
 let decimals66 = {
   baseDecimals: 6,
@@ -32,6 +36,26 @@ Buntest.describe("Envelope.buildLimitOrder", () => {
   });
 });
 
+Buntest.describe("Envelope.buildTriggerOrder", () => {
+  Buntest.test("carries the trigger fields on the signed request", async () => {
+    let seed = (new Uint8Array(32).fill(7));
+    let keypair = await Kit.createKeyPairFromPrivateKeyBytes(seed);
+    let maker = await Kit.getAddressFromPublicKey(keypair.publicKey);
+    let mint = Kit.address("So11111111111111111111111111111111111111112");
+    let request = await Envelope.buildTriggerOrder(maker, maker, mint, mint, 1, "0.55", "100", decimals66, "ob_1", keypair, 0.75, "TP", undefined, undefined, undefined, "GTC", undefined);
+    if (request.TAG === "Ok") {
+      let request$1 = request._0;
+      Buntest.expect(request$1.triggerPrice).toBe(0.75);
+      Buntest.expect(Primitive_object.equal(request$1.triggerType, "TP")).toBe(true);
+      Buntest.expect(request$1.side).toBe(1);
+      Buntest.expect(request$1.amountIn.toString()).toBe("100000000");
+      Buntest.expect(request$1.signatureHex.length).toBe(128);
+      return;
+    }
+    Buntest.expect("unexpected scaling error").toBe("ok");
+  });
+});
+
 Buntest.describe("Order cancel signing", () => {
   Buntest.test("cancelBodySigned produces a hex signature over the order hash", async () => {
     let seed = (new Uint8Array(32).fill(9));
@@ -40,9 +64,387 @@ Buntest.describe("Order cancel signing", () => {
     Buntest.expect(body.signatureHex.length).toBe(128);
     Buntest.expect(body.orderHash).toBe("deadbeef");
   });
+  Buntest.test("cancelTriggerBodySigned signs the trigger order id", async () => {
+    let seed = (new Uint8Array(32).fill(9));
+    let keypair = await Kit.createKeyPairFromPrivateKeyBytes(seed);
+    let body = await Order.cancelTriggerBodySigned("trigger-order-uuid-123", "maker1", keypair);
+    Buntest.expect(body.signatureHex.length).toBe(128);
+    Buntest.expect(body.triggerOrderId).toBe("trigger-order-uuid-123");
+    let hexToBytes = ((hex) => Uint8Array.from(hex.match(/.{2}/g).map((b) => parseInt(b, 16))));
+    let message = Kit.getUtf8Encoder().encode("trigger-order-uuid-123");
+    let verified = await Kit.verifySignature(keypair.publicKey, hexToBytes(body.signatureHex), message);
+    Buntest.expect(verified).toBe(true);
+  });
+});
+
+let parseJson = JSON.parse;
+
+Buntest.describe("Order.UserSnapshotOrder decode", () => {
+  Buntest.test("limit order: tx_signature kept, status defaults to Open, decimals default to 0", () => {
+    let json = parseJson(`{
+      "order_type": "limit",
+      "order_hash": "hash1",
+      "market_pubkey": "mkt1",
+      "orderbook_id": "ob1",
+      "side": "bid",
+      "amount_in": "65",
+      "amount_out": "100",
+      "remaining": "10",
+      "filled": "2",
+      "created_at": 1700000000000,
+      "base_mint": "base",
+      "quote_mint": "quote",
+      "outcome_index": 0,
+      "tx_signature": "sig1"
+    }`);
+    let error = Order.UserSnapshotOrder.t_decode(json);
+    if (error.TAG === "Ok") {
+      let order = error._0;
+      if (order.TAG === "Limit") {
+        let order$1 = order._0;
+        Buntest.expect(order$1.common.orderHash).toBe("hash1");
+        Buntest.expect(order$1.common.status === "OPEN").toBe(true);
+        Buntest.expect(order$1.txSignature).toBe("sig1");
+        Buntest.expect(order$1.common.remaining).toBe("10");
+        Buntest.expect(order$1.common.price).toBe("0");
+        Buntest.expect(order$1.common.expiration).toBe(0.0);
+        return;
+      }
+      Buntest.expect("trigger").toBe("limit");
+      return;
+    }
+    Buntest.expect(error._0.message).toBe("decoded");
+  });
+  Buntest.test("trigger order: maker/taker_amount aliases, numeric TIF, explicit status", () => {
+    let json = parseJson(`{
+      "order_type": "trigger",
+      "order_hash": "hash2",
+      "market_pubkey": "mkt1",
+      "orderbook_id": "ob1",
+      "side": "ask",
+      "maker_amount": "1000",
+      "taker_amount": "500",
+      "created_at": 1700000000000,
+      "base_mint": "base",
+      "quote_mint": "quote",
+      "outcome_index": 1,
+      "status": "PENDING",
+      "trigger_order_id": "trig-1",
+      "trigger_price": "0.55",
+      "trigger_type": "TP",
+      "time_in_force": 3
+    }`);
+    let error = Order.UserSnapshotOrder.t_decode(json);
+    if (error.TAG === "Ok") {
+      let order = error._0;
+      if (order.TAG === "Limit") {
+        Buntest.expect("limit").toBe("trigger");
+        return;
+      }
+      let order$1 = order._0;
+      Buntest.expect(order$1.common.amountIn).toBe("1000");
+      Buntest.expect(order$1.common.amountOut).toBe("500");
+      Buntest.expect(order$1.triggerOrderId).toBe("trig-1");
+      Buntest.expect(order$1.triggerType === "TP").toBe(true);
+      Buntest.expect(Primitive_object.equal(order$1.timeInForce, "ALO")).toBe(true);
+      Buntest.expect(order$1.common.status === "PENDING").toBe(true);
+      return;
+    }
+    Buntest.expect(error._0.message).toBe("decoded");
+  });
+  Buntest.test("encode → decode roundtrip preserves both variants", () => {
+    let common = {
+      orderHash: "h",
+      marketPubkey: "mkt",
+      orderbookId: "ob",
+      side: "ask",
+      amountIn: "3",
+      amountOut: "4",
+      remaining: "1",
+      filled: "2",
+      price: "0.75",
+      createdAt: 1700000000000.0,
+      expiration: 12.0,
+      baseMint: "b",
+      quoteMint: "q",
+      outcomeIndex: 1.0,
+      status: "MATCHING"
+    };
+    let limit = {
+      TAG: "Limit",
+      _0: {
+        common: common,
+        txSignature: "sig"
+      }
+    };
+    let trigger = {
+      TAG: "Trigger",
+      _0: {
+        common: common,
+        triggerOrderId: "t1",
+        triggerPrice: "0.5",
+        triggerType: "SL",
+        timeInForce: "IOC"
+      }
+    };
+    Buntest.expect(Order.UserSnapshotOrder.t_decode(Order.UserSnapshotOrder.t_encode(limit))).toEqual({
+      TAG: "Ok",
+      _0: limit
+    });
+    Buntest.expect(Order.UserSnapshotOrder.t_decode(Order.UserSnapshotOrder.t_encode(trigger))).toEqual({
+      TAG: "Ok",
+      _0: trigger
+    });
+  });
+  Buntest.test("unknown order_type is a decode error", () => {
+    Buntest.expect(Stdlib_Result.isError(Order.UserSnapshotOrder.t_decode(parseJson(`{"order_type": "mystery"}`)))).toBe(true);
+  });
+});
+
+Buntest.describe("Order.OrderEvent decode", () => {
+  Buntest.test("limit update: internally tagged, balance tree, status defaults to Open", () => {
+    let json = parseJson(`{
+      "order_type": "limit",
+      "market_pubkey": "mkt1",
+      "orderbook_id": "ob1",
+      "timestamp": "2024-01-01T00:00:00Z",
+      "tx_signature": "sig",
+      "type": "PLACEMENT",
+      "order": {
+        "order_hash": "h1",
+        "price": "0.5",
+        "is_maker": true,
+        "remaining": "8",
+        "filled": "2",
+        "fill_amount": "2",
+        "side": "bid",
+        "created_at": 1700000000000,
+        "base_mint": "b",
+        "quote_mint": "q",
+        "outcome_index": 0,
+        "balance": {
+          "outcomes": [
+            {"outcome_index": 0, "conditional_token": "ct", "idle": "1", "on_book": "2"}
+          ]
+        }
+      }
+    }`);
+    let error = Order.OrderEvent.decode(json);
+    if (error.TAG === "Ok") {
+      let update = error._0;
+      if (update.TAG === "Limit") {
+        let update$1 = update._0;
+        Buntest.expect(update$1.updateType === "PLACEMENT").toBe(true);
+        Buntest.expect(update$1.txSignature).toBe("sig");
+        Buntest.expect(update$1.order.orderHash).toBe("h1");
+        Buntest.expect(update$1.order.status === "OPEN").toBe(true);
+        let balance = update$1.order.balance;
+        if (balance !== undefined) {
+          Buntest.expect(balance.outcomes.length).toBe(1);
+          let outcome = balance.outcomes[0];
+          Buntest.expect(outcome.onBook).toBe("2");
+          return;
+        }
+        Buntest.expect("balance").toBe("present");
+        return;
+      }
+      Buntest.expect("trigger").toBe("limit");
+      return;
+    }
+    Buntest.expect(error._0.message).toBe("decoded");
+  });
+  Buntest.test("trigger update: defaults (type/tif/amounts) + empty result_status → None", () => {
+    let json = parseJson(`{
+      "order_type": "trigger",
+      "trigger_order_id": "t1",
+      "market_pubkey": "mkt1",
+      "orderbook_id": "ob1",
+      "trigger_price": "0.55",
+      "trigger_above": true,
+      "status": "created",
+      "order_hash": "h2",
+      "side": "bid",
+      "result_status": "",
+      "timestamp": "2024-01-01T00:00:00Z"
+    }`);
+    let error = Order.OrderEvent.decode(json);
+    if (error.TAG === "Ok") {
+      let update = error._0;
+      if (update.TAG === "Limit") {
+        Buntest.expect("limit").toBe("trigger");
+        return;
+      }
+      let update$1 = update._0;
+      Buntest.expect(update$1.resultStatus).toBe(undefined);
+      Buntest.expect(update$1.tif === "GTC").toBe(true);
+      Buntest.expect(update$1.updateType === "TRIGGERED").toBe(true);
+      Buntest.expect(update$1.resultFilled).toBe("0");
+      Buntest.expect(update$1.makerAmount).toBe("0");
+      Buntest.expect(update$1.userPubkey).toBe("");
+      Buntest.expect(update$1.status === "created").toBe(true);
+      return;
+    }
+    Buntest.expect(error._0.message).toBe("decoded");
+  });
+});
+
+Buntest.describe("Messages user snapshot/order frames", () => {
+  Buntest.test("a full WS user snapshot frame decodes end-to-end (defaults applied)", () => {
+    let json = parseJson(`{
+      "type": "user",
+      "version": 0.1,
+      "data": {
+        "event_type": "snapshot",
+        "orders": [
+          {
+            "order_type": "limit",
+            "order_hash": "h1",
+            "market_pubkey": "mkt1",
+            "orderbook_id": "ob1",
+            "side": "bid",
+            "amount_in": "65",
+            "amount_out": "100",
+            "remaining": "10",
+            "created_at": 1700000000000,
+            "base_mint": "b",
+            "quote_mint": "q",
+            "outcome_index": 0,
+            "tx_signature": null
+          }
+        ],
+        "market_balances": [
+          {
+            "market_pubkey": "mkt1",
+            "deposit_assets": [
+              {
+                "deposit_asset": "usdc",
+                "outcomes": [
+                  {
+                    "outcome_index": 0,
+                    "conditional_token": "ct1",
+                    "balance": "3",
+                    "balance_idle": "1",
+                    "balance_on_book": "2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "nonce": 7
+      }
+    }`);
+    let error = Messages.decodeMessage(json);
+    if (error.TAG === "Ok") {
+      let match = error._0.kind;
+      if (typeof match === "object" && match.TAG === "User") {
+        let snapshot = match._0;
+        if (snapshot.TAG === "Snapshot") {
+          let snapshot$1 = snapshot._0;
+          Buntest.expect(snapshot$1.orders.length).toBe(1);
+          Buntest.expect(snapshot$1.nonce).toBe(7.0);
+          Buntest.expect(snapshot$1.globalDeposits.length).toBe(0);
+          Buntest.expect(snapshot$1.notifications.length).toBe(0);
+          let balance = snapshot$1.marketBalances[0];
+          Buntest.expect(balance.marketPubkey).toBe("mkt1");
+          return;
+        }
+      }
+      Buntest.expect("other kind").toBe("user snapshot");
+      return;
+    }
+    Buntest.expect(SdkError.toMessage(error._0)).toBe("decoded");
+  });
+  Buntest.test("a WS user order frame dispatches into OrderEvent", () => {
+    let json = parseJson(`{
+      "type": "user",
+      "version": 0.1,
+      "data": {
+        "event_type": "order",
+        "order_type": "limit",
+        "market_pubkey": "mkt1",
+        "orderbook_id": "ob1",
+        "timestamp": "2024-01-01T00:00:00Z",
+        "order": {
+          "order_hash": "h1",
+          "price": "0.5",
+          "is_maker": false,
+          "remaining": "8",
+          "filled": "2",
+          "fill_amount": "2",
+          "side": "ask",
+          "created_at": 1700000000000,
+          "base_mint": "b",
+          "quote_mint": "q",
+          "outcome_index": 0
+        }
+      }
+    }`);
+    let error = Messages.decodeMessage(json);
+    if (error.TAG === "Ok") {
+      let match = error._0.kind;
+      if (typeof match === "object" && match.TAG === "User") {
+        let match$1 = match._0;
+        if (match$1.TAG === "Order") {
+          let update = match$1._0;
+          if (update.TAG === "Limit") {
+            let update$1 = update._0;
+            Buntest.expect(update$1.order.orderHash).toBe("h1");
+            Buntest.expect(update$1.updateType === "UPDATE").toBe(true);
+            return;
+          }
+        }
+      }
+      Buntest.expect("other kind").toBe("user order");
+      return;
+    }
+    Buntest.expect(SdkError.toMessage(error._0)).toBe("decoded");
+  });
+});
+
+Buntest.describe("Order fills response decode", () => {
+  Buntest.test("userOrderFillsResponse decodes orders with nested fill events", () => {
+    let json = parseJson(`{
+      "orders": [
+        {
+          "order_hash": "h1",
+          "market_pubkey": "mkt1",
+          "orderbook_id": "ob1",
+          "side": "bid",
+          "role": "maker",
+          "price": "0.5",
+          "size": "10",
+          "filled_size": "4",
+          "remaining_size": "6",
+          "base_mint": "b",
+          "quote_mint": "q",
+          "outcome_index": 0,
+          "status": "partially_filled",
+          "created_at": 1700000000000,
+          "fills": [
+            {"fill_amount": "4", "tx_signature": "sig", "filled_at": 1700000001000}
+          ]
+        }
+      ],
+      "has_more": false
+    }`);
+    let response = Order.userOrderFillsResponse_decode(json);
+    if (response.TAG === "Ok") {
+      let response$1 = response._0;
+      Buntest.expect(response$1.orders.length).toBe(1);
+      let order = response$1.orders[0];
+      Buntest.expect(order.role === "maker").toBe(true);
+      Buntest.expect(order.status === "partially_filled").toBe(true);
+      Buntest.expect(order.fills[0].fillAmount).toBe("4");
+      Buntest.expect(response$1.nextCursor).toBe(undefined);
+      return;
+    }
+    Buntest.expect(response._0.message).toBe("decoded");
+  });
 });
 
 export {
   decimals66,
+  parseJson,
 }
 /*  Not a pure module */

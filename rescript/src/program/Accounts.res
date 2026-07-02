@@ -15,6 +15,8 @@ module Size = {
   let position = 80
   let userNonce = 16
   let orderbook = 144
+  let orderStatus = 32
+  let globalDepositToken = 47
 }
 
 // ── Low-level field readers (SolanaKitCodec decoders over byte slices) ─────────
@@ -286,5 +288,52 @@ let decodeUserNonce = (bytes: Uint8Array.t): result<userNonce, SdkError.t> =>
     switch checkHeader(bytes, Size.userNonce, Constants.Discriminator.userNonce, "UserNonce") {
     | Error(error) => Error(error)
     | Ok() => Ok({nonce: u64At(bytes, 8)})
+    }
+  )
+
+// On-chain order status (remaining fill amounts + cancellation flag).
+type orderStatus = {
+  remaining: bigint,
+  baseRemaining: bigint,
+  isCancelled: bool,
+}
+
+let decodeOrderStatus = (bytes: Uint8Array.t): result<orderStatus, SdkError.t> =>
+  guard("OrderStatus", () =>
+    switch checkHeader(bytes, Size.orderStatus, Constants.Discriminator.orderStatus, "OrderStatus") {
+    | Error(error) => Error(error)
+    | Ok() =>
+      Ok({
+        remaining: u64At(bytes, 8),
+        baseRemaining: u64At(bytes, 16),
+        isCancelled: boolAt(bytes, 24),
+      })
+    }
+  )
+
+// A whitelisted global-deposit token (mint + whitelist index + active flag).
+type globalDepositToken = {
+  mint: Shared.pubkeyStr,
+  bump: float,
+  index: float,
+  active: bool,
+}
+
+let decodeGlobalDepositToken = (bytes: Uint8Array.t): result<globalDepositToken, SdkError.t> =>
+  guard("GlobalDepositToken", () =>
+    switch checkHeader(
+      bytes,
+      Size.globalDepositToken,
+      Constants.Discriminator.globalDepositToken,
+      "GlobalDepositToken",
+    ) {
+    | Error(error) => Error(error)
+    | Ok() =>
+      Ok({
+        mint: addressAt(bytes, 8),
+        bump: Int.toFloat(u8At(bytes, 40)),
+        index: Int.toFloat(u16At(bytes, 41)),
+        active: boolAt(bytes, 43),
+      })
     }
   )

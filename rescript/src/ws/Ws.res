@@ -226,6 +226,33 @@ let isConnected = (connection: connection): bool =>
   | None => false
   }
 
+// The socket lifecycle state (Rust `ReadyState`); `Closed` when no socket exists.
+type readyState = Connecting | Open | Closing | Closed
+
+let readyState = (connection: connection): readyState =>
+  switch connection.socket {
+  | None => Closed
+  | Some(socket) =>
+    switch WebSocketClient.readyState(socket) {
+    | 0 => Connecting
+    | 1 => Open
+    | 2 => Closing
+    | _ => Closed
+    }
+  }
+
+// Drop tracked authenticated-channel subscriptions (the `User` channel) so they
+// are not re-sent on the next reconnect — call after logout (the Rust
+// `clear_authed_subscriptions`).
+let clearAuthedSubscriptions = (connection: connection): unit =>
+  connection.activeSubscriptions =
+    connection.activeSubscriptions->Array.filter(subscription =>
+      switch subscription {
+      | Subscriptions.SubscribeParams.User(_) => false
+      | _ => true
+      }
+    )
+
 // Track the subscription (deduped by key, so it survives reconnects) and send it.
 // While disconnected the send is a no-op — tracking re-sends it on the next open,
 // so this always reports `Ok`.

@@ -86,7 +86,8 @@ let loginWithMessage: (
   ~useEmbeddedWallet: bool=?,
 ) => promise<result<sessionResponse, SdkError.t>>
 
-// Convenience: nonce → sign → login, using the client's configured native signer.
+// Convenience: nonce → sign → login, using the client's configured signing
+// strategy (native keypair or external wallet adapter).
 let login: (Client.t, ~useEmbeddedWallet: bool=?) => promise<result<sessionResponse, SdkError.t>>
 
 let checkSession: (
@@ -97,3 +98,13 @@ let checkSession: (
 let isAuthenticated: Client.t => bool
 
 let logout: Client.t => promise<result<unit, SdkError.t>>
+
+// Register a Privy-authenticated user in the backend DB (idempotent; called
+// after Privy login when `is_new_user: true`).
+let registerPrivy: Client.t => promise<result<unit, SdkError.t>>
+
+// Disconnect the user's linked X (Twitter) account.
+let disconnectX: Client.t => promise<result<unit, SdkError.t>>
+
+// The URL for linking an X (Twitter) account via OAuth.
+let connectXUrl: Client.t => string

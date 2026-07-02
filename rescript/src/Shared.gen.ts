@@ -15,6 +15,13 @@ export type TimeInForce_t = "GTC" | "IOC" | "FOK" | "ALO";
 
 export type TriggerType_t = "TP" | "SL";
 
+export type OrderStatus_t = 
+    "OPEN"
+  | "MATCHING"
+  | "CANCELLED"
+  | "FILLED"
+  | "PENDING";
+
 export type TriggerStatus_t = 
     "created"
   | "triggered"

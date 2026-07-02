@@ -29,17 +29,27 @@ It is consumable from three surfaces, all generated from one ReScript codebase:
 bindings/   per-library dirs (solana-kit, noble-hashes, solana-program-token, decimal,
             sorted-btree, fetch, websocket) — each with its own README + runtime tests
 src/
-  Shared      enums/newtypes (Side, TimeInForce, Resolution, DepositSource, …)
+  Shared      enums/newtypes (Side, TimeInForce, OrderStatus, Resolution, DepositSource, …)
   SdkError    error tree + ApiResponse decoding + the result→throwing facade helper
   Env, Http   environment config + Fetch transport (retry, cookies, x-request-id)
-  Client      the client handle (HTTP, env, program id, RPC, signer, deposit source, nonce)
-  Auth        nonce + ed25519 signed-message login, session, logout
+  Fmt         display formatting namespace (Fmt.Decimal / Fmt.Num / Fmt.Str over the Fmt__* files:
+              magnitude-tiered decimals, k/m/b/t abbreviation, percentages, base-unit conversions)
+  Price       decimal-string ↔ float helpers (lossy; use Decimal for precision-safe math)
+  Client      the client handle (HTTP, env, program id, RPC, signing strategy — native keypair or
+              external wallet adapter — deposit source, nonce)
+  Auth        nonce + ed25519 signed-message login (native or external signer), session, logout, Privy/X
   domain/     Market, Orderbook, Trade, Position, PriceHistory, Metrics, Notification, Referral, Faucet, Order
-  domain/     OrderbookState, PriceHistoryState, DepositPriceState — WS "apply events → live view" reducers
-              (live sorted book via sorted-btree; rolling candle series); consumed from a Ws onMessage closure
-  program/    Constants, Pda, OrderPayload (keccak256 + ed25519 order hashing), Scaling, Instructions,
-              Envelope (limit-order build/sign/submit), PositionBuilders (deposit/withdraw/merge/redeem), Accounts
-  Rpc         on-chain reads over @solana/kit (latest blockhash, account data, user nonce)
+  domain/     OrderbookState, PriceHistoryState, DepositPriceState, OrderState, TradeState — WS "apply
+              events → live view" reducers (live sorted book via sorted-btree; rolling candle series; the
+              user's open limit + trigger orders; capped trade history); consumed from a Ws onMessage
+              closure. Position also hosts the UserMarketBalanceIndex balance reducer.
+  program/    Constants, Pda, OrderPayload (keccak256 + ed25519 order hashing, 233/37-byte codecs, order
+              math), Scaling, Instructions (every program instruction incl. operator/admin + matching),
+              Envelope (limit + trigger build/sign/submit, native or client-strategy signed),
+              PositionBuilders (deposit/withdraw/merge/redeem/init/extend/close + unsignedTx),
+              Transactions (strategy-aware sign + broadcast), Accounts
+  Rpc         on-chain reads over @solana/kit (blockhash, exchange/market/orderbook/position/order-status/
+              global-deposit-token accounts, user nonce)
   ws/         Ws (connect/reconnect/heartbeat), Subscriptions, Messages
   TypeScriptApi  the gentype-exported, namespaced TypeScript API (package entry; `@genType module`s)
 examples/     ReScript (.res) + TypeScript (.ts) examples, co-located; the compiled .res.mjs is the JS

@@ -47,3 +47,15 @@ let ping: connection => result<unit, SdkError.t>
 
 // Close the connection and suppress reconnection. Idempotent.
 let disconnect: connection => unit
+
+// The socket lifecycle state; `Closed` when no socket exists.
+@genType
+type readyState = Connecting | Open | Closing | Closed
+
+@genType
+let readyState: connection => readyState
+
+// Drop tracked authenticated-channel subscriptions (the `User` channel) so they
+// are not re-sent on the next reconnect — call after logout.
+@genType
+let clearAuthedSubscriptions: connection => unit

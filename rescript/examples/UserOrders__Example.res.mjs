@@ -6,7 +6,6 @@ import * as Client from "../src/Client.res.mjs";
 import * as Shared from "../src/Shared.res.mjs";
 import * as SdkError from "../src/SdkError.res.mjs";
 import * as Stdlib_Array from "@rescript/runtime/lib/es6/Stdlib_Array.js";
-import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Common__Example from "./Common__Example.res.mjs";
 
 async function main() {
@@ -23,16 +22,15 @@ async function main() {
       ], (param, order) => {
         let triggers = param[1];
         let limits = param[0];
-        let match = order.orderType;
-        if (match === "trigger") {
-          return [
-            limits,
-            triggers + 1 | 0
-          ];
-        } else {
+        if (order.TAG === "Limit") {
           return [
             limits + 1 | 0,
             triggers
+          ];
+        } else {
+          return [
+            limits,
+            triggers + 1 | 0
           ];
         }
       });
@@ -41,13 +39,14 @@ async function main() {
       console.log(`has more: ` + (
         snapshot$1.hasMore ? "yes" : "no"
       ));
-      let order = snapshot$1.orders[0];
-      if (order !== undefined) {
-        let triggerId = order.triggerOrderId;
-        if (triggerId !== undefined) {
-          console.log(`first trigger: ` + triggerId + ` ` + Shared.Side.toString(order.side) + ` @ ` + order.price + ` ` + (`(trigger ` + Stdlib_Option.getOr(order.triggerPrice, "?") + `)`));
+      let match$1 = snapshot$1.orders[0];
+      if (match$1 !== undefined) {
+        if (match$1.TAG === "Limit") {
+          let order = match$1._0;
+          console.log(`first limit: ` + order.common.orderHash + ` ` + Shared.Side.toString(order.common.side) + ` @ ` + order.common.price);
         } else {
-          console.log(`first limit: ` + order.orderHash + ` ` + Shared.Side.toString(order.side) + ` @ ` + order.price);
+          let order$1 = match$1._0;
+          console.log(`first trigger: ` + order$1.triggerOrderId + ` ` + Shared.Side.toString(order$1.common.side) + ` ` + (`@ ` + order$1.common.price + ` (trigger ` + order$1.triggerPrice + `)`));
         }
       }
       let cursor = snapshot$1.nextCursor;

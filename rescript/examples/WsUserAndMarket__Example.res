@@ -1,9 +1,9 @@
-// WebSocket (authenticated): a user's private stream (auth handshake, balance,
-// order, deposit, and nonce events) alongside a market's lifecycle stream. The
-// user channel requires login first — the cookie set by `Auth.login` authenticates
-// the socket. WS is ReScript-first — the inbound message types carry JSON.t TODO
-// arms and are not gentype-exported, so there is no TypeScript twin (only
-// WsUserAndMarket.res.mjs).
+// WebSocket (authenticated): a user's private stream (auth handshake, snapshot,
+// balance, order, deposit, and nonce events) alongside a market's lifecycle
+// stream. The user channel requires login first — the cookie set by `Auth.login`
+// authenticates the socket. The typed `snapshot` payload seeds the `OrderState`
+// containers (open limit orders + resting triggers); `order` events arrive as
+// `Order.OrderEvent` (limit or trigger).
 
 // Push messages arrive via callbacks; keep the event loop alive for a window, then
 // disconnect. (A setTimeout-backed promise — the only bit of glue an example needs.)
@@ -47,8 +47,16 @@ let main = async () => {
               | User(update) =>
                 sawUser := true
                 let label = switch update {
-                | Snapshot(_) => "snapshot"
-                | Order(_) => "order"
+                | Snapshot(snapshot) =>
+                  let (_openOrders, triggerOrders) = OrderState.ofSnapshotOrders(snapshot.orders)
+                  let orders = Int.toString(Array.length(snapshot.orders))
+                  let triggers = Int.toString(OrderState.UserTriggerOrders.size(triggerOrders))
+                  let balances = Int.toString(Array.length(snapshot.marketBalances))
+                  `snapshot: ${orders} orders (${triggers} trigger), ${balances} market balances`
+                | Order(Limit(update)) =>
+                  `limit order ${update.order.orderHash} remaining=${update.order.remaining}`
+                | Order(Trigger(update)) =>
+                  `trigger order ${update.triggerOrderId} @ ${update.triggerPrice}`
                 | BalanceUpdate(balance) => `balance update for ${balance.marketPubkey}`
                 | GlobalDepositUpdate(deposit) => `global deposit ${deposit.balance} (${deposit.mint})`
                 | NonceUpdate(nonce) => `nonce → ${Float.toString(nonce.newNonce)}`

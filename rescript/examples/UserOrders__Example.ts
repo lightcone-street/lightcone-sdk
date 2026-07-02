@@ -1,6 +1,7 @@
 // TypeScript example — the signed-in user's open orders snapshot via the gentype
-// facade. Authenticate with a wallet keypair first; orders carry an `orderType`
-// discriminator ("limit" | "trigger"). Run with: npx tsx examples/UserOrders.ts
+// facade. Authenticate with a wallet keypair first; orders arrive as a tagged
+// union ({ TAG: "Limit" | "Trigger", _0: payload }) with the shared fields under
+// `.common`. Run with: npx tsx examples/UserOrders.ts
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { makeForEnv, useNativeSigner, AuthClient, OrderClient } from "../src/TypeScriptApi.gen.ts";
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
   let limitOrders = 0;
   let triggerOrders = 0;
   for (const order of snapshot.orders) {
-    if (order.orderType === "trigger") {
+    if (order.TAG === "Trigger") {
       triggerOrders += 1;
     } else {
       limitOrders += 1;
@@ -36,13 +37,15 @@ async function main(): Promise<void> {
 
   const first = snapshot.orders[0];
   if (first) {
-    if (first.triggerOrderId !== undefined) {
+    if (first.TAG === "Trigger") {
+      const trigger = first._0;
       console.log(
-        `first trigger: ${first.triggerOrderId} ${first.side} @ ${first.price} ` +
-          `(trigger ${first.triggerPrice ?? "?"})`,
+        `first trigger: ${trigger.triggerOrderId} ${trigger.common.side} @ ${trigger.common.price} ` +
+          `(trigger ${trigger.triggerPrice})`,
       );
     } else {
-      console.log(`first limit: ${first.orderHash} ${first.side} @ ${first.price}`);
+      const limit = first._0;
+      console.log(`first limit: ${limit.common.orderHash} ${limit.common.side} @ ${limit.common.price}`);
     }
   }
 

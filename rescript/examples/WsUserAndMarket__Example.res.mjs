@@ -5,6 +5,7 @@ import * as Auth from "../src/Auth.res.mjs";
 import * as Client from "../src/Client.res.mjs";
 import * as Market from "../src/domain/Market.res.mjs";
 import * as SdkError from "../src/SdkError.res.mjs";
+import * as OrderState from "../src/domain/OrderState.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Common__Example from "./Common__Example.res.mjs";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
@@ -44,10 +45,22 @@ async function main() {
                 let label;
                 switch (update$1.TAG) {
                   case "Snapshot" :
-                    label = "snapshot";
+                    let snapshot = update$1._0;
+                    let match = OrderState.ofSnapshotOrders(snapshot.orders);
+                    let orders = snapshot.orders.length.toString();
+                    let triggers = OrderState.UserTriggerOrders.size(match[1]).toString();
+                    let balances = snapshot.marketBalances.length.toString();
+                    label = `snapshot: ` + orders + ` orders (` + triggers + ` trigger), ` + balances + ` market balances`;
                     break;
                   case "Order" :
-                    label = "order";
+                    let update$2 = update$1._0;
+                    if (update$2.TAG === "Limit") {
+                      let update$3 = update$2._0;
+                      label = `limit order ` + update$3.order.orderHash + ` remaining=` + update$3.order.remaining;
+                    } else {
+                      let update$4 = update$2._0;
+                      label = `trigger order ` + update$4.triggerOrderId + ` @ ` + update$4.triggerPrice;
+                    }
                     break;
                   case "BalanceUpdate" :
                     label = `balance update for ` + update$1._0.marketPubkey;
@@ -89,10 +102,10 @@ async function main() {
                 console.log(`market: ` + label$1);
                 return;
               case "Auth" :
-                let update$2 = update._0;
+                let update$5 = update._0;
                 sawAuth.contents = true;
                 let label$2;
-                label$2 = update$2.TAG === "Authenticated" ? `authenticated as ` + update$2._0 : `anonymous (` + Stdlib_Option.getOr(update$2._0, "no reason") + `)`;
+                label$2 = update$5.TAG === "Authenticated" ? `authenticated as ` + update$5._0 : `anonymous (` + Stdlib_Option.getOr(update$5._0, "no reason") + `)`;
                 console.log(`auth: ` + label$2);
                 return;
               default:

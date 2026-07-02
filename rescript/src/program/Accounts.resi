@@ -90,3 +90,24 @@ let decodeMarket: Uint8Array.t => result<market, SdkError.t>
 let decodeOrderbook: Uint8Array.t => result<orderbook, SdkError.t>
 let decodePosition: Uint8Array.t => result<position, SdkError.t>
 let decodeUserNonce: Uint8Array.t => result<userNonce, SdkError.t>
+
+// On-chain order status (remaining fill amounts + cancellation flag).
+@genType
+type orderStatus = {
+  remaining: bigint,
+  baseRemaining: bigint,
+  isCancelled: bool,
+}
+
+let decodeOrderStatus: Uint8Array.t => result<orderStatus, SdkError.t>
+
+// A whitelisted global-deposit token (mint + whitelist index + active flag).
+@genType
+type globalDepositToken = {
+  mint: Shared.pubkeyStr,
+  bump: float,
+  index: float,
+  active: bool,
+}
+
+let decodeGlobalDepositToken: Uint8Array.t => result<globalDepositToken, SdkError.t>

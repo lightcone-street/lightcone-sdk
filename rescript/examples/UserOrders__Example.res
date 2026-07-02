@@ -14,9 +14,9 @@ let main = async () => {
     | Ok(snapshot) =>
       let (limitOrders, triggerOrders) =
         snapshot.orders->Array.reduce((0, 0), ((limits, triggers), order) =>
-          switch order.orderType {
-          | "trigger" => (limits, triggers + 1)
-          | _ => (limits + 1, triggers)
+          switch order {
+          | Order.UserSnapshotOrder.Trigger(_) => (limits, triggers + 1)
+          | Limit(_) => (limits + 1, triggers)
           }
         )
       Console.log(`orders: ${Int.toString(limitOrders)} limit / ${Int.toString(triggerOrders)} trigger`)
@@ -24,16 +24,15 @@ let main = async () => {
       Console.log(`has more: ${snapshot.hasMore ? "yes" : "no"}`)
 
       switch snapshot.orders[0] {
-      | Some(order) =>
-        switch order.triggerOrderId {
-        | Some(triggerId) =>
-          Console.log(
-            `first trigger: ${triggerId} ${Shared.Side.toString(order.side)} @ ${order.price} ` ++
-            `(trigger ${order.triggerPrice->Option.getOr("?")})`,
-          )
-        | None =>
-          Console.log(`first limit: ${order.orderHash} ${Shared.Side.toString(order.side)} @ ${order.price}`)
-        }
+      | Some(Order.UserSnapshotOrder.Trigger(order)) =>
+        Console.log(
+          `first trigger: ${order.triggerOrderId} ${Shared.Side.toString(order.common.side)} ` ++
+          `@ ${order.common.price} (trigger ${order.triggerPrice})`,
+        )
+      | Some(Limit(order)) =>
+        Console.log(
+          `first limit: ${order.common.orderHash} ${Shared.Side.toString(order.common.side)} @ ${order.common.price}`,
+        )
       | None => ()
       }
 

@@ -4,8 +4,10 @@ import * as Env from "./Env.res.mjs";
 import * as Http from "./Http.res.mjs";
 import * as Kit from "@solana/kit";
 import * as RpcFailover from "./RpcFailover.res.mjs";
+import * as Stdlib_JsExn from "@rescript/runtime/lib/es6/Stdlib_JsExn.js";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
+import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
 
 function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSourceOpt, param) {
   let env = envOpt !== undefined ? envOpt : "prod";
@@ -48,10 +50,18 @@ function setOrderNonce(client, nonce) {
   client.orderNonce = nonce;
 }
 
+function clearOrderNonce(client) {
+  client.orderNonce = undefined;
+}
+
 function signerAddress(client) {
   let match = client.signingStrategy;
   if (match !== undefined) {
-    return Primitive_option.some(match.address);
+    if (match.TAG === "NativeSigner") {
+      return Primitive_option.some(match.address);
+    } else {
+      return Primitive_option.some(match._0.address);
+    }
   }
 }
 
@@ -63,6 +73,60 @@ async function useNativeSigner(client, secretKey) {
     keypair: keypair,
     signer: signer,
     address: signer.address
+  };
+}
+
+function useExternalSigner(client, address, signMessage, signTransaction) {
+  client.signingStrategy = {
+    TAG: "ExternalSigner",
+    _0: {
+      address: address,
+      signMessage: signMessage,
+      signTransaction: signTransaction
+    }
+  };
+}
+
+function clearSigningStrategy(client) {
+  client.signingStrategy = undefined;
+}
+
+async function signMessageBytes(client, message) {
+  let match = client.signingStrategy;
+  if (match === undefined) {
+    return {
+      TAG: "Error",
+      _0: {
+        TAG: "Signing",
+        _0: "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first"
+      }
+    };
+  }
+  if (match.TAG === "NativeSigner") {
+    return {
+      TAG: "Ok",
+      _0: await Kit.signBytes(match.keypair.privateKey, message)
+    };
+  }
+  let signature;
+  try {
+    signature = await match._0.signMessage(message);
+  } catch (raw_error) {
+    let error = Primitive_exceptions.internalToException(raw_error);
+    if (error.RE_EXN_ID === "JsExn") {
+      return {
+        TAG: "Error",
+        _0: {
+          TAG: "Signing",
+          _0: Stdlib_Option.getOr(Stdlib_JsExn.message(error._1), "external signer failed to sign message")
+        }
+      };
+    }
+    throw error;
+  }
+  return {
+    TAG: "Ok",
+    _0: signature
   };
 }
 
@@ -81,8 +145,12 @@ export {
   setDepositSource,
   orderNonce,
   setOrderNonce,
+  clearOrderNonce,
   signerAddress,
   useNativeSigner,
+  useExternalSigner,
+  clearSigningStrategy,
+  signMessageBytes,
   clearAuth,
   authToken,
 }

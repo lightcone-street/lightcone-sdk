@@ -3,6 +3,17 @@
 // handles it holds are individually opaque (the HTTP transport, the kit RPC clients, and the
 // signer's WebCrypto keys / kit signer). Construct with `make`; ergonomics live in the facade.
 
+// An external wallet signer (browser wallet adapter): the wallet's address plus
+// its message- and transaction-signing callbacks. `signMessage` returns the raw
+// 64-byte ed25519 signature; `signTransaction` takes the serialized unsigned
+// wire transaction and returns the fully signed wire bytes.
+@genType
+type externalSigner = {
+  address: SolanaKit.address,
+  signMessage: Uint8Array.t => promise<Uint8Array.t>,
+  signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+}
+
 // How orders / cancels / transactions get signed. `None` ⇒ manual signing.
 @genType
 type signingStrategy =
@@ -11,6 +22,7 @@ type signingStrategy =
       signer: SolanaKit.keyPairSigner,
       address: SolanaKit.address,
     })
+  | ExternalSigner(externalSigner)
 
 @genType
 type t = {
@@ -46,10 +58,25 @@ let depositSource: t => Shared.DepositSource.t
 let setDepositSource: (t, Shared.DepositSource.t) => unit
 let orderNonce: t => option<bigint>
 let setOrderNonce: (t, bigint) => unit
+let clearOrderNonce: t => unit
 let signerAddress: t => option<SolanaKit.address>
 
 // Attach a native ed25519 signer from a 64-byte wallet secret (Solana id.json format).
 let useNativeSigner: (t, Uint8Array.t) => promise<unit>
+
+// Attach an external wallet signer (browser wallet adapter).
+let useExternalSigner: (
+  t,
+  ~address: SolanaKit.address,
+  ~signMessage: Uint8Array.t => promise<Uint8Array.t>,
+  ~signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+) => unit
+
+let clearSigningStrategy: t => unit
+
+// Sign raw message bytes with the configured strategy (orders, cancels, and the
+// login message all sign this way).
+let signMessageBytes: (t, Uint8Array.t) => promise<result<Uint8Array.t, SdkError.t>>
 
 let clearAuth: t => unit
 let authToken: t => option<string>

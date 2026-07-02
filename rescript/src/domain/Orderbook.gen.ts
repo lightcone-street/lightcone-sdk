@@ -45,3 +45,10 @@ export type orderBook = {
   readonly nSigFigs?: number; 
   readonly mantissa?: number
 };
+
+export type tickerData = {
+  readonly orderbookId: Shared_orderBookId; 
+  readonly bestBid?: string; 
+  readonly bestAsk?: string; 
+  readonly midPrice?: string
+};

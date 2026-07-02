@@ -4,8 +4,8 @@
 // signer internally, so no @solana/kit keypair/address helpers are needed —
 // `cancelOrder` takes just the order hash.
 //
-// Orders carry an `orderType` discriminator ("limit" | "trigger"); we cancel the
-// first "limit" one. Run with: npx tsx examples/CancelOrder.example.ts
+// Orders arrive as a tagged union ({ TAG: "Limit" | "Trigger", _0: payload });
+// we cancel the first Limit one. Run with: npx tsx examples/CancelOrder.example.ts
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { makeForEnv, useNativeSigner, AuthClient, OrderClient } from "../src/TypeScriptApi.gen.ts";
@@ -25,13 +25,13 @@ async function main(): Promise<void> {
   await AuthClient.login(client, undefined);
 
   const snapshot = await OrderClient.forUser(client, 50, undefined);
-  const order = snapshot.orders.find((o) => o.orderType === "limit");
+  const order = snapshot.orders.find((o) => o.TAG === "Limit");
   if (!order) {
     console.log("No open limit orders to cancel.");
     return;
   }
 
-  const cancelled = await OrderClient.cancel(client, order.orderHash);
+  const cancelled = await OrderClient.cancel(client, order._0.common.orderHash);
   console.log(`cancelled: ${cancelled.orderHash} remaining=${cancelled.remaining}`);
 }
 

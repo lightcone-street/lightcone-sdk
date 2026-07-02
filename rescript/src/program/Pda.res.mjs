@@ -86,6 +86,15 @@ function conditionalMint(programId, market, depositMint, outcomeIndex) {
   });
 }
 
+async function allConditionalMints(programId, market, depositMint, numOutcomes) {
+  let mints = [];
+  for (let outcomeIndex = 0; outcomeIndex < numOutcomes; ++outcomeIndex) {
+    let match = await conditionalMint(programId, market, depositMint, outcomeIndex);
+    mints.push(match[0]);
+  }
+  return mints;
+}
+
 function condition(programId, conditionId) {
   let seeds = [
     Kit.getUtf8Encoder().encode("condition"),
@@ -202,5 +211,6 @@ export {
   mplMetadata,
   alt,
   positionAlt,
+  allConditionalMints,
 }
 /* Constants Not a pure module */

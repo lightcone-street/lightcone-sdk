@@ -5,6 +5,7 @@ import * as Order from "../src/domain/Order.res.mjs";
 import * as Client from "../src/Client.res.mjs";
 import * as SdkError from "../src/SdkError.res.mjs";
 import * as Kit from "@solana/kit";
+import * as Stdlib_Array from "@rescript/runtime/lib/es6/Stdlib_Array.js";
 import * as Common__Example from "./Common__Example.res.mjs";
 
 async function main() {
@@ -17,9 +18,13 @@ async function main() {
   if (error.TAG === "Ok") {
     let error$1 = await Order.getUserOrders(client, 50, undefined, undefined);
     if (error$1.TAG === "Ok") {
-      let order = error$1._0.orders.find(order => order.orderType === "limit");
-      if (order !== undefined) {
-        let body = await Order.cancelBodySigned(order.orderHash, maker, keypair);
+      let firstLimit = Stdlib_Array.findMap(error$1._0.orders, order => {
+        if (order.TAG === "Limit") {
+          return order._0;
+        }
+      });
+      if (firstLimit !== undefined) {
+        let body = await Order.cancelBodySigned(firstLimit.common.orderHash, maker, keypair);
         let cancelled = await Order.cancel(client, body);
         if (cancelled.TAG === "Ok") {
           let cancelled$1 = cancelled._0;

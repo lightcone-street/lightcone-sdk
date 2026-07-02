@@ -145,6 +145,51 @@ type tokenBalance = {
   tokenType: tokenBalanceTokenType,
 }
 
+// Static metadata for a deposit asset (Rust `DepositAssetMetadata`).
+@spice
+type depositAssetMetadata = {
+  symbol: string,
+  @spice.key("short_symbol") shortSymbol: string,
+  name: string,
+  @spice.key("deposit_asset") depositAsset: Shared.pubkeyStr,
+  @spice.key("icon_url_low") iconUrlLow: string,
+  @spice.key("icon_url_medium") iconUrlMedium: string,
+  @spice.key("icon_url_high") iconUrlHigh: string,
+  description?: string,
+  decimals: float,
+}
+
+// ── Decimal-string helpers (tolerant: malformed → zero) ──────────────────────
+let decimalOrZero = (value: string): Decimal.t =>
+  switch Decimal.fromString(value) {
+  | decimal => decimal
+  | exception JsExn(_) => Decimal.fromInt(0)
+  }
+
+let decimalIsPositive = (value: string): bool => Decimal.gt(decimalOrZero(value), Decimal.fromInt(0))
+
+// ── Conditional balance delta ─────────────────────────────────────────────────
+// One conditional-token balance from a WS user event, before it is folded into
+// a balance index or token balance (Rust `ConditionalBalanceDelta`).
+module ConditionalBalanceDelta = {
+  type t = {
+    marketPubkey: Shared.pubkeyStr,
+    orderbookId?: Shared.orderBookId,
+    outcomeIndex: float,
+    conditionalToken: Shared.pubkeyStr,
+    idle: string,
+    onBook: string,
+  }
+
+  // idle + on-book, as a Decimal string.
+  let total = (delta: t): string =>
+    Decimal.plus(decimalOrZero(delta.idle), decimalOrZero(delta.onBook))->Decimal.toString
+
+  // Neither idle nor on-book balance is positive.
+  let isZero = (delta: t): bool =>
+    !(decimalIsPositive(delta.idle) || decimalIsPositive(delta.onBook))
+}
+
 // ── Conversions ───────────────────────────────────────────────────────────────
 // Mirrors Rust `impl From<DepositTokenBalance> for TokenBalance` (on_book = 0,
 // classified as a deposit asset).
@@ -153,6 +198,135 @@ let tokenBalanceOfDepositTokenBalance = (value: depositTokenBalance): tokenBalan
   idle: value.idle,
   onBook: "0",
   tokenType: DepositAsset,
+}
+
+// Mirrors Rust `impl From<ConditionalBalanceDelta> for TokenBalance` (classified
+// as a conditional token; a missing orderbook id becomes the empty default).
+let tokenBalanceOfConditionalBalanceDelta = (delta: ConditionalBalanceDelta.t): tokenBalance => {
+  mint: delta.conditionalToken,
+  idle: delta.idle,
+  onBook: delta.onBook,
+  tokenType: ConditionalToken({
+    orderbookId: delta.orderbookId->Option.getOr(""),
+    marketPubkey: delta.marketPubkey,
+    outcomeIndex: delta.outcomeIndex,
+  }),
+}
+
+// Mirrors Rust `impl From<ConditionalBalanceDelta> for UserOutcomeBalance`
+// (`balance` = idle + on-book).
+let userOutcomeBalanceOfConditionalBalanceDelta = (
+  delta: ConditionalBalanceDelta.t,
+): Order.userOutcomeBalance => {
+  outcomeIndex: delta.outcomeIndex,
+  conditionalToken: delta.conditionalToken,
+  balance: ConditionalBalanceDelta.total(delta),
+  balanceIdle: delta.idle,
+  balanceOnBook: delta.onBook,
+}
+
+// ── Computed display values ───────────────────────────────────────────────────
+// Display strings for a conditional (base) balance at a given price (Rust
+// `TokenBalance::computed_base`); everything formats through `Fmt.display`.
+type tokenBalanceComputedBase = {
+  value: string,
+  size: string,
+  price: string,
+}
+
+let computedBase = (balance: tokenBalance, ~conditionalPrice: string): tokenBalanceComputedBase => {
+  let price = decimalOrZero(conditionalPrice)
+  let size = Decimal.plus(decimalOrZero(balance.idle), decimalOrZero(balance.onBook))
+  {
+    value: Fmt.Decimal.display(Decimal.times(size, price)),
+    size: Fmt.Decimal.display(size),
+    price: Fmt.Decimal.display(price),
+  }
+}
+
+// Display string for a quote balance: idle + on-book (Rust `computed_quote`).
+let computedQuote = (balance: tokenBalance): string =>
+  Fmt.Decimal.display(Decimal.plus(decimalOrZero(balance.idle), decimalOrZero(balance.onBook)))
+
+// ── UserMarketBalanceIndex ────────────────────────────────────────────────────
+// Nested balance lookup fed from WS user snapshots / balance updates (Rust
+// `UserMarketBalanceIndex`): market → deposit asset → conditional token → balance.
+// Zero balances are dropped on the way in; `extend` merges at the market level
+// with the other's per-deposit-asset entries winning wholesale.
+module UserMarketBalanceIndex = {
+  // conditional token → balance.
+  type conditionalTokenBalanceIndex = Dict.t<Order.userOutcomeBalance>
+  // deposit asset → conditional token → balance.
+  type depositAssetBalanceIndex = Dict.t<conditionalTokenBalanceIndex>
+  // market → deposit asset → conditional token → balance.
+  type t = Dict.t<depositAssetBalanceIndex>
+
+  let make = (): t => Dict.make()
+
+  let get = (index: t, ~marketPubkey: Shared.pubkeyStr): option<depositAssetBalanceIndex> =>
+    index->Dict.get(marketPubkey)
+
+  let insert = (index: t, ~marketPubkey: Shared.pubkeyStr, entry: depositAssetBalanceIndex): unit =>
+    index->Dict.set(marketPubkey, entry)
+
+  let remove = (index: t, ~marketPubkey: Shared.pubkeyStr): unit => index->Dict.delete(marketPubkey)
+
+  // Merge `other` in: per market, per deposit asset, the other's entry wins wholesale.
+  let extend = (index: t, other: t): unit =>
+    other
+    ->Dict.toArray
+    ->Array.forEach(((marketPubkey, marketEntry)) => {
+      let target = switch index->Dict.get(marketPubkey) {
+      | Some(existing) => existing
+      | None =>
+        let created = Dict.make()
+        index->Dict.set(marketPubkey, created)
+        created
+      }
+      marketEntry
+      ->Dict.toArray
+      ->Array.forEach(((depositAsset, outcomes)) => target->Dict.set(depositAsset, outcomes))
+    })
+
+  // Indexed market pubkeys, sorted (deterministic iteration).
+  let marketPubkeys = (index: t): array<Shared.pubkeyStr> =>
+    index->Dict.keysToArray->Array.toSorted(String.compare)
+
+  // Index a single market balance; `None` when every outcome is zero (Rust
+  // `From<UserMarketBalance> for Option<UserMarketBalanceIndex>`).
+  let ofMarketBalance = (marketBalance: Order.userMarketBalance): option<t> => {
+    let marketEntry: depositAssetBalanceIndex = Dict.make()
+    marketBalance.depositAssets->Array.forEach(depositAssetBalance => {
+      let outcomes: conditionalTokenBalanceIndex = Dict.make()
+      depositAssetBalance.outcomes->Array.forEach(outcome =>
+        if !Order.userOutcomeBalanceIsZero(outcome) {
+          outcomes->Dict.set(outcome.conditionalToken, outcome)
+        }
+      )
+      if Dict.keysToArray(outcomes)->Array.length > 0 {
+        marketEntry->Dict.set(depositAssetBalance.depositAsset, outcomes)
+      }
+    })
+    switch Dict.keysToArray(marketEntry)->Array.length {
+    | 0 => None
+    | _ =>
+      let index = make()
+      index->Dict.set(marketBalance.marketPubkey, marketEntry)
+      Some(index)
+    }
+  }
+
+  // Index a full set of market balances (Rust `From<Vec<UserMarketBalance>>`).
+  let ofMarketBalances = (marketBalances: array<Order.userMarketBalance>): t => {
+    let index = make()
+    marketBalances->Array.forEach(marketBalance =>
+      switch ofMarketBalance(marketBalance) {
+      | Some(marketIndex) => extend(index, marketIndex)
+      | None => ()
+      }
+    )
+    index
+  }
 }
 
 // ── Client functions ──────────────────────────────────────────────────────────
@@ -216,19 +390,8 @@ let depositTokenBalances = async (
     ~decode=json => Spice.dictFromJson(depositTokenBalance_decode, json),
   )
 
-// Note: the core on-chain builders ARE ported in `program/PositionBuilders.res`
-// (depositToGlobal, withdrawFromGlobal, globalToMarketDeposit, merge,
-// redeemWinnings — each builds + signs + sends a Solana transaction) and
-// `program/Instructions.res` (initPositionTokens, incrementNonce instructions);
-// the on-chain account reads (`get_onchain`) live in `Rpc.res`
-// (getExchange / getMarket / getOrderbook / getPosition + the PDA helpers).
-//
-// TODO(program-layer): the less-common flows remain deferred — the market-level
-// deposit/withdraw, extendPositionTokens, closePositionAlt /
-// closePositionTokenAccounts / withdrawFromPosition, and the low-level `_ix` /
-// `_tx` variants.
-//
-// Also deferred from `domain::position` (WS / balance-index + Decimal-math
-// layer, handled separately): the `From<ConditionalBalanceDelta>` conversions,
-// `ConditionalBalanceDelta`, `UserMarketBalanceIndex`, `DepositAssetMetadata`,
-// and `TokenBalance::computed_base` / `computed_quote`.
+// Note: the on-chain builders live in `program/PositionBuilders.res` (every
+// deposit / withdraw / merge / redeem flow, the position-token init/extend/close
+// ops, plus the unsigned-transaction assembler) over the instruction builders in
+// `program/Instructions.res`; the on-chain account reads (`get_onchain`) live in
+// `Rpc.res` (getExchange / getMarket / getOrderbook / getPosition + PDA helpers).

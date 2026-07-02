@@ -66,4 +66,4 @@ export {
   getLatestPrice,
   clear,
 }
-/* No side effect */
+/* Shared Not a pure module */

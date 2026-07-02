@@ -188,6 +188,58 @@ async function getMarket(client, market) {
   }
 }
 
+async function getMarketById(client, marketId) {
+  let match = await Pda.market(client.programId, marketId);
+  return await getMarket(client, match[0]);
+}
+
+async function getGlobalDepositToken(client, mint) {
+  let match = await Pda.globalDepositToken(client.programId, mint);
+  let error = await getAccountData(client, match[0]);
+  if (error.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error._0
+    };
+  }
+  let bytes = error._0;
+  if (bytes !== undefined) {
+    return Accounts.decodeGlobalDepositToken(bytes);
+  } else {
+    return {
+      TAG: "Error",
+      _0: {
+        TAG: "Program",
+        _0: "GlobalDepositToken: account not found"
+      }
+    };
+  }
+}
+
+async function getOrderStatus(client, orderHash) {
+  let match = await Pda.orderStatus(client.programId, orderHash);
+  let error = await getAccountData(client, match[0]);
+  if (error.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error._0
+    };
+  }
+  let bytes = error._0;
+  if (bytes !== undefined) {
+    return Stdlib_Result.map(Accounts.decodeOrderStatus(bytes), status => status);
+  } else {
+    return {
+      TAG: "Ok",
+      _0: undefined
+    };
+  }
+}
+
+async function nextMarketId(client) {
+  return Stdlib_Result.map(await getExchange(client), exchange => exchange.marketCount);
+}
+
 async function getOrderbook(client, mintA, mintB) {
   let pda = await orderbookPda(client, mintA, mintB);
   let error = await getAccountData(client, pda);
@@ -274,8 +326,12 @@ export {
   userGlobalDepositPda,
   getExchange,
   getMarket,
+  getMarketById,
+  nextMarketId,
   getOrderbook,
   getPosition,
   getNonce,
+  getGlobalDepositToken,
+  getOrderStatus,
 }
 /* Pda Not a pure module */

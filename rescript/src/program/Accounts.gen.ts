@@ -56,3 +56,16 @@ export type position = {
 };
 
 export type userNonce = { readonly nonce: bigint };
+
+export type orderStatus = {
+  readonly remaining: bigint; 
+  readonly baseRemaining: bigint; 
+  readonly isCancelled: boolean
+};
+
+export type globalDepositToken = {
+  readonly mint: Shared_pubkeyStr; 
+  readonly bump: number; 
+  readonly index: number; 
+  readonly active: boolean
+};

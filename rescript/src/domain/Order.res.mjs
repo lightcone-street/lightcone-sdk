@@ -3,11 +3,128 @@
 import * as Rpc from "../Rpc.res.mjs";
 import * as Http from "../Http.res.mjs";
 import * as Spice from "@mununki/ppx-spice/src/rescript/Spice.res.mjs";
+import * as Client from "../Client.res.mjs";
 import * as Shared from "../Shared.res.mjs";
+import DecimalJs from "decimal.js";
 import * as Kit from "@solana/kit";
+import * as Notification from "./Notification.res.mjs";
 import * as OrderPayload from "../program/OrderPayload.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Stdlib_Result from "@rescript/runtime/lib/es6/Stdlib_Result.js";
+import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
+import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
+
+function t_encode(v) {
+  switch (v) {
+    case "limit" :
+      return "limit";
+    case "market" :
+      return "market";
+    case "deposit" :
+      return "deposit";
+    case "merge" :
+      return "merge";
+    case "withdraw" :
+      return "withdraw";
+    case "stop_limit" :
+      return "stop_limit";
+    case "take_profit_limit" :
+      return "take_profit_limit";
+  }
+}
+
+function t_encodeJson(v) {
+  switch (v) {
+    case "limit" :
+      return "limit";
+    case "market" :
+      return "market";
+    case "deposit" :
+      return "deposit";
+    case "merge" :
+      return "merge";
+    case "withdraw" :
+      return "withdraw";
+    case "stop_limit" :
+      return "stop_limit";
+    case "take_profit_limit" :
+      return "take_profit_limit";
+  }
+}
+
+function t_decode(v) {
+  switch (typeof v) {
+    case "string" :
+      if ("limit" === v) {
+        return {
+          TAG: "Ok",
+          _0: "limit"
+        };
+      } else if ("market" === v) {
+        return {
+          TAG: "Ok",
+          _0: "market"
+        };
+      } else if ("deposit" === v) {
+        return {
+          TAG: "Ok",
+          _0: "deposit"
+        };
+      } else if ("merge" === v) {
+        return {
+          TAG: "Ok",
+          _0: "merge"
+        };
+      } else if ("withdraw" === v) {
+        return {
+          TAG: "Ok",
+          _0: "withdraw"
+        };
+      } else if ("stop_limit" === v) {
+        return {
+          TAG: "Ok",
+          _0: "stop_limit"
+        };
+      } else if ("take_profit_limit" === v) {
+        return {
+          TAG: "Ok",
+          _0: "take_profit_limit"
+        };
+      } else {
+        return Spice.error(undefined, "Not matched", v);
+      }
+    case "number" :
+      return Spice.error(undefined, "Not matched", v);
+    default:
+      return Spice.error(undefined, "Not a JSONString", v);
+  }
+}
+
+function label(orderType) {
+  switch (orderType) {
+    case "limit" :
+      return "Limit";
+    case "market" :
+      return "Market";
+    case "deposit" :
+      return "Deposit";
+    case "merge" :
+      return "Merge";
+    case "withdraw" :
+      return "Withdraw";
+    case "stop_limit" :
+      return "Stop Limit";
+    case "take_profit_limit" :
+      return "Take Profit Limit";
+  }
+}
+
+let OrderType = {
+  t_encode: t_encode,
+  t_encodeJson: t_encodeJson,
+  t_decode: t_decode,
+  label: label
+};
 
 function fillInfo_decode(v) {
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
@@ -50,7 +167,7 @@ function fillInfo_decode(v) {
   return Spice.error("." + ("counterparty" + e$4.path), e$4.message, e$4.value);
 }
 
-function t_decode(v) {
+function t_decode$1(v) {
   switch (typeof v) {
     case "string" :
       if ("accepted" === v) {
@@ -84,7 +201,7 @@ function submitOrderResponse_decode(v) {
   }
   let orderHash = Stdlib_Option.getOr(Stdlib_Option.map(v["order_hash"], Spice.stringFromJson), Spice.error(undefined, "order_hash" + " missing", v));
   if (orderHash.TAG === "Ok") {
-    let status = Stdlib_Option.getOr(Stdlib_Option.map(v["status"], t_decode), Spice.error(undefined, "status" + " missing", v));
+    let status = Stdlib_Option.getOr(Stdlib_Option.map(v["status"], t_decode$1), Spice.error(undefined, "status" + " missing", v));
     if (status.TAG === "Ok") {
       let remaining = Stdlib_Option.getOr(Stdlib_Option.map(v["remaining"], Spice.stringFromJson), Spice.error(undefined, "remaining" + " missing", v));
       if (remaining.TAG === "Ok") {
@@ -246,11 +363,67 @@ function bodyOfRequest(request) {
       Shared.DepositSource.t_encode(source)
     ]);
   });
+  Stdlib_Option.forEach(request.triggerPrice, price => {
+    fields.push([
+      "trigger_price",
+      price
+    ]);
+  });
+  Stdlib_Option.forEach(request.triggerType, triggerType => {
+    fields.push([
+      "trigger_type",
+      Shared.TriggerType.t_encode(triggerType)
+    ]);
+  });
   return Object.fromEntries(fields);
 }
 
 async function submit(client, request) {
   return await Http.post(client.http, "/api/orders/submit", bodyOfRequest(request), "NoRetry", undefined, submitOrderResponse_decode);
+}
+
+function triggerOrderResponse_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let triggerOrderId = Stdlib_Option.getOr(Stdlib_Option.map(v["trigger_order_id"], Spice.stringFromJson), Spice.error(undefined, "trigger_order_id" + " missing", v));
+  if (triggerOrderId.TAG === "Ok") {
+    let orderHash = Stdlib_Option.getOr(Stdlib_Option.map(v["order_hash"], Spice.stringFromJson), Spice.error(undefined, "order_hash" + " missing", v));
+    if (orderHash.TAG === "Ok") {
+      return {
+        TAG: "Ok",
+        _0: {
+          triggerOrderId: triggerOrderId._0,
+          orderHash: orderHash._0
+        }
+      };
+    }
+    let e = orderHash._0;
+    return Spice.error("." + ("order_hash" + e.path), e.message, e.value);
+  }
+  let e$1 = triggerOrderId._0;
+  return Spice.error("." + ("trigger_order_id" + e$1.path), e$1.message, e$1.value);
+}
+
+function cancelTriggerSuccess_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let triggerOrderId = Stdlib_Option.getOr(Stdlib_Option.map(v["trigger_order_id"], Spice.stringFromJson), Spice.error(undefined, "trigger_order_id" + " missing", v));
+  if (triggerOrderId.TAG === "Ok") {
+    return {
+      TAG: "Ok",
+      _0: {
+        triggerOrderId: triggerOrderId._0
+      }
+    };
+  }
+  let e = triggerOrderId._0;
+  return Spice.error("." + ("trigger_order_id" + e.path), e.message, e.value);
+}
+
+async function submitTrigger(client, request) {
+  return await Http.post(client.http, "/api/orders/submit", bodyOfRequest(request), "NoRetry", undefined, triggerOrderResponse_decode);
 }
 
 function nowSeconds() {
@@ -329,145 +502,507 @@ async function cancelAll(client, body) {
   return await Http.post(client.http, "/api/orders/cancel-all", json, "NoRetry", undefined, cancelAllSuccess_decode);
 }
 
-function userSnapshotOrder_decode(v) {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) {
-    return Spice.error(undefined, "Not an object", v);
-  }
-  let orderType = Stdlib_Option.getOr(Stdlib_Option.map(v["order_type"], Spice.stringFromJson), Spice.error(undefined, "order_type" + " missing", v));
-  if (orderType.TAG === "Ok") {
-    let orderHash = Stdlib_Option.getOr(Stdlib_Option.map(v["order_hash"], Spice.stringFromJson), Spice.error(undefined, "order_hash" + " missing", v));
-    if (orderHash.TAG === "Ok") {
-      let marketPubkey = Stdlib_Option.getOr(Stdlib_Option.map(v["market_pubkey"], Shared.pubkeyStr_decode), Spice.error(undefined, "market_pubkey" + " missing", v));
-      if (marketPubkey.TAG === "Ok") {
-        let orderbookId = Stdlib_Option.getOr(Stdlib_Option.map(v["orderbook_id"], Shared.orderBookId_decode), Spice.error(undefined, "orderbook_id" + " missing", v));
-        if (orderbookId.TAG === "Ok") {
-          let side = Stdlib_Option.getOr(Stdlib_Option.map(v["side"], Shared.Side.t_decode), Spice.error(undefined, "side" + " missing", v));
-          if (side.TAG === "Ok") {
-            let amountIn = Stdlib_Option.getOr(Stdlib_Option.map(v["amount_in"], Spice.stringFromJson), Spice.error(undefined, "amount_in" + " missing", v));
-            if (amountIn.TAG === "Ok") {
-              let amountOut = Stdlib_Option.getOr(Stdlib_Option.map(v["amount_out"], Spice.stringFromJson), Spice.error(undefined, "amount_out" + " missing", v));
-              if (amountOut.TAG === "Ok") {
-                let remaining = Stdlib_Option.getOr(Stdlib_Option.map(v["remaining"], Spice.stringFromJson), {
-                  TAG: "Ok",
-                  _0: "0"
-                });
-                if (remaining.TAG === "Ok") {
-                  let filled = Stdlib_Option.getOr(Stdlib_Option.map(v["filled"], Spice.stringFromJson), {
-                    TAG: "Ok",
-                    _0: "0"
-                  });
-                  if (filled.TAG === "Ok") {
-                    let price = Stdlib_Option.getOr(Stdlib_Option.map(v["price"], Spice.stringFromJson), {
-                      TAG: "Ok",
-                      _0: "0"
-                    });
-                    if (price.TAG === "Ok") {
-                      let createdAt = Stdlib_Option.getOr(Stdlib_Option.map(v["created_at"], Spice.floatFromJson), Spice.error(undefined, "created_at" + " missing", v));
-                      if (createdAt.TAG === "Ok") {
-                        let expiration = Stdlib_Option.getOr(Stdlib_Option.map(v["expiration"], Spice.floatFromJson), {
-                          TAG: "Ok",
-                          _0: 0.0
-                        });
-                        if (expiration.TAG === "Ok") {
-                          let baseMint = Stdlib_Option.getOr(Stdlib_Option.map(v["base_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "base_mint" + " missing", v));
-                          if (baseMint.TAG === "Ok") {
-                            let quoteMint = Stdlib_Option.getOr(Stdlib_Option.map(v["quote_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "quote_mint" + " missing", v));
-                            if (quoteMint.TAG === "Ok") {
-                              let outcomeIndex = Stdlib_Option.getOr(Stdlib_Option.map(v["outcome_index"], Spice.floatFromJson), Spice.error(undefined, "outcome_index" + " missing", v));
-                              if (outcomeIndex.TAG === "Ok") {
-                                let txSignature = Stdlib_Option.getOr(Stdlib_Option.map(v["tx_signature"], json => Stdlib_Result.map(Spice.stringFromJson(json), v => v)), {
-                                  TAG: "Ok",
-                                  _0: undefined
-                                });
-                                if (txSignature.TAG === "Ok") {
-                                  let triggerOrderId = Stdlib_Option.getOr(Stdlib_Option.map(v["trigger_order_id"], json => Stdlib_Result.map(Spice.stringFromJson(json), v => v)), {
-                                    TAG: "Ok",
-                                    _0: undefined
-                                  });
-                                  if (triggerOrderId.TAG === "Ok") {
-                                    let triggerPrice = Stdlib_Option.getOr(Stdlib_Option.map(v["trigger_price"], json => Stdlib_Result.map(Spice.stringFromJson(json), v => v)), {
-                                      TAG: "Ok",
-                                      _0: undefined
-                                    });
-                                    if (triggerPrice.TAG === "Ok") {
-                                      return {
-                                        TAG: "Ok",
-                                        _0: {
-                                          orderType: orderType._0,
-                                          orderHash: orderHash._0,
-                                          marketPubkey: marketPubkey._0,
-                                          orderbookId: orderbookId._0,
-                                          side: side._0,
-                                          amountIn: amountIn._0,
-                                          amountOut: amountOut._0,
-                                          remaining: remaining._0,
-                                          filled: filled._0,
-                                          price: price._0,
-                                          createdAt: createdAt._0,
-                                          expiration: expiration._0,
-                                          baseMint: baseMint._0,
-                                          quoteMint: quoteMint._0,
-                                          outcomeIndex: outcomeIndex._0,
-                                          txSignature: txSignature._0,
-                                          triggerOrderId: triggerOrderId._0,
-                                          triggerPrice: triggerPrice._0
-                                        }
-                                      };
-                                    }
-                                    let e = triggerPrice._0;
-                                    return Spice.error("." + ("trigger_price" + e.path), e.message, e.value);
-                                  }
-                                  let e$1 = triggerOrderId._0;
-                                  return Spice.error("." + ("trigger_order_id" + e$1.path), e$1.message, e$1.value);
-                                }
-                                let e$2 = txSignature._0;
-                                return Spice.error("." + ("tx_signature" + e$2.path), e$2.message, e$2.value);
-                              }
-                              let e$3 = outcomeIndex._0;
-                              return Spice.error("." + ("outcome_index" + e$3.path), e$3.message, e$3.value);
-                            }
-                            let e$4 = quoteMint._0;
-                            return Spice.error("." + ("quote_mint" + e$4.path), e$4.message, e$4.value);
-                          }
-                          let e$5 = baseMint._0;
-                          return Spice.error("." + ("base_mint" + e$5.path), e$5.message, e$5.value);
-                        }
-                        let e$6 = expiration._0;
-                        return Spice.error("." + ("expiration" + e$6.path), e$6.message, e$6.value);
-                      }
-                      let e$7 = createdAt._0;
-                      return Spice.error("." + ("created_at" + e$7.path), e$7.message, e$7.value);
-                    }
-                    let e$8 = price._0;
-                    return Spice.error("." + ("price" + e$8.path), e$8.message, e$8.value);
-                  }
-                  let e$9 = filled._0;
-                  return Spice.error("." + ("filled" + e$9.path), e$9.message, e$9.value);
-                }
-                let e$10 = remaining._0;
-                return Spice.error("." + ("remaining" + e$10.path), e$10.message, e$10.value);
-              }
-              let e$11 = amountOut._0;
-              return Spice.error("." + ("amount_out" + e$11.path), e$11.message, e$11.value);
-            }
-            let e$12 = amountIn._0;
-            return Spice.error("." + ("amount_in" + e$12.path), e$12.message, e$12.value);
-          }
-          let e$13 = side._0;
-          return Spice.error("." + ("side" + e$13.path), e$13.message, e$13.value);
-        }
-        let e$14 = orderbookId._0;
-        return Spice.error("." + ("orderbook_id" + e$14.path), e$14.message, e$14.value);
-      }
-      let e$15 = marketPubkey._0;
-      return Spice.error("." + ("market_pubkey" + e$15.path), e$15.message, e$15.value);
-    }
-    let e$16 = orderHash._0;
-    return Spice.error("." + ("order_hash" + e$16.path), e$16.message, e$16.value);
-  }
-  let e$17 = orderType._0;
-  return Spice.error("." + ("order_type" + e$17.path), e$17.message, e$17.value);
+async function cancelTriggerBodySigned(triggerOrderId, maker, keypair) {
+  let signature = await Kit.signBytes(keypair.privateKey, Kit.getUtf8Encoder().encode(triggerOrderId));
+  return {
+    triggerOrderId: triggerOrderId,
+    maker: maker,
+    signatureHex: OrderPayload.signatureHex(signature)
+  };
 }
+
+async function cancelTrigger(client, body) {
+  let json = Object.fromEntries([
+    [
+      "trigger_order_id",
+      body.triggerOrderId
+    ],
+    [
+      "maker",
+      body.maker
+    ],
+    [
+      "signature",
+      body.signatureHex
+    ]
+  ]);
+  return await Http.post(client.http, "/api/orders/cancel", json, "NoRetry", undefined, cancelTriggerSuccess_decode);
+}
+
+function signerAddressOrError(client) {
+  let address = Client.signerAddress(client);
+  if (address !== undefined) {
+    return {
+      TAG: "Ok",
+      _0: Primitive_option.valFromOption(address)
+    };
+  } else {
+    return {
+      TAG: "Error",
+      _0: {
+        TAG: "Signing",
+        _0: "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first"
+      }
+    };
+  }
+}
+
+async function cancelSigned(client, orderHash) {
+  let error = signerAddressOrError(client);
+  if (error.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error._0
+    };
+  }
+  let error$1 = await Client.signMessageBytes(client, Kit.getUtf8Encoder().encode(orderHash));
+  if (error$1.TAG === "Ok") {
+    return await cancel(client, {
+      orderHash: orderHash,
+      maker: error._0,
+      signatureHex: OrderPayload.signatureHex(error$1._0)
+    });
+  } else {
+    return {
+      TAG: "Error",
+      _0: error$1._0
+    };
+  }
+}
+
+async function cancelAllSigned(client, orderbookId) {
+  let error = signerAddressOrError(client);
+  if (error.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error._0
+    };
+  }
+  let userPubkey = error._0;
+  let timestamp = nowSeconds();
+  let salt = crypto.randomUUID();
+  let text = cancelAllMessage(userPubkey, orderbookId, timestamp, salt);
+  let message = Kit.getUtf8Encoder().encode(text);
+  let error$1 = await Client.signMessageBytes(client, message);
+  if (error$1.TAG === "Ok") {
+    return await cancelAll(client, {
+      userPubkey: userPubkey,
+      orderbookId: orderbookId,
+      signatureHex: OrderPayload.signatureHex(error$1._0),
+      timestamp: timestamp,
+      salt: salt
+    });
+  } else {
+    return {
+      TAG: "Error",
+      _0: error$1._0
+    };
+  }
+}
+
+async function cancelTriggerSigned(client, triggerOrderId) {
+  let error = signerAddressOrError(client);
+  if (error.TAG !== "Ok") {
+    return {
+      TAG: "Error",
+      _0: error._0
+    };
+  }
+  let error$1 = await Client.signMessageBytes(client, Kit.getUtf8Encoder().encode(triggerOrderId));
+  if (error$1.TAG === "Ok") {
+    return await cancelTrigger(client, {
+      triggerOrderId: triggerOrderId,
+      maker: error._0,
+      signatureHex: OrderPayload.signatureHex(error$1._0)
+    });
+  } else {
+    return {
+      TAG: "Error",
+      _0: error$1._0
+    };
+  }
+}
+
+function optString(dict, key) {
+  let match = dict[key];
+  if (typeof match === "string") {
+    return match;
+  }
+}
+
+function optFloat(dict, key) {
+  let match = dict[key];
+  if (typeof match === "number") {
+    return match;
+  }
+}
+
+function decimalOr0(dict, key) {
+  return Stdlib_Option.getOr(optString(dict, key), "0");
+}
+
+function orderStatusFieldDecode(dict) {
+  let json = dict["status"];
+  if (json !== undefined) {
+    return Shared.OrderStatus.t_decode(json);
+  } else {
+    return {
+      TAG: "Ok",
+      _0: "OPEN"
+    };
+  }
+}
+
+function tifNumericDecode(dict, key, json) {
+  let match = dict[key];
+  if (match !== undefined) {
+    if (typeof match === "number") {
+      if (match < 2.0) {
+        if (match !== 0.0) {
+          if (match !== 1.0) {
+            return Spice.error(undefined, "unknown numeric tif value", json);
+          } else {
+            return {
+              TAG: "Ok",
+              _0: "IOC"
+            };
+          }
+        } else {
+          return {
+            TAG: "Ok",
+            _0: "GTC"
+          };
+        }
+      } else if (match !== 2.0) {
+        if (match !== 3.0) {
+          return Spice.error(undefined, "unknown numeric tif value", json);
+        } else {
+          return {
+            TAG: "Ok",
+            _0: "ALO"
+          };
+        }
+      } else {
+        return {
+          TAG: "Ok",
+          _0: "FOK"
+        };
+      }
+    } else {
+      return Spice.error(undefined, "unknown numeric tif value", json);
+    }
+  } else {
+    return {
+      TAG: "Ok",
+      _0: "GTC"
+    };
+  }
+}
+
+function tifNumericOptDecode(dict, key, json) {
+  let match = dict[key];
+  if (match !== undefined) {
+    return Stdlib_Result.map(tifNumericDecode(dict, key, json), value => value);
+  } else {
+    return {
+      TAG: "Ok",
+      _0: undefined
+    };
+  }
+}
+
+function tifToNumber(tif) {
+  switch (tif) {
+    case "GTC" :
+      return 0.0;
+    case "IOC" :
+      return 1.0;
+    case "FOK" :
+      return 2.0;
+    case "ALO" :
+      return 3.0;
+  }
+}
+
+function amountWithAlias(dict, key, alias) {
+  let value = optString(dict, key);
+  if (value !== undefined) {
+    return value;
+  } else {
+    return optString(dict, alias);
+  }
+}
+
+function userSnapshotOrderCommonDecode(json) {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return Spice.error(undefined, "snapshot order is not an object", json);
+  }
+  let match = optString(json, "order_hash");
+  let match$1 = optString(json, "market_pubkey");
+  let match$2 = optString(json, "orderbook_id");
+  let match$3 = optString(json, "base_mint");
+  let match$4 = optString(json, "quote_mint");
+  let match$5 = json["side"];
+  if (match === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  if (match$1 === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  if (match$2 === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  if (match$3 === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  if (match$4 === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  if (match$5 === undefined) {
+    return Spice.error(undefined, "snapshot order missing required fields", json);
+  }
+  let match$6 = Shared.Side.t_decode(match$5);
+  let match$7 = orderStatusFieldDecode(json);
+  let match$8 = amountWithAlias(json, "amount_in", "maker_amount");
+  let match$9 = amountWithAlias(json, "amount_out", "taker_amount");
+  let match$10 = optFloat(json, "created_at");
+  let match$11 = optFloat(json, "outcome_index");
+  if (match$6.TAG === "Ok") {
+    if (match$7.TAG === "Ok") {
+      if (match$8 !== undefined && match$9 !== undefined && match$10 !== undefined && match$11 !== undefined) {
+        return {
+          TAG: "Ok",
+          _0: {
+            orderHash: match,
+            marketPubkey: match$1,
+            orderbookId: match$2,
+            side: match$6._0,
+            amountIn: match$8,
+            amountOut: match$9,
+            remaining: decimalOr0(json, "remaining"),
+            filled: decimalOr0(json, "filled"),
+            price: decimalOr0(json, "price"),
+            createdAt: match$10,
+            expiration: Stdlib_Option.getOr(optFloat(json, "expiration"), 0.0),
+            baseMint: match$3,
+            quoteMint: match$4,
+            outcomeIndex: match$11,
+            status: match$7._0
+          }
+        };
+      } else {
+        return Spice.error(undefined, "snapshot order missing amount_in/amount_out/created_at/outcome_index", json);
+      }
+    } else {
+      return {
+        TAG: "Error",
+        _0: match$7._0
+      };
+    }
+  } else {
+    return {
+      TAG: "Error",
+      _0: match$6._0
+    };
+  }
+}
+
+function userSnapshotOrderCommonFields(common) {
+  return [
+    [
+      "order_hash",
+      common.orderHash
+    ],
+    [
+      "market_pubkey",
+      common.marketPubkey
+    ],
+    [
+      "orderbook_id",
+      common.orderbookId
+    ],
+    [
+      "side",
+      Shared.Side.t_encode(common.side)
+    ],
+    [
+      "amount_in",
+      common.amountIn
+    ],
+    [
+      "amount_out",
+      common.amountOut
+    ],
+    [
+      "remaining",
+      common.remaining
+    ],
+    [
+      "filled",
+      common.filled
+    ],
+    [
+      "price",
+      common.price
+    ],
+    [
+      "created_at",
+      common.createdAt
+    ],
+    [
+      "expiration",
+      common.expiration
+    ],
+    [
+      "base_mint",
+      common.baseMint
+    ],
+    [
+      "quote_mint",
+      common.quoteMint
+    ],
+    [
+      "outcome_index",
+      common.outcomeIndex
+    ],
+    [
+      "status",
+      Shared.OrderStatus.t_encode(common.status)
+    ]
+  ];
+}
+
+function common(order) {
+  return order._0.common;
+}
+
+function t_decode$2(json) {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return Spice.error(undefined, "snapshot order is not an object", json);
+  }
+  let match = json["order_type"];
+  if (match === undefined) {
+    return Spice.error(undefined, "unknown snapshot order_type", json);
+  }
+  if (typeof match !== "string") {
+    return Spice.error(undefined, "unknown snapshot order_type", json);
+  }
+  switch (match) {
+    case "limit" :
+      return Stdlib_Result.map(userSnapshotOrderCommonDecode(json), common => ({
+        TAG: "Limit",
+        _0: {
+          common: common,
+          txSignature: optString(json, "tx_signature")
+        }
+      }));
+    case "trigger" :
+      let match$1 = userSnapshotOrderCommonDecode(json);
+      let match$2 = optString(json, "trigger_order_id");
+      let match$3 = optString(json, "trigger_price");
+      let match$4 = Stdlib_Option.map(json["trigger_type"], Shared.TriggerType.t_decode);
+      let match$5 = tifNumericOptDecode(json, "time_in_force", json);
+      let exit = 0;
+      if (match$1.TAG !== "Ok") {
+        return {
+          TAG: "Error",
+          _0: match$1._0
+        };
+      }
+      if (match$2 !== undefined && match$3 !== undefined) {
+        if (match$4 !== undefined) {
+          if (match$4.TAG === "Ok") {
+            if (match$5.TAG === "Ok") {
+              return {
+                TAG: "Ok",
+                _0: {
+                  TAG: "Trigger",
+                  _0: {
+                    common: match$1._0,
+                    triggerOrderId: match$2,
+                    triggerPrice: match$3,
+                    triggerType: match$4._0,
+                    timeInForce: match$5._0
+                  }
+                }
+              };
+            }
+          } else {
+            exit = 2;
+          }
+        }
+      } else {
+        exit = 2;
+      }
+      if (exit === 2 && match$4 !== undefined && match$4.TAG !== "Ok") {
+        return {
+          TAG: "Error",
+          _0: match$4._0
+        };
+      }
+      if (match$5.TAG === "Ok") {
+        return Spice.error(undefined, "trigger snapshot order missing trigger fields", json);
+      } else {
+        return {
+          TAG: "Error",
+          _0: match$5._0
+        };
+      }
+      break;
+    default:
+      return Spice.error(undefined, "unknown snapshot order_type", json);
+  }
+}
+
+function t_encode$1(order) {
+  if (order.TAG === "Limit") {
+    let order$1 = order._0;
+    let fields = [[
+        "order_type",
+        "limit"
+      ]];
+    fields.push(...userSnapshotOrderCommonFields(order$1.common));
+    Stdlib_Option.forEach(order$1.txSignature, value => {
+      fields.push([
+        "tx_signature",
+        value
+      ]);
+    });
+    return Object.fromEntries(fields);
+  }
+  let order$2 = order._0;
+  let fields$1 = [[
+      "order_type",
+      "trigger"
+    ]];
+  fields$1.push(...userSnapshotOrderCommonFields(order$2.common));
+  fields$1.push([
+    "trigger_order_id",
+    order$2.triggerOrderId
+  ]);
+  fields$1.push([
+    "trigger_price",
+    order$2.triggerPrice
+  ]);
+  fields$1.push([
+    "trigger_type",
+    Shared.TriggerType.t_encode(order$2.triggerType)
+  ]);
+  Stdlib_Option.forEach(order$2.timeInForce, tif => {
+    fields$1.push([
+      "time_in_force",
+      tifToNumber(tif)
+    ]);
+  });
+  return Object.fromEntries(fields$1);
+}
+
+let UserSnapshotOrder = {
+  common: common,
+  t_decode: t_decode$2,
+  t_encode: t_encode$1,
+  t_encodeJson: t_encode$1
+};
 
 function userOutcomeBalance_decode(v) {
   if (typeof v !== "object" || v === null || Array.isArray(v)) {
@@ -508,6 +1043,24 @@ function userOutcomeBalance_decode(v) {
   }
   let e$4 = outcomeIndex._0;
   return Spice.error("." + ("outcome_index" + e$4.path), e$4.message, e$4.value);
+}
+
+function decimalIsPositive(value) {
+  let decimal;
+  try {
+    decimal = new DecimalJs(value);
+  } catch (raw_exn) {
+    let exn = Primitive_exceptions.internalToException(raw_exn);
+    if (exn.RE_EXN_ID === "JsExn") {
+      return false;
+    }
+    throw exn;
+  }
+  return decimal.gt(new DecimalJs(0));
+}
+
+function userOutcomeBalanceIsZero(balance) {
+  return !(decimalIsPositive(balance.balanceIdle) || decimalIsPositive(balance.balanceOnBook));
 }
 
 function userDepositAssetBalance_decode(v) {
@@ -562,7 +1115,7 @@ function userOrdersResponse_decode(v) {
   }
   let userPubkey = Stdlib_Option.getOr(Stdlib_Option.map(v["user_pubkey"], Shared.pubkeyStr_decode), Spice.error(undefined, "user_pubkey" + " missing", v));
   if (userPubkey.TAG === "Ok") {
-    let orders = Stdlib_Option.getOr(Stdlib_Option.map(v["orders"], extra => Spice.arrayFromJson(userSnapshotOrder_decode, extra)), Spice.error(undefined, "orders" + " missing", v));
+    let orders = Stdlib_Option.getOr(Stdlib_Option.map(v["orders"], extra => Spice.arrayFromJson(t_decode$2, extra)), Spice.error(undefined, "orders" + " missing", v));
     if (orders.TAG === "Ok") {
       let marketBalances = Stdlib_Option.getOr(Stdlib_Option.map(v["market_balances"], extra => Spice.arrayFromJson(userMarketBalance_decode, extra)), Spice.error(undefined, "market_balances" + " missing", v));
       if (marketBalances.TAG === "Ok") {
@@ -620,18 +1173,782 @@ async function getUserOrders(client, limit, cursor, cookieHeader) {
   return await Http.get(client.http, "/api/users/orders", query, undefined, cookieHeader, userOrdersResponse_decode);
 }
 
+function t_encode$2(v) {
+  if (v === "maker") {
+    return "maker";
+  } else {
+    return "taker";
+  }
+}
+
+function t_encodeJson$1(v) {
+  if (v === "maker") {
+    return "maker";
+  } else {
+    return "taker";
+  }
+}
+
+function t_decode$3(v) {
+  switch (typeof v) {
+    case "string" :
+      if ("maker" === v) {
+        return {
+          TAG: "Ok",
+          _0: "maker"
+        };
+      } else if ("taker" === v) {
+        return {
+          TAG: "Ok",
+          _0: "taker"
+        };
+      } else {
+        return Spice.error(undefined, "Not matched", v);
+      }
+    case "number" :
+      return Spice.error(undefined, "Not matched", v);
+    default:
+      return Spice.error(undefined, "Not a JSONString", v);
+  }
+}
+
+let Role = {
+  t_encode: t_encode$2,
+  t_encodeJson: t_encodeJson$1,
+  t_decode: t_decode$3
+};
+
+function t_encode$3(v) {
+  switch (v) {
+    case "filled" :
+      return "filled";
+    case "cancelled" :
+      return "cancelled";
+    case "partially_filled" :
+      return "partially_filled";
+  }
+}
+
+function t_encodeJson$2(v) {
+  switch (v) {
+    case "filled" :
+      return "filled";
+    case "cancelled" :
+      return "cancelled";
+    case "partially_filled" :
+      return "partially_filled";
+  }
+}
+
+function t_decode$4(v) {
+  switch (typeof v) {
+    case "string" :
+      if ("filled" === v) {
+        return {
+          TAG: "Ok",
+          _0: "filled"
+        };
+      } else if ("cancelled" === v) {
+        return {
+          TAG: "Ok",
+          _0: "cancelled"
+        };
+      } else if ("partially_filled" === v) {
+        return {
+          TAG: "Ok",
+          _0: "partially_filled"
+        };
+      } else {
+        return Spice.error(undefined, "Not matched", v);
+      }
+    case "number" :
+      return Spice.error(undefined, "Not matched", v);
+    default:
+      return Spice.error(undefined, "Not a JSONString", v);
+  }
+}
+
+let FillStatus = {
+  t_encode: t_encode$3,
+  t_encodeJson: t_encodeJson$2,
+  t_decode: t_decode$4
+};
+
+function orderFillEvent_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let fillAmount = Stdlib_Option.getOr(Stdlib_Option.map(v["fill_amount"], Spice.stringFromJson), Spice.error(undefined, "fill_amount" + " missing", v));
+  if (fillAmount.TAG === "Ok") {
+    let txSignature = Stdlib_Option.getOr(Stdlib_Option.map(v["tx_signature"], Spice.stringFromJson), Spice.error(undefined, "tx_signature" + " missing", v));
+    if (txSignature.TAG === "Ok") {
+      let filledAt = Stdlib_Option.getOr(Stdlib_Option.map(v["filled_at"], Spice.floatFromJson), Spice.error(undefined, "filled_at" + " missing", v));
+      if (filledAt.TAG === "Ok") {
+        return {
+          TAG: "Ok",
+          _0: {
+            fillAmount: fillAmount._0,
+            txSignature: txSignature._0,
+            filledAt: filledAt._0
+          }
+        };
+      }
+      let e = filledAt._0;
+      return Spice.error("." + ("filled_at" + e.path), e.message, e.value);
+    }
+    let e$1 = txSignature._0;
+    return Spice.error("." + ("tx_signature" + e$1.path), e$1.message, e$1.value);
+  }
+  let e$2 = fillAmount._0;
+  return Spice.error("." + ("fill_amount" + e$2.path), e$2.message, e$2.value);
+}
+
+function userOrderFill_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let orderHash = Stdlib_Option.getOr(Stdlib_Option.map(v["order_hash"], Spice.stringFromJson), Spice.error(undefined, "order_hash" + " missing", v));
+  if (orderHash.TAG === "Ok") {
+    let marketPubkey = Stdlib_Option.getOr(Stdlib_Option.map(v["market_pubkey"], Shared.pubkeyStr_decode), Spice.error(undefined, "market_pubkey" + " missing", v));
+    if (marketPubkey.TAG === "Ok") {
+      let orderbookId = Stdlib_Option.getOr(Stdlib_Option.map(v["orderbook_id"], Shared.orderBookId_decode), Spice.error(undefined, "orderbook_id" + " missing", v));
+      if (orderbookId.TAG === "Ok") {
+        let side = Stdlib_Option.getOr(Stdlib_Option.map(v["side"], Shared.Side.t_decode), Spice.error(undefined, "side" + " missing", v));
+        if (side.TAG === "Ok") {
+          let role = Stdlib_Option.getOr(Stdlib_Option.map(v["role"], t_decode$3), Spice.error(undefined, "role" + " missing", v));
+          if (role.TAG === "Ok") {
+            let price = Stdlib_Option.getOr(Stdlib_Option.map(v["price"], Spice.stringFromJson), Spice.error(undefined, "price" + " missing", v));
+            if (price.TAG === "Ok") {
+              let size = Stdlib_Option.getOr(Stdlib_Option.map(v["size"], Spice.stringFromJson), Spice.error(undefined, "size" + " missing", v));
+              if (size.TAG === "Ok") {
+                let filledSize = Stdlib_Option.getOr(Stdlib_Option.map(v["filled_size"], Spice.stringFromJson), Spice.error(undefined, "filled_size" + " missing", v));
+                if (filledSize.TAG === "Ok") {
+                  let remainingSize = Stdlib_Option.getOr(Stdlib_Option.map(v["remaining_size"], Spice.stringFromJson), Spice.error(undefined, "remaining_size" + " missing", v));
+                  if (remainingSize.TAG === "Ok") {
+                    let baseMint = Stdlib_Option.getOr(Stdlib_Option.map(v["base_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "base_mint" + " missing", v));
+                    if (baseMint.TAG === "Ok") {
+                      let quoteMint = Stdlib_Option.getOr(Stdlib_Option.map(v["quote_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "quote_mint" + " missing", v));
+                      if (quoteMint.TAG === "Ok") {
+                        let outcomeIndex = Stdlib_Option.getOr(Stdlib_Option.map(v["outcome_index"], Spice.floatFromJson), Spice.error(undefined, "outcome_index" + " missing", v));
+                        if (outcomeIndex.TAG === "Ok") {
+                          let status = Stdlib_Option.getOr(Stdlib_Option.map(v["status"], t_decode$4), Spice.error(undefined, "status" + " missing", v));
+                          if (status.TAG === "Ok") {
+                            let createdAt = Stdlib_Option.getOr(Stdlib_Option.map(v["created_at"], Spice.floatFromJson), Spice.error(undefined, "created_at" + " missing", v));
+                            if (createdAt.TAG === "Ok") {
+                              let fills = Stdlib_Option.getOr(Stdlib_Option.map(v["fills"], extra => Spice.arrayFromJson(orderFillEvent_decode, extra)), Spice.error(undefined, "fills" + " missing", v));
+                              if (fills.TAG === "Ok") {
+                                return {
+                                  TAG: "Ok",
+                                  _0: {
+                                    orderHash: orderHash._0,
+                                    marketPubkey: marketPubkey._0,
+                                    orderbookId: orderbookId._0,
+                                    side: side._0,
+                                    role: role._0,
+                                    price: price._0,
+                                    size: size._0,
+                                    filledSize: filledSize._0,
+                                    remainingSize: remainingSize._0,
+                                    baseMint: baseMint._0,
+                                    quoteMint: quoteMint._0,
+                                    outcomeIndex: outcomeIndex._0,
+                                    status: status._0,
+                                    createdAt: createdAt._0,
+                                    fills: fills._0
+                                  }
+                                };
+                              }
+                              let e = fills._0;
+                              return Spice.error("." + ("fills" + e.path), e.message, e.value);
+                            }
+                            let e$1 = createdAt._0;
+                            return Spice.error("." + ("created_at" + e$1.path), e$1.message, e$1.value);
+                          }
+                          let e$2 = status._0;
+                          return Spice.error("." + ("status" + e$2.path), e$2.message, e$2.value);
+                        }
+                        let e$3 = outcomeIndex._0;
+                        return Spice.error("." + ("outcome_index" + e$3.path), e$3.message, e$3.value);
+                      }
+                      let e$4 = quoteMint._0;
+                      return Spice.error("." + ("quote_mint" + e$4.path), e$4.message, e$4.value);
+                    }
+                    let e$5 = baseMint._0;
+                    return Spice.error("." + ("base_mint" + e$5.path), e$5.message, e$5.value);
+                  }
+                  let e$6 = remainingSize._0;
+                  return Spice.error("." + ("remaining_size" + e$6.path), e$6.message, e$6.value);
+                }
+                let e$7 = filledSize._0;
+                return Spice.error("." + ("filled_size" + e$7.path), e$7.message, e$7.value);
+              }
+              let e$8 = size._0;
+              return Spice.error("." + ("size" + e$8.path), e$8.message, e$8.value);
+            }
+            let e$9 = price._0;
+            return Spice.error("." + ("price" + e$9.path), e$9.message, e$9.value);
+          }
+          let e$10 = role._0;
+          return Spice.error("." + ("role" + e$10.path), e$10.message, e$10.value);
+        }
+        let e$11 = side._0;
+        return Spice.error("." + ("side" + e$11.path), e$11.message, e$11.value);
+      }
+      let e$12 = orderbookId._0;
+      return Spice.error("." + ("orderbook_id" + e$12.path), e$12.message, e$12.value);
+    }
+    let e$13 = marketPubkey._0;
+    return Spice.error("." + ("market_pubkey" + e$13.path), e$13.message, e$13.value);
+  }
+  let e$14 = orderHash._0;
+  return Spice.error("." + ("order_hash" + e$14.path), e$14.message, e$14.value);
+}
+
+function userOrderFillsResponse_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let orders = Stdlib_Option.getOr(Stdlib_Option.map(v["orders"], extra => Spice.arrayFromJson(userOrderFill_decode, extra)), Spice.error(undefined, "orders" + " missing", v));
+  if (orders.TAG === "Ok") {
+    let nextCursor = Stdlib_Option.getOr(Stdlib_Option.map(v["next_cursor"], json => Stdlib_Result.map(Spice.stringFromJson(json), v => v)), {
+      TAG: "Ok",
+      _0: undefined
+    });
+    if (nextCursor.TAG === "Ok") {
+      let hasMore = Stdlib_Option.getOr(Stdlib_Option.map(v["has_more"], Spice.boolFromJson), Spice.error(undefined, "has_more" + " missing", v));
+      if (hasMore.TAG === "Ok") {
+        return {
+          TAG: "Ok",
+          _0: {
+            orders: orders._0,
+            nextCursor: nextCursor._0,
+            hasMore: hasMore._0
+          }
+        };
+      }
+      let e = hasMore._0;
+      return Spice.error("." + ("has_more" + e.path), e.message, e.value);
+    }
+    let e$1 = nextCursor._0;
+    return Spice.error("." + ("next_cursor" + e$1.path), e$1.message, e$1.value);
+  }
+  let e$2 = orders._0;
+  return Spice.error("." + ("orders" + e$2.path), e$2.message, e$2.value);
+}
+
+function orderFillsQuery(marketPubkey, limit, cursor) {
+  let query = [];
+  Stdlib_Option.forEach(marketPubkey, value => {
+    query.push([
+      "market_pubkey",
+      value
+    ]);
+  });
+  Stdlib_Option.forEach(limit, value => {
+    query.push([
+      "limit",
+      value.toString()
+    ]);
+  });
+  Stdlib_Option.forEach(cursor, value => {
+    query.push([
+      "cursor",
+      value
+    ]);
+  });
+  return query;
+}
+
+async function getUserOrderFills(client, marketPubkey, limit, cursor, cookieHeader) {
+  return await Http.get(client.http, "/api/users/order-fills", orderFillsQuery(marketPubkey, limit, cursor), undefined, cookieHeader, userOrderFillsResponse_decode);
+}
+
+async function getUserOrderFillsByWallet(client, walletAddress, marketPubkey, limit, cursor) {
+  return await Http.get(client.http, `/api/users/` + walletAddress + `/order-fills`, orderFillsQuery(marketPubkey, limit, cursor), undefined, undefined, userOrderFillsResponse_decode);
+}
+
+function conditionalBalance_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let outcomeIndex = Stdlib_Option.getOr(Stdlib_Option.map(v["outcome_index"], Spice.floatFromJson), Spice.error(undefined, "outcome_index" + " missing", v));
+  if (outcomeIndex.TAG === "Ok") {
+    let conditionalToken = Stdlib_Option.getOr(Stdlib_Option.map(v["conditional_token"], Shared.pubkeyStr_decode), Spice.error(undefined, "conditional_token" + " missing", v));
+    if (conditionalToken.TAG === "Ok") {
+      let idle = Stdlib_Option.getOr(Stdlib_Option.map(v["idle"], Spice.stringFromJson), Spice.error(undefined, "idle" + " missing", v));
+      if (idle.TAG === "Ok") {
+        let onBook = Stdlib_Option.getOr(Stdlib_Option.map(v["on_book"], Spice.stringFromJson), Spice.error(undefined, "on_book" + " missing", v));
+        if (onBook.TAG === "Ok") {
+          return {
+            TAG: "Ok",
+            _0: {
+              outcomeIndex: outcomeIndex._0,
+              conditionalToken: conditionalToken._0,
+              idle: idle._0,
+              onBook: onBook._0
+            }
+          };
+        }
+        let e = onBook._0;
+        return Spice.error("." + ("on_book" + e.path), e.message, e.value);
+      }
+      let e$1 = idle._0;
+      return Spice.error("." + ("idle" + e$1.path), e$1.message, e$1.value);
+    }
+    let e$2 = conditionalToken._0;
+    return Spice.error("." + ("conditional_token" + e$2.path), e$2.message, e$2.value);
+  }
+  let e$3 = outcomeIndex._0;
+  return Spice.error("." + ("outcome_index" + e$3.path), e$3.message, e$3.value);
+}
+
+function userOrderUpdateBalance_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let outcomes = Stdlib_Option.getOr(Stdlib_Option.map(v["outcomes"], extra => Spice.arrayFromJson(conditionalBalance_decode, extra)), Spice.error(undefined, "outcomes" + " missing", v));
+  if (outcomes.TAG === "Ok") {
+    return {
+      TAG: "Ok",
+      _0: {
+        outcomes: outcomes._0
+      }
+    };
+  }
+  let e = outcomes._0;
+  return Spice.error("." + ("outcomes" + e.path), e.message, e.value);
+}
+
+function wsOrder_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let orderHash = Stdlib_Option.getOr(Stdlib_Option.map(v["order_hash"], Spice.stringFromJson), Spice.error(undefined, "order_hash" + " missing", v));
+  if (orderHash.TAG === "Ok") {
+    let price = Stdlib_Option.getOr(Stdlib_Option.map(v["price"], Spice.stringFromJson), Spice.error(undefined, "price" + " missing", v));
+    if (price.TAG === "Ok") {
+      let isMaker = Stdlib_Option.getOr(Stdlib_Option.map(v["is_maker"], Spice.boolFromJson), Spice.error(undefined, "is_maker" + " missing", v));
+      if (isMaker.TAG === "Ok") {
+        let remaining = Stdlib_Option.getOr(Stdlib_Option.map(v["remaining"], Spice.stringFromJson), Spice.error(undefined, "remaining" + " missing", v));
+        if (remaining.TAG === "Ok") {
+          let filled = Stdlib_Option.getOr(Stdlib_Option.map(v["filled"], Spice.stringFromJson), Spice.error(undefined, "filled" + " missing", v));
+          if (filled.TAG === "Ok") {
+            let fillAmount = Stdlib_Option.getOr(Stdlib_Option.map(v["fill_amount"], Spice.stringFromJson), Spice.error(undefined, "fill_amount" + " missing", v));
+            if (fillAmount.TAG === "Ok") {
+              let side = Stdlib_Option.getOr(Stdlib_Option.map(v["side"], Shared.Side.t_decode), Spice.error(undefined, "side" + " missing", v));
+              if (side.TAG === "Ok") {
+                let createdAt = Stdlib_Option.getOr(Stdlib_Option.map(v["created_at"], Spice.floatFromJson), Spice.error(undefined, "created_at" + " missing", v));
+                if (createdAt.TAG === "Ok") {
+                  let baseMint = Stdlib_Option.getOr(Stdlib_Option.map(v["base_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "base_mint" + " missing", v));
+                  if (baseMint.TAG === "Ok") {
+                    let quoteMint = Stdlib_Option.getOr(Stdlib_Option.map(v["quote_mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "quote_mint" + " missing", v));
+                    if (quoteMint.TAG === "Ok") {
+                      let outcomeIndex = Stdlib_Option.getOr(Stdlib_Option.map(v["outcome_index"], Spice.floatFromJson), Spice.error(undefined, "outcome_index" + " missing", v));
+                      if (outcomeIndex.TAG === "Ok") {
+                        let status = Stdlib_Option.getOr(Stdlib_Option.map(v["status"], Shared.OrderStatus.t_decode), {
+                          TAG: "Ok",
+                          _0: "OPEN"
+                        });
+                        if (status.TAG === "Ok") {
+                          let balance = Stdlib_Option.getOr(Stdlib_Option.map(v["balance"], json => Stdlib_Result.map(userOrderUpdateBalance_decode(json), v => v)), {
+                            TAG: "Ok",
+                            _0: undefined
+                          });
+                          if (balance.TAG === "Ok") {
+                            return {
+                              TAG: "Ok",
+                              _0: {
+                                orderHash: orderHash._0,
+                                price: price._0,
+                                isMaker: isMaker._0,
+                                remaining: remaining._0,
+                                filled: filled._0,
+                                fillAmount: fillAmount._0,
+                                side: side._0,
+                                createdAt: createdAt._0,
+                                baseMint: baseMint._0,
+                                quoteMint: quoteMint._0,
+                                outcomeIndex: outcomeIndex._0,
+                                status: status._0,
+                                balance: balance._0
+                              }
+                            };
+                          }
+                          let e = balance._0;
+                          return Spice.error("." + ("balance" + e.path), e.message, e.value);
+                        }
+                        let e$1 = status._0;
+                        return Spice.error("." + ("status" + e$1.path), e$1.message, e$1.value);
+                      }
+                      let e$2 = outcomeIndex._0;
+                      return Spice.error("." + ("outcome_index" + e$2.path), e$2.message, e$2.value);
+                    }
+                    let e$3 = quoteMint._0;
+                    return Spice.error("." + ("quote_mint" + e$3.path), e$3.message, e$3.value);
+                  }
+                  let e$4 = baseMint._0;
+                  return Spice.error("." + ("base_mint" + e$4.path), e$4.message, e$4.value);
+                }
+                let e$5 = createdAt._0;
+                return Spice.error("." + ("created_at" + e$5.path), e$5.message, e$5.value);
+              }
+              let e$6 = side._0;
+              return Spice.error("." + ("side" + e$6.path), e$6.message, e$6.value);
+            }
+            let e$7 = fillAmount._0;
+            return Spice.error("." + ("fill_amount" + e$7.path), e$7.message, e$7.value);
+          }
+          let e$8 = filled._0;
+          return Spice.error("." + ("filled" + e$8.path), e$8.message, e$8.value);
+        }
+        let e$9 = remaining._0;
+        return Spice.error("." + ("remaining" + e$9.path), e$9.message, e$9.value);
+      }
+      let e$10 = isMaker._0;
+      return Spice.error("." + ("is_maker" + e$10.path), e$10.message, e$10.value);
+    }
+    let e$11 = price._0;
+    return Spice.error("." + ("price" + e$11.path), e$11.message, e$11.value);
+  }
+  let e$12 = orderHash._0;
+  return Spice.error("." + ("order_hash" + e$12.path), e$12.message, e$12.value);
+}
+
+function orderUpdate_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let marketPubkey = Stdlib_Option.getOr(Stdlib_Option.map(v["market_pubkey"], Shared.pubkeyStr_decode), Spice.error(undefined, "market_pubkey" + " missing", v));
+  if (marketPubkey.TAG === "Ok") {
+    let orderbookId = Stdlib_Option.getOr(Stdlib_Option.map(v["orderbook_id"], Shared.orderBookId_decode), Spice.error(undefined, "orderbook_id" + " missing", v));
+    if (orderbookId.TAG === "Ok") {
+      let timestamp = Stdlib_Option.getOr(Stdlib_Option.map(v["timestamp"], Spice.stringFromJson), Spice.error(undefined, "timestamp" + " missing", v));
+      if (timestamp.TAG === "Ok") {
+        let txSignature = Stdlib_Option.getOr(Stdlib_Option.map(v["tx_signature"], json => Stdlib_Result.map(Spice.stringFromJson(json), v => v)), {
+          TAG: "Ok",
+          _0: undefined
+        });
+        if (txSignature.TAG === "Ok") {
+          let updateType = Stdlib_Option.getOr(Stdlib_Option.map(v["type"], Shared.OrderUpdateType.t_decode), {
+            TAG: "Ok",
+            _0: "UPDATE"
+          });
+          if (updateType.TAG === "Ok") {
+            let order = Stdlib_Option.getOr(Stdlib_Option.map(v["order"], wsOrder_decode), Spice.error(undefined, "order" + " missing", v));
+            if (order.TAG === "Ok") {
+              return {
+                TAG: "Ok",
+                _0: {
+                  marketPubkey: marketPubkey._0,
+                  orderbookId: orderbookId._0,
+                  timestamp: timestamp._0,
+                  txSignature: txSignature._0,
+                  updateType: updateType._0,
+                  order: order._0
+                }
+              };
+            }
+            let e = order._0;
+            return Spice.error("." + ("order" + e.path), e.message, e.value);
+          }
+          let e$1 = updateType._0;
+          return Spice.error("." + ("type" + e$1.path), e$1.message, e$1.value);
+        }
+        let e$2 = txSignature._0;
+        return Spice.error("." + ("tx_signature" + e$2.path), e$2.message, e$2.value);
+      }
+      let e$3 = timestamp._0;
+      return Spice.error("." + ("timestamp" + e$3.path), e$3.message, e$3.value);
+    }
+    let e$4 = orderbookId._0;
+    return Spice.error("." + ("orderbook_id" + e$4.path), e$4.message, e$4.value);
+  }
+  let e$5 = marketPubkey._0;
+  return Spice.error("." + ("market_pubkey" + e$5.path), e$5.message, e$5.value);
+}
+
+function triggerUpdateTypeDecode(dict) {
+  let json = dict["type"];
+  if (json !== undefined) {
+    return Shared.TriggerUpdateType.t_decode(json);
+  } else {
+    return {
+      TAG: "Ok",
+      _0: "TRIGGERED"
+    };
+  }
+}
+
+function triggerResultStatusDecode(dict) {
+  let json = dict["result_status"];
+  if (json === undefined) {
+    return {
+      TAG: "Ok",
+      _0: undefined
+    };
+  }
+  if (json === "") {
+    return {
+      TAG: "Ok",
+      _0: undefined
+    };
+  }
+  return Stdlib_Result.map(Shared.TriggerResultStatus.t_decode(json), value => value);
+}
+
+function triggerOrderUpdateDecode(json) {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return Spice.error(undefined, "trigger order update is not an object", json);
+  }
+  let match = optString(json, "trigger_order_id");
+  let match$1 = optString(json, "market_pubkey");
+  let match$2 = optString(json, "orderbook_id");
+  let match$3 = optString(json, "trigger_price");
+  let match$4 = json["trigger_above"];
+  let match$5 = json["status"];
+  let match$6 = optString(json, "order_hash");
+  let match$7 = json["side"];
+  let match$8 = optString(json, "timestamp");
+  if (match === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$1 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$2 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$3 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$4 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (typeof match$4 !== "boolean") {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$5 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$6 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$7 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  if (match$8 === undefined) {
+    return Spice.error(undefined, "trigger order update missing required fields", json);
+  }
+  let match$9 = Shared.TriggerStatus.t_decode(match$5);
+  let match$10 = Shared.Side.t_decode(match$7);
+  let match$11 = triggerUpdateTypeDecode(json);
+  let match$12 = triggerResultStatusDecode(json);
+  let match$13 = tifNumericDecode(json, "tif", json);
+  if (match$9.TAG === "Ok") {
+    if (match$10.TAG === "Ok") {
+      if (match$11.TAG === "Ok") {
+        if (match$12.TAG === "Ok") {
+          if (match$13.TAG === "Ok") {
+            return {
+              TAG: "Ok",
+              _0: {
+                triggerOrderId: match,
+                userPubkey: Stdlib_Option.getOr(optString(json, "user_pubkey"), ""),
+                marketPubkey: match$1,
+                orderbookId: match$2,
+                triggerPrice: match$3,
+                triggerAbove: match$4,
+                status: match$9._0,
+                updateType: match$11._0,
+                orderHash: match$6,
+                side: match$10._0,
+                resultStatus: match$12._0,
+                resultFilled: decimalOr0(json, "result_filled"),
+                resultRemaining: decimalOr0(json, "result_remaining"),
+                timestamp: match$8,
+                makerAmount: decimalOr0(json, "maker_amount"),
+                takerAmount: decimalOr0(json, "taker_amount"),
+                tif: match$13._0
+              }
+            };
+          } else {
+            return {
+              TAG: "Error",
+              _0: match$13._0
+            };
+          }
+        } else {
+          return {
+            TAG: "Error",
+            _0: match$12._0
+          };
+        }
+      } else {
+        return {
+          TAG: "Error",
+          _0: match$11._0
+        };
+      }
+    } else {
+      return {
+        TAG: "Error",
+        _0: match$10._0
+      };
+    }
+  } else {
+    return {
+      TAG: "Error",
+      _0: match$9._0
+    };
+  }
+}
+
+function decode(json) {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return Spice.error(undefined, "order event is not an object", json);
+  }
+  let match = json["order_type"];
+  if (match === undefined) {
+    return Spice.error(undefined, "unknown order event order_type", json);
+  }
+  if (typeof match !== "string") {
+    return Spice.error(undefined, "unknown order event order_type", json);
+  }
+  switch (match) {
+    case "limit" :
+      return Stdlib_Result.map(orderUpdate_decode(json), value => ({
+        TAG: "Limit",
+        _0: value
+      }));
+    case "trigger" :
+      return Stdlib_Result.map(triggerOrderUpdateDecode(json), value => ({
+        TAG: "Trigger",
+        _0: value
+      }));
+    default:
+      return Spice.error(undefined, "unknown order event order_type", json);
+  }
+}
+
+let OrderEvent = {
+  decode: decode
+};
+
+function globalDepositBalance_decode(v) {
+  if (typeof v !== "object" || v === null || Array.isArray(v)) {
+    return Spice.error(undefined, "Not an object", v);
+  }
+  let mint = Stdlib_Option.getOr(Stdlib_Option.map(v["mint"], Shared.pubkeyStr_decode), Spice.error(undefined, "mint" + " missing", v));
+  if (mint.TAG === "Ok") {
+    let balance = Stdlib_Option.getOr(Stdlib_Option.map(v["balance"], Spice.stringFromJson), Spice.error(undefined, "balance" + " missing", v));
+    if (balance.TAG === "Ok") {
+      return {
+        TAG: "Ok",
+        _0: {
+          mint: mint._0,
+          balance: balance._0
+        }
+      };
+    }
+    let e = balance._0;
+    return Spice.error("." + ("balance" + e.path), e.message, e.value);
+  }
+  let e$1 = mint._0;
+  return Spice.error("." + ("mint" + e$1.path), e$1.message, e$1.value);
+}
+
+function userSnapshotDecode(json) {
+  if (typeof json !== "object" || json === null || Array.isArray(json)) {
+    return Spice.error(undefined, "user snapshot is not an object", json);
+  }
+  let match = json["orders"];
+  let match$1 = json["market_balances"];
+  if (match === undefined) {
+    return Spice.error(undefined, "user snapshot missing orders/market_balances", json);
+  }
+  if (match$1 === undefined) {
+    return Spice.error(undefined, "user snapshot missing orders/market_balances", json);
+  }
+  let match$2 = Spice.arrayFromJson(t_decode$2, match);
+  let match$3 = Spice.arrayFromJson(userMarketBalance_decode, match$1);
+  let match$4 = Stdlib_Option.mapOr(json["global_deposits"], {
+    TAG: "Ok",
+    _0: []
+  }, json => Spice.arrayFromJson(globalDepositBalance_decode, json));
+  let match$5 = Stdlib_Option.mapOr(json["notifications"], {
+    TAG: "Ok",
+    _0: []
+  }, json => Spice.arrayFromJson(Notification.notificationDecode, json));
+  if (match$2.TAG === "Ok") {
+    if (match$3.TAG === "Ok") {
+      if (match$4.TAG === "Ok") {
+        if (match$5.TAG === "Ok") {
+          return {
+            TAG: "Ok",
+            _0: {
+              orders: match$2._0,
+              marketBalances: match$3._0,
+              globalDeposits: match$4._0,
+              notifications: match$5._0,
+              nonce: Stdlib_Option.getOr(optFloat(json, "nonce"), 0.0)
+            }
+          };
+        } else {
+          return {
+            TAG: "Error",
+            _0: match$5._0
+          };
+        }
+      } else {
+        return {
+          TAG: "Error",
+          _0: match$4._0
+        };
+      }
+    } else {
+      return {
+        TAG: "Error",
+        _0: match$3._0
+      };
+    }
+  } else {
+    return {
+      TAG: "Error",
+      _0: match$2._0
+    };
+  }
+}
+
 let getNonce = Rpc.getNonce;
 
 let SubmitOrderStatus = {};
 
 export {
+  OrderType,
   SubmitOrderStatus,
+  UserSnapshotOrder,
+  userOutcomeBalanceIsZero,
+  userMarketBalance_decode,
+  Role,
+  FillStatus,
+  userOrderFillsResponse_decode,
+  OrderEvent,
+  userSnapshotDecode,
+  triggerOrderUpdateDecode,
   submit,
   cancelBodySigned,
   cancelAllBodySigned,
   cancel,
   cancelAll,
+  submitTrigger,
+  cancelTriggerBodySigned,
+  cancelTrigger,
+  cancelSigned,
+  cancelAllSigned,
+  cancelTriggerSigned,
   getUserOrders,
+  getUserOrderFills,
+  getUserOrderFillsByWallet,
   getNonce,
 }
 /* Rpc Not a pure module */

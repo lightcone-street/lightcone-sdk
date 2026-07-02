@@ -32,7 +32,27 @@ let makeForEnv = (env: Env.t): Client.t => Client.make(~env, ())
 let useNativeSigner = (client: Client.t, secretKey: Uint8Array.t): promise<unit> =>
   Client.useNativeSigner(client, secretKey)
 
-// The native signer's address as a base58 string (None until useNativeSigner is called).
+// Attach an external wallet signer (browser wallet adapter): the wallet's base58
+// address plus its message- and transaction-signing callbacks. `signMessage`
+// returns the raw 64-byte ed25519 signature; `signTransaction` takes the
+// serialized unsigned wire transaction and returns the fully signed wire bytes.
+@genType
+let useExternalSigner = (
+  client: Client.t,
+  ~address: string,
+  ~signMessage: Uint8Array.t => promise<Uint8Array.t>,
+  ~signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+): unit =>
+  Client.useExternalSigner(client, ~address=SolanaKit.address(address), ~signMessage, ~signTransaction)
+
+// Drop the configured signing strategy / cached order nonce.
+@genType
+let clearSigningStrategy = (client: Client.t): unit => Client.clearSigningStrategy(client)
+@genType
+let clearOrderNonce = (client: Client.t): unit => Client.clearOrderNonce(client)
+
+// The configured signer's address as a base58 string (None until useNativeSigner
+// or useExternalSigner is called).
 @genType
 let signerAddress = (client: Client.t): option<string> =>
   Client.signerAddress(client)->Option.map(SolanaKit.addressToString)
@@ -41,13 +61,13 @@ let signerAddress = (client: Client.t): option<string> =>
 @genType
 let unwrap = SdkError.unwrap
 
-// Pull the native signer's (keypair, address) off the client, or throw (internal).
-let nativeSigner = (client: Client.t): (SolanaKit.cryptoKeyPair, SolanaKit.address) =>
-  switch client.signingStrategy {
-  | Some(Client.NativeSigner({keypair, address})) => (keypair, address)
-  | _ =>
+// The configured signer's address, or throw (internal).
+let signerAddressOrThrow = (client: Client.t): SolanaKit.address =>
+  switch Client.signerAddress(client) {
+  | Some(address) => address
+  | None =>
     let error = SdkError.Signing(
-      "no native signer set; call useNativeSigner(client, secretKey) first",
+      "no signing strategy set; call useNativeSigner or useExternalSigner first",
     )
     SdkError.throwAsJsError(SdkError.toMessage(error), error)
   }
@@ -64,6 +84,9 @@ module AuthClient = {
   > => SdkError.unwrap(Auth.checkSession(client, ~cookieHeader?))
   let logout = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.logout(client))
   let isAuthenticated = (client: Client.t): bool => Auth.isAuthenticated(client)
+  let registerPrivy = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.registerPrivy(client))
+  let disconnectX = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.disconnectX(client))
+  let connectXUrl = (client: Client.t): string => Auth.connectXUrl(client)
 }
 
 // ── Markets ───────────────────────────────────────────────────────────────────
@@ -122,6 +145,8 @@ module OrderClient = {
     Order.userOrdersResponse,
   > => SdkError.unwrap(Order.getUserOrders(client, ~limit?, ~cursor?))
 
+  // Submit / cancel sign with the client's configured strategy (native keypair
+  // or external wallet adapter).
   let submitLimit = async (
     client: Client.t,
     ~market: string,
@@ -137,12 +162,10 @@ module OrderClient = {
     ~orderbookId: string,
     ~timeInForce: option<Shared.TimeInForce.t>=?,
   ): Order.submitOrderResponse => {
-    let (keypair, maker) = nativeSigner(client)
     let decimals: Scaling.orderbookDecimals = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
     await SdkError.unwrap(
-      Envelope.submitLimitOrder(
+      Envelope.submitLimitOrderSigned(
         client,
-        ~maker,
         ~market=SolanaKit.address(market),
         ~baseMint=SolanaKit.address(baseMint),
         ~quoteMint=SolanaKit.address(quoteMint),
@@ -151,31 +174,76 @@ module OrderClient = {
         ~size,
         ~decimals,
         ~orderbookId,
-        ~keypair,
         ~timeInForce?,
       ),
     )
   }
 
-  let cancel = async (client: Client.t, ~orderHash: string): Order.cancelSuccess => {
-    let (keypair, address) = nativeSigner(client)
-    let body = await Order.cancelBodySigned(
-      ~orderHash,
-      ~maker=SolanaKit.addressToString(address),
-      ~keypair,
+  let submitTrigger = async (
+    client: Client.t,
+    ~market: string,
+    ~baseMint: string,
+    ~quoteMint: string,
+    ~side: int,
+    ~price: string,
+    ~size: string,
+    ~baseDecimals: int,
+    ~quoteDecimals: int,
+    ~priceDecimals: int,
+    ~tickSize: float,
+    ~orderbookId: string,
+    ~triggerPrice: float,
+    ~triggerType: Shared.TriggerType.t,
+    ~timeInForce: option<Shared.TimeInForce.t>=?,
+  ): Order.triggerOrderResponse => {
+    let decimals: Scaling.orderbookDecimals = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
+    await SdkError.unwrap(
+      Envelope.submitTriggerOrderSigned(
+        client,
+        ~market=SolanaKit.address(market),
+        ~baseMint=SolanaKit.address(baseMint),
+        ~quoteMint=SolanaKit.address(quoteMint),
+        ~side,
+        ~price,
+        ~size,
+        ~decimals,
+        ~orderbookId,
+        ~triggerPrice,
+        ~triggerType,
+        ~timeInForce?,
+      ),
     )
-    await SdkError.unwrap(Order.cancel(client, body))
   }
 
-  let cancelAll = async (client: Client.t, ~orderbookId: string): Order.cancelAllSuccess => {
-    let (keypair, address) = nativeSigner(client)
-    let body = await Order.cancelAllBodySigned(
-      ~userPubkey=SolanaKit.addressToString(address),
-      ~orderbookId,
-      ~keypair,
+  let cancel = (client: Client.t, ~orderHash: string): promise<Order.cancelSuccess> =>
+    SdkError.unwrap(Order.cancelSigned(client, ~orderHash))
+
+  let cancelTrigger = (client: Client.t, ~triggerOrderId: string): promise<Order.cancelTriggerSuccess> =>
+    SdkError.unwrap(Order.cancelTriggerSigned(client, ~triggerOrderId))
+
+  let cancelAll = (client: Client.t, ~orderbookId: string): promise<Order.cancelAllSuccess> =>
+    SdkError.unwrap(Order.cancelAllSigned(client, ~orderbookId))
+
+  // The authenticated user's filled orders with nested fill events.
+  let fills = (
+    client: Client.t,
+    ~marketPubkey: option<string>=?,
+    ~limit: option<int>=?,
+    ~cursor: option<string>=?,
+  ): promise<Order.userOrderFillsResponse> =>
+    SdkError.unwrap(Order.getUserOrderFills(client, ~marketPubkey?, ~limit?, ~cursor?))
+
+  // Public variant: any wallet's fills via the URL path (no auth).
+  let fillsByWallet = (
+    client: Client.t,
+    ~walletAddress: string,
+    ~marketPubkey: option<string>=?,
+    ~limit: option<int>=?,
+    ~cursor: option<string>=?,
+  ): promise<Order.userOrderFillsResponse> =>
+    SdkError.unwrap(
+      Order.getUserOrderFillsByWallet(client, ~walletAddress, ~marketPubkey?, ~limit?, ~cursor?),
     )
-    await SdkError.unwrap(Order.cancelAll(client, body))
-  }
 }
 
 // ── Positions ─────────────────────────────────────────────────────────────────
@@ -193,13 +261,13 @@ module PositionClient = {
 
   // Each builds + signs + sends a Solana transaction and returns the tx signature.
   let depositToGlobal = async (client: Client.t, ~mint: string, ~amount: bigint): string => {
-    let (_keypair, user) = nativeSigner(client)
+    let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
       PositionBuilders.depositToGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
     )
   }
   let withdrawFromGlobal = async (client: Client.t, ~mint: string, ~amount: bigint): string => {
-    let (_keypair, user) = nativeSigner(client)
+    let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
       PositionBuilders.withdrawFromGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
     )
@@ -211,7 +279,7 @@ module PositionClient = {
     ~amount: bigint,
     ~numOutcomes: int,
   ): string => {
-    let (_keypair, user) = nativeSigner(client)
+    let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
       PositionBuilders.globalToMarketDeposit(
         client,
@@ -230,7 +298,7 @@ module PositionClient = {
     ~amount: bigint,
     ~numOutcomes: int,
   ): string => {
-    let (_keypair, user) = nativeSigner(client)
+    let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
       PositionBuilders.merge(
         client,
@@ -249,7 +317,7 @@ module PositionClient = {
     ~amount: bigint,
     ~outcomeIndex: int,
   ): string => {
-    let (_keypair, user) = nativeSigner(client)
+    let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
       PositionBuilders.redeemWinnings(
         client,
@@ -258,6 +326,115 @@ module PositionClient = {
         ~mint=SolanaKit.address(mint),
         ~amount,
         ~outcomeIndex,
+      ),
+    )
+  }
+
+  // Market-level direct deposit (mint complete set): wallet ATA → market vault.
+  let deposit = async (
+    client: Client.t,
+    ~market: string,
+    ~mint: string,
+    ~amount: bigint,
+    ~numOutcomes: int,
+  ): string => {
+    let user = signerAddressOrThrow(client)
+    await SdkError.unwrap(
+      PositionBuilders.deposit(
+        client,
+        ~user,
+        ~market=SolanaKit.address(market),
+        ~mint=SolanaKit.address(mint),
+        ~amount,
+        ~numOutcomes,
+      ),
+    )
+  }
+
+  // Withdraw conditional tokens from the position ATA to the user's own ATA
+  // (`mint` is the conditional mint).
+  let withdrawFromPosition = async (
+    client: Client.t,
+    ~market: string,
+    ~mint: string,
+    ~amount: bigint,
+    ~outcomeIndex: int,
+  ): string => {
+    let user = signerAddressOrThrow(client)
+    await SdkError.unwrap(
+      PositionBuilders.withdrawFromPosition(
+        client,
+        ~user,
+        ~market=SolanaKit.address(market),
+        ~mint=SolanaKit.address(mint),
+        ~amount,
+        ~outcomeIndex,
+      ),
+    )
+  }
+
+  // Append newly-added deposit mints' ATAs to an existing position ALT. The
+  // signer acts as the operator; `user` is the position owner.
+  let extendPositionTokens = async (
+    client: Client.t,
+    ~user: string,
+    ~market: string,
+    ~lookupTable: string,
+    ~depositMints: array<string>,
+    ~numOutcomes: int,
+  ): string => {
+    let operator = signerAddressOrThrow(client)
+    await SdkError.unwrap(
+      PositionBuilders.extendPositionTokens(
+        client,
+        ~operator,
+        ~user=SolanaKit.address(user),
+        ~market=SolanaKit.address(market),
+        ~lookupTable=SolanaKit.address(lookupTable),
+        ~depositMints=depositMints->Array.map(SolanaKit.address),
+        ~numOutcomes,
+      ),
+    )
+  }
+
+  // Deactivate / close a position ALT. The signer acts as the operator;
+  // `position` is the position PDA address itself.
+  let closePositionAlt = async (
+    client: Client.t,
+    ~position: string,
+    ~market: string,
+    ~lookupTable: string,
+  ): string => {
+    let operator = signerAddressOrThrow(client)
+    await SdkError.unwrap(
+      PositionBuilders.closePositionAlt(
+        client,
+        ~operator,
+        ~position=SolanaKit.address(position),
+        ~market=SolanaKit.address(market),
+        ~lookupTable=SolanaKit.address(lookupTable),
+      ),
+    )
+  }
+
+  // Close empty conditional ATAs owned by a position PDA after resolution. The
+  // signer acts as the operator; `position` is the position PDA address itself.
+  let closePositionTokenAccounts = async (
+    client: Client.t,
+    ~market: string,
+    ~position: string,
+    ~depositMints: array<string>,
+    ~numOutcomes: int,
+  ): string => {
+    let operator = signerAddressOrThrow(client)
+    await SdkError.unwrap(
+      PositionBuilders.closePositionTokenAccounts(
+        client,
+        ~operator,
+        ~market=SolanaKit.address(market),
+        ~position=SolanaKit.address(position),
+        ~depositMints=depositMints->Array.map(SolanaKit.address),
+        ~numOutcomes,
       ),
     )
   }
@@ -466,6 +643,10 @@ module WsClient = {
   ): unit => Ws.unsubscribe(connection, subscription)->ignore
   let disconnect = (connection: wsConnection): unit => Ws.disconnect(connection)
   let isConnected = (connection: wsConnection): bool => Ws.isConnected(connection)
+  let readyState = (connection: wsConnection): Ws.readyState => Ws.readyState(connection)
+  // Drop tracked user-channel subscriptions (call after logout).
+  let clearAuthedSubscriptions = (connection: wsConnection): unit =>
+    Ws.clearAuthedSubscriptions(connection)
 }
 
 // ── Live WS state containers ──────────────────────────────────────────────────
@@ -507,4 +688,68 @@ module LiveDepositPrice = {
   let getCandles = DepositPriceState.getCandles
   let getLatestPrice = DepositPriceState.getLatestPrice
   let clear = DepositPriceState.clear
+}
+
+// The user's open limit orders, fed from `User(Snapshot(_))` (via
+// `ofSnapshotOrders`, which seeds BOTH this and the trigger container) and
+// `User(Order(Limit(_)))` events.
+@genType
+module LiveOpenLimitOrders = {
+  let make = OrderState.UserOpenLimitOrders.make
+  let get = OrderState.UserOpenLimitOrders.get
+  let getByMarket = OrderState.UserOpenLimitOrders.getByMarket
+  let insert = OrderState.UserOpenLimitOrders.insert
+  let upsert = OrderState.UserOpenLimitOrders.upsert
+  let remove = OrderState.UserOpenLimitOrders.remove
+  let clear = OrderState.UserOpenLimitOrders.clear
+  let isEmpty = OrderState.UserOpenLimitOrders.isEmpty
+  let limitOrderOfUpdate = OrderState.limitOrderOfUpdate
+  // Seeds (open limit orders, trigger orders) from a user snapshot's orders.
+  let ofSnapshotOrders = OrderState.ofSnapshotOrders
+}
+
+// The user's resting trigger orders, fed from the snapshot seeding above and
+// `User(Order(Trigger(_)))` events (via `triggerOrderOfUpdate`).
+@genType
+module LiveTriggerOrders = {
+  let make = OrderState.UserTriggerOrders.make
+  let get = OrderState.UserTriggerOrders.get
+  let getByMarket = OrderState.UserTriggerOrders.getByMarket
+  let all = OrderState.UserTriggerOrders.all
+  let getById = OrderState.UserTriggerOrders.getById
+  let insert = OrderState.UserTriggerOrders.insert
+  let remove = OrderState.UserTriggerOrders.remove
+  let clear = OrderState.UserTriggerOrders.clear
+  let isEmpty = OrderState.UserTriggerOrders.isEmpty
+  let size = OrderState.UserTriggerOrders.size
+  let triggerOrderOfUpdate = OrderState.triggerOrderOfUpdate
+  let limitPrice = OrderState.limitPrice
+}
+
+// A rolling, capped trade history per orderbook, fed from `Trades` frames and
+// REST backfills.
+@genType
+module LiveTrades = {
+  let make = TradeState.make
+  let push = TradeState.push
+  let replace = TradeState.replace
+  let trades = TradeState.trades
+  let latest = TradeState.latest
+  let clear = TradeState.clear
+  let size = TradeState.size
+  let isEmpty = TradeState.isEmpty
+}
+
+// The user's balance index (market → deposit asset → conditional token), fed
+// from `User(Snapshot(_))` market balances and `User(BalanceUpdate(_))` events.
+@genType
+module LiveUserBalances = {
+  let make = Position.UserMarketBalanceIndex.make
+  let get = Position.UserMarketBalanceIndex.get
+  let insert = Position.UserMarketBalanceIndex.insert
+  let remove = Position.UserMarketBalanceIndex.remove
+  let extend = Position.UserMarketBalanceIndex.extend
+  let marketPubkeys = Position.UserMarketBalanceIndex.marketPubkeys
+  let ofMarketBalance = Position.UserMarketBalanceIndex.ofMarketBalance
+  let ofMarketBalances = Position.UserMarketBalanceIndex.ofMarketBalances
 }

@@ -45,6 +45,22 @@ let conditionalMint = (programId, ~market, ~depositMint, ~outcomeIndex) =>
     [seedBytes("conditional_mint"), addressBytes(market), addressBytes(depositMint), u8byte(outcomeIndex)],
   )
 
+// Every outcome's conditional mint for (market, deposit_mint), in outcome order
+// (Rust `get_all_conditional_mint_pdas`).
+let allConditionalMints = async (
+  programId,
+  ~market,
+  ~depositMint,
+  ~numOutcomes: int,
+): array<SolanaKit.address> => {
+  let mints = []
+  for outcomeIndex in 0 to numOutcomes - 1 {
+    let (mint, _) = await conditionalMint(programId, ~market, ~depositMint, ~outcomeIndex)
+    mints->Array.push(mint)
+  }
+  mints
+}
+
 // Seeds: ["condition", condition_id (32)]
 let condition = (programId, ~conditionId: Uint8Array.t) =>
   derive(programId, [seedBytes("condition"), conditionId])

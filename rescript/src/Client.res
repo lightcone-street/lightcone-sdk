@@ -6,6 +6,17 @@
 // cycle. The grouped `client.markets()…` ergonomics live in the gentype facade
 // (TypeScriptApi.res); the idiomatic ReScript surface is `Market.featured(client)`.
 
+// An external wallet signer (browser wallet adapter) — the SDK calls these when
+// the strategy is `ExternalSigner` (Rust `SigningStrategy::WalletAdapter`).
+// `signMessage` returns the raw 64-byte ed25519 signature over the message
+// bytes; `signTransaction` takes the serialized unsigned wire transaction and
+// returns the fully signed wire bytes.
+type externalSigner = {
+  address: SolanaKit.address,
+  signMessage: Uint8Array.t => promise<Uint8Array.t>,
+  signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+}
+
 // How orders / cancels / transactions get signed. `None` ⇒ manual signing.
 type signingStrategy =
   | NativeSigner({
@@ -13,6 +24,7 @@ type signingStrategy =
       signer: SolanaKit.keyPairSigner,
       address: SolanaKit.address,
     })
+  | ExternalSigner(externalSigner)
 
 // Opaque to TypeScript: a client is a handle created by `make`, passed to the
 // SDK functions. Its internals (HTTP transport, signer, RPC) aren't TS-facing.
@@ -73,10 +85,12 @@ let setDepositSource = (client: t, source: Shared.DepositSource.t): unit =>
 
 let orderNonce = (client: t): option<bigint> => client.orderNonce
 let setOrderNonce = (client: t, nonce: bigint): unit => client.orderNonce = Some(nonce)
+let clearOrderNonce = (client: t): unit => client.orderNonce = None
 
 let signerAddress = (client: t): option<SolanaKit.address> =>
   switch client.signingStrategy {
   | Some(NativeSigner({address})) => Some(address)
+  | Some(ExternalSigner({address})) => Some(address)
   | None => None
   }
 
@@ -87,6 +101,37 @@ let useNativeSigner = async (client: t, secretKey: Uint8Array.t): unit => {
   let signer = await SolanaKitKeys.createKeyPairSignerFromBytes(secretKey)
   client.signingStrategy = Some(NativeSigner({keypair, signer, address: SolanaKitKeys.signerAddress(signer)}))
 }
+
+// Attach an external wallet signer (browser wallet adapter): the wallet's
+// address plus its message- and transaction-signing callbacks.
+let useExternalSigner = (
+  client: t,
+  ~address: SolanaKit.address,
+  ~signMessage: Uint8Array.t => promise<Uint8Array.t>,
+  ~signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+): unit => client.signingStrategy = Some(ExternalSigner({address, signMessage, signTransaction}))
+
+let clearSigningStrategy = (client: t): unit => client.signingStrategy = None
+
+// Sign raw message bytes with the configured strategy (orders, cancels, and the
+// login message all sign this way). External-signer exceptions surface as
+// `Signing` errors.
+let signMessageBytes = async (client: t, message: Uint8Array.t): result<Uint8Array.t, SdkError.t> =>
+  switch client.signingStrategy {
+  | None =>
+    Error(
+      SdkError.Signing(
+        "no signing strategy configured; call Client.useNativeSigner or Client.useExternalSigner first",
+      ),
+    )
+  | Some(NativeSigner({keypair})) => Ok(await SolanaKitKeys.signBytes(keypair.privateKey, message))
+  | Some(ExternalSigner({signMessage})) =>
+    switch await signMessage(message) {
+    | signature => Ok(signature)
+    | exception JsExn(error) =>
+      Error(SdkError.Signing(error->JsExn.message->Option.getOr("external signer failed to sign message")))
+    }
+  }
 
 let clearAuth = (client: t): unit => Http.clearAuthToken(client.http)
 let authToken = (client: t): option<string> => Http.authToken(client.http)

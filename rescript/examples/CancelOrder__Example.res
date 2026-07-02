@@ -24,11 +24,17 @@ let main = async () => {
     switch await Order.getUserOrders(client, ~limit=50) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok(snapshot) =>
-      switch snapshot.orders->Array.find(order => order.orderType == "limit") {
+      let firstLimit = snapshot.orders->Array.findMap(order =>
+        switch order {
+        | Order.UserSnapshotOrder.Limit(limit) => Some(limit)
+        | Trigger(_) => None
+        }
+      )
+      switch firstLimit {
       | None => Console.log("No open limit orders to cancel.")
       | Some(order) => {
           let body = await Order.cancelBodySigned(
-            ~orderHash=order.orderHash,
+            ~orderHash=order.common.orderHash,
             ~maker=SolanaKit.addressToString(maker),
             ~keypair,
           )

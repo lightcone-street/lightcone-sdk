@@ -128,6 +128,16 @@ type orderBook = {
 let aggregationOfOrderBook = (book: orderBook): BookAggregation.t =>
   BookAggregation.fromFrame(book.nSigFigs, book.mantissa)
 
+// ── Ticker (orderbook/ticker.rs) ──────────────────────────────────────────────
+// Best bid/ask/mid for an orderbook — the domain twin of the WS `ticker`
+// payload (`Messages.wsTicker`), with prices as Decimal strings.
+type tickerData = {
+  orderbookId: Shared.orderBookId,
+  bestBid?: string,
+  bestAsk?: string,
+  midPrice?: string,
+}
+
 // ── Client functions ──────────────────────────────────────────────────────────
 let optionalQuery = (query, key, value) =>
   value->Option.forEach(value => query->Array.push((key, value)))

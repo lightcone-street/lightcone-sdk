@@ -331,6 +331,49 @@ function decodeUserNonce(bytes) {
   });
 }
 
+function decodeOrderStatus(bytes) {
+  return guard("OrderStatus", () => {
+    let error = checkHeader(bytes, 32, Constants.Discriminator.orderStatus, "OrderStatus");
+    if (error.TAG === "Ok") {
+      return {
+        TAG: "Ok",
+        _0: {
+          remaining: u64At(bytes, 8),
+          baseRemaining: u64At(bytes, 16),
+          isCancelled: boolAt(bytes, 24)
+        }
+      };
+    } else {
+      return {
+        TAG: "Error",
+        _0: error._0
+      };
+    }
+  });
+}
+
+function decodeGlobalDepositToken(bytes) {
+  return guard("GlobalDepositToken", () => {
+    let error = checkHeader(bytes, 47, Constants.Discriminator.globalDepositToken, "GlobalDepositToken");
+    if (error.TAG === "Ok") {
+      return {
+        TAG: "Ok",
+        _0: {
+          mint: addressAt(bytes, 8),
+          bump: u8At(bytes, 40),
+          index: u16At(bytes, 41),
+          active: boolAt(bytes, 43)
+        }
+      };
+    } else {
+      return {
+        TAG: "Error",
+        _0: error._0
+      };
+    }
+  });
+}
+
 let MarketStatus = {
   toString: toString
 };
@@ -345,5 +388,7 @@ export {
   decodeOrderbook,
   decodePosition,
   decodeUserNonce,
+  decodeOrderStatus,
+  decodeGlobalDepositToken,
 }
 /* u8Decoder Not a pure module */

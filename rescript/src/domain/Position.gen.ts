@@ -3,9 +3,15 @@
 /* eslint-disable */
 /* tslint:disable */
 
+import * as PositionJS from './Position.res.mjs';
+
 import type {orderBookId as Shared_orderBookId} from '../../src/Shared.gen.ts';
 
 import type {pubkeyStr as Shared_pubkeyStr} from '../../src/Shared.gen.ts';
+
+import type {userMarketBalance as Order_userMarketBalance} from './Order.gen.ts';
+
+import type {userOutcomeBalance as Order_userOutcomeBalance} from './Order.gen.ts';
 
 export type outcomeBalance = {
   readonly outcomeIndex: number; 
@@ -108,3 +114,77 @@ export type tokenBalance = {
   readonly onBook: string; 
   readonly tokenType: tokenBalanceTokenType
 };
+
+export type depositAssetMetadata = {
+  readonly symbol: string; 
+  readonly shortSymbol: string; 
+  readonly name: string; 
+  readonly depositAsset: Shared_pubkeyStr; 
+  readonly iconUrlLow: string; 
+  readonly iconUrlMedium: string; 
+  readonly iconUrlHigh: string; 
+  readonly description?: string; 
+  readonly decimals: number
+};
+
+export type ConditionalBalanceDelta_t = {
+  readonly marketPubkey: Shared_pubkeyStr; 
+  readonly orderbookId?: Shared_orderBookId; 
+  readonly outcomeIndex: number; 
+  readonly conditionalToken: Shared_pubkeyStr; 
+  readonly idle: string; 
+  readonly onBook: string
+};
+
+export type tokenBalanceComputedBase = {
+  readonly value: string; 
+  readonly size: string; 
+  readonly price: string
+};
+
+export type UserMarketBalanceIndex_conditionalTokenBalanceIndex = {[id: string]: Order_userOutcomeBalance};
+
+export type UserMarketBalanceIndex_depositAssetBalanceIndex = {[id: string]: UserMarketBalanceIndex_conditionalTokenBalanceIndex};
+
+export type UserMarketBalanceIndex_t = {[id: string]: UserMarketBalanceIndex_depositAssetBalanceIndex};
+
+export const ConditionalBalanceDelta_total: (_1:ConditionalBalanceDelta_t) => string = PositionJS.ConditionalBalanceDelta.total as any;
+
+export const ConditionalBalanceDelta_isZero: (_1:ConditionalBalanceDelta_t) => boolean = PositionJS.ConditionalBalanceDelta.isZero as any;
+
+export const tokenBalanceOfConditionalBalanceDelta: (_1:ConditionalBalanceDelta_t) => tokenBalance = PositionJS.tokenBalanceOfConditionalBalanceDelta as any;
+
+export const userOutcomeBalanceOfConditionalBalanceDelta: (_1:ConditionalBalanceDelta_t) => Order_userOutcomeBalance = PositionJS.userOutcomeBalanceOfConditionalBalanceDelta as any;
+
+export const computedBase: (_1:tokenBalance, conditionalPrice:string) => tokenBalanceComputedBase = PositionJS.computedBase as any;
+
+export const computedQuote: (_1:tokenBalance) => string = PositionJS.computedQuote as any;
+
+export const UserMarketBalanceIndex_make: () => UserMarketBalanceIndex_t = PositionJS.UserMarketBalanceIndex.make as any;
+
+export const UserMarketBalanceIndex_get: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr) => (undefined | UserMarketBalanceIndex_depositAssetBalanceIndex) = PositionJS.UserMarketBalanceIndex.get as any;
+
+export const UserMarketBalanceIndex_insert: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr, _3:UserMarketBalanceIndex_depositAssetBalanceIndex) => void = PositionJS.UserMarketBalanceIndex.insert as any;
+
+export const UserMarketBalanceIndex_remove: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr) => void = PositionJS.UserMarketBalanceIndex.remove as any;
+
+export const UserMarketBalanceIndex_extend: (_1:UserMarketBalanceIndex_t, _2:UserMarketBalanceIndex_t) => void = PositionJS.UserMarketBalanceIndex.extend as any;
+
+export const UserMarketBalanceIndex_marketPubkeys: (_1:UserMarketBalanceIndex_t) => Shared_pubkeyStr[] = PositionJS.UserMarketBalanceIndex.marketPubkeys as any;
+
+export const UserMarketBalanceIndex_ofMarketBalance: (_1:Order_userMarketBalance) => (undefined | UserMarketBalanceIndex_t) = PositionJS.UserMarketBalanceIndex.ofMarketBalance as any;
+
+export const UserMarketBalanceIndex_ofMarketBalances: (_1:Order_userMarketBalance[]) => UserMarketBalanceIndex_t = PositionJS.UserMarketBalanceIndex.ofMarketBalances as any;
+
+export const ConditionalBalanceDelta: { total: (_1:ConditionalBalanceDelta_t) => string; isZero: (_1:ConditionalBalanceDelta_t) => boolean } = PositionJS.ConditionalBalanceDelta as any;
+
+export const UserMarketBalanceIndex: {
+  extend: (_1:UserMarketBalanceIndex_t, _2:UserMarketBalanceIndex_t) => void; 
+  insert: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr, _3:UserMarketBalanceIndex_depositAssetBalanceIndex) => void; 
+  ofMarketBalances: (_1:Order_userMarketBalance[]) => UserMarketBalanceIndex_t; 
+  get: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr) => (undefined | UserMarketBalanceIndex_depositAssetBalanceIndex); 
+  remove: (_1:UserMarketBalanceIndex_t, marketPubkey:Shared_pubkeyStr) => void; 
+  marketPubkeys: (_1:UserMarketBalanceIndex_t) => Shared_pubkeyStr[]; 
+  make: () => UserMarketBalanceIndex_t; 
+  ofMarketBalance: (_1:Order_userMarketBalance) => (undefined | UserMarketBalanceIndex_t)
+} = PositionJS.UserMarketBalanceIndex as any;

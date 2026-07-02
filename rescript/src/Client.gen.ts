@@ -19,8 +19,15 @@ import type {t as Http_t} from './Http.gen.ts';
 
 import type {t as SolanaKitRpc_t} from '../bindings/solana-kit/SolanaKitRpc.gen.ts';
 
+export type externalSigner = {
+  readonly address: SolanaKit_address; 
+  readonly signMessage: (_1:Uint8Array) => Promise<Uint8Array>; 
+  readonly signTransaction: (_1:Uint8Array) => Promise<Uint8Array>
+};
+
 export type signingStrategy = 
-    { TAG: "NativeSigner"; readonly keypair: SolanaKit_cryptoKeyPair; readonly signer: SolanaKit_keyPairSigner; readonly address: SolanaKit_address };
+    { TAG: "NativeSigner"; readonly keypair: SolanaKit_cryptoKeyPair; readonly signer: SolanaKit_keyPairSigner; readonly address: SolanaKit_address }
+  | { TAG: "ExternalSigner"; _0: externalSigner };
 
 export type t = {
   readonly http: Http_t; 

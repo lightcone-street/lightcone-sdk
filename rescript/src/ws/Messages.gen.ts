@@ -3,6 +3,8 @@
 /* eslint-disable */
 /* tslint:disable */
 
+import type {OrderEvent_t as Order_OrderEvent_t} from '../../src/domain/Order.gen.ts';
+
 import type {Resolution_t as Shared_Resolution_t} from '../../src/Shared.gen.ts';
 
 import type {Side_t as Shared_Side_t} from '../../src/Shared.gen.ts';
@@ -18,6 +20,10 @@ import type {orderBook as Orderbook_orderBook} from '../../src/domain/Orderbook.
 import type {orderbookPriceCandle as PriceHistory_orderbookPriceCandle} from '../../src/domain/PriceHistory.gen.ts';
 
 import type {pubkeyStr as Shared_pubkeyStr} from '../../src/Shared.gen.ts';
+
+import type {userMarketBalance as Order_userMarketBalance} from '../../src/domain/Order.gen.ts';
+
+import type {userSnapshot as Order_userSnapshot} from '../../src/domain/Order.gen.ts';
 
 export type wsErrorFrame = {
   readonly error: string; 
@@ -117,21 +123,9 @@ export type WsDepositAssetPrice_t =
     { TAG: "Snapshot"; _0: WsDepositAssetPrice_snapshot }
   | { TAG: "Price"; _0: WsDepositAssetPrice_tick };
 
-export type userOutcomeBalance = {
-  readonly outcomeIndex: number; 
-  readonly conditionalToken: Shared_pubkeyStr; 
-  readonly balance: string; 
-  readonly balanceIdle: string; 
-  readonly balanceOnBook: string
-};
-
-export type userDepositAssetBalance = { readonly depositAsset: Shared_pubkeyStr; readonly outcomes: userOutcomeBalance[] };
-
-export type userMarketBalance = { readonly marketPubkey: Shared_pubkeyStr; readonly depositAssets: userDepositAssetBalance[] };
-
 export type userBalanceUpdate = {
   readonly marketPubkey: Shared_pubkeyStr; 
-  readonly marketBalance: userMarketBalance; 
+  readonly marketBalance: Order_userMarketBalance; 
   readonly timestamp: string
 };
 
@@ -148,8 +142,8 @@ export type nonceUpdate = {
 };
 
 export type UserUpdate_t = 
-    { TAG: "Snapshot"; _0: unknown }
-  | { TAG: "Order"; _0: unknown }
+    { TAG: "Snapshot"; _0: Order_userSnapshot }
+  | { TAG: "Order"; _0: Order_OrderEvent_t }
   | { TAG: "BalanceUpdate"; _0: userBalanceUpdate }
   | { TAG: "GlobalDepositUpdate"; _0: globalDepositUpdate }
   | { TAG: "NonceUpdate"; _0: nonceUpdate }

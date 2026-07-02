@@ -11,8 +11,9 @@
 // Conventions: prices/sizes/Decimals → wire strings (no precision loss; the Rust
 // uses `rust_decimal` with `serde-str`). Sequences and millisecond timestamps →
 // `float`. `DateTime<Utc>` fields the backend serializes as ISO-8601 strings stay
-// strings (e.g. WS trade `timestamp`, the user-event `timestamp`s); the WS-order
-// `created_at` (epoch-ms) lives in the deferred snapshot/order payloads below.
+// strings (e.g. WS trade `timestamp`, the user-event `timestamp`s). The user
+// `snapshot` / `order` payload trees live in `Order.res` (like `Orderbook.orderBook`
+// does for `book_update`) and are dispatched into from `UserUpdate` below.
 //
 // Variant payloads use value or named-record arms (never ReScript inline records,
 // which fail to compile): single-field channels carry a bare value, multi-field
@@ -349,32 +350,13 @@ module WsDepositAssetPrice = {
     }
 }
 
-// ── User balances (plain records → spice) ─────────────────────────────────────
-@spice
-type userOutcomeBalance = {
-  @spice.key("outcome_index") outcomeIndex: float,
-  @spice.key("conditional_token") conditionalToken: Shared.pubkeyStr,
-  balance: string,
-  @spice.key("balance_idle") balanceIdle: string,
-  @spice.key("balance_on_book") balanceOnBook: string,
-}
-
-@spice
-type userDepositAssetBalance = {
-  @spice.key("deposit_asset") depositAsset: Shared.pubkeyStr,
-  outcomes: array<userOutcomeBalance>,
-}
-
-@spice
-type userMarketBalance = {
-  @spice.key("market_pubkey") marketPubkey: Shared.pubkeyStr,
-  @spice.key("deposit_assets") depositAssets: array<userDepositAssetBalance>,
-}
-
 // ── User leaf events (timestamps are ISO-8601 strings) ────────────────────────
+// The balance tree is `Order.userMarketBalance` — the same type the user
+// snapshot carries (and `Position.UserMarketBalanceIndex` consumes), matching
+// the Rust wire layout where both events share `UserMarketBalance`.
 type userBalanceUpdate = {
   marketPubkey: Shared.pubkeyStr,
-  marketBalance: userMarketBalance,
+  marketBalance: Order.userMarketBalance,
   timestamp: string,
 }
 
@@ -395,7 +377,7 @@ let userBalanceUpdateDecode = (json: JSON.t): result<userBalanceUpdate, Spice.de
   | JSON.Object(dict) =>
     switch (field(dict, "market_pubkey"), field(dict, "market_balance"), field(dict, "timestamp")) {
     | (Some(JSON.String(marketPubkey)), Some(balanceJson), Some(JSON.String(timestamp))) =>
-      switch userMarketBalance_decode(balanceJson) {
+      switch Order.userMarketBalance_decode(balanceJson) {
       | Ok(marketBalance) => Ok({marketPubkey, marketBalance, timestamp})
       | Error(error) => Error(error)
       }
@@ -428,17 +410,12 @@ let nonceUpdateDecode = (json: JSON.t): result<nonceUpdate, Spice.decodeError> =
 
 // ── User update (internally tagged on `event_type`) ───────────────────────────
 // The `snapshot` and `order` events carry the largest nested wire trees (orders,
-// trigger orders, fills) that feed the stateful user/order containers. Those
-// containers are deferred (see TODO(state) below), so the raw — already
-// null-stripped — payload is carried here until the typed port lands. Not
-// `@genType`-exported for that reason.
+// trigger orders, balances); their payload types + decoders live in `Order.res`
+// and feed the stateful `OrderState` containers.
 module UserUpdate = {
-  // TODO(state): `Snapshot` and `Order` carry the raw (already null-stripped)
-  // payload — the snapshot/order wire trees (orders, trigger orders, fills) feed
-  // the deferred stateful user/order containers and are typed when those land.
   type t =
-    | Snapshot(JSON.t)
-    | Order(JSON.t)
+    | Snapshot(Order.userSnapshot)
+    | Order(Order.OrderEvent.t)
     | BalanceUpdate(userBalanceUpdate)
     | GlobalDepositUpdate(globalDepositUpdate)
     | NonceUpdate(nonceUpdate)
@@ -448,8 +425,10 @@ module UserUpdate = {
     switch json {
     | JSON.Object(dict) =>
       switch field(dict, "event_type") {
-      | Some(JSON.String("snapshot")) => Ok(Snapshot(json))
-      | Some(JSON.String("order")) => Ok(Order(json))
+      | Some(JSON.String("snapshot")) =>
+        Order.userSnapshotDecode(json)->Result.map(value => Snapshot(value))
+      | Some(JSON.String("order")) =>
+        Order.OrderEvent.decode(json)->Result.map(value => Order(value))
       | Some(JSON.String("market_balance_update")) =>
         userBalanceUpdateDecode(json)->Result.map(value => BalanceUpdate(value))
       | Some(JSON.String("global_deposit_update")) =>
@@ -469,8 +448,7 @@ module UserUpdate = {
 
 // ── Kind + MessageIn ──────────────────────────────────────────────────────────
 // `ErrorFrame` mirrors the Rust `Kind::Error` (renamed so it doesn't shadow the
-// `result` `Error` constructor used throughout the decoders). Not `@genType`
-// because `User` carries the deferred raw-JSON payloads.
+// `result` `Error` constructor used throughout the decoders).
 type kind =
   | BookUpdate(Orderbook.orderBook)
   | Trades(wsTrade)

@@ -21,16 +21,45 @@ function programIdFor(env) {
 }
 
 let Instruction = {
+  initialize: 0,
+  createMarket: 1,
+  addDepositMint: 2,
   mintCompleteSet: 3,
   mergeCompleteSet: 4,
   cancelOrder: 5,
   incrementNonce: 6,
+  settleMarket: 7,
   redeemWinnings: 8,
+  setPaused: 9,
+  setOperator: 10,
+  withdrawFromPosition: 11,
+  activateMarket: 12,
+  matchOrdersMulti: 13,
+  setAuthority: 14,
+  createOrderbook: 15,
+  whitelistDepositToken: 16,
   depositToGlobal: 17,
   globalToMarketDeposit: 18,
   initPositionTokens: 19,
+  depositAndSwap: 20,
   extendPositionTokens: 21,
-  withdrawFromGlobal: 22
+  withdrawFromGlobal: 22,
+  closePositionAlt: 23,
+  closeOrderStatus: 24,
+  closePositionTokenAccounts: 25,
+  closeOrderbookAlt: 26,
+  closeOrderbook: 27,
+  setManager: 28,
+  setMarketFees: 29,
+  setFeeReceiver: 30,
+  createConditionalMetadata: 31,
+  updateConditionalMetadata: 32,
+  setOracle: 33,
+  refreshOrderbookAlt: 34,
+  acceptAuthority: 35,
+  acceptManager: 36,
+  acceptOperator: 37,
+  setDepositTokenStatus: 38
 };
 
 let exchange = [
@@ -130,6 +159,8 @@ let maxOutcomes = 6;
 
 let minOutcomes = 2;
 
+let maxMakers = 5;
+
 export {
   altProgram,
   systemProgram,
@@ -145,5 +176,6 @@ export {
   signatureSize,
   maxOutcomes,
   minOutcomes,
+  maxMakers,
 }
 /* altProgram Not a pure module */

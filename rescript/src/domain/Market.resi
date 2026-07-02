@@ -285,6 +285,83 @@ let isResolved: market => bool
 let singleWinningOutcome: market => option<float>
 let hasSingleWinningOutcome: market => bool
 
+// ── Token helpers (market/tokens.rs) ──────────────────────────────────────────
+@genType
+let usdcMainnet: Shared.pubkeyStr
+@genType
+let usdtMainnet: Shared.pubkeyStr
+@genType
+let usdcDevnetLc: Shared.pubkeyStr
+
+@genType
+let isUsdStablecoin: Shared.pubkeyStr => bool
+// "$" for USD stablecoins, "" otherwise.
+@genType
+let currencySymbol: Shared.pubkeyStr => string
+
+// Per-type conveniences: `…IsUsdStableCoin` checks the backing deposit asset;
+// `…CurrencySymbol` checks the token's own mint.
+@genType
+let conditionalTokenIsUsdStableCoin: conditionalToken => bool
+@genType
+let conditionalTokenCurrencySymbol: conditionalToken => string
+@genType
+let depositAssetIsUsdStableCoin: depositAsset => bool
+@genType
+let depositAssetCurrencySymbol: depositAsset => string
+@genType
+let globalDepositAssetIsUsdStableCoin: globalDepositAsset => bool
+@genType
+let globalDepositAssetCurrencySymbol: globalDepositAsset => string
+
+// A new array ordered for display: BTC/WBTC → ETH/WETH → SOL first, then the
+// rest alphabetically by symbol. Pass `~symbolOf` (e.g. `token => token.symbol`,
+// or `pair => pair.base.symbol` for composite pairs).
+@genType
+let sortByDisplayPriority: (array<'a>, ~symbolOf: 'a => string) => array<'a>
+
+// Resolve three icon-url quality variants with cross-fallback. `None` only when
+// all three inputs are absent.
+let resolveIconUrls: (
+  option<string>,
+  option<string>,
+  option<string>,
+) => option<(string, string, string)>
+
+// ── OrderBookPair helpers (orderbook/mod.rs) ──────────────────────────────────
+// Scaling decimals derived from the pair's token metadata (no REST call needed).
+@genType
+let orderBookPairDecimals: orderBookPair => Scaling.orderbookDecimals
+
+// Calculated impact of a conditional token's price vs its deposit asset.
+@genType
+type outcomeImpact = {
+  sign: string,
+  pct: float,
+  // Absolute dollar difference, as a Decimal string.
+  dollar: string,
+  isPositive: bool,
+}
+
+// Price impact as a percentage relative to the deposit asset price: (pct, sign).
+// Zero / malformed inputs yield (0.0, "").
+@genType
+let impactPct: (~depositPrice: string, ~conditionalPrice: string) => (float, string)
+
+// Full impact with sign, percentage, and absolute dollar difference. A zero /
+// malformed deposit price yields the zero impact.
+@genType
+let impact: (~depositAssetPrice: string, ~conditionalPrice: string) => outcomeImpact
+
+// ── Denominator pair helpers ──────────────────────────────────────────────────
+// The conditional token a denomination refers to on this pair, plus its symbols.
+@genType
+let denominatorToken: (Shared.Denominator.t, orderBookPair) => conditionalToken
+@genType
+let denominatorSymbol: (Shared.Denominator.t, orderBookPair) => string
+@genType
+let denominatorDepositSymbol: (Shared.Denominator.t, orderBookPair) => string
+
 // ── Client functions ──────────────────────────────────────────────────────────
 // Cursor-paginated markets. Only Active and Resolved markets are kept; markets
 // that fail validation are skipped and surfaced in `validationErrors`.
