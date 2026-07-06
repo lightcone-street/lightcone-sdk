@@ -1,5 +1,5 @@
 // On-chain program constants — program ids, well-known programs, instruction
-// opcodes, and account discriminators. Mirrors rust/src/program/constants.rs.
+// opcodes, and account discriminators, as defined by the on-chain program.
 // This is a Pinocchio program: instructions use a SINGLE-byte opcode at data[0]
 // (no Anchor 8-byte discriminator), and account data starts with an 8-byte
 // discriminator we compare on read.

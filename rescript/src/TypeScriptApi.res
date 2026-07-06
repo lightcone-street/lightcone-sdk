@@ -1,6 +1,6 @@
 // The TypeScript-facing SDK surface (gentype → TypeScriptApi.gen.ts; the package
 // entry point). ReScript consumers use the result-returning domain modules directly
-// (`Market.featured(client)` → `promise<result<_, SdkError.t>>`); this module wraps
+// (`Market.Client.featured(client)` → `promise<result<_, SdkError.t>>`); this module wraps
 // each call with `SdkError.unwrap` so TypeScript gets throwing `Promise<T>` ergonomics,
 // adapts string pubkeys + the client's stored keypair into the `@solana/kit` values the
 // core needs, and groups everything under `@genType module` namespaces so TS consumers
@@ -43,7 +43,12 @@ let useExternalSigner = (
   ~signMessage: Uint8Array.t => promise<Uint8Array.t>,
   ~signTransaction: Uint8Array.t => promise<Uint8Array.t>,
 ): unit =>
-  Client.useExternalSigner(client, ~address=SolanaKit.address(address), ~signMessage, ~signTransaction)
+  Client.useExternalSigner(
+    client,
+    ~address=SolanaKit.address(address),
+    ~signMessage,
+    ~signTransaction,
+  )
 
 // Drop the configured signing strategy / cached order nonce.
 @genType
@@ -75,48 +80,52 @@ let signerAddressOrThrow = (client: Client.t): SolanaKit.address =>
 // ── Auth ──────────────────────────────────────────────────────────────────────
 @genType
 module AuthClient = {
-  let getNonce = (client: Client.t): promise<string> => SdkError.unwrap(Auth.getNonce(client))
+  let getNonce = (client: Client.t): promise<string> =>
+    SdkError.unwrap(Auth.Client.getNonce(client))
   let login = (client: Client.t, ~useEmbeddedWallet: option<bool>=?): promise<
-    Auth.sessionResponse,
-  > => SdkError.unwrap(Auth.login(client, ~useEmbeddedWallet?))
+    Auth__Model.Session.t,
+  > => SdkError.unwrap(Auth.Client.login(client, ~useEmbeddedWallet?))
   let checkSession = (client: Client.t, ~cookieHeader: option<string>=?): promise<
-    Auth.sessionResponse,
-  > => SdkError.unwrap(Auth.checkSession(client, ~cookieHeader?))
-  let logout = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.logout(client))
-  let isAuthenticated = (client: Client.t): bool => Auth.isAuthenticated(client)
-  let registerPrivy = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.registerPrivy(client))
-  let disconnectX = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.disconnectX(client))
-  let connectXUrl = (client: Client.t): string => Auth.connectXUrl(client)
+    Auth__Model.Session.t,
+  > => SdkError.unwrap(Auth.Client.checkSession(client, ~cookieHeader?))
+  let logout = (client: Client.t): promise<unit> => SdkError.unwrap(Auth.Client.logout(client))
+  let isAuthenticated = (client: Client.t): bool => Auth.Client.isAuthenticated(client)
+  let registerPrivy = (client: Client.t): promise<unit> =>
+    SdkError.unwrap(Auth.Client.registerPrivy(client))
+  let disconnectX = (client: Client.t): promise<unit> =>
+    SdkError.unwrap(Auth.Client.disconnectX(client))
+  let connectXUrl = (client: Client.t): string => Auth.Client.connectXUrl(client)
 }
 
 // ── Markets ───────────────────────────────────────────────────────────────────
 @genType
 module MarketClient = {
   let get = (client: Client.t, ~cursor: option<float>=?, ~limit: option<int>=?): promise<
-    Market.marketsResult,
-  > => SdkError.unwrap(Market.get(client, ~cursor?, ~limit?))
-  let featured = (client: Client.t): promise<array<Market.marketSearchResult>> =>
-    SdkError.unwrap(Market.featured(client))
-  let getBySlug = (client: Client.t, slug: string): promise<Market.market> =>
-    SdkError.unwrap(Market.getBySlug(client, ~slug))
-  let getByPubkey = (client: Client.t, pubkey: string): promise<Market.market> =>
-    SdkError.unwrap(Market.getByPubkey(client, ~pubkey))
+    Market__Model.MarketsResult.t,
+  > => SdkError.unwrap(Market.Client.get(client, ~cursor?, ~limit?))
+  let featured = (client: Client.t): promise<array<Market__Raw.MarketSearchResult.t>> =>
+    SdkError.unwrap(Market.Client.featured(client))
+  let getBySlug = (client: Client.t, slug: string): promise<Market__Model.t> =>
+    SdkError.unwrap(Market.Client.getBySlug(client, ~slug))
+  let getByPubkey = (client: Client.t, pubkey: string): promise<Market__Model.t> =>
+    SdkError.unwrap(Market.Client.getByPubkey(client, ~pubkey))
   let search = (client: Client.t, query: string, ~limit: option<int>=?): promise<
-    array<Market.marketSearchResult>,
-  > => SdkError.unwrap(Market.search(client, ~query, ~limit?))
-  let globalDepositAssets = (client: Client.t): promise<Market.globalDepositAssetsResult> =>
-    SdkError.unwrap(Market.globalDepositAssets(client))
+    array<Market__Raw.MarketSearchResult.t>,
+  > => SdkError.unwrap(Market.Client.search(client, ~query, ~limit?))
+  let globalDepositAssets = (client: Client.t): promise<
+    Market__Model.GlobalDepositAssetsResult.t,
+  > => SdkError.unwrap(Market.Client.globalDepositAssets(client))
   let depositMints = (client: Client.t, marketPubkey: string): promise<
-    Market.depositMintsResponse,
-  > => SdkError.unwrap(Market.getDepositMints(client, ~marketPubkey))
+    Market__Raw.DepositMintsResponse.t,
+  > => SdkError.unwrap(Market.Client.getDepositMints(client, ~marketPubkey))
 }
 
 // ── Orderbook ─────────────────────────────────────────────────────────────────
 @genType
 module OrderbookClient = {
   let get = (client: Client.t, orderbookId: string, ~depth: option<int>=?): promise<
-    Orderbook.orderbookDepthResponse,
-  > => SdkError.unwrap(Orderbook.get(client, ~orderbookId, ~depth?))
+    Orderbook__Raw.DepthResponse.t,
+  > => SdkError.unwrap(Orderbook.Client.get(client, ~orderbookId, ~depth?))
 }
 
 // ── Trades ────────────────────────────────────────────────────────────────────
@@ -127,23 +136,23 @@ module TradeClient = {
     orderbookId: string,
     ~limit: option<int>=?,
     ~cursor: option<float>=?,
-  ): promise<Trade.tradesPage> =>
-    SdkError.unwrap(Trade.get(client, ~orderbookId, ~limit?, ~cursor?))
+  ): promise<Trade__Model.Page.t> =>
+    SdkError.unwrap(Trade.Client.get(client, ~orderbookId, ~limit?, ~cursor?))
   let forMarket = (
     client: Client.t,
     marketPubkey: string,
     ~limit: option<int>=?,
     ~cursor: option<float>=?,
-  ): promise<Trade.tradesPage> =>
-    SdkError.unwrap(Trade.getByMarket(client, ~marketPubkey, ~limit?, ~cursor?))
+  ): promise<Trade__Model.Page.t> =>
+    SdkError.unwrap(Trade.Client.getByMarket(client, ~marketPubkey, ~limit?, ~cursor?))
 }
 
 // ── Orders ────────────────────────────────────────────────────────────────────
 @genType
 module OrderClient = {
   let forUser = (client: Client.t, ~limit: option<int>=?, ~cursor: option<string>=?): promise<
-    Order.userOrdersResponse,
-  > => SdkError.unwrap(Order.getUserOrders(client, ~limit?, ~cursor?))
+    Order__Raw.UserOrdersResponse.t,
+  > => SdkError.unwrap(Order.Client.getUserOrders(client, ~limit?, ~cursor?))
 
   // Submit / cancel sign with the client's configured strategy (native keypair
   // or external wallet adapter).
@@ -161,8 +170,8 @@ module OrderClient = {
     ~tickSize: float,
     ~orderbookId: string,
     ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ): Order.submitOrderResponse => {
-    let decimals: Scaling.orderbookDecimals = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
+  ): Order__Raw.SubmitResponse.t => {
+    let decimals: Scaling.OrderbookDecimals.t = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
     await SdkError.unwrap(
       Envelope.submitLimitOrderSigned(
         client,
@@ -195,8 +204,8 @@ module OrderClient = {
     ~triggerPrice: float,
     ~triggerType: Shared.TriggerType.t,
     ~timeInForce: option<Shared.TimeInForce.t>=?,
-  ): Order.triggerOrderResponse => {
-    let decimals: Scaling.orderbookDecimals = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
+  ): Order__Raw.TriggerResponse.t => {
+    let decimals: Scaling.OrderbookDecimals.t = {baseDecimals, quoteDecimals, priceDecimals, tickSize}
     await SdkError.unwrap(
       Envelope.submitTriggerOrderSigned(
         client,
@@ -215,14 +224,16 @@ module OrderClient = {
     )
   }
 
-  let cancel = (client: Client.t, ~orderHash: string): promise<Order.cancelSuccess> =>
-    SdkError.unwrap(Order.cancelSigned(client, ~orderHash))
+  let cancel = (client: Client.t, ~orderHash: string): promise<Order__Raw.CancelSuccess.t> =>
+    SdkError.unwrap(Order.Client.cancelSigned(client, ~orderHash))
 
-  let cancelTrigger = (client: Client.t, ~triggerOrderId: string): promise<Order.cancelTriggerSuccess> =>
-    SdkError.unwrap(Order.cancelTriggerSigned(client, ~triggerOrderId))
+  let cancelTrigger = (client: Client.t, ~triggerOrderId: string): promise<
+    Order__Raw.CancelTriggerSuccess.t,
+  > => SdkError.unwrap(Order.Client.cancelTriggerSigned(client, ~triggerOrderId))
 
-  let cancelAll = (client: Client.t, ~orderbookId: string): promise<Order.cancelAllSuccess> =>
-    SdkError.unwrap(Order.cancelAllSigned(client, ~orderbookId))
+  let cancelAll = (client: Client.t, ~orderbookId: string): promise<
+    Order__Raw.CancelAllSuccess.t,
+  > => SdkError.unwrap(Order.Client.cancelAllSigned(client, ~orderbookId))
 
   // The authenticated user's filled orders with nested fill events.
   let fills = (
@@ -230,8 +241,8 @@ module OrderClient = {
     ~marketPubkey: option<string>=?,
     ~limit: option<int>=?,
     ~cursor: option<string>=?,
-  ): promise<Order.userOrderFillsResponse> =>
-    SdkError.unwrap(Order.getUserOrderFills(client, ~marketPubkey?, ~limit?, ~cursor?))
+  ): promise<Order__Raw.UserFillsResponse.t> =>
+    SdkError.unwrap(Order.Client.getUserOrderFills(client, ~marketPubkey?, ~limit?, ~cursor?))
 
   // Public variant: any wallet's fills via the URL path (no auth).
   let fillsByWallet = (
@@ -240,36 +251,44 @@ module OrderClient = {
     ~marketPubkey: option<string>=?,
     ~limit: option<int>=?,
     ~cursor: option<string>=?,
-  ): promise<Order.userOrderFillsResponse> =>
+  ): promise<Order__Raw.UserFillsResponse.t> =>
     SdkError.unwrap(
-      Order.getUserOrderFillsByWallet(client, ~walletAddress, ~marketPubkey?, ~limit?, ~cursor?),
+      Order.Client.getUserOrderFillsByWallet(
+        client,
+        ~walletAddress,
+        ~marketPubkey?,
+        ~limit?,
+        ~cursor?,
+      ),
     )
 }
 
 // ── Positions ─────────────────────────────────────────────────────────────────
 @genType
 module PositionClient = {
-  let forUser = (client: Client.t, userPubkey: string): promise<Position.positionsResponse> =>
-    SdkError.unwrap(Position.get(client, ~userPubkey))
+  let forUser = (client: Client.t, userPubkey: string): promise<
+    Position__Raw.PositionsResponse.t,
+  > => SdkError.unwrap(Position.Client.get(client, ~userPubkey))
   let forMarket = (client: Client.t, ~userPubkey: string, ~marketPubkey: string): promise<
-    Position.marketPositionsResponse,
-  > => SdkError.unwrap(Position.getForMarket(client, ~userPubkey, ~marketPubkey))
-  let mine = (client: Client.t): promise<Position.positionsResponse> =>
-    SdkError.unwrap(Position.positions(client))
-  let depositTokenBalances = (client: Client.t): promise<dict<Position.depositTokenBalance>> =>
-    SdkError.unwrap(Position.depositTokenBalances(client))
+    Position__Raw.MarketPositionsResponse.t,
+  > => SdkError.unwrap(Position.Client.getForMarket(client, ~userPubkey, ~marketPubkey))
+  let mine = (client: Client.t): promise<Position__Raw.PositionsResponse.t> =>
+    SdkError.unwrap(Position.Client.positions(client))
+  let depositTokenBalances = (client: Client.t): promise<
+    dict<Position__Raw.DepositTokenBalance.t>,
+  > => SdkError.unwrap(Position.Client.depositTokenBalances(client))
 
   // Each builds + signs + sends a Solana transaction and returns the tx signature.
   let depositToGlobal = async (client: Client.t, ~mint: string, ~amount: bigint): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.depositToGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
+      Position.Builders.depositToGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
     )
   }
   let withdrawFromGlobal = async (client: Client.t, ~mint: string, ~amount: bigint): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.withdrawFromGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
+      Position.Builders.withdrawFromGlobal(client, ~user, ~mint=SolanaKit.address(mint), ~amount),
     )
   }
   let globalToMarketDeposit = async (
@@ -281,7 +300,7 @@ module PositionClient = {
   ): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.globalToMarketDeposit(
+      Position.Builders.globalToMarketDeposit(
         client,
         ~user,
         ~market=SolanaKit.address(market),
@@ -300,7 +319,7 @@ module PositionClient = {
   ): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.merge(
+      Position.Builders.merge(
         client,
         ~user,
         ~market=SolanaKit.address(market),
@@ -319,7 +338,7 @@ module PositionClient = {
   ): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.redeemWinnings(
+      Position.Builders.redeemWinnings(
         client,
         ~user,
         ~market=SolanaKit.address(market),
@@ -340,7 +359,7 @@ module PositionClient = {
   ): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.deposit(
+      Position.Builders.deposit(
         client,
         ~user,
         ~market=SolanaKit.address(market),
@@ -362,7 +381,7 @@ module PositionClient = {
   ): string => {
     let user = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.withdrawFromPosition(
+      Position.Builders.withdrawFromPosition(
         client,
         ~user,
         ~market=SolanaKit.address(market),
@@ -385,7 +404,7 @@ module PositionClient = {
   ): string => {
     let operator = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.extendPositionTokens(
+      Position.Builders.extendPositionTokens(
         client,
         ~operator,
         ~user=SolanaKit.address(user),
@@ -407,7 +426,7 @@ module PositionClient = {
   ): string => {
     let operator = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.closePositionAlt(
+      Position.Builders.closePositionAlt(
         client,
         ~operator,
         ~position=SolanaKit.address(position),
@@ -428,7 +447,7 @@ module PositionClient = {
   ): string => {
     let operator = signerAddressOrThrow(client)
     await SdkError.unwrap(
-      PositionBuilders.closePositionTokenAccounts(
+      Position.Builders.closePositionTokenAccounts(
         client,
         ~operator,
         ~market=SolanaKit.address(market),
@@ -443,48 +462,49 @@ module PositionClient = {
 // ── Metrics ───────────────────────────────────────────────────────────────────
 @genType
 module MetricsClient = {
-  let platform = (client: Client.t): promise<Metrics.platformMetrics> =>
-    SdkError.unwrap(Metrics.platform(client))
-  let markets = (client: Client.t): promise<Metrics.marketsMetrics> =>
-    SdkError.unwrap(Metrics.markets(client))
-  let market = (client: Client.t, marketPubkey: string): promise<Metrics.marketDetailMetrics> =>
-    SdkError.unwrap(Metrics.market(client, ~marketPubkey))
+  let platform = (client: Client.t): promise<Metrics__Raw.Platform.t> =>
+    SdkError.unwrap(Metrics.Client.platform(client))
+  let markets = (client: Client.t): promise<Metrics__Raw.Markets.t> =>
+    SdkError.unwrap(Metrics.Client.markets(client))
+  let market = (client: Client.t, marketPubkey: string): promise<Metrics__Raw.MarketDetail.t> =>
+    SdkError.unwrap(Metrics.Client.market(client, ~marketPubkey))
   let orderbookTickers = (client: Client.t, ~depositAsset: option<string>=?): promise<
-    Metrics.orderbookTickersResponse,
-  > => SdkError.unwrap(Metrics.orderbookTickers(client, ~depositAsset?))
-  let categories = (client: Client.t): promise<Metrics.categoriesMetrics> =>
-    SdkError.unwrap(Metrics.categories(client))
-  let depositTokens = (client: Client.t): promise<Metrics.depositTokensMetrics> =>
-    SdkError.unwrap(Metrics.depositTokens(client))
-  let leaderboard = (client: Client.t, ~limit: option<int>=?): promise<Metrics.leaderboard> =>
-    SdkError.unwrap(Metrics.leaderboard(client, ~limit?))
+    Metrics__Raw.OrderbookTickersResponse.t,
+  > => SdkError.unwrap(Metrics.Client.orderbookTickers(client, ~depositAsset?))
+  let categories = (client: Client.t): promise<Metrics__Raw.Categories.t> =>
+    SdkError.unwrap(Metrics.Client.categories(client))
+  let depositTokens = (client: Client.t): promise<Metrics__Raw.DepositTokens.t> =>
+    SdkError.unwrap(Metrics.Client.depositTokens(client))
+  let leaderboard = (client: Client.t, ~limit: option<int>=?): promise<
+    Metrics__Raw.Leaderboard.t,
+  > => SdkError.unwrap(Metrics.Client.leaderboard(client, ~limit?))
   let orderbook = (client: Client.t, ~orderbookId: string): promise<
-    Metrics.orderbookVolumeMetrics,
-  > => SdkError.unwrap(Metrics.orderbook(client, ~orderbookId))
+    Metrics__Raw.OrderbookVolume.t,
+  > => SdkError.unwrap(Metrics.Client.orderbook(client, ~orderbookId))
   let depositTokensVolumeHistory = (
     client: Client.t,
     ~fromMs: option<float>=?,
     ~toMs: option<float>=?,
     ~limit: option<int>=?,
-  ): promise<Metrics.depositTokenVolumeHistory> =>
-    SdkError.unwrap(Metrics.depositTokensVolumeHistory(client, ~fromMs?, ~toMs?, ~limit?))
+  ): promise<Metrics__Raw.DepositTokenVolumeHistory.t> =>
+    SdkError.unwrap(Metrics.Client.depositTokensVolumeHistory(client, ~fromMs?, ~toMs?, ~limit?))
   let openInterestHistory = (
     client: Client.t,
     ~fromMs: option<float>=?,
     ~toMs: option<float>=?,
     ~limit: option<int>=?,
-  ): promise<Metrics.openInterestHistory> =>
-    SdkError.unwrap(Metrics.openInterestHistory(client, ~fromMs?, ~toMs?, ~limit?))
+  ): promise<Metrics__Raw.OpenInterestHistory.t> =>
+    SdkError.unwrap(Metrics.Client.openInterestHistory(client, ~fromMs?, ~toMs?, ~limit?))
   let uniqueTradersHistory = (
     client: Client.t,
-    ~scope: option<Metrics.UniqueTradersHistoryScope.t>=?,
+    ~scope: option<Metrics__Raw.UniqueTradersHistoryScope.t>=?,
     ~scopeKey: option<string>=?,
     ~fromMs: option<float>=?,
     ~toMs: option<float>=?,
     ~limit: option<int>=?,
-  ): promise<Metrics.uniqueTradersHistory> =>
+  ): promise<Metrics__Raw.UniqueTradersHistory.t> =>
     SdkError.unwrap(
-      Metrics.uniqueTradersHistory(client, ~scope?, ~scopeKey?, ~fromMs?, ~toMs?, ~limit?),
+      Metrics.Client.uniqueTradersHistory(client, ~scope?, ~scopeKey?, ~fromMs?, ~toMs?, ~limit?),
     )
   let history = (
     client: Client.t,
@@ -494,14 +514,14 @@ module MetricsClient = {
     ~fromMs: option<float>=?,
     ~toMs: option<float>=?,
     ~limit: option<int>=?,
-  ): promise<Metrics.metricsHistory> =>
+  ): promise<Metrics__Raw.History.t> =>
     SdkError.unwrap(
-      Metrics.history(client, ~scope, ~scopeKey, ~resolution, ~fromMs?, ~toMs?, ~limit?),
+      Metrics.Client.history(client, ~scope, ~scopeKey, ~resolution, ~fromMs?, ~toMs?, ~limit?),
     )
-  let user = (client: Client.t): promise<Metrics.userMetrics> =>
-    SdkError.unwrap(Metrics.user(client))
-  let userByWallet = (client: Client.t, ~walletAddress: string): promise<Metrics.userMetrics> =>
-    SdkError.unwrap(Metrics.userByWallet(client, ~walletAddress))
+  let user = (client: Client.t): promise<Metrics__Raw.User.t> =>
+    SdkError.unwrap(Metrics.Client.user(client))
+  let userByWallet = (client: Client.t, ~walletAddress: string): promise<Metrics__Raw.User.t> =>
+    SdkError.unwrap(Metrics.Client.userByWallet(client, ~walletAddress))
 }
 
 // ── PriceHistory ──────────────────────────────────────────────────────────────
@@ -513,8 +533,8 @@ module PriceHistoryClient = {
     ~resolution: Shared.Resolution.t,
     ~fromMs: option<float>=?,
     ~toMs: option<float>=?,
-  ): promise<PriceHistory.orderbookPriceHistoryResponse> =>
-    SdkError.unwrap(PriceHistory.get(client, ~orderbookId, ~resolution, ~fromMs?, ~toMs?))
+  ): promise<PriceHistory__Raw.OrderbookResponse.t> =>
+    SdkError.unwrap(PriceHistory.Client.get(client, ~orderbookId, ~resolution, ~fromMs?, ~toMs?))
   let lineData = (
     client: Client.t,
     ~orderbookId: string,
@@ -523,9 +543,9 @@ module PriceHistoryClient = {
     ~toMs: option<float>=?,
     ~cursor: option<float>=?,
     ~limit: option<float>=?,
-  ): promise<array<PriceHistory.lineData>> =>
+  ): promise<array<PriceHistory__Model.LineData.t>> =>
     SdkError.unwrap(
-      PriceHistory.getLineData(
+      PriceHistory.Client.getLineData(
         client,
         ~orderbookId,
         ~resolution,
@@ -536,48 +556,48 @@ module PriceHistoryClient = {
       ),
     )
   let depositAssetSnapshot = (client: Client.t): promise<
-    PriceHistory.depositAssetPricesSnapshotResponse,
-  > => SdkError.unwrap(PriceHistory.getDepositAssetPricesSnapshot(client))
+    PriceHistory__Raw.DepositPricesSnapshotResponse.t,
+  > => SdkError.unwrap(PriceHistory.Client.getDepositAssetPricesSnapshot(client))
 }
 
 // ── Notifications ─────────────────────────────────────────────────────────────
 @genType
 module NotificationClient = {
-  let list = (client: Client.t): promise<array<Notification.notification>> =>
-    SdkError.unwrap(Notification.fetch(client))
+  let list = (client: Client.t): promise<array<Notification__Model.t>> =>
+    SdkError.unwrap(Notification.Client.fetch(client))
   let dismiss = (client: Client.t, ~notificationId: string): promise<unit> =>
-    SdkError.unwrap(Notification.dismiss(client, ~notificationId))
+    SdkError.unwrap(Notification.Client.dismiss(client, ~notificationId))
 }
 
 // ── Referrals ─────────────────────────────────────────────────────────────────
 @genType
 module ReferralClient = {
-  let status = (client: Client.t): promise<Referral.referralStatus> =>
-    SdkError.unwrap(Referral.getStatus(client))
-  let redeem = (client: Client.t, code: string): promise<Referral.redeemResult> =>
-    SdkError.unwrap(Referral.redeem(client, ~code))
+  let status = (client: Client.t): promise<Referral__Model.Status.t> =>
+    SdkError.unwrap(Referral.Client.getStatus(client))
+  let redeem = (client: Client.t, code: string): promise<Referral__Model.RedeemResult.t> =>
+    SdkError.unwrap(Referral.Client.redeem(client, ~code))
 }
 
 // ── Faucet ────────────────────────────────────────────────────────────────────
 @genType
 module FaucetClient = {
-  let claim = (client: Client.t, walletAddress: string): promise<Faucet.faucetResponse> =>
-    SdkError.unwrap(Faucet.claim(client, ~walletAddress))
+  let claim = (client: Client.t, walletAddress: string): promise<Faucet__Raw.Response.t> =>
+    SdkError.unwrap(Faucet.Client.claim(client, ~walletAddress))
 }
 
 // ── Onchain reads + PDA derivation (over the @solana/kit RPC; pubkeys as base58) ──
 @genType
 module RpcClient = {
   // Which endpoint is currently serving reads ("primary" until a failover flips it).
-  let activeRpc = (client: Client.t): RpcFailover.activeRpc => Rpc.activeRpc(client)
+  let activeRpc = (client: Client.t): RpcFailover.Active.t => Rpc.activeRpc(client)
   let latestBlockhash = (client: Client.t): promise<string> =>
     SdkError.unwrap(Rpc.getLatestBlockhash(client))
-  let exchange = (client: Client.t): promise<Accounts.exchange> =>
+  let exchange = (client: Client.t): promise<Accounts.Exchange.t> =>
     SdkError.unwrap(Rpc.getExchange(client))
-  let market = (client: Client.t, marketPubkey: string): promise<Accounts.market> =>
+  let market = (client: Client.t, marketPubkey: string): promise<Accounts.Market.t> =>
     SdkError.unwrap(Rpc.getMarket(client, SolanaKit.address(marketPubkey)))
   let orderbook = (client: Client.t, baseMint: string, quoteMint: string): promise<
-    Accounts.orderbook,
+    Accounts.Orderbook.t,
   > =>
     SdkError.unwrap(
       Rpc.getOrderbook(
@@ -587,7 +607,7 @@ module RpcClient = {
       ),
     )
   let position = (client: Client.t, userPubkey: string, marketPubkey: string): promise<
-    option<Accounts.position>,
+    option<Accounts.Position.t>,
   > =>
     SdkError.unwrap(
       Rpc.getPosition(
@@ -621,9 +641,9 @@ module RpcClient = {
 @genType
 module WsClient = {
   @genType.opaque
-  type wsConnection = Ws.connection
+  type wsConnection = Ws.t
   @genType
-  type wsMessage = Messages.messageIn
+  type wsMessage = Messages.t
   @genType
   type wsSubscription = Subscriptions.SubscribeParams.t
   @genType
@@ -631,7 +651,7 @@ module WsClient = {
 
   let connect = (
     client: Client.t,
-    ~onMessage: Messages.messageIn => unit,
+    ~onMessage: Messages.t => unit,
     ~onConnected: unit => unit=() => (),
     ~onError: SdkError.t => unit=_ => (),
   ): wsConnection => Ws.connect(~url=client.wsUrl, ~onMessage, ~onConnected, ~onError, ())
@@ -643,7 +663,7 @@ module WsClient = {
   ): unit => Ws.unsubscribe(connection, subscription)->ignore
   let disconnect = (connection: wsConnection): unit => Ws.disconnect(connection)
   let isConnected = (connection: wsConnection): bool => Ws.isConnected(connection)
-  let readyState = (connection: wsConnection): Ws.readyState => Ws.readyState(connection)
+  let readyState = (connection: wsConnection): Ws.ReadyState.t => Ws.readyState(connection)
   // Drop tracked user-channel subscriptions (call after logout).
   let clearAuthedSubscriptions = (connection: wsConnection): unit =>
     Ws.clearAuthedSubscriptions(connection)
@@ -655,39 +675,41 @@ module WsClient = {
 // and thus shadows — the domain `*State` module it re-exports.
 @genType
 module LiveOrderbook = {
-  let make = OrderbookState.make
-  let apply = OrderbookState.apply
-  let bestBid = OrderbookState.bestBid
-  let bestAsk = OrderbookState.bestAsk
-  let midPrice = OrderbookState.midPrice
-  let spread = OrderbookState.spread
-  let bids = OrderbookState.bids
-  let asks = OrderbookState.asks
-  let isEmpty = OrderbookState.isEmpty
-  let seq = OrderbookState.seq
-  let orderbookId = OrderbookState.orderbookId
-  let clear = OrderbookState.clear
+  // Implementation-module paths (not `Orderbook.State`): these un-annotated lets
+  // are genType-visible, and genType cannot follow namespace aliases in types.
+  let make = Orderbook__State.make
+  let apply = Orderbook__State.apply
+  let bestBid = Orderbook__State.bestBid
+  let bestAsk = Orderbook__State.bestAsk
+  let midPrice = Orderbook__State.midPrice
+  let spread = Orderbook__State.spread
+  let bids = Orderbook__State.bids
+  let asks = Orderbook__State.asks
+  let isEmpty = Orderbook__State.isEmpty
+  let seq = Orderbook__State.seq
+  let orderbookId = Orderbook__State.orderbookId
+  let clear = Orderbook__State.clear
 }
 
 @genType
 module LivePriceHistory = {
-  let make = PriceHistoryState.make
-  let applySnapshot = PriceHistoryState.applySnapshot
-  let applyUpdate = PriceHistoryState.applyUpdate
-  let get = PriceHistoryState.get
-  let clear = PriceHistoryState.clear
+  let make = PriceHistory__State.make
+  let applySnapshot = PriceHistory__State.applySnapshot
+  let applyUpdate = PriceHistory__State.applyUpdate
+  let get = PriceHistory__State.get
+  let clear = PriceHistory__State.clear
 }
 
 @genType
 module LiveDepositPrice = {
-  let make = DepositPriceState.make
-  let applySnapshot = DepositPriceState.applySnapshot
-  let applyCandle = DepositPriceState.applyCandle
-  let applyPriceTick = DepositPriceState.applyPriceTick
-  let applyAssetSnapshot = DepositPriceState.applyAssetSnapshot
-  let getCandles = DepositPriceState.getCandles
-  let getLatestPrice = DepositPriceState.getLatestPrice
-  let clear = DepositPriceState.clear
+  let make = PriceHistory__DepositState.make
+  let applySnapshot = PriceHistory__DepositState.applySnapshot
+  let applyCandle = PriceHistory__DepositState.applyCandle
+  let applyPriceTick = PriceHistory__DepositState.applyPriceTick
+  let applyAssetSnapshot = PriceHistory__DepositState.applyAssetSnapshot
+  let getCandles = PriceHistory__DepositState.getCandles
+  let getLatestPrice = PriceHistory__DepositState.getLatestPrice
+  let clear = PriceHistory__DepositState.clear
 }
 
 // The user's open limit orders, fed from `User(Snapshot(_))` (via
@@ -695,61 +717,61 @@ module LiveDepositPrice = {
 // `User(Order(Limit(_)))` events.
 @genType
 module LiveOpenLimitOrders = {
-  let make = OrderState.UserOpenLimitOrders.make
-  let get = OrderState.UserOpenLimitOrders.get
-  let getByMarket = OrderState.UserOpenLimitOrders.getByMarket
-  let insert = OrderState.UserOpenLimitOrders.insert
-  let upsert = OrderState.UserOpenLimitOrders.upsert
-  let remove = OrderState.UserOpenLimitOrders.remove
-  let clear = OrderState.UserOpenLimitOrders.clear
-  let isEmpty = OrderState.UserOpenLimitOrders.isEmpty
-  let limitOrderOfUpdate = OrderState.limitOrderOfUpdate
+  let make = Order__State.Limits.make
+  let get = Order__State.Limits.get
+  let getByMarket = Order__State.Limits.getByMarket
+  let insert = Order__State.Limits.insert
+  let upsert = Order__State.Limits.upsert
+  let remove = Order__State.Limits.remove
+  let clear = Order__State.Limits.clear
+  let isEmpty = Order__State.Limits.isEmpty
+  let limitOrderOfUpdate = Order__Raw.Update.toLimit
   // Seeds (open limit orders, trigger orders) from a user snapshot's orders.
-  let ofSnapshotOrders = OrderState.ofSnapshotOrders
+  let ofSnapshotOrders = Order__State.fromSnapshotOrders
 }
 
 // The user's resting trigger orders, fed from the snapshot seeding above and
-// `User(Order(Trigger(_)))` events (via `triggerOrderOfUpdate`).
+// `User(Order(Trigger(_)))` events (converted with the update converter below).
 @genType
 module LiveTriggerOrders = {
-  let make = OrderState.UserTriggerOrders.make
-  let get = OrderState.UserTriggerOrders.get
-  let getByMarket = OrderState.UserTriggerOrders.getByMarket
-  let all = OrderState.UserTriggerOrders.all
-  let getById = OrderState.UserTriggerOrders.getById
-  let insert = OrderState.UserTriggerOrders.insert
-  let remove = OrderState.UserTriggerOrders.remove
-  let clear = OrderState.UserTriggerOrders.clear
-  let isEmpty = OrderState.UserTriggerOrders.isEmpty
-  let size = OrderState.UserTriggerOrders.size
-  let triggerOrderOfUpdate = OrderState.triggerOrderOfUpdate
-  let limitPrice = OrderState.limitPrice
+  let make = Order__State.Triggers.make
+  let get = Order__State.Triggers.get
+  let getByMarket = Order__State.Triggers.getByMarket
+  let all = Order__State.Triggers.all
+  let getById = Order__State.Triggers.getById
+  let insert = Order__State.Triggers.insert
+  let remove = Order__State.Triggers.remove
+  let clear = Order__State.Triggers.clear
+  let isEmpty = Order__State.Triggers.isEmpty
+  let size = Order__State.Triggers.size
+  let triggerOrderOfUpdate = Order__Raw.TriggerUpdate.toTrigger
+  let limitPrice = Order__Model.Trigger.limitPrice
 }
 
 // A rolling, capped trade history per orderbook, fed from `Trades` frames and
 // REST backfills.
 @genType
 module LiveTrades = {
-  let make = TradeState.make
-  let push = TradeState.push
-  let replace = TradeState.replace
-  let trades = TradeState.trades
-  let latest = TradeState.latest
-  let clear = TradeState.clear
-  let size = TradeState.size
-  let isEmpty = TradeState.isEmpty
+  let make = Trade__State.make
+  let push = Trade__State.push
+  let replace = Trade__State.replace
+  let trades = Trade__State.trades
+  let latest = Trade__State.latest
+  let clear = Trade__State.clear
+  let size = Trade__State.size
+  let isEmpty = Trade__State.isEmpty
 }
 
 // The user's balance index (market → deposit asset → conditional token), fed
 // from `User(Snapshot(_))` market balances and `User(BalanceUpdate(_))` events.
 @genType
 module LiveUserBalances = {
-  let make = Position.UserMarketBalanceIndex.make
-  let get = Position.UserMarketBalanceIndex.get
-  let insert = Position.UserMarketBalanceIndex.insert
-  let remove = Position.UserMarketBalanceIndex.remove
-  let extend = Position.UserMarketBalanceIndex.extend
-  let marketPubkeys = Position.UserMarketBalanceIndex.marketPubkeys
-  let ofMarketBalance = Position.UserMarketBalanceIndex.ofMarketBalance
-  let ofMarketBalances = Position.UserMarketBalanceIndex.ofMarketBalances
+  let make = Position__State.make
+  let get = Position__State.get
+  let insert = Position__State.insert
+  let remove = Position__State.remove
+  let extend = Position__State.extend
+  let marketPubkeys = Position__State.marketPubkeys
+  let ofMarketBalance = Position__State.fromMarketBalance
+  let ofMarketBalances = Position__State.fromMarketBalances
 }

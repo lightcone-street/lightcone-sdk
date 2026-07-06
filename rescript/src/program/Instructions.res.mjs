@@ -868,6 +868,12 @@ function serializeConditionalMetadata(name, symbol, uri) {
   }
 }
 
+let SignedOrder = {};
+
+let MatchMaker = {};
+
+let SwapMaker = {};
+
 function signedOrderBytes(signed) {
   return OrderPayload.concatBytes([
     OrderPayload.Compact.serialize(OrderPayload.toOrder(signed.order)),
@@ -1288,6 +1294,8 @@ async function setOracle(programId, authority, market, newOracle) {
     }
   };
 }
+
+let MarketFeeUpdate = {};
 
 async function setMarketFees(programId, manager, updates) {
   if (updates.length === 0) {
@@ -1749,6 +1757,8 @@ async function matchOrdersMulti(programId, operator, market, baseMint, quoteMint
   };
 }
 
+let OrderbookMint = {};
+
 let addressLte = (function (a, b) {
   for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] < b[i]; }
   return true;
@@ -1926,6 +1936,8 @@ async function refreshOrderbookAlt(programId, manager, market, orderbook, lookup
     data: OrderPayload.concatBytes([Kit.getU8Encoder().encode(Constants.Instruction.refreshOrderbookAlt)])
   };
 }
+
+let DepositToGlobalAltContext = {};
 
 async function depositToGlobalWithAlt(programId, user, mint, amount, altContext) {
   let match = await Pda.globalDepositToken(programId, mint);
@@ -2340,6 +2352,9 @@ export {
   extendPositionTokens,
   closePositionAlt,
   closePositionTokenAccounts,
+  SignedOrder,
+  MatchMaker,
+  SwapMaker,
   initialize,
   createMarket,
   addDepositMint,
@@ -2355,6 +2370,7 @@ export {
   acceptOperator,
   activateMarket,
   setOracle,
+  MarketFeeUpdate,
   setMarketFees,
   setFeeReceiver,
   setFeeReceiverWithAtas,
@@ -2363,8 +2379,10 @@ export {
   createConditionalMetadata,
   updateConditionalMetadata,
   matchOrdersMulti,
+  OrderbookMint,
   createOrderbook,
   refreshOrderbookAlt,
+  DepositToGlobalAltContext,
   depositToGlobalWithAlt,
   depositAndSwap,
   closeOrderStatus,

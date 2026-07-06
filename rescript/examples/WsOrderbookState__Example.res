@@ -1,5 +1,5 @@
-// WebSocket: maintain a LIVE order book (OrderbookState) and a rolling price-history series
-// (PriceHistoryState) for the first orderbook of the first market — printing best bid / best
+// WebSocket: maintain a LIVE order book (Orderbook.State) and a rolling price-history series
+// (PriceHistory.State) for the first orderbook of the first market — printing best bid / best
 // ask / mid / spread as snapshot frames arrive. Demonstrates the stateful WS containers
 // (ported from rust `*/state.rs`). ReScript surface — the domain containers directly.
 
@@ -9,16 +9,16 @@ let sleep = (ms: int): promise<unit> =>
 let main = async () => {
   let client = Common__Example.client()
 
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Ok({markets}) =>
     switch markets[0]->Option.flatMap(market => market.orderbookPairs[0]) {
     | Some(pair) =>
       let orderbookId = pair.orderbookId
-      let book = OrderbookState.make(orderbookId)
-      let history = PriceHistoryState.make()
+      let book = Orderbook.State.make(orderbookId)
+      let history = PriceHistory.State.make()
       let hits = ref(0)
       // The resync handler re-subscribes, so it needs the connection — threaded back via a ref.
-      let connectionRef: ref<option<Ws.connection>> = ref(None)
+      let connectionRef: ref<option<Ws.t>> = ref(None)
 
       let show = value => value->Option.getOr("-")
 
@@ -29,14 +29,14 @@ let main = async () => {
         ~onMessage=msg =>
           switch msg.kind {
           | BookUpdate(frame) =>
-            switch OrderbookState.apply(book, frame) {
+            switch Orderbook.State.apply(book, frame) {
             | Applied =>
               hits := hits.contents + 1
               Console.log(
-                `book: bid=${show(OrderbookState.bestBid(book))} ask=${show(
-                    OrderbookState.bestAsk(book),
-                  )} mid=${show(OrderbookState.midPrice(book))} spread=${show(
-                    OrderbookState.spread(book),
+                `book: bid=${show(Orderbook.State.bestBid(book))} ask=${show(
+                    Orderbook.State.bestAsk(book),
+                  )} mid=${show(Orderbook.State.midPrice(book))} spread=${show(
+                    Orderbook.State.spread(book),
                   )}`,
               )
             | RefreshRequired(ServerResync) =>
@@ -56,7 +56,7 @@ let main = async () => {
             switch event {
             | Snapshot(snap) =>
               hits := hits.contents + 1
-              PriceHistoryState.applySnapshot(
+              PriceHistory.State.applySnapshot(
                 history,
                 ~orderbookId=snap.orderbookId,
                 ~resolution=snap.resolution,
@@ -64,7 +64,7 @@ let main = async () => {
               )
               Console.log(`price-history snapshot: ${Int.toString(Array.length(snap.prices))} candles`)
             | Update(upd) =>
-              PriceHistoryState.applyUpdate(
+              PriceHistory.State.applyUpdate(
                 history,
                 ~orderbookId=upd.orderbookId,
                 ~resolution=upd.resolution,
@@ -94,7 +94,7 @@ let main = async () => {
       await sleep(15000)
       Ws.disconnect(connection)
 
-      switch PriceHistoryState.get(history, ~orderbookId, ~resolution=Hour1) {
+      switch PriceHistory.State.get(history, ~orderbookId, ~resolution=Hour1) {
       | Some(series) => Console.log(`final price-history series: ${Int.toString(Array.length(series))} points`)
       | None => ()
       }

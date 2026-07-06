@@ -154,7 +154,7 @@ async function getExchange(client) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Accounts.decodeExchange(bytes);
+    return Accounts.Exchange.decode(bytes);
   } else {
     return {
       TAG: "Error",
@@ -176,7 +176,7 @@ async function getMarket(client, market) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Accounts.decodeMarket(bytes);
+    return Accounts.Market.decode(bytes);
   } else {
     return {
       TAG: "Error",
@@ -204,7 +204,7 @@ async function getGlobalDepositToken(client, mint) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Accounts.decodeGlobalDepositToken(bytes);
+    return Accounts.GlobalDepositToken.decode(bytes);
   } else {
     return {
       TAG: "Error",
@@ -227,7 +227,7 @@ async function getOrderStatus(client, orderHash) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Stdlib_Result.map(Accounts.decodeOrderStatus(bytes), status => status);
+    return Stdlib_Result.map(Accounts.OrderStatus.decode(bytes), status => status);
   } else {
     return {
       TAG: "Ok",
@@ -251,7 +251,7 @@ async function getOrderbook(client, mintA, mintB) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Accounts.decodeOrderbook(bytes);
+    return Accounts.Orderbook.decode(bytes);
   } else {
     return {
       TAG: "Error",
@@ -274,7 +274,7 @@ async function getPosition(client, owner, market) {
   }
   let bytes = error._0;
   if (bytes !== undefined) {
-    return Stdlib_Result.map(Accounts.decodePosition(bytes), position => position);
+    return Stdlib_Result.map(Accounts.Position.decode(bytes), position => position);
   } else {
     return {
       TAG: "Ok",
@@ -299,7 +299,7 @@ async function getNonce(client, user) {
       _0: 0.0
     };
   }
-  let error$1 = Accounts.decodeUserNonce(bytes);
+  let error$1 = Accounts.UserNonce.decode(bytes);
   if (error$1.TAG === "Ok") {
     return {
       TAG: "Ok",

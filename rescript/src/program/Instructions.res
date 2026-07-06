@@ -1,12 +1,12 @@
-// Instruction builders for the Lightcone Pinocchio program. Mirrors
-// rust/src/program/instructions.rs EXACTLY — same ordered account list and the
-// same manual byte-packed `data` per instruction.
+// Instruction builders for the Lightcone Pinocchio program. Each builder emits
+// EXACTLY the ordered account list and the manual byte-packed `data` the
+// on-chain program expects.
 //
 // This is a Pinocchio program, NOT Anchor/borsh: `data` is a SINGLE-byte opcode
 // at data[0] followed by little-endian scalar fields (and raw 32-byte pubkeys
-// where applicable). Account `role` mirrors Rust's helper set:
-//   signer_mut → WRITABLE_SIGNER (3)   writable → WRITABLE (1)
-//   signer     → READONLY_SIGNER (2)   readonly → READONLY (0)
+// where applicable). Account `role` values, by helper:
+//   signerMut → WRITABLE_SIGNER (3)   writable → WRITABLE (1)
+//   signer    → READONLY_SIGNER (2)   readonly → READONLY (0)
 //
 // Every builder is async because PDA + ATA derivation hashes via WebCrypto.
 
@@ -15,15 +15,14 @@ let concatBytes = OrderPayload.concatBytes
 let u8 = (value: int) => SolanaKitCodec.encode(SolanaKitCodec.getU8Encoder(), value)
 let u64 = (value: bigint) => SolanaKitCodec.encode(SolanaKitCodec.getU64Encoder(), value)
 
-// ── account-meta helpers (mirror the Rust signer_mut/writable/readonly) ───────
+// ── account-meta helpers ──────────────────────────────────────────────────────
 let meta = (address, role): SolanaKit.accountMeta => {address, role}
 let signerMut = address => meta(address, SolanaKit.Role.writableSigner)
 let writable = address => meta(address, SolanaKit.Role.writable)
 let readonly = address => meta(address, SolanaKit.Role.readonly)
 
 // Associated-token-account derivation. Both deposit-token and conditional-token
-// ATAs use the SPL Token program (matches Rust's get_deposit_token_ata /
-// get_conditional_token_ata, which both pass spl_token::id()).
+// ATAs use the SPL Token program.
 let ata = (~owner, ~mint): promise<(SolanaKit.address, int)> =>
   SolanaProgramToken.findAssociatedTokenPda({
     owner,
@@ -32,7 +31,7 @@ let ata = (~owner, ~mint): promise<(SolanaKit.address, int)> =>
   })
 
 // ── DepositToGlobal (opcode 17) ───────────────────────────────────────────────
-// Rust: build_deposit_to_global_ix. Accounts (8):
+// Accounts (8):
 // 0 user(signer,mut) 1 global_deposit_token 2 mint 3 user_global_deposit(mut)
 // 4 user_token_account(mut) 5 token_program 6 system_program 7 exchange
 // Data: [17, amount u64 LE]
@@ -63,7 +62,7 @@ let depositToGlobal = async (
 }
 
 // ── WithdrawFromGlobal (opcode 22) ────────────────────────────────────────────
-// Rust: build_withdraw_from_global_ix. Accounts (7 — NOTE: no system_program):
+// Accounts (7 — NOTE: no system_program):
 // 0 user(signer,mut) 1 global_deposit_token 2 mint 3 user_global_deposit(mut)
 // 4 user_token_account(mut) 5 token_program 6 exchange
 // Data: [22, amount u64 LE]
@@ -93,7 +92,7 @@ let withdrawFromGlobal = async (
 }
 
 // ── GlobalToMarketDeposit (opcode 18) ─────────────────────────────────────────
-// Rust: build_global_to_market_deposit_ix. Accounts (12 + numOutcomes*2):
+// Accounts (12 + numOutcomes*2):
 // 0 user(signer,mut) 1 exchange 2 market 3 deposit_mint 4 vault(mut)
 // 5 global_deposit_token 6 user_global_deposit(mut) 7 position(mut)
 // 8 mint_authority 9 token_program 10 ata_program 11 system_program
@@ -143,7 +142,7 @@ let globalToMarketDeposit = async (
 }
 
 // ── MergeCompleteSet (opcode 4) ───────────────────────────────────────────────
-// Rust: build_merge_ix. Accounts (9 + numOutcomes*2):
+// Accounts (9 + numOutcomes*2):
 // 0 user(signer,mut) 1 exchange 2 market 3 deposit_mint 4 vault(mut)
 // 5 position(mut) 6 user_deposit_ata(mut) 7 mint_authority 8 token_program
 // + per outcome i: conditional_mint[i](mut), position_conditional_ata[i](mut)
@@ -188,7 +187,7 @@ let mergeCompleteSet = async (
 }
 
 // ── RedeemWinnings (opcode 8) ─────────────────────────────────────────────────
-// Rust: build_redeem_winnings_ix. Accounts (11):
+// Accounts (11):
 // 0 user(signer,mut) 1 market 2 deposit_mint 3 vault(mut) 4 conditional_mint(mut)
 // 5 position 6 position_conditional_ata(mut) 7 user_deposit_ata(mut)
 // 8 mint_authority 9 token_program 10 exchange
@@ -233,7 +232,7 @@ let redeemWinnings = async (
 }
 
 // ── InitPositionTokens (opcode 19) ────────────────────────────────────────────
-// Rust: build_init_position_tokens_ix. Permissionless (payer != user allowed).
+// Permissionless (payer != user allowed).
 // Accounts (11 + per deposit_mint: 3 + numOutcomes*2):
 // 0 payer(signer,mut) 1 user 2 exchange 3 market 4 position(mut)
 // 5 lookup_table(mut) 6 mint_authority 7 token_program 8 ata_program
@@ -295,9 +294,9 @@ let initPositionTokens = async (
 }
 
 // ── Deposit / MintCompleteSet (opcode 3) ──────────────────────────────────────
-// Rust: build_deposit_ix. Market-level direct deposit: collateral moves from the
-// user's wallet ATA into the market vault, minting a complete set of conditional
-// tokens into the position. Accounts (11 + numOutcomes*2):
+// Market-level direct deposit: collateral moves from the user's wallet ATA into
+// the market vault, minting a complete set of conditional tokens into the
+// position. Accounts (11 + numOutcomes*2):
 // 0 user(signer,mut) 1 exchange 2 market 3 deposit_mint 4 vault(mut)
 // 5 user_deposit_ata(mut) 6 position(mut) 7 mint_authority 8 token_program
 // 9 ata_program 10 system_program
@@ -345,8 +344,8 @@ let deposit = async (
 }
 
 // ── WithdrawFromPosition (opcode 11) ──────────────────────────────────────────
-// Rust: build_withdraw_from_position_ix. Moves conditional tokens from the
-// position's ATA to the user's own ATA (`~mint` is the conditional mint).
+// Moves conditional tokens from the position's ATA to the user's own ATA
+// (`~mint` is the conditional mint).
 // Accounts (8):
 // 0 user(signer,mut) 1 market 2 position(mut) 3 mint 4 position_ata(mut)
 // 5 user_ata(mut) 6 token_program 7 exchange
@@ -384,7 +383,7 @@ let withdrawFromPosition = async (
 }
 
 // ── IncrementNonce (opcode 6) ─────────────────────────────────────────────────
-// Rust: build_increment_nonce_ix. Accounts (4):
+// Accounts (4):
 // 0 user(signer,mut) 1 user_nonce(mut) 2 system_program 3 exchange
 // Data: [6]  (opcode only)
 let incrementNonce = async (
@@ -406,9 +405,9 @@ let incrementNonce = async (
 }
 
 // ── ExtendPositionTokens (opcode 21) ──────────────────────────────────────────
-// Rust: build_extend_position_tokens_ix. Operator-signed: appends the ATAs for
-// newly-added deposit mints to an existing position ALT (from initPositionTokens).
-// `depositMints` must be non-empty (the Rust builder rejects an empty extension).
+// Operator-signed: appends the ATAs for newly-added deposit mints to an
+// existing position ALT (from initPositionTokens).
+// `depositMints` must be non-empty (the builder rejects an empty extension).
 // Accounts (10 + per deposit_mint: 3 + numOutcomes*2):
 // 0 operator(signer,mut) 1 user 2 exchange 3 market 4 position 5 lookup_table(mut)
 // 6 token_program 7 ata_program 8 alt_program 9 system_program
@@ -465,9 +464,9 @@ let extendPositionTokens = async (
 }
 
 // ── ClosePositionAlt (opcode 23) ──────────────────────────────────────────────
-// Rust: build_close_position_alt_ix. Operator-signed: deactivates an active
-// position ALT, or closes an already-deactivated one. `~position` is the position
-// PDA address itself (passed through, not derived). Accounts (6):
+// Operator-signed: deactivates an active position ALT, or closes an
+// already-deactivated one. `~position` is the position PDA address itself
+// (passed through, not derived). Accounts (6):
 // 0 operator(signer,mut) 1 exchange 2 position 3 market 4 lookup_table(mut)
 // 5 alt_program
 // Data: [23]  (opcode only)
@@ -494,11 +493,11 @@ let closePositionAlt = async (
 }
 
 // ── ClosePositionTokenAccounts (opcode 25) ────────────────────────────────────
-// Rust: build_close_position_token_accounts_ix. Operator-signed: closes empty SPL
-// conditional ATAs owned by a position PDA after market resolution (non-empty
-// accounts are skipped by the program). `~position` is the position PDA address
-// itself; `depositMints` must be non-empty and `numOutcomes` within 2..=6 (the
-// Rust builder validates both). Accounts (5 + per deposit_mint: 1 + numOutcomes*2):
+// Operator-signed: closes empty SPL conditional ATAs owned by a position PDA
+// after market resolution (non-empty accounts are skipped by the program).
+// `~position` is the position PDA address itself; `depositMints` must be
+// non-empty and `numOutcomes` within 2..=6 (the builder validates both).
+// Accounts (5 + per deposit_mint: 1 + numOutcomes*2):
 // 0 operator(signer,mut) 1 exchange 2 market 3 position 4 token_program
 // + per deposit_mint: deposit_mint,
 //   then per outcome i: conditional_mint[i], position_conditional_ata[i](mut)
@@ -538,9 +537,8 @@ let closePositionTokenAccounts = async (
 }
 
 // ═══ Operator / admin / lifecycle instructions ══════════════════════════════
-// The full remaining rust/src/program/instructions.rs surface. Builders whose
-// Rust twin validates inputs return `result` (Validation errors); the rest stay
-// total. Roles: `signer` (readonly signer) joins the helpers above for the
+// Builders that validate inputs return `result` (Validation errors); the rest
+// stay total. Roles: `signer` (readonly signer) joins the helpers above for the
 // oracle/role-acceptance instructions.
 
 let signer = address => meta(address, SolanaKit.Role.readonlySigner)
@@ -556,7 +554,7 @@ let byteLength: Uint8Array.t => int = %raw(`(bytes) => bytes.length`)
 let zeroAddress = "11111111111111111111111111111111"
 let isZeroAddress = address => SolanaKit.addressToString(address) == zeroAddress
 
-// ── Validators (program/utils.rs) ─────────────────────────────────────────────
+// ── Validators (the program's parameter bounds) ───────────────────────────────
 let validateOutcomeCount = (numOutcomes: int): result<unit, SdkError.t> =>
   numOutcomes >= Constants.minOutcomes && numOutcomes <= Constants.maxOutcomes
     ? Ok()
@@ -603,30 +601,36 @@ let serializeConditionalMetadata = (~name, ~symbol, ~uri): result<Uint8Array.t, 
 // ── Signed-order params (matching instructions) ───────────────────────────────
 // The ReScript payload carries no embedded signature, so matching params pair
 // each order with its 64-byte signature explicitly.
-type signedOrder = {order: OrderPayload.t, signature: Uint8Array.t}
+module SignedOrder = {
+  type t = {order: OrderPayload.t, signature: Uint8Array.t}
+}
 
 // One maker fill in a MatchOrdersMulti instruction.
-type matchMaker = {
-  order: signedOrder,
-  makerFillAmount: bigint,
-  takerFillAmount: bigint,
-  // Full fills skip the maker's order-status account.
-  isFullFill: bool,
+module MatchMaker = {
+  type t = {
+    order: SignedOrder.t,
+    makerFillAmount: bigint,
+    takerFillAmount: bigint,
+    // Full fills skip the maker's order-status account.
+    isFullFill: bool,
+  }
 }
 
 // One maker fill in a DepositAndSwap instruction.
-type swapMaker = {
-  order: signedOrder,
-  makerFillAmount: bigint,
-  takerFillAmount: bigint,
-  isFullFill: bool,
-  // Deposit from global (vs swapping existing conditional tokens).
-  isDeposit: bool,
-  // Only read when `isDeposit` is set.
-  depositMint: SolanaKit.address,
+module SwapMaker = {
+  type t = {
+    order: SignedOrder.t,
+    makerFillAmount: bigint,
+    takerFillAmount: bigint,
+    isFullFill: bool,
+    // Deposit from global (vs swapping existing conditional tokens).
+    isDeposit: bool,
+    // Only read when `isDeposit` is set.
+    depositMint: SolanaKit.address,
+  }
 }
 
-let signedOrderBytes = (signed: signedOrder): Uint8Array.t =>
+let signedOrderBytes = (signed: SignedOrder.t): Uint8Array.t =>
   concatBytes([OrderPayload.Compact.serialize(OrderPayload.toOrder(signed.order)), signed.signature])
 
 // 2^index — bitmask bits are distinct per maker, so OR collapses to addition.
@@ -787,8 +791,8 @@ let settleMarket = async (
   }
 }
 
-// Winner-takes-all payout numerators: 1 for the winning outcome, 0 elsewhere
-// (Rust `SettleMarketParams::winner_takes_all`).
+// Winner-takes-all payout numerators for `settleMarket`: 1 for the winning
+// outcome, 0 elsewhere.
 let winnerTakesAllNumerators = (~winningOutcome: int, ~numOutcomes: int): result<array<int>, SdkError.t> =>
   switch (validateOutcomeCount(numOutcomes), validateOutcomeIndex(winningOutcome, ~numOutcomes)) {
   | (Error(error), _) | (_, Error(error)) => Error(error)
@@ -893,16 +897,18 @@ let setOracle = async (
 
 // ── SetMarketFees (opcode 29) ─────────────────────────────────────────────────
 // Manager-only; updates one or more markets in one instruction.
-type marketFeeUpdate = {
-  market: SolanaKit.address,
-  makerFeeBps: int,
-  takerFeeBps: int,
+module MarketFeeUpdate = {
+  type t = {
+    market: SolanaKit.address,
+    makerFeeBps: int,
+    takerFeeBps: int,
+  }
 }
 
 let setMarketFees = async (
   ~programId: SolanaKit.address,
   ~manager: SolanaKit.address,
-  ~updates: array<marketFeeUpdate>,
+  ~updates: array<MarketFeeUpdate.t>,
 ): result<SolanaKit.instruction, SdkError.t> =>
   if Array.length(updates) == 0 {
     Error(SdkError.Validation("updates is required"))
@@ -1103,9 +1109,9 @@ let matchOrdersMulti = async (
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
-  ~takerOrder: signedOrder,
+  ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
-  ~makers: array<matchMaker>,
+  ~makers: array<MatchMaker.t>,
 ): result<SolanaKit.instruction, SdkError.t> =>
   if Array.length(makers) == 0 {
     Error(SdkError.Validation("maker_orders is required"))
@@ -1176,10 +1182,12 @@ let matchOrdersMulti = async (
 // ── CreateOrderbook (opcode 15) ───────────────────────────────────────────────
 // Manager-only; the mint pair is canonicalized by raw byte order (matching the
 // orderbook PDA derivation), and `base` names which INPUT is the base asset.
-type orderbookMint = {
-  mint: SolanaKit.address,
-  depositMint: SolanaKit.address,
-  outcomeIndex: int,
+module OrderbookMint = {
+  type t = {
+    mint: SolanaKit.address,
+    depositMint: SolanaKit.address,
+    outcomeIndex: int,
+  }
 }
 
 let addressLte: (Uint8Array.t, Uint8Array.t) => bool = %raw(`function (a, b) {
@@ -1191,8 +1199,8 @@ let createOrderbook = async (
   ~programId: SolanaKit.address,
   ~manager: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~mintA: orderbookMint,
-  ~mintB: orderbookMint,
+  ~mintA: OrderbookMint.t,
+  ~mintB: OrderbookMint.t,
   // 0 ⇒ mintA is the base asset, 1 ⇒ mintB.
   ~baseIndex: int,
   ~feeReceiver: SolanaKit.address,
@@ -1281,16 +1289,18 @@ let refreshOrderbookAlt = async (
 // The deposit-to-global instruction with the optional user-deposit-ALT block:
 // `Create` derives the ALT from (user_nonce, recent_slot) and appends the slot
 // to the data; `Extend` reuses an existing table.
-type depositToGlobalAltContext =
-  | Create({recentSlot: bigint})
-  | Extend({lookupTable: SolanaKit.address})
+module DepositToGlobalAltContext = {
+  type t =
+    | Create({recentSlot: bigint})
+    | Extend({lookupTable: SolanaKit.address})
+}
 
 let depositToGlobalWithAlt = async (
   ~programId: SolanaKit.address,
   ~user: SolanaKit.address,
   ~mint: SolanaKit.address,
   ~amount: bigint,
-  ~altContext: depositToGlobalAltContext,
+  ~altContext: DepositToGlobalAltContext.t,
 ): SolanaKit.instruction => {
   let (globalDepositToken, _) = await Pda.globalDepositToken(programId, ~mint)
   let (userGlobalDeposit, _) = await Pda.userGlobalDeposit(programId, ~user, ~mint)
@@ -1337,12 +1347,12 @@ let depositAndSwap = async (
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
-  ~takerOrder: signedOrder,
+  ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
   ~takerIsDeposit: bool,
   ~takerDepositMint: SolanaKit.address,
   ~numOutcomes: int,
-  ~makers: array<swapMaker>,
+  ~makers: array<SwapMaker.t>,
 ): result<SolanaKit.instruction, SdkError.t> =>
   if Array.length(makers) == 0 {
     Error(SdkError.Validation("makers is required"))

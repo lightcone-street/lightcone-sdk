@@ -23,9 +23,9 @@ describe("Trade domain", () => {
       "has_more": true
     }`)
 
-    switch Trade.tradesResponse_decode(json) {
+    switch Trade.Raw.TradesResponse.t_decode(json) {
     | Ok(response) =>
-      let page = Trade.pageOfTrades(response.trades, response.nextCursor, response.hasMore)
+      let page = Trade.Raw.TradesResponse.toPage(response)
       expect(Array.length(page.trades))->toBe(1)
       let trade = page.trades->Array.getUnsafe(0)
       expect(trade.tradeId)->toBe("taker_hash_maker_hash")

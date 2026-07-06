@@ -3,7 +3,7 @@
 // (result core); the compiled PriceHistory.res.mjs is the JS example.
 let main = async () => {
   let client = Common__Example.client()
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok({markets}) =>
     switch markets[0] {
@@ -14,7 +14,7 @@ let main = async () => {
       | Some(pair) =>
         let toMs = Date.now()
         let fromMs = toMs -. 7.0 *. 24.0 *. 60.0 *. 60.0 *. 1000.0
-        switch await PriceHistory.get(
+        switch await PriceHistory.Client.get(
           client,
           ~orderbookId=pair.orderbookId,
           ~resolution=Shared.Resolution.Hour1,

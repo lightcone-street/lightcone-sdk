@@ -5,12 +5,12 @@ import * as Stdlib_JsExn from "@rescript/runtime/lib/es6/Stdlib_JsExn.js";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
 
-let blockhashLifetimeOfResponse = (function (response) {
+let blockhashLifetime = (function (response) {
   return response.value;
 });
 
 async function fetchLifetime(client) {
-  return blockhashLifetimeOfResponse(await client.rpc.getLatestBlockhash().send());
+  return blockhashLifetime(await client.rpc.getLatestBlockhash().send());
 }
 
 function broadcastBase64(client, wire) {

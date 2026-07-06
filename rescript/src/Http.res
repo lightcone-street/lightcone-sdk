@@ -1,24 +1,29 @@
 // Generic HTTP transport — Fetch-based (no axios), single implementation for
-// Node 22 / Bun / browser. Mirrors the Rust SDK's `LightconeHttp`: x-request-id
-// generation, cookie auth, retry policies, and `ApiResponse` unwrapping.
+// Node 22 / Bun / browser. Handles x-request-id generation, cookie auth, retry
+// policies, and `ApiResponse` unwrapping.
 //
 // Cookies: browsers manage the jar automatically (we send `credentials: include`).
 // Node/Bun have no jar, so we capture the `lightcone-token` Set-Cookie after login
-// and re-send it as a `Cookie` header — exactly what the Rust native path does.
+// and re-send it as a `Cookie` header.
 
 let userCookieName = "lightcone-token"
 let defaultTimeoutMs = 180000
 
-type retryPolicy =
-  | NoRetry
-  | Idempotent
+module RetryPolicy = {
+  type t =
+    | NoRetry
+    | Idempotent
+}
 
-type cookieStore = {mutable token: option<string>}
+// File-private (not in the `.resi`): the mutable session-token jar.
+module CookieStore = {
+  type t = {mutable token: option<string>}
+}
 
 // The transport handle (opaque to TS — see the `.resi`).
 type t = {
   baseUrl: string,
-  cookies: cookieStore,
+  cookies: CookieStore.t,
 }
 
 // ── Small platform helpers ────────────────────────────────────────────────────
@@ -117,7 +122,7 @@ let request = async (
   ~path: string,
   ~query: array<(string, string)>=[],
   ~body: option<JSON.t>=?,
-  ~retry: retryPolicy=NoRetry,
+  ~retry: RetryPolicy.t=NoRetry,
   ~cookieHeader: option<string>=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ): result<'a, SdkError.t> => {
@@ -187,7 +192,7 @@ let get = (
   http: t,
   ~path: string,
   ~query: array<(string, string)>=[],
-  ~retry: retryPolicy=Idempotent,
+  ~retry: RetryPolicy.t=Idempotent,
   ~cookieHeader: option<string>=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ): promise<result<'a, SdkError.t>> =>
@@ -197,7 +202,7 @@ let post = (
   http: t,
   ~path: string,
   ~body: JSON.t,
-  ~retry: retryPolicy=NoRetry,
+  ~retry: RetryPolicy.t=NoRetry,
   ~cookieHeader: option<string>=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ): promise<result<'a, SdkError.t>> =>

@@ -1,4 +1,4 @@
-// Fmt__Constants — the shared display-precision tier table (fmt/constants.rs).
+// Fmt__Constants — the shared display-precision tier table.
 // Internal to the Fmt namespace.
 
 // Display decimal places for a magnitude, via a caller-supplied tier test:

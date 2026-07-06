@@ -1,6 +1,6 @@
 // WebSocket subscription params + outbound message serialization. Public surface:
-// the `SubscribeParams`/`UnsubscribeParams` sub-modules, the `messageOut` enum,
-// and the helpers the connection layer needs (`toJson`, `subscriptionKey`,
+// the `SubscribeParams`/`UnsubscribeParams` sub-modules, the outbound-message enum
+// `t`, and the helpers the connection layer needs (`toJson`, `subscriptionKey`,
 // `toUnsubscribeParams`, `matchesUnsubscribe`). The per-channel JSON encoders and
 // id-sorting/aggregation helpers are internal.
 
@@ -52,14 +52,15 @@ module UnsubscribeParams: {
     | DepositAssetPrice(Shared.pubkeyStr)
 }
 
-// Outbound message. `Ping` is an application-level keepalive.
-type messageOut =
+// The file's primary type: one outbound message. `Ping` is an application-level
+// keepalive.
+type t =
   | Subscribe(SubscribeParams.t)
   | Unsubscribe(UnsubscribeParams.t)
   | Ping
 
 // Outbound message → wire JSON: `{"method": …, "params": …}` (Ping omits params).
-let toJson: messageOut => JSON.t
+let toJson: t => JSON.t
 
 // Stable per-subscription tracking key (order-independent on ids; book
 // aggregation normalized into the suffix).

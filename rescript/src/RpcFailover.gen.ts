@@ -3,6 +3,6 @@
 /* eslint-disable */
 /* tslint:disable */
 
-export type activeRpc = "primary" | "backup";
+export type Active_t = "primary" | "backup";
 
-export type state = { active: activeRpc; flippedToBackupAtMs: (undefined | number) };
+export type t = { active: Active_t; flippedToBackupAtMs: (undefined | number) };

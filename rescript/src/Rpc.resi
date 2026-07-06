@@ -4,7 +4,7 @@
 // response-shape `%raw` helpers, base64 decoding, and per-endpoint variants are internal.
 
 // The endpoint currently serving reads (Primary until a failover flips it to Backup).
-let activeRpc: Client.t => RpcFailover.activeRpc
+let activeRpc: Client.t => RpcFailover.Active.t
 
 let getLatestBlockhash: Client.t => promise<result<string, SdkError.t>>
 // Account DATA bytes, or `None` when the account doesn't exist.
@@ -32,10 +32,10 @@ let userGlobalDepositPda: (
 ) => promise<SolanaKit.address>
 
 // Typed account fetchers (fetch + decode; verify discriminator + byte layout).
-let getExchange: Client.t => promise<result<Accounts.exchange, SdkError.t>>
-let getMarket: (Client.t, SolanaKit.address) => promise<result<Accounts.market, SdkError.t>>
+let getExchange: Client.t => promise<result<Accounts.Exchange.t, SdkError.t>>
+let getMarket: (Client.t, SolanaKit.address) => promise<result<Accounts.Market.t, SdkError.t>>
 // Fetch + decode a Market by its numeric id (derives the PDA first).
-let getMarketById: (Client.t, ~marketId: bigint) => promise<result<Accounts.market, SdkError.t>>
+let getMarketById: (Client.t, ~marketId: bigint) => promise<result<Accounts.Market.t, SdkError.t>>
 
 // The next available market id (the exchange's market count).
 let nextMarketId: Client.t => promise<result<bigint, SdkError.t>>
@@ -44,12 +44,12 @@ let getOrderbook: (
   Client.t,
   ~mintA: SolanaKit.address,
   ~mintB: SolanaKit.address,
-) => promise<result<Accounts.orderbook, SdkError.t>>
+) => promise<result<Accounts.Orderbook.t, SdkError.t>>
 let getPosition: (
   Client.t,
   ~owner: SolanaKit.address,
   ~market: SolanaKit.address,
-) => promise<result<option<Accounts.position>, SdkError.t>>
+) => promise<result<option<Accounts.Position.t>, SdkError.t>>
 
 // Current on-chain nonce for a user; 0 when the account is uninitialized.
 let getNonce: (Client.t, ~user: SolanaKit.address) => promise<result<float, SdkError.t>>
@@ -58,11 +58,11 @@ let getNonce: (Client.t, ~user: SolanaKit.address) => promise<result<float, SdkE
 let getGlobalDepositToken: (
   Client.t,
   ~mint: SolanaKit.address,
-) => promise<result<Accounts.globalDepositToken, SdkError.t>>
+) => promise<result<Accounts.GlobalDepositToken.t, SdkError.t>>
 
 // Fetch + decode an order's on-chain OrderStatus PDA; `None` when the account
 // does not exist. `~orderHash` is the 32-byte keccak digest.
 let getOrderStatus: (
   Client.t,
   ~orderHash: Uint8Array.t,
-) => promise<result<option<Accounts.orderStatus>, SdkError.t>>
+) => promise<result<option<Accounts.OrderStatus.t>, SdkError.t>>

@@ -37,7 +37,7 @@ let sign: (t, SolanaKit.cryptoKeyPair) => promise<Uint8Array.t>
 let signatureHex: Uint8Array.t => string
 let signatureBs58: Uint8Array.t => string
 
-// ── Named constructors (Rust `new_bid` / `new_ask`) ───────────────────────────
+// ── Named constructors ─────────────────────────────────────────────────────────
 // Pure record builders fixing the side (signatures travel separately).
 let newBid: (
   ~nonce: bigint,
@@ -79,7 +79,7 @@ let signatureFromBs58: string => result<Uint8Array.t, string>
 // The canonical orderbook id for this order's token pair.
 let deriveOrderbookId: t => Shared.orderBookId
 
-// ── Compact on-chain order (37 bytes, no maker/mints — Rust `Order`) ──────────
+// ── Compact on-chain order (37 bytes, no maker/mints) ─────────────────────────
 module Compact: {
   type t = {
     // u32 on-chain (the payload's u64 nonce truncates).
@@ -98,8 +98,7 @@ module Compact: {
 // Payload → compact on-chain order (nonce truncates to u32).
 let toOrder: t => Compact.t
 
-// Compact order + account pubkeys → full payload (Rust `Order::to_signed`,
-// minus the embedded signature).
+// Compact order + account pubkeys → full payload.
 let ofOrder: (
   Compact.t,
   ~maker: SolanaKit.address,

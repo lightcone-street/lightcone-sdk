@@ -1,6 +1,6 @@
-// Fmt__Num — float display formatting + base-unit conversions (fmt/num.rs).
-// Reached as `Fmt.Num`. The zero-collapsing default formatter is exported for
-// `Fmt__Decimal` (Rust `pub(super)`); the zero test stays private.
+// Fmt__Num — float display formatting + base-unit conversions. Reached as
+// `Fmt.Num`. The zero-collapsing default formatter is exported only for
+// `Fmt__Decimal` (Fmt-internal); the zero test stays private.
 
 // Insert thousands separators into a fixed-format number string, preserving the
 // sign and fractional digits.

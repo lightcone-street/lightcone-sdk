@@ -1,7 +1,6 @@
-// Fmt__Num — float display formatting + base-unit conversions (mirrors
-// rust/src/shared/fmt/num.rs). Reached as `Fmt.Num`; the string plumbing
-// (`displayFormattedString` and friends) lives here exactly as it does in the
-// Rust module, with `Fmt__Decimal` consuming it cross-file.
+// Fmt__Num — float display formatting + base-unit conversions. Reached as
+// `Fmt.Num`; the string plumbing (`displayFormattedString` and friends) lives
+// here, with `Fmt__Decimal` consuming it cross-file.
 
 // Insert thousands separators into a fixed-format number string, preserving the
 // sign and fractional digits.
@@ -35,7 +34,7 @@ let isFormattedZero = (formatted: string): bool =>
   ->Array.every(char => char == "0" || char == "." || char == "-")
 
 // Values that round to zero display as plain "0"; everything else gets grouped.
-// (Rust `pub(super)` — Fmt-internal, consumed by `Fmt__Decimal`.)
+// (Fmt-internal: consumed by `Fmt__Decimal`.)
 let displayDefaultFormattedString = (formatted: string): string =>
   isFormattedZero(formatted) ? "0" : displayFormattedString(formatted)
 
@@ -75,7 +74,7 @@ let toDecimalValue = (value: bigint, ~decimals: int): float =>
   BigInt.toFloat(value) /. Math.pow(10.0, ~exp=Int.toFloat(decimals))
 
 // Human-readable float → on-chain base units, e.g. (1.5, 9) → 1_500_000_000n.
-// Mirrors the Rust `as u64` cast: truncation toward zero, negatives/NaN → 0.
+// Truncation toward zero; negatives/NaN → 0.
 let fromDecimalValue = (value: float, ~decimals: int): bigint => {
   let scaled = Math.trunc(value *. Math.pow(10.0, ~exp=Int.toFloat(decimals)))
   BigInt.fromFloat(Math.max(scaled, 0.0))->Option.getOr(0n)

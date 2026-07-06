@@ -5,8 +5,8 @@ let byteLength: Uint8Array.t => int = %raw(`(a) => a.length`)
 let byteAt: (Uint8Array.t, int) => int = %raw(`(a, i) => a[i]`)
 let bigStr = value => BigInt.toString(value)
 
-let decimals66: Scaling.orderbookDecimals = {baseDecimals: 6, quoteDecimals: 6, priceDecimals: 2, tickSize: 0.0}
-let decimals69: Scaling.orderbookDecimals = {baseDecimals: 6, quoteDecimals: 9, priceDecimals: 2, tickSize: 0.0}
+let decimals66: Scaling.OrderbookDecimals.t = {baseDecimals: 6, quoteDecimals: 6, priceDecimals: 2, tickSize: 0.0}
+let decimals69: Scaling.OrderbookDecimals.t = {baseDecimals: 6, quoteDecimals: 9, priceDecimals: 2, tickSize: 0.0}
 
 // Vectors copied verbatim from rust/src/shared/scaling.rs tests.
 describe("Scaling", () => {
@@ -459,8 +459,8 @@ describe("Instructions (admin + matching ops)", () => {
       ~amountIn=10n,
       ~amountOut=20n,
     )
-    let taker: Instructions.signedOrder = {order: payload, signature}
-    let maker: Instructions.matchMaker = {
+    let taker: Instructions.SignedOrder.t = {order: payload, signature}
+    let maker: Instructions.MatchMaker.t = {
       order: {order: {...payload, side: 1}, signature},
       makerFillAmount: 5n,
       takerFillAmount: 10n,
@@ -510,7 +510,7 @@ describe("Instructions (admin + matching ops)", () => {
       ~user=authority,
       ~mint,
       ~amount=1000000n,
-      ~altContext=Instructions.Create({recentSlot: 5n}),
+      ~altContext=Instructions.DepositToGlobalAltContext.Create({recentSlot: 5n}),
     )
     expect(Array.length(ix.accounts))->toBe(11) // 8 base + nonce + lookup table + alt program
     expect(byteLength(ix.data))->toBe(17) // opcode + amount + recent slot
@@ -521,7 +521,7 @@ describe("Instructions (admin + matching ops)", () => {
       ~user=authority,
       ~mint,
       ~amount=1000000n,
-      ~altContext=Instructions.Extend({lookupTable: market}),
+      ~altContext=Instructions.DepositToGlobalAltContext.Extend({lookupTable: market}),
     )
     expect(byteLength(extended.data))->toBe(9) // no slot appended
     expect(

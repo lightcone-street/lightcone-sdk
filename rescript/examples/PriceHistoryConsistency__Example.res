@@ -6,7 +6,7 @@ let delay: int => promise<unit> = %raw(`(ms) => new Promise((resolve) => setTime
 
 let main = async () => {
   let client = Common__Example.client()
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok({markets}) =>
     switch markets[0]->Option.flatMap(market => market.orderbookPairs[0]) {
@@ -16,7 +16,7 @@ let main = async () => {
       let resolution = Shared.Resolution.Minute5
 
       // 1. REST API — the same line-data the app's server function fetches.
-      switch await PriceHistory.getLineData(client, ~orderbookId, ~resolution, ~limit=1000.0) {
+      switch await PriceHistory.Client.getLineData(client, ~orderbookId, ~resolution, ~limit=1000.0) {
       | Error(error) => Console.error(SdkError.toMessage(error))
       | Ok(restPoints) =>
         Console.log("=== REST API ===")

@@ -1,4 +1,4 @@
-// Program-derived addresses — the named PDA derivations from rust/src/program/pda.rs.
+// Program-derived addresses — the on-chain program's named PDA derivations.
 // Each is async (kit hashes with SHA-256 via WebCrypto) and returns `(address, bump)`.
 // The seed/byte-encoding helpers and the generic `derive` are internal.
 

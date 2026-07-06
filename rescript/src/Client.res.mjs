@@ -9,6 +9,10 @@ import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
 
+let ExternalSigner = {};
+
+let SigningStrategy = {};
+
 function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSourceOpt, param) {
   let env = envOpt !== undefined ? envOpt : "prod";
   let depositSource = depositSourceOpt !== undefined ? depositSourceOpt : "global";
@@ -139,6 +143,8 @@ function authToken(client) {
 }
 
 export {
+  ExternalSigner,
+  SigningStrategy,
   make,
   http,
   depositSource,

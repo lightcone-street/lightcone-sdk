@@ -131,7 +131,7 @@ function label(code) {
   }
 }
 
-function decodeRejectedDetails(json) {
+function decode(json) {
   let str = key => {
     if (typeof json !== "object" || json === null || Array.isArray(json)) {
       return;
@@ -149,7 +149,7 @@ function decodeRejectedDetails(json) {
   };
 }
 
-function httpErrorToMessage(error) {
+function toMessage(error) {
   if (typeof error !== "object") {
     if (error === "Unauthorized") {
       return "Unauthorized";
@@ -178,7 +178,7 @@ function httpErrorToMessage(error) {
   }
 }
 
-function wsErrorToMessage(error) {
+function toMessage$1(error) {
   if (typeof error !== "object") {
     return "Not connected";
   }
@@ -196,7 +196,7 @@ function wsErrorToMessage(error) {
   }
 }
 
-function authErrorToMessage(error) {
+function toMessage$2(error) {
   if (typeof error === "object") {
     return `Login failed: ` + error._0;
   }
@@ -210,17 +210,17 @@ function authErrorToMessage(error) {
   }
 }
 
-function toMessage(error) {
+function toMessage$3(error) {
   if (typeof error !== "object") {
     return "User cancelled signing";
   }
   switch (error.TAG) {
     case "Http" :
-      return `HTTP error: ` + httpErrorToMessage(error._0);
+      return `HTTP error: ` + toMessage(error._0);
     case "Ws" :
-      return `WebSocket error: ` + wsErrorToMessage(error._0);
+      return `WebSocket error: ` + toMessage$1(error._0);
     case "Auth" :
-      return `Auth error: ` + authErrorToMessage(error._0);
+      return `Auth error: ` + toMessage$2(error._0);
     case "Validation" :
       return `Validation error: ` + error._0;
     case "Decode" :
@@ -314,7 +314,7 @@ function parseApiResponse(bodyDecode, json) {
           TAG: "Error",
           _0: {
             TAG: "ApiRejected",
-            _0: decodeRejectedDetails(details)
+            _0: decode(details)
           }
         };
       } else {
@@ -366,16 +366,28 @@ async function unwrap(promised) {
     return value._0;
   }
   let error = value._0;
-  return throwAsJsError(toMessage(error), error);
+  return throwAsJsError(toMessage$3(error), error);
 }
 
 let RejectionCode = {
   label: label
 };
 
+let ApiRejected = {};
+
+let HttpError = {};
+
+let WsError = {};
+
+let AuthError = {};
+
 export {
   RejectionCode,
-  toMessage,
+  ApiRejected,
+  HttpError,
+  WsError,
+  AuthError,
+  toMessage$3 as toMessage,
   stripNulls,
   parseApiResponse,
   throwAsJsError,

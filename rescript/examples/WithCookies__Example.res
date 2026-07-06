@@ -14,7 +14,7 @@ let main = async () => {
   let client = Common__Example.client()
   await Client.useNativeSigner(client, Common__Example.walletSecretKey())
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_) =>
     switch Client.authToken(client) {
@@ -24,13 +24,15 @@ let main = async () => {
       Client.clearAuth(client)
       let cookieHeader = `lightcone-token=${token}`
 
-      switch await Position.depositTokenBalances(client, ~cookieHeader) {
+      switch await Position.Client.depositTokenBalances(client, ~cookieHeader) {
       | Ok(balances) =>
-        Console.log(`tracked deposit balances: ${Int.toString(Array.length(Dict.keysToArray(balances)))}`)
+        Console.log(
+          `tracked deposit balances: ${Int.toString(Array.length(Dict.keysToArray(balances)))}`,
+        )
       | Error(error) => Console.error(SdkError.toMessage(error))
       }
 
-      switch await Order.getUserOrders(client, ~limit=50, ~cookieHeader) {
+      switch await Order.Client.getUserOrders(client, ~limit=50, ~cookieHeader) {
       | Ok(orders) => Console.log(`open orders: ${Int.toString(Array.length(orders.orders))}`)
       | Error(error) => Console.error(SdkError.toMessage(error))
       }

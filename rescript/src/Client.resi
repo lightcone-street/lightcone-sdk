@@ -7,22 +7,27 @@
 // its message- and transaction-signing callbacks. `signMessage` returns the raw
 // 64-byte ed25519 signature; `signTransaction` takes the serialized unsigned
 // wire transaction and returns the fully signed wire bytes.
-@genType
-type externalSigner = {
-  address: SolanaKit.address,
-  signMessage: Uint8Array.t => promise<Uint8Array.t>,
-  signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+module ExternalSigner: {
+  @genType
+  type t = {
+    address: SolanaKit.address,
+    signMessage: Uint8Array.t => promise<Uint8Array.t>,
+    signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+  }
 }
 
 // How orders / cancels / transactions get signed. `None` ⇒ manual signing.
-@genType
-type signingStrategy =
-  | NativeSigner({
-      keypair: SolanaKit.cryptoKeyPair,
-      signer: SolanaKit.keyPairSigner,
-      address: SolanaKit.address,
-    })
-  | ExternalSigner(externalSigner)
+// (The `ExternalSigner` constructor and the module above deliberately share the name.)
+module SigningStrategy: {
+  @genType
+  type t =
+    | NativeSigner({
+        keypair: SolanaKit.cryptoKeyPair,
+        signer: SolanaKit.keyPairSigner,
+        address: SolanaKit.address,
+      })
+    | ExternalSigner(ExternalSigner.t)
+}
 
 @genType
 type t = {
@@ -34,10 +39,10 @@ type t = {
   backupRpcUrl: option<string>,
   rpc: SolanaKitRpc.t,
   backupRpc: SolanaKitRpc.t,
-  rpcFailover: RpcFailover.state,
+  rpcFailover: RpcFailover.t,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
-  mutable signingStrategy: option<signingStrategy>,
+  mutable signingStrategy: option<SigningStrategy.t>,
 }
 
 // Build a client. `env` defaults to Prod; per-field overrides win, then `SDK_*` env

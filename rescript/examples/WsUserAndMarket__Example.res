@@ -1,9 +1,9 @@
 // WebSocket (authenticated): a user's private stream (auth handshake, snapshot,
 // balance, order, deposit, and nonce events) alongside a market's lifecycle
-// stream. The user channel requires login first — the cookie set by `Auth.login`
-// authenticates the socket. The typed `snapshot` payload seeds the `OrderState`
+// stream. The user channel requires login first — the cookie set by `Auth.Client.login`
+// authenticates the socket. The typed `snapshot` payload seeds the `Order.State`
 // containers (open limit orders + resting triggers); `order` events arrive as
-// `Order.OrderEvent` (limit or trigger).
+// `Order.Raw.Event` (limit or trigger).
 
 // Push messages arrive via callbacks; keep the event loop alive for a window, then
 // disconnect. (A setTimeout-backed promise — the only bit of glue an example needs.)
@@ -13,13 +13,13 @@ let main = async () => {
   let client = Common__Example.client()
   await Client.useNativeSigner(client, Common__Example.walletSecretKey())
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_session) =>
     switch Client.signerAddress(client) {
     | None => Console.log("no signer configured")
     | Some(address) =>
-      switch await Market.get(client, ~limit=1) {
+      switch await Market.Client.get(client, ~limit=1) {
       | Error(error) => Console.error(SdkError.toMessage(error))
       | Ok({markets}) =>
         switch markets[0] {
@@ -48,9 +48,9 @@ let main = async () => {
                 sawUser := true
                 let label = switch update {
                 | Snapshot(snapshot) =>
-                  let (_openOrders, triggerOrders) = OrderState.ofSnapshotOrders(snapshot.orders)
+                  let (_openOrders, triggerOrders) = Order.State.fromSnapshotOrders(snapshot.orders)
                   let orders = Int.toString(Array.length(snapshot.orders))
-                  let triggers = Int.toString(OrderState.UserTriggerOrders.size(triggerOrders))
+                  let triggers = Int.toString(Order.State.Triggers.size(triggerOrders))
                   let balances = Int.toString(Array.length(snapshot.marketBalances))
                   `snapshot: ${orders} orders (${triggers} trigger), ${balances} market balances`
                 | Order(Limit(update)) =>
@@ -58,7 +58,8 @@ let main = async () => {
                 | Order(Trigger(update)) =>
                   `trigger order ${update.triggerOrderId} @ ${update.triggerPrice}`
                 | BalanceUpdate(balance) => `balance update for ${balance.marketPubkey}`
-                | GlobalDepositUpdate(deposit) => `global deposit ${deposit.balance} (${deposit.mint})`
+                | GlobalDepositUpdate(deposit) =>
+                  `global deposit ${deposit.balance} (${deposit.mint})`
                 | NonceUpdate(nonce) => `nonce → ${Float.toString(nonce.newNonce)}`
                 | NotificationPush(_) => "notification"
                 }
@@ -70,7 +71,8 @@ let main = async () => {
                 | Created(pubkey) => `created ${pubkey}`
                 | Opened(pubkey) => `opened ${pubkey}`
                 | Paused(pubkey) => `paused ${pubkey}`
-                | OrderbookCreated(pubkey, orderbookId) => `orderbook ${orderbookId} created in ${pubkey}`
+                | OrderbookCreated(pubkey, orderbookId) =>
+                  `orderbook ${orderbookId} created in ${pubkey}`
                 }
                 Console.log(`market: ${label}`)
               | _ => ()

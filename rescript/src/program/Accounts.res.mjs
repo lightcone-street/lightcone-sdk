@@ -189,7 +189,7 @@ function guard(name, body) {
   }
 }
 
-function decodeExchange(bytes) {
+function decode(bytes) {
   return guard("Exchange", () => {
     let error = checkHeader(bytes, 216, Constants.Discriminator.exchange, "Exchange");
     if (error.TAG !== "Ok") {
@@ -224,7 +224,11 @@ function decodeExchange(bytes) {
   });
 }
 
-function decodeMarket(bytes) {
+let Exchange = {
+  decode: decode
+};
+
+function decode$1(bytes) {
   return guard("Market", () => {
     let error = checkHeader(bytes, 216, Constants.Discriminator.market, "Market");
     if (error.TAG !== "Ok") {
@@ -267,7 +271,11 @@ function decodeMarket(bytes) {
   });
 }
 
-function decodeOrderbook(bytes) {
+let Market = {
+  decode: decode$1
+};
+
+function decode$2(bytes) {
   return guard("Orderbook", () => {
     let error = checkHeader(bytes, 144, Constants.Discriminator.orderbook, "Orderbook");
     if (error.TAG === "Ok") {
@@ -291,7 +299,11 @@ function decodeOrderbook(bytes) {
   });
 }
 
-function decodePosition(bytes) {
+let Orderbook = {
+  decode: decode$2
+};
+
+function decode$3(bytes) {
   return guard("Position", () => {
     let error = checkHeader(bytes, 80, Constants.Discriminator.position, "Position");
     if (error.TAG === "Ok") {
@@ -312,7 +324,11 @@ function decodePosition(bytes) {
   });
 }
 
-function decodeUserNonce(bytes) {
+let Position = {
+  decode: decode$3
+};
+
+function decode$4(bytes) {
   return guard("UserNonce", () => {
     let error = checkHeader(bytes, 16, Constants.Discriminator.userNonce, "UserNonce");
     if (error.TAG === "Ok") {
@@ -331,7 +347,11 @@ function decodeUserNonce(bytes) {
   });
 }
 
-function decodeOrderStatus(bytes) {
+let UserNonce = {
+  decode: decode$4
+};
+
+function decode$5(bytes) {
   return guard("OrderStatus", () => {
     let error = checkHeader(bytes, 32, Constants.Discriminator.orderStatus, "OrderStatus");
     if (error.TAG === "Ok") {
@@ -352,7 +372,11 @@ function decodeOrderStatus(bytes) {
   });
 }
 
-function decodeGlobalDepositToken(bytes) {
+let OrderStatus = {
+  decode: decode$5
+};
+
+function decode$6(bytes) {
   return guard("GlobalDepositToken", () => {
     let error = checkHeader(bytes, 47, Constants.Discriminator.globalDepositToken, "GlobalDepositToken");
     if (error.TAG === "Ok") {
@@ -374,6 +398,10 @@ function decodeGlobalDepositToken(bytes) {
   });
 }
 
+let GlobalDepositToken = {
+  decode: decode$6
+};
+
 let MarketStatus = {
   toString: toString
 };
@@ -383,12 +411,12 @@ let PendingRoleKind = {};
 export {
   MarketStatus,
   PendingRoleKind,
-  decodeExchange,
-  decodeMarket,
-  decodeOrderbook,
-  decodePosition,
-  decodeUserNonce,
-  decodeOrderStatus,
-  decodeGlobalDepositToken,
+  Exchange,
+  Market,
+  Orderbook,
+  Position,
+  UserNonce,
+  OrderStatus,
+  GlobalDepositToken,
 }
 /* u8Decoder Not a pure module */

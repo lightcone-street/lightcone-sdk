@@ -2,7 +2,7 @@
 
 import * as Buntest from "bun:test";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
-import * as DepositPriceState from "../src/domain/DepositPriceState.res.mjs";
+import * as PriceHistory__DepositState from "../src/domain/priceHistory/PriceHistory__DepositState.res.mjs";
 
 function candle(t, tc, c) {
   return {
@@ -12,58 +12,58 @@ function candle(t, tc, c) {
   };
 }
 
-Buntest.describe("DepositPriceState — candles", () => {
+Buntest.describe("PriceHistory.DepositState — candles", () => {
   Buntest.test("applyCandle overwrites close fields on a matching open time", () => {
-    let state = DepositPriceState.make();
-    DepositPriceState.applySnapshot(state, "mint", "1h", [{
+    let state = PriceHistory__DepositState.make();
+    PriceHistory__DepositState.applySnapshot(state, "mint", "1h", [{
         t: 1.0,
         tc: 2.0,
         c: "100"
       }]);
-    DepositPriceState.applyCandle(state, "mint", "1h", {
+    PriceHistory__DepositState.applyCandle(state, "mint", "1h", {
       t: 1.0,
       tc: 3.0,
       c: "105"
     });
-    let got = Stdlib_Option.getOr(DepositPriceState.getCandles(state, "mint", "1h"), []);
+    let got = Stdlib_Option.getOr(PriceHistory__DepositState.getCandles(state, "mint", "1h"), []);
     Buntest.expect(got.length).toBe(1);
     Buntest.expect(got[0].c).toBe("105");
     Buntest.expect(got[0].tc).toBe(3.0);
     Buntest.expect(got[0].t).toBe(1.0);
   });
   Buntest.test("applyCandle appends on a new open time", () => {
-    let state = DepositPriceState.make();
-    DepositPriceState.applySnapshot(state, "mint", "1h", [{
+    let state = PriceHistory__DepositState.make();
+    PriceHistory__DepositState.applySnapshot(state, "mint", "1h", [{
         t: 1.0,
         tc: 2.0,
         c: "100"
       }]);
-    DepositPriceState.applyCandle(state, "mint", "1h", {
+    PriceHistory__DepositState.applyCandle(state, "mint", "1h", {
       t: 2.0,
       tc: 3.0,
       c: "101"
     });
-    Buntest.expect(Stdlib_Option.map(DepositPriceState.getCandles(state, "mint", "1h"), prim => prim.length)).toBe(2);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__DepositState.getCandles(state, "mint", "1h"), prim => prim.length)).toBe(2);
   });
 });
 
-Buntest.describe("DepositPriceState — latest price", () => {
+Buntest.describe("PriceHistory.DepositState — latest price", () => {
   Buntest.test("asset snapshot stores eventTime 0.0; a later tick overwrites with the real time", () => {
-    let state = DepositPriceState.make();
-    DepositPriceState.applyAssetSnapshot(state, "mint", "50");
-    let snap = DepositPriceState.getLatestPrice(state, "mint");
+    let state = PriceHistory__DepositState.make();
+    PriceHistory__DepositState.applyAssetSnapshot(state, "mint", "50");
+    let snap = PriceHistory__DepositState.getLatestPrice(state, "mint");
     Buntest.expect(Stdlib_Option.map(snap, price => price.price)).toBe("50");
     Buntest.expect(Stdlib_Option.map(snap, price => price.eventTime)).toBe(0.0);
-    DepositPriceState.applyPriceTick(state, "mint", "55", 123.0);
-    let tick = DepositPriceState.getLatestPrice(state, "mint");
+    PriceHistory__DepositState.applyPriceTick(state, "mint", "55", 123.0);
+    let tick = PriceHistory__DepositState.getLatestPrice(state, "mint");
     Buntest.expect(Stdlib_Option.map(tick, price => price.price)).toBe("55");
     Buntest.expect(Stdlib_Option.map(tick, price => price.eventTime)).toBe(123.0);
   });
   Buntest.test("latest price is per-asset (resolution-independent) and absent for unknown assets", () => {
-    let state = DepositPriceState.make();
-    DepositPriceState.applyPriceTick(state, "a", "1", 10.0);
-    Buntest.expect(Stdlib_Option.map(DepositPriceState.getLatestPrice(state, "a"), price => price.price)).toBe("1");
-    Buntest.expect(DepositPriceState.getLatestPrice(state, "b")).toBe(undefined);
+    let state = PriceHistory__DepositState.make();
+    PriceHistory__DepositState.applyPriceTick(state, "a", "1", 10.0);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__DepositState.getLatestPrice(state, "a"), price => price.price)).toBe("1");
+    Buntest.expect(PriceHistory__DepositState.getLatestPrice(state, "b")).toBe(undefined);
   });
 });
 

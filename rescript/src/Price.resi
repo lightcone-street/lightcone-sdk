@@ -1,4 +1,4 @@
-// Price — decimal-string ↔ float helpers (mirrors rust/src/shared/price.rs).
+// Price — decimal-string ↔ float helpers.
 // Lossy float conversions; use `Decimal` for precision-safe math.
 
 // Strict parse of a decimal string to float (whole string must be numeric).

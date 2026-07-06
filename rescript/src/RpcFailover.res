@@ -1,21 +1,24 @@
 // RPC failover: automatic switch to a backup Solana RPC endpoint on infrastructure
-// errors, with a 120s cooldown recovery to primary. Mirrors rust/src/rpc_failover.rs.
+// errors, with a 120s cooldown recovery to primary.
 //
 // The callers (`Rpc.getAccountData` / `getLatestBlockhash`) wrap only transport
 // primitives, whose only failures are transport-level, so every error reaching
 // `withFailover` is treated as an infrastructure error.
 
-type activeRpc = | @as("primary") Primary | @as("backup") Backup
+// Which endpoint is live.
+module Active = {
+  type t = | @as("primary") Primary | @as("backup") Backup
+}
 
-let other = (active: activeRpc): activeRpc =>
+let other = (active: Active.t): Active.t =>
   switch active {
   | Primary => Backup
   | Backup => Primary
   }
 
 // Mutable failover state held on the client.
-type state = {
-  mutable active: activeRpc,
+type t = {
+  mutable active: Active.t,
   // Unix ms when we last flipped to backup; None while on primary.
   mutable flippedToBackupAtMs: option<float>,
 }
@@ -27,18 +30,18 @@ let fastRetryDelayMs = 100
 let sleep = (ms: int): promise<unit> =>
   Promise.make((resolve, _reject) => setTimeout(() => resolve(), ms)->ignore)
 
-let make = (): state => {active: Primary, flippedToBackupAtMs: None}
+let make = (): t => {active: Primary, flippedToBackupAtMs: None}
 
-let active = (state: state): activeRpc => state.active
+let active = (state: t): Active.t => state.active
 
-let toString = (active: activeRpc): string =>
+let toString = (active: Active.t): string =>
   switch active {
   | Primary => "primary"
   | Backup => "backup"
   }
 
 // On backup past the cooldown → recover to primary (probe it again).
-let maybeRecoverToPrimary = (state: state): unit =>
+let maybeRecoverToPrimary = (state: t): unit =>
   switch (state.active, state.flippedToBackupAtMs) {
   | (Backup, Some(flippedAt)) if Date.now() -. flippedAt >= cooldownMs =>
     state.active = Primary
@@ -46,7 +49,7 @@ let maybeRecoverToPrimary = (state: state): unit =>
   | _ => ()
   }
 
-let flipTo = (state: state, target: activeRpc): unit =>
+let flipTo = (state: t, target: Active.t): unit =>
   switch target {
   | Primary =>
     state.active = Primary
@@ -63,9 +66,9 @@ let flipTo = (state: state, target: activeRpc): unit =>
 //   4. still failing + has backup → try the other endpoint:
 //      success → flip state to it → Ok; failure → Err (both down; don't flip)
 let withFailover = async (
-  state: state,
+  state: t,
   ~hasBackup: bool,
-  ~tryOn: activeRpc => promise<result<'a, SdkError.t>>,
+  ~tryOn: Active.t => promise<result<'a, SdkError.t>>,
 ): result<'a, SdkError.t> => {
   maybeRecoverToPrimary(state)
   let startActive = state.active

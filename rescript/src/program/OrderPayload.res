@@ -1,11 +1,11 @@
-// Order hashing & signing — the load-bearing crux. Reproduces
-// rust/src/program/orders.rs byte-for-byte:
+// Order hashing & signing — the load-bearing crux. Reproduces the on-chain
+// program's order signing message byte-for-byte:
 //   1. pack the 169-byte signing message, little-endian, at fixed offsets
 //   2. digest = keccak256(message)            (@noble/hashes)
 //   3. hashHex = lowercase hex of the digest  (kit base16 decoder)
 //   4. signature = ed25519 over the UTF-8 bytes of hashHex  (kit signBytes)
 // The signed payload is the 64-char ASCII hex STRING, not the raw digest —
-// "UTF-8 safe for wallet compatibility" (matches the Rust comment).
+// "UTF-8 safe for wallet compatibility".
 
 // Concatenate byte slices into one Uint8Array (the manual `extend_from_slice`).
 let concatBytes: array<Uint8Array.t> => Uint8Array.t = %raw(`function (parts) {
@@ -70,9 +70,9 @@ let signatureHex = (signature: Uint8Array.t): string =>
 let signatureBs58 = (signature: Uint8Array.t): string =>
   SolanaKitCodec.decode(SolanaKitCodec.getBase58Decoder(), signature)
 
-// ── Named constructors (Rust `new_bid` / `new_ask`) ───────────────────────────
-// The ReScript payload carries no embedded signature (signatures travel
-// separately), so these are pure record builders fixing the side.
+// ── Named constructors ─────────────────────────────────────────────────────────
+// The payload carries no embedded signature (signatures travel separately),
+// so these are pure record builders fixing the side.
 let newBid = (
   ~nonce: bigint,
   ~salt: bigint,
@@ -162,7 +162,7 @@ let verifySignature = async (order: t, ~signature: Uint8Array.t): bool => {
 }
 
 // Parse a base58 signature (wallet-adapter output) into the 64 raw bytes the
-// request encoders expect (Rust `apply_signature`).
+// request encoders expect.
 let signatureFromBs58 = (sigBs58: string): result<Uint8Array.t, string> =>
   switch SolanaKitCodec.encode(SolanaKitCodec.getBase58Encoder(), sigBs58) {
   | bytes => byteLength(bytes) == 64 ? Ok(bytes) : Error("invalid signature: expected 64 bytes")
@@ -176,7 +176,7 @@ let deriveOrderbookId = (order: t): Shared.orderBookId =>
     ~quoteToken=SolanaKit.addressToString(order.quoteMint),
   )
 
-// ── Compact on-chain order (37 bytes, no maker/mints — Rust `Order`) ──────────
+// ── Compact on-chain order (37 bytes, no maker/mints) ─────────────────────────
 module Compact = {
   type t = {
     // u32 on-chain (the payload's u64 nonce truncates).
@@ -237,8 +237,7 @@ let toOrder = (order: t): Compact.t => {
   expiration: order.expiration,
 }
 
-// Compact order + account pubkeys → full payload (Rust `Order::to_signed`,
-// minus the embedded signature).
+// Compact order + account pubkeys → full payload.
 let ofOrder = (
   compact: Compact.t,
   ~maker: SolanaKit.address,
@@ -258,7 +257,7 @@ let ofOrder = (
   expiration: compact.expiration,
 }
 
-// ── Order math / predicates (Rust program/orders.rs helpers) ──────────────────
+// ── Order math / predicates ────────────────────────────────────────────────────
 // Expired when a non-zero expiration is at or before `currentTime` (unix seconds).
 let isOrderExpired = (order: t, ~currentTime: bigint): bool =>
   order.expiration != 0n && currentTime >= order.expiration

@@ -1,5 +1,4 @@
-// Fmt__Str — string display helpers (mirrors rust/src/shared/fmt/str.rs).
-// Reached as `Fmt.Str`.
+// Fmt__Str — string display helpers. Reached as `Fmt.Str`.
 
 // First and last `qty / 2` characters joined by an ellipsis — e.g.
 // shorten("FRGkJho6fY7…nWcPR", ~qty=8) → "FRGk...WcPR". Strings of `qty`

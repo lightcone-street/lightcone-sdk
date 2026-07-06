@@ -3,13 +3,13 @@
 // the JS example.
 let main = async () => {
   let client = Common__Example.client()
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok({markets}) =>
     switch markets[0] {
     | None => Console.log("no markets found")
     | Some(market) =>
-      switch await Market.getDepositMints(client, ~marketPubkey=market.pubkey) {
+      switch await Market.Client.getDepositMints(client, ~marketPubkey=market.pubkey) {
       | Error(error) => Console.error(SdkError.toMessage(error))
       | Ok(response) =>
         Console.log(

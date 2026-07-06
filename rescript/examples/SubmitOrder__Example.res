@@ -18,16 +18,18 @@ let main = async () => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(secretKey)
   let maker = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_) =>
-    switch await Market.get(client, ~limit=1) {
+    switch await Market.Client.get(client, ~limit=1) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok({markets}) =>
       switch markets[0] {
       | None => Console.log("no markets found")
       | Some(market) =>
-        switch market.orderbookPairs->Array.find(pair => pair.active)->Option.orElse(market.orderbookPairs[0]) {
+        switch market.orderbookPairs
+        ->Array.find(pair => pair.active)
+        ->Option.orElse(market.orderbookPairs[0]) {
         | None => Console.log("selected market has no orderbooks")
         | Some(pair) => {
             // Derive scaling decimals from the pair's token metadata (no REST call):
@@ -35,7 +37,7 @@ let main = async () => {
             let baseDecimals = Float.toInt(pair.base.decimals)
             let quoteDecimals = Float.toInt(pair.quote.decimals)
             let priceDecimals = 6 + quoteDecimals - baseDecimals
-            let decimals: Scaling.orderbookDecimals = {
+            let decimals: Scaling.OrderbookDecimals.t = {
               baseDecimals,
               quoteDecimals,
               priceDecimals: priceDecimals > 0 ? priceDecimals : 0,
@@ -43,7 +45,7 @@ let main = async () => {
             }
 
             // Sign with the maker's current on-chain nonce so the order is valid.
-            let nonce = switch await Order.getNonce(client, ~user=maker) {
+            let nonce = switch await Order.Client.getNonce(client, ~user=maker) {
             | Ok(value) => BigInt.fromFloat(value)->Option.getOr(0n)
             | Error(_) => 0n
             }
@@ -64,7 +66,7 @@ let main = async () => {
             ) {
             | Ok(response) => {
                 let status = switch response.status {
-                | Order.SubmitOrderStatus.Accepted => "accepted"
+                | Order.Raw.SubmitStatus.Accepted => "accepted"
                 | PartialFill => "partial_fill"
                 | Filled => "filled"
                 }

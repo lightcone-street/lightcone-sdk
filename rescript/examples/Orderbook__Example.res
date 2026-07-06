@@ -3,7 +3,7 @@
 // compiled Orderbook.res.mjs is the JS example.
 let main = async () => {
   let client = Common__Example.client()
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok({markets}) =>
     switch markets[0] {
@@ -15,7 +15,7 @@ let main = async () => {
         let orderbookId = pair.orderbookId
 
         // Depth is capped server-side at 20 levels per side.
-        switch await Orderbook.get(client, ~orderbookId, ~depth=10) {
+        switch await Orderbook.Client.get(client, ~orderbookId, ~depth=10) {
         | Error(error) => Console.error(SdkError.toMessage(error))
         | Ok(depth) =>
           Console.log(`market: ${market.slug}`)
@@ -45,14 +45,14 @@ let main = async () => {
 
           // Hyperliquid-style aggregation: 5 significant figures, mantissa 2.
           // Bids bucket by flooring, asks by ceiling.
-          switch Orderbook.BookAggregation.validate(Some(5), Some(2)) {
+          switch Orderbook.Aggregation.validate(Some(5), Some(2)) {
           | Error(message) => Console.error(message)
           | Ok(aggregation) =>
-            switch await Orderbook.get(client, ~orderbookId, ~aggregation) {
+            switch await Orderbook.Client.get(client, ~orderbookId, ~aggregation) {
             | Error(error) => Console.error(SdkError.toMessage(error))
             | Ok(grouped) =>
               Console.log(
-                `grouped (${Orderbook.BookAggregation.keySuffix(aggregation)}): ${Int.toString(
+                `grouped (${Orderbook.Aggregation.keySuffix(aggregation)}): ${Int.toString(
                     Array.length(grouped.bids),
                   )} bids / ${Int.toString(Array.length(grouped.asks))} asks`,
               )

@@ -1,4 +1,4 @@
-// Fmt__Decimal — display formatting over decimal.js values (fmt/decimal.rs).
+// Fmt__Decimal — display formatting over decimal.js values.
 // Reached as `Fmt.Decimal`.
 
 // Tier-based decimal places (≥10000→0, ≥1000→1, ≥100→2, ≥10→3, ≥0.1→4, else 5),

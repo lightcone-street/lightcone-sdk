@@ -47,7 +47,7 @@ describe("RpcFailover state machine", () => {
 describe("RpcFailover.withFailover", () => {
   testAsync("dead primary + live backup → Ok, and flips state to backup", async () => {
     let state = RpcFailover.make()
-    let tryOn = async (target: RpcFailover.activeRpc): result<string, SdkError.t> =>
+    let tryOn = async (target: RpcFailover.Active.t): result<string, SdkError.t> =>
       switch target {
       | Primary => Error(SdkError.Other("primary down"))
       | Backup => Ok("blockhash-from-backup")
@@ -61,7 +61,7 @@ describe("RpcFailover.withFailover", () => {
 
   testAsync("live primary → Ok without flipping", async () => {
     let state = RpcFailover.make()
-    let tryOn = async (_target: RpcFailover.activeRpc): result<string, SdkError.t> =>
+    let tryOn = async (_target: RpcFailover.Active.t): result<string, SdkError.t> =>
       Ok("blockhash-from-primary")
     switch await RpcFailover.withFailover(state, ~hasBackup=true, ~tryOn) {
     | Ok(value) => expect(value)->toBe("blockhash-from-primary")
@@ -72,7 +72,7 @@ describe("RpcFailover.withFailover", () => {
 
   testAsync("no backup → surfaces the error and stays on primary", async () => {
     let state = RpcFailover.make()
-    let tryOn = async (_target: RpcFailover.activeRpc): result<string, SdkError.t> =>
+    let tryOn = async (_target: RpcFailover.Active.t): result<string, SdkError.t> =>
       Error(SdkError.Other("down"))
     let result = await RpcFailover.withFailover(state, ~hasBackup=false, ~tryOn)
     let isError = switch result {

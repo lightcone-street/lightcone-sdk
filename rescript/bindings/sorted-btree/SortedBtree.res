@@ -1,4 +1,4 @@
-// Binding to sorted-btree — an ordered map used by OrderbookState to keep bid/ask
+// Binding to sorted-btree — an ordered map used by Orderbook.State to keep bid/ask
 // price levels sorted (mirrors the Rust SDK's sorted book). The default export is
 // the `BTree<K, V>` class. `get`/`minKey`/`maxKey` return `undefined` when absent,
 // which we surface as `option`.

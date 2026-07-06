@@ -1,4 +1,4 @@
-// Unified SDK error type — the ReScript counterpart of the Rust SDK's `SdkError`.
+// Unified SDK error type.
 // Named `SdkError` (not `Error`) so it doesn't shadow the stdlib `Error` module.
 //
 // The result-returning core API uses `SdkError.t`. The gentype-exported throwing
@@ -120,129 +120,139 @@ module RejectionCode = {
 }
 
 // ── Structured rejection details (hand-decoded; the wrapper is internally-tagged) ──
-type apiRejectedDetails = {
-  reason: string,
-  rejectionCode?: RejectionCode.t,
-  errorCode?: string,
-  errorLogId?: string,
-  // Correlation id set client-side from x-request-id; never in the wire body.
-  requestId?: string,
-}
+// The module's `t` is the details payload carried by the `ApiRejected(…)` variant of
+// `SdkError.t` below (module and constructor deliberately share the name).
+module ApiRejected = {
+  type t = {
+    reason: string,
+    rejectionCode?: RejectionCode.t,
+    errorCode?: string,
+    errorLogId?: string,
+    // Correlation id set client-side from x-request-id; never in the wire body.
+    requestId?: string,
+  }
 
-let decodeRejectedDetails = (json: JSON.t): apiRejectedDetails => {
-  let str = key =>
-    switch json {
-    | JSON.Object(dict) =>
-      switch Dict.get(dict, key) {
-      | Some(JSON.String(value)) => Some(value)
+  let decode = (json: JSON.t): t => {
+    let str = key =>
+      switch json {
+      | JSON.Object(dict) =>
+        switch Dict.get(dict, key) {
+        | Some(JSON.String(value)) => Some(value)
+        | _ => None
+        }
       | _ => None
       }
-    | _ => None
+    {
+      reason: str("reason")->Option.getOr(""),
+      rejectionCode: ?str("rejection_code")->Option.map(RejectionCode.fromWire),
+      errorCode: ?str("error_code"),
+      errorLogId: ?str("error_log_id"),
     }
-  {
-    reason: str("reason")->Option.getOr(""),
-    rejectionCode: ?str("rejection_code")->Option.map(RejectionCode.fromWire),
-    errorCode: ?str("error_code"),
-    errorLogId: ?str("error_log_id"),
+  }
+
+  let toMessage = (details: t): string => {
+    let parts = [`Reason: ${details.reason}`]
+    details.rejectionCode->Option.forEach(code => parts->Array.push(`Rejection Code: ${RejectionCode.label(code)}`))
+    details.errorCode->Option.forEach(code => parts->Array.push(`Error Code: ${code}`))
+    details.errorLogId->Option.forEach(id => parts->Array.push(`Error Log ID: ${id}`))
+    details.requestId->Option.forEach(id => parts->Array.push(`Request ID: ${id}`))
+    parts->Array.join("\n")
   }
 }
 
 // ── Layered error variants ────────────────────────────────────────────────────
-type httpError =
-  | ServerError({status: int, body: string})
-  | RateLimited({retryAfterMs: option<int>})
-  | Unauthorized
-  | NotFound(string)
-  | BadRequest(string)
-  | Timeout
-  | Network(string)
-  | MaxRetriesExceeded({attempts: int, lastError: option<string>})
+module HttpError = {
+  type t =
+    | ServerError({status: int, body: string})
+    | RateLimited({retryAfterMs: option<int>})
+    | Unauthorized
+    | NotFound(string)
+    | BadRequest(string)
+    | Timeout
+    | Network(string)
+    | MaxRetriesExceeded({attempts: int, lastError: option<string>})
 
-type wsError =
-  | NotConnected
-  | ConnectionFailed(string)
-  | SendFailed(string)
-  | DeserializationError(string)
-  | ProtocolError(string)
-  | Closed({code: option<int>, reason: string})
+  let toMessage = (error: t): string =>
+    switch error {
+    | ServerError({status, body}) => `Server error ${Int.toString(status)}: ${body}`
+    | RateLimited({retryAfterMs}) =>
+      switch retryAfterMs {
+      | Some(ms) => `Rate limited (retry after ${Int.toString(ms)}ms)`
+      | None => "Rate limited"
+      }
+    | Unauthorized => "Unauthorized"
+    | NotFound(message) => `Not found: ${message}`
+    | BadRequest(message) => `Bad request: ${message}`
+    | Timeout => "Timeout"
+    | Network(message) => `Request failed: ${message}`
+    | MaxRetriesExceeded({attempts, lastError}) =>
+      `Max retries exceeded after ${Int.toString(attempts)} attempts: ${lastError->Option.getOr("")}`
+    }
+}
 
-type authError =
-  | NotAuthenticated
-  | LoginFailed(string)
-  | SignatureVerificationFailed
-  | TokenExpired
+module WsError = {
+  type t =
+    | NotConnected
+    | ConnectionFailed(string)
+    | SendFailed(string)
+    | DeserializationError(string)
+    | ProtocolError(string)
+    | Closed({code: option<int>, reason: string})
+
+  let toMessage = (error: t): string =>
+    switch error {
+    | NotConnected => "Not connected"
+    | ConnectionFailed(message) => `Connection failed: ${message}`
+    | SendFailed(message) => `Send failed: ${message}`
+    | DeserializationError(message) => `Deserialization error: ${message}`
+    | ProtocolError(message) => `Protocol error: ${message}`
+    | Closed({code, reason}) =>
+      `Connection closed: code=${code->Option.map(c => Int.toString(c))->Option.getOr("?")} reason=${reason}`
+    }
+}
+
+module AuthError = {
+  type t =
+    | NotAuthenticated
+    | LoginFailed(string)
+    | SignatureVerificationFailed
+    | TokenExpired
+
+  let toMessage = (error: t): string =>
+    switch error {
+    | NotAuthenticated => "Not authenticated"
+    | LoginFailed(message) => `Login failed: ${message}`
+    | SignatureVerificationFailed => "Signature verification failed"
+    | TokenExpired => "Token expired"
+    }
+}
 
 type t =
-  | Http(httpError)
-  | Ws(wsError)
-  | Auth(authError)
+  | Http(HttpError.t)
+  | Ws(WsError.t)
+  | Auth(AuthError.t)
   | Validation(string)
   | Decode(string)
   | Program(string)
   | MissingMarketContext(string)
   | Signing(string)
   | UserCancelled
-  | ApiRejected(apiRejectedDetails)
+  | ApiRejected(ApiRejected.t)
   | Other(string)
 
-// ── Human-readable messages (mirror the Rust `Display` impls) ─────────────────
-let httpErrorToMessage = (error: httpError): string =>
-  switch error {
-  | ServerError({status, body}) => `Server error ${Int.toString(status)}: ${body}`
-  | RateLimited({retryAfterMs}) =>
-    switch retryAfterMs {
-    | Some(ms) => `Rate limited (retry after ${Int.toString(ms)}ms)`
-    | None => "Rate limited"
-    }
-  | Unauthorized => "Unauthorized"
-  | NotFound(message) => `Not found: ${message}`
-  | BadRequest(message) => `Bad request: ${message}`
-  | Timeout => "Timeout"
-  | Network(message) => `Request failed: ${message}`
-  | MaxRetriesExceeded({attempts, lastError}) =>
-    `Max retries exceeded after ${Int.toString(attempts)} attempts: ${lastError->Option.getOr("")}`
-  }
-
-let wsErrorToMessage = (error: wsError): string =>
-  switch error {
-  | NotConnected => "Not connected"
-  | ConnectionFailed(message) => `Connection failed: ${message}`
-  | SendFailed(message) => `Send failed: ${message}`
-  | DeserializationError(message) => `Deserialization error: ${message}`
-  | ProtocolError(message) => `Protocol error: ${message}`
-  | Closed({code, reason}) =>
-    `Connection closed: code=${code->Option.map(c => Int.toString(c))->Option.getOr("?")} reason=${reason}`
-  }
-
-let authErrorToMessage = (error: authError): string =>
-  switch error {
-  | NotAuthenticated => "Not authenticated"
-  | LoginFailed(message) => `Login failed: ${message}`
-  | SignatureVerificationFailed => "Signature verification failed"
-  | TokenExpired => "Token expired"
-  }
-
-let rejectedToMessage = (details: apiRejectedDetails): string => {
-  let parts = [`Reason: ${details.reason}`]
-  details.rejectionCode->Option.forEach(code => parts->Array.push(`Rejection Code: ${RejectionCode.label(code)}`))
-  details.errorCode->Option.forEach(code => parts->Array.push(`Error Code: ${code}`))
-  details.errorLogId->Option.forEach(id => parts->Array.push(`Error Log ID: ${id}`))
-  details.requestId->Option.forEach(id => parts->Array.push(`Request ID: ${id}`))
-  parts->Array.join("\n")
-}
-
+// ── Human-readable messages ────────────────────────────────────────────────────
 let toMessage = (error: t): string =>
   switch error {
-  | Http(inner) => `HTTP error: ${httpErrorToMessage(inner)}`
-  | Ws(inner) => `WebSocket error: ${wsErrorToMessage(inner)}`
-  | Auth(inner) => `Auth error: ${authErrorToMessage(inner)}`
+  | Http(inner) => `HTTP error: ${HttpError.toMessage(inner)}`
+  | Ws(inner) => `WebSocket error: ${WsError.toMessage(inner)}`
+  | Auth(inner) => `Auth error: ${AuthError.toMessage(inner)}`
   | Validation(message) => `Validation error: ${message}`
   | Decode(message) => `Serialization error: ${message}`
   | Program(message) => `Program error: ${message}`
   | MissingMarketContext(message) => `Missing required market context for Market deposit source: ${message}`
   | Signing(message) => `Signing error: ${message}`
   | UserCancelled => "User cancelled signing"
-  | ApiRejected(details) => rejectedToMessage(details)
+  | ApiRejected(details) => ApiRejected.toMessage(details)
   | Other(message) => message
   }
 
@@ -286,7 +296,7 @@ let parseApiResponse = (
       }
     | Some(JSON.String("error")) =>
       switch Dict.get(dict, "error_details") {
-      | Some(details) => Error(ApiRejected(decodeRejectedDetails(details)))
+      | Some(details) => Error(ApiRejected(ApiRejected.decode(details)))
       | None => Error(Other("error response missing 'error_details'"))
       }
     | _ => Error(Decode("response missing 'status'"))

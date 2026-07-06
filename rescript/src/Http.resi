@@ -3,10 +3,12 @@
 // x-request-id generation, cookie capture, retry/backoff loop, and `ApiResponse`
 // unwrapping are all internal.
 
-@genType
-type retryPolicy =
-  | NoRetry
-  | Idempotent
+module RetryPolicy: {
+  @genType
+  type t =
+    | NoRetry
+    | Idempotent
+}
 
 // Opaque to TypeScript: the configured HTTP transport is a capability (base URL + a mutable
 // cookie store holding the session token), driven through the verbs below — not data to
@@ -28,7 +30,7 @@ let get: (
   t,
   ~path: string,
   ~query: array<(string, string)>=?,
-  ~retry: retryPolicy=?,
+  ~retry: RetryPolicy.t=?,
   ~cookieHeader: string=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ) => promise<result<'a, SdkError.t>>
@@ -37,7 +39,7 @@ let post: (
   t,
   ~path: string,
   ~body: JSON.t,
-  ~retry: retryPolicy=?,
+  ~retry: RetryPolicy.t=?,
   ~cookieHeader: string=?,
   ~decode: JSON.t => result<'a, Spice.decodeError>,
 ) => promise<result<'a, SdkError.t>>

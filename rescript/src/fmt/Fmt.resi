@@ -1,4 +1,4 @@
-// Fmt — human-readable display formatting (mirrors rust/src/shared/fmt).
+// Fmt — human-readable display formatting.
 // Pure namespace: each alias re-exports its `Fmt__*` implementation file, whose
 // `.resi` is the real interface. `Fmt__Constants` (the shared tier table) is
 // namespace-internal and deliberately not re-exported.

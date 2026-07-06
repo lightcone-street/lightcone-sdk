@@ -1,5 +1,4 @@
-// Shared newtypes and enums used across every domain module — the ReScript
-// counterpart of the Rust SDK's `shared` module.
+// Shared newtypes and enums used across every domain module.
 //
 // Enum codec convention (see the project memo): each string enum sets BOTH `@as`
 // (ReScript runtime value + the gentype TS union) and `@spice.as` (the JSON wire
@@ -10,13 +9,13 @@
 // across the trigger enums (Created/Triggered/…) don't collide.
 
 // ── Transparent string newtypes ──────────────────────────────────────────────
-// The Rust newtypes serialize as plain JSON strings; we mirror that with string
-// aliases (spice → string codec, gentype → `string`).
+// The wire carries these as plain JSON strings, so they stay string aliases
+// (spice → string codec, gentype → `string`).
 //
 // `pubkeyStr` deliberately stays a plain string rather than kit's branded
-// `SolanaKit.address` (decision 2026-07: mirrors Rust, where `PubkeyStr` is an
-// UNVALIDATED String newtype converted via `to_pubkey()` only at the program
-// boundary — ours is `SolanaKit.address(...)`, which validates + brands there).
+// `SolanaKit.address` (decision 2026-07: the wire treats pubkeys as unvalidated
+// strings; validation + branding happen at the program boundary, via
+// `SolanaKit.address(...)`).
 // Using the branded type wire-wide would cost per-field base58 validation on hot
 // WS paths, break `Dict` keys / URL interpolation across the state containers,
 // and turn every TS-facing pubkey field opaque.
@@ -72,7 +71,7 @@ module Denominator = {
   @spice
   type t = | @as("Base") @spice.as("Base") Base | @as("Quote") @spice.as("Quote") Quote
 
-  // Display order: quote first (mirrors the Rust `Denominator::all`).
+  // Display order: quote first.
   let all: array<t> = [Quote, Base]
 
   // Convert `amount` from this denomination into `target` at the given price
@@ -129,9 +128,8 @@ module TriggerType = {
 }
 
 // ── OrderStatus (UPPERCASE) ──────────────────────────────────────────────────
-// The engine's real-time order state. Lives in Rust's `domain/order` rather than
-// `shared`, but follows the shared enum-codec convention; wire absence defaults
-// to Open (the Rust `#[default]`).
+// The engine's real-time order state, following the shared enum-codec
+// convention; wire absence defaults to Open (the wire default).
 module OrderStatus = {
   @spice
   type t =

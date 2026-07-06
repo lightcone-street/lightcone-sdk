@@ -2,29 +2,32 @@
 
 import * as Ws from "./ws/Ws.res.mjs";
 import * as Rpc from "./Rpc.res.mjs";
-import * as Auth from "./Auth.res.mjs";
-import * as Order from "./domain/Order.res.mjs";
-import * as Trade from "./domain/Trade.res.mjs";
 import * as Client from "./Client.res.mjs";
-import * as Faucet from "./domain/Faucet.res.mjs";
-import * as Market from "./domain/Market.res.mjs";
-import * as Metrics from "./domain/Metrics.res.mjs";
 import * as Envelope from "./program/Envelope.res.mjs";
-import * as Position from "./domain/Position.res.mjs";
-import * as Referral from "./domain/Referral.res.mjs";
 import * as SdkError from "./SdkError.res.mjs";
-import * as Orderbook from "./domain/Orderbook.res.mjs";
-import * as OrderState from "./domain/OrderState.res.mjs";
-import * as TradeState from "./domain/TradeState.res.mjs";
+import * as Order__Raw from "./domain/order/Order__Raw.res.mjs";
 import * as Kit from "@solana/kit";
-import * as Notification from "./domain/Notification.res.mjs";
-import * as PriceHistory from "./domain/PriceHistory.res.mjs";
+import * as Auth__Client from "./auth/Auth__Client.res.mjs";
+import * as Order__Model from "./domain/order/Order__Model.res.mjs";
+import * as Order__State from "./domain/order/Order__State.res.mjs";
+import * as Trade__State from "./domain/trade/Trade__State.res.mjs";
+import * as Order__Client from "./domain/order/Order__Client.res.mjs";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
-import * as OrderbookState from "./domain/OrderbookState.res.mjs";
-import * as PositionBuilders from "./program/PositionBuilders.res.mjs";
+import * as Trade__Client from "./domain/trade/Trade__Client.res.mjs";
+import * as Faucet__Client from "./domain/faucet/Faucet__Client.res.mjs";
+import * as Market__Client from "./domain/market/Market__Client.res.mjs";
+import * as Metrics__Client from "./domain/metrics/Metrics__Client.res.mjs";
+import * as Position__State from "./domain/position/Position__State.res.mjs";
+import * as Orderbook__State from "./domain/orderbook/Orderbook__State.res.mjs";
+import * as Position__Client from "./domain/position/Position__Client.res.mjs";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
-import * as DepositPriceState from "./domain/DepositPriceState.res.mjs";
-import * as PriceHistoryState from "./domain/PriceHistoryState.res.mjs";
+import * as Referral__Client from "./domain/referral/Referral__Client.res.mjs";
+import * as Orderbook__Client from "./domain/orderbook/Orderbook__Client.res.mjs";
+import * as Position__Builders from "./domain/position/Position__Builders.res.mjs";
+import * as PriceHistory__State from "./domain/priceHistory/PriceHistory__State.res.mjs";
+import * as Notification__Client from "./domain/notification/Notification__Client.res.mjs";
+import * as PriceHistory__Client from "./domain/priceHistory/PriceHistory__Client.res.mjs";
+import * as PriceHistory__DepositState from "./domain/priceHistory/PriceHistory__DepositState.res.mjs";
 
 function make(envOpt, baseUrl, wsUrl, rpcUrl, backupRpcUrl, programId, depositSourceOpt, param) {
   let env = envOpt !== undefined ? envOpt : "prod";
@@ -63,32 +66,32 @@ function signerAddressOrThrow(client) {
 }
 
 function getNonce(client) {
-  return SdkError.unwrap(Auth.getNonce(client));
+  return SdkError.unwrap(Auth__Client.getNonce(client));
 }
 
 function login(client, useEmbeddedWallet) {
-  return SdkError.unwrap(Auth.login(client, useEmbeddedWallet));
+  return SdkError.unwrap(Auth__Client.login(client, useEmbeddedWallet));
 }
 
 function checkSession(client, cookieHeader) {
-  return SdkError.unwrap(Auth.checkSession(client, cookieHeader));
+  return SdkError.unwrap(Auth__Client.checkSession(client, cookieHeader));
 }
 
 function logout(client) {
-  return SdkError.unwrap(Auth.logout(client));
+  return SdkError.unwrap(Auth__Client.logout(client));
 }
 
-let isAuthenticated = Auth.isAuthenticated;
+let isAuthenticated = Auth__Client.isAuthenticated;
 
 function registerPrivy(client) {
-  return SdkError.unwrap(Auth.registerPrivy(client));
+  return SdkError.unwrap(Auth__Client.registerPrivy(client));
 }
 
 function disconnectX(client) {
-  return SdkError.unwrap(Auth.disconnectX(client));
+  return SdkError.unwrap(Auth__Client.disconnectX(client));
 }
 
-let connectXUrl = Auth.connectXUrl;
+let connectXUrl = Auth__Client.connectXUrl;
 
 let AuthClient = {
   getNonce: getNonce,
@@ -102,31 +105,31 @@ let AuthClient = {
 };
 
 function get(client, cursor, limit) {
-  return SdkError.unwrap(Market.get(client, cursor, limit));
+  return SdkError.unwrap(Market__Client.get(client, cursor, limit));
 }
 
 function featured(client) {
-  return SdkError.unwrap(Market.featured(client));
+  return SdkError.unwrap(Market__Client.featured(client));
 }
 
 function getBySlug(client, slug) {
-  return SdkError.unwrap(Market.getBySlug(client, slug));
+  return SdkError.unwrap(Market__Client.getBySlug(client, slug));
 }
 
 function getByPubkey(client, pubkey) {
-  return SdkError.unwrap(Market.getByPubkey(client, pubkey));
+  return SdkError.unwrap(Market__Client.getByPubkey(client, pubkey));
 }
 
 function search(client, query, limit) {
-  return SdkError.unwrap(Market.search(client, query, limit));
+  return SdkError.unwrap(Market__Client.search(client, query, limit));
 }
 
 function globalDepositAssets(client) {
-  return SdkError.unwrap(Market.globalDepositAssets(client));
+  return SdkError.unwrap(Market__Client.globalDepositAssets(client));
 }
 
 function depositMints(client, marketPubkey) {
-  return SdkError.unwrap(Market.getDepositMints(client, marketPubkey));
+  return SdkError.unwrap(Market__Client.getDepositMints(client, marketPubkey));
 }
 
 let MarketClient = {
@@ -140,7 +143,7 @@ let MarketClient = {
 };
 
 function get$1(client, orderbookId, depth) {
-  return SdkError.unwrap(Orderbook.get(client, orderbookId, depth, undefined, undefined));
+  return SdkError.unwrap(Orderbook__Client.get(client, orderbookId, depth, undefined, undefined));
 }
 
 let OrderbookClient = {
@@ -148,11 +151,11 @@ let OrderbookClient = {
 };
 
 function forOrderbook(client, orderbookId, limit, cursor) {
-  return SdkError.unwrap(Trade.get(client, orderbookId, limit, cursor));
+  return SdkError.unwrap(Trade__Client.get(client, orderbookId, limit, cursor));
 }
 
 function forMarket(client, marketPubkey, limit, cursor) {
-  return SdkError.unwrap(Trade.getByMarket(client, marketPubkey, limit, cursor));
+  return SdkError.unwrap(Trade__Client.getByMarket(client, marketPubkey, limit, cursor));
 }
 
 let TradeClient = {
@@ -161,7 +164,7 @@ let TradeClient = {
 };
 
 function forUser(client, limit, cursor) {
-  return SdkError.unwrap(Order.getUserOrders(client, limit, cursor, undefined));
+  return SdkError.unwrap(Order__Client.getUserOrders(client, limit, cursor, undefined));
 }
 
 async function submitLimit(client, market, baseMint, quoteMint, side, price, size, baseDecimals, quoteDecimals, priceDecimals, tickSize, orderbookId, timeInForce) {
@@ -185,23 +188,23 @@ async function submitTrigger(client, market, baseMint, quoteMint, side, price, s
 }
 
 function cancel(client, orderHash) {
-  return SdkError.unwrap(Order.cancelSigned(client, orderHash));
+  return SdkError.unwrap(Order__Client.cancelSigned(client, orderHash));
 }
 
 function cancelTrigger(client, triggerOrderId) {
-  return SdkError.unwrap(Order.cancelTriggerSigned(client, triggerOrderId));
+  return SdkError.unwrap(Order__Client.cancelTriggerSigned(client, triggerOrderId));
 }
 
 function cancelAll(client, orderbookId) {
-  return SdkError.unwrap(Order.cancelAllSigned(client, orderbookId));
+  return SdkError.unwrap(Order__Client.cancelAllSigned(client, orderbookId));
 }
 
 function fills(client, marketPubkey, limit, cursor) {
-  return SdkError.unwrap(Order.getUserOrderFills(client, marketPubkey, limit, cursor, undefined));
+  return SdkError.unwrap(Order__Client.getUserOrderFills(client, marketPubkey, limit, cursor, undefined));
 }
 
 function fillsByWallet(client, walletAddress, marketPubkey, limit, cursor) {
-  return SdkError.unwrap(Order.getUserOrderFillsByWallet(client, walletAddress, marketPubkey, limit, cursor));
+  return SdkError.unwrap(Order__Client.getUserOrderFillsByWallet(client, walletAddress, marketPubkey, limit, cursor));
 }
 
 let OrderClient = {
@@ -216,69 +219,69 @@ let OrderClient = {
 };
 
 function forUser$1(client, userPubkey) {
-  return SdkError.unwrap(Position.get(client, userPubkey));
+  return SdkError.unwrap(Position__Client.get(client, userPubkey));
 }
 
 function forMarket$1(client, userPubkey, marketPubkey) {
-  return SdkError.unwrap(Position.getForMarket(client, userPubkey, marketPubkey));
+  return SdkError.unwrap(Position__Client.getForMarket(client, userPubkey, marketPubkey));
 }
 
 function mine(client) {
-  return SdkError.unwrap(Position.positions(client, undefined));
+  return SdkError.unwrap(Position__Client.positions(client, undefined));
 }
 
 function depositTokenBalances(client) {
-  return SdkError.unwrap(Position.depositTokenBalances(client, undefined));
+  return SdkError.unwrap(Position__Client.depositTokenBalances(client, undefined));
 }
 
 async function depositToGlobal(client, mint, amount) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.depositToGlobal(client, user, Kit.address(mint), amount));
+  return await SdkError.unwrap(Position__Builders.depositToGlobal(client, user, Kit.address(mint), amount));
 }
 
 async function withdrawFromGlobal(client, mint, amount) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.withdrawFromGlobal(client, user, Kit.address(mint), amount));
+  return await SdkError.unwrap(Position__Builders.withdrawFromGlobal(client, user, Kit.address(mint), amount));
 }
 
 async function globalToMarketDeposit(client, market, mint, amount, numOutcomes) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.globalToMarketDeposit(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
+  return await SdkError.unwrap(Position__Builders.globalToMarketDeposit(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
 }
 
 async function merge(client, market, mint, amount, numOutcomes) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.merge(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
+  return await SdkError.unwrap(Position__Builders.merge(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
 }
 
 async function redeemWinnings(client, market, mint, amount, outcomeIndex) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.redeemWinnings(client, user, Kit.address(market), Kit.address(mint), amount, outcomeIndex));
+  return await SdkError.unwrap(Position__Builders.redeemWinnings(client, user, Kit.address(market), Kit.address(mint), amount, outcomeIndex));
 }
 
 async function deposit(client, market, mint, amount, numOutcomes) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.deposit(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
+  return await SdkError.unwrap(Position__Builders.deposit(client, user, Kit.address(market), Kit.address(mint), amount, numOutcomes));
 }
 
 async function withdrawFromPosition(client, market, mint, amount, outcomeIndex) {
   let user = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.withdrawFromPosition(client, user, Kit.address(market), Kit.address(mint), amount, outcomeIndex));
+  return await SdkError.unwrap(Position__Builders.withdrawFromPosition(client, user, Kit.address(market), Kit.address(mint), amount, outcomeIndex));
 }
 
 async function extendPositionTokens(client, user, market, lookupTable, depositMints, numOutcomes) {
   let operator = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.extendPositionTokens(client, operator, Kit.address(user), Kit.address(market), Kit.address(lookupTable), depositMints.map(prim => Kit.address(prim)), numOutcomes));
+  return await SdkError.unwrap(Position__Builders.extendPositionTokens(client, operator, Kit.address(user), Kit.address(market), Kit.address(lookupTable), depositMints.map(prim => Kit.address(prim)), numOutcomes));
 }
 
 async function closePositionAlt(client, position, market, lookupTable) {
   let operator = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.closePositionAlt(client, operator, Kit.address(position), Kit.address(market), Kit.address(lookupTable)));
+  return await SdkError.unwrap(Position__Builders.closePositionAlt(client, operator, Kit.address(position), Kit.address(market), Kit.address(lookupTable)));
 }
 
 async function closePositionTokenAccounts(client, market, position, depositMints, numOutcomes) {
   let operator = signerAddressOrThrow(client);
-  return await SdkError.unwrap(PositionBuilders.closePositionTokenAccounts(client, operator, Kit.address(market), Kit.address(position), depositMints.map(prim => Kit.address(prim)), numOutcomes));
+  return await SdkError.unwrap(Position__Builders.closePositionTokenAccounts(client, operator, Kit.address(market), Kit.address(position), depositMints.map(prim => Kit.address(prim)), numOutcomes));
 }
 
 let PositionClient = {
@@ -299,60 +302,60 @@ let PositionClient = {
 };
 
 function platform(client) {
-  return SdkError.unwrap(Metrics.platform(client));
+  return SdkError.unwrap(Metrics__Client.platform(client));
 }
 
 function markets(client) {
-  return SdkError.unwrap(Metrics.markets(client));
+  return SdkError.unwrap(Metrics__Client.markets(client));
 }
 
 function market(client, marketPubkey) {
-  return SdkError.unwrap(Metrics.market(client, marketPubkey));
+  return SdkError.unwrap(Metrics__Client.market(client, marketPubkey));
 }
 
 function orderbookTickers(client, depositAsset) {
-  return SdkError.unwrap(Metrics.orderbookTickers(client, depositAsset));
+  return SdkError.unwrap(Metrics__Client.orderbookTickers(client, depositAsset));
 }
 
 function categories(client) {
-  return SdkError.unwrap(Metrics.categories(client));
+  return SdkError.unwrap(Metrics__Client.categories(client));
 }
 
 function depositTokens(client) {
-  return SdkError.unwrap(Metrics.depositTokens(client));
+  return SdkError.unwrap(Metrics__Client.depositTokens(client));
 }
 
 function leaderboard(client, limit) {
-  return SdkError.unwrap(Metrics.leaderboard(client, limit));
+  return SdkError.unwrap(Metrics__Client.leaderboard(client, limit));
 }
 
 function orderbook(client, orderbookId) {
-  return SdkError.unwrap(Metrics.orderbook(client, orderbookId));
+  return SdkError.unwrap(Metrics__Client.orderbook(client, orderbookId));
 }
 
 function depositTokensVolumeHistory(client, fromMs, toMs, limit) {
-  return SdkError.unwrap(Metrics.depositTokensVolumeHistory(client, fromMs, toMs, limit));
+  return SdkError.unwrap(Metrics__Client.depositTokensVolumeHistory(client, fromMs, toMs, limit));
 }
 
 function openInterestHistory(client, fromMs, toMs, limit) {
-  return SdkError.unwrap(Metrics.openInterestHistory(client, fromMs, toMs, limit));
+  return SdkError.unwrap(Metrics__Client.openInterestHistory(client, fromMs, toMs, limit));
 }
 
 function uniqueTradersHistory(client, scope, scopeKey, fromMs, toMs, limit) {
-  return SdkError.unwrap(Metrics.uniqueTradersHistory(client, scope, scopeKey, fromMs, toMs, limit));
+  return SdkError.unwrap(Metrics__Client.uniqueTradersHistory(client, scope, scopeKey, fromMs, toMs, limit));
 }
 
 function history(client, scope, scopeKey, resolutionOpt, fromMs, toMs, limit) {
   let resolution = resolutionOpt !== undefined ? resolutionOpt : "1h";
-  return SdkError.unwrap(Metrics.history(client, scope, scopeKey, resolution, fromMs, toMs, limit));
+  return SdkError.unwrap(Metrics__Client.history(client, scope, scopeKey, resolution, fromMs, toMs, limit));
 }
 
 function user(client) {
-  return SdkError.unwrap(Metrics.user(client, undefined));
+  return SdkError.unwrap(Metrics__Client.user(client, undefined));
 }
 
 function userByWallet(client, walletAddress) {
-  return SdkError.unwrap(Metrics.userByWallet(client, walletAddress));
+  return SdkError.unwrap(Metrics__Client.userByWallet(client, walletAddress));
 }
 
 let MetricsClient = {
@@ -373,15 +376,15 @@ let MetricsClient = {
 };
 
 function get$2(client, orderbookId, resolution, fromMs, toMs) {
-  return SdkError.unwrap(PriceHistory.get(client, orderbookId, resolution, fromMs, toMs));
+  return SdkError.unwrap(PriceHistory__Client.get(client, orderbookId, resolution, fromMs, toMs));
 }
 
 function lineData(client, orderbookId, resolution, fromMs, toMs, cursor, limit) {
-  return SdkError.unwrap(PriceHistory.getLineData(client, orderbookId, resolution, fromMs, toMs, cursor, limit));
+  return SdkError.unwrap(PriceHistory__Client.getLineData(client, orderbookId, resolution, fromMs, toMs, cursor, limit));
 }
 
 function depositAssetSnapshot(client) {
-  return SdkError.unwrap(PriceHistory.getDepositAssetPricesSnapshot(client));
+  return SdkError.unwrap(PriceHistory__Client.getDepositAssetPricesSnapshot(client));
 }
 
 let PriceHistoryClient = {
@@ -391,11 +394,11 @@ let PriceHistoryClient = {
 };
 
 function list(client) {
-  return SdkError.unwrap(Notification.fetch(client, undefined));
+  return SdkError.unwrap(Notification__Client.fetch(client, undefined));
 }
 
 function dismiss(client, notificationId) {
-  return SdkError.unwrap(Notification.dismiss(client, notificationId));
+  return SdkError.unwrap(Notification__Client.dismiss(client, notificationId));
 }
 
 let NotificationClient = {
@@ -404,11 +407,11 @@ let NotificationClient = {
 };
 
 function status(client) {
-  return SdkError.unwrap(Referral.getStatus(client, undefined));
+  return SdkError.unwrap(Referral__Client.getStatus(client, undefined));
 }
 
 function redeem(client, code) {
-  return SdkError.unwrap(Referral.redeem(client, code));
+  return SdkError.unwrap(Referral__Client.redeem(client, code));
 }
 
 let ReferralClient = {
@@ -417,7 +420,7 @@ let ReferralClient = {
 };
 
 function claim(client, walletAddress) {
-  return SdkError.unwrap(Faucet.claim(client, walletAddress));
+  return SdkError.unwrap(Faucet__Client.claim(client, walletAddress));
 }
 
 let FaucetClient = {
@@ -512,27 +515,29 @@ let WsClient = {
   clearAuthedSubscriptions: clearAuthedSubscriptions
 };
 
-let LiveOrderbook = OrderbookState;
+let LiveOrderbook = Orderbook__State;
 
-let LivePriceHistory = PriceHistoryState;
+let LivePriceHistory = PriceHistory__State;
 
-let LiveDepositPrice = DepositPriceState;
+let LiveDepositPrice = PriceHistory__DepositState;
 
-let make$1 = OrderState.UserOpenLimitOrders.make;
+let make$1 = Order__State.Limits.make;
 
-let get$3 = OrderState.UserOpenLimitOrders.get;
+let get$3 = Order__State.Limits.get;
 
-let getByMarket = OrderState.UserOpenLimitOrders.getByMarket;
+let getByMarket = Order__State.Limits.getByMarket;
 
-let insert = OrderState.UserOpenLimitOrders.insert;
+let insert = Order__State.Limits.insert;
 
-let upsert = OrderState.UserOpenLimitOrders.upsert;
+let upsert = Order__State.Limits.upsert;
 
-let remove = OrderState.UserOpenLimitOrders.remove;
+let remove = Order__State.Limits.remove;
 
-let clear = OrderState.UserOpenLimitOrders.clear;
+let clear = Order__State.Limits.clear;
 
-let isEmpty = OrderState.UserOpenLimitOrders.isEmpty;
+let isEmpty = Order__State.Limits.isEmpty;
+
+let limitOrderOfUpdate = Order__Raw.Update.toLimit;
 
 let LiveOpenLimitOrders = {
   make: make$1,
@@ -543,29 +548,33 @@ let LiveOpenLimitOrders = {
   remove: remove,
   clear: clear,
   isEmpty: isEmpty,
-  limitOrderOfUpdate: OrderState.limitOrderOfUpdate,
-  ofSnapshotOrders: OrderState.ofSnapshotOrders
+  limitOrderOfUpdate: limitOrderOfUpdate,
+  ofSnapshotOrders: Order__State.fromSnapshotOrders
 };
 
-let make$2 = OrderState.UserTriggerOrders.make;
+let make$2 = Order__State.Triggers.make;
 
-let get$4 = OrderState.UserTriggerOrders.get;
+let get$4 = Order__State.Triggers.get;
 
-let getByMarket$1 = OrderState.UserTriggerOrders.getByMarket;
+let getByMarket$1 = Order__State.Triggers.getByMarket;
 
-let all = OrderState.UserTriggerOrders.all;
+let all = Order__State.Triggers.all;
 
-let getById = OrderState.UserTriggerOrders.getById;
+let getById = Order__State.Triggers.getById;
 
-let insert$1 = OrderState.UserTriggerOrders.insert;
+let insert$1 = Order__State.Triggers.insert;
 
-let remove$1 = OrderState.UserTriggerOrders.remove;
+let remove$1 = Order__State.Triggers.remove;
 
-let clear$1 = OrderState.UserTriggerOrders.clear;
+let clear$1 = Order__State.Triggers.clear;
 
-let isEmpty$1 = OrderState.UserTriggerOrders.isEmpty;
+let isEmpty$1 = Order__State.Triggers.isEmpty;
 
-let size = OrderState.UserTriggerOrders.size;
+let size = Order__State.Triggers.size;
+
+let triggerOrderOfUpdate = Order__Raw.TriggerUpdate.toTrigger;
+
+let limitPrice = Order__Model.Trigger.limitPrice;
 
 let LiveTriggerOrders = {
   make: make$2,
@@ -578,37 +587,21 @@ let LiveTriggerOrders = {
   clear: clear$1,
   isEmpty: isEmpty$1,
   size: size,
-  triggerOrderOfUpdate: OrderState.triggerOrderOfUpdate,
-  limitPrice: OrderState.limitPrice
+  triggerOrderOfUpdate: triggerOrderOfUpdate,
+  limitPrice: limitPrice
 };
 
-let LiveTrades = TradeState;
-
-let make$3 = Position.UserMarketBalanceIndex.make;
-
-let get$5 = Position.UserMarketBalanceIndex.get;
-
-let insert$2 = Position.UserMarketBalanceIndex.insert;
-
-let remove$2 = Position.UserMarketBalanceIndex.remove;
-
-let extend = Position.UserMarketBalanceIndex.extend;
-
-let marketPubkeys = Position.UserMarketBalanceIndex.marketPubkeys;
-
-let ofMarketBalance = Position.UserMarketBalanceIndex.ofMarketBalance;
-
-let ofMarketBalances = Position.UserMarketBalanceIndex.ofMarketBalances;
+let LiveTrades = Trade__State;
 
 let LiveUserBalances = {
-  make: make$3,
-  get: get$5,
-  insert: insert$2,
-  remove: remove$2,
-  extend: extend,
-  marketPubkeys: marketPubkeys,
-  ofMarketBalance: ofMarketBalance,
-  ofMarketBalances: ofMarketBalances
+  make: Position__State.make,
+  get: Position__State.get,
+  insert: Position__State.insert,
+  remove: Position__State.remove,
+  extend: Position__State.extend,
+  marketPubkeys: Position__State.marketPubkeys,
+  ofMarketBalance: Position__State.fromMarketBalance,
+  ofMarketBalances: Position__State.fromMarketBalances
 };
 
 let unwrap = SdkError.unwrap;

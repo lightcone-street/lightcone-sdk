@@ -1,5 +1,5 @@
-// Program-derived addresses — mirrors rust/src/program/pda.rs exactly (same seed
-// byte strings, same order, canonical mint sorting). All derivations are async
+// Program-derived addresses — the on-chain program's seed derivations (exact
+// seed byte strings, seed order, canonical mint sorting). All derivations are async
 // (kit's getProgramDerivedAddress hashes with SHA-256 via WebCrypto) and return
 // `(address, bump)`.
 
@@ -11,7 +11,7 @@ let u8byte = (value: int) => SolanaKitCodec.encode(SolanaKitCodec.getU8Encoder()
 let derive = (programId: SolanaKit.address, seeds: array<Uint8Array.t>): promise<(SolanaKit.address, int)> =>
   SolanaKitPda.getProgramDerivedAddress({programAddress: programId, seeds})
 
-// Lexicographic byte-array comparison (a <= b), matching Rust's `mint.as_ref()` ordering.
+// Lexicographic byte-array comparison (a <= b), used for canonical mint ordering.
 let bytesLte: (Uint8Array.t, Uint8Array.t) => bool = %raw(`function (a, b) {
   for (let i = 0; i < a.length; i++) { if (a[i] !== b[i]) return a[i] < b[i]; }
   return true;
@@ -45,8 +45,7 @@ let conditionalMint = (programId, ~market, ~depositMint, ~outcomeIndex) =>
     [seedBytes("conditional_mint"), addressBytes(market), addressBytes(depositMint), u8byte(outcomeIndex)],
   )
 
-// Every outcome's conditional mint for (market, deposit_mint), in outcome order
-// (Rust `get_all_conditional_mint_pdas`).
+// Every outcome's conditional mint for (market, deposit_mint), in outcome order.
 let allConditionalMints = async (
   programId,
   ~market,

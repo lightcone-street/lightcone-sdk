@@ -6,23 +6,27 @@ let main = async () => {
   let client = Common__Example.client()
   await Client.useNativeSigner(client, Common__Example.walletSecretKey())
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(session) =>
     let wallet = switch session.user.identity {
     | Wallet({address}) => address
     | Google({privy}) | X({privy}) => privy.wallet.address
     }
-    switch await Market.get(client, ~limit=1) {
+    switch await Market.Client.get(client, ~limit=1) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok({markets}) =>
       switch markets[0] {
       | None => Console.log("no markets found")
       | Some(market) =>
-        switch await Position.get(client, ~userPubkey=wallet) {
+        switch await Position.Client.get(client, ~userPubkey=wallet) {
         | Error(error) => Console.error(SdkError.toMessage(error))
         | Ok(all) =>
-          switch await Position.getForMarket(client, ~userPubkey=wallet, ~marketPubkey=market.pubkey) {
+          switch await Position.Client.getForMarket(
+            client,
+            ~userPubkey=wallet,
+            ~marketPubkey=market.pubkey,
+          ) {
           | Error(error) => Console.error(SdkError.toMessage(error))
           | Ok(perMarket) =>
             Console.log(`wallet: ${wallet}`)

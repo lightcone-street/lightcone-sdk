@@ -11,7 +11,7 @@ let main = async () => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(Common__Example.walletSecretKey())
   let user = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
 
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok({markets}) =>
     switch markets[0] {

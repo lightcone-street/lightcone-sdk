@@ -1,24 +1,31 @@
-// Price/size → raw u64 maker/taker amounts. Pure decimal math (decimal.js),
-// mirroring rust/src/shared/scaling.rs:
+// Price/size → raw u64 maker/taker amounts. Pure decimal math (decimal.js):
 //   base_lamports  = trunc(size, base_decimals) * 10^base_decimals
 //   quote_lamports = trunc(price * size * 10^quote_decimals)
 //   BID: amount_in = quote, amount_out = base ; ASK: swapped.
 
-type orderbookDecimals = {
-  baseDecimals: int,
-  quoteDecimals: int,
-  priceDecimals: int,
-  // Minimum price increment in quote lamports; 0 or 1 disables tick alignment.
-  tickSize: float,
+// The orderbook pair's decimals config.
+module OrderbookDecimals = {
+  type t = {
+    baseDecimals: int,
+    quoteDecimals: int,
+    priceDecimals: int,
+    // Minimum price increment in quote lamports; 0 or 1 disables tick alignment.
+    tickSize: float,
+  }
 }
 
-type scaledAmounts = {amountIn: bigint, amountOut: bigint}
+// The scaled maker/taker amounts.
+module Amounts = {
+  type t = {amountIn: bigint, amountOut: bigint}
+}
 
-type scalingError =
-  | NonPositivePrice(string)
-  | NonPositiveSize(string)
-  | Overflow(string)
-  | ZeroAmount
+module Error = {
+  type t =
+    | NonPositivePrice(string)
+    | NonPositiveSize(string)
+    | Overflow(string)
+    | ZeroAmount
+}
 
 // A whole-valued decimal → bigint (via its integer string).
 let decimalToBigInt: Decimal.t => bigint = %raw(`(decimal) => BigInt(decimal.toFixed(0))`)
@@ -32,16 +39,16 @@ let scalePriceSize = (
   ~price: string,
   ~size: string,
   ~side: int,
-  ~decimals: orderbookDecimals,
-): result<scaledAmounts, scalingError> => {
+  ~decimals: OrderbookDecimals.t,
+): result<Amounts.t, Error.t> => {
   let zero = Decimal.fromInt(0)
   let priceDecimal = Decimal.fromString(price)
   let sizeDecimal = Decimal.fromString(size)
 
   if !Decimal.gt(priceDecimal, zero) {
-    Error(NonPositivePrice(price))
+    Error(Error.NonPositivePrice(price))
   } else if !Decimal.gt(sizeDecimal, zero) {
-    Error(NonPositiveSize(size))
+    Error(Error.NonPositiveSize(size))
   } else {
     let ten = Decimal.fromInt(10)
     let baseMultiplier = Decimal.powInt(ten, decimals.baseDecimals)
@@ -59,11 +66,11 @@ let scalePriceSize = (
     let quoteAmount = decimalToBigInt(quoteLamports)
 
     if !fitsU64(baseAmount) {
-      Error(Overflow("base_lamports does not fit in u64"))
+      Error(Error.Overflow("base_lamports does not fit in u64"))
     } else if !fitsU64(quoteAmount) {
-      Error(Overflow("quote_lamports does not fit in u64"))
+      Error(Error.Overflow("quote_lamports does not fit in u64"))
     } else if isBigIntZero(baseAmount) || isBigIntZero(quoteAmount) {
-      Error(ZeroAmount)
+      Error(Error.ZeroAmount)
     } else {
       switch side {
       | 0 => Ok({amountIn: quoteAmount, amountOut: baseAmount})
@@ -74,7 +81,7 @@ let scalePriceSize = (
 }
 
 // Snap a price to the nearest valid tick (quote-lamport multiple of tick_size).
-let alignPriceToTick = (price: string, decimals: orderbookDecimals): string => {
+let alignPriceToTick = (price: string, decimals: OrderbookDecimals.t): string => {
   if decimals.tickSize <= 1.0 {
     price
   } else {

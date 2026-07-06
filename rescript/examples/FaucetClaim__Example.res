@@ -12,7 +12,7 @@ let main = async () => {
   let wallet = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
   let walletAddress = SolanaKit.addressToString(wallet)
 
-  switch await Faucet.claim(client, ~walletAddress) {
+  switch await Faucet.Client.claim(client, ~walletAddress) {
   | Ok(result) => {
       Console.log(`claim tx: ${result.signature}`)
       Console.log(`sol: ${Float.toString(result.sol)}`)

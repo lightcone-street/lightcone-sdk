@@ -1,7 +1,6 @@
-// WebSocket subscription params + outbound message serialization — the ReScript
-// counterpart of the Rust SDK's `ws::subscriptions` + the `MessageOut` enum.
+// WebSocket subscription params + outbound message serialization.
 //
-// Wire shapes (mirrors `serde`):
+// Wire shapes:
 //   • Outbound envelope: `{"method": "subscribe"|"unsubscribe", "params": {…}}`
 //     (the unit `Ping` variant is just `{"method": "ping"}` — no `params` key).
 //   • Inner params object is internally tagged on `"type"` — `book_update`,
@@ -11,7 +10,7 @@
 //
 // Books carry the optional Hyperliquid-style aggregation (`nSigFigs`/`mantissa`):
 // camelCase `nSigFigs`, both keys omitted when full precision, and normalized
-// before sending ((5, none) → (5, 1)) — see `Orderbook.BookAggregation`.
+// before sending ((5, none) → (5, 1)) — see `Orderbook.Aggregation`.
 //
 // `SubscribeParams`/`UnsubscribeParams` live in their own sub-modules so the
 // look-alike `Books`/`Trades`/… constructors don't collide (same convention as
@@ -63,17 +62,16 @@ module UnsubscribeParams = {
     | DepositAssetPrice(Shared.pubkeyStr)
 }
 
-// Outbound message. `Ping` is an application-level keepalive (distinct from the
-// WS protocol ping frame).
-type messageOut =
+// The file's primary type: one outbound message. `Ping` is an application-level
+// keepalive (distinct from the WS protocol ping frame).
+type t =
   | Subscribe(SubscribeParams.t)
   | Unsubscribe(UnsubscribeParams.t)
   | Ping
 
 // ── Serialization helpers ─────────────────────────────────────────────────────
-// Orderbook ids are sorted so a subscription's wire form (and its tracking key)
-// is independent of argument order — matches the Rust `MessageOut::subscribe_*`
-// constructors which sort before sending.
+// Orderbook ids are sorted before sending so a subscription's wire form (and
+// its tracking key) is independent of argument order.
 let sortedIds = (ids: array<Shared.orderBookId>): array<Shared.orderBookId> =>
   ids->Array.toSorted((left, right) => String.compare(left, right))
 
@@ -84,7 +82,7 @@ let idsJson = (ids: array<Shared.orderBookId>): JSON.t =>
 // no keys; (2..4) → `nSigFigs` only; (5, m) → both. Mirrors the backend contract
 // (unknown/snake_case/null aggregation params are rejected server-side).
 let aggregationFields = (nSigFigs: option<int>, mantissa: option<int>): array<(string, JSON.t)> => {
-  let normalized = Orderbook.BookAggregation.normalized({nSigFigs: ?nSigFigs, mantissa: ?mantissa})
+  let normalized = Orderbook.Aggregation.normalized({nSigFigs: ?nSigFigs, mantissa: ?mantissa})
   let fields = []
   normalized.nSigFigs->Option.forEach(value =>
     fields->Array.push(("nSigFigs", JSON.Number(Int.toFloat(value))))
@@ -161,7 +159,7 @@ let unsubscribeParamsToJson = (params: UnsubscribeParams.t): JSON.t =>
   }
 
 // Outbound message → wire JSON: `{"method": …, "params": …}` (Ping omits params).
-let toJson = (message: messageOut): JSON.t =>
+let toJson = (message: t): JSON.t =>
   switch message {
   | Subscribe(params) =>
     jsonObject([("method", JSON.String("subscribe")), ("params", subscribeParamsToJson(params))])
@@ -171,7 +169,7 @@ let toJson = (message: messageOut): JSON.t =>
   }
 
 // ── Subscription tracking (for the connection's resubscribe-on-reconnect) ──────
-// Sorted, comma-joined ids — order-independent, matching the Rust `ids_key`.
+// Sorted, comma-joined ids — order-independent.
 let idsKey = (ids: array<Shared.orderBookId>): string => sortedIds(ids)->Array.join(",")
 
 // Stable per-subscription key. Full-precision books keep the pre-aggregation
@@ -179,10 +177,10 @@ let idsKey = (ids: array<Shared.orderBookId>): string => sortedIds(ids)->Array.j
 let subscriptionKey = (params: SubscribeParams.t): string =>
   switch params {
   | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
-      let aggregation = Orderbook.BookAggregation.fromFrame(nSigFigs, mantissa)
-      Orderbook.BookAggregation.isFull(aggregation)
+      let aggregation = Orderbook.Aggregation.fromFrame(nSigFigs, mantissa)
+      Orderbook.Aggregation.isFull(aggregation)
         ? `book:${idsKey(orderbookIds)}`
-        : `book:${idsKey(orderbookIds)}:${Orderbook.BookAggregation.keySuffix(aggregation)}`
+        : `book:${idsKey(orderbookIds)}:${Orderbook.Aggregation.keySuffix(aggregation)}`
     }
   | Trades(orderbookIds) => `trades:${idsKey(orderbookIds)}`
   | User(walletAddress) => `user:${walletAddress}`
@@ -200,10 +198,10 @@ let subscriptionKey = (params: SubscribeParams.t): string =>
 let unsubscribeKey = (params: UnsubscribeParams.t): string =>
   switch params {
   | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) => {
-      let aggregation = Orderbook.BookAggregation.fromFrame(nSigFigs, mantissa)
-      Orderbook.BookAggregation.isFull(aggregation)
+      let aggregation = Orderbook.Aggregation.fromFrame(nSigFigs, mantissa)
+      Orderbook.Aggregation.isFull(aggregation)
         ? `book:${idsKey(orderbookIds)}`
-        : `book:${idsKey(orderbookIds)}:${Orderbook.BookAggregation.keySuffix(aggregation)}`
+        : `book:${idsKey(orderbookIds)}:${Orderbook.Aggregation.keySuffix(aggregation)}`
     }
   | Trades(orderbookIds) => `trades:${idsKey(orderbookIds)}`
   | User(walletAddress) => `user:${walletAddress}`
@@ -216,8 +214,7 @@ let unsubscribeKey = (params: UnsubscribeParams.t): string =>
   | DepositAssetPrice(depositAsset) => `deposit_asset_price:${depositAsset}`
   }
 
-// Derive the matching unsubscribe for a tracked subscription (mirrors the Rust
-// `Subscription::to_unsubscribe_params`).
+// Derive the matching unsubscribe for a tracked subscription.
 let toUnsubscribeParams = (params: SubscribeParams.t): UnsubscribeParams.t =>
   switch params {
   | Books({orderbookIds, nSigFigs: ?nSigFigs, mantissa: ?mantissa}) =>

@@ -1,7 +1,6 @@
-// Instruction builders for the Lightcone Pinocchio program (mirrors
-// rust/src/program/instructions.rs). Each returns a fully-assembled, async
-// `SolanaKit.instruction`. The data-packing, account-meta, and ATA-derivation
-// helpers are internal.
+// Instruction builders for the Lightcone Pinocchio program. Each returns a
+// fully-assembled, async `SolanaKit.instruction`. The data-packing,
+// account-meta, and ATA-derivation helpers are internal.
 
 // DepositToGlobal (opcode 17).
 let depositToGlobal: (
@@ -123,33 +122,39 @@ let closePositionTokenAccounts: (
 ) => promise<SolanaKit.instruction>
 
 // ═══ Operator / admin / lifecycle instructions ══════════════════════════════
-// The remaining rust instructions.rs surface. Builders whose Rust twin validates
-// inputs return `result` (Validation errors); the rest are total.
+// Builders that validate inputs return `result` (Validation errors); the rest
+// are total.
 
 // ── Signed-order params (matching instructions) ───────────────────────────────
 // The payload carries no embedded signature, so params pair each order with its
 // 64-byte signature explicitly.
-type signedOrder = {order: OrderPayload.t, signature: Uint8Array.t}
+module SignedOrder: {
+  type t = {order: OrderPayload.t, signature: Uint8Array.t}
+}
 
 // One maker fill in a MatchOrdersMulti instruction.
-type matchMaker = {
-  order: signedOrder,
-  makerFillAmount: bigint,
-  takerFillAmount: bigint,
-  // Full fills skip the maker's order-status account.
-  isFullFill: bool,
+module MatchMaker: {
+  type t = {
+    order: SignedOrder.t,
+    makerFillAmount: bigint,
+    takerFillAmount: bigint,
+    // Full fills skip the maker's order-status account.
+    isFullFill: bool,
+  }
 }
 
 // One maker fill in a DepositAndSwap instruction.
-type swapMaker = {
-  order: signedOrder,
-  makerFillAmount: bigint,
-  takerFillAmount: bigint,
-  isFullFill: bool,
-  // Deposit from global (vs swapping existing conditional tokens).
-  isDeposit: bool,
-  // Only read when `isDeposit` is set.
-  depositMint: SolanaKit.address,
+module SwapMaker: {
+  type t = {
+    order: SignedOrder.t,
+    makerFillAmount: bigint,
+    takerFillAmount: bigint,
+    isFullFill: bool,
+    // Deposit from global (vs swapping existing conditional tokens).
+    isDeposit: bool,
+    // Only read when `isDeposit` is set.
+    depositMint: SolanaKit.address,
+  }
 }
 
 // Initialize (opcode 0) — creates the exchange singleton.
@@ -256,16 +261,18 @@ let setOracle: (
 ) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // SetMarketFees (opcode 29) — manager-only, one or more markets per instruction.
-type marketFeeUpdate = {
-  market: SolanaKit.address,
-  makerFeeBps: int,
-  takerFeeBps: int,
+module MarketFeeUpdate: {
+  type t = {
+    market: SolanaKit.address,
+    makerFeeBps: int,
+    takerFeeBps: int,
+  }
 }
 
 let setMarketFees: (
   ~programId: SolanaKit.address,
   ~manager: SolanaKit.address,
-  ~updates: array<marketFeeUpdate>,
+  ~updates: array<MarketFeeUpdate.t>,
 ) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // SetFeeReceiver (opcode 30) — authority-only; the with-ATAs variant appends the
@@ -326,24 +333,26 @@ let matchOrdersMulti: (
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
-  ~takerOrder: signedOrder,
+  ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
-  ~makers: array<matchMaker>,
+  ~makers: array<MatchMaker.t>,
 ) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // CreateOrderbook (opcode 15) — manager-only; canonicalizes the mint pair.
-type orderbookMint = {
-  mint: SolanaKit.address,
-  depositMint: SolanaKit.address,
-  outcomeIndex: int,
+module OrderbookMint: {
+  type t = {
+    mint: SolanaKit.address,
+    depositMint: SolanaKit.address,
+    outcomeIndex: int,
+  }
 }
 
 let createOrderbook: (
   ~programId: SolanaKit.address,
   ~manager: SolanaKit.address,
   ~market: SolanaKit.address,
-  ~mintA: orderbookMint,
-  ~mintB: orderbookMint,
+  ~mintA: OrderbookMint.t,
+  ~mintB: OrderbookMint.t,
   ~baseIndex: int,
   ~feeReceiver: SolanaKit.address,
   ~recentSlot: bigint,
@@ -361,16 +370,18 @@ let refreshOrderbookAlt: (
 ) => promise<SolanaKit.instruction>
 
 // DepositToGlobal with the user-deposit-ALT create/extend block (opcode 17).
-type depositToGlobalAltContext =
-  | Create({recentSlot: bigint})
-  | Extend({lookupTable: SolanaKit.address})
+module DepositToGlobalAltContext: {
+  type t =
+    | Create({recentSlot: bigint})
+    | Extend({lookupTable: SolanaKit.address})
+}
 
 let depositToGlobalWithAlt: (
   ~programId: SolanaKit.address,
   ~user: SolanaKit.address,
   ~mint: SolanaKit.address,
   ~amount: bigint,
-  ~altContext: depositToGlobalAltContext,
+  ~altContext: DepositToGlobalAltContext.t,
 ) => promise<SolanaKit.instruction>
 
 // DepositAndSwap (opcode 20) — unified deposit + swap execution (1–5 makers).
@@ -381,12 +392,12 @@ let depositAndSwap: (
   ~baseMint: SolanaKit.address,
   ~quoteMint: SolanaKit.address,
   ~feeReceiver: SolanaKit.address,
-  ~takerOrder: signedOrder,
+  ~takerOrder: SignedOrder.t,
   ~takerIsFullFill: bool,
   ~takerIsDeposit: bool,
   ~takerDepositMint: SolanaKit.address,
   ~numOutcomes: int,
-  ~makers: array<swapMaker>,
+  ~makers: array<SwapMaker.t>,
 ) => promise<result<SolanaKit.instruction, SdkError.t>>
 
 // CloseOrderStatus (opcode 24) — operator-only.

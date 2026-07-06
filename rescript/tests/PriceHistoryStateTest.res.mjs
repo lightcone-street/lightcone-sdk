@@ -2,7 +2,7 @@
 
 import * as Buntest from "bun:test";
 import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
-import * as PriceHistoryState from "../src/domain/PriceHistoryState.res.mjs";
+import * as PriceHistory__State from "../src/domain/priceHistory/PriceHistory__State.res.mjs";
 
 function candle(t, m) {
   return {
@@ -11,48 +11,48 @@ function candle(t, m) {
   };
 }
 
-Buntest.describe("PriceHistoryState", () => {
+Buntest.describe("PriceHistory.State", () => {
   Buntest.test("applySnapshot replaces the whole series for a key", () => {
-    let state = PriceHistoryState.make();
-    PriceHistoryState.applySnapshot(state, "ob", "1h", [
+    let state = PriceHistory__State.make();
+    PriceHistory__State.applySnapshot(state, "ob", "1h", [
       candle(1.0, "100"),
       candle(2.0, "101")
     ]);
-    Buntest.expect(Stdlib_Option.map(PriceHistoryState.get(state, "ob", "1h"), prim => prim.length)).toBe(2);
-    PriceHistoryState.applySnapshot(state, "ob", "1h", [candle(3.0, "102")]);
-    Buntest.expect(Stdlib_Option.map(PriceHistoryState.get(state, "ob", "1h"), prim => prim.length)).toBe(1);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__State.get(state, "ob", "1h"), prim => prim.length)).toBe(2);
+    PriceHistory__State.applySnapshot(state, "ob", "1h", [candle(3.0, "102")]);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__State.get(state, "ob", "1h"), prim => prim.length)).toBe(1);
   });
   Buntest.test("applyUpdate overwrites the trailing point on a matching timestamp", () => {
-    let state = PriceHistoryState.make();
-    PriceHistoryState.applySnapshot(state, "ob", "1h", [candle(1.0, "100")]);
-    PriceHistoryState.applyUpdate(state, "ob", "1h", candle(1.0, "105"));
-    let series = Stdlib_Option.getOr(PriceHistoryState.get(state, "ob", "1h"), []);
+    let state = PriceHistory__State.make();
+    PriceHistory__State.applySnapshot(state, "ob", "1h", [candle(1.0, "100")]);
+    PriceHistory__State.applyUpdate(state, "ob", "1h", candle(1.0, "105"));
+    let series = Stdlib_Option.getOr(PriceHistory__State.get(state, "ob", "1h"), []);
     Buntest.expect(series.length).toBe(1);
     Buntest.expect(series[0].value).toBe("105");
   });
   Buntest.test("applyUpdate appends on a new timestamp (candle roll-over)", () => {
-    let state = PriceHistoryState.make();
-    PriceHistoryState.applySnapshot(state, "ob", "1h", [candle(1.0, "100")]);
-    PriceHistoryState.applyUpdate(state, "ob", "1h", candle(2.0, "101"));
-    let series = Stdlib_Option.getOr(PriceHistoryState.get(state, "ob", "1h"), []);
+    let state = PriceHistory__State.make();
+    PriceHistory__State.applySnapshot(state, "ob", "1h", [candle(1.0, "100")]);
+    PriceHistory__State.applyUpdate(state, "ob", "1h", candle(2.0, "101"));
+    let series = Stdlib_Option.getOr(PriceHistory__State.get(state, "ob", "1h"), []);
     Buntest.expect(series.length).toBe(2);
     Buntest.expect(series[1].time).toBe(2.0);
   });
   Buntest.test("applyUpdate on a missing series creates it", () => {
-    let state = PriceHistoryState.make();
-    PriceHistoryState.applyUpdate(state, "ob", "5m", candle(1.0, "100"));
-    Buntest.expect(Stdlib_Option.map(PriceHistoryState.get(state, "ob", "5m"), prim => prim.length)).toBe(1);
+    let state = PriceHistory__State.make();
+    PriceHistory__State.applyUpdate(state, "ob", "5m", candle(1.0, "100"));
+    Buntest.expect(Stdlib_Option.map(PriceHistory__State.get(state, "ob", "5m"), prim => prim.length)).toBe(1);
   });
   Buntest.test("keys are (orderbook, resolution) — distinct resolutions don't collide", () => {
-    let state = PriceHistoryState.make();
-    PriceHistoryState.applySnapshot(state, "ob", "1h", [candle(1.0, "1")]);
-    PriceHistoryState.applySnapshot(state, "ob", "1m", [
+    let state = PriceHistory__State.make();
+    PriceHistory__State.applySnapshot(state, "ob", "1h", [candle(1.0, "1")]);
+    PriceHistory__State.applySnapshot(state, "ob", "1m", [
       candle(1.0, "2"),
       candle(2.0, "3")
     ]);
-    Buntest.expect(Stdlib_Option.map(PriceHistoryState.get(state, "ob", "1h"), prim => prim.length)).toBe(1);
-    Buntest.expect(Stdlib_Option.map(PriceHistoryState.get(state, "ob", "1m"), prim => prim.length)).toBe(2);
-    Buntest.expect(PriceHistoryState.get(state, "other", "1h")).toBe(undefined);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__State.get(state, "ob", "1h"), prim => prim.length)).toBe(1);
+    Buntest.expect(Stdlib_Option.map(PriceHistory__State.get(state, "ob", "1m"), prim => prim.length)).toBe(2);
+    Buntest.expect(PriceHistory__State.get(state, "other", "1h")).toBe(undefined);
   });
 });
 

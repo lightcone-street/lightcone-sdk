@@ -1,10 +1,10 @@
-// On-chain account decoders (mirror rust/src/program/accounts.rs). Public
-// surface: the program-layer enums, the clean gentype-exported account records,
-// and the `decode*` entry points (each takes the account's raw data bytes). The
-// account sizes, low-level field readers, header guards, and the spice-free
-// byte→enum `fromU8` hand-decoders are internal.
+// On-chain account decoders. Public
+// surface: the program-layer enums and one module per account row — the clean
+// gentype-exported record `t` plus its `decode` entry point (taking the
+// account's raw data bytes). The account sizes, low-level field readers, header
+// guards, and the spice-free byte→enum `fromU8` hand-decoders are internal.
 
-// ── Enums (decoded from a single byte; mirror rust/src/program/types.rs) ───────
+// ── Enums (decoded from a single byte, per the program's type definitions) ─────
 module MarketStatus: {
   @genType
   type t =
@@ -26,88 +26,107 @@ module PendingRoleKind: {
 }
 
 // ── Domain records (the clean, gentype-exported account shapes) ────────────────
+// Each `decode` is length + discriminator guarded.
 
 // Exchange — singleton exchange state.
-@genType
-type exchange = {
-  authority: Shared.pubkeyStr,
-  operator: Shared.pubkeyStr,
-  manager: Shared.pubkeyStr,
-  marketCount: bigint,
-  paused: bool,
-  bump: float,
-  depositTokenCount: float,
-  feeReceiver: Shared.pubkeyStr,
-  pendingRole: Shared.pubkeyStr,
-  pendingRoleKind: PendingRoleKind.t,
+module Exchange: {
+  @genType
+  type t = {
+    authority: Shared.pubkeyStr,
+    operator: Shared.pubkeyStr,
+    manager: Shared.pubkeyStr,
+    marketCount: bigint,
+    paused: bool,
+    bump: float,
+    depositTokenCount: float,
+    feeReceiver: Shared.pubkeyStr,
+    pendingRole: Shared.pubkeyStr,
+    pendingRoleKind: PendingRoleKind.t,
+  }
+
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
 // Market — a prediction market. `questionId`/`conditionId` are lowercase hex
 // (32 bytes → 64 chars); only the first `numOutcomes` payout numerators matter.
-@genType
-type market = {
-  marketId: bigint,
-  numOutcomes: float,
-  status: MarketStatus.t,
-  bump: float,
-  makerFeeBps: float,
-  takerFeeBps: float,
-  oracle: Shared.pubkeyStr,
-  questionId: string,
-  conditionId: string,
-  payoutNumerators: array<float>,
-  payoutDenominator: float,
+module Market: {
+  @genType
+  type t = {
+    marketId: bigint,
+    numOutcomes: float,
+    status: MarketStatus.t,
+    bump: float,
+    makerFeeBps: float,
+    takerFeeBps: float,
+    oracle: Shared.pubkeyStr,
+    questionId: string,
+    conditionId: string,
+    payoutNumerators: array<float>,
+    payoutDenominator: float,
+  }
+
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
 // Orderbook — on-chain book with its ALT. `baseIndex` 0 ⇒ mintA is the base.
-@genType
-type orderbook = {
-  market: Shared.pubkeyStr,
-  mintA: Shared.pubkeyStr,
-  mintB: Shared.pubkeyStr,
-  lookupTable: Shared.pubkeyStr,
-  baseIndex: float,
-  bump: float,
+module Orderbook: {
+  @genType
+  type t = {
+    market: Shared.pubkeyStr,
+    mintA: Shared.pubkeyStr,
+    mintB: Shared.pubkeyStr,
+    lookupTable: Shared.pubkeyStr,
+    baseIndex: float,
+    bump: float,
+  }
+
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
 // Position — a user's per-market custody account.
-@genType
-type position = {
-  owner: Shared.pubkeyStr,
-  market: Shared.pubkeyStr,
-  bump: float,
+module Position: {
+  @genType
+  type t = {
+    owner: Shared.pubkeyStr,
+    market: Shared.pubkeyStr,
+    bump: float,
+  }
+
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
 // UserNonce — a user's mass-cancel nonce (u64 counter, kept exact).
-@genType
-type userNonce = {
-  nonce: bigint,
+module UserNonce: {
+  @genType
+  type t = {
+    nonce: bigint,
+  }
+
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
-// ── Decoding (length + discriminator guarded) ─────────────────────────────────
-let decodeExchange: Uint8Array.t => result<exchange, SdkError.t>
-let decodeMarket: Uint8Array.t => result<market, SdkError.t>
-let decodeOrderbook: Uint8Array.t => result<orderbook, SdkError.t>
-let decodePosition: Uint8Array.t => result<position, SdkError.t>
-let decodeUserNonce: Uint8Array.t => result<userNonce, SdkError.t>
+// OrderStatus — on-chain order status (remaining fill amounts + cancellation flag).
+module OrderStatus: {
+  @genType
+  type t = {
+    remaining: bigint,
+    baseRemaining: bigint,
+    isCancelled: bool,
+  }
 
-// On-chain order status (remaining fill amounts + cancellation flag).
-@genType
-type orderStatus = {
-  remaining: bigint,
-  baseRemaining: bigint,
-  isCancelled: bool,
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
 
-let decodeOrderStatus: Uint8Array.t => result<orderStatus, SdkError.t>
+// GlobalDepositToken — a whitelisted global-deposit token (mint + whitelist
+// index + active flag).
+module GlobalDepositToken: {
+  @genType
+  type t = {
+    mint: Shared.pubkeyStr,
+    bump: float,
+    index: float,
+    active: bool,
+  }
 
-// A whitelisted global-deposit token (mint + whitelist index + active flag).
-@genType
-type globalDepositToken = {
-  mint: Shared.pubkeyStr,
-  bump: float,
-  index: float,
-  active: bool,
+  let decode: Uint8Array.t => result<t, SdkError.t>
 }
-
-let decodeGlobalDepositToken: Uint8Array.t => result<globalDepositToken, SdkError.t>

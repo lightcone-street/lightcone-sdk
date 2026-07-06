@@ -8,6 +8,8 @@ import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_excep
 
 let userCookieName = "lightcone-token";
 
+let RetryPolicy = {};
+
 function sleep(ms) {
   return new Promise((resolve, _reject) => {
     setTimeout(() => resolve(), ms);
@@ -277,6 +279,7 @@ function post(http, path, body, retryOpt, cookieHeader, decode) {
 }
 
 export {
+  RetryPolicy,
   make,
   baseUrl,
   authToken,

@@ -29,7 +29,7 @@ export type RejectionCode_t =
   | "SignatureExpired"
   | { TAG: "Unknown"; _0: string };
 
-export type apiRejectedDetails = {
+export type ApiRejected_t = {
   readonly reason: string; 
   readonly rejectionCode?: RejectionCode_t; 
   readonly errorCode?: string; 
@@ -37,7 +37,7 @@ export type apiRejectedDetails = {
   readonly requestId?: string
 };
 
-export type httpError = 
+export type HttpError_t = 
     "Unauthorized"
   | "Timeout"
   | { TAG: "ServerError"; readonly status: number; readonly body: string }
@@ -47,7 +47,7 @@ export type httpError =
   | { TAG: "Network"; _0: string }
   | { TAG: "MaxRetriesExceeded"; readonly attempts: number; readonly lastError: (undefined | string) };
 
-export type wsError = 
+export type WsError_t = 
     "NotConnected"
   | { TAG: "ConnectionFailed"; _0: string }
   | { TAG: "SendFailed"; _0: string }
@@ -55,7 +55,7 @@ export type wsError =
   | { TAG: "ProtocolError"; _0: string }
   | { TAG: "Closed"; readonly code: (undefined | number); readonly reason: string };
 
-export type authError = 
+export type AuthError_t = 
     "NotAuthenticated"
   | "SignatureVerificationFailed"
   | "TokenExpired"
@@ -63,13 +63,13 @@ export type authError =
 
 export type t = 
     "UserCancelled"
-  | { TAG: "Http"; _0: httpError }
-  | { TAG: "Ws"; _0: wsError }
-  | { TAG: "Auth"; _0: authError }
+  | { TAG: "Http"; _0: HttpError_t }
+  | { TAG: "Ws"; _0: WsError_t }
+  | { TAG: "Auth"; _0: AuthError_t }
   | { TAG: "Validation"; _0: string }
   | { TAG: "Decode"; _0: string }
   | { TAG: "Program"; _0: string }
   | { TAG: "MissingMarketContext"; _0: string }
   | { TAG: "Signing"; _0: string }
-  | { TAG: "ApiRejected"; _0: apiRejectedDetails }
+  | { TAG: "ApiRejected"; _0: ApiRejected_t }
   | { TAG: "Other"; _0: string };

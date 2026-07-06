@@ -1,30 +1,35 @@
 // The SDK client — holds the HTTP transport, environment, on-chain program id,
 // RPC handle, and the mutable trading state (deposit source, cached order nonce,
-// signing strategy). Mirrors the Rust `LightconeClient`.
+// signing strategy).
 //
 // Domain modules take a `Client.t` and never the reverse, so there is no module
 // cycle. The grouped `client.markets()…` ergonomics live in the gentype facade
-// (TypeScriptApi.res); the idiomatic ReScript surface is `Market.featured(client)`.
+// (TypeScriptApi.res); the idiomatic ReScript surface is `Market.Client.featured(client)`.
 
 // An external wallet signer (browser wallet adapter) — the SDK calls these when
-// the strategy is `ExternalSigner` (Rust `SigningStrategy::WalletAdapter`).
+// the strategy is `ExternalSigner`.
 // `signMessage` returns the raw 64-byte ed25519 signature over the message
 // bytes; `signTransaction` takes the serialized unsigned wire transaction and
 // returns the fully signed wire bytes.
-type externalSigner = {
-  address: SolanaKit.address,
-  signMessage: Uint8Array.t => promise<Uint8Array.t>,
-  signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+module ExternalSigner = {
+  type t = {
+    address: SolanaKit.address,
+    signMessage: Uint8Array.t => promise<Uint8Array.t>,
+    signTransaction: Uint8Array.t => promise<Uint8Array.t>,
+  }
 }
 
 // How orders / cancels / transactions get signed. `None` ⇒ manual signing.
-type signingStrategy =
-  | NativeSigner({
-      keypair: SolanaKit.cryptoKeyPair,
-      signer: SolanaKit.keyPairSigner,
-      address: SolanaKit.address,
-    })
-  | ExternalSigner(externalSigner)
+// (The `ExternalSigner` constructor and the module above deliberately share the name.)
+module SigningStrategy = {
+  type t =
+    | NativeSigner({
+        keypair: SolanaKit.cryptoKeyPair,
+        signer: SolanaKit.keyPairSigner,
+        address: SolanaKit.address,
+      })
+    | ExternalSigner(ExternalSigner.t)
+}
 
 // Opaque to TypeScript: a client is a handle created by `make`, passed to the
 // SDK functions. Its internals (HTTP transport, signer, RPC) aren't TS-facing.
@@ -41,10 +46,10 @@ type t = {
   // `option` — it answers truthy for every key and corrupts the option tag). Use
   // `backupRpcUrl->Option.isSome` to tell whether a distinct backup exists.
   backupRpc: SolanaKitRpc.t,
-  rpcFailover: RpcFailover.state,
+  rpcFailover: RpcFailover.t,
   mutable depositSource: Shared.DepositSource.t,
   mutable orderNonce: option<bigint>,
-  mutable signingStrategy: option<signingStrategy>,
+  mutable signingStrategy: option<SigningStrategy.t>,
 }
 
 // Build a client. `env` defaults to Prod; per-field URL/programId overrides win,

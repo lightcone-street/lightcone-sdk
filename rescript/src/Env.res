@@ -1,4 +1,4 @@
-// Lightcone deployment environment — mirrors the Rust SDK's `LightconeEnv`.
+// Lightcone deployment environment.
 // Each variant maps to an API URL, WebSocket URL, Solana RPC URL, and program id.
 // The `SDK_*` environment variables override the built-ins when set.
 //

@@ -5,10 +5,10 @@
 
 import * as WsJS from './Ws.res.mjs';
 
-export abstract class connection { protected opaque!: any }; /* simulate opaque types */
+export abstract class t { protected opaque!: any }; /* simulate opaque types */
 
-export type readyState = "Connecting" | "Open" | "Closing" | "Closed";
+export type ReadyState_t = "Connecting" | "Open" | "Closing" | "Closed";
 
-export const readyState: (_1:connection) => readyState = WsJS.readyState as any;
+export const readyState: (_1:t) => ReadyState_t = WsJS.readyState as any;
 
-export const clearAuthedSubscriptions: (_1:connection) => void = WsJS.clearAuthedSubscriptions as any;
+export const clearAuthedSubscriptions: (_1:t) => void = WsJS.clearAuthedSubscriptions as any;

@@ -3,29 +3,29 @@
 /* eslint-disable */
 /* tslint:disable */
 
-import type {OrderEvent_t as Order_OrderEvent_t} from '../../src/domain/Order.gen.ts';
+import type {Book_t as Orderbook__Raw_Book_t} from '../../src/domain/orderbook/Orderbook__Raw.gen.ts';
+
+import type {DepositCandle_t as PriceHistory__Raw_DepositCandle_t} from '../../src/domain/priceHistory/PriceHistory__Raw.gen.ts';
+
+import type {Event_t as Order__Raw_Event_t} from '../../src/domain/order/Order__Raw.gen.ts';
+
+import type {OrderbookCandle_t as PriceHistory__Raw_OrderbookCandle_t} from '../../src/domain/priceHistory/PriceHistory__Raw.gen.ts';
 
 import type {Resolution_t as Shared_Resolution_t} from '../../src/Shared.gen.ts';
 
 import type {Side_t as Shared_Side_t} from '../../src/Shared.gen.ts';
 
-import type {depositPriceCandle as PriceHistory_depositPriceCandle} from '../../src/domain/PriceHistory.gen.ts';
+import type {UserMarketBalance_t as Order__Raw_UserMarketBalance_t} from '../../src/domain/order/Order__Raw.gen.ts';
 
-import type {notification as Notification_notification} from '../../src/domain/Notification.gen.ts';
+import type {UserSnapshot_t as Order__Raw_UserSnapshot_t} from '../../src/domain/order/Order__Raw.gen.ts';
 
 import type {orderBookId as Shared_orderBookId} from '../../src/Shared.gen.ts';
 
-import type {orderBook as Orderbook_orderBook} from '../../src/domain/Orderbook.gen.ts';
-
-import type {orderbookPriceCandle as PriceHistory_orderbookPriceCandle} from '../../src/domain/PriceHistory.gen.ts';
-
 import type {pubkeyStr as Shared_pubkeyStr} from '../../src/Shared.gen.ts';
 
-import type {userMarketBalance as Order_userMarketBalance} from '../../src/domain/Order.gen.ts';
+import type {t as Notification__Model_t} from '../../src/domain/notification/Notification__Model.gen.ts';
 
-import type {userSnapshot as Order_userSnapshot} from '../../src/domain/Order.gen.ts';
-
-export type wsErrorFrame = {
+export type ErrorFrame_t = {
   readonly error: string; 
   readonly code?: string; 
   readonly orderbookId?: string; 
@@ -37,7 +37,7 @@ export type wsErrorFrame = {
   readonly details?: string
 };
 
-export type wsTrade = {
+export type Trade_t = {
   readonly orderbookId: Shared_orderBookId; 
   readonly tradeId: string; 
   readonly timestamp: string; 
@@ -47,7 +47,7 @@ export type wsTrade = {
   readonly sequence: number
 };
 
-export type wsTicker = {
+export type Ticker_t = {
   readonly orderbookId: Shared_orderBookId; 
   readonly bestBid?: string; 
   readonly bestAsk?: string; 
@@ -68,7 +68,7 @@ export type AuthUpdate_t =
 export type WsPriceHistory_snapshot = {
   readonly orderbookId: Shared_orderBookId; 
   readonly resolution: Shared_Resolution_t; 
-  readonly prices: PriceHistory_orderbookPriceCandle[]; 
+  readonly prices: PriceHistory__Raw_OrderbookCandle_t[]; 
   readonly lastTimestamp?: number; 
   readonly serverTime?: number
 };
@@ -76,7 +76,7 @@ export type WsPriceHistory_snapshot = {
 export type WsPriceHistory_update = {
   readonly orderbookId: Shared_orderBookId; 
   readonly resolution: Shared_Resolution_t; 
-  readonly candle: PriceHistory_orderbookPriceCandle
+  readonly candle: PriceHistory__Raw_OrderbookCandle_t
 };
 
 export type WsPriceHistory_heartbeat = { readonly serverTime: number; readonly lastProcessed?: number };
@@ -89,7 +89,7 @@ export type WsPriceHistory_t =
 export type WsDepositPrice_snapshot = {
   readonly depositAsset: Shared_pubkeyStr; 
   readonly resolution: Shared_Resolution_t; 
-  readonly prices: PriceHistory_depositPriceCandle[]
+  readonly prices: PriceHistory__Raw_DepositCandle_t[]
 };
 
 export type WsDepositPrice_candle = {
@@ -123,43 +123,43 @@ export type WsDepositAssetPrice_t =
     { TAG: "Snapshot"; _0: WsDepositAssetPrice_snapshot }
   | { TAG: "Price"; _0: WsDepositAssetPrice_tick };
 
-export type userBalanceUpdate = {
+export type UserBalanceUpdate_t = {
   readonly marketPubkey: Shared_pubkeyStr; 
-  readonly marketBalance: Order_userMarketBalance; 
+  readonly marketBalance: Order__Raw_UserMarketBalance_t; 
   readonly timestamp: string
 };
 
-export type globalDepositUpdate = {
+export type GlobalDepositUpdate_t = {
   readonly mint: Shared_pubkeyStr; 
   readonly balance: string; 
   readonly timestamp: string
 };
 
-export type nonceUpdate = {
+export type NonceUpdate_t = {
   readonly userPubkey: Shared_pubkeyStr; 
   readonly newNonce: number; 
   readonly timestamp: string
 };
 
 export type UserUpdate_t = 
-    { TAG: "Snapshot"; _0: Order_userSnapshot }
-  | { TAG: "Order"; _0: Order_OrderEvent_t }
-  | { TAG: "BalanceUpdate"; _0: userBalanceUpdate }
-  | { TAG: "GlobalDepositUpdate"; _0: globalDepositUpdate }
-  | { TAG: "NonceUpdate"; _0: nonceUpdate }
-  | { TAG: "NotificationPush"; _0: Notification_notification };
+    { TAG: "Snapshot"; _0: Order__Raw_UserSnapshot_t }
+  | { TAG: "Order"; _0: Order__Raw_Event_t }
+  | { TAG: "BalanceUpdate"; _0: UserBalanceUpdate_t }
+  | { TAG: "GlobalDepositUpdate"; _0: GlobalDepositUpdate_t }
+  | { TAG: "NonceUpdate"; _0: NonceUpdate_t }
+  | { TAG: "NotificationPush"; _0: Notification__Model_t };
 
-export type kind = 
+export type Kind_t = 
     "Pong"
-  | { TAG: "BookUpdate"; _0: Orderbook_orderBook }
-  | { TAG: "Trades"; _0: wsTrade }
+  | { TAG: "BookUpdate"; _0: Orderbook__Raw_Book_t }
+  | { TAG: "Trades"; _0: Trade_t }
   | { TAG: "User"; _0: UserUpdate_t }
-  | { TAG: "Ticker"; _0: wsTicker }
+  | { TAG: "Ticker"; _0: Ticker_t }
   | { TAG: "PriceHistory"; _0: WsPriceHistory_t }
   | { TAG: "Market"; _0: MarketEvent_t }
   | { TAG: "DepositPrice"; _0: WsDepositPrice_t }
   | { TAG: "DepositAssetPrice"; _0: WsDepositAssetPrice_t }
   | { TAG: "Auth"; _0: AuthUpdate_t }
-  | { TAG: "ErrorFrame"; _0: wsErrorFrame };
+  | { TAG: "ErrorFrame"; _0: ErrorFrame_t };
 
-export type messageIn = { readonly kind: kind; readonly version: number };
+export type t = { readonly kind: Kind_t; readonly version: number };

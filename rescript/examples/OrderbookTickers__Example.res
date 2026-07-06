@@ -7,7 +7,7 @@ let main = async () => {
   let client = Common__Example.client()
   let depositAsset = argv[2]
 
-  switch await Metrics.orderbookTickers(client, ~depositAsset?) {
+  switch await Metrics.Client.orderbookTickers(client, ~depositAsset?) {
   | Ok(response) =>
     Console.log(`orderbooks with tickers: ${Int.toString(Array.length(response.tickers))}`)
     response.tickers

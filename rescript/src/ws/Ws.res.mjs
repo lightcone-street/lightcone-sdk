@@ -7,6 +7,8 @@ import * as Subscriptions from "./Subscriptions.res.mjs";
 import * as Primitive_option from "@rescript/runtime/lib/es6/Primitive_option.js";
 import * as Primitive_exceptions from "@rescript/runtime/lib/es6/Primitive_exceptions.js";
 
+let Config = {};
+
 let defaultConfig = {
   reconnect: true,
   maxReconnectAttempts: 10,
@@ -215,6 +217,8 @@ function isConnected(connection) {
   }
 }
 
+let ReadyState = {};
+
 function readyState(connection) {
   let socket = connection.socket;
   if (socket === undefined) {
@@ -279,6 +283,7 @@ function disconnect(connection) {
 }
 
 export {
+  Config,
   defaultConfig,
   connect,
   isConnected,
@@ -286,6 +291,7 @@ export {
   unsubscribe,
   ping,
   disconnect,
+  ReadyState,
   readyState,
   clearAuthedSubscriptions,
 }

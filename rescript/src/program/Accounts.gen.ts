@@ -13,7 +13,7 @@ export type MarketStatus_t =
 
 export type PendingRoleKind_t = "None" | "Authority" | "Manager" | "Operator";
 
-export type exchange = {
+export type Exchange_t = {
   readonly authority: Shared_pubkeyStr; 
   readonly operator: Shared_pubkeyStr; 
   readonly manager: Shared_pubkeyStr; 
@@ -26,7 +26,7 @@ export type exchange = {
   readonly pendingRoleKind: PendingRoleKind_t
 };
 
-export type market = {
+export type Market_t = {
   readonly marketId: bigint; 
   readonly numOutcomes: number; 
   readonly status: MarketStatus_t; 
@@ -40,7 +40,7 @@ export type market = {
   readonly payoutDenominator: number
 };
 
-export type orderbook = {
+export type Orderbook_t = {
   readonly market: Shared_pubkeyStr; 
   readonly mintA: Shared_pubkeyStr; 
   readonly mintB: Shared_pubkeyStr; 
@@ -49,21 +49,21 @@ export type orderbook = {
   readonly bump: number
 };
 
-export type position = {
+export type Position_t = {
   readonly owner: Shared_pubkeyStr; 
   readonly market: Shared_pubkeyStr; 
   readonly bump: number
 };
 
-export type userNonce = { readonly nonce: bigint };
+export type UserNonce_t = { readonly nonce: bigint };
 
-export type orderStatus = {
+export type OrderStatus_t = {
   readonly remaining: bigint; 
   readonly baseRemaining: bigint; 
   readonly isCancelled: boolean
 };
 
-export type globalDepositToken = {
+export type GlobalDepositToken_t = {
   readonly mint: Shared_pubkeyStr; 
   readonly bump: number; 
   readonly index: number; 

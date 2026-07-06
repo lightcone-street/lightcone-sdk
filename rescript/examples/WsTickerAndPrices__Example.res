@@ -12,7 +12,7 @@ let show = (value: option<string>): string => value->Option.getOr("-")
 let main = async () => {
   let client = Common__Example.client()
 
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Ok({markets}) =>
     switch markets[0] {
     | Some(market) =>

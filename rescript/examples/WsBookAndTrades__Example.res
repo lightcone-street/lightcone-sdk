@@ -9,7 +9,7 @@ let delay: int => promise<unit> = %raw(`(ms) => new Promise((resolve) => setTime
 
 // Best price on a side of a snapshot frame — every book frame carries the full
 // top-of-book, so the first level is the best level (no stateful book needed here).
-let topPrice = (levels: array<Orderbook.wsBookLevel>): string =>
+let topPrice = (levels: array<Orderbook.Raw.WsLevel.t>): string =>
   switch levels[0] {
   | Some(level) => level.price
   | None => "-"
@@ -18,7 +18,7 @@ let topPrice = (levels: array<Orderbook.wsBookLevel>): string =>
 let main = async () => {
   let client = Common__Example.client()
 
-  switch await Market.get(client, ~limit=1) {
+  switch await Market.Client.get(client, ~limit=1) {
   | Ok({markets}) =>
     switch markets[0] {
     | Some(market) =>
@@ -28,7 +28,7 @@ let main = async () => {
         let hits = ref(0)
         // The handler re-subscribes on a resync, so it needs the connection — which
         // is created with the handler. Thread it back in through a ref.
-        let connectionRef: ref<option<Ws.connection>> = ref(None)
+        let connectionRef: ref<option<Ws.t>> = ref(None)
 
         let connection = Ws.connect(
           ~url=client.wsUrl,
@@ -39,7 +39,7 @@ let main = async () => {
             | BookUpdate(book) =>
               // Untagged frames are the full-precision view; grouped frames carry
               // n_sig_figs/mantissa. Key local handling by the frame's aggregation.
-              let aggregation = Orderbook.aggregationOfOrderBook(book)
+              let aggregation = Orderbook.Raw.Book.toAggregation(book)
               if book.resync {
                 // The book fell out of sync: re-subscribe the SAME view to pull a
                 // fresh seq-0 snapshot (last-write-wins).
@@ -64,7 +64,7 @@ let main = async () => {
               } else {
                 hits := hits.contents + 1
                 Console.log(
-                  `book[${Orderbook.BookAggregation.keySuffix(aggregation)}]: seq=${Float.toString(
+                  `book[${Orderbook.Aggregation.keySuffix(aggregation)}]: seq=${Float.toString(
                       book.seq,
                     )} bid=${topPrice(book.bids)} ask=${topPrice(book.asks)}`,
                 )

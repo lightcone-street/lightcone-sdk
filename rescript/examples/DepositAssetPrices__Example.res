@@ -6,7 +6,7 @@
 let main = async () => {
   let client = Common__Example.client()
 
-  switch await PriceHistory.getDepositAssetPricesSnapshot(client) {
+  switch await PriceHistory.Client.getDepositAssetPricesSnapshot(client) {
   | Ok({prices}) =>
     let entries = prices->Dict.toArray
     Console.log(`deposit-asset-prices-snapshot: ${Int.toString(Array.length(entries))} entries`)

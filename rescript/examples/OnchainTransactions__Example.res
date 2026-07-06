@@ -14,7 +14,7 @@ let main = async () => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(secretKey)
   let user = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_) =>
     // A recent blockhash proves the @solana/kit RPC path before we send.
@@ -23,7 +23,7 @@ let main = async () => {
     | Error(error) => Console.error(SdkError.toMessage(error))
     }
 
-    switch await Market.get(client, ~limit=1) {
+    switch await Market.Client.get(client, ~limit=1) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok({markets}) =>
       switch markets[0]->Option.flatMap(market => market.orderbookPairs[0]) {
@@ -39,9 +39,11 @@ let main = async () => {
           }
 
         // Send a net-neutral deposit then withdraw, reporting each tx signature.
-        await run("deposit_to_global", () => PositionBuilders.depositToGlobal(client, ~user, ~mint, ~amount))
+        await run("deposit_to_global", () =>
+          Position.Builders.depositToGlobal(client, ~user, ~mint, ~amount)
+        )
         await run("withdraw_from_global", () =>
-          PositionBuilders.withdrawFromGlobal(client, ~user, ~mint, ~amount)
+          Position.Builders.withdrawFromGlobal(client, ~user, ~mint, ~amount)
         )
       }
     }

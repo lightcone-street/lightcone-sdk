@@ -3,16 +3,16 @@
 /* eslint-disable */
 /* tslint:disable */
 
-export type orderbookDecimals = {
+export type OrderbookDecimals_t = {
   readonly baseDecimals: number; 
   readonly quoteDecimals: number; 
   readonly priceDecimals: number; 
   readonly tickSize: number
 };
 
-export type scaledAmounts = { readonly amountIn: bigint; readonly amountOut: bigint };
+export type Amounts_t = { readonly amountIn: bigint; readonly amountOut: bigint };
 
-export type scalingError = 
+export type Error_t = 
     "ZeroAmount"
   | { TAG: "NonPositivePrice"; _0: string }
   | { TAG: "NonPositiveSize"; _0: string }

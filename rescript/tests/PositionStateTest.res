@@ -6,7 +6,7 @@ open RescriptBun.Test.Expect
 // merge on extend), the ConditionalBalanceDelta math, and the computed display
 // values (which format through Fmt.display).
 
-let outcome = (~token, ~idle, ~onBook): Order.userOutcomeBalance => {
+let outcome = (~token, ~idle, ~onBook): Order.Raw.UserOutcomeBalance.t => {
   outcomeIndex: 0.0,
   conditionalToken: token,
   balance: "0",
@@ -14,7 +14,7 @@ let outcome = (~token, ~idle, ~onBook): Order.userOutcomeBalance => {
   balanceOnBook: onBook,
 }
 
-let marketBalance = (~market, ~depositAsset, ~outcomes): Order.userMarketBalance => {
+let marketBalance = (~market, ~depositAsset, ~outcomes): Order.Raw.UserMarketBalance.t => {
   marketPubkey: market,
   depositAssets: [{depositAsset, outcomes}],
 }
@@ -39,8 +39,8 @@ describe("Position.ConditionalBalanceDelta", () => {
     expect(Position.ConditionalBalanceDelta.isZero(delta(~idle="0", ~onBook="0.0001")))->toBe(false)
   })
 
-  test("tokenBalanceOfConditionalBalanceDelta classifies as conditional token", () => {
-    let balance = Position.tokenBalanceOfConditionalBalanceDelta(delta(~orderbookId="ob1"))
+  test("toTokenBalance classifies as conditional token", () => {
+    let balance = Position.ConditionalBalanceDelta.toTokenBalance(delta(~orderbookId="ob1"))
     expect(balance.mint)->toBe("ct1")
     expect(balance.idle)->toBe("1.5")
     switch balance.tokenType {
@@ -52,14 +52,14 @@ describe("Position.ConditionalBalanceDelta", () => {
     | DepositAsset => expect("deposit asset")->toBe("conditional token")
     }
     // A missing orderbook id becomes the empty default.
-    switch Position.tokenBalanceOfConditionalBalanceDelta(delta()).tokenType {
+    switch Position.ConditionalBalanceDelta.toTokenBalance(delta()).tokenType {
     | ConditionalToken({orderbookId}) => expect(orderbookId)->toBe("")
     | DepositAsset => expect("deposit asset")->toBe("conditional token")
     }
   })
 
-  test("userOutcomeBalanceOfConditionalBalanceDelta sets balance = total", () => {
-    let balance = Position.userOutcomeBalanceOfConditionalBalanceDelta(delta())
+  test("toUserOutcomeBalance sets balance = total", () => {
+    let balance = Position.ConditionalBalanceDelta.toUserOutcomeBalance(delta())
     expect(balance.balance)->toBe("4")
     expect(balance.balanceIdle)->toBe("1.5")
     expect(balance.balanceOnBook)->toBe("2.5")
@@ -69,31 +69,31 @@ describe("Position.ConditionalBalanceDelta", () => {
 
 describe("Position computed display values", () => {
   test("computedBase formats size / value / price through Fmt.display", () => {
-    let balance: Position.tokenBalance = {
+    let balance: Position.TokenBalance.t = {
       mint: "ct1",
       idle: "2",
       onBook: "1",
       tokenType: DepositAsset,
     }
-    let computed = Position.computedBase(balance, ~conditionalPrice="0.5")
+    let computed = Position.TokenBalance.computedBase(balance, ~conditionalPrice="0.5")
     expect(computed.size)->toBe("3.0000")
     expect(computed.value)->toBe("1.5000")
     expect(computed.price)->toBe("0.5000")
   })
 
   test("computedQuote formats idle + on-book", () => {
-    let balance: Position.tokenBalance = {
+    let balance: Position.TokenBalance.t = {
       mint: "usdc",
       idle: "1000",
       onBook: "500",
       tokenType: DepositAsset,
     }
-    expect(Position.computedQuote(balance))->toBe("1,500.0")
+    expect(Position.TokenBalance.computedQuote(balance))->toBe("1,500.0")
   })
 })
 
-describe("Position.UserMarketBalanceIndex", () => {
-  test("ofMarketBalance drops zero outcomes and empty deposit assets", () => {
+describe("Position.State", () => {
+  test("fromMarketBalance drops zero outcomes and empty deposit assets", () => {
     let balance = marketBalance(
       ~market="mkt1",
       ~depositAsset="usdc",
@@ -102,9 +102,9 @@ describe("Position.UserMarketBalanceIndex", () => {
         outcome(~token="ct2", ~idle="0", ~onBook="0"),
       ],
     )
-    switch Position.UserMarketBalanceIndex.ofMarketBalance(balance) {
+    switch Position.State.fromMarketBalance(balance) {
     | Some(index) =>
-      switch Position.UserMarketBalanceIndex.get(index, ~marketPubkey="mkt1") {
+      switch Position.State.get(index, ~marketPubkey="mkt1") {
       | Some(byAsset) =>
         switch byAsset->Dict.get("usdc") {
         | Some(byToken) => {
@@ -120,35 +120,35 @@ describe("Position.UserMarketBalanceIndex", () => {
     }
   })
 
-  test("ofMarketBalance is None when every outcome is zero", () => {
+  test("fromMarketBalance is None when every outcome is zero", () => {
     let balance = marketBalance(
       ~market="mkt1",
       ~depositAsset="usdc",
       ~outcomes=[outcome(~token="ct1", ~idle="0", ~onBook="0")],
     )
-    expect(Position.UserMarketBalanceIndex.ofMarketBalance(balance)->Option.isNone)->toBe(true)
+    expect(Position.State.fromMarketBalance(balance)->Option.isNone)->toBe(true)
   })
 
-  test("ofMarketBalances indexes every market; marketPubkeys is sorted", () => {
-    let index = Position.UserMarketBalanceIndex.ofMarketBalances([
+  test("fromMarketBalances indexes every market; marketPubkeys is sorted", () => {
+    let index = Position.State.fromMarketBalances([
       marketBalance(~market="zzz", ~depositAsset="usdc", ~outcomes=[outcome(~token="ct1", ~idle="1", ~onBook="0")]),
       marketBalance(~market="aaa", ~depositAsset="usdc", ~outcomes=[outcome(~token="ct2", ~idle="2", ~onBook="0")]),
       marketBalance(~market="mmm", ~depositAsset="usdc", ~outcomes=[outcome(~token="ct3", ~idle="0", ~onBook="0")]),
     ])
     // The all-zero market is dropped entirely.
-    expect(Position.UserMarketBalanceIndex.marketPubkeys(index))->toEqual(["aaa", "zzz"])
+    expect(Position.State.marketPubkeys(index))->toEqual(["aaa", "zzz"])
   })
 
   test("extend merges at the market level; per-deposit-asset entries win wholesale", () => {
-    let index = Position.UserMarketBalanceIndex.ofMarketBalances([
+    let index = Position.State.fromMarketBalances([
       marketBalance(~market="mkt1", ~depositAsset="usdc", ~outcomes=[outcome(~token="ct1", ~idle="1", ~onBook="0")]),
     ])
-    let update = Position.UserMarketBalanceIndex.ofMarketBalances([
+    let update = Position.State.fromMarketBalances([
       marketBalance(~market="mkt1", ~depositAsset="usdc", ~outcomes=[outcome(~token="ct2", ~idle="2", ~onBook="0")]),
       marketBalance(~market="mkt1", ~depositAsset="wsol", ~outcomes=[outcome(~token="ct3", ~idle="3", ~onBook="0")]),
     ])
-    Position.UserMarketBalanceIndex.extend(index, update)
-    switch Position.UserMarketBalanceIndex.get(index, ~marketPubkey="mkt1") {
+    Position.State.extend(index, update)
+    switch Position.State.get(index, ~marketPubkey="mkt1") {
     | Some(byAsset) => {
         // usdc replaced wholesale: ct1 is gone, ct2 is in.
         switch byAsset->Dict.get("usdc") {
@@ -166,11 +166,11 @@ describe("Position.UserMarketBalanceIndex", () => {
   })
 
   test("insert and remove operate per market", () => {
-    let index = Position.UserMarketBalanceIndex.make()
-    let entry: Position.UserMarketBalanceIndex.depositAssetBalanceIndex = Dict.make()
-    Position.UserMarketBalanceIndex.insert(index, ~marketPubkey="mkt1", entry)
-    expect(Position.UserMarketBalanceIndex.get(index, ~marketPubkey="mkt1")->Option.isSome)->toBe(true)
-    Position.UserMarketBalanceIndex.remove(index, ~marketPubkey="mkt1")
-    expect(Position.UserMarketBalanceIndex.get(index, ~marketPubkey="mkt1")->Option.isNone)->toBe(true)
+    let index = Position.State.make()
+    let entry: Position.State.depositAssetBalanceIndex = Dict.make()
+    Position.State.insert(index, ~marketPubkey="mkt1", entry)
+    expect(Position.State.get(index, ~marketPubkey="mkt1")->Option.isSome)->toBe(true)
+    Position.State.remove(index, ~marketPubkey="mkt1")
+    expect(Position.State.get(index, ~marketPubkey="mkt1")->Option.isNone)->toBe(true)
   })
 })

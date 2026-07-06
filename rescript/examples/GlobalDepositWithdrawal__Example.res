@@ -4,7 +4,7 @@
 // withdraw from the global pool, then merge the conditional set back to collateral
 // — a net-neutral deposit/withdraw/merge cycle.
 //
-// Each PositionBuilders call builds the instruction, signs it with the client's
+// Each Position.Builders call builds the instruction, signs it with the client's
 // native signer, and broadcasts it, returning the transaction signature. ReScript
 // surface (result core); the compiled .res.mjs is the JS example.
 //
@@ -19,16 +19,18 @@ let main = async () => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(secretKey)
   let user = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_) =>
-    switch await Market.get(client, ~limit=1) {
+    switch await Market.Client.get(client, ~limit=1) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok({markets}) =>
       switch markets[0] {
       | None => Console.log("no markets found")
       | Some(market) =>
-        switch market.orderbookPairs->Array.find(pair => pair.active)->Option.orElse(market.orderbookPairs[0]) {
+        switch market.orderbookPairs
+        ->Array.find(pair => pair.active)
+        ->Option.orElse(market.orderbookPairs[0]) {
         | None => Console.log("selected market has no orderbooks")
         | Some(pair) => {
             let marketAddress = SolanaKit.address(pair.marketPubkey)
@@ -46,19 +48,33 @@ let main = async () => {
 
             // 1. Fund the global pool with collateral.
             await run("deposit_to_global", () =>
-              PositionBuilders.depositToGlobal(client, ~user, ~mint, ~amount=depositAmount)
+              Position.Builders.depositToGlobal(client, ~user, ~mint, ~amount=depositAmount)
             )
             // 2. Move capital into the market (mints a complete conditional set).
             await run("global_to_market_deposit", () =>
-              PositionBuilders.globalToMarketDeposit(client, ~user, ~market=marketAddress, ~mint, ~amount, ~numOutcomes)
+              Position.Builders.globalToMarketDeposit(
+                client,
+                ~user,
+                ~market=marketAddress,
+                ~mint,
+                ~amount,
+                ~numOutcomes,
+              )
             )
             // 3. Pull collateral back out of the global pool.
             await run("withdraw_from_global", () =>
-              PositionBuilders.withdrawFromGlobal(client, ~user, ~mint, ~amount)
+              Position.Builders.withdrawFromGlobal(client, ~user, ~mint, ~amount)
             )
             // 4. Burn the conditional set, releasing collateral (closes the position).
             await run("merge", () =>
-              PositionBuilders.merge(client, ~user, ~market=marketAddress, ~mint, ~amount, ~numOutcomes)
+              Position.Builders.merge(
+                client,
+                ~user,
+                ~market=marketAddress,
+                ~mint,
+                ~amount,
+                ~numOutcomes,
+              )
             )
           }
         }

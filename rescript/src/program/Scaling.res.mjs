@@ -3,6 +3,12 @@
 import * as Decimal from "../../bindings/decimal/Decimal.res.mjs";
 import DecimalJs from "decimal.js";
 
+let OrderbookDecimals = {};
+
+let Amounts = {};
+
+let $$Error = {};
+
 let decimalToBigInt = ((decimal) => BigInt(decimal.toFixed(0)));
 
 let isBigIntZero = ((value) => value === 0n);
@@ -100,6 +106,9 @@ function alignPriceToTick(price, decimals) {
 }
 
 export {
+  OrderbookDecimals,
+  Amounts,
+  $$Error,
   scalePriceSize,
   alignPriceToTick,
 }

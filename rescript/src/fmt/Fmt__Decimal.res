@@ -1,7 +1,6 @@
 // Fmt__Decimal — display formatting over decimal.js values parsed from the
-// SDK's Decimal wire strings (mirrors rust/src/shared/fmt/decimal.rs). Reached
-// as `Fmt.Decimal`; the string plumbing comes from `Fmt__Num` and the tier
-// table from `Fmt__Constants`, exactly as decimal.rs leans on its siblings.
+// SDK's Decimal wire strings. Reached as `Fmt.Decimal`; the string plumbing
+// comes from `Fmt__Num` and the tier table from `Fmt__Constants`.
 
 let thousand = Decimal.fromInt(1000)
 let million = Decimal.fromInt(1000000)
@@ -21,8 +20,8 @@ let display = (value: Decimal.t): string => {
   ->Fmt__Num.displayDefaultFormattedString
 }
 
-// Abbreviate with k/m/b/t suffixes at `digits` precision (ties to even, the
-// rust_decimal Display rounding). `~showSign=false` drops a leading minus.
+// Abbreviate with k/m/b/t suffixes at `digits` precision (ties round to
+// even). `~showSign=false` drops a leading minus.
 let abbrNumber = (amount: Decimal.t, ~digits: int=2, ~showSign: bool=true): string => {
   let sign = showSign && Decimal.isNeg(amount) ? "-" : ""
   let absAmount = Decimal.abs(amount)

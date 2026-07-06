@@ -1,12 +1,12 @@
-// On-chain read sub-client over the client's kit RPC. Mirrors rust/src/rpc.rs (the
-// `Rpc` sub-client) plus the per-domain `get_onchain` / `current_nonce` fetchers.
+// On-chain read sub-client over the client's kit RPC: account fetchers, PDA
+// accessors, and the current-nonce lookup.
 // Every call returns `promise<result<_, SdkError.t>>`; JS/RPC exceptions are caught
 // and wrapped as `SdkError.Other`, decode failures propagate the `SdkError.Program`
 // from `Accounts`.
 //
 // The two transport primitives (`getLatestBlockhash` / `getAccountData`) route
 // through `RpcFailover.withFailover`: try the active endpoint, fast-retry, then fail
-// over to `client.backupRpc` (mirrors rust/src/rpc_failover.rs). Their only failures
+// over to `client.backupRpc`. Their only failures
 // are transport-level, so every error is treated as infrastructure; the typed
 // fetchers below build on `getAccountData` and inherit failover for free.
 
@@ -43,14 +43,14 @@ let exnMessage = (error: JsExn.t): string => error->JsExn.message->Option.getOr(
 // back to the primary when no backup URL is set), so this never produces `None` —
 // and a kit RPC must never be wrapped in an `option` anyway: it is a Proxy that
 // answers truthy for every property, which corrupts ReScript's boxed-option tag.
-let rpcFor = (client: Client.t, target: RpcFailover.activeRpc): SolanaKitRpc.t =>
+let rpcFor = (client: Client.t, target: RpcFailover.Active.t): SolanaKitRpc.t =>
   switch target {
   | Primary => client.rpc
   | Backup => client.backupRpc
   }
 
 // Which endpoint is currently live (Primary until a failover flips it to Backup).
-let activeRpc = (client: Client.t): RpcFailover.activeRpc => RpcFailover.active(client.rpcFailover)
+let activeRpc = (client: Client.t): RpcFailover.Active.t => RpcFailover.active(client.rpcFailover)
 
 // ── Blockhash ──────────────────────────────────────────────────────────────────
 // Latest blockhash for transaction building (with primary→backup failover).
@@ -97,9 +97,8 @@ let getAccountData = (
   )
 
 // ── PDA accessors (thin wrappers binding `client.programId`) ──────────────────
-// Async (kit derives PDAs via WebCrypto SHA-256); each returns just the address,
-// matching the Rust `Rpc::get_*_pda` helpers (the bump is dropped — use `Pda.*`
-// directly when you need it).
+// Async (kit derives PDAs via WebCrypto SHA-256); each returns just the address
+// (the bump is dropped — use `Pda.*` directly when you need it).
 let exchangePda = async (client: Client.t): SolanaKit.address => {
   let (address, _bump) = await Pda.exchange(client.programId)
   address
@@ -149,25 +148,25 @@ let userGlobalDepositPda = async (
 
 // ── Typed account fetchers ────────────────────────────────────────────────────
 // Fetch + decode the singleton Exchange account.
-let getExchange = async (client: Client.t): result<Accounts.exchange, SdkError.t> => {
+let getExchange = async (client: Client.t): result<Accounts.Exchange.t, SdkError.t> => {
   let pda = await exchangePda(client)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Error(SdkError.Program("Exchange: account not found"))
-  | Ok(Some(bytes)) => Accounts.decodeExchange(bytes)
+  | Ok(Some(bytes)) => Accounts.Exchange.decode(bytes)
   }
 }
 
 // Fetch + decode a Market by its on-chain pubkey.
-let getMarket = async (client: Client.t, market: SolanaKit.address): result<Accounts.market, SdkError.t> =>
+let getMarket = async (client: Client.t, market: SolanaKit.address): result<Accounts.Market.t, SdkError.t> =>
   switch await getAccountData(client, market) {
   | Error(error) => Error(error)
   | Ok(None) => Error(SdkError.Program("Market: account not found"))
-  | Ok(Some(bytes)) => Accounts.decodeMarket(bytes)
+  | Ok(Some(bytes)) => Accounts.Market.decode(bytes)
   }
 
 // Fetch + decode a Market by its numeric id (derives the PDA first).
-let getMarketById = async (client: Client.t, ~marketId: bigint): result<Accounts.market, SdkError.t> => {
+let getMarketById = async (client: Client.t, ~marketId: bigint): result<Accounts.Market.t, SdkError.t> => {
   let (market, _) = await Pda.market(client.programId, ~marketId)
   await getMarket(client, market)
 }
@@ -176,12 +175,12 @@ let getMarketById = async (client: Client.t, ~marketId: bigint): result<Accounts
 let getGlobalDepositToken = async (
   client: Client.t,
   ~mint: SolanaKit.address,
-): result<Accounts.globalDepositToken, SdkError.t> => {
+): result<Accounts.GlobalDepositToken.t, SdkError.t> => {
   let (pda, _) = await Pda.globalDepositToken(client.programId, ~mint)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Error(SdkError.Program("GlobalDepositToken: account not found"))
-  | Ok(Some(bytes)) => Accounts.decodeGlobalDepositToken(bytes)
+  | Ok(Some(bytes)) => Accounts.GlobalDepositToken.decode(bytes)
   }
 }
 
@@ -190,12 +189,12 @@ let getGlobalDepositToken = async (
 let getOrderStatus = async (
   client: Client.t,
   ~orderHash: Uint8Array.t,
-): result<option<Accounts.orderStatus>, SdkError.t> => {
+): result<option<Accounts.OrderStatus.t>, SdkError.t> => {
   let (pda, _) = await Pda.orderStatus(client.programId, ~orderHash)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Ok(None)
-  | Ok(Some(bytes)) => Accounts.decodeOrderStatus(bytes)->Result.map(status => Some(status))
+  | Ok(Some(bytes)) => Accounts.OrderStatus.decode(bytes)->Result.map(status => Some(status))
   }
 }
 
@@ -208,39 +207,38 @@ let getOrderbook = async (
   client: Client.t,
   ~mintA: SolanaKit.address,
   ~mintB: SolanaKit.address,
-): result<Accounts.orderbook, SdkError.t> => {
+): result<Accounts.Orderbook.t, SdkError.t> => {
   let pda = await orderbookPda(client, ~mintA, ~mintB)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Error(SdkError.Program("Orderbook: account not found"))
-  | Ok(Some(bytes)) => Accounts.decodeOrderbook(bytes)
+  | Ok(Some(bytes)) => Accounts.Orderbook.decode(bytes)
   }
 }
 
-// Fetch + decode a Position; `None` when it doesn't exist (matches Rust).
+// Fetch + decode a Position; `None` when it doesn't exist.
 let getPosition = async (
   client: Client.t,
   ~owner: SolanaKit.address,
   ~market: SolanaKit.address,
-): result<option<Accounts.position>, SdkError.t> => {
+): result<option<Accounts.Position.t>, SdkError.t> => {
   let pda = await positionPda(client, ~owner, ~market)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Ok(None)
-  | Ok(Some(bytes)) => Accounts.decodePosition(bytes)->Result.map(position => Some(position))
+  | Ok(Some(bytes)) => Accounts.Position.decode(bytes)->Result.map(position => Some(position))
   }
 }
 
 // ── Nonce ───────────────────────────────────────────────────────────────────────
-// Current on-chain nonce for a user; 0 when the account is uninitialized
-// (matches the Rust `Orders::get_nonce`).
+// Current on-chain nonce for a user; 0 when the account is uninitialized.
 let getNonce = async (client: Client.t, ~user: SolanaKit.address): result<float, SdkError.t> => {
   let pda = await userNoncePda(client, ~user)
   switch await getAccountData(client, pda) {
   | Error(error) => Error(error)
   | Ok(None) => Ok(0.0)
   | Ok(Some(bytes)) =>
-    switch Accounts.decodeUserNonce(bytes) {
+    switch Accounts.UserNonce.decode(bytes) {
     | Error(error) => Error(error)
     | Ok(userNonce) => Ok(BigInt.toFloat(userNonce.nonce))
     }

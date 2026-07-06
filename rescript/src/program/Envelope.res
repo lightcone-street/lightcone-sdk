@@ -1,13 +1,12 @@
 // Order envelopes — build + sign an order off-chain into a
-// `Order.submitOrderRequest`. Mirrors the Rust LimitOrderEnvelope /
-// TriggerOrderEnvelope sign flow: align price to tick → scale price/size to raw
+// `Order.Raw.SubmitRequest.t`: align price to tick → scale price/size to raw
 // u64 amounts (Scaling) → pack + keccak256 + ed25519-sign (OrderPayload) →
 // request. A trigger order is the same signed payload with the trigger fields
 // (`triggerPrice` / `triggerType`) added to the request.
 
 let randomSalt: unit => bigint = %raw(`() => BigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER))`)
 
-let scalingErrorToMessage = (error: Scaling.scalingError): string =>
+let scalingErrorToMessage = (error: Scaling.Error.t): string =>
   switch error {
   | NonPositivePrice(value) => `price must be positive, got ${value}`
   | NonPositiveSize(value) => `size must be positive, got ${value}`
@@ -26,7 +25,7 @@ let buildLimitOrder = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~nonce: bigint=0n,
@@ -34,7 +33,7 @@ let buildLimitOrder = async (
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.submitOrderRequest, SdkError.t> => {
+): result<Order.Raw.SubmitRequest.t, SdkError.t> => {
   let alignedPrice = Scaling.alignPriceToTick(price, decimals)
   switch Scaling.scalePriceSize(~price=alignedPrice, ~size, ~side, ~decimals) {
   | Error(scalingError) => Error(Validation(scalingErrorToMessage(scalingError)))
@@ -85,7 +84,7 @@ let buildTriggerOrder = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~triggerPrice: float,
@@ -95,7 +94,7 @@ let buildTriggerOrder = async (
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.submitOrderRequest, SdkError.t> =>
+): result<Order.Raw.SubmitRequest.t, SdkError.t> =>
   switch await buildLimitOrder(
     ~maker,
     ~market,
@@ -135,7 +134,7 @@ let submitLimitOrder = async (
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.submitOrderResponse, SdkError.t> =>
+): result<Order.Raw.SubmitResponse.t, SdkError.t> =>
   switch await buildLimitOrder(
     ~maker,
     ~market,
@@ -153,7 +152,7 @@ let submitLimitOrder = async (
     ~timeInForce?,
     ~depositSource?,
   ) {
-  | Ok(request) => await Order.submit(client, request)
+  | Ok(request) => await Order.Client.submit(client, request)
   | Error(error) => Error(error)
   }
 
@@ -177,7 +176,7 @@ let submitTriggerOrder = async (
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.triggerOrderResponse, SdkError.t> =>
+): result<Order.Raw.TriggerResponse.t, SdkError.t> =>
   switch await buildTriggerOrder(
     ~maker,
     ~market,
@@ -197,11 +196,11 @@ let submitTriggerOrder = async (
     ~timeInForce?,
     ~depositSource?,
   ) {
-  | Ok(request) => await Order.submitTrigger(client, request)
+  | Ok(request) => await Order.Client.submitTrigger(client, request)
   | Error(error) => Error(error)
   }
 
-// ── Strategy-signed submits (the Rust envelope `submit()` flow) ───────────────
+// ── Strategy-signed submits ────────────────────────────────────────────────────
 // Build + sign with the client's configured strategy (native keypair or external
 // wallet adapter): the strategy's address is the maker, and an omitted nonce
 // falls back to the client's cached order nonce (an explicit one updates the
@@ -215,7 +214,7 @@ let buildWithClientSigner = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~nonce: option<bigint>=?,
   ~salt: option<bigint>=?,
@@ -224,7 +223,7 @@ let buildWithClientSigner = async (
   ~depositSource: option<Shared.DepositSource.t>=?,
   ~triggerPrice: option<float>=?,
   ~triggerType: option<Shared.TriggerType.t>=?,
-): result<Order.submitOrderRequest, SdkError.t> =>
+): result<Order.Raw.SubmitRequest.t, SdkError.t> =>
   switch Client.signerAddress(client) {
   | None =>
     Error(
@@ -294,14 +293,14 @@ let submitLimitOrderSigned = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~nonce: option<bigint>=?,
   ~salt: option<bigint>=?,
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.submitOrderResponse, SdkError.t> =>
+): result<Order.Raw.SubmitResponse.t, SdkError.t> =>
   switch await buildWithClientSigner(
     client,
     ~market,
@@ -318,7 +317,7 @@ let submitLimitOrderSigned = async (
     ~timeInForce?,
     ~depositSource?,
   ) {
-  | Ok(request) => await Order.submit(client, request)
+  | Ok(request) => await Order.Client.submit(client, request)
   | Error(error) => Error(error)
   }
 
@@ -331,7 +330,7 @@ let submitTriggerOrderSigned = async (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~triggerPrice: float,
   ~triggerType: Shared.TriggerType.t,
@@ -340,7 +339,7 @@ let submitTriggerOrderSigned = async (
   ~expiration: bigint=0n,
   ~timeInForce: option<Shared.TimeInForce.t>=?,
   ~depositSource: option<Shared.DepositSource.t>=?,
-): result<Order.triggerOrderResponse, SdkError.t> =>
+): result<Order.Raw.TriggerResponse.t, SdkError.t> =>
   switch await buildWithClientSigner(
     client,
     ~market,
@@ -359,6 +358,6 @@ let submitTriggerOrderSigned = async (
     ~triggerPrice,
     ~triggerType,
   ) {
-  | Ok(request) => await Order.submitTrigger(client, request)
+  | Ok(request) => await Order.Client.submitTrigger(client, request)
   | Error(error) => Error(error)
   }

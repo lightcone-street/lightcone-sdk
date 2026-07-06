@@ -7,7 +7,7 @@ let main = async () => {
   let client = Common__Example.client()
 
   // ── Platform ──────────────────────────────────────────────────────────────
-  switch await Metrics.platform(client) {
+  switch await Metrics.Client.platform(client) {
   | Ok(platform) =>
     Console.log(
       `platform: volume_24h_usd=${platform.volume24hUsd}, volume_7d_usd=${platform.volume7dUsd}, ` ++
@@ -19,7 +19,7 @@ let main = async () => {
   }
 
   // ── Markets list ──────────────────────────────────────────────────────────
-  switch await Metrics.markets(client) {
+  switch await Metrics.Client.markets(client) {
   | Ok({markets, total}) =>
     Console.log(`markets: ${Int.toString(Array.length(markets))} entries (total=${Float.toString(total)})`)
     markets
@@ -34,7 +34,7 @@ let main = async () => {
   }
 
   // ── Categories ────────────────────────────────────────────────────────────
-  switch await Metrics.categories(client) {
+  switch await Metrics.Client.categories(client) {
   | Ok({categories}) =>
     Console.log(`categories: ${Int.toString(Array.length(categories))}`)
     switch categories[0] {
@@ -49,7 +49,7 @@ let main = async () => {
   }
 
   // ── Deposit tokens (platform-wide) ────────────────────────────────────────
-  switch await Metrics.depositTokens(client) {
+  switch await Metrics.Client.depositTokens(client) {
   | Ok({depositTokens}) =>
     Console.log(`deposit tokens: ${Int.toString(Array.length(depositTokens))}`)
     depositTokens
@@ -61,7 +61,7 @@ let main = async () => {
   }
 
   // ── Orderbook tickers (batch BBO + midpoint over REST) ────────────────────
-  switch await Metrics.orderbookTickers(client) {
+  switch await Metrics.Client.orderbookTickers(client) {
   | Ok({tickers}) =>
     Console.log(`orderbook tickers: ${Int.toString(Array.length(tickers))}`)
     switch tickers[0] {

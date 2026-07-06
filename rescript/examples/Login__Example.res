@@ -3,7 +3,7 @@ let main = async () => {
   let client = Common__Example.client()
   await Client.useNativeSigner(client, Common__Example.walletSecretKey())
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Ok(session) =>
     Console.log(`Logged in as user ${session.user.userId}`)
     let method = switch session.authMethod {

@@ -1,7 +1,7 @@
 open RescriptBun.Test
 open RescriptBun.Test.Expect
 
-let decimals66: Scaling.orderbookDecimals = {baseDecimals: 6, quoteDecimals: 6, priceDecimals: 2, tickSize: 0.0}
+let decimals66: Scaling.OrderbookDecimals.t = {baseDecimals: 6, quoteDecimals: 6, priceDecimals: 2, tickSize: 0.0}
 
 describe("Envelope.buildLimitOrder", () => {
   testAsync("builds + signs a bid into a SubmitOrderRequest (scaled amounts + hex sig)", async () => {
@@ -70,7 +70,7 @@ describe("Order cancel signing", () => {
   testAsync("cancelBodySigned produces a hex signature over the order hash", async () => {
     let seed: Uint8Array.t = %raw(`new Uint8Array(32).fill(9)`)
     let keypair = await SolanaKitKeys.createKeyPairFromPrivateKeyBytes(seed)
-    let body = await Order.cancelBodySigned(~orderHash="deadbeef", ~maker="maker1", ~keypair)
+    let body = await Order.Client.cancelBodySigned(~orderHash="deadbeef", ~maker="maker1", ~keypair)
     expect(String.length(body.signatureHex))->toBe(128)
     expect(body.orderHash)->toBe("deadbeef")
   })
@@ -78,7 +78,7 @@ describe("Order cancel signing", () => {
   testAsync("cancelTriggerBodySigned signs the trigger order id", async () => {
     let seed: Uint8Array.t = %raw(`new Uint8Array(32).fill(9)`)
     let keypair = await SolanaKitKeys.createKeyPairFromPrivateKeyBytes(seed)
-    let body = await Order.cancelTriggerBodySigned(
+    let body = await Order.Client.cancelTriggerBodySigned(
       ~triggerOrderId="trigger-order-uuid-123",
       ~maker="maker1",
       ~keypair,
@@ -100,7 +100,7 @@ describe("Order cancel signing", () => {
 // ── Wire decoding: user snapshot orders, order events, snapshot frames ─────────
 let parseJson: string => JSON.t = %raw("JSON.parse")
 
-describe("Order.UserSnapshotOrder decode", () => {
+describe("Order.Raw.SnapshotOrder decode", () => {
   test("limit order: tx_signature kept, status defaults to Open, decimals default to 0", () => {
     let json = parseJson(`{
       "order_type": "limit",
@@ -118,7 +118,7 @@ describe("Order.UserSnapshotOrder decode", () => {
       "outcome_index": 0,
       "tx_signature": "sig1"
     }`)
-    switch Order.UserSnapshotOrder.t_decode(json) {
+    switch Order.Raw.SnapshotOrder.t_decode(json) {
     | Ok(Limit(order)) =>
       expect(order.common.orderHash)->toBe("hash1")
       expect(order.common.status == Shared.OrderStatus.Open)->toBe(true)
@@ -150,7 +150,7 @@ describe("Order.UserSnapshotOrder decode", () => {
       "trigger_type": "TP",
       "time_in_force": 3
     }`)
-    switch Order.UserSnapshotOrder.t_decode(json) {
+    switch Order.Raw.SnapshotOrder.t_decode(json) {
     | Ok(Trigger(order)) =>
       expect(order.common.amountIn)->toBe("1000")
       expect(order.common.amountOut)->toBe("500")
@@ -164,7 +164,7 @@ describe("Order.UserSnapshotOrder decode", () => {
   })
 
   test("encode → decode roundtrip preserves both variants", () => {
-    let common: Order.userSnapshotOrderCommon = {
+    let common: Order.Raw.SnapshotCommon.t = {
       orderHash: "h",
       marketPubkey: "mkt",
       orderbookId: "ob",
@@ -181,28 +181,28 @@ describe("Order.UserSnapshotOrder decode", () => {
       outcomeIndex: 1.0,
       status: Shared.OrderStatus.Matching,
     }
-    let limit = Order.UserSnapshotOrder.Limit({common, txSignature: "sig"})
-    let trigger = Order.UserSnapshotOrder.Trigger({
+    let limit = Order.Raw.SnapshotOrder.Limit({common, txSignature: "sig"})
+    let trigger = Order.Raw.SnapshotOrder.Trigger({
       common,
       triggerOrderId: "t1",
       triggerPrice: "0.5",
       triggerType: Shared.TriggerType.StopLoss,
       timeInForce: Shared.TimeInForce.Ioc,
     })
-    expect(Order.UserSnapshotOrder.t_encode(limit)->Order.UserSnapshotOrder.t_decode)->toEqual(
+    expect(Order.Raw.SnapshotOrder.t_encode(limit)->Order.Raw.SnapshotOrder.t_decode)->toEqual(
       Ok(limit),
     )
-    expect(Order.UserSnapshotOrder.t_encode(trigger)->Order.UserSnapshotOrder.t_decode)->toEqual(
+    expect(Order.Raw.SnapshotOrder.t_encode(trigger)->Order.Raw.SnapshotOrder.t_decode)->toEqual(
       Ok(trigger),
     )
   })
 
   test("unknown order_type is a decode error", () =>
-    expect(parseJson(`{"order_type": "mystery"}`)->Order.UserSnapshotOrder.t_decode->Result.isError)->toBe(true)
+    expect(parseJson(`{"order_type": "mystery"}`)->Order.Raw.SnapshotOrder.t_decode->Result.isError)->toBe(true)
   )
 })
 
-describe("Order.OrderEvent decode", () => {
+describe("Order.Raw.Event decode", () => {
   test("limit update: internally tagged, balance tree, status defaults to Open", () => {
     let json = parseJson(`{
       "order_type": "limit",
@@ -230,7 +230,7 @@ describe("Order.OrderEvent decode", () => {
         }
       }
     }`)
-    switch Order.OrderEvent.decode(json) {
+    switch Order.Raw.Event.t_decode(json) {
     | Ok(Limit(update)) =>
       expect(update.updateType == Shared.OrderUpdateType.Placement)->toBe(true)
       expect(update.txSignature)->toBe(Some("sig"))
@@ -263,7 +263,7 @@ describe("Order.OrderEvent decode", () => {
       "result_status": "",
       "timestamp": "2024-01-01T00:00:00Z"
     }`)
-    switch Order.OrderEvent.decode(json) {
+    switch Order.Raw.Event.t_decode(json) {
     | Ok(Trigger(update)) =>
       expect(update.resultStatus)->toBe(None)
       expect(update.tif == Shared.TimeInForce.Gtc)->toBe(true)
@@ -337,7 +337,7 @@ describe("Messages user snapshot/order frames", () => {
     }
   })
 
-  test("a WS user order frame dispatches into OrderEvent", () => {
+  test("a WS user order frame dispatches into Order.Raw.Event", () => {
     let json = parseJson(`{
       "type": "user",
       "version": 0.1,
@@ -375,7 +375,7 @@ describe("Messages user snapshot/order frames", () => {
 })
 
 describe("Order fills response decode", () => {
-  test("userOrderFillsResponse decodes orders with nested fill events", () => {
+  test("UserFillsResponse decodes orders with nested fill events", () => {
     let json = parseJson(`{
       "orders": [
         {
@@ -400,12 +400,12 @@ describe("Order fills response decode", () => {
       ],
       "has_more": false
     }`)
-    switch Order.userOrderFillsResponse_decode(json) {
+    switch Order.Raw.UserFillsResponse.t_decode(json) {
     | Ok(response) =>
       expect(Array.length(response.orders))->toBe(1)
       let order = response.orders->Array.getUnsafe(0)
-      expect(order.role == Order.Role.Maker)->toBe(true)
-      expect(order.status == Order.FillStatus.PartiallyFilled)->toBe(true)
+      expect(order.role == Order.Raw.Role.Maker)->toBe(true)
+      expect(order.status == Order.Raw.FillStatus.PartiallyFilled)->toBe(true)
       expect((order.fills->Array.getUnsafe(0)).fillAmount)->toBe("4")
       expect(response.nextCursor)->toBe(None)
     | Error(error) => expect(error.message)->toBe("decoded")

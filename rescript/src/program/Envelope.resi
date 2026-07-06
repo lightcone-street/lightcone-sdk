@@ -13,7 +13,7 @@ let buildLimitOrder: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~nonce: bigint=?,
@@ -21,7 +21,7 @@ let buildLimitOrder: (
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.submitOrderRequest, SdkError.t>>
+) => promise<result<Order.Raw.SubmitRequest.t, SdkError.t>>
 
 // Build a signed trigger (take-profit / stop-loss) order request (no network call).
 let buildTriggerOrder: (
@@ -32,7 +32,7 @@ let buildTriggerOrder: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~triggerPrice: float,
@@ -42,7 +42,7 @@ let buildTriggerOrder: (
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.submitOrderRequest, SdkError.t>>
+) => promise<result<Order.Raw.SubmitRequest.t, SdkError.t>>
 
 // Build + sign + submit in one step.
 let submitLimitOrder: (
@@ -54,7 +54,7 @@ let submitLimitOrder: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~nonce: bigint=?,
@@ -62,7 +62,7 @@ let submitLimitOrder: (
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.submitOrderResponse, SdkError.t>>
+) => promise<result<Order.Raw.SubmitResponse.t, SdkError.t>>
 
 // Build + sign + submit a trigger order in one step.
 let submitTriggerOrder: (
@@ -74,7 +74,7 @@ let submitTriggerOrder: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~keypair: SolanaKit.cryptoKeyPair,
   ~triggerPrice: float,
@@ -84,9 +84,9 @@ let submitTriggerOrder: (
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.triggerOrderResponse, SdkError.t>>
+) => promise<result<Order.Raw.TriggerResponse.t, SdkError.t>>
 
-// ── Strategy-signed submits (the Rust envelope `submit()` flow) ───────────────
+// ── Strategy-signed submits ────────────────────────────────────────────────────
 // Build + sign + submit with the client's configured strategy (native keypair or
 // external wallet adapter): the strategy's address is the maker, and an omitted
 // nonce falls back to the client's cached order nonce (an explicit one updates
@@ -99,14 +99,14 @@ let submitLimitOrderSigned: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~nonce: bigint=?,
   ~salt: bigint=?,
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.submitOrderResponse, SdkError.t>>
+) => promise<result<Order.Raw.SubmitResponse.t, SdkError.t>>
 
 let submitTriggerOrderSigned: (
   Client.t,
@@ -116,7 +116,7 @@ let submitTriggerOrderSigned: (
   ~side: int,
   ~price: string,
   ~size: string,
-  ~decimals: Scaling.orderbookDecimals,
+  ~decimals: Scaling.OrderbookDecimals.t,
   ~orderbookId: string,
   ~triggerPrice: float,
   ~triggerType: Shared.TriggerType.t,
@@ -125,4 +125,4 @@ let submitTriggerOrderSigned: (
   ~expiration: bigint=?,
   ~timeInForce: Shared.TimeInForce.t=?,
   ~depositSource: Shared.DepositSource.t=?,
-) => promise<result<Order.triggerOrderResponse, SdkError.t>>
+) => promise<result<Order.Raw.TriggerResponse.t, SdkError.t>>

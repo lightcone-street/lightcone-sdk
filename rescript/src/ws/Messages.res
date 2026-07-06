@@ -1,19 +1,20 @@
-// Inbound WebSocket messages — the ReScript counterpart of the Rust SDK's
-// `ws::{MessageIn, Kind}` plus the per-channel payload wire types.
+// Inbound WebSocket messages — the envelope plus the per-channel payload wire
+// types.
 //
 // Wire envelope: `{"type": "<channel>", "version": 0.1, "data": <payload>}`.
 // `decodeMessage` strips JSON `null`s (so spice's `field?:T` tolerates both
 // absent and null), reads the `type` discriminator, and decodes `data` into the
-// matching `Kind` variant. Internally-tagged payloads (`event_type` / `status` /
-// market `event_type`) are hand-decoded, mirroring `Auth.res`/`Notification.res`;
+// matching `Kind.t` variant. Internally-tagged payloads (`event_type` / `status` /
+// market `event_type`) are hand-decoded, mirroring `Auth__Raw.res`/`Notification__Raw.res`;
 // plain records lean on spice.
 //
-// Conventions: prices/sizes/Decimals → wire strings (no precision loss; the Rust
-// uses `rust_decimal` with `serde-str`). Sequences and millisecond timestamps →
-// `float`. `DateTime<Utc>` fields the backend serializes as ISO-8601 strings stay
-// strings (e.g. WS trade `timestamp`, the user-event `timestamp`s). The user
-// `snapshot` / `order` payload trees live in `Order.res` (like `Orderbook.orderBook`
-// does for `book_update`) and are dispatched into from `UserUpdate` below.
+// Conventions: prices/sizes/Decimals → wire strings (no precision loss; the
+// backend serializes decimals as JSON strings). Sequences and millisecond
+// timestamps → `float`. `DateTime<Utc>` fields the backend serializes as ISO-8601
+// strings stay strings (e.g. WS trade `timestamp`, the user-event `timestamp`s).
+// The user `snapshot` / `order` payload trees live in `Order__Raw` (like
+// `Orderbook__Raw.Book.t` does for `book_update`) and are dispatched into from
+// `UserUpdate` below.
 //
 // Variant payloads use value or named-record arms (never ReScript inline records,
 // which fail to compile): single-field channels carry a bare value, multi-field
@@ -37,61 +38,67 @@ let optFloat = (dict, key) =>
 // ── Pong / Error ──────────────────────────────────────────────────────────────
 // Server-side WS error with full diagnostics. `error` is the message; book-scoped
 // errors carry `orderbook_id` + the aggregation tags (absent = full precision).
-@spice
-type wsErrorFrame = {
-  error: string,
-  code?: string,
-  @spice.key("orderbook_id") orderbookId?: string,
-  @spice.key("n_sig_figs") nSigFigs?: int,
-  mantissa?: int,
-  @spice.key("wallet_address") walletAddress?: string,
-  @spice.key("deposit_asset") depositAsset?: string,
-  hint?: string,
-  details?: string,
+module ErrorFrame = {
+  @spice
+  type t = {
+    error: string,
+    code?: string,
+    @spice.key("orderbook_id") orderbookId?: string,
+    @spice.key("n_sig_figs") nSigFigs?: int,
+    mantissa?: int,
+    @spice.key("wallet_address") walletAddress?: string,
+    @spice.key("deposit_asset") depositAsset?: string,
+    hint?: string,
+    details?: string,
+  }
 }
 
 // ── Trades ────────────────────────────────────────────────────────────────────
 // WS trade event. `timestamp` is an ISO-8601 string (the backend serializes the
 // `DateTime<Utc>` as RFC 3339); `sequence` is a monotonic per-orderbook counter.
-@spice
-type wsTrade = {
-  @spice.key("orderbook_id") orderbookId: Shared.orderBookId,
-  @spice.key("trade_id") tradeId: string,
-  timestamp: string,
-  price: string,
-  size: string,
-  side: Shared.Side.t,
-  @spice.default(0.0) sequence: float,
+module Trade = {
+  @spice
+  type t = {
+    @spice.key("orderbook_id") orderbookId: Shared.orderBookId,
+    @spice.key("trade_id") tradeId: string,
+    timestamp: string,
+    price: string,
+    size: string,
+    side: Shared.Side.t,
+    @spice.default(0.0) sequence: float,
+  }
 }
 
 // ── Ticker ────────────────────────────────────────────────────────────────────
 // `mid` accepts the `mid_price` alias (hand-decoded — spice can't alias keys).
-type wsTicker = {
-  orderbookId: Shared.orderBookId,
-  bestBid?: string,
-  bestAsk?: string,
-  mid?: string,
-}
-
-let wsTickerDecode = (json: JSON.t): result<wsTicker, Spice.decodeError> =>
-  switch json {
-  | JSON.Object(dict) =>
-    switch field(dict, "orderbook_id") {
-    | Some(JSON.String(orderbookId)) =>
-      let mid = switch optString(dict, "mid") {
-      | Some(value) => Some(value)
-      | None => optString(dict, "mid_price")
-      }
-      Ok({
-        orderbookId,
-        bestBid: ?optString(dict, "best_bid"),
-        bestAsk: ?optString(dict, "best_ask"),
-        mid: ?mid,
-      })
-    | _ => Spice.error("ticker payload missing orderbook_id", json)
-    }
-  | _ => Spice.error("ticker payload is not an object", json)
+module Ticker = {
+  type t = {
+    orderbookId: Shared.orderBookId,
+    bestBid?: string,
+    bestAsk?: string,
+    mid?: string,
   }
+
+  let decode = (json: JSON.t): result<t, Spice.decodeError> =>
+    switch json {
+    | JSON.Object(dict) =>
+      switch field(dict, "orderbook_id") {
+      | Some(JSON.String(orderbookId)) =>
+        let mid = switch optString(dict, "mid") {
+        | Some(value) => Some(value)
+        | None => optString(dict, "mid_price")
+        }
+        Ok({
+          orderbookId,
+          bestBid: ?optString(dict, "best_bid"),
+          bestAsk: ?optString(dict, "best_ask"),
+          mid: ?mid,
+        })
+      | _ => Spice.error("ticker payload missing orderbook_id", json)
+      }
+    | _ => Spice.error("ticker payload is not an object", json)
+    }
+}
 
 // ── Market lifecycle events (internally tagged on `event_type`) ───────────────
 module MarketEvent = {
@@ -145,13 +152,13 @@ module AuthUpdate = {
 }
 
 // ── Price history (internally tagged on `event_type`) ─────────────────────────
-// Reuses `PriceHistory.orderbookPriceCandle` (t/m/o/h/l/c/v/bb/ba) for both the
+// Reuses `PriceHistory.Raw.OrderbookCandle.t` (t/m/o/h/l/c/v/bb/ba) for both the
 // snapshot candles and the single-candle update (decoded off the same object).
 module WsPriceHistory = {
   type snapshot = {
     orderbookId: Shared.orderBookId,
     resolution: Shared.Resolution.t,
-    prices: array<PriceHistory.orderbookPriceCandle>,
+    prices: array<PriceHistory__Raw.OrderbookCandle.t>,
     lastTimestamp?: float,
     serverTime?: float,
   }
@@ -159,7 +166,7 @@ module WsPriceHistory = {
   type update = {
     orderbookId: Shared.orderBookId,
     resolution: Shared.Resolution.t,
-    candle: PriceHistory.orderbookPriceCandle,
+    candle: PriceHistory__Raw.OrderbookCandle.t,
   }
 
   type heartbeat = {
@@ -179,7 +186,7 @@ module WsPriceHistory = {
       | (Some(JSON.String(orderbookId)), Some(resolutionJson), Some(pricesJson)) =>
         switch (
           Shared.Resolution.t_decode(resolutionJson),
-          Spice.arrayFromJson(PriceHistory.orderbookPriceCandle_decode, pricesJson),
+          Spice.arrayFromJson(PriceHistory.Raw.OrderbookCandle.t_decode, pricesJson),
         ) {
         | (Ok(resolution), Ok(prices)) =>
           Ok({
@@ -201,7 +208,7 @@ module WsPriceHistory = {
     | JSON.Object(dict) =>
       switch (field(dict, "orderbook_id"), field(dict, "resolution")) {
       | (Some(JSON.String(orderbookId)), Some(resolutionJson)) =>
-        switch (Shared.Resolution.t_decode(resolutionJson), PriceHistory.orderbookPriceCandle_decode(json)) {
+        switch (Shared.Resolution.t_decode(resolutionJson), PriceHistory.Raw.OrderbookCandle.t_decode(json)) {
         | (Ok(resolution), Ok(candle)) => Ok({orderbookId, resolution, candle})
         | (Error(error), _) | (_, Error(error)) => Error(error)
         }
@@ -238,7 +245,7 @@ module WsDepositPrice = {
   type snapshot = {
     depositAsset: Shared.pubkeyStr,
     resolution: Shared.Resolution.t,
-    prices: array<PriceHistory.depositPriceCandle>,
+    prices: array<PriceHistory__Raw.DepositCandle.t>,
   }
 
   type candle = {
@@ -271,7 +278,7 @@ module WsDepositPrice = {
         | (Some(JSON.String(depositAsset)), Some(resolutionJson), Some(pricesJson)) =>
           switch (
             Shared.Resolution.t_decode(resolutionJson),
-            Spice.arrayFromJson(PriceHistory.depositPriceCandle_decode, pricesJson),
+            Spice.arrayFromJson(PriceHistory.Raw.DepositCandle.t_decode, pricesJson),
           ) {
           | (Ok(resolution), Ok(prices)) => Ok(Snapshot({depositAsset, resolution, prices}))
           | (Error(error), _) | (_, Error(error)) => Error(error)
@@ -351,93 +358,99 @@ module WsDepositAssetPrice = {
 }
 
 // ── User leaf events (timestamps are ISO-8601 strings) ────────────────────────
-// The balance tree is `Order.userMarketBalance` — the same type the user
-// snapshot carries (and `Position.UserMarketBalanceIndex` consumes), matching
-// the Rust wire layout where both events share `UserMarketBalance`.
-type userBalanceUpdate = {
-  marketPubkey: Shared.pubkeyStr,
-  marketBalance: Order.userMarketBalance,
-  timestamp: string,
-}
+// The balance tree is `Order__Raw.UserMarketBalance.t` — the same type the user
+// snapshot carries (and `Position.State` consumes); both events share the same
+// wire layout.
+module UserBalanceUpdate = {
+  type t = {
+    marketPubkey: Shared.pubkeyStr,
+    marketBalance: Order__Raw.UserMarketBalance.t,
+    timestamp: string,
+  }
 
-type globalDepositUpdate = {
-  mint: Shared.pubkeyStr,
-  balance: string,
-  timestamp: string,
-}
-
-type nonceUpdate = {
-  userPubkey: Shared.pubkeyStr,
-  newNonce: float,
-  timestamp: string,
-}
-
-let userBalanceUpdateDecode = (json: JSON.t): result<userBalanceUpdate, Spice.decodeError> =>
-  switch json {
-  | JSON.Object(dict) =>
-    switch (field(dict, "market_pubkey"), field(dict, "market_balance"), field(dict, "timestamp")) {
-    | (Some(JSON.String(marketPubkey)), Some(balanceJson), Some(JSON.String(timestamp))) =>
-      switch Order.userMarketBalance_decode(balanceJson) {
-      | Ok(marketBalance) => Ok({marketPubkey, marketBalance, timestamp})
-      | Error(error) => Error(error)
+  let decode = (json: JSON.t): result<t, Spice.decodeError> =>
+    switch json {
+    | JSON.Object(dict) =>
+      switch (field(dict, "market_pubkey"), field(dict, "market_balance"), field(dict, "timestamp")) {
+      | (Some(JSON.String(marketPubkey)), Some(balanceJson), Some(JSON.String(timestamp))) =>
+        switch Order.Raw.UserMarketBalance.t_decode(balanceJson) {
+        | Ok(marketBalance) => Ok({marketPubkey, marketBalance, timestamp})
+        | Error(error) => Error(error)
+        }
+      | _ => Spice.error("user balance update missing fields", json)
       }
-    | _ => Spice.error("user balance update missing fields", json)
+    | _ => Spice.error("user balance update is not an object", json)
     }
-  | _ => Spice.error("user balance update is not an object", json)
+}
+
+module GlobalDepositUpdate = {
+  type t = {
+    mint: Shared.pubkeyStr,
+    balance: string,
+    timestamp: string,
   }
 
-let globalDepositUpdateDecode = (json: JSON.t): result<globalDepositUpdate, Spice.decodeError> =>
-  switch json {
-  | JSON.Object(dict) =>
-    switch (field(dict, "mint"), field(dict, "balance"), field(dict, "timestamp")) {
-    | (Some(JSON.String(mint)), Some(JSON.String(balance)), Some(JSON.String(timestamp))) =>
-      Ok({mint, balance, timestamp})
-    | _ => Spice.error("global deposit update missing fields", json)
+  let decode = (json: JSON.t): result<t, Spice.decodeError> =>
+    switch json {
+    | JSON.Object(dict) =>
+      switch (field(dict, "mint"), field(dict, "balance"), field(dict, "timestamp")) {
+      | (Some(JSON.String(mint)), Some(JSON.String(balance)), Some(JSON.String(timestamp))) =>
+        Ok({mint, balance, timestamp})
+      | _ => Spice.error("global deposit update missing fields", json)
+      }
+    | _ => Spice.error("global deposit update is not an object", json)
     }
-  | _ => Spice.error("global deposit update is not an object", json)
+}
+
+module NonceUpdate = {
+  type t = {
+    userPubkey: Shared.pubkeyStr,
+    newNonce: float,
+    timestamp: string,
   }
 
-let nonceUpdateDecode = (json: JSON.t): result<nonceUpdate, Spice.decodeError> =>
-  switch json {
-  | JSON.Object(dict) =>
-    switch (field(dict, "user_pubkey"), field(dict, "new_nonce"), field(dict, "timestamp")) {
-    | (Some(JSON.String(userPubkey)), Some(JSON.Number(newNonce)), Some(JSON.String(timestamp))) =>
-      Ok({userPubkey, newNonce, timestamp})
-    | _ => Spice.error("nonce update missing fields", json)
+  let decode = (json: JSON.t): result<t, Spice.decodeError> =>
+    switch json {
+    | JSON.Object(dict) =>
+      switch (field(dict, "user_pubkey"), field(dict, "new_nonce"), field(dict, "timestamp")) {
+      | (Some(JSON.String(userPubkey)), Some(JSON.Number(newNonce)), Some(JSON.String(timestamp))) =>
+        Ok({userPubkey, newNonce, timestamp})
+      | _ => Spice.error("nonce update missing fields", json)
+      }
+    | _ => Spice.error("nonce update is not an object", json)
     }
-  | _ => Spice.error("nonce update is not an object", json)
-  }
+}
 
 // ── User update (internally tagged on `event_type`) ───────────────────────────
 // The `snapshot` and `order` events carry the largest nested wire trees (orders,
-// trigger orders, balances); their payload types + decoders live in `Order.res`
-// and feed the stateful `OrderState` containers.
+// trigger orders, balances); their payload types + decoders live in `Order__Raw`
+// and feed the stateful `Order.State` containers.
 module UserUpdate = {
   type t =
-    | Snapshot(Order.userSnapshot)
-    | Order(Order.OrderEvent.t)
-    | BalanceUpdate(userBalanceUpdate)
-    | GlobalDepositUpdate(globalDepositUpdate)
-    | NonceUpdate(nonceUpdate)
-    | NotificationPush(Notification.notification)
+    | Snapshot(Order__Raw.UserSnapshot.t)
+    | Order(Order__Raw.Event.t)
+    | BalanceUpdate(UserBalanceUpdate.t)
+    | GlobalDepositUpdate(GlobalDepositUpdate.t)
+    | NonceUpdate(NonceUpdate.t)
+    | NotificationPush(Notification__Model.t)
 
   let decode = (json: JSON.t): result<t, Spice.decodeError> =>
     switch json {
     | JSON.Object(dict) =>
       switch field(dict, "event_type") {
       | Some(JSON.String("snapshot")) =>
-        Order.userSnapshotDecode(json)->Result.map(value => Snapshot(value))
+        Order.Raw.UserSnapshot.t_decode(json)->Result.map(value => Snapshot(value))
       | Some(JSON.String("order")) =>
-        Order.OrderEvent.decode(json)->Result.map(value => Order(value))
+        Order.Raw.Event.t_decode(json)->Result.map(value => Order(value))
       | Some(JSON.String("market_balance_update")) =>
-        userBalanceUpdateDecode(json)->Result.map(value => BalanceUpdate(value))
+        UserBalanceUpdate.decode(json)->Result.map(value => BalanceUpdate(value))
       | Some(JSON.String("global_deposit_update")) =>
-        globalDepositUpdateDecode(json)->Result.map(value => GlobalDepositUpdate(value))
-      | Some(JSON.String("nonce")) => nonceUpdateDecode(json)->Result.map(value => NonceUpdate(value))
+        GlobalDepositUpdate.decode(json)->Result.map(value => GlobalDepositUpdate(value))
+      | Some(JSON.String("nonce")) => NonceUpdate.decode(json)->Result.map(value => NonceUpdate(value))
       | Some(JSON.String("notification")) =>
         switch field(dict, "notification") {
         | Some(notificationJson) =>
-          Notification.notificationDecode(notificationJson)->Result.map(value => NotificationPush(value))
+          Notification.Raw.decode(notificationJson)->Result.map(value => NotificationPush(value))
         | None => Spice.error("user notification event missing 'notification'", json)
         }
       | _ => Spice.error("unknown user event_type", json)
@@ -446,63 +459,66 @@ module UserUpdate = {
     }
 }
 
-// ── Kind + MessageIn ──────────────────────────────────────────────────────────
-// `ErrorFrame` mirrors the Rust `Kind::Error` (renamed so it doesn't shadow the
+// ── Kind + the message envelope ───────────────────────────────────────────────
+// `ErrorFrame` is the wire's error frame (named so it doesn't shadow the
 // `result` `Error` constructor used throughout the decoders).
-type kind =
-  | BookUpdate(Orderbook.orderBook)
-  | Trades(wsTrade)
-  | User(UserUpdate.t)
-  | Ticker(wsTicker)
-  | PriceHistory(WsPriceHistory.t)
-  | Market(MarketEvent.t)
-  | DepositPrice(WsDepositPrice.t)
-  | DepositAssetPrice(WsDepositAssetPrice.t)
-  | Auth(AuthUpdate.t)
-  | Pong
-  | ErrorFrame(wsErrorFrame)
+module Kind = {
+  type t =
+    | BookUpdate(Orderbook__Raw.Book.t)
+    | Trades(Trade.t)
+    | User(UserUpdate.t)
+    | Ticker(Ticker.t)
+    | PriceHistory(WsPriceHistory.t)
+    | Market(MarketEvent.t)
+    | DepositPrice(WsDepositPrice.t)
+    | DepositAssetPrice(WsDepositAssetPrice.t)
+    | Auth(AuthUpdate.t)
+    | Pong
+    | ErrorFrame(ErrorFrame.t)
 
-type messageIn = {
-  kind: kind,
+  let decode = (json: JSON.t): result<t, Spice.decodeError> =>
+    switch json {
+    | JSON.Object(dict) =>
+      let data = field(dict, "data")->Option.getOr(JSON.Null)
+      switch field(dict, "type") {
+      | Some(JSON.String("book_update")) => Orderbook.Raw.Book.t_decode(data)->Result.map(value => BookUpdate(value))
+      | Some(JSON.String("trades")) => Trade.t_decode(data)->Result.map(value => Trades(value))
+      | Some(JSON.String("ticker")) => Ticker.decode(data)->Result.map(value => Ticker(value))
+      | Some(JSON.String("pong")) => Ok(Pong)
+      | Some(JSON.String("error")) => ErrorFrame.t_decode(data)->Result.map(value => ErrorFrame(value))
+      | Some(JSON.String("user")) => UserUpdate.decode(data)->Result.map(value => User(value))
+      | Some(JSON.String("price_history")) => WsPriceHistory.decode(data)->Result.map(value => PriceHistory(value))
+      | Some(JSON.String("auth")) => AuthUpdate.decode(data)->Result.map(value => Auth(value))
+      | Some(JSON.String("market")) => MarketEvent.decode(data)->Result.map(value => Market(value))
+      | Some(JSON.String("deposit_price")) => WsDepositPrice.decode(data)->Result.map(value => DepositPrice(value))
+      | Some(JSON.String("deposit_asset_price")) =>
+        WsDepositAssetPrice.decode(data)->Result.map(value => DepositAssetPrice(value))
+      | Some(JSON.String(other)) => Spice.error(`unknown ws message type: ${other}`, json)
+      | _ => Spice.error("ws message missing 'type'", json)
+      }
+    | _ => Spice.error("ws message is not an object", json)
+    }
+}
+
+// The file's primary type: one decoded inbound message.
+type t = {
+  kind: Kind.t,
   // Protocol version echoed by the backend (e.g. 0.1); informational.
   version: float,
 }
 
-let kindDecode = (json: JSON.t): result<kind, Spice.decodeError> =>
-  switch json {
-  | JSON.Object(dict) =>
-    let data = field(dict, "data")->Option.getOr(JSON.Null)
-    switch field(dict, "type") {
-    | Some(JSON.String("book_update")) => Orderbook.orderBook_decode(data)->Result.map(value => BookUpdate(value))
-    | Some(JSON.String("trades")) => wsTrade_decode(data)->Result.map(value => Trades(value))
-    | Some(JSON.String("ticker")) => wsTickerDecode(data)->Result.map(value => Ticker(value))
-    | Some(JSON.String("pong")) => Ok(Pong)
-    | Some(JSON.String("error")) => wsErrorFrame_decode(data)->Result.map(value => ErrorFrame(value))
-    | Some(JSON.String("user")) => UserUpdate.decode(data)->Result.map(value => User(value))
-    | Some(JSON.String("price_history")) => WsPriceHistory.decode(data)->Result.map(value => PriceHistory(value))
-    | Some(JSON.String("auth")) => AuthUpdate.decode(data)->Result.map(value => Auth(value))
-    | Some(JSON.String("market")) => MarketEvent.decode(data)->Result.map(value => Market(value))
-    | Some(JSON.String("deposit_price")) => WsDepositPrice.decode(data)->Result.map(value => DepositPrice(value))
-    | Some(JSON.String("deposit_asset_price")) =>
-      WsDepositAssetPrice.decode(data)->Result.map(value => DepositAssetPrice(value))
-    | Some(JSON.String(other)) => Spice.error(`unknown ws message type: ${other}`, json)
-    | _ => Spice.error("ws message missing 'type'", json)
-    }
-  | _ => Spice.error("ws message is not an object", json)
-  }
-
 // Decode a parsed inbound frame. Strips `null`s first (so optional fields tolerate
 // both absent and null), then dispatches on the `type` discriminator. Decode
 // failures surface as `SdkError.Ws(DeserializationError(_))`.
-let decodeMessage = (json: JSON.t): result<messageIn, SdkError.t> => {
+let decodeMessage = (json: JSON.t): result<t, SdkError.t> => {
   let stripped = SdkError.stripNulls(json)
-  switch kindDecode(stripped) {
+  switch Kind.decode(stripped) {
   | Ok(kind) =>
     let version = switch stripped {
     | JSON.Object(dict) => optFloat(dict, "version")->Option.getOr(0.0)
     | _ => 0.0
     }
     Ok({kind, version})
-  | Error(error) => Error(SdkError.Ws(SdkError.DeserializationError(error.message)))
+  | Error(error) => Error(SdkError.Ws(SdkError.WsError.DeserializationError(error.message)))
   }
 }

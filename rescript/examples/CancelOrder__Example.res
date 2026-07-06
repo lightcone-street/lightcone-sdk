@@ -18,28 +18,29 @@ let main = async () => {
   let keypair = await SolanaKitKeys.createKeyPairFromBytes(secretKey)
   let maker = await SolanaKitKeys.getAddressFromPublicKey(keypair.publicKey)
 
-  switch await Auth.login(client) {
+  switch await Auth.Client.login(client) {
   | Error(error) => Console.error(SdkError.toMessage(error))
   | Ok(_) =>
-    switch await Order.getUserOrders(client, ~limit=50) {
+    switch await Order.Client.getUserOrders(client, ~limit=50) {
     | Error(error) => Console.error(SdkError.toMessage(error))
     | Ok(snapshot) =>
       let firstLimit = snapshot.orders->Array.findMap(order =>
         switch order {
-        | Order.UserSnapshotOrder.Limit(limit) => Some(limit)
+        | Order.Raw.SnapshotOrder.Limit(limit) => Some(limit)
         | Trigger(_) => None
         }
       )
       switch firstLimit {
       | None => Console.log("No open limit orders to cancel.")
       | Some(order) => {
-          let body = await Order.cancelBodySigned(
+          let body = await Order.Client.cancelBodySigned(
             ~orderHash=order.common.orderHash,
             ~maker=SolanaKit.addressToString(maker),
             ~keypair,
           )
-          switch await Order.cancel(client, body) {
-          | Ok(cancelled) => Console.log(`cancelled: ${cancelled.orderHash} remaining=${cancelled.remaining}`)
+          switch await Order.Client.cancel(client, body) {
+          | Ok(cancelled) =>
+            Console.log(`cancelled: ${cancelled.orderHash} remaining=${cancelled.remaining}`)
           | Error(error) => Console.error(SdkError.toMessage(error))
           }
         }

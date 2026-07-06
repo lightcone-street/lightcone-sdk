@@ -1,6 +1,5 @@
 // Transactions — sign + broadcast v0 transactions with the client's signing
-// strategy (the Rust `LightconeClient::sign_and_submit_tx`). The blockhash
-// lifetime is fetched automatically; callers never set it.
+// strategy. The blockhash lifetime is fetched automatically; callers never set it.
 //
 // - **NativeSigner**: kit signer flow (fee-payer signer embedded in the message,
 //   `signTransactionMessageWithSigners`), or raw-keypair signing for a
@@ -13,13 +12,13 @@
 // lastValidBlockHeight}}. `setTransactionMessageLifetimeUsingBlockhash` wants the
 // inner `value` object verbatim, so we project it out. (The RPC layer types the
 // response loosely as JSON.t; the runtime shape is exactly the lifetime object.)
-let blockhashLifetimeOfResponse: JSON.t => SolanaKitTx.blockhashLifetime = %raw(`function (response) {
+let blockhashLifetime: JSON.t => SolanaKitTx.blockhashLifetime = %raw(`function (response) {
   return response.value;
 }`)
 
 let fetchLifetime = async (client: Client.t): SolanaKitTx.blockhashLifetime => {
   let response = await SolanaKitRpc.getLatestBlockhash(client.rpc)->SolanaKitRpc.send
-  blockhashLifetimeOfResponse(response)
+  blockhashLifetime(response)
 }
 
 let broadcastBase64 = (client: Client.t, wire: string): promise<string> =>
@@ -29,7 +28,7 @@ let broadcastBase64 = (client: Client.t, wire: string): promise<string> =>
 // and broadcast the returned wire bytes.
 let externalSignAndBroadcast = async (
   client: Client.t,
-  external_: Client.externalSigner,
+  external_: Client.ExternalSigner.t,
   unsigned: SolanaKitTx.signedTransaction,
 ): string => {
   let unsignedWire = SolanaKitTx.base64Wire(unsigned)
@@ -53,7 +52,7 @@ let signAndSubmit = async (
         "no signing strategy configured on the client; call Client.useNativeSigner or Client.useExternalSigner first",
       ),
     )
-  | Some(Client.NativeSigner({signer})) =>
+  | Some(Client.SigningStrategy.NativeSigner({signer})) =>
     let run = async () => {
       let instruction = await makeInstruction()
       let lifetime = await fetchLifetime(client)
@@ -70,7 +69,7 @@ let signAndSubmit = async (
     | exception JsExn(error) =>
       Error(SdkError.Other(error->JsExn.message->Option.getOr("failed to sign and send transaction")))
     }
-  | Some(Client.ExternalSigner(external_)) =>
+  | Some(Client.SigningStrategy.ExternalSigner(external_)) =>
     let run = async () => {
       let instruction = await makeInstruction()
       let lifetime = await fetchLifetime(client)
@@ -89,7 +88,7 @@ let signAndSubmit = async (
     }
   }
 
-// Sign + broadcast a caller-assembled message (e.g. `PositionBuilders.unsignedTx`
+// Sign + broadcast a caller-assembled message (e.g. `Position.Builders.unsignedTx`
 // with further instructions appended). The fee payer must already be set and
 // match the configured strategy's address; the blockhash lifetime is added here.
 let signAndSubmitMessage = async (
@@ -103,7 +102,7 @@ let signAndSubmitMessage = async (
         "no signing strategy configured on the client; call Client.useNativeSigner or Client.useExternalSigner first",
       ),
     )
-  | Some(Client.NativeSigner({keypair})) =>
+  | Some(Client.SigningStrategy.NativeSigner({keypair})) =>
     let run = async () => {
       let lifetime = await fetchLifetime(client)
       let unsigned = message->SolanaKitTx.setLifetimeUsingBlockhash(lifetime, _)->SolanaKitTx.compile
@@ -115,7 +114,7 @@ let signAndSubmitMessage = async (
     | exception JsExn(error) =>
       Error(SdkError.Other(error->JsExn.message->Option.getOr("failed to sign and send transaction")))
     }
-  | Some(Client.ExternalSigner(external_)) =>
+  | Some(Client.SigningStrategy.ExternalSigner(external_)) =>
     let run = async () => {
       let lifetime = await fetchLifetime(client)
       let unsigned = message->SolanaKitTx.setLifetimeUsingBlockhash(lifetime, _)->SolanaKitTx.compile

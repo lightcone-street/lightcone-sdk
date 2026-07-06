@@ -36,57 +36,67 @@ module RejectionCode: {
   let label: t => string
 }
 
-@genType
-type apiRejectedDetails = {
-  reason: string,
-  rejectionCode?: RejectionCode.t,
-  errorCode?: string,
-  errorLogId?: string,
-  requestId?: string,
+// Structured rejection details — the payload of the `ApiRejected(…)` variant of `t`
+// below (module and constructor deliberately share the name).
+module ApiRejected: {
+  @genType
+  type t = {
+    reason: string,
+    rejectionCode?: RejectionCode.t,
+    errorCode?: string,
+    errorLogId?: string,
+    requestId?: string,
+  }
+}
+
+module HttpError: {
+  @genType
+  type t =
+    | ServerError({status: int, body: string})
+    | RateLimited({retryAfterMs: option<int>})
+    | Unauthorized
+    | NotFound(string)
+    | BadRequest(string)
+    | Timeout
+    | Network(string)
+    | MaxRetriesExceeded({attempts: int, lastError: option<string>})
+}
+
+module WsError: {
+  @genType
+  type t =
+    | NotConnected
+    | ConnectionFailed(string)
+    | SendFailed(string)
+    | DeserializationError(string)
+    | ProtocolError(string)
+    | Closed({code: option<int>, reason: string})
+}
+
+module AuthError: {
+  @genType
+  type t =
+    | NotAuthenticated
+    | LoginFailed(string)
+    | SignatureVerificationFailed
+    | TokenExpired
 }
 
 @genType
-type httpError =
-  | ServerError({status: int, body: string})
-  | RateLimited({retryAfterMs: option<int>})
-  | Unauthorized
-  | NotFound(string)
-  | BadRequest(string)
-  | Timeout
-  | Network(string)
-  | MaxRetriesExceeded({attempts: int, lastError: option<string>})
-
-@genType
-type wsError =
-  | NotConnected
-  | ConnectionFailed(string)
-  | SendFailed(string)
-  | DeserializationError(string)
-  | ProtocolError(string)
-  | Closed({code: option<int>, reason: string})
-
-@genType
-type authError =
-  | NotAuthenticated
-  | LoginFailed(string)
-  | SignatureVerificationFailed
-  | TokenExpired
-
-@genType
 type t =
-  | Http(httpError)
-  | Ws(wsError)
-  | Auth(authError)
+  | Http(HttpError.t)
+  | Ws(WsError.t)
+  | Auth(AuthError.t)
   | Validation(string)
   | Decode(string)
   | Program(string)
   | MissingMarketContext(string)
   | Signing(string)
   | UserCancelled
-  | ApiRejected(apiRejectedDetails)
+  | ApiRejected(ApiRejected.t)
   | Other(string)
 
-// Human-readable message (mirrors the Rust `Display` impls).
+// Human-readable message per error case.
 let toMessage: t => string
 
 // Deep-strip JSON `null` values so spice's `field?: T` decoder treats null like an
