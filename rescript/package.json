@@ -26,7 +26,8 @@
     "@mununki/ppx-spice": "^0.4.1",
     "rescript-bun": "^2.1.0",
     "tsx": "^4.0.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/node": "^22"
   },
   "scripts": {
     "build": "rescript",
