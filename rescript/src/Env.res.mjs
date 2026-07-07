@@ -58,7 +58,7 @@ function programId(env) {
     case "local" :
       return "HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago";
     case "staging" :
-      return "FAq4NbwPVWNzoaNjcJGhWz4VFT5CbdysLPo7ZWWiWuuE";
+      return "5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk";
     case "prod" :
       return "B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK";
   }
