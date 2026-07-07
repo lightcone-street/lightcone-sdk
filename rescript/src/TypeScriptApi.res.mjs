@@ -53,6 +53,8 @@ function signerAddress(client) {
   return Stdlib_Option.map(Client.signerAddress(client), prim => prim);
 }
 
+let setOrderNonce = Client.setOrderNonce;
+
 function signerAddressOrThrow(client) {
   let address = Client.signerAddress(client);
   if (address !== undefined) {
@@ -614,6 +616,7 @@ export {
   clearSigningStrategy,
   clearOrderNonce,
   signerAddress,
+  setOrderNonce,
   unwrap,
   signerAddressOrThrow,
   AuthClient,

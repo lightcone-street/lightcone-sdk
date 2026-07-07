@@ -6,7 +6,29 @@ import * as Kit from "@solana/kit";
 import * as Auth__Client from "../src/auth/Auth__Client.res.mjs";
 import * as Stdlib_Array from "@rescript/runtime/lib/es6/Stdlib_Array.js";
 import * as Order__Client from "../src/domain/order/Order__Client.res.mjs";
+import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
+import * as Market__Client from "../src/domain/market/Market__Client.res.mjs";
 import * as Common__Example from "./Common__Example.res.mjs";
+import * as Position__Builders from "../src/domain/position/Position__Builders.res.mjs";
+
+async function withdrawCollateral(client, user) {
+  let error = await Market__Client.get(client, undefined, 1);
+  if (error.TAG === "Ok") {
+    let pair = Stdlib_Option.flatMap(error._0.markets[0], market => Stdlib_Option.orElse(market.orderbookPairs.find(pair => pair.active), market.orderbookPairs[0]));
+    if (pair !== undefined) {
+      let signature = await Position__Builders.withdrawFromGlobal(client, user, Kit.address(pair.quote.depositAsset), 1100000n);
+      if (signature.TAG === "Ok") {
+        console.log(`withdraw_from_global: confirmed ` + signature._0);
+        return;
+      }
+      console.error(`withdraw_from_global: ` + SdkError.toMessage(signature._0));
+      return;
+    }
+    console.log("withdraw_from_global: no orderbook pair found");
+    return;
+  }
+  console.error(`withdraw_from_global: ` + SdkError.toMessage(error._0));
+}
 
 async function main() {
   let client = Common__Example.client();
@@ -29,7 +51,7 @@ async function main() {
         if (cancelled.TAG === "Ok") {
           let cancelled$1 = cancelled._0;
           console.log(`cancelled: ` + cancelled$1.orderHash + ` remaining=` + cancelled$1.remaining);
-          return;
+          return await withdrawCollateral(client, maker);
         }
         console.error(SdkError.toMessage(cancelled._0));
         return;
@@ -45,7 +67,11 @@ async function main() {
 
 main();
 
+let orderQuoteAmount = 1100000n;
+
 export {
+  orderQuoteAmount,
+  withdrawCollateral,
   main,
 }
 /*  Not a pure module */

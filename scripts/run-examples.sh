@@ -18,7 +18,7 @@ fi
 usage() {
     echo "Usage: $0 [--sdk rs|ts|py|res] [--help]"
     echo ""
-    echo "Run SDK examples for Rust, TypeScript, Python, and/or ReScript."
+    echo "Run the SDK examples for all four SDKs — Rust, TypeScript, Python, and ReScript (--sdk filters to one)."
     echo ""
     echo "Options:"
     echo "  --sdk rs|ts|py|res   Run examples for a single SDK only"

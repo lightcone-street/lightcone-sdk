@@ -181,6 +181,8 @@ export const clearOrderNonce: (client:Client_t) => void = TypeScriptApiJS.clearO
 
 export const signerAddress: (client:Client_t) => (undefined | string) = TypeScriptApiJS.signerAddress as any;
 
+export const setOrderNonce: (client:Client_t, nonce:bigint) => void = TypeScriptApiJS.setOrderNonce as any;
+
 export const unwrap: <T1>(_1:Promise<
     { TAG: "Ok"; _0: T1 }
   | { TAG: "Error"; _0: SdkError_t }>) => Promise<T1> = TypeScriptApiJS.unwrap as any;

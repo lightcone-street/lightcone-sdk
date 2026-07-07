@@ -62,6 +62,11 @@ let clearOrderNonce = (client: Client.t): unit => Client.clearOrderNonce(client)
 let signerAddress = (client: Client.t): option<string> =>
   Client.signerAddress(client)->Option.map(SolanaKit.addressToString)
 
+// Cache the maker's order nonce (fetch it with `RpcClient.nonce`); submits that
+// don't carry an explicit nonce reuse the cached value.
+@genType
+let setOrderNonce = (client: Client.t, nonce: bigint): unit => Client.setOrderNonce(client, nonce)
+
 // Generic boundary helper — unwrap any result-promise into a throwing value-promise.
 @genType
 let unwrap = SdkError.unwrap
