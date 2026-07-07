@@ -48,7 +48,12 @@ jobs:
       - name: Check dependency cooldown
         run: cargo cooldown check
 
+      # Temporarily disabled: the strict dev==staging-HEAD equality blocks all SDK
+      # merges whenever the backend's dev deploy lags staging (tracked in Linear,
+      # DevOps project — re-enable once the gate is redesigned). Examples run
+      # against the staging tier (the SDKs' LIGHTCONE_ENV=staging defaults).
       - name: Point at dev + wait for backend version match
+        if: ${{ false }}
         uses: ./.github/actions/wait-for-dev
         with:
           lightcone-env: ${{ inputs.lightcone-env }}
@@ -84,7 +89,12 @@ jobs:
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
+      # Temporarily disabled: the strict dev==staging-HEAD equality blocks all SDK
+      # merges whenever the backend's dev deploy lags staging (tracked in Linear,
+      # DevOps project — re-enable once the gate is redesigned). Examples run
+      # against the staging tier (the SDKs' LIGHTCONE_ENV=staging defaults).
       - name: Point at dev + wait for backend version match
+        if: ${{ false }}
         uses: ./.github/actions/wait-for-dev
         with:
           lightcone-env: ${{ inputs.lightcone-env }}
@@ -119,7 +129,12 @@ jobs:
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
+      # Temporarily disabled: the strict dev==staging-HEAD equality blocks all SDK
+      # merges whenever the backend's dev deploy lags staging (tracked in Linear,
+      # DevOps project — re-enable once the gate is redesigned). Examples run
+      # against the staging tier (the SDKs' LIGHTCONE_ENV=staging defaults).
       - name: Point at dev + wait for backend version match
+        if: ${{ false }}
         uses: ./.github/actions/wait-for-dev
         with:
           lightcone-env: ${{ inputs.lightcone-env }}
@@ -165,7 +180,12 @@ jobs:
       - name: Set wallet path
         run: echo "LIGHTCONE_WALLET_PATH_RESCRIPT=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
 
+      # Temporarily disabled: the strict dev==staging-HEAD equality blocks all SDK
+      # merges whenever the backend's dev deploy lags staging (tracked in Linear,
+      # DevOps project — re-enable once the gate is redesigned). Examples run
+      # against the staging tier (the SDKs' LIGHTCONE_ENV=staging defaults).
       - name: Point at dev + wait for backend version match
+        if: ${{ false }}
         uses: ./.github/actions/wait-for-dev
         with:
           lightcone-env: ${{ inputs.lightcone-env }}
