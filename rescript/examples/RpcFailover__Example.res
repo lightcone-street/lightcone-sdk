@@ -3,7 +3,7 @@
 // primary, then serving the next call straight from the backup with no retry delay.
 // Ported from rust/examples/rpc_failover.rs. ReScript surface (result core).
 let deadPrimary = "https://dead-primary.invalid"
-let backupRpc = "https://api.devnet.solana.com"
+let backupRpc = "https://devnet.helius-rpc.com/?api-key=55558885-9601-4d35-a25a-55af783fce2b"
 
 let main = async () => {
   let client = Client.make(~rpcUrl=deadPrimary, ~backupRpcUrl=backupRpc, ())

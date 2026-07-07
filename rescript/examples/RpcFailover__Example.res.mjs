@@ -8,7 +8,7 @@ import * as Stdlib_Option from "@rescript/runtime/lib/es6/Stdlib_Option.js";
 
 let deadPrimary = "https://dead-primary.invalid";
 
-let backupRpc = "https://api.devnet.solana.com";
+let backupRpc = "https://devnet.helius-rpc.com/?api-key=55558885-9601-4d35-a25a-55af783fce2b";
 
 async function main() {
   let client = Client.make(undefined, undefined, undefined, deadPrimary, backupRpc, undefined, undefined, undefined);
