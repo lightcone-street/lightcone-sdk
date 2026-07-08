@@ -47,7 +47,7 @@ pub enum OrderType {
     Limit,
     #[default]
     Market,
-    Deposit,
+    Split,
     Merge,
     Withdraw,
     #[cfg(feature = "trigger_orders")]
@@ -61,7 +61,7 @@ impl OrderType {
         match self {
             OrderType::Limit => "Limit",
             OrderType::Market => "Market",
-            OrderType::Deposit => "Deposit",
+            OrderType::Split => "Split",
             OrderType::Merge => "Merge",
             OrderType::Withdraw => "Withdraw",
             #[cfg(feature = "trigger_orders")]
@@ -77,7 +77,7 @@ impl std::fmt::Display for OrderType {
         match self {
             OrderType::Limit => write!(f, "limit"),
             OrderType::Market => write!(f, "market"),
-            OrderType::Deposit => write!(f, "deposit"),
+            OrderType::Split => write!(f, "split"),
             OrderType::Merge => write!(f, "merge"),
             OrderType::Withdraw => write!(f, "withdraw"),
             #[cfg(feature = "trigger_orders")]
@@ -95,7 +95,7 @@ impl std::str::FromStr for OrderType {
         match s.to_lowercase().as_str() {
             "limit" => Ok(OrderType::Limit),
             "market" => Ok(OrderType::Market),
-            "deposit" => Ok(OrderType::Deposit),
+            "split" => Ok(OrderType::Split),
             "merge" => Ok(OrderType::Merge),
             "withdraw" => Ok(OrderType::Withdraw),
             #[cfg(feature = "trigger_orders")]
