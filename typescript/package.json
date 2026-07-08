@@ -34,7 +34,7 @@
     "lint:fix": "eslint src --fix",
     "typecheck": "tsc --noEmit",
     "typecheck:examples": "tsc --noEmit -p tsconfig.examples.json",
-    "test": "npx tsx --test tests/**/*.test.ts",
+    "test": "tsx --test tests/**/*.test.ts",
     "prepublishOnly": "npm run clean && npm run lint && npm run typecheck && npm run typecheck:examples && npm run build"
   },
   "dependencies": {
@@ -54,6 +54,7 @@
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^7.0.0",
     "eslint": "^8.57.0",
+    "tsx": "^4.22.4",
     "typescript": "^5.9.3"
   },
   "peerDependencies": {

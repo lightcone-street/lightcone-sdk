@@ -60,6 +60,7 @@ from lightcone_sdk.program import (
     build_set_oracle_instruction,
     build_settle_market_instruction,
     build_update_conditional_metadata_instruction,
+    build_withdraw_conditional_from_position_instruction,
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
     derive_condition_id,
@@ -676,25 +677,65 @@ def test_global_to_market_deposit_matches_canonical_account_layout():
     assert ix.data[0] == 18
 
 
-def test_withdraw_from_position_includes_exchange():
+def test_withdraw_conditional_from_position_matches_canonical_account_layout():
     user = Pubkey.new_unique()
     market = Pubkey.new_unique()
-    mint = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+    outcome_index = 1
     exchange, _ = get_exchange_pda()
+    position, _ = get_position_pda(user, market)
+    conditional_mint, _ = get_conditional_mint_pda(
+        market, deposit_mint, outcome_index
+    )
+    position_conditional_ata = get_conditional_token_ata(position, conditional_mint)
+    user_conditional_ata = get_conditional_token_ata(user, conditional_mint)
+
+    ix = build_withdraw_conditional_from_position_instruction(
+        user=user,
+        market=market,
+        deposit_mint=deposit_mint,
+        amount=1_000,
+        outcome_index=outcome_index,
+    )
+
+    assert len(ix.accounts) == 9
+    assert [meta.pubkey for meta in ix.accounts] == [
+        user,
+        exchange,
+        market,
+        position,
+        deposit_mint,
+        conditional_mint,
+        position_conditional_ata,
+        user_conditional_ata,
+        TOKEN_PROGRAM_ID,
+    ]
+    assert ix.accounts[0].is_signer is True
+    assert ix.accounts[0].is_writable is True
+    assert ix.accounts[3].is_writable is False
+    assert ix.accounts[5].is_writable is False
+    assert ix.accounts[6].is_writable is True
+    assert ix.accounts[7].is_writable is True
+    assert len(ix.data) == 10
+    assert ix.data[0] == 11
+    assert int.from_bytes(ix.data[1:9], "little") == 1_000
+    assert ix.data[9] == outcome_index
+
+
+def test_withdraw_from_position_wrapper_uses_conditional_contract():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
 
     ix = build_withdraw_from_position_instruction(
         user=user,
         market=market,
-        mint=mint,
+        deposit_mint=deposit_mint,
         amount=1_000,
         outcome_index=1,
     )
 
-    assert len(ix.accounts) == 8
-    assert ix.accounts[7].pubkey == exchange
-    assert ix.accounts[7].is_writable is False
-    assert len(ix.data) == 10
-    assert ix.data[0] == 11
+    assert len(ix.accounts) == 9
 
 
 def test_redeem_winnings_uses_outcome_index_and_exchange():

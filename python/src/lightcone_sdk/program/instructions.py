@@ -47,8 +47,8 @@ from .constants import (
     INSTRUCTION_SETTLE_MARKET,
     INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
     INSTRUCTION_WHITELIST_DEPOSIT_TOKEN,
+    INSTRUCTION_WITHDRAW_CONDITIONAL_FROM_POSITION,
     INSTRUCTION_WITHDRAW_FROM_GLOBAL,
-    INSTRUCTION_WITHDRAW_FROM_POSITION,
     MAX_MAKERS,
     MAX_OUTCOMES,
     MIN_OUTCOMES,
@@ -611,48 +611,76 @@ def build_set_operator_instruction(
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
 
 
-def build_withdraw_from_position_instruction(
+def build_withdraw_conditional_from_position_instruction(
     user: Pubkey,
     market: Pubkey,
-    mint: Pubkey,
+    deposit_mint: Pubkey,
     amount: int,
     outcome_index: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the withdraw_from_position instruction.
+    """Build the withdraw_conditional_from_position instruction.
+
+    The conditional mint is derived from ``(market, deposit_mint, outcome_index)``.
 
     Accounts:
     0. user (signer, writable)
-    1. market (readonly)
-    2. position (writable)
-    3. mint (readonly)
-    4. position_ata (writable)
-    5. user_ata (writable)
-    6. token_program
-    7. exchange (readonly)
+    1. exchange (readonly)
+    2. market (readonly)
+    3. position (readonly)
+    4. deposit_mint (readonly)
+    5. conditional_mint (readonly)
+    6. position_conditional_ata (writable)
+    7. user_conditional_ata (writable)
+    8. token_program
     """
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
-    position_ata = get_conditional_token_ata(position, mint)
-    user_ata = get_conditional_token_ata(user, mint)
+    conditional_mint, _ = get_conditional_mint_pda(
+        market, deposit_mint, outcome_index, program_id
+    )
+    position_conditional_ata = get_conditional_token_ata(position, conditional_mint)
+    user_conditional_ata = get_conditional_token_ata(user, conditional_mint)
 
     accounts = [
         AccountMeta(pubkey=user, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=position_ata, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=user_ata, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=position, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=conditional_mint, is_signer=False, is_writable=False),
+        AccountMeta(
+            pubkey=position_conditional_ata, is_signer=False, is_writable=True
+        ),
+        AccountMeta(pubkey=user_conditional_ata, is_signer=False, is_writable=True),
+        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
     data = bytearray()
-    data.append(INSTRUCTION_WITHDRAW_FROM_POSITION)
+    data.append(INSTRUCTION_WITHDRAW_CONDITIONAL_FROM_POSITION)
     data.extend(encode_u64(amount))
     data.extend(encode_u8(outcome_index))
 
     return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+
+
+def build_withdraw_from_position_instruction(
+    user: Pubkey,
+    market: Pubkey,
+    deposit_mint: Pubkey,
+    amount: int,
+    outcome_index: int,
+    program_id: Pubkey = PROGRAM_ID,
+) -> Instruction:
+    """Compatibility wrapper for conditional-token position withdrawal."""
+    return build_withdraw_conditional_from_position_instruction(
+        user=user,
+        market=market,
+        deposit_mint=deposit_mint,
+        amount=amount,
+        outcome_index=outcome_index,
+        program_id=program_id,
+    )
 
 
 def build_activate_market_instruction(

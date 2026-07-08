@@ -277,14 +277,17 @@ def _validate_num_outcomes(num_outcomes: int) -> None:
 
 
 @dataclass
-class WithdrawFromPositionParams:
-    """Parameters for withdrawing tokens from a position."""
+class WithdrawConditionalFromPositionParams:
+    """Parameters for withdrawing conditional tokens from a position."""
 
     user: Pubkey
     market: Pubkey
-    mint: Pubkey
+    deposit_mint: Pubkey
     amount: int
     outcome_index: int
+
+
+WithdrawFromPositionParams = WithdrawConditionalFromPositionParams
 
 
 @dataclass
@@ -655,6 +658,8 @@ class WithdrawParams:
     """
 
     user: Pubkey
+    # For market withdrawals this is the registered deposit mint; the conditional
+    # mint is derived from ``market_context``.
     mint: Pubkey
     amount: int
     market_context: Optional[MarketWithdrawContext] = None

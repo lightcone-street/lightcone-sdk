@@ -32,8 +32,8 @@ use crate::program::types::{
     InitPositionTokensParams, MatchOrdersMultiParams, RedeemWinningsParams,
     RefreshOrderbookAltParams, SetAuthorityParams, SetDepositTokenStatusParams,
     SetFeeReceiverParams, SetFeeReceiverWithAtasParams, SetManagerParams, SetMarketFeesParams,
-    SetOracleParams, SettleMarketParams, WhitelistDepositTokenParams, WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
+    SetOracleParams, SettleMarketParams, WhitelistDepositTokenParams,
+    WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
@@ -572,42 +572,51 @@ pub fn build_set_operator_ix(
     }
 }
 
-/// Build WithdrawFromPosition instruction.
+/// Build WithdrawConditionalFromPosition instruction.
 ///
-/// Withdraw tokens from Position ATA to user's ATA.
+/// Withdraw conditional tokens from a position ATA to the user's canonical ATA.
+/// The conditional mint is derived from `(market, deposit_mint, outcome_index)`.
 ///
-/// Accounts (8):
-/// 0. user (signer)
-/// 1. market (readonly)
-/// 2. position (mut)
-/// 3. mint (readonly)
-/// 4. position_ata (mut)
-/// 5. user_ata (mut)
-/// 6. token_program (readonly)
-/// 7. exchange (readonly)
-pub fn build_withdraw_from_position_ix(
-    params: &WithdrawFromPositionParams,
+/// Accounts (9):
+/// 0. user (signer, writable)
+/// 1. exchange (readonly)
+/// 2. market (readonly)
+/// 3. position (readonly)
+/// 4. deposit_mint (readonly)
+/// 5. conditional_mint (readonly)
+/// 6. position_conditional_ata (writable)
+/// 7. user_conditional_ata (writable)
+/// 8. token_program (readonly)
+pub fn build_withdraw_conditional_from_position_ix(
+    params: &WithdrawConditionalFromPositionParams,
     program_id: &Pubkey,
 ) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-    let position_ata = get_conditional_token_ata(&position, &params.mint);
-    let user_ata = get_conditional_token_ata(&params.user, &params.mint);
+    let (conditional_mint, _) = get_conditional_mint_pda(
+        &params.market,
+        &params.deposit_mint,
+        params.outcome_index,
+        program_id,
+    );
+    let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
+    let user_conditional_ata = get_conditional_token_ata(&params.user, &conditional_mint);
 
     let keys = vec![
         signer_mut(params.user),
-        readonly(params.market),
-        writable(position),
-        readonly(params.mint),
-        writable(position_ata),
-        writable(user_ata),
-        readonly(TOKEN_PROGRAM_ID),
         readonly(exchange),
+        readonly(params.market),
+        readonly(position),
+        readonly(params.deposit_mint),
+        readonly(conditional_mint),
+        writable(position_conditional_ata),
+        writable(user_conditional_ata),
+        readonly(TOKEN_PROGRAM_ID),
     ];
 
     // Data: [discriminator(1), amount(8), outcome_index(1)] = 10 bytes
     let mut data = Vec::with_capacity(10);
-    data.push(instruction::WITHDRAW_FROM_POSITION);
+    data.push(instruction::WITHDRAW_CONDITIONAL_FROM_POSITION);
     data.extend_from_slice(&params.amount.to_le_bytes());
     data.push(params.outcome_index);
 
@@ -616,6 +625,16 @@ pub fn build_withdraw_from_position_ix(
         accounts: keys,
         data,
     }
+}
+
+/// Build WithdrawConditionalFromPosition instruction.
+///
+/// Compatibility wrapper for the previous SDK function name.
+pub fn build_withdraw_from_position_ix(
+    params: &WithdrawFromPositionParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    build_withdraw_conditional_from_position_ix(params, program_id)
 }
 
 /// Build ActivateMarket instruction.
@@ -2135,20 +2154,41 @@ mod tests {
     #[test]
     fn test_build_withdraw_from_position_ix() {
         let program_id = test_program_id();
-        let params = WithdrawFromPositionParams {
-            user: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            mint: Pubkey::new_unique(),
+        let user = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let deposit_mint = Pubkey::new_unique();
+        let outcome_index = 0;
+        let params = WithdrawConditionalFromPositionParams {
+            user,
+            market,
+            deposit_mint,
             amount: 1000,
-            outcome_index: 0,
+            outcome_index,
         };
 
-        let ix = build_withdraw_from_position_ix(&params, &program_id);
+        let ix = build_withdraw_conditional_from_position_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 8);
+        let (exchange, _) = get_exchange_pda(&program_id);
+        let (position, _) = get_position_pda(&user, &market, &program_id);
+        let (conditional_mint, _) =
+            get_conditional_mint_pda(&market, &deposit_mint, outcome_index, &program_id);
+        let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
+        let user_conditional_ata = get_conditional_token_ata(&user, &conditional_mint);
+
+        assert_eq!(ix.accounts.len(), 9);
+        assert_eq!(ix.accounts[0], signer_mut(user));
+        assert_eq!(ix.accounts[1], readonly(exchange));
+        assert_eq!(ix.accounts[2], readonly(market));
+        assert_eq!(ix.accounts[3], readonly(position));
+        assert_eq!(ix.accounts[4], readonly(deposit_mint));
+        assert_eq!(ix.accounts[5], readonly(conditional_mint));
+        assert_eq!(ix.accounts[6], writable(position_conditional_ata));
+        assert_eq!(ix.accounts[7], writable(user_conditional_ata));
+        assert_eq!(ix.accounts[8], readonly(TOKEN_PROGRAM_ID));
         assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
-        assert_eq!(ix.data[0], instruction::WITHDRAW_FROM_POSITION);
-        assert_eq!(ix.data[9], 0); // outcome_index
+        assert_eq!(ix.data[0], instruction::WITHDRAW_CONDITIONAL_FROM_POSITION);
+        assert_eq!(&ix.data[1..9], &1000u64.to_le_bytes());
+        assert_eq!(ix.data[9], outcome_index);
     }
 
     #[test]

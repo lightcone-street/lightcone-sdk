@@ -4,7 +4,7 @@ import { requireConnection } from "../../context";
 import { RetryPolicy } from "../../http";
 import {
   buildRedeemWinningsIx,
-  buildWithdrawFromPositionIx,
+  buildWithdrawConditionalFromPositionIx,
   buildInitPositionTokensIx,
   buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
@@ -19,6 +19,7 @@ import { deserializePosition as deserializeProgramPosition } from "../../program
 import type {
   Position as ProgramPosition,
   RedeemWinningsParams,
+  WithdrawConditionalFromPositionParams,
   WithdrawFromPositionParams,
   InitPositionTokensParams,
   ExtendPositionTokensParams,
@@ -172,10 +173,16 @@ export class Positions {
     return buildRedeemWinningsIx(params, outcomeIndex, this.client.programId);
   }
 
+  withdrawConditionalFromPositionIx(
+    params: WithdrawConditionalFromPositionParams
+  ): TransactionInstruction {
+    return buildWithdrawConditionalFromPositionIx(params, this.client.programId);
+  }
+
   withdrawFromPositionIx(
     params: WithdrawFromPositionParams
   ): TransactionInstruction {
-    return buildWithdrawFromPositionIx(params, this.client.programId);
+    return this.withdrawConditionalFromPositionIx(params);
   }
 
   initPositionTokensIx(
@@ -239,9 +246,13 @@ export class Positions {
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
-  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
-    const ix = this.withdrawFromPositionIx(params);
+  withdrawConditionalFromPositionTx(params: WithdrawConditionalFromPositionParams): Transaction {
+    const ix = this.withdrawConditionalFromPositionIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
+  }
+
+  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
+    return this.withdrawConditionalFromPositionTx(params);
   }
 
   initPositionTokensTx(
@@ -318,6 +329,10 @@ export class Positions {
   }
 
   withdrawFromPosition(): WithdrawFromPositionBuilder {
+    return new WithdrawFromPositionBuilder(this.client);
+  }
+
+  withdrawConditionalFromPosition(): WithdrawFromPositionBuilder {
     return new WithdrawFromPositionBuilder(this.client);
   }
 

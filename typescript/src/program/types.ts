@@ -299,15 +299,17 @@ export interface SetOperatorParams {
 }
 
 /**
- * Parameters for withdrawFromPosition instruction
+ * Parameters for withdrawConditionalFromPosition instruction
  */
-export interface WithdrawFromPositionParams {
+export interface WithdrawConditionalFromPositionParams {
   user: PublicKey;
   market: PublicKey;
-  mint: PublicKey; // Can be deposit mint or conditional mint
+  depositMint: PublicKey;
   amount: bigint;
-  outcomeIndex: number; // u8 outcome index
+  outcomeIndex: number;
 }
+
+export type WithdrawFromPositionParams = WithdrawConditionalFromPositionParams;
 
 /**
  * Parameters for activateMarket instruction

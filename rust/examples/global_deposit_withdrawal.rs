@@ -141,7 +141,7 @@ async fn main() -> ExampleResult {
         global_withdraw_ix.accounts.len()
     );
 
-    // Withdraw — Market mode (position ATA → user's wallet)
+    // Withdraw — Market mode (position conditional-token ATA → user's wallet)
     let market_withdraw_ix = client
         .positions()
         .withdraw()
