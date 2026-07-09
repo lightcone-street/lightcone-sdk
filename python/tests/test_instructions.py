@@ -18,6 +18,7 @@ from lightcone_sdk.program import (
     DepositToGlobalAltContext,
     InvalidOracleError,
     InvalidOutcomeCountError,
+    InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
     MakerFill,
     MarketFeeUpdate,
@@ -720,6 +721,22 @@ def test_withdraw_conditional_from_position_matches_canonical_account_layout():
     assert ix.data[0] == 11
     assert int.from_bytes(ix.data[1:9], "little") == 1_000
     assert ix.data[9] == outcome_index
+
+
+def test_withdraw_conditional_from_position_rejects_out_of_range_outcome_index():
+    user = Pubkey.new_unique()
+    market = Pubkey.new_unique()
+    deposit_mint = Pubkey.new_unique()
+
+    for outcome_index in (-1, 256):
+        with pytest.raises(InvalidOutcomeIndexError):
+            build_withdraw_conditional_from_position_instruction(
+                user=user,
+                market=market,
+                deposit_mint=deposit_mint,
+                amount=1_000,
+                outcome_index=outcome_index,
+            )
 
 
 def test_withdraw_from_position_wrapper_uses_conditional_contract():

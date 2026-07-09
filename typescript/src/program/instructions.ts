@@ -733,6 +733,14 @@ export function buildWithdrawConditionalFromPositionIx(
   params: WithdrawConditionalFromPositionParams,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  if (
+    !Number.isInteger(params.outcomeIndex) ||
+    params.outcomeIndex < 0 ||
+    params.outcomeIndex > 0xff
+  ) {
+    throw ProgramSdkError.invalidOutcomeIndex(params.outcomeIndex, 0xff);
+  }
+
   const [exchange] = getExchangePda(programId);
   const [position] = getPositionPda(params.user, params.market, programId);
   const [conditionalMint] = getConditionalMintPda(

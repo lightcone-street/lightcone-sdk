@@ -445,7 +445,12 @@ impl<'a> WithdrawBuilder<'a> {
                 let outcome_index = self.outcome_index.ok_or_else(|| {
                     SdkError::Validation("outcome_index is required for Market withdrawal".into())
                 })?;
-                let num_outcomes = market.outcomes.len() as u8;
+                // A market payload may carry an empty outcomes list; fall back
+                // to the program-wide bound rather than rejecting every index.
+                let num_outcomes = match market.outcomes.len() {
+                    0 => crate::program::constants::MAX_OUTCOMES,
+                    len => len as u8,
+                };
                 crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
                 Ok(instructions::build_withdraw_conditional_from_position_ix(
                     &WithdrawConditionalFromPositionParams {
@@ -692,6 +697,11 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         let outcome_index = self
             .outcome_index
             .ok_or_else(|| SdkError::Validation("outcome_index is required".into()))?;
+        // Only the market pubkey is known here; enforce the program-wide bound.
+        crate::program::utils::validate_outcome_index(
+            outcome_index,
+            crate::program::constants::MAX_OUTCOMES,
+        )?;
 
         Ok(instructions::build_withdraw_conditional_from_position_ix(
             &WithdrawConditionalFromPositionParams {

@@ -12,6 +12,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ...error import MissingMarketContext, SdkError
+from ...program.constants import MAX_OUTCOMES
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
@@ -311,7 +312,12 @@ class WithdrawBuilder:
             outcome_index = self._outcome_index
             if outcome_index is None:
                 raise SdkError("outcome_index is required for Market withdrawal")
-            validate_outcome_index(outcome_index, len(market.outcomes))  # type: ignore[attr-defined]
+            # A market payload may carry an empty outcomes list; fall back to
+            # the program-wide bound rather than rejecting every index.
+            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+            validate_outcome_index(
+                outcome_index, num_outcomes if num_outcomes > 0 else MAX_OUTCOMES
+            )
             return build_withdraw_conditional_from_position_instruction(
                 user=user,
                 market=market_pubkey,
@@ -459,6 +465,8 @@ class WithdrawFromPositionBuilder:
         outcome_index = self._outcome_index
         if outcome_index is None:
             raise SdkError("outcome_index is required")
+        # Only the market pubkey is known here; enforce the program-wide bound.
+        validate_outcome_index(outcome_index, MAX_OUTCOMES)
         return build_withdraw_conditional_from_position_instruction(
             user=user,
             market=market,

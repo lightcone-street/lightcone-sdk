@@ -634,6 +634,14 @@ def build_withdraw_conditional_from_position_instruction(
     7. user_conditional_ata (writable)
     8. token_program
     """
+    if (
+        not isinstance(outcome_index, int)
+        or isinstance(outcome_index, bool)
+        or outcome_index < 0
+        or outcome_index > 0xFF
+    ):
+        raise InvalidOutcomeIndexError(outcome_index, 0xFF)
+
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
     conditional_mint, _ = get_conditional_mint_pda(

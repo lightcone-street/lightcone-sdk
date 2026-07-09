@@ -818,6 +818,27 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data[9], outcomeIndex);
   });
 
+  it("rejects out-of-range outcome indices for withdrawConditionalFromPosition", () => {
+    for (const outcomeIndex of [-1, 256, 1.5]) {
+      assert.throws(
+        () =>
+          buildWithdrawConditionalFromPositionIx(
+            {
+              user: pubkey(1),
+              market: pubkey(2),
+              depositMint: pubkey(3),
+              amount: 100n,
+              outcomeIndex,
+            },
+            pubkey(106)
+          ),
+        (error) =>
+          error instanceof ProgramSdkError &&
+          error.variant === "InvalidOutcomeIndex"
+      );
+    }
+  });
+
   it("keeps withdrawFromPosition as a conditional-position compatibility wrapper", () => {
     const ix = buildWithdrawFromPositionIx(
       {
