@@ -53,7 +53,9 @@ pub mod instruction {
     pub const REDEEM_WINNINGS: u8 = 8;
     pub const SET_PAUSED: u8 = 9;
     pub const SET_OPERATOR: u8 = 10;
-    pub const WITHDRAW_FROM_POSITION: u8 = 11;
+    pub const WITHDRAW_CONDITIONAL_FROM_POSITION: u8 = 11;
+    #[deprecated(note = "use WITHDRAW_CONDITIONAL_FROM_POSITION")]
+    pub const WITHDRAW_FROM_POSITION: u8 = WITHDRAW_CONDITIONAL_FROM_POSITION;
     pub const ACTIVATE_MARKET: u8 = 12;
     pub const MATCH_ORDERS_MULTI: u8 = 13;
     pub const SET_AUTHORITY: u8 = 14;

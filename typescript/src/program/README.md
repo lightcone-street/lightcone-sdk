@@ -30,7 +30,7 @@ const client = LightconeClient.builder()
 |------------|--------|----------------------|
 | `client.orders()` | Order management | cancelOrder, incrementNonce, closeOrderStatus, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
 | `client.markets()` | Market queries | mintCompleteSet, mergeCompleteSet, deriveConditionId, getConditionalMints, getOnchain |
-| `client.positions()` | Position management | redeemWinnings, withdrawFromPosition, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionAlt, closePositionTokenAccounts, getOnchain |
+| `client.positions()` | Position management | redeemWinnings, withdrawConditionalFromPosition, withdrawFromPosition compatibility wrapper, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionAlt, closePositionTokenAccounts, getOnchain |
 | `client.orderbooks()` | Orderbook data | closeOrderbookAlt, closeOrderbook, getOnchain |
 | `client.rpc()` | RPC utilities | getExchange, getGlobalDepositToken, getLatestBlockhash |
 

@@ -223,8 +223,8 @@ let ix = client.positions().redeem_winnings_ix(&RedeemWinningsParams {
     user, market, deposit_mint: usdc_mint, amount,
 }, outcome_index);
 
-let ix = client.positions().withdraw_from_position_ix(&WithdrawFromPositionParams {
-    user, market, mint: conditional_mint, amount, outcome_index,
+let ix = client.positions().withdraw_conditional_from_position_ix(&WithdrawConditionalFromPositionParams {
+    user, market, deposit_mint: usdc_mint, amount, outcome_index,
 });
 
 let ix = client.positions().init_position_tokens_ix(&InitPositionTokensParams {
@@ -423,7 +423,7 @@ All instructions use a single-byte discriminator.
 | RedeemWinnings | 8 | Redeem winning tokens for deposit |
 | SetPaused | 9 | Pause/unpause exchange |
 | SetOperator | 10 | Propose a new exchange operator |
-| WithdrawFromPosition | 11 | Withdraw tokens from position |
+| WithdrawConditionalFromPosition | 11 | Withdraw conditional tokens from position |
 | ActivateMarket | 12 | Activate pending market |
 | MatchOrdersMulti | 13 | Match taker against makers |
 | SetAuthority | 14 | Propose a new exchange authority |
@@ -614,13 +614,15 @@ pub struct RedeemWinningsParams {
     pub amount: u64,
 }
 
-pub struct WithdrawFromPositionParams {
+pub struct WithdrawConditionalFromPositionParams {
     pub user: Pubkey,
     pub market: Pubkey,
-    pub mint: Pubkey,
+    pub deposit_mint: Pubkey,
     pub amount: u64,
     pub outcome_index: u8,
 }
+
+pub type WithdrawFromPositionParams = WithdrawConditionalFromPositionParams;
 
 pub struct MatchOrdersMultiParams {
     pub operator: Pubkey,

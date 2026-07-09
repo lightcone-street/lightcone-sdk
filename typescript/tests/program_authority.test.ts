@@ -7,6 +7,7 @@ import {
   ALT_PROGRAM_ID,
   DISCRIMINATOR,
   INSTRUCTION,
+  TOKEN_PROGRAM_ID,
   MarketStatus,
   OrderSide,
   PendingRoleKind,
@@ -42,6 +43,7 @@ import {
   buildSetMarketFeesIx,
   buildSettleMarketIx,
   buildUpdateConditionalMetadataIx,
+  buildWithdrawConditionalFromPositionIx,
   buildWithdrawFromPositionIx,
   buildWithdrawFromGlobalIx,
   deriveConditionId,
@@ -769,25 +771,88 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data[9], outcomeIndex);
   });
 
-  it("builds withdrawFromPosition with exchange pause-validation account", () => {
+  it("builds withdrawConditionalFromPosition with canonical conditional account layout", () => {
     const programId = pubkey(106);
+    const user = pubkey(1);
+    const market = pubkey(2);
+    const depositMint = pubkey(3);
+    const outcomeIndex = 1;
     const [exchange] = getExchangePda(programId);
+    const [position] = getPositionPda(user, market, programId);
+    const [conditionalMint] = getConditionalMintPda(market, depositMint, outcomeIndex, programId);
+    const positionConditionalAta = getConditionalTokenAta(conditionalMint, position);
+    const userConditionalAta = getConditionalTokenAta(conditionalMint, user);
 
-    const ix = buildWithdrawFromPositionIx(
+    const ix = buildWithdrawConditionalFromPositionIx(
       {
-        user: pubkey(1),
-        market: pubkey(2),
-        mint: pubkey(3),
+        user,
+        market,
+        depositMint,
         amount: 100n,
-        outcomeIndex: 1,
+        outcomeIndex,
       },
       programId
     );
 
-    assert.equal(ix.keys.length, 8);
-    assert.equal(ix.keys[7]!.pubkey.toBase58(), exchange.toBase58());
-    assert.equal(ix.keys[7]!.isWritable, false);
-    assert.equal(ix.data[0], INSTRUCTION.WITHDRAW_FROM_POSITION);
+    assert.equal(ix.keys.length, 9);
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), user.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+    assert.equal(ix.keys[0]!.isWritable, true);
+    assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
+    assert.equal(ix.keys[1]!.isWritable, false);
+    assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
+    assert.equal(ix.keys[3]!.pubkey.toBase58(), position.toBase58());
+    assert.equal(ix.keys[3]!.isWritable, false);
+    assert.equal(ix.keys[4]!.pubkey.toBase58(), depositMint.toBase58());
+    assert.equal(ix.keys[5]!.pubkey.toBase58(), conditionalMint.toBase58());
+    assert.equal(ix.keys[5]!.isWritable, false);
+    assert.equal(ix.keys[6]!.pubkey.toBase58(), positionConditionalAta.toBase58());
+    assert.equal(ix.keys[6]!.isWritable, true);
+    assert.equal(ix.keys[7]!.pubkey.toBase58(), userConditionalAta.toBase58());
+    assert.equal(ix.keys[7]!.isWritable, true);
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), TOKEN_PROGRAM_ID.toBase58());
+    assert.equal(ix.keys[8]!.isWritable, false);
+    assert.equal(ix.data.length, 10);
+    assert.equal(ix.data[0], INSTRUCTION.WITHDRAW_CONDITIONAL_FROM_POSITION);
+    assert.equal(ix.data.readBigUInt64LE(1), 100n);
+    assert.equal(ix.data[9], outcomeIndex);
+  });
+
+  it("rejects out-of-range outcome indices for withdrawConditionalFromPosition", () => {
+    for (const outcomeIndex of [-1, 256, 1.5]) {
+      assert.throws(
+        () =>
+          buildWithdrawConditionalFromPositionIx(
+            {
+              user: pubkey(1),
+              market: pubkey(2),
+              depositMint: pubkey(3),
+              amount: 100n,
+              outcomeIndex,
+            },
+            pubkey(106)
+          ),
+        (error) =>
+          error instanceof ProgramSdkError &&
+          error.variant === "InvalidOutcomeIndex"
+      );
+    }
+  });
+
+  it("keeps withdrawFromPosition as a conditional-position compatibility wrapper", () => {
+    const ix = buildWithdrawFromPositionIx(
+      {
+        user: pubkey(1),
+        market: pubkey(2),
+        depositMint: pubkey(3),
+        amount: 100n,
+        outcomeIndex: 1,
+      },
+      pubkey(106)
+    );
+
+    assert.equal(ix.keys.length, 9);
+    assert.equal(ix.data[0], INSTRUCTION.WITHDRAW_CONDITIONAL_FROM_POSITION);
   });
 
   it("builds globalToMarketDeposit without obsolete position collateral ATA", () => {

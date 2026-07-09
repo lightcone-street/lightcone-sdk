@@ -14,8 +14,8 @@ use crate::program::instructions;
 use crate::program::types::{
     ClosePositionAltParams, ClosePositionTokenAccountsParams, DepositToGlobalAltContext,
     DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
-    InitPositionTokensParams, RedeemWinningsParams, WithdrawFromGlobalParams,
-    WithdrawFromPositionParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
+    WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::shared::PubkeyStr;
 use solana_instruction::Instruction;
@@ -185,19 +185,39 @@ impl<'a> Positions<'a> {
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
-    /// Build WithdrawFromPosition instruction.
-    pub fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction {
+    /// Build a conditional-token withdrawal from a position instruction.
+    pub fn withdraw_conditional_from_position_ix(
+        &self,
+        params: &WithdrawConditionalFromPositionParams,
+    ) -> Instruction {
         let pid = &self.client.program_id;
-        instructions::build_withdraw_from_position_ix(params, pid)
+        instructions::build_withdraw_conditional_from_position_ix(params, pid)
     }
 
-    /// Build WithdrawFromPosition transaction.
+    /// Build a conditional-token withdrawal from a position transaction.
+    pub fn withdraw_conditional_from_position_tx(
+        &self,
+        params: WithdrawConditionalFromPositionParams,
+    ) -> Result<Transaction, SdkError> {
+        let ix = self.withdraw_conditional_from_position_ix(&params);
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+    }
+
+    /// Build a conditional-token withdrawal from a position instruction.
+    ///
+    /// Compatibility wrapper for the previous SDK method name.
+    pub fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction {
+        self.withdraw_conditional_from_position_ix(params)
+    }
+
+    /// Build a conditional-token withdrawal from a position transaction.
+    ///
+    /// Compatibility wrapper for the previous SDK method name.
     pub fn withdraw_from_position_tx(
         &self,
         params: WithdrawFromPositionParams,
     ) -> Result<Transaction, SdkError> {
-        let ix = self.withdraw_from_position_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
+        self.withdraw_conditional_from_position_tx(params)
     }
 
     /// Build InitPositionTokens instruction.
@@ -375,7 +395,7 @@ impl<'a> Positions<'a> {
     ///
     /// Dispatches based on deposit source:
     /// - **Global**: withdraws from global deposit pool
-    /// - **Market**: withdraws from position ATA
+    /// - **Market**: withdraws conditional tokens from a position ATA
     ///
     /// Use `.build_ix()` or `.build_tx()` to produce the final instruction/transaction.
     pub async fn withdraw(&self) -> WithdrawBuilder<'a> {
@@ -390,10 +410,15 @@ impl<'a> Positions<'a> {
         RedeemWinningsBuilder::new(self.client)
     }
 
-    /// Create a withdraw-from-position builder.
+    /// Create a conditional-token withdraw-from-position builder.
     ///
     /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
     pub fn withdraw_from_position(&self) -> WithdrawFromPositionBuilder<'a> {
+        WithdrawFromPositionBuilder::new(self.client)
+    }
+
+    /// Create a conditional-token withdraw-from-position builder.
+    pub fn withdraw_conditional_from_position(&self) -> WithdrawFromPositionBuilder<'a> {
         WithdrawFromPositionBuilder::new(self.client)
     }
 

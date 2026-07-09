@@ -302,20 +302,23 @@ pub struct RedeemWinningsParams {
     pub amount: u64,
 }
 
-/// Parameters for withdrawing from a position
+/// Parameters for withdrawing conditional tokens from a position
 #[derive(Debug, Clone)]
-pub struct WithdrawFromPositionParams {
+pub struct WithdrawConditionalFromPositionParams {
     /// User pubkey (must be position owner)
     pub user: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Mint pubkey (deposit or conditional)
-    pub mint: Pubkey,
-    /// Amount to withdraw
+    /// Registered collateral mint for the market
+    pub deposit_mint: Pubkey,
+    /// Amount of conditional tokens to withdraw
     pub amount: u64,
-    /// Outcome index (255 for collateral)
+    /// Outcome index for the conditional mint derived from the deposit mint
     pub outcome_index: u8,
 }
+
+/// Compatibility alias for the previous SDK parameter name.
+pub type WithdrawFromPositionParams = WithdrawConditionalFromPositionParams;
 
 /// Parameters for activating a market
 #[derive(Debug, Clone)]
@@ -778,7 +781,7 @@ pub struct DepositParams<'a> {
 pub struct MarketWithdrawContext<'a> {
     /// The market to withdraw from.
     pub market: &'a Market,
-    /// Outcome index to withdraw. Use `255` for collateral.
+    /// Outcome index of the conditional token to withdraw.
     pub outcome_index: u8,
 }
 
@@ -791,7 +794,8 @@ pub struct MarketWithdrawContext<'a> {
 pub struct WithdrawParams<'a> {
     /// User pubkey (must be the depositor / position owner).
     pub user: Pubkey,
-    /// Token mint pubkey.
+    /// Token mint pubkey. For market withdrawals this is the registered
+    /// deposit mint; the conditional mint is derived from `market_context`.
     pub mint: Pubkey,
     /// Amount to withdraw.
     pub amount: u64,

@@ -143,7 +143,7 @@ async def main():
     )
     print(f"builder global withdraw ix: {len(global_withdraw_ix.accounts)} accounts")
 
-    # Withdraw — Market mode (position ATA -> user's wallet)
+    # Withdraw — Market mode (conditional-token ATA -> user's wallet)
     market_withdraw_ix = (
         client.positions()
         .withdraw()

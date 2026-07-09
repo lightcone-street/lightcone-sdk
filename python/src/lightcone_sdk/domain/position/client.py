@@ -18,8 +18,8 @@ from ...program.instructions import (
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_redeem_winnings_instruction,
+    build_withdraw_conditional_from_position_instruction,
     build_withdraw_from_global_instruction,
-    build_withdraw_from_position_instruction,
 )
 from ...program.pda import get_position_pda
 from ...program.types import (
@@ -32,6 +32,7 @@ from ...program.types import (
     InitPositionTokensParams,
     Position,
     RedeemWinningsParams,
+    WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 )
@@ -181,16 +182,22 @@ class Positions:
             program_id=self._client.program_id,
         )
 
-    def withdraw_from_position_ix(self, params: WithdrawFromPositionParams) -> Instruction:
-        """Build WithdrawFromPosition instruction."""
-        return build_withdraw_from_position_instruction(
+    def withdraw_conditional_from_position_ix(
+        self, params: WithdrawConditionalFromPositionParams
+    ) -> Instruction:
+        """Build conditional-token withdrawal from a position instruction."""
+        return build_withdraw_conditional_from_position_instruction(
             user=params.user,
             market=params.market,
-            mint=params.mint,
+            deposit_mint=params.deposit_mint,
             amount=params.amount,
             outcome_index=params.outcome_index,
             program_id=self._client.program_id,
         )
+
+    def withdraw_from_position_ix(self, params: WithdrawFromPositionParams) -> Instruction:
+        """Compatibility wrapper for conditional-token position withdrawal."""
+        return self.withdraw_conditional_from_position_ix(params)
 
     def init_position_tokens_ix(
         self, params: InitPositionTokensParams, num_outcomes: int
@@ -290,10 +297,16 @@ class Positions:
         ix = self.redeem_winnings_ix(params, outcome_index)
         return Transaction.new_with_payer([ix], params.user)
 
-    def withdraw_from_position_tx(self, params: WithdrawFromPositionParams) -> Transaction:
-        """Build WithdrawFromPosition transaction."""
-        ix = self.withdraw_from_position_ix(params)
+    def withdraw_conditional_from_position_tx(
+        self, params: WithdrawConditionalFromPositionParams
+    ) -> Transaction:
+        """Build conditional-token withdrawal from a position transaction."""
+        ix = self.withdraw_conditional_from_position_ix(params)
         return Transaction.new_with_payer([ix], params.user)
+
+    def withdraw_from_position_tx(self, params: WithdrawFromPositionParams) -> Transaction:
+        """Compatibility wrapper for conditional-token position withdrawal."""
+        return self.withdraw_conditional_from_position_tx(params)
 
     def init_position_tokens_tx(
         self, params: InitPositionTokensParams, num_outcomes: int
@@ -374,7 +387,11 @@ class Positions:
         return RedeemWinningsBuilder(self._client)
 
     def withdraw_from_position(self) -> WithdrawFromPositionBuilder:
-        """Create a withdraw-from-position builder."""
+        """Create a conditional-token withdraw-from-position builder."""
+        return WithdrawFromPositionBuilder(self._client)
+
+    def withdraw_conditional_from_position(self) -> WithdrawFromPositionBuilder:
+        """Create a conditional-token withdraw-from-position builder."""
         return WithdrawFromPositionBuilder(self._client)
 
     def init_position_tokens(self) -> InitPositionTokensBuilder:

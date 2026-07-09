@@ -25,6 +25,7 @@ import {
   BuildMergeParams,
   SettleMarketParams,
   RedeemWinningsParams,
+  WithdrawConditionalFromPositionParams,
   WithdrawFromPositionParams,
   ActivateMarketParams,
   MatchOrdersMultiParams,
@@ -711,42 +712,60 @@ export function buildSetOperatorIx(
 }
 
 /**
- * Build WithdrawFromPosition instruction
+ * Build WithdrawConditionalFromPosition instruction
+ *
+ * The conditional mint is derived from `(market, depositMint, outcomeIndex)`.
  *
  * Accounts:
  * 0. user (signer, mut)
- * 1. market (readonly)
- * 2. position (mut)
- * 3. mint (readonly)
- * 4. position_ata (mut)
- * 5. user_ata (mut)
- * 6. token_program (readonly)
- * 7. exchange (readonly)
+ * 1. exchange (readonly)
+ * 2. market (readonly)
+ * 3. position (readonly)
+ * 4. deposit_mint (readonly)
+ * 5. conditional_mint (readonly)
+ * 6. position_conditional_ata (mut)
+ * 7. user_conditional_ata (mut)
+ * 8. token_program (readonly)
  *
  * Data: [discriminator, amount (u64), outcome_index (u8)]
  */
-export function buildWithdrawFromPositionIx(
-  params: WithdrawFromPositionParams,
+export function buildWithdrawConditionalFromPositionIx(
+  params: WithdrawConditionalFromPositionParams,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  if (
+    !Number.isInteger(params.outcomeIndex) ||
+    params.outcomeIndex < 0 ||
+    params.outcomeIndex > 0xff
+  ) {
+    throw ProgramSdkError.invalidOutcomeIndex(params.outcomeIndex, 0xff);
+  }
+
   const [exchange] = getExchangePda(programId);
   const [position] = getPositionPda(params.user, params.market, programId);
-  const positionAta = getConditionalTokenAta(params.mint, position);
-  const userAta = getConditionalTokenAta(params.mint, params.user);
+  const [conditionalMint] = getConditionalMintPda(
+    params.market,
+    params.depositMint,
+    params.outcomeIndex,
+    programId
+  );
+  const positionConditionalAta = getConditionalTokenAta(conditionalMint, position);
+  const userConditionalAta = getConditionalTokenAta(conditionalMint, params.user);
 
   const keys: AccountMeta[] = [
     signerMut(params.user),
-    readonly(params.market),
-    writable(position),
-    readonly(params.mint),
-    writable(positionAta),
-    writable(userAta),
-    readonly(TOKEN_PROGRAM_ID),
     readonly(exchange),
+    readonly(params.market),
+    readonly(position),
+    readonly(params.depositMint),
+    readonly(conditionalMint),
+    writable(positionConditionalAta),
+    writable(userConditionalAta),
+    readonly(TOKEN_PROGRAM_ID),
   ];
 
   const data = Buffer.concat([
-    Buffer.from([INSTRUCTION.WITHDRAW_FROM_POSITION]),
+    Buffer.from([INSTRUCTION.WITHDRAW_CONDITIONAL_FROM_POSITION]),
     toU64Le(params.amount),
     toU8(params.outcomeIndex),
   ]);
@@ -756,6 +775,16 @@ export function buildWithdrawFromPositionIx(
     programId,
     data,
   });
+}
+
+/**
+ * Compatibility wrapper for conditional-token position withdrawal.
+ */
+export function buildWithdrawFromPositionIx(
+  params: WithdrawFromPositionParams,
+  programId: PublicKey = PROGRAM_ID
+): TransactionInstruction {
+  return buildWithdrawConditionalFromPositionIx(params, programId);
 }
 
 /**
@@ -2259,12 +2288,19 @@ export function buildSetOperatorTx(
   return new Transaction({ feePayer: authority }).add(ix);
 }
 
+export function buildWithdrawConditionalFromPositionTx(
+  params: WithdrawConditionalFromPositionParams,
+  programId: PublicKey = PROGRAM_ID
+): Transaction {
+  const ix = buildWithdrawConditionalFromPositionIx(params, programId);
+  return new Transaction({ feePayer: params.user }).add(ix);
+}
+
 export function buildWithdrawFromPositionTx(
   params: WithdrawFromPositionParams,
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
-  const ix = buildWithdrawFromPositionIx(params, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return buildWithdrawConditionalFromPositionTx(params, programId);
 }
 
 export function buildActivateMarketTx(

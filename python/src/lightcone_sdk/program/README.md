@@ -166,6 +166,7 @@ from lightcone_sdk.program import (
     MergeCompleteSetParams,
     SettleMarketParams,
     RedeemWinningsParams,
+    WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
     ActivateMarketParams,
     MatchOrdersMultiParams,
@@ -459,6 +460,7 @@ from lightcone_sdk.program import (
     MintCompleteSetParams,
     MergeCompleteSetParams,
     RedeemWinningsParams,
+    WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
 )
 
@@ -495,15 +497,16 @@ tx = await client.redeem_winnings(
     outcome_index=0,
 )
 
-# Withdraw tokens from position account
-tx = await client.withdraw_from_position(
-    WithdrawFromPositionParams(
+# Withdraw conditional tokens from position account.
+# WithdrawFromPositionParams is a compatibility alias for the same layout.
+tx = client.positions().withdraw_conditional_from_position_tx(
+    WithdrawConditionalFromPositionParams(
         user=user_pubkey,
-        position=position_pubkey,
-        mint=conditional_mint,
+        market=market_pubkey,
+        deposit_mint=usdc_mint,
         amount=500_000,
+        outcome_index=0,
     ),
-    is_token_2022=True,  # Set to False for SPL Token
 )
 ```
 
@@ -699,6 +702,7 @@ from lightcone_sdk.program import (
     build_redeem_winnings_instruction,
     build_set_paused_instruction,
     build_set_operator_instruction,
+    build_withdraw_conditional_from_position_instruction,
     build_withdraw_from_position_instruction,
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
