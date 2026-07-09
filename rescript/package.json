@@ -1,0 +1,38 @@
+{
+  "name": "@lightconexyz/lightcone-sdk-rescript",
+  "version": "0.8.0",
+  "description": "ReScript SDK for Lightcone (gentype-exported for TypeScript consumers)",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "types": "./src/TypeScriptApi.gen.ts",
+      "import": "./src/TypeScriptApi.res.mjs"
+    }
+  },
+  "types": "./src/TypeScriptApi.gen.ts",
+  "module": "./src/TypeScriptApi.res.mjs",
+  "trustedDependencies": ["@mununki/ppx-spice", "esbuild"],
+  "dependencies": {
+    "@rescript/runtime": "^12.3.0",
+    "@solana/kit": "^6.0.0",
+    "@solana-program/token": "^0.14.0",
+    "@noble/hashes": "^2.0.0",
+    "decimal.js": "^10.6.0",
+    "sorted-btree": "^2.1.0"
+  },
+  "devDependencies": {
+    "rescript": "^12.3.0",
+    "@mununki/ppx-spice": "^0.4.1",
+    "rescript-bun": "^2.1.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5",
+    "@types/node": "^22"
+  },
+  "scripts": {
+    "build": "rescript",
+    "clean": "rescript clean",
+    "dev": "rescript watch",
+    "test": "rescript build && bun test ./tests/*Test.res.mjs ./bindings/*/tests/*Test.res.mjs"
+  }
+}

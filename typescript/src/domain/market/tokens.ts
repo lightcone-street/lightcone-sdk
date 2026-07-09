@@ -275,7 +275,7 @@ function conditionalFromWire(
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
-  if (!source.short_symbol) errors.push("Missing short_symbol");
+  if (!source.short_symbol && !source.symbol) errors.push("Missing short_symbol");
   if (!source.outcome) errors.push("Missing outcome");
 
   if (errors.length > 0) {
