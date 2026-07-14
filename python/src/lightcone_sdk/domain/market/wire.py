@@ -206,6 +206,7 @@ class MarketWire:
     icon_url_medium: Optional[str] = None
     icon_url_high: Optional[str] = None
     category: Optional[str] = None
+    subcategory: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
@@ -249,6 +250,7 @@ class MarketWire:
             icon_url_medium=d.get("icon_url_medium"),
             icon_url_high=d.get("icon_url_high"),
             category=d.get("category"),
+            subcategory=d.get("subcategory"),
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
             market_status=d.get("market_status"),

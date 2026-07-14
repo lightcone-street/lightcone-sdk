@@ -56,8 +56,6 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing slug")
     if not wire.market_name:
         errors.append("Missing name")
-    if not wire.description:
-        errors.append("Missing description")
     if not wire.definition:
         errors.append("Missing definition")
     if (
@@ -65,15 +63,6 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         is None
     ):
         errors.append("Missing thumbnail image")
-    if (
-        _resolve_icon_urls(
-            wire.banner_image_url_low,
-            wire.banner_image_url_medium,
-            wire.banner_image_url_high,
-        )
-        is None
-    ):
-        errors.append("Missing banner image")
     if wire.market_status and wire.market_status not in {
         "Pending",
         "Active",
@@ -218,6 +207,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             ["Missing deposit asset pairs"],
         )
 
+    # Banners are optional; cross-fallback still applies when any variant is set.
     banner_icons = _resolve_icon_urls(
         wire.banner_image_url_low,
         wire.banner_image_url_medium,
@@ -233,9 +223,9 @@ def market_from_wire(wire: MarketWire) -> Market:
         id=wire.market_id,
         pubkey=wire.market_pubkey,
         name=wire.market_name,
-        banner_image_url_low=banner_icons[0] if banner_icons else "",
-        banner_image_url_medium=banner_icons[1] if banner_icons else "",
-        banner_image_url_high=banner_icons[2] if banner_icons else "",
+        banner_image_url_low=banner_icons[0] if banner_icons else None,
+        banner_image_url_medium=banner_icons[1] if banner_icons else None,
+        banner_image_url_high=banner_icons[2] if banner_icons else None,
         icon_url_low=market_icons[0] if market_icons else "",
         icon_url_medium=market_icons[1] if market_icons else "",
         icon_url_high=market_icons[2] if market_icons else "",
@@ -246,9 +236,10 @@ def market_from_wire(wire: MarketWire) -> Market:
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
         resolution=wire.resolution,
-        description=wire.description or "",
+        description=wire.description,
         definition=wire.definition or "",
         category=wire.category,
+        subcategory=wire.subcategory,
         tags=wire.tags,
         deposit_assets=deposit_assets,
         deposit_asset_pairs=deposit_asset_pairs,
