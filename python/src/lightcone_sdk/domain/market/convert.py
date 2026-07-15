@@ -56,6 +56,8 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing slug")
     if not wire.market_name:
         errors.append("Missing name")
+    if not isinstance(wire.definition, str) or not wire.definition:
+        errors.append("Missing definition")
     if (
         _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
         is None
@@ -78,6 +80,14 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
 
 def market_from_wire(wire: MarketWire) -> Market:
     """Convert a MarketWire to a Market domain type."""
+    definition = wire.definition
+    if not isinstance(definition, str) or not definition:
+        identifier = wire.market_pubkey or str(wire.market_id)
+        raise MarketValidationError(
+            f"Market validation errors ({identifier}): Missing definition",
+            ["Missing definition"],
+        )
+
     outcomes = []
     for o in wire.outcomes:
         outcome_icons = _resolve_icon_urls(
@@ -235,7 +245,7 @@ def market_from_wire(wire: MarketWire) -> Market:
         settled_at=wire.settled_at,
         resolution=wire.resolution,
         description=wire.description,
-        definition=wire.definition,
+        definition=definition,
         category=wire.category,
         subcategory=wire.subcategory,
         tags=wire.tags,

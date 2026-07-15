@@ -25,7 +25,7 @@ A fully validated market with all nested domain types.
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
 | `description` | `Option<String>` | Detailed market description |
-| `definition` | `Option<String>` | Resolution criteria |
+| `definition` | `String` | Resolution criteria |
 | `category` | `Option<String>` | Market category |
 | `subcategory` | `Option<String>` | Market subcategory |
 | `tags` | `Vec<String>` | Searchable tags (empty if unset) |
