@@ -24,19 +24,20 @@ A fully validated market with all nested domain types.
 | `name` | `String` | Market title (e.g., "Who wins the 2024 election?") |
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
-| `description` | `String` | Detailed market description |
-| `definition` | `String` | Resolution criteria |
+| `description` | `Option<String>` | Detailed market description |
+| `definition` | `Option<String>` | Resolution criteria |
 | `category` | `Option<String>` | Market category |
-| `tags` | `Vec<String>` | Searchable tags |
+| `subcategory` | `Option<String>` | Market subcategory |
+| `tags` | `Vec<String>` | Searchable tags (empty if unset) |
 | `deposit_assets` | `Vec<DepositAsset>` | Accepted collateral tokens |
 | `conditional_tokens` | `Vec<ConditionalToken>` | One per outcome |
 | `outcomes` | `Vec<Outcome>` | Outcome definitions with metadata |
 | `orderbook_pairs` | `Vec<OrderBookPair>` | Tradable pairs for this market |
 | `orderbook_ids` | `Vec<OrderBookId>` | Convenience list of orderbook IDs |
 | `token_metadata` | `HashMap<PubkeyStr, TokenMetadata>` | Metadata keyed by token mint |
-| `banner_image_url_low` | `String` | Market banner image (low quality) |
-| `banner_image_url_medium` | `String` | Market banner image (medium quality) |
-| `banner_image_url_high` | `String` | Market banner image (high quality) |
+| `banner_image_url_low` | `Option<String>` | Market banner image (low quality) |
+| `banner_image_url_medium` | `Option<String>` | Market banner image (medium quality) |
+| `banner_image_url_high` | `Option<String>` | Market banner image (high quality) |
 | `icon_url_low` | `String` | Market thumbnail (low quality) |
 | `icon_url_medium` | `String` | Market thumbnail (medium quality) |
 | `icon_url_high` | `String` | Market thumbnail (high quality) |

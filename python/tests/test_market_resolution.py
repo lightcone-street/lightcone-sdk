@@ -7,7 +7,10 @@ from lightcone_sdk import (
     MarketResolutionPayout,
     MarketResolutionResponse,
 )
-from lightcone_sdk.domain.market.convert import market_from_wire
+from lightcone_sdk.domain.market.convert import (
+    market_from_wire,
+    validation_errors_from_wire,
+)
 from lightcone_sdk.domain.market.wire import MarketWire
 from lightcone_sdk.domain.notification import Notification
 from lightcone_sdk.domain.notification.client import _parse_notification
@@ -122,6 +125,48 @@ def market_payload(resolution: dict | None = None) -> dict:
     if resolution is not None:
         payload["resolution"] = resolution
     return payload
+
+
+def test_optional_metadata_fields_do_not_fail_validation() -> None:
+    payload = market_payload()
+    del payload["description"]
+    del payload["definition"]
+    del payload["banner_image_url_low"]
+
+    wire = MarketWire.from_dict(payload)
+    assert validation_errors_from_wire(wire) == []
+
+    market = market_from_wire(wire)
+    assert market.description is None
+    assert market.definition is None
+    assert market.banner_image_url_low is None
+    assert market.banner_image_url_medium is None
+    assert market.banner_image_url_high is None
+    assert market.subcategory is None
+    assert market.tags == []
+
+
+def test_optional_metadata_fields_pass_through_when_present() -> None:
+    payload = market_payload()
+    payload["subcategory"] = "Bitcoin"
+    payload["tags"] = ["btc"]
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+    assert market.description == "Description"
+    assert market.definition == "Definition"
+    assert market.subcategory == "Bitcoin"
+    assert market.tags == ["btc"]
+
+
+def test_banner_urls_cross_fallback_when_partially_set() -> None:
+    payload = market_payload()
+    del payload["banner_image_url_low"]
+    payload["banner_image_url_high"] = "https://example.com/banner-high.png"
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+    assert market.banner_image_url_low == "https://example.com/banner-high.png"
+    assert market.banner_image_url_medium == "https://example.com/banner-high.png"
+    assert market.banner_image_url_high == "https://example.com/banner-high.png"
 
 
 def test_resolution_response_from_dict_parses_scalar() -> None:

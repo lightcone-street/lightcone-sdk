@@ -41,9 +41,9 @@ export interface Market {
   id: number;
   pubkey: PubkeyStr;
   name: string;
-  bannerImageUrlLow: string;
-  bannerImageUrlMedium: string;
-  bannerImageUrlHigh: string;
+  bannerImageUrlLow?: string;
+  bannerImageUrlMedium?: string;
+  bannerImageUrlHigh?: string;
   iconUrlLow: string;
   iconUrlMedium: string;
     iconUrlHigh: string;
@@ -54,9 +54,10 @@ export interface Market {
   activatedAt?: Date;
   settledAt?: Date;
   resolution?: MarketResolutionResponse;
-  description: string;
-  definition: string;
+  description?: string;
+  definition?: string;
   category?: string;
+  subcategory?: string;
   tags: string[];
   depositAssets: DepositAsset[];
   /**

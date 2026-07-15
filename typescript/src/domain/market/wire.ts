@@ -81,6 +81,7 @@ export interface MarketResponse {
   icon_url_medium?: string;
   icon_url_high?: string;
   category?: string;
+  subcategory?: string;
   tags?: string[];
   featured_rank?: number;
   market_pubkey: string;
