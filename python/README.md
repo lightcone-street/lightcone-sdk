@@ -247,6 +247,8 @@ positions = await client.positions().positions_with_auth(
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
 
+The authenticated markets client provides `favorite_markets()`, `add_favorite_market(market_pubkey)`, and `remove_favorite_market(market_pubkey)`, plus `_with_cookies` variants for server-side cookie forwarding. [`with_cookies`](examples/with_cookies.py) exercises these methods and restores the original favorite state.
+
 ### Setup & Authentication
 
 | Example | Description |

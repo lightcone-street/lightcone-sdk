@@ -211,6 +211,41 @@ export class LightconeHttp {
     return this.requestWithRetry<T>("POST", url, body, retry, { kind: "cookie" });
   }
 
+  async delete<T>(url: string, retry: RetryPolicy): Promise<T> {
+    return this.requestWithRetry<T>("DELETE", url, undefined, retry, { kind: "cookie" });
+  }
+
+  async postWithCookies<T, B extends object>(
+    url: string,
+    body: B,
+    retry: RetryPolicy,
+    cookieHeader: string
+  ): Promise<T> {
+    return this.requestWithRetry<T>(
+      "POST",
+      url,
+      body,
+      retry,
+      { kind: "cookieOverride", cookieHeader },
+      false
+    );
+  }
+
+  async deleteWithCookies<T>(
+    url: string,
+    retry: RetryPolicy,
+    cookieHeader: string
+  ): Promise<T> {
+    return this.requestWithRetry<T>(
+      "DELETE",
+      url,
+      undefined,
+      retry,
+      { kind: "cookieOverride", cookieHeader },
+      false
+    );
+  }
+
   /**
    * POST with the 401 credential-restore-and-replay disabled. For
    * credential-management endpoints (login, logout): they are the machinery
@@ -261,7 +296,7 @@ export class LightconeHttp {
   }
 
   private async requestWithRetry<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     url: string,
     body: object | undefined,
     policy: RetryPolicy,
@@ -371,7 +406,7 @@ export class LightconeHttp {
   }
 
   private async sendRequest<T>(
-    method: "GET" | "POST",
+    method: "GET" | "POST" | "DELETE",
     url: string,
     bodyText: string | undefined,
     authMode: AuthMode,

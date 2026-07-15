@@ -28,6 +28,17 @@ pub struct GlobalDepositAssetsResult {
     pub validation_errors: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FavoriteMarkets {
+    pub market_pubkeys: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FavoriteMarketUpdate {
+    pub market_pubkey: String,
+    pub favorited: bool,
+}
+
 pub struct Markets<'a> {
     pub(crate) client: &'a LightconeClient,
 }
@@ -199,6 +210,84 @@ impl<'a> Markets<'a> {
             assets,
             validation_errors,
         })
+    }
+
+    /// List the authenticated user's favorite market pubkeys.
+    pub async fn favorite_markets(&self) -> Result<FavoriteMarkets, SdkError> {
+        let url = format!("{}/api/users/favorite-markets", self.client.http.base_url());
+        self.client.http.get(&url, RetryPolicy::Idempotent).await
+    }
+
+    /// List favorites while forwarding an explicit per-call cookie header.
+    pub async fn favorite_markets_with_cookies(
+        &self,
+        cookie_header: &str,
+    ) -> Result<FavoriteMarkets, SdkError> {
+        let url = format!("{}/api/users/favorite-markets", self.client.http.base_url());
+        self.client
+            .http
+            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
+            .await
+    }
+
+    /// Add a market to the authenticated user's favorites.
+    pub async fn add_favorite_market(
+        &self,
+        market_pubkey: &str,
+    ) -> Result<FavoriteMarketUpdate, SdkError> {
+        let url = format!(
+            "{}/api/users/favorite-markets/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(market_pubkey)
+        );
+        self.client.http.post(&url, &(), RetryPolicy::None).await
+    }
+
+    /// Add a favorite while forwarding an explicit per-call cookie header.
+    pub async fn add_favorite_market_with_cookies(
+        &self,
+        market_pubkey: &str,
+        cookie_header: &str,
+    ) -> Result<FavoriteMarketUpdate, SdkError> {
+        let url = format!(
+            "{}/api/users/favorite-markets/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(market_pubkey)
+        );
+        self.client
+            .http
+            .post_with_cookies(&url, &(), RetryPolicy::None, cookie_header)
+            .await
+    }
+
+    /// Remove a market from the authenticated user's favorites.
+    pub async fn remove_favorite_market(
+        &self,
+        market_pubkey: &str,
+    ) -> Result<FavoriteMarketUpdate, SdkError> {
+        let url = format!(
+            "{}/api/users/favorite-markets/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(market_pubkey)
+        );
+        self.client.http.delete(&url, RetryPolicy::None).await
+    }
+
+    /// Remove a favorite while forwarding an explicit per-call cookie header.
+    pub async fn remove_favorite_market_with_cookies(
+        &self,
+        market_pubkey: &str,
+        cookie_header: &str,
+    ) -> Result<FavoriteMarketUpdate, SdkError> {
+        let url = format!(
+            "{}/api/users/favorite-markets/{}",
+            self.client.http.base_url(),
+            urlencoding::encode(market_pubkey)
+        );
+        self.client
+            .http
+            .delete_with_cookies(&url, RetryPolicy::None, cookie_header)
+            .await
     }
 
     // ── PDA helpers ──────────────────────────────────────────────────────

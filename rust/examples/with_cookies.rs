@@ -1,7 +1,7 @@
 //! Per-call cookie forwarding for SSR / server-function consumers.
 //!
 //! Demonstrates the `_with_cookies` variants on `Positions`, `Notifications`,
-//! `Referrals`, `Orders`, and `Metrics`. These bypass the SDK's process-wide
+//! `Referrals`, `Orders`, `Metrics`, and `Markets`. These bypass the SDK's process-wide
 //! `auth_token` store and forward the supplied raw `Cookie` header for that
 //! single call only — so a server can relay whatever auth cookies the browser
 //! sent (`privy-token` and/or `lightcone-token`).
@@ -76,6 +76,42 @@ async fn main() -> ExampleResult {
         "user metrics: volume_usd={} outcomes_traded={}",
         user_metrics.total_volume_usd, user_metrics.total_outcomes_traded
     );
+
+    let favorite_markets = client
+        .markets()
+        .favorite_markets_with_cookies(&cookie_header)
+        .await?;
+    println!(
+        "favorite markets: {}",
+        favorite_markets.market_pubkeys.len()
+    );
+
+    if let Some(market) = client.markets().get(None, Some(1)).await?.markets.first() {
+        let was_favorited = favorite_markets
+            .market_pubkeys
+            .iter()
+            .any(|pubkey| pubkey == market.pubkey.as_str());
+        if was_favorited {
+            client
+                .markets()
+                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+            client
+                .markets()
+                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+        } else {
+            client
+                .markets()
+                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+            client
+                .markets()
+                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+        }
+        println!("restored favorite state for {}", market.pubkey);
+    }
 
     Ok(())
 }

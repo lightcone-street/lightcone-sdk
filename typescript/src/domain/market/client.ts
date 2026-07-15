@@ -35,6 +35,15 @@ export interface GlobalDepositAssetsResult {
   validationErrors: string[];
 }
 
+export interface FavoriteMarkets {
+  market_pubkeys: string[];
+}
+
+export interface FavoriteMarketUpdate {
+  market_pubkey: string;
+  favorited: boolean;
+}
+
 export class Markets {
   constructor(private readonly client: ClientContext) {}
 
@@ -166,6 +175,42 @@ export class Markets {
     }
 
     return { assets, validationErrors };
+  }
+
+  async favoriteMarkets(): Promise<FavoriteMarkets> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets`;
+    return this.client.http.get<FavoriteMarkets>(url, RetryPolicy.Idempotent);
+  }
+
+  async favoriteMarketsWithCookies(cookieHeader: string): Promise<FavoriteMarkets> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets`;
+    return this.client.http.getWithCookies<FavoriteMarkets>(url, RetryPolicy.Idempotent, cookieHeader);
+  }
+
+  async addFavoriteMarket(marketPubkey: string): Promise<FavoriteMarketUpdate> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
+    return this.client.http.post<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.None);
+  }
+
+  async addFavoriteMarketWithCookies(
+    marketPubkey: string,
+    cookieHeader: string
+  ): Promise<FavoriteMarketUpdate> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
+    return this.client.http.postWithCookies<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.None, cookieHeader);
+  }
+
+  async removeFavoriteMarket(marketPubkey: string): Promise<FavoriteMarketUpdate> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
+    return this.client.http.delete<FavoriteMarketUpdate>(url, RetryPolicy.None);
+  }
+
+  async removeFavoriteMarketWithCookies(
+    marketPubkey: string,
+    cookieHeader: string
+  ): Promise<FavoriteMarketUpdate> {
+    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
+    return this.client.http.deleteWithCookies<FavoriteMarketUpdate>(url, RetryPolicy.None, cookieHeader);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

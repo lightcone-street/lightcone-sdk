@@ -355,6 +355,55 @@ class LightconeHttp:
             json=body,
         )
 
+    async def delete(
+        self,
+        path: str,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+    ) -> Any:
+        """Make a DELETE request with user auth cookie injection."""
+        return await self._request_with_retry(
+            "DELETE",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE,
+        )
+
+    async def post_with_cookies(
+        self,
+        path: str,
+        body: Any,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+        *,
+        cookie_header: str,
+    ) -> Any:
+        """Make a POST request forwarding an explicit per-call Cookie header."""
+        return await self._request_with_retry(
+            "POST",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE_OVERRIDE,
+            cookie_header_override=cookie_header,
+            allow_credential_restore=False,
+            json=body,
+        )
+
+    async def delete_with_cookies(
+        self,
+        path: str,
+        retry_policy: RetryPolicy = RetryPolicy.NONE,
+        *,
+        cookie_header: str,
+    ) -> Any:
+        """Make a DELETE request forwarding an explicit per-call Cookie header."""
+        return await self._request_with_retry(
+            "DELETE",
+            path,
+            retry_policy=retry_policy,
+            auth_mode=_AuthMode.COOKIE_OVERRIDE,
+            cookie_header_override=cookie_header,
+            allow_credential_restore=False,
+        )
+
     async def _request_with_retry(
         self,
         method: str,

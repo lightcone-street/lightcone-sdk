@@ -290,13 +290,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.ts) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuth` variant |
+| [`with_cookies`](examples/with_cookies.ts) | Per-call cookie forwarding for SSR / route-handler consumers, including favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, and platform deposit assets via `globalDepositAssets()`; authenticated favorite-market APIs are demonstrated by `with_cookies` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |

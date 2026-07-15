@@ -219,6 +219,10 @@ async fn global_deposit_assets(&self) -> Result<GlobalDepositAssetsResult, SdkEr
 
 Fetch the active global deposit asset whitelist (platform-scoped, not market-bound). Assets that fail validation are skipped with their errors in `validation_errors`.
 
+### Favorite markets
+
+`favorite_markets()` lists the authenticated user's favorite market pubkeys. `add_favorite_market(market_pubkey)` and `remove_favorite_market(market_pubkey)` update one favorite and return `FavoriteMarketUpdate { market_pubkey, favorited }`. Each method has a `_with_cookies(cookie_header)` variant for forwarding a per-request cookie from SSR or server-function callers.
+
 ### Market Helpers
 
 #### `derive_condition_id`

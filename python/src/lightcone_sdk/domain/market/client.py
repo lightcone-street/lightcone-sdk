@@ -37,6 +37,7 @@ from ...program.pda import (
 from ...program.types import Market as OnchainMarket
 from ...program.utils import derive_condition_id
 from ...rpc import require_connection
+from ...http.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -177,6 +178,54 @@ class Markets:
         return GlobalDepositAssetsResult(
             assets=assets,
             validation_errors=validation_errors,
+        )
+
+    async def favorite_markets(self) -> list[str]:
+        """List the authenticated user's favorite market pubkeys."""
+        data = await self._client._http.get("/api/users/favorite-markets")
+        return list(data["market_pubkeys"])
+
+    async def favorite_markets_with_cookies(self, cookie_header: str) -> list[str]:
+        """List favorites while forwarding an explicit per-call Cookie header."""
+        data = await self._client._http.get_with_cookies(
+            "/api/users/favorite-markets", cookie_header=cookie_header
+        )
+        return list(data["market_pubkeys"])
+
+    async def add_favorite_market(self, market_pubkey: str) -> dict[str, object]:
+        """Add a market to the authenticated user's favorites."""
+        return await self._client._http.post(
+            f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
+            {},
+            RetryPolicy.NONE,
+        )
+
+    async def add_favorite_market_with_cookies(
+        self, market_pubkey: str, cookie_header: str
+    ) -> dict[str, object]:
+        """Add a favorite while forwarding an explicit per-call Cookie header."""
+        return await self._client._http.post_with_cookies(
+            f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
+            {},
+            RetryPolicy.NONE,
+            cookie_header=cookie_header,
+        )
+
+    async def remove_favorite_market(self, market_pubkey: str) -> dict[str, object]:
+        """Remove a market from the authenticated user's favorites."""
+        return await self._client._http.delete(
+            f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
+            RetryPolicy.NONE,
+        )
+
+    async def remove_favorite_market_with_cookies(
+        self, market_pubkey: str, cookie_header: str
+    ) -> dict[str, object]:
+        """Remove a favorite while forwarding an explicit per-call Cookie header."""
+        return await self._client._http.delete_with_cookies(
+            f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
+            RetryPolicy.NONE,
+            cookie_header=cookie_header,
         )
 
     # ── On-chain account fetchers (require connection) ───────────────────
