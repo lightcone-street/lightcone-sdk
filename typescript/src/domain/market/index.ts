@@ -55,7 +55,7 @@ export interface Market {
   settledAt?: Date;
   resolution?: MarketResolutionResponse;
   description?: string;
-  definition?: string;
+  definition: string;
   category?: string;
   subcategory?: string;
   tags: string[];

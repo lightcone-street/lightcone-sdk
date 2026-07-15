@@ -124,15 +124,14 @@ function marketResponse(
 }
 
 describe("market metadata", () => {
-  it("converts markets without description, definition, banners, subcategory, or tags", () => {
+  it("converts markets without description, banners, subcategory, or tags", () => {
     const response = marketResponse();
     delete response.description;
-    delete response.definition;
     delete response.banner_image_url_low;
 
     const market = marketFromWire(response);
     assert.equal(market.description, undefined);
-    assert.equal(market.definition, undefined);
+    assert.equal(market.definition, "Definition");
     assert.equal(market.bannerImageUrlLow, undefined);
     assert.equal(market.bannerImageUrlMedium, undefined);
     assert.equal(market.bannerImageUrlHigh, undefined);
@@ -150,6 +149,15 @@ describe("market metadata", () => {
     assert.equal(market.definition, "Definition");
     assert.equal(market.subcategory, "Bitcoin");
     assert.deepEqual(market.tags, ["btc"]);
+  });
+
+  it("rejects markets without a non-empty string definition", () => {
+    for (const definition of [undefined, "", 1]) {
+      const response = marketResponse();
+      (response as { definition?: unknown }).definition = definition;
+
+      assert.throws(() => marketFromWire(response), /Missing definition/);
+    }
   });
 
   it("cross-falls-back banner URLs when partially set", () => {

@@ -52,9 +52,11 @@ export function marketFromWire(source: MarketResponse): Market {
   });
 
   const status = statusFromWire(source.market_status);
+  const definition = typeof source.definition === "string" ? source.definition : undefined;
   if (!source.slug) errors.push("Missing slug");
   if (!source.market_name) errors.push("Missing market name");
   if (!status) errors.push(`Invalid status: ${source.market_status}`);
+  if (!definition) errors.push("Missing definition");
 
   const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
   if (!iconUrls) errors.push("Missing icon URL");
@@ -92,7 +94,7 @@ export function marketFromWire(source: MarketResponse): Market {
     settledAt: source.settled_at ? new Date(source.settled_at) : undefined,
     resolution: source.resolution,
     description: source.description,
-    definition: source.definition,
+    definition: definition as string,
     category: source.category,
     subcategory: source.subcategory,
     tags: source.tags ?? [],

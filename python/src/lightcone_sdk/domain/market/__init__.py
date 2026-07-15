@@ -219,6 +219,7 @@ class Market:
     id: int
     pubkey: str
     name: str
+    definition: str
     banner_image_url_low: Optional[str] = None
     banner_image_url_medium: Optional[str] = None
     banner_image_url_high: Optional[str] = None
@@ -233,7 +234,6 @@ class Market:
     settled_at: Optional[str] = None
     resolution: Optional[MarketResolutionResponse] = None
     description: Optional[str] = None
-    definition: Optional[str] = None
     category: Optional[str] = None
     subcategory: Optional[str] = None
     tags: list[str] = field(default_factory=list)
