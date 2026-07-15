@@ -32,6 +32,10 @@ thread_local! {
     static RECONNECT_TIMEOUT: RefCell<Option<Timeout>> = RefCell::new(None);
     static RECONNECT_ATTEMPTS: RefCell<u32> = RefCell::new(0);
     static RECONNECT_SCHEDULED: RefCell<bool> = RefCell::new(false);
+    // When true the connection stays down: every reconnect path funnels
+    // through schedule_reconnect(), which becomes a no-op until the next
+    // explicit connect()/restart_connection() clears the flag. See stop().
+    static STOPPED: RefCell<bool> = RefCell::new(false);
     static PENDING_MESSAGES: RefCell<Vec<MessageOut>> = RefCell::new(Vec::new());
     static ACTIVE_SUBSCRIPTIONS: RefCell<Vec<SubscribeParams>> = RefCell::new(Vec::new());
 }
@@ -49,6 +53,9 @@ impl WsClient {
     /// The `on_event` callback will be called for every connection event
     /// (connected, disconnected, message, error, max reconnect reached).
     pub fn connect(config: WsConfig, on_event: impl Fn(WsEvent) + 'static) {
+        STOPPED.with(|s| {
+            let _ = s.try_borrow_mut().map(|mut v| *v = false);
+        });
         CONFIG.with(|c| *c.borrow_mut() = Some(config));
         ON_EVENT.with(|cb| *cb.borrow_mut() = Some(Box::new(on_event)));
         Self::do_connect();
@@ -116,6 +123,9 @@ impl WsClient {
         }
 
         tracing::info!("Manual reconnection requested");
+        STOPPED.with(|s| {
+            let _ = s.try_borrow_mut().map(|mut v| *v = false);
+        });
         Self::cleanup_connection();
         Self::cancel_reconnect();
 
@@ -127,6 +137,39 @@ impl WsClient {
         });
 
         Self::do_connect();
+    }
+
+    /// Take the connection down and KEEP it down: closes the socket, cancels
+    /// any pending reconnect, and suppresses every automatic reconnect path
+    /// (close events, health checks, queued sends) until the next explicit
+    /// [`connect`](Self::connect) or
+    /// [`restart_connection`](Self::restart_connection).
+    ///
+    /// For callers whose credential teardown failed: the browser attaches
+    /// cookies to the WS handshake automatically, so reconnecting after an
+    /// incomplete logout would authenticate the socket as the user who just
+    /// logged out. Stopping is the only way to guarantee that cannot happen.
+    pub fn stop() {
+        tracing::info!("WebSocket stopped; auto-reconnect suppressed until an explicit restart");
+        STOPPED.with(|s| {
+            let _ = s.try_borrow_mut().map(|mut v| *v = true);
+        });
+        Self::cancel_reconnect();
+        RECONNECT_SCHEDULED.with(|s| {
+            let _ = s.try_borrow_mut().map(|mut v| *v = false);
+        });
+        Self::cleanup_connection();
+    }
+
+    /// True after [`stop`](Self::stop), until the next explicit
+    /// [`connect`](Self::connect) or
+    /// [`restart_connection`](Self::restart_connection). App-level recovery
+    /// flows (e.g. an auth-refresh loop that restarts the socket on success)
+    /// must check this before restarting: their restart would otherwise
+    /// cancel a deliberate stop and reconnect with whatever credentials the
+    /// stop was protecting against.
+    pub fn is_stopped() -> bool {
+        STOPPED.with(|s| s.try_borrow().map(|v| *v).unwrap_or(false))
     }
 
     pub fn is_connected() -> bool {
@@ -381,6 +424,12 @@ impl WsClient {
     }
 
     fn schedule_reconnect(is_rate_limit: bool) {
+        let stopped = STOPPED.with(|s| s.try_borrow().map(|v| *v).unwrap_or(false));
+        if stopped {
+            tracing::info!("WebSocket is stopped; suppressing reconnect");
+            return;
+        }
+
         let already_scheduled = RECONNECT_SCHEDULED.with(|s| {
             s.try_borrow_mut()
                 .map(|mut flag| {
@@ -481,7 +530,15 @@ impl WsClient {
                     w.set_onerror(None);
                     w.set_onclose(None);
 
-                    if ReadyState::from(w.ready_state()) == ReadyState::Open {
+                    // Close Connecting sockets too, not just Open ones: a
+                    // detached-but-unclosed handshake would complete in the
+                    // background and leave the server with a live (possibly
+                    // authenticated) connection nobody owns — close() during
+                    // CONNECTING aborts the handshake per the WebSocket spec.
+                    if matches!(
+                        ReadyState::from(w.ready_state()),
+                        ReadyState::Open | ReadyState::Connecting
+                    ) {
                         let _ = w.close();
                     }
                 }

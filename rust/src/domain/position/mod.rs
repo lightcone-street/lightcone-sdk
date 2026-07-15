@@ -197,7 +197,7 @@ impl ConditionalBalanceDelta {
 
 pub type ConditionalTokenBalanceIndex = HashMap<PubkeyStr, UserOutcomeBalance>;
 pub type DepositAssetBalanceIndex = HashMap<PubkeyStr, ConditionalTokenBalanceIndex>;
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct UserMarketBalanceIndex(pub HashMap<PubkeyStr, DepositAssetBalanceIndex>);
 
 impl UserMarketBalanceIndex {

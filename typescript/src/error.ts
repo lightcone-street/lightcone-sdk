@@ -85,6 +85,15 @@ export class HttpError extends Error {
     });
   }
 
+  /**
+   * NOT produced by the SDK's HTTP retry loop. On retry exhaustion the FINAL
+   * attempt's error propagates unchanged — structured rejection details,
+   * status classification (isUnauthorized etc.), and request id intact —
+   * because flattening it into this wrapper's message string would destroy
+   * everything callers switch on (see the retry-exhaustion tests). The
+   * factory stays public for consumers that build their own retry loops on
+   * the raw/no-restore primitives and want a conventional exhaustion error.
+   */
   static maxRetriesExceeded(attempts: number, lastError: string): HttpError {
     return new HttpError({
       variant: "MaxRetriesExceeded",
@@ -217,4 +226,28 @@ export class SdkError extends Error {
   static apiRejected(details: ApiRejectedDetails): SdkError {
     return new SdkError("ApiRejected", details.toString(), undefined, details);
   }
+}
+
+/**
+ * True when the backend rejected a request as unauthenticated (HTTP 401) —
+ * either a bare 401 (`HttpError` with variant `Unauthorized`) or a 401 that
+ * carried a structured rejection envelope (`SdkError` `ApiRejected` with an
+ * `httpStatus` of 401). Lets callers decide whether refreshing credentials
+ * and retrying makes sense without matching on backend error strings.
+ * Accepts `unknown` because the transport surfaces both `HttpError` and
+ * `SdkError` to callers.
+ */
+export function isUnauthorized(error: unknown): boolean {
+  if (error instanceof HttpError) {
+    return error.variant === "Unauthorized";
+  }
+  if (error instanceof SdkError) {
+    if (error.variant === "ApiRejected") {
+      return error.apiRejectedDetails?.httpStatus === 401;
+    }
+    if (error.variant === "Http" && error.causeError instanceof HttpError) {
+      return error.causeError.variant === "Unauthorized";
+    }
+  }
+  return false;
 }

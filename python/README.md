@@ -356,6 +356,22 @@ except ApiRejected as err:
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.
 
+### Credential restoration (401 recovery)
+
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. by re-running login). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied async hook:
+
+```python
+async def restore_credentials() -> bool:
+    # e.g. re-run the login flow so the auth cookie is valid again
+    return await refresh_session()
+
+client.set_credential_restorer(restore_credentials)
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.NONE` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration is cancelled outright (asyncio task cancellation), so it can never keep running alongside the next one. The transport also disables aiohttp's ambient cookie jar (`DummyCookieJar`): cookies are managed explicitly, so a response's `Set-Cookie` can never silently ride a later request.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `lightcone_sdk.error.is_unauthorized(error)` — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).
+
 ## Trigger Orders
 
 Trigger orders (stop-limit, take-profit-limit) are under development and not yet available. Internal types exist in the source for internal use only.

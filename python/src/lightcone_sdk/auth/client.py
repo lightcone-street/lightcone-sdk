@@ -22,7 +22,7 @@ from . import (
     XIdentity,
     generate_signin_message,
 )
-from ..error import DeserializationError, _require
+from ..error import DeserializationError, _require, is_unauthorized
 from ..http.retry import RetryPolicy
 
 if TYPE_CHECKING:
@@ -91,10 +91,15 @@ class Auth:
         if use_embedded_wallet is not None:
             body["use_embedded_wallet"] = use_embedded_wallet
 
+        # Credential-management endpoint: opts out of the transport's 401
+        # restore-and-replay. The backend consumes the login nonce before
+        # verifying the signature, so a replayed login deterministically
+        # fails — and restoring credentials in order to log in is circular.
         data = await self._client._http.post(
             "/api/auth/login_or_register_with_message",
             body,
             retry_policy=RetryPolicy.NONE,
+            allow_credential_restore=False,
         )
 
         session = _session_from_dict(data)
@@ -151,17 +156,33 @@ class Auth:
         return session
 
     async def logout(self) -> None:
-        """Logout — clears server-side cookie, internal token, and credentials."""
+        """Logout — clears server-side cookie, internal token, and credentials.
+
+        Local state is cleared even when the server call fails — the caller
+        asked to be signed out locally regardless — but the failure is then
+        re-raised: callers gating security decisions on teardown (e.g. whether
+        an app may restart an authenticated transport) must be able to see
+        that the server-side cookie may still be valid. A 401 counts as
+        success: it means "already logged out".
+        """
+        logout_error: Exception | None = None
         try:
+            # Credential-management endpoint: opts out of the transport's 401
+            # restore-and-replay — a 401 here means "already logged out".
             await self._client._http.post(
                 "/api/auth/logout", {},
                 retry_policy=RetryPolicy.NONE,
+                allow_credential_restore=False,
             )
-        except Exception:
-            pass
+        except Exception as error:
+            if not is_unauthorized(error):
+                logout_error = error
 
         self._client._http.clear_auth_token()
         self._credentials = None
+
+        if logout_error is not None:
+            raise logout_error
 
     async def disconnect_x(self) -> None:
         """Disconnect the user's linked X (Twitter) account."""
