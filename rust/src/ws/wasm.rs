@@ -149,6 +149,15 @@ impl WsClient {
     /// cookies to the WS handshake automatically, so reconnecting after an
     /// incomplete logout would authenticate the socket as the user who just
     /// logged out. Stopping is the only way to guarantee that cannot happen.
+    ///
+    /// Messages already sitting in the send queue are DROPPED — they belong
+    /// to the session being stopped and must not flush down the next
+    /// session's socket. Tracked subscriptions deliberately survive: they
+    /// describe the app's current interest (public books) and are replayed
+    /// on the next explicit restart; session-scoped subscriptions must be
+    /// pruned by the caller before stopping (see
+    /// [`clear_authed_subscriptions`](Self::clear_authed_subscriptions)),
+    /// the same way an app prunes them on logout.
     pub fn stop() {
         tracing::info!("WebSocket stopped; auto-reconnect suppressed until an explicit restart");
         STOPPED.with(|s| {
@@ -157,6 +166,24 @@ impl WsClient {
         Self::cancel_reconnect();
         RECONNECT_SCHEDULED.with(|s| {
             let _ = s.try_borrow_mut().map(|mut v| *v = false);
+        });
+        // Drop messages queued BEFORE the stop: they were addressed to the
+        // session being torn down (e.g. an unsubscribe queued while the
+        // socket was already down during logout) and would otherwise flush
+        // down the next session's freshly authenticated socket at the next
+        // explicit restart. Messages queued WHILE stopped are unaffected —
+        // those are current app intent (e.g. book subscriptions from
+        // browsing while signed out) and should flush after the restart.
+        PENDING_MESSAGES.with(|pending| {
+            if let Ok(mut queue) = pending.try_borrow_mut() {
+                if !queue.is_empty() {
+                    tracing::info!(
+                        "Dropping {} queued message(s) with the stopped session",
+                        queue.len()
+                    );
+                    queue.clear();
+                }
+            }
         });
         Self::cleanup_connection();
     }
