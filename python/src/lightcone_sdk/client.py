@@ -22,6 +22,7 @@ from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
 from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
+from .http.credential_restorer import CredentialRestorer
 from .env import LightconeEnv
 from .privy.client import Privy
 from .rpc import Rpc
@@ -357,6 +358,23 @@ class LightconeClient:
         (and 401) unless they use a ``*_with_cookies`` variant.
         """
         self._http.clear_auth_token()
+
+    def set_credential_restorer(self, restorer: "CredentialRestorer") -> None:
+        """Register the credential restorer consulted when a request 401s.
+
+        The restorer attempts to restore credentials (e.g. re-run a login so
+        the auth cookie is valid again); on success the transport replays the
+        request once IF it declared itself retry-safe (``RetryPolicy.NONE``
+        mutations are never auto-replayed). See :mod:`lightcone_sdk.http.credential_restorer`.
+        Without a restorer, 401s propagate to callers unchanged.
+
+        Common use: set once at app startup, alongside the signing strategy.
+        """
+        self._http.set_credential_restorer(restorer)
+
+    def clear_credential_restorer(self) -> None:
+        """Remove the credential restorer (e.g. in tests); 401s propagate again."""
+        self._http.clear_credential_restorer()
 
     async def close(self) -> None:
         """Close the HTTP session."""

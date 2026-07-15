@@ -235,6 +235,8 @@ After login succeeds, the SDK stores the session token internally and attaches i
 
 When the SDK runs on a server (SSR, an Express / Next.js route handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
+> **Behavior change.** `getWithCookies` responses no longer capture `Set-Cookie` into the shared token slot (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
+
 For these cases, authed methods that need per-call forwarding ship a `*WithAuth(authToken)` sibling that injects the cookie just for that one call:
 
 ```typescript
@@ -430,13 +432,28 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 | `NotFound` | 404 - resource not found |
 | `BadRequest` | 400 - invalid request |
 | `Timeout` | Request timed out |
-| `MaxRetriesExceeded` | All retry attempts exhausted |
+| `MaxRetriesExceeded` | Never produced by the SDK itself: the HTTP retry loop propagates the final underlying error on exhaustion (structured details intact — see the retry-exhaustion tests). Kept public for consumer-built retry loops |
 
 ## Retry Strategy
 
 - **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
 - **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
+
+### Credential restoration (401 recovery)
+
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. a browser refreshing its Privy session). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied hook:
+
+```typescript
+client.setCredentialRestorer(async () => {
+  // e.g. ask the auth provider's SDK to refresh the session
+  return await refreshSession();
+});
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration has its `AbortSignal` fired — promises cannot be cancelled, so restorers whose work is non-idempotent (refresh-token rotation) must honor the signal or serialize internally.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `isUnauthorized(error)` from the error module — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.httpStatus`).
 
 ## Trigger Orders
 

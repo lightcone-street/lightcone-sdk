@@ -75,6 +75,14 @@ pub struct ApiRejectedDetails {
     /// Set internally by the HTTP client on error; not present in the backend JSON response.
     #[serde(skip)]
     pub request_id: Option<String>,
+
+    /// HTTP status of the response that carried this rejection. Set internally
+    /// by the HTTP client when the rejection rode a non-2xx response; not
+    /// present in the backend JSON response. Lets callers classify rejections
+    /// at the transport level (e.g. [`crate::error::SdkError::is_unauthorized`])
+    /// without matching on backend error strings.
+    #[serde(skip)]
+    pub http_status: Option<u16>,
 }
 
 impl fmt::Display for ApiRejectedDetails {
@@ -177,6 +185,7 @@ mod tests {
             error_code: None,
             error_log_id: Some("LCERR_abc".to_string()),
             request_id: Some("req-123".to_string()),
+            http_status: None,
         };
         let text = format!("{}", details);
         assert!(text.contains("Reason: Not enough funds"));
@@ -193,6 +202,7 @@ mod tests {
             error_code: None,
             error_log_id: None,
             request_id: None,
+            http_status: None,
         };
         assert_eq!(format!("{}", details), "Reason: Something broke");
     }

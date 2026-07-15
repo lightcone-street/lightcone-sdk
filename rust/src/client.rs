@@ -268,6 +268,27 @@ impl LightconeClient {
         *self.signing_strategy.write().await = None;
     }
 
+    /// Register the credential restorer consulted when a request fails with
+    /// HTTP 401: it attempts to restore credentials (e.g. refresh the app's
+    /// auth session so the auth cookie is valid again); on success the
+    /// transport replays the request once IF it declared itself retry-safe
+    /// (mutations with `RetryPolicy::None` are never auto-replayed). See
+    /// [`crate::http::CredentialRestorer`]. Without a restorer, 401s
+    /// propagate to callers unchanged.
+    ///
+    /// Common use: set once at app startup, alongside the signing strategy.
+    pub async fn set_credential_restorer(
+        &self,
+        restorer: std::sync::Arc<dyn crate::http::CredentialRestorer>,
+    ) {
+        self.http.set_credential_restorer(restorer).await;
+    }
+
+    /// Remove the credential restorer (e.g. in tests); 401s propagate again.
+    pub async fn clear_credential_restorer(&self) {
+        self.http.clear_credential_restorer().await;
+    }
+
     // ── Faucet (testnet only) ──────────────────────────────────────────
 
     /// Request testnet SOL and whitelisted deposit tokens for a wallet.

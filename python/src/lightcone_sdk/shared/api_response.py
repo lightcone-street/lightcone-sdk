@@ -19,6 +19,12 @@ class ApiRejectedDetails:
     error_code: Optional[str] = None
     error_log_id: Optional[str] = None
     request_id: Optional[str] = None
+    # HTTP status of the response that carried this rejection. Set by the HTTP
+    # client when the rejection rode a non-2xx response; not present in the
+    # backend JSON. Lets callers classify rejections at the transport level
+    # (e.g. ``lightcone_sdk.error.is_unauthorized``) without matching on
+    # backend error strings.
+    http_status: Optional[int] = None
 
     @staticmethod
     def from_dict(data: dict) -> "ApiRejectedDetails":
@@ -31,6 +37,9 @@ class ApiRejectedDetails:
 
     def with_request_id(self, request_id: Optional[str]) -> "ApiRejectedDetails":
         return replace(self, request_id=request_id)
+
+    def with_http_status(self, http_status: Optional[int]) -> "ApiRejectedDetails":
+        return replace(self, http_status=http_status)
 
     def __str__(self) -> str:
         lines = [f"Reason: {self.reason}"]
