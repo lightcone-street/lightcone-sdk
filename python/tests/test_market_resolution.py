@@ -130,6 +130,7 @@ def market_payload(resolution: dict | None = None) -> dict:
 def test_optional_metadata_fields_do_not_fail_validation() -> None:
     payload = market_payload()
     del payload["description"]
+    del payload["definition"]
     del payload["banner_image_url_low"]
 
     wire = MarketWire.from_dict(payload)
@@ -137,6 +138,7 @@ def test_optional_metadata_fields_do_not_fail_validation() -> None:
 
     market = market_from_wire(wire)
     assert market.description is None
+    assert market.definition is None
     assert market.banner_image_url_low is None
     assert market.banner_image_url_medium is None
     assert market.banner_image_url_high is None
@@ -151,6 +153,7 @@ def test_optional_metadata_fields_pass_through_when_present() -> None:
 
     market = market_from_wire(MarketWire.from_dict(payload))
     assert market.description == "Description"
+    assert market.definition == "Definition"
     assert market.subcategory == "Bitcoin"
     assert market.tags == ["btc"]
 

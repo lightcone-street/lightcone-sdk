@@ -56,8 +56,6 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing slug")
     if not wire.market_name:
         errors.append("Missing name")
-    if not wire.definition:
-        errors.append("Missing definition")
     if (
         _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
         is None
@@ -237,7 +235,7 @@ def market_from_wire(wire: MarketWire) -> Market:
         settled_at=wire.settled_at,
         resolution=wire.resolution,
         description=wire.description,
-        definition=wire.definition or "",
+        definition=wire.definition,
         category=wire.category,
         subcategory=wire.subcategory,
         tags=wire.tags,

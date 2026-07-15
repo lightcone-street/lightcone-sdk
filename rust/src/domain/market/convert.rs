@@ -69,10 +69,6 @@ impl TryFrom<wire::MarketResponse> for Market {
             errors.push(ValidationError::InvalidStatus);
             Status::Pending
         });
-        let definition = source.definition.clone().unwrap_or_else(|| {
-            errors.push(ValidationError::MissingDefinition);
-            String::new()
-        });
         let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
             source.icon_url_low.clone(),
             source.icon_url_medium.clone(),
@@ -118,7 +114,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             settled_at: source.settled_at,
             resolution: source.resolution,
             description: source.description,
-            definition,
+            definition: source.definition,
             tags: source.tags.unwrap_or_default(),
             outcomes,
             icon_url_low,
@@ -378,9 +374,10 @@ mod tests {
 
     #[test]
     fn optional_metadata_fields_do_not_fail_validation() {
-        // description, banners, subcategory, and tags are all optional.
+        // description, definition, banners, subcategory, and tags are all optional.
         let mut resp = valid_market_response(None);
         resp.description = None;
+        resp.definition = None;
         resp.banner_image_url_low = None;
         resp.banner_image_url_medium = None;
         resp.banner_image_url_high = None;
@@ -389,6 +386,7 @@ mod tests {
 
         let market = Market::try_from(resp).unwrap();
         assert_eq!(market.description, None);
+        assert_eq!(market.definition, None);
         assert_eq!(market.banner_image_url_low, None);
         assert_eq!(market.banner_image_url_medium, None);
         assert_eq!(market.banner_image_url_high, None);
@@ -400,11 +398,13 @@ mod tests {
     fn optional_metadata_fields_pass_through_when_present() {
         let mut resp = valid_market_response(None);
         resp.description = Some("Description".to_string());
+        resp.definition = Some("Definition".to_string());
         resp.subcategory = Some("Bitcoin".to_string());
         resp.tags = Some(vec!["btc".to_string()]);
 
         let market = Market::try_from(resp).unwrap();
         assert_eq!(market.description.as_deref(), Some("Description"));
+        assert_eq!(market.definition.as_deref(), Some("Definition"));
         assert_eq!(market.subcategory.as_deref(), Some("Bitcoin"));
         assert_eq!(market.tags, vec!["btc".to_string()]);
         assert_eq!(
