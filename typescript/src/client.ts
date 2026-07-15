@@ -12,7 +12,7 @@ import { Positions } from "./domain/position";
 import { PriceHistoryClient } from "./domain/price_history";
 import { Referrals } from "./domain/referral";
 import { Trades } from "./domain/trade";
-import { LightconeHttp, RetryPolicy } from "./http";
+import { LightconeHttp, RetryPolicy, type CredentialRestorer } from "./http";
 import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "./env";
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
@@ -143,6 +143,25 @@ export class LightconeClient implements ClientContext {
    */
   async clearAuthToken(): Promise<void> {
     await this.http.clearAuthToken();
+  }
+
+  /**
+   * Register the credential restorer consulted when a request fails with
+   * HTTP 401: it attempts to restore credentials (e.g. refresh the app's
+   * auth session so the auth cookie is valid again); on success the
+   * transport replays the request once IF it declared itself retry-safe
+   * (RetryPolicy.None mutations are never auto-replayed). See {@link CredentialRestorer}.
+   * Without a restorer, 401s propagate to callers unchanged.
+   *
+   * Common use: set once at app startup, alongside the signing strategy.
+   */
+  setCredentialRestorer(restorer: CredentialRestorer): void {
+    this.http.setCredentialRestorer(restorer);
+  }
+
+  /** Remove the credential restorer (e.g. in tests); 401s propagate again. */
+  clearCredentialRestorer(): void {
+    this.http.clearCredentialRestorer();
   }
 
   // ── Transaction signing + submission ────────────────────────────────

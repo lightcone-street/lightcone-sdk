@@ -275,7 +275,13 @@ function conditionalFromWire(
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
-  if (!source.short_symbol) errors.push("Missing short_symbol");
+  // short_symbol is optional on the wire — the backend's conditional-mint
+  // records currently ship only `symbol` — and the conversion below already
+  // falls back short_symbol ?? symbol (mirroring the rust and python SDKs,
+  // which never required it). Requiring it here made every market invalid
+  // and broke all market-dependent consumers. A token is only invalid when
+  // BOTH are absent: then the fallback chain has nothing to display it by.
+  if (!source.short_symbol && !source.symbol) errors.push("Missing symbol and short_symbol");
   if (!source.outcome) errors.push("Missing outcome");
 
   if (errors.length > 0) {

@@ -1,6 +1,6 @@
 [package]
 name = "lightcone"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2021"
 description = "Rust SDK for the Lightcone Protocol — unified native + WASM client"
 license = "MIT"
@@ -49,7 +49,11 @@ uuid = { version = "1", features = ["v4"] }
 # ── HTTP client (WASM-safe via reqwest's wasm support) ────────────────────────
 reqwest = { version = "0.12", default-features = false, features = ["json"], optional = true }
 async-lock = { version = "3.4", optional = true }
-futures-timer = { version = "3", optional = true }
+# The wasm-bindgen feature is load-bearing: without it, Delay::new calls
+# std::time::Instant::now(), which panics at runtime on wasm32-unknown-unknown
+# ("time not implemented on this platform") — with it, wasm builds use a
+# setTimeout-backed timer (gloo) and native builds are unchanged.
+futures-timer = { version = "3", optional = true, features = ["wasm-bindgen"] }
 
 # ── Native-only dependencies ──────────────────────────────────────────────────
 # Solana client (non-WASM)
@@ -189,7 +193,7 @@ required-features = ["native"]
 default = ["http"]
 
 # HTTP client (Layers 1-3) — works on both native and WASM
-http = ["dep:reqwest", "dep:async-lock", "dep:futures-timer"]
+http = ["dep:reqwest", "dep:async-lock", "dep:futures-timer", "dep:futures-util"]
 
 # Native auth — keypair-based signing
 native-auth = ["dep:solana-keypair", "dep:solana-signer"]

@@ -17,6 +17,13 @@ export class ApiRejectedDetails {
   readonly errorCode?: string;
   readonly errorLogId?: string;
   readonly requestId?: string;
+  /**
+   * HTTP status of the response that carried this rejection. Set by the HTTP
+   * client when the rejection rode a non-2xx response; not present in the
+   * backend JSON. Lets callers classify rejections at the transport level
+   * (e.g. `isUnauthorized`) without matching on backend error strings.
+   */
+  readonly httpStatus?: number;
 
   constructor(params: {
     reason: string;
@@ -24,17 +31,20 @@ export class ApiRejectedDetails {
     errorCode?: string;
     errorLogId?: string;
     requestId?: string;
+    httpStatus?: number;
   }) {
     this.reason = params.reason;
     this.rejectionCode = params.rejectionCode;
     this.errorCode = params.errorCode;
     this.errorLogId = params.errorLogId;
     this.requestId = params.requestId;
+    this.httpStatus = params.httpStatus;
   }
 
   static fromWire(
     wire: ApiRejectedDetailsWire,
-    requestId?: string
+    requestId?: string,
+    httpStatus?: number
   ): ApiRejectedDetails {
     return new ApiRejectedDetails({
       reason: wire.reason,
@@ -44,6 +54,7 @@ export class ApiRejectedDetails {
       errorCode: wire.error_code,
       errorLogId: wire.error_log_id,
       requestId,
+      httpStatus,
     });
   }
 

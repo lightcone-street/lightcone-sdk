@@ -57,10 +57,14 @@ impl<'a> Auth<'a> {
             "{}/api/auth/login_or_register_with_message",
             self.client.http.base_url()
         );
+        // Credential-management endpoint: opts out of the transport's
+        // 401 restore-and-replay. The backend consumes the login nonce before
+        // verifying the signature, so a replayed login deterministically
+        // fails — and restoring credentials in order to log in is circular.
         let session: SessionResponse = self
             .client
             .http
-            .post(&url, &request, RetryPolicy::None)
+            .post_without_credential_restore(&url, &request, RetryPolicy::None)
             .await?;
 
         let credentials = credentials_from_session(&session);
@@ -125,12 +129,26 @@ impl<'a> Auth<'a> {
     }
 
     /// Logout — clears server-side cookie + internal token + all caches.
+    ///
+    /// Local state (token, credentials) is cleared even when the server call
+    /// fails — the caller asked to be signed out locally regardless — but the
+    /// failure is then returned: callers gating security decisions on
+    /// teardown (e.g. whether an app may restart an authenticated transport)
+    /// must be able to see that the server-side cookie may still be valid.
+    /// A 401 counts as success: it means "already logged out".
     pub async fn logout(&self) -> Result<(), SdkError> {
         let url = format!("{}/api/auth/logout", self.client.http.base_url());
-        let _ = self
+        // Credential-management endpoint: opts out of the transport's
+        // 401 restore-and-replay — a 401 here means "already logged out", and
+        // restoring credentials just to log out again would be absurd.
+        let logout_result = self
             .client
             .http
-            .post::<serde_json::Value, _>(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post_without_credential_restore::<serde_json::Value, _>(
+                &url,
+                &serde_json::json!({}),
+                RetryPolicy::None,
+            )
             .await;
 
         #[cfg(not(target_arch = "wasm32"))]
@@ -138,7 +156,11 @@ impl<'a> Auth<'a> {
 
         *self.client.auth_credentials.write().await = None;
 
-        Ok(())
+        match logout_result {
+            Ok(_) => Ok(()),
+            Err(error) if error.is_unauthorized() => Ok(()),
+            Err(error) => Err(error),
+        }
     }
 
     /// Register a Privy-authenticated user in the backend DB.
@@ -203,4 +225,82 @@ fn parse_expires_at(timestamp: i64) -> DateTime<Utc> {
     Utc.timestamp_opt(timestamp, 0)
         .single()
         .unwrap_or_else(Utc::now)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::client::LightconeClient;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    // Minimal single-response server: the http-layer harness lives in a
+    // private test module, and logout only needs one canned reply.
+    async fn spawn_single_response_server(status: u16, body: &'static str) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("logout test server failed to bind 127.0.0.1:0");
+        let addr = listener
+            .local_addr()
+            .expect("logout test server has no local addr");
+        tokio::spawn(async move {
+            while let Ok((mut socket, _)) = listener.accept().await {
+                tokio::spawn(async move {
+                    let mut buffer = [0_u8; 4096];
+                    let _ = socket.read(&mut buffer).await;
+                    let raw_response = format!(
+                        "HTTP/1.1 {} X\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        status,
+                        body.len(),
+                        body
+                    );
+                    let _ = socket.write_all(raw_response.as_bytes()).await;
+                });
+            }
+        });
+        format!("http://{}", addr)
+    }
+
+    async fn client_with_token(base_url: &str) -> LightconeClient {
+        let client = LightconeClient::builder()
+            .base_url(base_url)
+            .build()
+            .expect("failed to build the LightconeClient under test");
+        client
+            .http()
+            .user_session()
+            .set_token("live-cookie".to_string())
+            .await;
+        client
+    }
+
+    #[tokio::test]
+    async fn logout_failure_propagates_after_clearing_local_state() {
+        // The app's logout teardown gate reads this result to decide whether
+        // the WebSocket may reconnect — a swallowed failure would let it
+        // restart with a still-valid server-side cookie.
+        let base_url = spawn_single_response_server(
+            500,
+            r#"{"status":"error","error_details":{"reason":"session store down"}}"#,
+        )
+        .await;
+        let client = client_with_token(&base_url).await;
+
+        let result = client.auth().logout().await;
+
+        assert!(result.is_err());
+        assert!(client.auth_token().await.is_none());
+        assert!(client.auth().credentials().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn logout_401_counts_as_success() {
+        // 401 means "already logged out" — the goal state, not a failure.
+        let base_url = spawn_single_response_server(401, "Unauthorized").await;
+        let client = client_with_token(&base_url).await;
+
+        let result = client.auth().logout().await;
+
+        assert!(result.is_ok());
+        assert!(client.auth_token().await.is_none());
+    }
 }

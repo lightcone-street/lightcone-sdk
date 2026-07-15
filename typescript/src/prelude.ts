@@ -263,6 +263,7 @@ export type {
 
 export {
   RetryPolicy,
+  type CredentialRestorer,
   type RetryConfig,
 } from "./http";
 
