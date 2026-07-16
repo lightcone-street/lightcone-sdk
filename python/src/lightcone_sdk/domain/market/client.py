@@ -198,9 +198,9 @@ class Markets:
 
     async def favorite_markets_with_cookies(
         self,
+        limit: Optional[int],
+        cursor: Optional[int],
         cookie_header: str,
-        limit: Optional[int] = None,
-        cursor: Optional[int] = None,
     ) -> FavoriteMarkets:
         """List favorites while forwarding an explicit per-call Cookie header."""
         params: dict[str, str] = {}

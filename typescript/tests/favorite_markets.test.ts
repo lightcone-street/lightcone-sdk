@@ -22,7 +22,7 @@ test("favorite markets methods use the contracted verbs, paths, cookies, and bod
   const client = new LightconeClientBuilder().baseUrl(`http://127.0.0.1:${address.port}`).build();
 
   try {
-    assert.deepEqual(await client.markets().favoriteMarketsWithCookies("lightcone-token=test", 50, 7), { market_pubkeys: ["market-a"], next_cursor: 12, has_more: true });
+    assert.deepEqual(await client.markets().favoriteMarketsWithCookies(50, 7, "lightcone-token=test"), { market_pubkeys: ["market-a"], next_cursor: 12, has_more: true });
     assert.equal((await client.markets().addFavoriteMarketWithCookies("market/one", "lightcone-token=test")).favorited, true);
     assert.equal((await client.markets().removeFavoriteMarketWithCookies("market/one", "lightcone-token=test")).favorited, false);
     assert.deepEqual(requests, [

@@ -66,7 +66,7 @@ async function main() {
   while (true) {
     const favoritePage = await client
       .markets()
-      .favoriteMarketsWithCookies(cookieHeader, 1000, favoriteCursor);
+      .favoriteMarketsWithCookies(1000, favoriteCursor, cookieHeader);
     favoriteMarketPubkeys.push(...favoritePage.market_pubkeys);
     if (!favoritePage.has_more) break;
     if (favoritePage.next_cursor == null) {

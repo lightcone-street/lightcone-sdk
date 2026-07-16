@@ -28,7 +28,7 @@ async def test_favorite_markets_methods_use_contract_verbs_paths_and_cookies() -
     client = LightconeClientBuilder().base_url(f"http://127.0.0.1:{sockets[0].getsockname()[1]}").build()
 
     try:
-        favorites = await client.markets().favorite_markets_with_cookies("lightcone-token=test", 50, 7)
+        favorites = await client.markets().favorite_markets_with_cookies(50, 7, "lightcone-token=test")
         assert favorites.market_pubkeys == ["market-a"]
         assert favorites.next_cursor == 12
         assert favorites.has_more is True

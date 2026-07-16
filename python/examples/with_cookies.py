@@ -67,7 +67,7 @@ async def main():
     favorite_cursor: int | None = None
     while True:
         favorite_page = await client.markets().favorite_markets_with_cookies(
-            cookie_header, limit=1000, cursor=favorite_cursor
+            1000, favorite_cursor, cookie_header
         )
         favorite_market_pubkeys.extend(favorite_page.market_pubkeys)
         if not favorite_page.has_more:

@@ -184,7 +184,7 @@ export class Markets {
     return this.client.http.get<FavoriteMarkets>(url, RetryPolicy.Idempotent);
   }
 
-  async favoriteMarketsWithCookies(cookieHeader: string, limit?: number, cursor?: number): Promise<FavoriteMarkets> {
+  async favoriteMarketsWithCookies(limit: number | undefined, cursor: number | undefined, cookieHeader: string): Promise<FavoriteMarkets> {
     const url = this.favoriteMarketsUrl(limit, cursor);
     return this.client.http.getWithCookies<FavoriteMarkets>(url, RetryPolicy.Idempotent, cookieHeader);
   }
