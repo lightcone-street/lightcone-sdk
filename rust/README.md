@@ -301,7 +301,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_cookies`](examples/with_cookies.rs) | Per-call cookie forwarding for SSR / server-function consumers, including favorite-market list/add/remove while restoring the original state |
+| [`with_cookies`](examples/with_cookies.rs) | Per-call cookie forwarding for SSR / server-function consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 

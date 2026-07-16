@@ -77,18 +77,28 @@ async fn main() -> ExampleResult {
         user_metrics.total_volume_usd, user_metrics.total_outcomes_traded
     );
 
-    let favorite_markets = client
-        .markets()
-        .favorite_markets_with_cookies(&cookie_header)
-        .await?;
-    println!(
-        "favorite markets: {}",
-        favorite_markets.market_pubkeys.len()
-    );
+    let mut favorite_market_pubkeys = Vec::new();
+    let mut favorite_cursor = None;
+    loop {
+        let favorite_page = client
+            .markets()
+            .favorite_markets_with_cookies(Some(1000), favorite_cursor, &cookie_header)
+            .await?;
+        favorite_market_pubkeys.extend(favorite_page.market_pubkeys);
+        if !favorite_page.has_more {
+            break;
+        }
+        favorite_cursor = match favorite_page.next_cursor {
+            Some(next_cursor) => Some(next_cursor),
+            None => {
+                return Err(std::io::Error::other("Favorite page is missing next_cursor").into())
+            }
+        };
+    }
+    println!("favorite markets: {}", favorite_market_pubkeys.len());
 
     if let Some(market) = client.markets().get(None, Some(1)).await?.markets.first() {
-        let was_favorited = favorite_markets
-            .market_pubkeys
+        let was_favorited = favorite_market_pubkeys
             .iter()
             .any(|pubkey| pubkey == market.pubkey.as_str());
         if was_favorited {

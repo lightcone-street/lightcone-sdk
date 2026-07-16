@@ -63,13 +63,24 @@ async def main():
         f"outcomes_traded={user_metrics.total_outcomes_traded}"
     )
 
-    favorite_markets = await client.markets().favorite_markets_with_cookies(cookie_header)
-    print(f"favorite markets: {len(favorite_markets)}")
+    favorite_market_pubkeys: list[str] = []
+    favorite_cursor: int | None = None
+    while True:
+        favorite_page = await client.markets().favorite_markets_with_cookies(
+            cookie_header, limit=1000, cursor=favorite_cursor
+        )
+        favorite_market_pubkeys.extend(favorite_page.market_pubkeys)
+        if not favorite_page.has_more:
+            break
+        if favorite_page.next_cursor is None:
+            raise RuntimeError("Favorite page is missing next_cursor")
+        favorite_cursor = favorite_page.next_cursor
+    print(f"favorite markets: {len(favorite_market_pubkeys)}")
 
     markets = await client.markets().get(None, 1)
     if markets.markets:
         market_pubkey = markets.markets[0].pubkey
-        was_favorited = market_pubkey in favorite_markets
+        was_favorited = market_pubkey in favorite_market_pubkeys
         if was_favorited:
             await client.markets().remove_favorite_market_with_cookies(market_pubkey, cookie_header)
             await client.markets().add_favorite_market_with_cookies(market_pubkey, cookie_header)

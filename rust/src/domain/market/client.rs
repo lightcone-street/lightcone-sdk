@@ -31,6 +31,8 @@ pub struct GlobalDepositAssetsResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FavoriteMarkets {
     pub market_pubkeys: Vec<String>,
+    pub next_cursor: Option<u64>,
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -212,21 +214,32 @@ impl<'a> Markets<'a> {
         })
     }
 
-    /// List the authenticated user's favorite market pubkeys.
-    pub async fn favorite_markets(&self) -> Result<FavoriteMarkets, SdkError> {
+    /// List one page of the authenticated user's favorite market pubkeys.
+    pub async fn favorite_markets(
+        &self,
+        limit: Option<u32>,
+        cursor: Option<u64>,
+    ) -> Result<FavoriteMarkets, SdkError> {
         let url = format!("{}/api/users/favorite-markets", self.client.http.base_url());
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let query = favorite_markets_query(limit, cursor);
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// List favorites while forwarding an explicit per-call cookie header.
     pub async fn favorite_markets_with_cookies(
         &self,
+        limit: Option<u32>,
+        cursor: Option<u64>,
         cookie_header: &str,
     ) -> Result<FavoriteMarkets, SdkError> {
         let url = format!("{}/api/users/favorite-markets", self.client.http.base_url());
+        let query = favorite_markets_query(limit, cursor);
         self.client
             .http
-            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
@@ -240,7 +253,10 @@ impl<'a> Markets<'a> {
             self.client.http.base_url(),
             urlencoding::encode(market_pubkey)
         );
-        self.client.http.post(&url, &(), RetryPolicy::None).await
+        self.client
+            .http
+            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .await
     }
 
     /// Add a favorite while forwarding an explicit per-call cookie header.
@@ -256,7 +272,12 @@ impl<'a> Markets<'a> {
         );
         self.client
             .http
-            .post_with_cookies(&url, &(), RetryPolicy::None, cookie_header)
+            .post_with_cookies(
+                &url,
+                &serde_json::json!({}),
+                RetryPolicy::None,
+                cookie_header,
+            )
             .await
     }
 
@@ -325,6 +346,48 @@ impl<'a> Markets<'a> {
         .into_iter()
         .map(|(pubkey, _)| pubkey)
         .collect()
+    }
+}
+
+fn favorite_markets_query(limit: Option<u32>, cursor: Option<u64>) -> Vec<(&'static str, String)> {
+    let mut query = Vec::new();
+    if let Some(limit) = limit {
+        query.push(("limit", limit.to_string()));
+    }
+    if let Some(cursor) = cursor {
+        query.push(("cursor", cursor.to_string()));
+    }
+    query
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{favorite_markets_query, FavoriteMarkets};
+
+    #[test]
+    fn favorite_markets_query_includes_page_parameters() {
+        assert_eq!(
+            favorite_markets_query(Some(50), Some(7)),
+            vec![("limit", "50".to_string()), ("cursor", "7".to_string())]
+        );
+    }
+
+    #[test]
+    fn favorite_markets_deserializes_page_metadata() {
+        let result = serde_json::from_value::<FavoriteMarkets>(serde_json::json!({
+            "market_pubkeys": ["market-a"],
+            "next_cursor": 1,
+            "has_more": true
+        }));
+
+        match result {
+            Ok(page) => {
+                assert_eq!(page.market_pubkeys, vec!["market-a"]);
+                assert_eq!(page.next_cursor, Some(1));
+                assert!(page.has_more);
+            }
+            Err(error) => assert!(false, "Favorite market page failed to deserialize: {error}"),
+        }
     }
 }
 

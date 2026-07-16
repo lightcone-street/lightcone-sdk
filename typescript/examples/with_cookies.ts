@@ -61,12 +61,24 @@ async function main() {
     `user metrics: volume_usd=${userMetrics.total_volume_usd} outcomes_traded=${userMetrics.total_outcomes_traded}`,
   );
 
-  const favoriteMarkets = await client.markets().favoriteMarketsWithCookies(cookieHeader);
-  console.log("favorite markets:", favoriteMarkets.market_pubkeys.length);
+  const favoriteMarketPubkeys: string[] = [];
+  let favoriteCursor: number | undefined;
+  while (true) {
+    const favoritePage = await client
+      .markets()
+      .favoriteMarketsWithCookies(cookieHeader, 1000, favoriteCursor);
+    favoriteMarketPubkeys.push(...favoritePage.market_pubkeys);
+    if (!favoritePage.has_more) break;
+    if (favoritePage.next_cursor == null) {
+      throw new Error("Favorite page is missing next_cursor");
+    }
+    favoriteCursor = favoritePage.next_cursor;
+  }
+  console.log("favorite markets:", favoriteMarketPubkeys.length);
 
   const selectedMarket = (await client.markets().get(undefined, 1)).markets[0];
   if (selectedMarket) {
-    const wasFavorited = favoriteMarkets.market_pubkeys.includes(selectedMarket.pubkey);
+    const wasFavorited = favoriteMarketPubkeys.includes(selectedMarket.pubkey);
     if (wasFavorited) {
       await client.markets().removeFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);
       await client.markets().addFavoriteMarketWithCookies(selectedMarket.pubkey, cookieHeader);

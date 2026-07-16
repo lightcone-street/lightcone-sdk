@@ -37,6 +37,8 @@ export interface GlobalDepositAssetsResult {
 
 export interface FavoriteMarkets {
   market_pubkeys: string[];
+  next_cursor: number | null;
+  has_more: boolean;
 }
 
 export interface FavoriteMarketUpdate {
@@ -177,14 +179,22 @@ export class Markets {
     return { assets, validationErrors };
   }
 
-  async favoriteMarkets(): Promise<FavoriteMarkets> {
-    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets`;
+  async favoriteMarkets(limit?: number, cursor?: number): Promise<FavoriteMarkets> {
+    const url = this.favoriteMarketsUrl(limit, cursor);
     return this.client.http.get<FavoriteMarkets>(url, RetryPolicy.Idempotent);
   }
 
-  async favoriteMarketsWithCookies(cookieHeader: string): Promise<FavoriteMarkets> {
-    const url = `${this.client.http.baseUrl()}/api/users/favorite-markets`;
+  async favoriteMarketsWithCookies(cookieHeader: string, limit?: number, cursor?: number): Promise<FavoriteMarkets> {
+    const url = this.favoriteMarketsUrl(limit, cursor);
     return this.client.http.getWithCookies<FavoriteMarkets>(url, RetryPolicy.Idempotent, cookieHeader);
+  }
+
+  private favoriteMarketsUrl(limit?: number, cursor?: number): string {
+    const search = new URLSearchParams();
+    if (limit !== undefined) search.set("limit", String(limit));
+    if (cursor !== undefined) search.set("cursor", String(cursor));
+    const suffix = search.size > 0 ? `?${search.toString()}` : "";
+    return `${this.client.http.baseUrl()}/api/users/favorite-markets${suffix}`;
   }
 
   async addFavoriteMarket(marketPubkey: string): Promise<FavoriteMarketUpdate> {

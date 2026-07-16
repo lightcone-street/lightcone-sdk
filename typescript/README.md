@@ -290,7 +290,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_cookies`](examples/with_cookies.ts) | Per-call cookie forwarding for SSR / route-handler consumers, including favorite-market list/add/remove while restoring the original state |
+| [`with_cookies`](examples/with_cookies.ts) | Per-call cookie forwarding for SSR / route-handler consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
