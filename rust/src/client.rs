@@ -42,7 +42,8 @@ use std::sync::Arc;
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
 pub use crate::domain::market::client::{
-    GlobalDepositAssetsResult, Markets as MarketsClient, MarketsResult,
+    FavoriteMarketUpdate, FavoriteMarkets, GlobalDepositAssetsResult, Markets as MarketsClient,
+    MarketsResult,
 };
 pub use crate::domain::metrics::client::Metrics as MetricsClient;
 pub use crate::domain::notification::client::Notifications as NotificationsClient;

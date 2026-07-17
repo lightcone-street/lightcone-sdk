@@ -281,6 +281,8 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
 
+Favorite-market add and remove methods are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Per-call cookie variants used by SSR and route handlers retry transient failures with the supplied cookie but never invoke the process-wide credential restorer.
+
 ## Examples
 
 All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.
@@ -290,13 +292,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.ts) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuth` variant |
+| [`with_cookies`](examples/with_cookies.ts) | Per-call cookie forwarding for SSR / route-handler consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, and platform deposit assets via `globalDepositAssets()`; authenticated favorite-market APIs are demonstrated by `with_cookies` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
@@ -436,8 +438,8 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy.Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
 
 ### Credential restoration (401 recovery)

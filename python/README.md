@@ -247,6 +247,8 @@ positions = await client.positions().positions_with_auth(
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
 
+The authenticated markets client provides paginated `favorite_markets(limit=None, cursor=None)`, `add_favorite_market(market_pubkey)`, and `remove_favorite_market(market_pubkey)`, plus `_with_cookies` variants for server-side cookie forwarding. Favorite pages include `next_cursor` and `has_more`; the backend defaults to 100 items and clamps limits to 1000. Add and remove are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Cookie-forwarding variants retry transient failures with the supplied cookie but never invoke the process-wide credential restorer. [`with_cookies`](examples/with_cookies.py) exercises these methods and restores the original favorite state.
+
 ### Setup & Authentication
 
 | Example | Description |
@@ -352,8 +354,8 @@ except ApiRejected as err:
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.IDEMPOTENT` - retries on transport failures and 429/502/503/504 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GET and DELETE helpers default to `RetryPolicy.IDEMPOTENT`, and idempotent set operations such as favorite-market POSTs opt into it explicitly. This policy retries transport failures and 429/502/503/504 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.NONE` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(RetryConfig(...))`. If you use `LightconeHttp` directly, pass a `RetryPolicy` per request.
 
 ### Credential restoration (401 recovery)

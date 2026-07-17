@@ -258,6 +258,35 @@ class Market:
 
 
 @dataclass
+class FavoriteMarkets:
+    market_pubkeys: list[str] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FavoriteMarkets":
+        next_cursor = data.get("next_cursor")
+        return cls(
+            market_pubkeys=[str(pubkey) for pubkey in data.get("market_pubkeys", [])],
+            next_cursor=int(next_cursor) if next_cursor is not None else None,
+            has_more=bool(data.get("has_more", False)),
+        )
+
+
+@dataclass
+class FavoriteMarketUpdate:
+    market_pubkey: str
+    favorited: bool
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FavoriteMarketUpdate":
+        return cls(
+            market_pubkey=str(data["market_pubkey"]),
+            favorited=bool(data["favorited"]),
+        )
+
+
+@dataclass
 class MarketsResult:
     markets: list[Market] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
@@ -295,6 +324,8 @@ __all__ = [
     "TokenMetadata",
     "OrderBookPair",
     "Market",
+    "FavoriteMarkets",
+    "FavoriteMarketUpdate",
     "MarketsResult",
     "GlobalDepositAssetsResult",
     "MarketValidationError",

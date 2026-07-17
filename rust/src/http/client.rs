@@ -443,6 +443,63 @@ impl LightconeHttp {
         .await
     }
 
+    /// POST with retry, forwarding an explicit per-call raw `Cookie` header.
+    pub(crate) async fn post_with_cookies<T: DeserializeOwned, B: Serialize>(
+        &self,
+        url: &str,
+        body: &B,
+        retry: RetryPolicy,
+        cookie_header: &str,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::POST,
+            url,
+            Some(body),
+            &[],
+            retry,
+            AuthMode::CookieOverride(cookie_header.to_string()),
+            false,
+        )
+        .await
+    }
+
+    /// DELETE with retry. Uses the user session.
+    pub(crate) async fn delete<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::DELETE,
+            url,
+            None::<&()>,
+            &[],
+            retry,
+            AuthMode::Session(&self.user_session),
+            true,
+        )
+        .await
+    }
+
+    /// DELETE with retry, forwarding an explicit per-call raw `Cookie` header.
+    pub(crate) async fn delete_with_cookies<T: DeserializeOwned>(
+        &self,
+        url: &str,
+        retry: RetryPolicy,
+        cookie_header: &str,
+    ) -> Result<T, SdkError> {
+        self.request_with_retry(
+            reqwest::Method::DELETE,
+            url,
+            None::<&()>,
+            &[],
+            retry,
+            AuthMode::CookieOverride(cookie_header.to_string()),
+            false,
+        )
+        .await
+    }
+
     /// GET with retry, with the 401 credential restoration disabled. Use this
     /// (and its POST sibling) inside [`CredentialRestorer`] implementations
     /// for any SDK calls the restorer itself makes: a restore-enabled call
@@ -1012,6 +1069,78 @@ mod tests {
             jitter: false,
             retryable_statuses: statuses,
         })
+    }
+
+    #[tokio::test]
+    async fn cookie_forwarded_post_and_delete_retry_expected_requests() -> Result<(), SdkError> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        let addr = listener
+            .local_addr()
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_captured = Arc::clone(&captured);
+        tokio::spawn(async move {
+            for request_index in 0..4 {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 4096];
+                let Ok(bytes_read) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                if let Ok(request) = String::from_utf8(buffer[..bytes_read].to_vec()) {
+                    if let Ok(mut requests) = server_captured.lock() {
+                        requests.push(request);
+                    }
+                }
+                let (status, body) = if request_index % 2 == 0 {
+                    (
+                        "503 Service Unavailable",
+                        r#"{"status":"error","error_details":{"reason":"retry"}}"#,
+                    )
+                } else {
+                    ("200 OK", r#"{"status":"success","body":{"ok":true}}"#)
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(), body,
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        let base_url = format!("http://{addr}");
+        let http = LightconeHttp::new(&base_url);
+
+        let _: serde_json::Value = http
+            .post_with_cookies(
+                &format!("{base_url}/favorite"),
+                &serde_json::json!({}),
+                RetryPolicy::Idempotent,
+                "lightcone-token=test",
+            )
+            .await?;
+        let _: serde_json::Value = http
+            .delete_with_cookies(
+                &format!("{base_url}/favorite"),
+                RetryPolicy::Idempotent,
+                "lightcone-token=test",
+            )
+            .await?;
+
+        let requests = captured
+            .lock()
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        assert_eq!(requests.len(), 4);
+        assert!(requests[0].starts_with("POST /favorite HTTP/1.1"));
+        assert!(requests[1].starts_with("POST /favorite HTTP/1.1"));
+        assert!(requests[2].starts_with("DELETE /favorite HTTP/1.1"));
+        assert!(requests[3].starts_with("DELETE /favorite HTTP/1.1"));
+        assert!(requests.iter().all(|request| request
+            .to_lowercase()
+            .contains("cookie: lightcone-token=test")));
+        Ok(())
     }
 
     #[tokio::test]

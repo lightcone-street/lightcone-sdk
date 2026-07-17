@@ -89,7 +89,7 @@ class RetryConfig:
 
     @staticmethod
     def idempotent() -> "RetryConfig":
-        """Idempotent retry config for GET requests.
+        """Idempotent retry config for requests that are safe to replay.
 
         Retries on 429/502/503/504.
         """
