@@ -281,6 +281,8 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
 
+Favorite-market add and remove methods are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Per-call cookie variants used by SSR and route handlers retry transient failures with the supplied cookie but never invoke the process-wide credential restorer.
+
 ## Examples
 
 All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.
@@ -436,8 +438,8 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy.Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
 
 ### Credential restoration (401 recovery)

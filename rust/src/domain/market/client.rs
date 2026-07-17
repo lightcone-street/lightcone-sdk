@@ -255,7 +255,7 @@ impl<'a> Markets<'a> {
         );
         self.client
             .http
-            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post(&url, &serde_json::json!({}), RetryPolicy::Idempotent)
             .await
     }
 
@@ -275,7 +275,7 @@ impl<'a> Markets<'a> {
             .post_with_cookies(
                 &url,
                 &serde_json::json!({}),
-                RetryPolicy::None,
+                RetryPolicy::Idempotent,
                 cookie_header,
             )
             .await
@@ -291,7 +291,7 @@ impl<'a> Markets<'a> {
             self.client.http.base_url(),
             urlencoding::encode(market_pubkey)
         );
-        self.client.http.delete(&url, RetryPolicy::None).await
+        self.client.http.delete(&url, RetryPolicy::Idempotent).await
     }
 
     /// Remove a favorite while forwarding an explicit per-call cookie header.
@@ -307,7 +307,7 @@ impl<'a> Markets<'a> {
         );
         self.client
             .http
-            .delete_with_cookies(&url, RetryPolicy::None, cookie_header)
+            .delete_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
@@ -363,6 +363,11 @@ fn favorite_markets_query(limit: Option<u32>, cursor: Option<u64>) -> Vec<(&'sta
 #[cfg(test)]
 mod tests {
     use super::{favorite_markets_query, FavoriteMarkets};
+    use crate::client::LightconeClientBuilder;
+    use crate::error::SdkError;
+    use std::sync::{Arc, Mutex};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     #[test]
     fn favorite_markets_query_includes_page_parameters() {
@@ -388,6 +393,114 @@ mod tests {
             }
             Err(error) => assert!(false, "Favorite market page failed to deserialize: {error}"),
         }
+    }
+
+    #[tokio::test]
+    async fn favorite_market_mutations_retry_with_session_and_forwarded_cookies(
+    ) -> Result<(), SdkError> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        let address = listener
+            .local_addr()
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let server_captured = Arc::clone(&captured);
+        tokio::spawn(async move {
+            for request_index in 0..8 {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let mut buffer = [0_u8; 4096];
+                let Ok(bytes_read) = socket.read(&mut buffer).await else {
+                    return;
+                };
+                let Ok(request) = String::from_utf8(buffer[..bytes_read].to_vec()) else {
+                    return;
+                };
+                if let Ok(mut requests) = server_captured.lock() {
+                    requests.push(request.clone());
+                }
+                let favorited = request.starts_with("POST ");
+                let (status, body) = if request_index % 2 == 0 {
+                    (
+                        "503 Service Unavailable",
+                        r#"{"status":"error","error_details":{"reason":"retry"}}"#.to_string(),
+                    )
+                } else {
+                    (
+                        "200 OK",
+                        format!(
+                            r#"{{"status":"success","body":{{"market_pubkey":"market/one","favorited":{favorited}}}}}"#
+                        ),
+                    )
+                };
+                let response = format!(
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(), body,
+                );
+                let _ = socket.write_all(response.as_bytes()).await;
+            }
+        });
+        let base_url = format!("http://{address}");
+        let client = LightconeClientBuilder::default()
+            .base_url(&base_url)
+            .build()?;
+
+        assert!(
+            client
+                .markets()
+                .add_favorite_market("market/one")
+                .await?
+                .favorited
+        );
+        assert!(
+            client
+                .markets()
+                .add_favorite_market_with_cookies("market/one", "lightcone-token=test")
+                .await?
+                .favorited
+        );
+        assert!(
+            !client
+                .markets()
+                .remove_favorite_market("market/one")
+                .await?
+                .favorited
+        );
+        assert!(
+            !client
+                .markets()
+                .remove_favorite_market_with_cookies("market/one", "lightcone-token=test")
+                .await?
+                .favorited
+        );
+
+        let requests = captured
+            .lock()
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        assert_eq!(requests.len(), 8);
+        assert!(requests[0].starts_with("POST /api/users/favorite-markets/market%2Fone "));
+        assert!(requests[1].starts_with("POST /api/users/favorite-markets/market%2Fone "));
+        assert!(!requests[0].to_lowercase().contains("cookie:"));
+        assert!(!requests[1].to_lowercase().contains("cookie:"));
+        assert!(requests[2]
+            .to_lowercase()
+            .contains("cookie: lightcone-token=test"));
+        assert!(requests[3]
+            .to_lowercase()
+            .contains("cookie: lightcone-token=test"));
+        assert!(requests[4].starts_with("DELETE /api/users/favorite-markets/market%2Fone "));
+        assert!(requests[5].starts_with("DELETE /api/users/favorite-markets/market%2Fone "));
+        assert!(!requests[4].to_lowercase().contains("cookie:"));
+        assert!(!requests[5].to_lowercase().contains("cookie:"));
+        assert!(requests[6]
+            .to_lowercase()
+            .contains("cookie: lightcone-token=test"));
+        assert!(requests[7]
+            .to_lowercase()
+            .contains("cookie: lightcone-token=test"));
+        Ok(())
     }
 }
 

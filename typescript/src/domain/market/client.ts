@@ -199,7 +199,7 @@ export class Markets {
 
   async addFavoriteMarket(marketPubkey: string): Promise<FavoriteMarketUpdate> {
     const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
-    return this.client.http.post<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.None);
+    return this.client.http.post<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.Idempotent);
   }
 
   async addFavoriteMarketWithCookies(
@@ -207,12 +207,12 @@ export class Markets {
     cookieHeader: string
   ): Promise<FavoriteMarketUpdate> {
     const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
-    return this.client.http.postWithCookies<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.None, cookieHeader);
+    return this.client.http.postWithCookies<FavoriteMarketUpdate, object>(url, {}, RetryPolicy.Idempotent, cookieHeader);
   }
 
   async removeFavoriteMarket(marketPubkey: string): Promise<FavoriteMarketUpdate> {
     const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
-    return this.client.http.delete<FavoriteMarketUpdate>(url, RetryPolicy.None);
+    return this.client.http.delete<FavoriteMarketUpdate>(url, RetryPolicy.Idempotent);
   }
 
   async removeFavoriteMarketWithCookies(
@@ -220,7 +220,7 @@ export class Markets {
     cookieHeader: string
   ): Promise<FavoriteMarketUpdate> {
     const url = `${this.client.http.baseUrl()}/api/users/favorite-markets/${encodeURIComponent(marketPubkey)}`;
-    return this.client.http.deleteWithCookies<FavoriteMarketUpdate>(url, RetryPolicy.None, cookieHeader);
+    return this.client.http.deleteWithCookies<FavoriteMarketUpdate>(url, RetryPolicy.Idempotent, cookieHeader);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

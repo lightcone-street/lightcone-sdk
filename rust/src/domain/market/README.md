@@ -221,7 +221,7 @@ Fetch the active global deposit asset whitelist (platform-scoped, not market-bou
 
 ### Favorite markets
 
-`favorite_markets(limit, cursor)` lists one page of the authenticated user's favorite market pubkeys and returns `next_cursor` plus `has_more`. The backend defaults to 100 items and clamps limits to 1000. `add_favorite_market(market_pubkey)` and `remove_favorite_market(market_pubkey)` update one favorite and return `FavoriteMarketUpdate { market_pubkey, favorited }`. Each method has a `_with_cookies(limit, cursor, cookie_header)` variant for forwarding a per-request cookie from SSR or server-function callers.
+`favorite_markets(limit, cursor)` lists one page of the authenticated user's favorite market pubkeys and returns `next_cursor` plus `has_more`. The backend defaults to 100 items and clamps limits to 1000. `add_favorite_market(market_pubkey)` and `remove_favorite_market(market_pubkey)` update one favorite and return `FavoriteMarketUpdate { market_pubkey, favorited }`. Each method has a `_with_cookies(limit, cursor, cookie_header)` variant for forwarding a per-request cookie from SSR or server-function callers. Add and remove are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Cookie-forwarding variants retry transient failures with the supplied cookie but never invoke the process-wide credential restorer.
 
 ### Market Helpers
 

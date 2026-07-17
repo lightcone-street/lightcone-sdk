@@ -358,7 +358,7 @@ class LightconeHttp:
     async def delete(
         self,
         path: str,
-        retry_policy: RetryPolicy = RetryPolicy.NONE,
+        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
     ) -> Any:
         """Make a DELETE request with user auth cookie injection."""
         return await self._request_with_retry(
@@ -390,7 +390,7 @@ class LightconeHttp:
     async def delete_with_cookies(
         self,
         path: str,
-        retry_policy: RetryPolicy = RetryPolicy.NONE,
+        retry_policy: RetryPolicy = RetryPolicy.IDEMPOTENT,
         *,
         cookie_header: str,
     ) -> Any:
@@ -420,7 +420,7 @@ class LightconeHttp:
         # ``NONE`` still means "no transport retries"; it runs through the
         # same loop with zero retry attempts so the credential-restore path
         # below covers every request. It ALSO means "never auto-replay":
-        # mutations declare themselves non-idempotent via ``RetryPolicy.NONE``,
+        # non-idempotent mutations declare themselves via ``RetryPolicy.NONE``,
         # so a 401 still triggers restoration (healing the session for the
         # caller's next attempt) but the 401 propagates instead of replaying.
         replay_allowed = not retry_policy.is_none()

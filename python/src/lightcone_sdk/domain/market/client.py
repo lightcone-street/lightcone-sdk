@@ -220,7 +220,7 @@ class Markets:
         data = await self._client._http.post(
             f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
             {},
-            RetryPolicy.NONE,
+            RetryPolicy.IDEMPOTENT,
         )
         return FavoriteMarketUpdate.from_dict(data)
 
@@ -231,7 +231,7 @@ class Markets:
         data = await self._client._http.post_with_cookies(
             f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
             {},
-            RetryPolicy.NONE,
+            RetryPolicy.IDEMPOTENT,
             cookie_header=cookie_header,
         )
         return FavoriteMarketUpdate.from_dict(data)
@@ -240,7 +240,7 @@ class Markets:
         """Remove a market from the authenticated user's favorites."""
         data = await self._client._http.delete(
             f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
-            RetryPolicy.NONE,
+            RetryPolicy.IDEMPOTENT,
         )
         return FavoriteMarketUpdate.from_dict(data)
 
@@ -250,7 +250,7 @@ class Markets:
         """Remove a favorite while forwarding an explicit per-call Cookie header."""
         data = await self._client._http.delete_with_cookies(
             f"/api/users/favorite-markets/{url_quote(market_pubkey, safe='')}",
-            RetryPolicy.NONE,
+            RetryPolicy.IDEMPOTENT,
             cookie_header=cookie_header,
         )
         return FavoriteMarketUpdate.from_dict(data)

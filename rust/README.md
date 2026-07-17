@@ -453,8 +453,8 @@ Status-to-error mapping order:
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy::Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
 
 ### Credential restoration (401 recovery)

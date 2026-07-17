@@ -8,7 +8,7 @@ pub enum RetryPolicy {
     /// No retries — used for non-idempotent POST endpoints by default.
     None,
     /// Retry on transport failures + 502/503/504, with backoff on 429.
-    /// Default for GET endpoints.
+    /// Use for any request whose result is safe to replay.
     Idempotent,
     /// User-provided retry logic.
     Custom(RetryConfig),
@@ -51,7 +51,7 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    /// The default config for idempotent (GET) requests.
+    /// The default config for requests that are safe to replay.
     pub fn idempotent() -> Self {
         Self {
             max_retries: 3,

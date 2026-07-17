@@ -115,6 +115,26 @@ async def test_custom_retry_policy_retries_raw_409_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_delete_helpers_default_to_idempotent_retry() -> None:
+    retry_error = '{"status":"error","error_details":{"reason":"retry"}}'
+    success = '{"status":"success","body":{"ok":true}}'
+    base_url, attempts, cleanup = await _server(
+        [(503, retry_error), (200, success), (503, retry_error), (200, success)]
+    )
+    client = LightconeHttp(base_url)
+
+    try:
+        assert await client.delete("/favorite") == {"ok": True}
+        assert await client.delete_with_cookies(
+            "/favorite", cookie_header="lightcone-token=test"
+        ) == {"ok": True}
+        assert attempts() == 4
+    finally:
+        await client.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
 async def test_custom_retry_policy_does_not_retry_429_when_excluded() -> None:
     base_url, attempts, cleanup = await _server(
         [

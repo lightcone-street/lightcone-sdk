@@ -1072,7 +1072,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cookie_forwarded_post_and_delete_send_expected_requests() -> Result<(), SdkError> {
+    async fn cookie_forwarded_post_and_delete_retry_expected_requests() -> Result<(), SdkError> {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
             .map_err(|error| SdkError::Validation(error.to_string()))?;
@@ -1082,7 +1082,7 @@ mod tests {
         let captured = Arc::new(Mutex::new(Vec::new()));
         let server_captured = Arc::clone(&captured);
         tokio::spawn(async move {
-            for _ in 0..2 {
+            for request_index in 0..4 {
                 let Ok((mut socket, _)) = listener.accept().await else {
                     return;
                 };
@@ -1095,10 +1095,17 @@ mod tests {
                         requests.push(request);
                     }
                 }
-                let body = r#"{"status":"success","body":{"ok":true}}"#;
+                let (status, body) = if request_index % 2 == 0 {
+                    (
+                        "503 Service Unavailable",
+                        r#"{"status":"error","error_details":{"reason":"retry"}}"#,
+                    )
+                } else {
+                    ("200 OK", r#"{"status":"success","body":{"ok":true}}"#)
+                };
                 let response = format!(
-                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
-                    body.len(), body
+                    "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                    body.len(), body,
                 );
                 let _ = socket.write_all(response.as_bytes()).await;
             }
@@ -1110,14 +1117,14 @@ mod tests {
             .post_with_cookies(
                 &format!("{base_url}/favorite"),
                 &serde_json::json!({}),
-                RetryPolicy::None,
+                RetryPolicy::Idempotent,
                 "lightcone-token=test",
             )
             .await?;
         let _: serde_json::Value = http
             .delete_with_cookies(
                 &format!("{base_url}/favorite"),
-                RetryPolicy::None,
+                RetryPolicy::Idempotent,
                 "lightcone-token=test",
             )
             .await?;
@@ -1125,9 +1132,11 @@ mod tests {
         let requests = captured
             .lock()
             .map_err(|error| SdkError::Validation(error.to_string()))?;
-        assert_eq!(requests.len(), 2);
+        assert_eq!(requests.len(), 4);
         assert!(requests[0].starts_with("POST /favorite HTTP/1.1"));
-        assert!(requests[1].starts_with("DELETE /favorite HTTP/1.1"));
+        assert!(requests[1].starts_with("POST /favorite HTTP/1.1"));
+        assert!(requests[2].starts_with("DELETE /favorite HTTP/1.1"));
+        assert!(requests[3].starts_with("DELETE /favorite HTTP/1.1"));
         assert!(requests.iter().all(|request| request
             .to_lowercase()
             .contains("cookie: lightcone-token=test")));
