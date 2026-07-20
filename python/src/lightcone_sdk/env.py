@@ -88,7 +88,7 @@ class LightconeEnv(Enum):
             return Pubkey.from_string("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
         if self is LightconeEnv.STAGING:
             return Pubkey.from_string("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk")
-        return Pubkey.from_string("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK")
+        return Pubkey.from_string("F5zrhPGL9REfsQ4vHR3ESYo9zaqiVvmHoHjqRwd8cPrz")
 
     def __str__(self) -> str:
         return self.value

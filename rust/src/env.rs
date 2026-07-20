@@ -102,7 +102,7 @@ impl LightconeEnv {
                 .expect("valid program id"),
             Self::Staging => Pubkey::from_str("5G2fWZGHB5BA8gbABVBuR1bU4Ziri9cRxFoojz5C5Rxk")
                 .expect("valid program id"),
-            Self::Prod => Pubkey::from_str("B9rCvafkkjh749284jfDu5UB268pHeRLkzFpFf7t4mxK")
+            Self::Prod => Pubkey::from_str("F5zrhPGL9REfsQ4vHR3ESYo9zaqiVvmHoHjqRwd8cPrz")
                 .expect("valid program id"),
         }
     }
