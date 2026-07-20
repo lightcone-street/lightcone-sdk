@@ -220,6 +220,7 @@ class Market:
     pubkey: str
     name: str
     definition: str
+    num_outcomes: int
     banner_image_url_low: Optional[str] = None
     banner_image_url_medium: Optional[str] = None
     banner_image_url_high: Optional[str] = None

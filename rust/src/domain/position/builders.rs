@@ -149,7 +149,7 @@ impl<'a> DepositBuilder<'a> {
                     .pubkey
                     .to_pubkey()
                     .map_err(|error| SdkError::Validation(error))?;
-                let num_outcomes = market.outcomes.len() as u8;
+                let num_outcomes = market.num_outcomes;
                 Ok(instructions::build_deposit_ix(
                     &BuildDepositParams {
                         user,
@@ -261,7 +261,7 @@ impl<'a> MergeBuilder<'a> {
             .pubkey
             .to_pubkey()
             .map_err(|error| SdkError::Validation(error))?;
-        let num_outcomes = market.outcomes.len() as u8;
+        let num_outcomes = market.num_outcomes;
         let program_id = &self.client.program_id;
 
         Ok(instructions::build_merge_ix(
@@ -445,13 +445,7 @@ impl<'a> WithdrawBuilder<'a> {
                 let outcome_index = self.outcome_index.ok_or_else(|| {
                     SdkError::Validation("outcome_index is required for Market withdrawal".into())
                 })?;
-                // A market payload may carry an empty outcomes list; fall back
-                // to the program-wide bound rather than rejecting every index.
-                let num_outcomes = match market.outcomes.len() {
-                    0 => crate::program::constants::MAX_OUTCOMES,
-                    len => len as u8,
-                };
-                crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
+                crate::program::utils::validate_outcome_index(outcome_index, market.num_outcomes)?;
                 Ok(instructions::build_withdraw_conditional_from_position_ix(
                     &WithdrawConditionalFromPositionParams {
                         user,
@@ -619,6 +613,7 @@ impl<'a> RedeemWinningsBuilder<'a> {
 ///     .deposit_mint(deposit_mint)
 ///     .amount(1_000_000)
 ///     .outcome_index(0)
+///     .num_outcomes(market.num_outcomes)
 ///     .sign_and_submit()
 ///     .await?;
 /// ```
@@ -629,6 +624,7 @@ pub struct WithdrawFromPositionBuilder<'a> {
     deposit_mint: Option<Pubkey>,
     amount: Option<u64>,
     outcome_index: Option<u8>,
+    num_outcomes: Option<u8>,
 }
 
 impl<'a> WithdrawFromPositionBuilder<'a> {
@@ -640,6 +636,7 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
             deposit_mint: None,
             amount: None,
             outcome_index: None,
+            num_outcomes: None,
         }
     }
 
@@ -680,6 +677,12 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         self
     }
 
+    /// Set the market's authoritative outcome count.
+    pub fn num_outcomes(mut self, num_outcomes: u8) -> Self {
+        self.num_outcomes = Some(num_outcomes);
+        self
+    }
+
     /// Build a withdraw-from-position instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -697,11 +700,11 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         let outcome_index = self
             .outcome_index
             .ok_or_else(|| SdkError::Validation("outcome_index is required".into()))?;
-        // Only the market pubkey is known here; enforce the program-wide bound.
-        crate::program::utils::validate_outcome_index(
-            outcome_index,
-            crate::program::constants::MAX_OUTCOMES,
-        )?;
+        let num_outcomes = self
+            .num_outcomes
+            .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
+        crate::program::utils::validate_outcome_count(num_outcomes)?;
+        crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
 
         Ok(instructions::build_withdraw_conditional_from_position_ix(
             &WithdrawConditionalFromPositionParams {
@@ -729,6 +732,51 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         let client = self.client;
         let transaction = self.build_tx()?;
         client.sign_and_submit_tx(transaction).await
+    }
+}
+
+#[cfg(test)]
+mod withdraw_from_position_tests {
+    use super::*;
+
+    fn client() -> LightconeClient {
+        match LightconeClient::builder().build() {
+            Ok(client) => client,
+            Err(error) => panic!("failed to build test client: {error}"),
+        }
+    }
+
+    fn builder(client: &LightconeClient) -> WithdrawFromPositionBuilder<'_> {
+        client
+            .positions()
+            .withdraw_from_position()
+            .user(Pubkey::new_unique())
+            .market(Pubkey::new_unique())
+            .deposit_mint(Pubkey::new_unique())
+            .amount(1)
+            .outcome_index(2)
+    }
+
+    #[test]
+    fn requires_num_outcomes() {
+        let client = client();
+        let error = match builder(&client).build_ix() {
+            Ok(_) => panic!("expected missing num_outcomes to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("num_outcomes is required"));
+    }
+
+    #[test]
+    fn validates_against_num_outcomes() {
+        let client = client();
+        let error = match builder(&client).num_outcomes(2).build_ix() {
+            Ok(_) => panic!("expected invalid outcome index to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("Invalid outcome index"));
     }
 }
 

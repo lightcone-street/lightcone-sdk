@@ -97,7 +97,7 @@ def quote_deposit_mint(orderbook: OrderBookPair) -> Pubkey:
 
 
 def num_outcomes(m: Market) -> int:
-    return len(m.outcomes)
+    return m.num_outcomes
 
 
 async def wait_for_global_balance(

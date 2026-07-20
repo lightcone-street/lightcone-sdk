@@ -14,8 +14,7 @@ import {
   buildWithdrawConditionalFromPositionIx,
   buildInitPositionTokensIx,
 } from "../../program/instructions";
-import { MAX_OUTCOMES } from "../../program/constants";
-import { validateOutcomeIndex } from "../../program/utils";
+import { validateOutcomeIndex, validateOutcomes } from "../../program/utils";
 import { DepositSource } from "../../shared";
 import type { DepositToGlobalAltContext } from "../../program/types";
 import type { Market } from "../market";
@@ -95,7 +94,7 @@ export class DepositBuilder {
           throw SdkError.missingMarketContext("market is required for Market deposit source");
         }
         const marketPubkey = new PublicKey(market.pubkey);
-        const numOutcomes = market.outcomes.length;
+        const numOutcomes = market.numOutcomes;
         return buildDepositIx(
           { user, market: marketPubkey, depositMint: mint, amount },
           numOutcomes,
@@ -194,10 +193,7 @@ export class WithdrawBuilder {
         }
         const marketPubkey = new PublicKey(market.pubkey);
         const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
-        // A market payload may carry an empty outcomes list; fall back to the
-        // program-wide bound rather than rejecting every index.
-        const numOutcomes = market.outcomes.length;
-        validateOutcomeIndex(outcomeIndex, numOutcomes > 0 ? numOutcomes : MAX_OUTCOMES);
+        validateOutcomeIndex(outcomeIndex, market.numOutcomes);
         return buildWithdrawConditionalFromPositionIx(
           { user, market: marketPubkey, depositMint: mint, amount, outcomeIndex },
           this.client.programId,
@@ -260,7 +256,7 @@ export class MergeBuilder {
       throw SdkError.missingMarketContext("market is required for merge");
     }
     const marketPubkey = new PublicKey(market.pubkey);
-    const numOutcomes = market.outcomes.length;
+    const numOutcomes = market.numOutcomes;
 
     return buildMergeIx(
       { user, market: marketPubkey, depositMint: mint, amount },
@@ -355,6 +351,7 @@ export class WithdrawFromPositionBuilder {
   private depositMintValue?: PublicKey;
   private amountValue?: bigint;
   private outcomeIndexValue?: number;
+  private numOutcomesValue?: number;
 
   constructor(client: ClientContext) {
     this.client = client;
@@ -389,14 +386,20 @@ export class WithdrawFromPositionBuilder {
     return this;
   }
 
+  numOutcomes(numOutcomes: number): this {
+    this.numOutcomesValue = numOutcomes;
+    return this;
+  }
+
   buildIx(): TransactionInstruction {
     const user = requireField(this.userValue, "user");
     const market = requireField(this.marketValue, "market");
     const depositMint = requireField(this.depositMintValue, "deposit_mint");
     const amount = requireField(this.amountValue, "amount");
     const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
-    // Only the market pubkey is known here; enforce the program-wide bound.
-    validateOutcomeIndex(outcomeIndex, MAX_OUTCOMES);
+    const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
+    validateOutcomes(numOutcomes);
+    validateOutcomeIndex(outcomeIndex, numOutcomes);
 
     return buildWithdrawConditionalFromPositionIx(
       { user, market, depositMint, amount, outcomeIndex },

@@ -155,6 +155,7 @@ pub struct MarketResponse {
     pub featured_rank: Option<i16>,
     pub market_pubkey: String,
     pub market_id: i64,
+    pub num_outcomes: i16,
     pub oracle: String,
     pub question_id: String,
     pub condition_id: String,

@@ -208,6 +208,8 @@ const txHash = await client.positions().merge()
   .signAndSubmit();
 ```
 
+`market.numOutcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdrawFromPosition()` builder requires `.numOutcomes(market.numOutcomes)` before building.
+
 ### Step 7: Withdraw
 
 ```typescript

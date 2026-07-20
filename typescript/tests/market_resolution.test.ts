@@ -62,6 +62,7 @@ function marketResponse(
     icon_url_low: "https://example.com/icon-low.png",
     market_pubkey: "market_1",
     market_id: 1,
+    num_outcomes: 2,
     oracle: "oracle",
     question_id: "question",
     condition_id: "condition",
@@ -149,6 +150,23 @@ describe("market metadata", () => {
     assert.equal(market.definition, "Definition");
     assert.equal(market.subcategory, "Bitcoin");
     assert.deepEqual(market.tags, ["btc"]);
+  });
+
+  it("takes the authoritative outcome count from the market response", () => {
+    const response = marketResponse();
+    response.outcomes = [];
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+    assert.deepEqual(market.outcomes, []);
+  });
+
+  it("rejects inconsistent deposit asset outcome counts", () => {
+    const response = marketResponse();
+    response.deposit_assets[0]!.num_outcomes = 3;
+
+    assert.throws(() => marketFromWire(response), /do not match market/);
   });
 
   it("rejects markets without a non-empty string definition", () => {

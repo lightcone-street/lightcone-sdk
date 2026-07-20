@@ -194,6 +194,7 @@ class SearchOrderbook:
 class MarketWire:
     """Raw market data from the API."""
     market_id: int = 0
+    num_outcomes: int = 0
     market_pubkey: str = ""
     market_name: str = ""
     slug: Optional[str] = None
@@ -238,6 +239,7 @@ class MarketWire:
         resolution_raw = d.get("resolution")
         return MarketWire(
             market_id=d.get("market_id", 0),
+            num_outcomes=_require(d, "num_outcomes", "MarketWire"),
             market_pubkey=_require(d, "market_pubkey", "MarketWire"),
             market_name=d.get("market_name", ""),
             slug=d.get("slug"),

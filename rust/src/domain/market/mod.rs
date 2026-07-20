@@ -99,6 +99,7 @@ pub struct Market {
     pub category: Option<String>,
     pub subcategory: Option<String>,
     pub tags: Vec<String>,
+    pub num_outcomes: u8,
     pub deposit_assets: Vec<self::tokens::DepositAsset>,
     /// Unique base/quote deposit-asset pairs derived from `orderbook_pairs`
     /// during wire→domain conversion. Deduplicated by `(base, quote)` pubkey.
@@ -136,6 +137,8 @@ pub enum ValidationError {
     InvalidStatus,
     MissingDefinition,
     MissingSlug,
+    InvalidOutcomeCount(i16),
+    InconsistentOutcomeCounts(Vec<i16>),
     MissingDepositAssetPairs,
     Token(self::tokens::TokenValidationError),
     Outcome(self::outcome::OutcomeValidationError),
@@ -156,6 +159,12 @@ impl fmt::Display for ValidationError {
             ValidationError::InvalidStatus => write!(f, "Invalid status"),
             ValidationError::MissingDefinition => write!(f, "Missing definition"),
             ValidationError::MissingSlug => write!(f, "Missing slug"),
+            ValidationError::InvalidOutcomeCount(count) => {
+                write!(f, "Invalid outcome count: {count}")
+            }
+            ValidationError::InconsistentOutcomeCounts(counts) => {
+                write!(f, "Inconsistent outcome counts: {counts:?}")
+            }
             ValidationError::MissingIconUrl => write!(f, "Missing icon URL"),
             ValidationError::MissingDepositAssetPairs => write!(f, "Missing deposit asset pairs"),
             ValidationError::Token(err) => write!(f, "Token: {}", err),

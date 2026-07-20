@@ -59,6 +59,7 @@ export interface Market {
   category?: string;
   subcategory?: string;
   tags: string[];
+  numOutcomes: number;
   depositAssets: DepositAsset[];
   /**
    * Unique base/quote deposit-asset pairs derived from `orderbookPairs`

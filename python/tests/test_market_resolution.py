@@ -67,6 +67,7 @@ def market_payload(resolution: dict | None = None) -> dict:
         "icon_url_low": "https://example.com/icon-low.png",
         "market_pubkey": "market_1",
         "market_id": 1,
+        "num_outcomes": 2,
         "oracle": "oracle",
         "question_id": "question",
         "condition_id": "condition",
@@ -158,6 +159,26 @@ def test_optional_metadata_fields_pass_through_when_present() -> None:
     assert market.definition == "Definition"
     assert market.subcategory == "Bitcoin"
     assert market.tags == ["btc"]
+
+
+def test_market_outcome_count_comes_from_market_response() -> None:
+    payload = market_payload()
+    payload["outcomes"] = []
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+    assert market.outcomes == []
+
+
+def test_market_rejects_inconsistent_outcome_counts() -> None:
+    payload = market_payload()
+    payload["deposit_assets"][0]["num_outcomes"] = 3
+    wire = MarketWire.from_dict(payload)
+
+    assert "do not match market" in validation_errors_from_wire(wire)[0]
+    with pytest.raises(MarketValidationError, match="do not match market"):
+        market_from_wire(wire)
 
 
 @pytest.mark.parametrize("definition", [None, "", 1])

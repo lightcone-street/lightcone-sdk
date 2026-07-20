@@ -86,6 +86,7 @@ export interface MarketResponse {
   featured_rank?: number;
   market_pubkey: string;
   market_id: number;
+  num_outcomes: number;
   oracle: string;
   question_id: string;
   condition_id: string;

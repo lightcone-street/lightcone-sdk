@@ -387,11 +387,11 @@ class Positions:
         return RedeemWinningsBuilder(self._client)
 
     def withdraw_from_position(self) -> WithdrawFromPositionBuilder:
-        """Create a conditional-token withdraw-from-position builder."""
+        """Create a builder that requires ``.num_outcomes(...)`` before building."""
         return WithdrawFromPositionBuilder(self._client)
 
     def withdraw_conditional_from_position(self) -> WithdrawFromPositionBuilder:
-        """Create a conditional-token withdraw-from-position builder."""
+        """Create a builder that requires ``.num_outcomes(...)`` before building."""
         return WithdrawFromPositionBuilder(self._client)
 
     def init_position_tokens(self) -> InitPositionTokensBuilder:

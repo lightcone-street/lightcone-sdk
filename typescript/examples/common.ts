@@ -89,7 +89,7 @@ export function quoteDepositMint(orderbook: OrderBookPair): PublicKey {
 }
 
 export function numOutcomes(m: Market): number {
-  return m.outcomes.length;
+  return m.numOutcomes;
 }
 
 export async function waitForGlobalBalance(
