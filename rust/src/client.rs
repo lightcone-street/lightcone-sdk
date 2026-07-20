@@ -42,7 +42,8 @@ use std::sync::Arc;
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
 pub use crate::domain::market::client::{
-    GlobalDepositAssetsResult, Markets as MarketsClient, MarketsResult,
+    FavoriteMarketUpdate, FavoriteMarkets, GlobalDepositAssetsResult, Markets as MarketsClient,
+    MarketsResult,
 };
 pub use crate::domain::metrics::client::Metrics as MetricsClient;
 pub use crate::domain::notification::client::Notifications as NotificationsClient;
@@ -266,6 +267,27 @@ impl LightconeClient {
     /// Clear the signing strategy (e.g. on logout).
     pub async fn clear_signing_strategy(&self) {
         *self.signing_strategy.write().await = None;
+    }
+
+    /// Register the credential restorer consulted when a request fails with
+    /// HTTP 401: it attempts to restore credentials (e.g. refresh the app's
+    /// auth session so the auth cookie is valid again); on success the
+    /// transport replays the request once IF it declared itself retry-safe
+    /// (mutations with `RetryPolicy::None` are never auto-replayed). See
+    /// [`crate::http::CredentialRestorer`]. Without a restorer, 401s
+    /// propagate to callers unchanged.
+    ///
+    /// Common use: set once at app startup, alongside the signing strategy.
+    pub async fn set_credential_restorer(
+        &self,
+        restorer: std::sync::Arc<dyn crate::http::CredentialRestorer>,
+    ) {
+        self.http.set_credential_restorer(restorer).await;
+    }
+
+    /// Remove the credential restorer (e.g. in tests); 401s propagate again.
+    pub async fn clear_credential_restorer(&self) {
+        self.http.clear_credential_restorer().await;
     }
 
     // ── Faucet (testnet only) ──────────────────────────────────────────

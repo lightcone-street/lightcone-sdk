@@ -1,4 +1,5 @@
 export { LightconeHttp } from "./client";
+export type { CredentialRestorer } from "./credentialRestorer";
 export {
   DEFAULT_RETRY_CONFIG,
   RetryPolicy,

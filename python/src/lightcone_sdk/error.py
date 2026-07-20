@@ -126,6 +126,16 @@ class HttpError(SdkError):
 
     @staticmethod
     def max_retries_exceeded(attempts: int, last_error: str = "unknown") -> "HttpError":
+        """NOT produced by the SDK's HTTP retry loop.
+
+        On retry exhaustion the FINAL attempt's error propagates unchanged —
+        structured rejection details, status classification (is_unauthorized
+        etc.), and request id intact — because flattening it into this
+        wrapper's message string would destroy everything callers switch on
+        (see the retry-exhaustion tests). The factory stays public for
+        consumers that build their own retry loops on the raw primitives and
+        want a conventional exhaustion error.
+        """
         return HttpError(
             f"Max retries exceeded after {attempts} attempts: {last_error}",
             HttpErrorKind.MAX_RETRIES_EXCEEDED,
@@ -238,6 +248,22 @@ class AuthError(SdkError):
         return AuthError("Token expired", AuthErrorKind.TOKEN_EXPIRED)
 
 
+def is_unauthorized(error: BaseException) -> bool:
+    """True when the backend rejected a request as unauthenticated (HTTP 401).
+
+    Covers both a bare 401 (``HttpError`` with kind ``UNAUTHORIZED``) and a
+    401 that carried a structured rejection envelope (``ApiRejected`` with an
+    ``http_status`` of 401). Lets callers decide whether refreshing
+    credentials and retrying makes sense without matching on backend error
+    strings.
+    """
+    if isinstance(error, HttpError):
+        return error.kind == HttpErrorKind.UNAUTHORIZED
+    if isinstance(error, ApiRejected):
+        return error.details.http_status == 401
+    return False
+
+
 __all__ = [
     "SdkError",
     "ApiRejected",
@@ -252,4 +278,5 @@ __all__ = [
     "WsErrorKind",
     "AuthError",
     "AuthErrorKind",
+    "is_unauthorized",
 ]

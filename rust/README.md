@@ -226,6 +226,8 @@ After `client.auth().login_with_message(...)` succeeds, the SDK stores the sessi
 
 When the SDK runs on a server (SSR, server functions, an axum handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
+> **Behavior change (0.9.0).** `_with_cookies` responses no longer capture `Set-Cookie` into the process-wide user session (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
+
 For these cases, authed methods that need per-call forwarding ship a `_with_cookies(auth_token)` sibling that injects the cookie just for that one call:
 
 ```rust
@@ -299,13 +301,13 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.rs) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.rs) | Per-call auth-token forwarding for SSR / server-function consumers — logs in, captures the token via `client.auth_token()`, clears the SDK's internal store, and exercises every `_with_cookies` variant |
+| [`with_cookies`](examples/with_cookies.rs) | Per-call cookie forwarding for SSR / server-function consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `global_deposit_assets()` |
+| [`markets`](examples/markets.rs) | Featured markets, paginated listing, fetch by pubkey, search, and platform deposit assets via `global_deposit_assets()`; authenticated favorite-market APIs are demonstrated by `with_cookies` |
 | [`market_deposit_assets`](examples/market_deposit_assets.rs) | List the deposit assets and conditional mints for a specific market |
 | [`orderbook`](examples/orderbook.rs) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
@@ -441,7 +443,7 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 | `NotFound(String)` | 404 - resource not found (body had no error envelope) |
 | `BadRequest(String)` | 400 - invalid request (body had no error envelope) |
 | `Timeout` | Request timed out |
-| `MaxRetriesExceeded { attempts, last_error }` | All retry attempts exhausted |
+| `MaxRetriesExceeded { attempts, last_error }` | Never produced by the SDK itself: the HTTP retry loop propagates the final underlying error on exhaustion (structured details intact — see the retry-exhaustion tests). Kept public for consumer-built retry loops |
 
 Status-to-error mapping order:
 
@@ -451,6 +453,20 @@ Status-to-error mapping order:
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy::Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy::Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy::None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy::Custom(RetryConfig { .. })`.
+
+### Credential restoration (401 recovery)
+
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. a browser refreshing its Privy session, a bot re-running login). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied hook:
+
+```rust
+use lightcone::http::CredentialRestorer;
+
+client.set_credential_restorer(std::sync::Arc::new(MyRestorer)).await;
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy::None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport (on wasm the browser follows them itself; the transport refuses such responses best-effort as `HttpError::RedirectedOffOrigin` when the final URL is readable — a CORS-blocked redirect target instead surfaces as a plain network error, which retry policy may re-send), and without a registered restorer 401s propagate unchanged. A timed-out restoration is dropped — true cancellation on native targets; on wasm, JS work already started behind the dropped future keeps running, so restorers whose work is non-idempotent (refresh-token rotation) must serialize internally.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `SdkError::is_unauthorized()` — it covers both bare 401s (`HttpError::Unauthorized`) and 401s carrying a structured rejection envelope (`ApiRejectedDetails.http_status`).

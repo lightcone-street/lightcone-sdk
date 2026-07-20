@@ -52,17 +52,17 @@ export function marketFromWire(source: MarketResponse): Market {
   });
 
   const status = statusFromWire(source.market_status);
+  const definition = typeof source.definition === "string" ? source.definition : undefined;
   if (!source.slug) errors.push("Missing slug");
   if (!source.market_name) errors.push("Missing market name");
   if (!status) errors.push(`Invalid status: ${source.market_status}`);
-  if (!source.description) errors.push("Missing description");
-  if (!source.definition) errors.push("Missing definition");
+  if (!definition) errors.push("Missing definition");
 
   const iconUrls = resolveIconUrls(source.icon_url_low, source.icon_url_medium, source.icon_url_high);
   if (!iconUrls) errors.push("Missing icon URL");
 
+  // Banners are optional; cross-fallback still applies when any variant is set.
   const bannerUrls = resolveIconUrls(source.banner_image_url_low, source.banner_image_url_medium, source.banner_image_url_high);
-  if (!bannerUrls) errors.push("Missing banner image URL");
 
   const depositAssetPairs = sortByDisplayPriority(
     deriveDepositAssetPairs(depositAssets, orderbookPairs),
@@ -80,9 +80,9 @@ export function marketFromWire(source: MarketResponse): Market {
     id: source.market_id,
     pubkey: asPubkeyStr(source.market_pubkey),
     name: source.market_name ?? "",
-    bannerImageUrlLow: bannerUrls?.low ?? "",
-    bannerImageUrlMedium: bannerUrls?.medium ?? "",
-    bannerImageUrlHigh: bannerUrls?.high ?? "",
+    bannerImageUrlLow: bannerUrls?.low,
+    bannerImageUrlMedium: bannerUrls?.medium,
+    bannerImageUrlHigh: bannerUrls?.high,
     iconUrlLow: iconUrls?.low ?? "",
     iconUrlMedium: iconUrls?.medium ?? "",
     iconUrlHigh: iconUrls?.high ?? "",
@@ -93,9 +93,10 @@ export function marketFromWire(source: MarketResponse): Market {
     activatedAt: source.activated_at ? new Date(source.activated_at) : undefined,
     settledAt: source.settled_at ? new Date(source.settled_at) : undefined,
     resolution: source.resolution,
-    description: source.description ?? "",
-    definition: source.definition ?? "",
+    description: source.description,
+    definition: definition as string,
     category: source.category,
+    subcategory: source.subcategory,
     tags: source.tags ?? [],
     depositAssets,
     depositAssetPairs,

@@ -123,14 +123,18 @@ fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) ->
 
 Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
 
-#### `withdraw_from_position_ix` / `withdraw_from_position_tx`
+#### `withdraw_conditional_from_position_ix` / `withdraw_conditional_from_position_tx`
 
 ```rust
+fn withdraw_conditional_from_position_ix(&self, params: &WithdrawConditionalFromPositionParams) -> Instruction
+fn withdraw_conditional_from_position_tx(&self, params: WithdrawConditionalFromPositionParams) -> Result<Transaction, SdkError>
+
+// Compatibility wrappers:
 fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction
 fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Result<Transaction, SdkError>
 ```
 
-Build a WithdrawFromPosition instruction/transaction — withdraw conditional tokens from a position account to the user's wallet.
+Build a conditional-token withdrawal instruction/transaction. The params take the market's registered `deposit_mint`; the SDK derives the conditional mint from `(market, deposit_mint, outcome_index)` and withdraws from the position's canonical conditional-token ATA to the user's canonical ATA.
 
 #### `init_position_tokens_ix` / `init_position_tokens_tx`
 
@@ -208,7 +212,7 @@ async fn withdraw(&self) -> WithdrawBuilder<'a>
 
 Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
 
-For market withdrawals, use `.with_market_deposit_source(&market)` to set the deposit source and market at once, then chain `.outcome_index()` as needed.
+For market withdrawals, `.mint()` is the registered deposit mint and the SDK derives the conditional mint from `.outcome_index()`. Position withdrawals are conditional-token only; collateral exits through global withdrawal, complete-set merge, or winnings redemption.
 
 #### `merge`
 

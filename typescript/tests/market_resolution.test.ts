@@ -123,6 +123,55 @@ function marketResponse(
   };
 }
 
+describe("market metadata", () => {
+  it("converts markets without description, banners, subcategory, or tags", () => {
+    const response = marketResponse();
+    delete response.description;
+    delete response.banner_image_url_low;
+
+    const market = marketFromWire(response);
+    assert.equal(market.description, undefined);
+    assert.equal(market.definition, "Definition");
+    assert.equal(market.bannerImageUrlLow, undefined);
+    assert.equal(market.bannerImageUrlMedium, undefined);
+    assert.equal(market.bannerImageUrlHigh, undefined);
+    assert.equal(market.subcategory, undefined);
+    assert.deepEqual(market.tags, []);
+  });
+
+  it("passes optional metadata through when present", () => {
+    const response = marketResponse();
+    response.subcategory = "Bitcoin";
+    response.tags = ["btc"];
+
+    const market = marketFromWire(response);
+    assert.equal(market.description, "Description");
+    assert.equal(market.definition, "Definition");
+    assert.equal(market.subcategory, "Bitcoin");
+    assert.deepEqual(market.tags, ["btc"]);
+  });
+
+  it("rejects markets without a non-empty string definition", () => {
+    for (const definition of [undefined, "", 1]) {
+      const response = marketResponse();
+      (response as { definition?: unknown }).definition = definition;
+
+      assert.throws(() => marketFromWire(response), /Missing definition/);
+    }
+  });
+
+  it("cross-falls-back banner URLs when partially set", () => {
+    const response = marketResponse();
+    delete response.banner_image_url_low;
+    response.banner_image_url_high = "https://example.com/banner-high.png";
+
+    const market = marketFromWire(response);
+    assert.equal(market.bannerImageUrlLow, "https://example.com/banner-high.png");
+    assert.equal(market.bannerImageUrlMedium, "https://example.com/banner-high.png");
+    assert.equal(market.bannerImageUrlHigh, "https://example.com/banner-high.png");
+  });
+});
+
 describe("market resolution", () => {
   it("treats scalar resolution as resolved without a single winner", () => {
     const market = marketFromWire(marketResponse(scalarResolution()));

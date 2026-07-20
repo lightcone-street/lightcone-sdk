@@ -56,24 +56,13 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         errors.append("Missing slug")
     if not wire.market_name:
         errors.append("Missing name")
-    if not wire.description:
-        errors.append("Missing description")
-    if not wire.definition:
+    if not isinstance(wire.definition, str) or not wire.definition:
         errors.append("Missing definition")
     if (
         _resolve_icon_urls(wire.icon_url_low, wire.icon_url_medium, wire.icon_url_high)
         is None
     ):
         errors.append("Missing thumbnail image")
-    if (
-        _resolve_icon_urls(
-            wire.banner_image_url_low,
-            wire.banner_image_url_medium,
-            wire.banner_image_url_high,
-        )
-        is None
-    ):
-        errors.append("Missing banner image")
     if wire.market_status and wire.market_status not in {
         "Pending",
         "Active",
@@ -91,6 +80,14 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
 
 def market_from_wire(wire: MarketWire) -> Market:
     """Convert a MarketWire to a Market domain type."""
+    definition = wire.definition
+    if not isinstance(definition, str) or not definition:
+        identifier = wire.market_pubkey or str(wire.market_id)
+        raise MarketValidationError(
+            f"Market validation errors ({identifier}): Missing definition",
+            ["Missing definition"],
+        )
+
     outcomes = []
     for o in wire.outcomes:
         outcome_icons = _resolve_icon_urls(
@@ -152,6 +149,7 @@ def market_from_wire(wire: MarketWire) -> Market:
                     outcome=ct.outcome,
                     deposit_asset=da.deposit_asset,
                     deposit_symbol=da_symbol,
+                    deposit_short_symbol=da_short_symbol,
                     name=ct_name,
                     symbol=ct_full_symbol,
                     short_symbol=ct_short_symbol,
@@ -217,6 +215,7 @@ def market_from_wire(wire: MarketWire) -> Market:
             ["Missing deposit asset pairs"],
         )
 
+    # Banners are optional; cross-fallback still applies when any variant is set.
     banner_icons = _resolve_icon_urls(
         wire.banner_image_url_low,
         wire.banner_image_url_medium,
@@ -232,9 +231,9 @@ def market_from_wire(wire: MarketWire) -> Market:
         id=wire.market_id,
         pubkey=wire.market_pubkey,
         name=wire.market_name,
-        banner_image_url_low=banner_icons[0] if banner_icons else "",
-        banner_image_url_medium=banner_icons[1] if banner_icons else "",
-        banner_image_url_high=banner_icons[2] if banner_icons else "",
+        banner_image_url_low=banner_icons[0] if banner_icons else None,
+        banner_image_url_medium=banner_icons[1] if banner_icons else None,
+        banner_image_url_high=banner_icons[2] if banner_icons else None,
         icon_url_low=market_icons[0] if market_icons else "",
         icon_url_medium=market_icons[1] if market_icons else "",
         icon_url_high=market_icons[2] if market_icons else "",
@@ -245,9 +244,10 @@ def market_from_wire(wire: MarketWire) -> Market:
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
         resolution=wire.resolution,
-        description=wire.description or "",
-        definition=wire.definition or "",
+        description=wire.description,
+        definition=definition,
         category=wire.category,
+        subcategory=wire.subcategory,
         tags=wire.tags,
         deposit_assets=deposit_assets,
         deposit_asset_pairs=deposit_asset_pairs,

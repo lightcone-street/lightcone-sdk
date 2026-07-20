@@ -1,7 +1,7 @@
 //! Per-call cookie forwarding for SSR / server-function consumers.
 //!
 //! Demonstrates the `_with_cookies` variants on `Positions`, `Notifications`,
-//! `Referrals`, `Orders`, and `Metrics`. These bypass the SDK's process-wide
+//! `Referrals`, `Orders`, `Metrics`, and `Markets`. These bypass the SDK's process-wide
 //! `auth_token` store and forward the supplied raw `Cookie` header for that
 //! single call only — so a server can relay whatever auth cookies the browser
 //! sent (`privy-token` and/or `lightcone-token`).
@@ -76,6 +76,52 @@ async fn main() -> ExampleResult {
         "user metrics: volume_usd={} outcomes_traded={}",
         user_metrics.total_volume_usd, user_metrics.total_outcomes_traded
     );
+
+    let mut favorite_market_pubkeys = Vec::new();
+    let mut favorite_cursor = None;
+    loop {
+        let favorite_page = client
+            .markets()
+            .favorite_markets_with_cookies(Some(1000), favorite_cursor, &cookie_header)
+            .await?;
+        favorite_market_pubkeys.extend(favorite_page.market_pubkeys);
+        if !favorite_page.has_more {
+            break;
+        }
+        favorite_cursor = match favorite_page.next_cursor {
+            Some(next_cursor) => Some(next_cursor),
+            None => {
+                return Err(std::io::Error::other("Favorite page is missing next_cursor").into())
+            }
+        };
+    }
+    println!("favorite markets: {}", favorite_market_pubkeys.len());
+
+    if let Some(market) = client.markets().get(None, Some(1)).await?.markets.first() {
+        let was_favorited = favorite_market_pubkeys
+            .iter()
+            .any(|pubkey| pubkey == market.pubkey.as_str());
+        if was_favorited {
+            client
+                .markets()
+                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+            client
+                .markets()
+                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+        } else {
+            client
+                .markets()
+                .add_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+            client
+                .markets()
+                .remove_favorite_market_with_cookies(market.pubkey.as_str(), &cookie_header)
+                .await?;
+        }
+        println!("restored favorite state for {}", market.pubkey);
+    }
 
     Ok(())
 }

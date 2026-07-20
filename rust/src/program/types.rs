@@ -302,20 +302,23 @@ pub struct RedeemWinningsParams {
     pub amount: u64,
 }
 
-/// Parameters for withdrawing from a position
+/// Parameters for withdrawing conditional tokens from a position
 #[derive(Debug, Clone)]
-pub struct WithdrawFromPositionParams {
+pub struct WithdrawConditionalFromPositionParams {
     /// User pubkey (must be position owner)
     pub user: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Mint pubkey (deposit or conditional)
-    pub mint: Pubkey,
-    /// Amount to withdraw
+    /// Registered collateral mint for the market
+    pub deposit_mint: Pubkey,
+    /// Amount of conditional tokens to withdraw
     pub amount: u64,
-    /// Outcome index (255 for collateral)
+    /// Outcome index for the conditional mint derived from the deposit mint
     pub outcome_index: u8,
 }
+
+/// Compatibility alias for the previous SDK parameter name.
+pub type WithdrawFromPositionParams = WithdrawConditionalFromPositionParams;
 
 /// Parameters for activating a market
 #[derive(Debug, Clone)]
@@ -424,22 +427,63 @@ pub struct CreateOrderbookParams {
     pub mint_b_outcome_index: u8,
 }
 
-/// Parameters for setting a new authority
+/// Parameters for proposing a new authority.
+///
+/// The on-chain authority field changes only after the proposed authority signs
+/// `AcceptAuthority`.
 #[derive(Debug, Clone)]
 pub struct SetAuthorityParams {
     /// Current authority pubkey
     pub current_authority: Pubkey,
-    /// New authority pubkey
+    /// Proposed authority pubkey
     pub new_authority: Pubkey,
 }
 
-/// Parameters for setting a new manager
+/// Parameters for proposing a new manager.
+///
+/// The on-chain manager field changes only after the proposed manager signs
+/// `AcceptManager`.
 #[derive(Debug, Clone)]
 pub struct SetManagerParams {
     /// Current authority pubkey
     pub authority: Pubkey,
-    /// New manager pubkey
+    /// Proposed manager pubkey
     pub new_manager: Pubkey,
+}
+
+/// Parameters for accepting a pending privileged-role transfer.
+#[derive(Debug, Clone)]
+pub struct AcceptRoleParams {
+    /// Incoming role signer. Must match the pending role stored on Exchange.
+    pub incoming_role: Pubkey,
+}
+
+/// Parameters for reassigning a market oracle.
+#[derive(Debug, Clone)]
+pub struct SetOracleParams {
+    /// Current exchange authority pubkey.
+    pub authority: Pubkey,
+    /// Market account to update.
+    pub market: Pubkey,
+    /// New oracle pubkey. Must not be the zero pubkey.
+    pub new_oracle: Pubkey,
+}
+
+/// Parameters for refreshing an orderbook ALT after fee receiver rotation.
+#[derive(Debug, Clone)]
+pub struct RefreshOrderbookAltParams {
+    /// Manager pubkey. Pays ATA/ALT rent deltas.
+    pub manager: Pubkey,
+    /// Market account for the orderbook.
+    pub market: Pubkey,
+    /// Orderbook PDA.
+    pub orderbook: Pubkey,
+    /// Lookup table recorded on the orderbook.
+    pub lookup_table: Pubkey,
+    /// Current orderbook quote mint.
+    pub quote_mint: Pubkey,
+    /// Current exchange fee receiver.
+    pub fee_receiver: Pubkey,
 }
 
 /// One per-market fee update.
@@ -471,6 +515,17 @@ pub struct SetFeeReceiverParams {
     pub new_fee_receiver: Pubkey,
 }
 
+/// Parameters for setting the exchange fee receiver while ensuring quote ATAs.
+#[derive(Debug, Clone)]
+pub struct SetFeeReceiverWithAtasParams {
+    /// Current authority pubkey. Pays ATA creation rent if needed.
+    pub authority: Pubkey,
+    /// New fee receiver. Must not be the zero pubkey.
+    pub new_fee_receiver: Pubkey,
+    /// Quote mints whose canonical fee receiver ATAs should be created idempotently.
+    pub quote_mints: Vec<Pubkey>,
+}
+
 /// Parameters for creating or updating Metaplex metadata for a conditional mint.
 #[derive(Debug, Clone)]
 pub struct ConditionalMetadataParams {
@@ -497,6 +552,17 @@ pub struct WhitelistDepositTokenParams {
     pub authority: Pubkey,
     /// Mint pubkey to whitelist
     pub mint: Pubkey,
+}
+
+/// Parameters for updating the backend-visible global deposit token status flag.
+#[derive(Debug, Clone)]
+pub struct SetDepositTokenStatusParams {
+    /// Manager pubkey (must be exchange manager)
+    pub manager: Pubkey,
+    /// Whitelisted deposit token mint.
+    pub mint: Pubkey,
+    /// New active flag. Current on-chain user flows do not gate on this value.
+    pub active: bool,
 }
 
 /// Parameters for depositing tokens to a global deposit account
@@ -715,7 +781,7 @@ pub struct DepositParams<'a> {
 pub struct MarketWithdrawContext<'a> {
     /// The market to withdraw from.
     pub market: &'a Market,
-    /// Outcome index to withdraw. Use `255` for collateral.
+    /// Outcome index of the conditional token to withdraw.
     pub outcome_index: u8,
 }
 
@@ -728,7 +794,8 @@ pub struct MarketWithdrawContext<'a> {
 pub struct WithdrawParams<'a> {
     /// User pubkey (must be the depositor / position owner).
     pub user: Pubkey,
-    /// Token mint pubkey.
+    /// Token mint pubkey. For market withdrawals this is the registered
+    /// deposit mint; the conditional mint is derived from `market_context`.
     pub mint: Pubkey,
     /// Amount to withdraw.
     pub amount: u64,

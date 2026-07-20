@@ -40,6 +40,22 @@ pub enum SdkError {
     Other(String),
 }
 
+impl SdkError {
+    /// True when the backend rejected the request as unauthenticated (HTTP
+    /// 401) — either a bare 401 ([`HttpError::Unauthorized`]) or a 401 that
+    /// carried a structured rejection envelope ([`SdkError::ApiRejected`]
+    /// with an `http_status` of 401). Lets callers decide whether refreshing
+    /// credentials and retrying makes sense without matching on backend
+    /// error strings.
+    pub fn is_unauthorized(&self) -> bool {
+        match self {
+            SdkError::Http(HttpError::Unauthorized) => true,
+            SdkError::ApiRejected(details) => details.http_status == Some(401),
+            _ => false,
+        }
+    }
+}
+
 /// HTTP-layer errors.
 #[derive(Error, Debug)]
 pub enum HttpError {
@@ -65,6 +81,21 @@ pub enum HttpError {
     #[error("Timeout")]
     Timeout,
 
+    /// The browser followed a redirect off the configured API origin (WASM
+    /// only — native transports never follow redirects; a 3xx surfaces as a
+    /// status error instead). The response is refused so the redirect target
+    /// cannot impersonate the API.
+    #[error("Redirected off the API origin: {0}")]
+    RedirectedOffOrigin(String),
+
+    /// NOT produced by the SDK's HTTP retry loop. On retry exhaustion the
+    /// FINAL attempt's error propagates unchanged — structured rejection
+    /// details, status classification (`is_unauthorized` etc.), and request
+    /// id intact — because flattening it into this wrapper's `last_error`
+    /// string would destroy everything callers switch on (see the
+    /// retry-exhaustion tests). The variant stays public for consumers that
+    /// build their own retry loops on the raw/no-restore primitives and want
+    /// a conventional exhaustion error to construct.
     #[error("Max retries exceeded after {attempts} attempts: {last_error:?}")]
     MaxRetriesExceeded {
         attempts: u32,

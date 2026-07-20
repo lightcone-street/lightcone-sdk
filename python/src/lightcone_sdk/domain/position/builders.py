@@ -12,6 +12,7 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ...error import MissingMarketContext, SdkError
+from ...program.constants import MAX_OUTCOMES
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
@@ -22,9 +23,10 @@ from ...program.instructions import (
     build_merge_instruction,
     build_redeem_winnings_instruction,
     build_withdraw_from_global_instruction,
-    build_withdraw_from_position_instruction,
+    build_withdraw_conditional_from_position_instruction,
 )
 from ...program.types import DepositToGlobalAltContext
+from ...program.utils import validate_outcome_index
 from ...shared.types import DepositSource
 
 if TYPE_CHECKING:
@@ -221,7 +223,7 @@ class WithdrawBuilder:
 
     Dispatches based on deposit source:
     - **Global**: ``withdraw_from_global`` — global pool -> wallet
-    - **Market**: ``withdraw_from_position`` — position ATA -> user's wallet
+    - **Market**: ``withdraw_conditional_from_position`` — conditional-token ATA -> user's wallet
 
     Created via ``client.positions().withdraw()``.
     """
@@ -240,8 +242,18 @@ class WithdrawBuilder:
         return self
 
     def mint(self, mint: Pubkey) -> "WithdrawBuilder":
+        """Set the token mint.
+
+        In ``Global`` mode this is the deposit token mint to withdraw. In
+        ``Market`` mode this is the market's registered deposit mint; the
+        conditional mint is derived from this mint plus ``outcome_index``.
+        """
         self._mint = mint
         return self
+
+    def deposit_mint(self, deposit_mint: Pubkey) -> "WithdrawBuilder":
+        """Set the registered deposit mint for a market withdrawal."""
+        return self.mint(deposit_mint)
 
     def amount(self, amount: int) -> "WithdrawBuilder":
         self._amount = amount
@@ -292,7 +304,7 @@ class WithdrawBuilder:
                 amount=amount,
                 program_id=program_id,
             )
-        else:  # Market -> withdraw_from_position
+        else:  # Market -> withdraw_conditional_from_position
             market = self._market
             if market is None:
                 raise MissingMarketContext("market is required for Market withdrawal")
@@ -300,10 +312,16 @@ class WithdrawBuilder:
             outcome_index = self._outcome_index
             if outcome_index is None:
                 raise SdkError("outcome_index is required for Market withdrawal")
-            return build_withdraw_from_position_instruction(
+            # A market payload may carry an empty outcomes list; fall back to
+            # the program-wide bound rather than rejecting every index.
+            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+            validate_outcome_index(
+                outcome_index, num_outcomes if num_outcomes > 0 else MAX_OUTCOMES
+            )
+            return build_withdraw_conditional_from_position_instruction(
                 user=user,
                 market=market_pubkey,
-                mint=mint,
+                deposit_mint=mint,
                 amount=amount,
                 outcome_index=outcome_index,
                 program_id=program_id,
@@ -397,13 +415,13 @@ class RedeemWinningsBuilder:
 
 
 class WithdrawFromPositionBuilder:
-    """Fluent builder for withdraw-from-position operations."""
+    """Fluent builder for conditional-token withdraw-from-position operations."""
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
         self._user: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
+        self._deposit_mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
         self._outcome_index: Optional[int] = None
 
@@ -415,9 +433,13 @@ class WithdrawFromPositionBuilder:
         self._market = market
         return self
 
-    def mint(self, mint: Pubkey) -> "WithdrawFromPositionBuilder":
-        self._mint = mint
+    def deposit_mint(self, deposit_mint: Pubkey) -> "WithdrawFromPositionBuilder":
+        self._deposit_mint = deposit_mint
         return self
+
+    def mint(self, deposit_mint: Pubkey) -> "WithdrawFromPositionBuilder":
+        """Set the registered deposit mint for the market."""
+        return self.deposit_mint(deposit_mint)
 
     def amount(self, amount: int) -> "WithdrawFromPositionBuilder":
         self._amount = amount
@@ -434,19 +456,21 @@ class WithdrawFromPositionBuilder:
         market = self._market
         if market is None:
             raise SdkError("market is required")
-        mint = self._mint
-        if mint is None:
-            raise SdkError("mint is required")
+        deposit_mint = self._deposit_mint
+        if deposit_mint is None:
+            raise SdkError("deposit_mint is required")
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
         outcome_index = self._outcome_index
         if outcome_index is None:
             raise SdkError("outcome_index is required")
-        return build_withdraw_from_position_instruction(
+        # Only the market pubkey is known here; enforce the program-wide bound.
+        validate_outcome_index(outcome_index, MAX_OUTCOMES)
+        return build_withdraw_conditional_from_position_instruction(
             user=user,
             market=market,
-            mint=mint,
+            deposit_mint=deposit_mint,
             amount=amount,
             outcome_index=outcome_index,
             program_id=self._client.program_id,

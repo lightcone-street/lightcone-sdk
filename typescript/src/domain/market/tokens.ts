@@ -80,6 +80,7 @@ export interface ConditionalToken extends Token {
   outcome: string;
   depositAsset: PubkeyStr;
   depositSymbol: string;
+  depositShortSymbol: string;
 }
 
 export interface DepositAsset extends Token {
@@ -188,7 +189,7 @@ export function validatedTokensFromWire(source: DepositAssetResponse): Validated
   };
 
   const conditionals = source.conditional_mints.map((conditional) =>
-    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", iconUrls?.low ?? "", iconUrls?.medium ?? "", iconUrls?.high ?? "")
+    conditionalFromWire(conditional, source.deposit_asset, symbol ?? "", name ?? "", iconUrls?.low ?? "", iconUrls?.medium ?? "", iconUrls?.high ?? "")
   );
 
   for (const conditional of conditionals) {
@@ -267,13 +268,20 @@ function conditionalFromWire(
   source: ConditionalTokenResponse,
   depositAsset: string,
   depositSymbol: string,
+  depositShortSymbol: string,
   parentIconUrlLow: string,
   parentIconUrlMedium: string,
   parentIconUrlHigh: string
 ): ConditionalToken {
   const errors: string[] = [];
   if (source.decimals === undefined) errors.push("Missing decimals");
-  if (!source.short_symbol) errors.push("Missing short_symbol");
+  // short_symbol is optional on the wire — the backend's conditional-mint
+  // records currently ship only `symbol` — and the conversion below already
+  // falls back short_symbol ?? symbol (mirroring the rust and python SDKs,
+  // which never required it). Requiring it here made every market invalid
+  // and broke all market-dependent consumers. A token is only invalid when
+  // BOTH are absent: then the fallback chain has nothing to display it by.
+  if (!source.short_symbol && !source.symbol) errors.push("Missing symbol and short_symbol");
   if (!source.outcome) errors.push("Missing outcome");
 
   if (errors.length > 0) {
@@ -291,6 +299,7 @@ function conditionalFromWire(
     outcome: source.outcome ?? "",
     depositAsset: asPubkeyStr(depositAsset),
     depositSymbol,
+    depositShortSymbol,
     pubkey: asPubkeyStr(source.token_address),
     name: source.outcome ?? "",
     symbol: source.symbol ?? source.short_symbol ?? "",

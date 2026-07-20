@@ -80,6 +80,7 @@ pub struct ConditionalToken {
     pub outcome: String,
     pub deposit_asset: PubkeyStr,
     pub deposit_symbol: String,
+    pub deposit_short_symbol: String,
     mint: PubkeyStr,
     name: String,
     symbol: String,
@@ -243,6 +244,7 @@ impl ConditionalToken {
             outcome: "Yes".to_string(),
             deposit_asset,
             deposit_symbol: "USDC".to_string(),
+            deposit_short_symbol: "USD Coin".to_string(),
             mint: mint.clone(),
             name: "Outcome".to_string(),
             symbol: "YES".to_string(),
@@ -588,6 +590,7 @@ impl TryFrom<DepositAssetResponse> for ValidatedTokens {
             conditionals.push(ConditionalToken {
                 id: ct.id,
                 deposit_symbol: symbol.clone(),
+                deposit_short_symbol: short_symbol.clone(),
                 deposit_asset: pubkey.clone(),
                 outcome_index: ct.outcome_index,
                 icon_url_low: ct_icon_url_low,
@@ -681,6 +684,8 @@ mod tests {
         assert_eq!(validated.token.min_order_size, Some(Decimal::ONE));
         assert_eq!(validated.conditionals.len(), 1);
         assert_eq!(validated.conditionals[0].symbol(), "YES");
+        assert_eq!(validated.conditionals[0].deposit_symbol, "USDC");
+        assert_eq!(validated.conditionals[0].deposit_short_symbol, "USD Coin");
 
         let deposit_meta = &validated.metadata
             [&PubkeyStr::from("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string())];

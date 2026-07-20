@@ -69,14 +69,14 @@ impl TryFrom<wire::MarketResponse> for Market {
             errors.push(ValidationError::InvalidStatus);
             Status::Pending
         });
-        let description = source.description.clone().unwrap_or_else(|| {
-            errors.push(ValidationError::MissingDescription);
-            String::new()
-        });
-        let definition = source.definition.clone().unwrap_or_else(|| {
-            errors.push(ValidationError::MissingDefinition);
-            String::new()
-        });
+        let definition = source
+            .definition
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| {
+                errors.push(ValidationError::MissingDefinition);
+                String::new()
+            });
         let (icon_url_low, icon_url_medium, icon_url_high) = resolve_icon_urls(
             source.icon_url_low.clone(),
             source.icon_url_medium.clone(),
@@ -86,16 +86,16 @@ impl TryFrom<wire::MarketResponse> for Market {
             errors.push(ValidationError::MissingIconUrl);
             (String::new(), String::new(), String::new())
         });
+        // Banners are optional; cross-fallback still applies when any variant is set.
         let (banner_image_url_low, banner_image_url_medium, banner_image_url_high) =
-            resolve_icon_urls(
+            match resolve_icon_urls(
                 source.banner_image_url_low.clone(),
                 source.banner_image_url_medium.clone(),
                 source.banner_image_url_high.clone(),
-            )
-            .unwrap_or_else(|| {
-                errors.push(ValidationError::MissingBannerUrl);
-                (String::new(), String::new(), String::new())
-            });
+            ) {
+                Some((low, medium, high)) => (Some(low), Some(medium), Some(high)),
+                None => (None, None, None),
+            };
 
         let deposit_asset_pairs = sort_by_display_priority(&derive_deposit_asset_pairs(
             &deposit_assets,
@@ -121,7 +121,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             activated_at: source.activated_at,
             settled_at: source.settled_at,
             resolution: source.resolution,
-            description,
+            description: source.description,
             definition,
             tags: source.tags.unwrap_or_default(),
             outcomes,
@@ -132,6 +132,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             banner_image_url_medium,
             banner_image_url_high,
             category: source.category,
+            subcategory: source.subcategory,
             orderbook_ids: orderbook_pairs
                 .iter()
                 .map(|p| p.orderbook_id.clone())
@@ -202,6 +203,7 @@ mod tests {
             icon_url_medium: Some("https://example.com/icon_medium.png".to_string()),
             icon_url_high: Some("https://example.com/icon_high.png".to_string()),
             category: None,
+            subcategory: None,
             tags: None,
             featured_rank: None,
             market_pubkey: "mkt123".to_string(),
@@ -376,6 +378,79 @@ mod tests {
         assert!(market.is_resolved());
         assert_eq!(market.single_winning_outcome(), Some(1));
         assert!(market.has_single_winning_outcome());
+    }
+
+    #[test]
+    fn optional_metadata_fields_do_not_fail_validation() {
+        // Description, banners, subcategory, and tags are all optional.
+        let mut resp = valid_market_response(None);
+        resp.description = None;
+        resp.banner_image_url_low = None;
+        resp.banner_image_url_medium = None;
+        resp.banner_image_url_high = None;
+        resp.subcategory = None;
+        resp.tags = None;
+
+        let market = Market::try_from(resp).unwrap();
+        assert_eq!(market.description, None);
+        assert_eq!(market.definition, "Definition");
+        assert_eq!(market.banner_image_url_low, None);
+        assert_eq!(market.banner_image_url_medium, None);
+        assert_eq!(market.banner_image_url_high, None);
+        assert_eq!(market.subcategory, None);
+        assert!(market.tags.is_empty());
+    }
+
+    #[test]
+    fn optional_metadata_fields_pass_through_when_present() {
+        let mut resp = valid_market_response(None);
+        resp.description = Some("Description".to_string());
+        resp.definition = Some("Definition".to_string());
+        resp.subcategory = Some("Bitcoin".to_string());
+        resp.tags = Some(vec!["btc".to_string()]);
+
+        let market = Market::try_from(resp).unwrap();
+        assert_eq!(market.description.as_deref(), Some("Description"));
+        assert_eq!(market.definition, "Definition");
+        assert_eq!(market.subcategory.as_deref(), Some("Bitcoin"));
+        assert_eq!(market.tags, vec!["btc".to_string()]);
+        assert_eq!(
+            market.banner_image_url_low.as_deref(),
+            Some("https://example.com/banner_low.png")
+        );
+    }
+
+    #[test]
+    fn definition_is_required() {
+        for definition in [None, Some(String::new())] {
+            let mut resp = valid_market_response(None);
+            resp.definition = definition;
+
+            let error = Market::try_from(resp).err();
+            assert!(error.is_some_and(|error| error.to_string().contains("Missing definition")));
+        }
+    }
+
+    #[test]
+    fn banner_urls_cross_fallback_when_partially_set() {
+        let mut resp = valid_market_response(None);
+        resp.banner_image_url_low = None;
+        resp.banner_image_url_medium = None;
+        resp.banner_image_url_high = Some("https://example.com/banner_high.png".to_string());
+
+        let market = Market::try_from(resp).unwrap();
+        assert_eq!(
+            market.banner_image_url_low.as_deref(),
+            Some("https://example.com/banner_high.png")
+        );
+        assert_eq!(
+            market.banner_image_url_medium.as_deref(),
+            Some("https://example.com/banner_high.png")
+        );
+        assert_eq!(
+            market.banner_image_url_high.as_deref(),
+            Some("https://example.com/banner_high.png")
+        );
     }
 
     #[test]

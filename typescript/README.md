@@ -235,6 +235,8 @@ After login succeeds, the SDK stores the session token internally and attaches i
 
 When the SDK runs on a server (SSR, an Express / Next.js route handler, etc.) and the *user's* `auth_token` cookie arrives on an incoming HTTP request, the SDK's process-wide token store is the wrong place to route it through — the store is shared across all users of that server process.
 
+> **Behavior change.** `getWithCookies` responses no longer capture `Set-Cookie` into the shared token slot (they previously did): a forwarded per-user request rotating its token must not leak that token to every later request from a shared server client. These requests also never consult the credential restorer.
+
 For these cases, authed methods that need per-call forwarding ship a `*WithAuth(authToken)` sibling that injects the cookie just for that one call:
 
 ```typescript
@@ -279,6 +281,8 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
 
+Favorite-market add and remove methods are idempotent set operations, so the SDK may safely replay them after supported credential restoration or transient transport failures. Per-call cookie variants used by SSR and route handlers retry transient failures with the supplied cookie but never invoke the process-wide credential restorer.
+
 ## Examples
 
 All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`.
@@ -288,13 +292,13 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | Example | Description |
 |---------|-------------|
 | [`login`](examples/login.ts) | Full auth lifecycle: sign message, login, check session, logout |
-| [`with_auth`](examples/with_auth.ts) | Per-call auth-token forwarding for SSR / route-handler consumers — logs in, captures the token via `client.authToken()`, clears the SDK's internal store, and exercises every `*WithAuth` variant |
+| [`with_cookies`](examples/with_cookies.ts) | Per-call cookie forwarding for SSR / route-handler consumers, including paginated favorite-market list/add/remove while restoring the original state |
 
 ### Market Discovery & Data
 
 | Example | Description |
 |---------|-------------|
-| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, platform deposit assets via `globalDepositAssets()` |
+| [`markets`](examples/markets.ts) | Featured markets, paginated listing, fetch by pubkey, search, and platform deposit assets via `globalDepositAssets()`; authenticated favorite-market APIs are demonstrated by `with_cookies` |
 | [`orderbook`](examples/orderbook.ts) | Fetch orderbook depth (bids/asks) and decimal precision metadata |
 | [`trades`](examples/trades.ts) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.ts) | Historical candlestick data (OHLCV) at various resolutions |
@@ -430,13 +434,28 @@ The SDK generates a UUID v4 `x-request-id` header on every HTTP request. On reje
 | `NotFound` | 404 - resource not found |
 | `BadRequest` | 400 - invalid request |
 | `Timeout` | Request timed out |
-| `MaxRetriesExceeded` | All retry attempts exhausted |
+| `MaxRetriesExceeded` | Never produced by the SDK itself: the HTTP retry loop propagates the final underlying error on exhaustion (structured details intact — see the retry-exhaustion tests). Kept public for consumer-built retry loops |
 
 ## Retry Strategy
 
-- **GET requests**: `RetryPolicy.Idempotent` - retries on transport failures and 502/503/504, backs off on 429 with exponential backoff + jitter.
-- **POST requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry. Non-idempotent actions are never retried to prevent duplicate side effects.
+- **Replay-safe requests**: GETs and idempotent set operations such as favorite-market updates use `RetryPolicy.Idempotent`, which retries transport failures and 502/503/504 and backs off on 429 with exponential backoff + jitter.
+- **Non-idempotent requests** (order submit, cancel, auth): `RetryPolicy.None` - no automatic retry, which prevents duplicate side effects.
 - Customizable per-call with `RetryPolicy.custom(config)`.
+
+### Credential restoration (401 recovery)
+
+Sessions built on short-lived tokens expire mid-run: the backend starts answering 401 even though the app could mint a fresh token (e.g. a browser refreshing its Privy session). Rather than every caller hand-rolling "detect 401 → refresh → retry", the transport accepts a host-supplied hook:
+
+```typescript
+client.setCredentialRestorer(async () => {
+  // e.g. ask the auth provider's SDK to refresh the session
+  return await refreshSession();
+});
+```
+
+When a request to the API origin fails with HTTP 401 and a restorer is registered, the transport consults it **at most once per logical request**, with concurrent 401s sharing one restoration (bounded by a 30-second timeout). A successful restoration replays the request once **only if it declared itself retry-safe** (an idempotent/custom retry policy); `RetryPolicy.None` requests — mutations like orders and cancels — are never auto-replayed: the restoration still heals the session for the caller's next attempt, but the original 401 propagates. Restoration is skipped for credential-management endpoints (login, logout) and for cookie-override/custom-session requests, redirects are never followed on the API transport, and without a registered restorer 401s propagate unchanged. A timed-out restoration has its `AbortSignal` fired — promises cannot be cancelled, so restorers whose work is non-idempotent (refresh-token rotation) must honor the signal or serialize internally.
+
+The SDK stays credential-agnostic: what "restore" means belongs to the host. For classifying auth failures in your own code, use `isUnauthorized(error)` from the error module — it covers both bare 401s and 401s carrying a structured rejection envelope (`ApiRejectedDetails.httpStatus`).
 
 ## Trigger Orders
 

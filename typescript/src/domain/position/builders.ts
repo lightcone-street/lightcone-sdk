@@ -11,9 +11,11 @@ import {
   buildMergeIx,
   buildRedeemWinningsIx,
   buildWithdrawFromGlobalIx,
-  buildWithdrawFromPositionIx,
+  buildWithdrawConditionalFromPositionIx,
   buildInitPositionTokensIx,
 } from "../../program/instructions";
+import { MAX_OUTCOMES } from "../../program/constants";
+import { validateOutcomeIndex } from "../../program/utils";
 import { DepositSource } from "../../shared";
 import type { DepositToGlobalAltContext } from "../../program/types";
 import type { Market } from "../market";
@@ -141,6 +143,10 @@ export class WithdrawBuilder {
     return this;
   }
 
+  depositMint(depositMint: PublicKey): this {
+    return this.mint(depositMint);
+  }
+
   amount(amount: bigint): this {
     this.amountValue = amount;
     return this;
@@ -188,8 +194,12 @@ export class WithdrawBuilder {
         }
         const marketPubkey = new PublicKey(market.pubkey);
         const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
-        return buildWithdrawFromPositionIx(
-          { user, market: marketPubkey, mint, amount, outcomeIndex },
+        // A market payload may carry an empty outcomes list; fall back to the
+        // program-wide bound rather than rejecting every index.
+        const numOutcomes = market.outcomes.length;
+        validateOutcomeIndex(outcomeIndex, numOutcomes > 0 ? numOutcomes : MAX_OUTCOMES);
+        return buildWithdrawConditionalFromPositionIx(
+          { user, market: marketPubkey, depositMint: mint, amount, outcomeIndex },
           this.client.programId,
         );
       }
@@ -342,7 +352,7 @@ export class WithdrawFromPositionBuilder {
   private readonly client: ClientContext;
   private userValue?: PublicKey;
   private marketValue?: PublicKey;
-  private mintValue?: PublicKey;
+  private depositMintValue?: PublicKey;
   private amountValue?: bigint;
   private outcomeIndexValue?: number;
 
@@ -360,9 +370,13 @@ export class WithdrawFromPositionBuilder {
     return this;
   }
 
-  mint(mint: PublicKey): this {
-    this.mintValue = mint;
+  depositMint(depositMint: PublicKey): this {
+    this.depositMintValue = depositMint;
     return this;
+  }
+
+  mint(depositMint: PublicKey): this {
+    return this.depositMint(depositMint);
   }
 
   amount(amount: bigint): this {
@@ -378,12 +392,14 @@ export class WithdrawFromPositionBuilder {
   buildIx(): TransactionInstruction {
     const user = requireField(this.userValue, "user");
     const market = requireField(this.marketValue, "market");
-    const mint = requireField(this.mintValue, "mint");
+    const depositMint = requireField(this.depositMintValue, "deposit_mint");
     const amount = requireField(this.amountValue, "amount");
     const outcomeIndex = requireField(this.outcomeIndexValue, "outcome_index");
+    // Only the market pubkey is known here; enforce the program-wide bound.
+    validateOutcomeIndex(outcomeIndex, MAX_OUTCOMES);
 
-    return buildWithdrawFromPositionIx(
-      { user, market, mint, amount, outcomeIndex },
+    return buildWithdrawConditionalFromPositionIx(
+      { user, market, depositMint, amount, outcomeIndex },
       this.client.programId,
     );
   }

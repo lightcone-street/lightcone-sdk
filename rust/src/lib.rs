@@ -170,10 +170,10 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AuthClient, GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder,
-        MarketsClient, MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient,
-        OrdersClient, PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient,
-        TradesClient,
+        AuthClient, FavoriteMarketUpdate, FavoriteMarkets, GlobalDepositAssetsResult,
+        LightconeClient, LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient,
+        NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
+        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

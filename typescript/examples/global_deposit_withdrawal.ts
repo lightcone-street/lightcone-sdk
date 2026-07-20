@@ -120,7 +120,7 @@ async function main() {
     .buildIx();
   console.log(`builder global withdraw ix: ${globalWithdrawIx.keys.length} accounts`);
 
-  // Withdraw — Market mode (position ATA -> user's wallet)
+  // Withdraw — Market mode (conditional-token ATA -> user's wallet)
   const marketWithdrawIx = client
     .positions()
     .withdraw()

@@ -10,7 +10,7 @@ use crate::program::instructions;
 use crate::program::types::{
     BuildDepositParams, BuildMergeParams, DepositToGlobalAltContext, DepositToGlobalParams,
     ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
-    RedeemWinningsParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    RedeemWinningsParams, WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams,
 };
 use crate::shared::DepositSource;
 use solana_instruction::Instruction;
@@ -302,7 +302,7 @@ impl<'a> MergeBuilder<'a> {
 ///
 /// Dispatches based on deposit source:
 /// - **Global**: `withdraw_from_global` — global pool → wallet
-/// - **Market**: `withdraw_from_position` — position ATA → user's wallet
+/// - **Market**: `withdraw_conditional_from_position` — conditional-token ATA → user's wallet
 ///
 /// # Example (global withdraw)
 ///
@@ -357,9 +357,20 @@ impl<'a> WithdrawBuilder<'a> {
     }
 
     /// Set the token mint.
+    ///
+    /// In `Global` mode this is the deposit token mint to withdraw. In `Market`
+    /// mode this is the market's registered deposit mint; the conditional mint
+    /// is derived from this mint plus `outcome_index`.
     pub fn mint(mut self, mint: Pubkey) -> Self {
         self.mint = Some(mint);
         self
+    }
+
+    /// Set the registered deposit mint for a market withdrawal.
+    ///
+    /// This is an alias for `mint` that makes conditional withdrawals explicit.
+    pub fn deposit_mint(self, deposit_mint: Pubkey) -> Self {
+        self.mint(deposit_mint)
     }
 
     /// Set the withdrawal amount.
@@ -434,11 +445,18 @@ impl<'a> WithdrawBuilder<'a> {
                 let outcome_index = self.outcome_index.ok_or_else(|| {
                     SdkError::Validation("outcome_index is required for Market withdrawal".into())
                 })?;
-                Ok(instructions::build_withdraw_from_position_ix(
-                    &WithdrawFromPositionParams {
+                // A market payload may carry an empty outcomes list; fall back
+                // to the program-wide bound rather than rejecting every index.
+                let num_outcomes = match market.outcomes.len() {
+                    0 => crate::program::constants::MAX_OUTCOMES,
+                    len => len as u8,
+                };
+                crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
+                Ok(instructions::build_withdraw_conditional_from_position_ix(
+                    &WithdrawConditionalFromPositionParams {
                         user,
                         market: market_pubkey,
-                        mint,
+                        deposit_mint: mint,
                         amount,
                         outcome_index,
                     },
@@ -588,17 +606,17 @@ impl<'a> RedeemWinningsBuilder<'a> {
 
 // ─── WithdrawFromPositionBuilder ───────────────────────────────────────────
 
-/// Fluent builder for withdraw-from-position operations.
+/// Fluent builder for conditional-token withdraw-from-position operations.
 ///
-/// Created via `client.positions().withdraw_from_position()` — direct construction is not exposed.
+/// Created via `client.positions().withdraw_conditional_from_position()` — direct construction is not exposed.
 ///
 /// # Example
 ///
 /// ```rust,ignore
-/// let tx_signature = client.positions().withdraw_from_position()
+/// let tx_signature = client.positions().withdraw_conditional_from_position()
 ///     .user(keypair.pubkey())
 ///     .market(market_pubkey)
-///     .mint(mint_pubkey)
+///     .deposit_mint(deposit_mint)
 ///     .amount(1_000_000)
 ///     .outcome_index(0)
 ///     .sign_and_submit()
@@ -608,7 +626,7 @@ pub struct WithdrawFromPositionBuilder<'a> {
     client: &'a LightconeClient,
     user: Option<Pubkey>,
     market: Option<Pubkey>,
-    mint: Option<Pubkey>,
+    deposit_mint: Option<Pubkey>,
     amount: Option<u64>,
     outcome_index: Option<u8>,
 }
@@ -619,7 +637,7 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
             client,
             user: None,
             market: None,
-            mint: None,
+            deposit_mint: None,
             amount: None,
             outcome_index: None,
         }
@@ -637,10 +655,17 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         self
     }
 
-    /// Set the token mint to withdraw.
-    pub fn mint(mut self, mint: Pubkey) -> Self {
-        self.mint = Some(mint);
+    /// Set the registered deposit mint for the market.
+    pub fn deposit_mint(mut self, deposit_mint: Pubkey) -> Self {
+        self.deposit_mint = Some(deposit_mint);
         self
+    }
+
+    /// Set the registered deposit mint for the market.
+    ///
+    /// This alias preserves the SDK's existing fluent builder style.
+    pub fn mint(self, deposit_mint: Pubkey) -> Self {
+        self.deposit_mint(deposit_mint)
     }
 
     /// Set the withdrawal amount.
@@ -663,21 +688,26 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
         let market = self
             .market
             .ok_or_else(|| SdkError::Validation("market is required".into()))?;
-        let mint = self
-            .mint
-            .ok_or_else(|| SdkError::Validation("mint is required".into()))?;
+        let deposit_mint = self
+            .deposit_mint
+            .ok_or_else(|| SdkError::Validation("deposit_mint is required".into()))?;
         let amount = self
             .amount
             .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
         let outcome_index = self
             .outcome_index
             .ok_or_else(|| SdkError::Validation("outcome_index is required".into()))?;
+        // Only the market pubkey is known here; enforce the program-wide bound.
+        crate::program::utils::validate_outcome_index(
+            outcome_index,
+            crate::program::constants::MAX_OUTCOMES,
+        )?;
 
-        Ok(instructions::build_withdraw_from_position_ix(
-            &WithdrawFromPositionParams {
+        Ok(instructions::build_withdraw_conditional_from_position_ix(
+            &WithdrawConditionalFromPositionParams {
                 user,
                 market,
-                mint,
+                deposit_mint,
                 amount,
                 outcome_index,
             },

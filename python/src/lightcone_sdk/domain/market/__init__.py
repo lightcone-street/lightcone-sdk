@@ -124,6 +124,7 @@ class ConditionalToken:
     outcome: str = ""
     deposit_asset: str = ""
     deposit_symbol: str = ""
+    deposit_short_symbol: str = ""
     name: str = ""
     symbol: str = ""
     short_symbol: str = ""
@@ -218,9 +219,10 @@ class Market:
     id: int
     pubkey: str
     name: str
-    banner_image_url_low: str = ""
-    banner_image_url_medium: str = ""
-    banner_image_url_high: str = ""
+    definition: str
+    banner_image_url_low: Optional[str] = None
+    banner_image_url_medium: Optional[str] = None
+    banner_image_url_high: Optional[str] = None
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""
@@ -231,9 +233,9 @@ class Market:
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
     resolution: Optional[MarketResolutionResponse] = None
-    description: str = ""
-    definition: str = ""
+    description: Optional[str] = None
     category: Optional[str] = None
+    subcategory: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     deposit_assets: list[DepositAsset] = field(default_factory=list)
     deposit_asset_pairs: list[DepositAssetPair] = field(default_factory=list)
@@ -253,6 +255,35 @@ class Market:
 
     def has_single_winning_outcome(self) -> bool:
         return self.single_winning_outcome() is not None
+
+
+@dataclass
+class FavoriteMarkets:
+    market_pubkeys: list[str] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FavoriteMarkets":
+        next_cursor = data.get("next_cursor")
+        return cls(
+            market_pubkeys=[str(pubkey) for pubkey in data.get("market_pubkeys", [])],
+            next_cursor=int(next_cursor) if next_cursor is not None else None,
+            has_more=bool(data.get("has_more", False)),
+        )
+
+
+@dataclass
+class FavoriteMarketUpdate:
+    market_pubkey: str
+    favorited: bool
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FavoriteMarketUpdate":
+        return cls(
+            market_pubkey=str(data["market_pubkey"]),
+            favorited=bool(data["favorited"]),
+        )
 
 
 @dataclass
@@ -293,6 +324,8 @@ __all__ = [
     "TokenMetadata",
     "OrderBookPair",
     "Market",
+    "FavoriteMarkets",
+    "FavoriteMarketUpdate",
     "MarketsResult",
     "GlobalDepositAssetsResult",
     "MarketValidationError",

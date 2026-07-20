@@ -15,7 +15,7 @@ The program module provides:
 
 ## Account Types
 
-### Exchange (120 bytes)
+### Exchange (216 bytes)
 
 Singleton account storing global exchange state.
 
@@ -29,9 +29,12 @@ Singleton account storing global exchange state.
 | paused | 112 | 1 | `bool` | Whether exchange is paused |
 | bump | 113 | 1 | `u8` | PDA bump seed |
 | deposit_token_count | 114 | 2 | `u16` | Number of whitelisted deposit tokens |
-| _padding | 116 | 4 | - | Reserved |
+| fee_receiver | 116 | 32 | `Pubkey` | Protocol fee receiver |
+| pending_role | 148 | 32 | `Pubkey` | Pending privileged role transfer recipient |
+| pending_role_kind | 180 | 1 | `PendingRoleKind` | None=0, Authority=1, Manager=2, Operator=3 |
+| _reserved | 181 | 35 | - | Reserved |
 
-### Market (148 bytes)
+### Market (216 bytes)
 
 Individual market state.
 
@@ -42,12 +45,15 @@ Individual market state.
 | num_outcomes | 16 | 1 | `u8` | Number of outcomes (2-6) |
 | status | 17 | 1 | `MarketStatus` | Pending=0, Active=1, Resolved=2, Cancelled=3 |
 | bump | 18 | 1 | `u8` | PDA bump seed |
-| _padding | 19 | 5 | - | Reserved |
+| _padding | 19 | 1 | - | Reserved |
+| maker_fee_bps | 20 | 2 | `i16` | Maker fee in basis points |
+| taker_fee_bps | 22 | 2 | `i16` | Taker fee in basis points |
 | oracle | 24 | 32 | `Pubkey` | Resolution authority |
 | question_id | 56 | 32 | `[u8; 32]` | Unique question identifier |
 | condition_id | 88 | 32 | `[u8; 32]` | Keccak256(oracle \|\| question_id \|\| num_outcomes) |
 | payout_numerators | 120 | 24 | `[u32; 6]` | Payout numerators; only first `num_outcomes` entries are meaningful |
 | payout_denominator | 144 | 4 | `u32` | Sum of payout numerators |
+| _reserved | 148 | 68 | - | Reserved |
 
 ### Position (80 bytes)
 
@@ -97,7 +103,7 @@ On-chain orderbook metadata and lookup table authority.
 | bump | 137 | 1 | `u8` | PDA bump seed |
 | _padding | 138 | 6 | - | Reserved |
 
-### GlobalDepositToken (48 bytes)
+### GlobalDepositToken (47 bytes)
 
 Whitelisted deposit token metadata for global deposits.
 
@@ -105,10 +111,10 @@ Whitelisted deposit token metadata for global deposits.
 |-------|--------|------|------|-------------|
 | discriminator | 0 | 8 | `[u8; 8]` | `GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR` |
 | mint | 8 | 32 | `Pubkey` | Whitelisted deposit mint |
-| active | 40 | 1 | `bool` | Whether global deposits are active for this mint |
-| bump | 41 | 1 | `u8` | PDA bump seed |
-| index | 42 | 2 | `u16` | Sequential whitelist index used for mint ordering |
-| _padding | 44 | 4 | - | Reserved |
+| bump | 40 | 1 | `u8` | PDA bump seed |
+| index | 41 | 2 | `u16` | Sequential whitelist index used for mint ordering |
+| active | 43 | 1 | `bool` | Backend-visible status flag; user flows do not gate on it |
+| _padding | 44 | 3 | - | Reserved |
 
 ## LightconeClient — On-Chain Operations
 
@@ -217,8 +223,8 @@ let ix = client.positions().redeem_winnings_ix(&RedeemWinningsParams {
     user, market, deposit_mint: usdc_mint, amount,
 }, outcome_index);
 
-let ix = client.positions().withdraw_from_position_ix(&WithdrawFromPositionParams {
-    user, market, mint: conditional_mint, amount, outcome_index,
+let ix = client.positions().withdraw_conditional_from_position_ix(&WithdrawConditionalFromPositionParams {
+    user, market, deposit_mint: usdc_mint, amount, outcome_index,
 });
 
 let ix = client.positions().init_position_tokens_ix(&InitPositionTokensParams {
@@ -416,11 +422,11 @@ All instructions use a single-byte discriminator.
 | SettleMarket | 7 | Resolve market with winning outcome |
 | RedeemWinnings | 8 | Redeem winning tokens for deposit |
 | SetPaused | 9 | Pause/unpause exchange |
-| SetOperator | 10 | Change exchange operator |
-| WithdrawFromPosition | 11 | Withdraw tokens from position |
+| SetOperator | 10 | Propose a new exchange operator |
+| WithdrawConditionalFromPosition | 11 | Withdraw conditional tokens from position |
 | ActivateMarket | 12 | Activate pending market |
 | MatchOrdersMulti | 13 | Match taker against makers |
-| SetAuthority | 14 | Change exchange authority |
+| SetAuthority | 14 | Propose a new exchange authority |
 | CreateOrderbook | 15 | Create an orderbook for a canonical mint pair |
 | WhitelistDepositToken | 16 | Whitelist a global deposit token |
 | DepositToGlobal | 17 | Deposit collateral to the global pool |
@@ -434,7 +440,27 @@ All instructions use a single-byte discriminator.
 | ClosePositionTokenAccounts | 25 | Close empty position token accounts |
 | CloseOrderbookAlt | 26 | Deactivate or close an orderbook ALT |
 | CloseOrderbook | 27 | Close an orderbook PDA after its ALT is closed |
-| SetManager | 28 | Change exchange manager |
+| SetManager | 28 | Propose a new exchange manager |
+| SetMarketFees | 29 | Update maker/taker fees for one or more markets |
+| SetFeeReceiver | 30 | Update exchange fee receiver, optionally ensuring quote ATAs |
+| CreateConditionalMetadata | 31 | Create Metaplex metadata for a conditional mint |
+| UpdateConditionalMetadata | 32 | Update Metaplex metadata for a conditional mint |
+| SetOracle | 33 | Reassign a market oracle before settlement |
+| RefreshOrderbookAlt | 34 | Append current fee receiver quote ATA to an orderbook ALT if missing |
+| AcceptAuthority | 35 | Accept a pending authority transfer |
+| AcceptManager | 36 | Accept a pending manager transfer |
+| AcceptOperator | 37 | Accept a pending operator transfer |
+| SetDepositTokenStatus | 38 | Update GlobalDepositToken active metadata |
+
+`SetAuthority`, `SetManager`, and `SetOperator` only write pending role state.
+The corresponding `Accept*` instruction performs the effective role change.
+
+New orderbook ALTs contain 10 entries: exchange, market, mint_a, mint_b,
+mint_authority, token program, associated token program, fee_receiver,
+fee_receiver_quote_ata, and system program. `RefreshOrderbookAlt` is an
+idempotent migration helper for fee receiver rotation; it only appends the
+current fee receiver quote ATA when missing and does not otherwise rewrite old
+ALT slot maps.
 
 ## Constants
 
@@ -447,6 +473,7 @@ TOKEN_PROGRAM_ID: Pubkey              // SPL Token
 ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey
 SYSTEM_PROGRAM_ID: Pubkey
 RENT_SYSVAR_ID: Pubkey
+INITIALIZE_AUTHORITY: Pubkey          // Required signer for Initialize
 ```
 
 ### Discriminators
@@ -480,13 +507,13 @@ GLOBAL_DEPOSIT_TOKEN_SEED: &[u8]      // b"global_deposit"
 ### Sizes
 
 ```rust
-EXCHANGE_SIZE: usize                  // 120
-MARKET_SIZE: usize                    // 148
+EXCHANGE_SIZE: usize                  // 216
+MARKET_SIZE: usize                    // 216
 POSITION_SIZE: usize                  // 80
 ORDER_STATUS_SIZE: usize              // 32
 USER_NONCE_SIZE: usize                // 16
 ORDERBOOK_SIZE: usize                 // 144
-GLOBAL_DEPOSIT_TOKEN_SIZE: usize      // 48
+GLOBAL_DEPOSIT_TOKEN_SIZE: usize      // 47
 SIGNED_ORDER_SIZE: usize              // 233
 ORDER_SIZE: usize                     // 37
 SIGNATURE_SIZE: usize                 // 64
@@ -511,6 +538,18 @@ pub enum MarketStatus {
     Active = 1,    // Market accepting orders
     Resolved = 2,  // Market has winning outcome
     Cancelled = 3, // Market cancelled
+}
+```
+
+### PendingRoleKind
+
+```rust
+#[repr(u8)]
+pub enum PendingRoleKind {
+    None = 0,
+    Authority = 1,
+    Manager = 2,
+    Operator = 3,
 }
 ```
 
@@ -575,13 +614,15 @@ pub struct RedeemWinningsParams {
     pub amount: u64,
 }
 
-pub struct WithdrawFromPositionParams {
+pub struct WithdrawConditionalFromPositionParams {
     pub user: Pubkey,
     pub market: Pubkey,
-    pub mint: Pubkey,
+    pub deposit_mint: Pubkey,
     pub amount: u64,
     pub outcome_index: u8,
 }
+
+pub type WithdrawFromPositionParams = WithdrawConditionalFromPositionParams;
 
 pub struct MatchOrdersMultiParams {
     pub operator: Pubkey,
@@ -594,6 +635,21 @@ pub struct MatchOrdersMultiParams {
     pub maker_fill_amounts: Vec<u64>,
     pub taker_fill_amounts: Vec<u64>,
     pub full_fill_bitmask: u8,
+}
+
+pub struct RefreshOrderbookAltParams {
+    pub manager: Pubkey,
+    pub market: Pubkey,
+    pub orderbook: Pubkey,
+    pub lookup_table: Pubkey,
+    pub quote_mint: Pubkey,
+    pub fee_receiver: Pubkey,
+}
+
+pub struct SetDepositTokenStatusParams {
+    pub manager: Pubkey,
+    pub mint: Pubkey,
+    pub active: bool,
 }
 
 pub struct BidOrderParams {
@@ -638,6 +694,7 @@ pub enum SdkError {
     Serialization(String),
     InvalidSide(u8),
     InvalidMarketStatus(u8),
+    InvalidPendingRoleKind(u8),
     MissingField(String),
     Overflow,
     InvalidMintOrder,
@@ -648,7 +705,7 @@ pub enum SdkError {
     InvalidOrderbook,
     FullFillRequired,
     DivisionByZero,
-    DepositTokenNotActive,
+    Reserved50,
     InsufficientGlobalDeposit,
     InvalidDepositMintOrder,
     ZeroAmount,
@@ -661,6 +718,10 @@ pub enum SdkError {
     InvalidFeeRange,
     InvalidFeeSum,
     InvalidFeeReceiver,
+    InvalidOracle,
+    LookupTableDeactivated,
+    NoPendingRoleTransfer,
+    PendingRoleMismatch,
     InvalidPubkey(String),
     Scaling(ScalingError),
     UnsignedOrder,

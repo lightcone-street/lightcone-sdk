@@ -1,4 +1,4 @@
-import { SdkError } from "../error";
+import { SdkError, isUnauthorized } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
 import { tradingWallet } from "./index";
@@ -38,11 +38,14 @@ export class Auth {
       use_embedded_wallet: useEmbeddedWallet,
     };
 
-    const session = await this.client.http.post<SessionResponse, LoginRequest>(
-      url,
-      body,
-      RetryPolicy.None
-    );
+    // Credential-management endpoint: opts out of the transport's 401
+    // restore-and-replay. The backend consumes the login nonce before
+    // verifying the signature, so a replayed login deterministically fails —
+    // and restoring credentials in order to log in is circular.
+    const session = await this.client.http.postWithoutCredentialRestore<
+      SessionResponse,
+      LoginRequest
+    >(url, body, RetryPolicy.None);
 
     this.client.authState.setCredentials(credentialsFromSession(session));
 
@@ -65,17 +68,39 @@ export class Auth {
     return session;
   }
 
+  /**
+   * Logout — clears the server-side cookie, internal token, and credentials.
+   *
+   * Local state is cleared even when the server call fails — the caller asked
+   * to be signed out locally regardless — but the failure is then rethrown:
+   * callers gating security decisions on teardown (e.g. whether an app may
+   * restart an authenticated transport) must be able to see that the
+   * server-side cookie may still be valid. A 401 counts as success: it means
+   * "already logged out".
+   */
   async logout(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/logout`;
+    let logoutError: unknown = null;
     try {
-      await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
-    } catch {
-      // Backend cookie clear can fail in local/dev setups; still clear local state.
+      // Credential-management endpoint: opts out of the transport's 401
+      // restore-and-replay — a 401 here means "already logged out".
+      await this.client.http.postWithoutCredentialRestore<
+        { success: boolean },
+        Record<string, never>
+      >(url, {}, RetryPolicy.None);
+    } catch (error) {
+      if (!isUnauthorized(error)) {
+        logoutError = error;
+      }
     }
 
     await this.client.http.clearAuthToken();
     this.client.authState.setCredentials(undefined);
     await this.client.authState.clearCaches();
+
+    if (logoutError !== null) {
+      throw logoutError;
+    }
   }
 
   async disconnectX(): Promise<void> {

@@ -37,6 +37,7 @@ function conditionalToken(
     outcome: "Yes",
     depositAsset: asPubkeyStr(depositMint),
     depositSymbol: depositMint,
+    depositShortSymbol: depositMint,
     pubkey: asPubkeyStr(mint),
     name: "Outcome",
     symbol: "YES",

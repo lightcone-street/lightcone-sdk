@@ -24,14 +24,16 @@ use crate::program::pda::{
     get_user_global_deposit_pda, get_user_nonce_pda, get_vault_pda,
 };
 use crate::program::types::{
-    ActivateMarketParams, AddDepositMintParams, BuildDepositParams, BuildMergeParams,
-    CloseOrderStatusParams, CloseOrderbookAltParams, CloseOrderbookParams, ClosePositionAltParams,
-    ClosePositionTokenAccountsParams, ConditionalMetadataParams, CreateMarketParams,
-    CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalAltContext, DepositToGlobalParams,
-    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
-    MatchOrdersMultiParams, RedeemWinningsParams, SetAuthorityParams, SetFeeReceiverParams,
-    SetManagerParams, SetMarketFeesParams, SettleMarketParams, WhitelistDepositTokenParams,
-    WithdrawFromGlobalParams, WithdrawFromPositionParams,
+    AcceptRoleParams, ActivateMarketParams, AddDepositMintParams, BuildDepositParams,
+    BuildMergeParams, CloseOrderStatusParams, CloseOrderbookAltParams, CloseOrderbookParams,
+    ClosePositionAltParams, ClosePositionTokenAccountsParams, ConditionalMetadataParams,
+    CreateMarketParams, CreateOrderbookParams, DepositAndSwapParams, DepositToGlobalAltContext,
+    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
+    InitPositionTokensParams, MatchOrdersMultiParams, RedeemWinningsParams,
+    RefreshOrderbookAltParams, SetAuthorityParams, SetDepositTokenStatusParams,
+    SetFeeReceiverParams, SetFeeReceiverWithAtasParams, SetManagerParams, SetMarketFeesParams,
+    SetOracleParams, SettleMarketParams, WhitelistDepositTokenParams,
+    WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
@@ -132,7 +134,8 @@ impl CanonicalOrderbookMints {
 
 /// Build Initialize instruction.
 ///
-/// Creates the exchange account (singleton).
+/// Creates the exchange account (singleton). The authority must match the
+/// on-chain `INITIALIZE_AUTHORITY` constant.
 ///
 /// Accounts:
 /// 0. authority (signer, mut) - Initial admin
@@ -547,7 +550,8 @@ pub fn build_set_paused_ix(authority: &Pubkey, paused: bool, program_id: &Pubkey
 
 /// Build SetOperator instruction.
 ///
-/// Admin: change operator pubkey.
+/// Admin: propose a new operator. The active operator changes only after the
+/// proposed operator signs `AcceptOperator`.
 pub fn build_set_operator_ix(
     authority: &Pubkey,
     new_operator: &Pubkey,
@@ -568,42 +572,51 @@ pub fn build_set_operator_ix(
     }
 }
 
-/// Build WithdrawFromPosition instruction.
+/// Build WithdrawConditionalFromPosition instruction.
 ///
-/// Withdraw tokens from Position ATA to user's ATA.
+/// Withdraw conditional tokens from a position ATA to the user's canonical ATA.
+/// The conditional mint is derived from `(market, deposit_mint, outcome_index)`.
 ///
-/// Accounts (8):
-/// 0. user (signer)
-/// 1. market (readonly)
-/// 2. position (mut)
-/// 3. mint (readonly)
-/// 4. position_ata (mut)
-/// 5. user_ata (mut)
-/// 6. token_program (readonly)
-/// 7. exchange (readonly)
-pub fn build_withdraw_from_position_ix(
-    params: &WithdrawFromPositionParams,
+/// Accounts (9):
+/// 0. user (signer, writable)
+/// 1. exchange (readonly)
+/// 2. market (readonly)
+/// 3. position (readonly)
+/// 4. deposit_mint (readonly)
+/// 5. conditional_mint (readonly)
+/// 6. position_conditional_ata (writable)
+/// 7. user_conditional_ata (writable)
+/// 8. token_program (readonly)
+pub fn build_withdraw_conditional_from_position_ix(
+    params: &WithdrawConditionalFromPositionParams,
     program_id: &Pubkey,
 ) -> Instruction {
     let (exchange, _) = get_exchange_pda(program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
-    let position_ata = get_conditional_token_ata(&position, &params.mint);
-    let user_ata = get_conditional_token_ata(&params.user, &params.mint);
+    let (conditional_mint, _) = get_conditional_mint_pda(
+        &params.market,
+        &params.deposit_mint,
+        params.outcome_index,
+        program_id,
+    );
+    let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
+    let user_conditional_ata = get_conditional_token_ata(&params.user, &conditional_mint);
 
     let keys = vec![
         signer_mut(params.user),
-        readonly(params.market),
-        writable(position),
-        readonly(params.mint),
-        writable(position_ata),
-        writable(user_ata),
-        readonly(TOKEN_PROGRAM_ID),
         readonly(exchange),
+        readonly(params.market),
+        readonly(position),
+        readonly(params.deposit_mint),
+        readonly(conditional_mint),
+        writable(position_conditional_ata),
+        writable(user_conditional_ata),
+        readonly(TOKEN_PROGRAM_ID),
     ];
 
     // Data: [discriminator(1), amount(8), outcome_index(1)] = 10 bytes
     let mut data = Vec::with_capacity(10);
-    data.push(instruction::WITHDRAW_FROM_POSITION);
+    data.push(instruction::WITHDRAW_CONDITIONAL_FROM_POSITION);
     data.extend_from_slice(&params.amount.to_le_bytes());
     data.push(params.outcome_index);
 
@@ -612,6 +625,16 @@ pub fn build_withdraw_from_position_ix(
         accounts: keys,
         data,
     }
+}
+
+/// Build WithdrawConditionalFromPosition instruction.
+///
+/// Compatibility wrapper for the previous SDK function name.
+pub fn build_withdraw_from_position_ix(
+    params: &WithdrawFromPositionParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    build_withdraw_conditional_from_position_ix(params, program_id)
 }
 
 /// Build ActivateMarket instruction.
@@ -708,6 +731,8 @@ pub fn build_match_orders_multi_ix(
     keys.push(readonly(TOKEN_PROGRAM_ID));
     keys.push(readonly(system_program_id()));
     keys.push(writable(fee_receiver_quote_ata));
+    keys.push(readonly(params.fee_receiver));
+    keys.push(readonly(ASSOCIATED_TOKEN_PROGRAM_ID));
 
     // Per-maker accounts
     for (i, maker_order) in params.maker_orders.iter().enumerate() {
@@ -830,9 +855,44 @@ pub fn build_create_orderbook_ix(
     })
 }
 
+/// Build RefreshOrderbookAlt instruction.
+///
+/// Manager-only. Ensures the current fee receiver quote ATA exists and appends
+/// it to the orderbook ALT when absent. This does not fully reshape old ALTs.
+pub fn build_refresh_orderbook_alt_ix(
+    params: &RefreshOrderbookAltParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+    let fee_receiver_quote_ata =
+        get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
+
+    let keys = vec![
+        signer_mut(params.manager),
+        readonly(exchange),
+        readonly(params.market),
+        readonly(params.orderbook),
+        writable(params.lookup_table),
+        readonly(params.quote_mint),
+        readonly(params.fee_receiver),
+        writable(fee_receiver_quote_ata),
+        readonly(TOKEN_PROGRAM_ID),
+        readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
+        readonly(*ALT_PROGRAM_ID),
+        readonly(system_program_id()),
+    ];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![instruction::REFRESH_ORDERBOOK_ALT],
+    }
+}
+
 /// Build SetAuthority instruction.
 ///
-/// Change the exchange authority.
+/// Propose a new exchange authority. The active authority changes only after
+/// the proposed authority signs `AcceptAuthority`.
 ///
 /// Accounts (2):
 /// 0. authority (signer)
@@ -856,7 +916,8 @@ pub fn build_set_authority_ix(params: &SetAuthorityParams, program_id: &Pubkey) 
 
 /// Build SetManager instruction.
 ///
-/// Change the exchange manager.
+/// Propose a new exchange manager. The active manager changes only after the
+/// proposed manager signs `AcceptManager`.
 ///
 /// Accounts (2):
 /// 0. authority (signer)
@@ -875,6 +936,67 @@ pub fn build_set_manager_ix(params: &SetManagerParams, program_id: &Pubkey) -> I
         accounts: keys,
         data,
     }
+}
+
+fn build_accept_role_ix(
+    params: &AcceptRoleParams,
+    discriminator: u8,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+
+    let keys = vec![signer(params.incoming_role), writable(exchange)];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data: vec![discriminator],
+    }
+}
+
+/// Build AcceptAuthority instruction.
+pub fn build_accept_authority_ix(params: &AcceptRoleParams, program_id: &Pubkey) -> Instruction {
+    build_accept_role_ix(params, instruction::ACCEPT_AUTHORITY, program_id)
+}
+
+/// Build AcceptManager instruction.
+pub fn build_accept_manager_ix(params: &AcceptRoleParams, program_id: &Pubkey) -> Instruction {
+    build_accept_role_ix(params, instruction::ACCEPT_MANAGER, program_id)
+}
+
+/// Build AcceptOperator instruction.
+pub fn build_accept_operator_ix(params: &AcceptRoleParams, program_id: &Pubkey) -> Instruction {
+    build_accept_role_ix(params, instruction::ACCEPT_OPERATOR, program_id)
+}
+
+/// Build SetOracle instruction.
+///
+/// Authority-only. Reassigns a market oracle while the market is not resolved
+/// or cancelled. The market condition ID is not changed by the program.
+pub fn build_set_oracle_ix(
+    params: &SetOracleParams,
+    program_id: &Pubkey,
+) -> SdkResult<Instruction> {
+    if params.new_oracle == zero_pubkey() {
+        return Err(SdkError::InvalidOracle);
+    }
+
+    let (exchange, _) = get_exchange_pda(program_id);
+    let keys = vec![
+        signer(params.authority),
+        readonly(exchange),
+        writable(params.market),
+    ];
+
+    let mut data = Vec::with_capacity(33);
+    data.push(instruction::SET_ORACLE);
+    data.extend_from_slice(params.new_oracle.as_ref());
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    })
 }
 
 /// Build SetMarketFees instruction.
@@ -922,6 +1044,49 @@ pub fn build_set_fee_receiver_ix(
 
     let (exchange, _) = get_exchange_pda(program_id);
     let keys = vec![signer_mut(params.authority), writable(exchange)];
+
+    let mut data = Vec::with_capacity(33);
+    data.push(instruction::SET_FEE_RECEIVER);
+    data.extend_from_slice(params.new_fee_receiver.as_ref());
+
+    Ok(Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    })
+}
+
+/// Build SetFeeReceiver instruction with optional ATA creation accounts.
+///
+/// This non-breaking variant preserves the same instruction discriminator and
+/// data as `build_set_fee_receiver_ix`, while appending the optional account
+/// block used by the on-chain program to create receiver quote ATAs.
+pub fn build_set_fee_receiver_with_atas_ix(
+    params: &SetFeeReceiverWithAtasParams,
+    program_id: &Pubkey,
+) -> SdkResult<Instruction> {
+    if params.new_fee_receiver == zero_pubkey() {
+        return Err(SdkError::InvalidFeeReceiver);
+    }
+    if params.quote_mints.is_empty() {
+        return Err(SdkError::MissingField("quote_mints".to_string()));
+    }
+
+    let (exchange, _) = get_exchange_pda(program_id);
+    let mut keys = Vec::with_capacity(6 + params.quote_mints.len() * 2);
+    keys.push(signer_mut(params.authority));
+    keys.push(writable(exchange));
+    keys.push(readonly(params.new_fee_receiver));
+    keys.push(readonly(TOKEN_PROGRAM_ID));
+    keys.push(readonly(ASSOCIATED_TOKEN_PROGRAM_ID));
+    keys.push(readonly(system_program_id()));
+
+    for quote_mint in &params.quote_mints {
+        let fee_receiver_quote_ata =
+            get_conditional_token_ata(&params.new_fee_receiver, quote_mint);
+        keys.push(readonly(*quote_mint));
+        keys.push(writable(fee_receiver_quote_ata));
+    }
 
     let mut data = Vec::with_capacity(33);
     data.push(instruction::SET_FEE_RECEIVER);
@@ -1039,6 +1204,35 @@ pub fn build_whitelist_deposit_token_ix(
     ];
 
     let data = vec![instruction::WHITELIST_DEPOSIT_TOKEN];
+
+    Instruction {
+        program_id: *program_id,
+        accounts: keys,
+        data,
+    }
+}
+
+/// Build SetDepositTokenStatus instruction.
+///
+/// Manager-only. Updates the backend-visible active flag on a whitelisted
+/// GlobalDepositToken. Current on-chain user flows do not gate on this flag.
+pub fn build_set_deposit_token_status_ix(
+    params: &SetDepositTokenStatusParams,
+    program_id: &Pubkey,
+) -> Instruction {
+    let (exchange, _) = get_exchange_pda(program_id);
+    let (global_deposit_token, _) = get_global_deposit_token_pda(&params.mint, program_id);
+
+    let keys = vec![
+        signer(params.manager),
+        readonly(exchange),
+        writable(global_deposit_token),
+    ];
+
+    let data = vec![
+        instruction::SET_DEPOSIT_TOKEN_STATUS,
+        if params.active { 1 } else { 0 },
+    ];
 
     Instruction {
         program_id: *program_id,
@@ -1265,8 +1459,8 @@ pub fn build_init_position_tokens_ix(
 /// on the deposit_bitmask.
 ///
 /// Account layout:
-///   Fixed (7): operator, exchange, market, orderbook, mint_authority, token_program,
-///              fee_receiver_quote_ata
+///   Fixed (9): operator, exchange, market, orderbook, mint_authority, token_program,
+///              fee_receiver_quote_ata, fee_receiver, ata_program
 ///   Taker block: [order_status], nonce, position, base_mint, quote_mint,
 ///                taker_receive_ata, taker_give_ata, system_program
 ///   Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
@@ -1323,7 +1517,7 @@ pub fn build_deposit_and_swap_ix(
 
     let mut keys = Vec::new();
 
-    // Fixed accounts (7)
+    // Fixed accounts (9)
     keys.push(signer_mut(params.operator));
     keys.push(readonly(exchange));
     keys.push(readonly(params.market));
@@ -1331,6 +1525,8 @@ pub fn build_deposit_and_swap_ix(
     keys.push(readonly(mint_authority));
     keys.push(readonly(TOKEN_PROGRAM_ID));
     keys.push(writable(fee_receiver_quote_ata));
+    keys.push(readonly(params.fee_receiver));
+    keys.push(readonly(ASSOCIATED_TOKEN_PROGRAM_ID));
 
     // Taker order_status (only if not full fill)
     if !params.taker_is_full_fill {
@@ -1958,20 +2154,41 @@ mod tests {
     #[test]
     fn test_build_withdraw_from_position_ix() {
         let program_id = test_program_id();
-        let params = WithdrawFromPositionParams {
-            user: Pubkey::new_unique(),
-            market: Pubkey::new_unique(),
-            mint: Pubkey::new_unique(),
+        let user = Pubkey::new_unique();
+        let market = Pubkey::new_unique();
+        let deposit_mint = Pubkey::new_unique();
+        let outcome_index = 0;
+        let params = WithdrawConditionalFromPositionParams {
+            user,
+            market,
+            deposit_mint,
             amount: 1000,
-            outcome_index: 0,
+            outcome_index,
         };
 
-        let ix = build_withdraw_from_position_ix(&params, &program_id);
+        let ix = build_withdraw_conditional_from_position_ix(&params, &program_id);
 
-        assert_eq!(ix.accounts.len(), 8);
+        let (exchange, _) = get_exchange_pda(&program_id);
+        let (position, _) = get_position_pda(&user, &market, &program_id);
+        let (conditional_mint, _) =
+            get_conditional_mint_pda(&market, &deposit_mint, outcome_index, &program_id);
+        let position_conditional_ata = get_conditional_token_ata(&position, &conditional_mint);
+        let user_conditional_ata = get_conditional_token_ata(&user, &conditional_mint);
+
+        assert_eq!(ix.accounts.len(), 9);
+        assert_eq!(ix.accounts[0], signer_mut(user));
+        assert_eq!(ix.accounts[1], readonly(exchange));
+        assert_eq!(ix.accounts[2], readonly(market));
+        assert_eq!(ix.accounts[3], readonly(position));
+        assert_eq!(ix.accounts[4], readonly(deposit_mint));
+        assert_eq!(ix.accounts[5], readonly(conditional_mint));
+        assert_eq!(ix.accounts[6], writable(position_conditional_ata));
+        assert_eq!(ix.accounts[7], writable(user_conditional_ata));
+        assert_eq!(ix.accounts[8], readonly(TOKEN_PROGRAM_ID));
         assert_eq!(ix.data.len(), 10); // 1 + 8 + 1
-        assert_eq!(ix.data[0], instruction::WITHDRAW_FROM_POSITION);
-        assert_eq!(ix.data[9], 0); // outcome_index
+        assert_eq!(ix.data[0], instruction::WITHDRAW_CONDITIONAL_FROM_POSITION);
+        assert_eq!(&ix.data[1..9], &1000u64.to_le_bytes());
+        assert_eq!(ix.data[9], outcome_index);
     }
 
     #[test]
@@ -2005,6 +2222,37 @@ mod tests {
     }
 
     #[test]
+    fn test_build_refresh_orderbook_alt_ix() {
+        let program_id = test_program_id();
+        let params = RefreshOrderbookAltParams {
+            manager: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            orderbook: Pubkey::new_unique(),
+            lookup_table: Pubkey::new_unique(),
+            quote_mint: Pubkey::new_unique(),
+            fee_receiver: Pubkey::new_unique(),
+        };
+
+        let ix = build_refresh_orderbook_alt_ix(&params, &program_id);
+
+        assert_eq!(ix.accounts.len(), 12);
+        assert_eq!(ix.accounts[0].pubkey, params.manager);
+        assert!(ix.accounts[0].is_signer);
+        assert!(ix.accounts[0].is_writable);
+        assert_eq!(ix.accounts[2].pubkey, params.market);
+        assert_eq!(ix.accounts[3].pubkey, params.orderbook);
+        assert_eq!(ix.accounts[4].pubkey, params.lookup_table);
+        assert!(ix.accounts[4].is_writable);
+        assert_eq!(ix.accounts[5].pubkey, params.quote_mint);
+        assert_eq!(ix.accounts[6].pubkey, params.fee_receiver);
+        assert_eq!(
+            ix.accounts[7].pubkey,
+            get_conditional_token_ata(&params.fee_receiver, &params.quote_mint)
+        );
+        assert_eq!(ix.data, vec![instruction::REFRESH_ORDERBOOK_ALT]);
+    }
+
+    #[test]
     fn test_build_set_authority_ix() {
         let program_id = test_program_id();
         let params = SetAuthorityParams {
@@ -2034,6 +2282,65 @@ mod tests {
         assert_eq!(ix.data.len(), 33);
         assert_eq!(ix.data[0], instruction::SET_MANAGER);
         assert_eq!(&ix.data[1..33], params.new_manager.as_ref());
+    }
+
+    #[test]
+    fn test_build_accept_role_ixs() {
+        let program_id = test_program_id();
+        let incoming_role = Pubkey::new_unique();
+        let params = AcceptRoleParams { incoming_role };
+
+        let authority_ix = build_accept_authority_ix(&params, &program_id);
+        let manager_ix = build_accept_manager_ix(&params, &program_id);
+        let operator_ix = build_accept_operator_ix(&params, &program_id);
+
+        for ix in [&authority_ix, &manager_ix, &operator_ix] {
+            assert_eq!(ix.accounts.len(), 2);
+            assert_eq!(ix.accounts[0].pubkey, incoming_role);
+            assert!(ix.accounts[0].is_signer);
+            assert!(!ix.accounts[0].is_writable);
+            assert!(ix.accounts[1].is_writable);
+            assert_eq!(ix.data.len(), 1);
+        }
+        assert_eq!(authority_ix.data[0], instruction::ACCEPT_AUTHORITY);
+        assert_eq!(manager_ix.data[0], instruction::ACCEPT_MANAGER);
+        assert_eq!(operator_ix.data[0], instruction::ACCEPT_OPERATOR);
+    }
+
+    #[test]
+    fn test_build_set_oracle_ix() {
+        let program_id = test_program_id();
+        let params = SetOracleParams {
+            authority: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            new_oracle: Pubkey::new_unique(),
+        };
+
+        let ix = build_set_oracle_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[0].pubkey, params.authority);
+        assert!(ix.accounts[0].is_signer);
+        assert!(!ix.accounts[0].is_writable);
+        assert!(ix.accounts[2].is_writable);
+        assert_eq!(ix.data.len(), 33);
+        assert_eq!(ix.data[0], instruction::SET_ORACLE);
+        assert_eq!(&ix.data[1..33], params.new_oracle.as_ref());
+    }
+
+    #[test]
+    fn test_build_set_oracle_ix_rejects_zero_oracle() {
+        let program_id = test_program_id();
+        let params = SetOracleParams {
+            authority: Pubkey::new_unique(),
+            market: Pubkey::new_unique(),
+            new_oracle: zero_pubkey(),
+        };
+
+        assert!(matches!(
+            build_set_oracle_ix(&params, &program_id),
+            Err(SdkError::InvalidOracle)
+        ));
     }
 
     #[test]
@@ -2072,6 +2379,54 @@ mod tests {
         assert_eq!(ix.data.len(), 33);
         assert_eq!(ix.data[0], instruction::SET_FEE_RECEIVER);
         assert_eq!(&ix.data[1..33], params.new_fee_receiver.as_ref());
+    }
+
+    #[test]
+    fn test_build_set_fee_receiver_with_atas_ix() {
+        let program_id = test_program_id();
+        let quote_mint_a = Pubkey::new_unique();
+        let quote_mint_b = Pubkey::new_unique();
+        let params = SetFeeReceiverWithAtasParams {
+            authority: Pubkey::new_unique(),
+            new_fee_receiver: Pubkey::new_unique(),
+            quote_mints: vec![quote_mint_a, quote_mint_b],
+        };
+
+        let ix = build_set_fee_receiver_with_atas_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.accounts.len(), 10);
+        assert_eq!(ix.accounts[0].pubkey, params.authority);
+        assert!(ix.accounts[0].is_signer);
+        assert!(ix.accounts[0].is_writable);
+        assert_eq!(ix.accounts[2].pubkey, params.new_fee_receiver);
+        assert_eq!(ix.accounts[6].pubkey, quote_mint_a);
+        assert_eq!(
+            ix.accounts[7].pubkey,
+            get_conditional_token_ata(&params.new_fee_receiver, &quote_mint_a)
+        );
+        assert!(ix.accounts[7].is_writable);
+        assert_eq!(ix.accounts[8].pubkey, quote_mint_b);
+        assert_eq!(
+            ix.accounts[9].pubkey,
+            get_conditional_token_ata(&params.new_fee_receiver, &quote_mint_b)
+        );
+        assert_eq!(ix.data.len(), 33);
+        assert_eq!(ix.data[0], instruction::SET_FEE_RECEIVER);
+    }
+
+    #[test]
+    fn test_build_set_fee_receiver_with_atas_ix_requires_quote_mints() {
+        let program_id = test_program_id();
+        let params = SetFeeReceiverWithAtasParams {
+            authority: Pubkey::new_unique(),
+            new_fee_receiver: Pubkey::new_unique(),
+            quote_mints: vec![],
+        };
+
+        assert!(matches!(
+            build_set_fee_receiver_with_atas_ix(&params, &program_id),
+            Err(SdkError::MissingField(field)) if field == "quote_mints"
+        ));
     }
 
     #[test]
@@ -2158,8 +2513,8 @@ mod tests {
         assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
 
         // With bitmask=0 (no full fills):
-        // Taker: 14 accounts, Maker: 5 accounts = 19 total
-        assert_eq!(ix.accounts.len(), 19);
+        // Taker: 16 accounts, Maker: 5 accounts = 21 total
+        assert_eq!(ix.accounts.len(), 21);
     }
 
     #[test]
@@ -2215,8 +2570,8 @@ mod tests {
         let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
 
         // With bitmask=0x81 (taker + maker 0 full fill):
-        // Taker: 13 accounts (no order_status), Maker: 4 accounts (no order_status) = 17 total
-        assert_eq!(ix.accounts.len(), 17);
+        // Taker: 15 accounts (no order_status), Maker: 4 accounts (no order_status) = 19 total
+        assert_eq!(ix.accounts.len(), 19);
     }
 
     #[test]
@@ -2232,6 +2587,25 @@ mod tests {
         assert_eq!(ix.accounts.len(), 5);
         assert!(ix.accounts[1].is_writable);
         assert_eq!(ix.data, vec![instruction::WHITELIST_DEPOSIT_TOKEN]);
+    }
+
+    #[test]
+    fn test_build_set_deposit_token_status_ix() {
+        let program_id = test_program_id();
+        let params = SetDepositTokenStatusParams {
+            manager: Pubkey::new_unique(),
+            mint: Pubkey::new_unique(),
+            active: false,
+        };
+
+        let ix = build_set_deposit_token_status_ix(&params, &program_id);
+
+        assert_eq!(ix.accounts.len(), 3);
+        assert_eq!(ix.accounts[0].pubkey, params.manager);
+        assert!(ix.accounts[0].is_signer);
+        assert!(!ix.accounts[0].is_writable);
+        assert!(ix.accounts[2].is_writable);
+        assert_eq!(ix.data, vec![instruction::SET_DEPOSIT_TOKEN_STATUS, 0]);
     }
 
     #[test]
@@ -2395,7 +2769,7 @@ mod tests {
         assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
 
         // Account layout (taker+maker both depositing, no full fills):
-        // Fixed: 7
+        // Fixed: 9
         // Taker order_status: 1
         // Taker common: 7 (nonce, position, base_mint, quote_mint, receive_ata, give_ata, system)
         // Taker deposit: 4 + 3*2 = 10 (dm, vault, gdt, global_deposit, cond_mint+ata*3)
@@ -2403,8 +2777,8 @@ mod tests {
         // Maker common: 2 (nonce, position)
         // Maker deposit: 4 + 3*2 = 10
         // Maker swap: 2 (receive_ata, give_ata)
-        // Total: 7 + 1 + 7 + 10 + 1 + 2 + 10 + 2 = 40
-        assert_eq!(ix.accounts.len(), 40);
+        // Total: 9 + 1 + 7 + 10 + 1 + 2 + 10 + 2 = 42
+        assert_eq!(ix.accounts.len(), 42);
     }
 
     #[test]
