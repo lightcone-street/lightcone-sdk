@@ -53,6 +53,8 @@ export interface Market {
   createdAt: Date;
   activatedAt?: Date;
   settledAt?: Date;
+  /** Resolution deadline as a Unix timestamp in milliseconds. */
+  resolutionBy?: number;
   resolution?: MarketResolutionResponse;
   description?: string;
   definition: string;

@@ -210,6 +210,7 @@ class MarketWire:
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
+    resolution_by: Optional[int] = None
     resolution: Optional[MarketResolutionResponse] = None
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
@@ -254,6 +255,7 @@ class MarketWire:
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
             market_status=d.get("market_status"),
+            resolution_by=d.get("resolution_by"),
             resolution=(
                 MarketResolutionResponse.from_dict(resolution_raw)
                 if isinstance(resolution_raw, dict)
@@ -305,6 +307,7 @@ class MarketSearchResult:
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     featured_rank: int = 0
+    resolution_by: Optional[int] = None
     description: Optional[str] = None
     icon_url_low: Optional[str] = None
     icon_url_medium: Optional[str] = None
@@ -320,6 +323,7 @@ class MarketSearchResult:
             category=d.get("category"),
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank", 0),
+            resolution_by=d.get("resolution_by"),
             description=d.get("description"),
             icon_url_low=d.get("icon_url_low"),
             icon_url_medium=d.get("icon_url_medium"),
