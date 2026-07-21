@@ -7,9 +7,17 @@ on:
         required: true
         type: string
         description: "Target environment (staging or prod)"
+    secrets:
+      TRITON_DEVNET_RPC_URL:
+        required: true
+        description: "Authenticated Triton devnet RPC URL"
+      TRITON_MAINNET_RPC_URL:
+        required: true
+        description: "Authenticated Triton mainnet RPC URL"
 
 env:
   LIGHTCONE_ENV: ${{ inputs.lightcone-env }}
+  SDK_RPC_URL: ${{ inputs.lightcone-env == 'prod' && secrets.TRITON_MAINNET_RPC_URL || secrets.TRITON_DEVNET_RPC_URL }}
 
 jobs:
   rust-examples:
@@ -20,6 +28,9 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify paid RPC configuration
+        run: test -n "$SDK_RPC_URL" || { echo "::error::Triton RPC secret is not configured"; exit 1; }
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -67,6 +78,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify paid RPC configuration
+        run: test -n "$SDK_RPC_URL" || { echo "::error::Triton RPC secret is not configured"; exit 1; }
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -102,6 +116,9 @@ jobs:
         working-directory: python
     steps:
       - uses: actions/checkout@v4
+
+      - name: Verify paid RPC configuration
+        run: test -n "$SDK_RPC_URL" || { echo "::error::Triton RPC secret is not configured"; exit 1; }
 
       - name: Setup Python
         uses: actions/setup-python@v5
