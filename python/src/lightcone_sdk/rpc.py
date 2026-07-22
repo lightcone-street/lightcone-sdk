@@ -193,36 +193,52 @@ class Rpc:
         )
         return response.value  # type: ignore[union-attr]
 
+    async def send_raw_transaction(self, tx_bytes: bytes) -> str:
+        """Submit a signed transaction, returning its signature."""
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.send_raw_transaction(tx_bytes),
+        )
+        return str(response.value)  # type: ignore[attr-defined]
+
     async def get_signature_statuses(
-        self, signatures: list[str]
+        self,
+        signatures: list[str],
+        search_transaction_history: bool = False,
     ) -> list[Optional[TransactionStatus]]:
         """Get the statuses of recently submitted transactions.
 
         Returns one entry per signature, in order; ``None`` means the cluster
-        has not seen the signature (or it has aged out of the recent-status
-        cache).
+        has not seen the signature (or, unless ``search_transaction_history``
+        is set, it has aged out of the recent-status cache).
         """
         parsed = [Signature.from_string(signature) for signature in signatures]
         response = await _connection_with_failover(
             self._client,
-            lambda conn: conn.get_signature_statuses(parsed),
+            lambda conn: conn.get_signature_statuses(
+                parsed, search_transaction_history=search_transaction_history
+            ),
         )
         return response.value  # type: ignore[union-attr]
 
     async def confirm_signature(
-        self, signature: str, last_valid_block_height: int
+        self, signature: str, last_valid_block_height: Optional[int]
     ) -> None:
         """Wait until ``signature`` reaches confirmed commitment, or raise.
 
         Polls ``get_signature_statuses`` (with automatic RPC failover) until
         the cluster reports the transaction as confirmed or finalized.
-        Terminal outcomes:
+        ``last_valid_block_height`` bounds the wait: pass the height returned
+        alongside the transaction's blockhash, or ``None`` when the blockhash
+        was set by the caller and its expiry is unknown — expiry is then never
+        reported and only the poll cap ends the wait. Terminal outcomes:
 
         - ``TransactionFailed``: the transaction landed but errored on-chain;
           resubmitting the same transaction would fail again.
         - ``TransactionExpired``: the chain moved past
-          ``last_valid_block_height`` without seeing the signature; the
-          transaction can never land and is safe to resubmit.
+          ``last_valid_block_height`` and a history-searching status check
+          still cannot see the signature; the transaction can never land and
+          is safe to resubmit.
         - ``ConfirmationTimeout``: the outcome could not be determined
           (persistent RPC errors or the poll cap); check the signature
           on-chain before resubmitting.
@@ -249,19 +265,43 @@ class Rpc:
                 # Seen but below confirmed — keep waiting. Failed transactions
                 # land in blocks like any other, so an on-chain error is also
                 # reported once confirmed.
-                if status is None:
+                if status is None and last_valid_block_height is not None:
                     # Unseen. Declare expiry only on the poll *after* the block
                     # height passed last_valid_block_height, so a transaction
                     # confirming in the same tick as expiry is not misreported
                     # as dropped.
                     if blockhash_expired:
-                        raise TransactionExpired(signature)
-                    try:
-                        block_height = await self.get_block_height()
-                        blockhash_expired = block_height > last_valid_block_height
-                    except Exception:
-                        # Height unavailable — rely on the poll cap instead.
-                        pass
+                        # Search ledger history before declaring expiry — the
+                        # recent-status cache can evict landed transactions,
+                        # and TransactionExpired promises resubmit safety.
+                        history: Optional[list[Optional[TransactionStatus]]]
+                        try:
+                            history = await self.get_signature_statuses(
+                                [signature], search_transaction_history=True
+                            )
+                        except Exception:
+                            # Could not verify — keep polling until the cap.
+                            history = None
+                        if history is not None:
+                            landed = history[0] if history else None
+                            if landed is None:
+                                raise TransactionExpired(signature)
+                            if _is_transaction_confirmed(landed):
+                                if landed.err is not None:
+                                    raise TransactionFailed(
+                                        signature, str(landed.err)
+                                    )
+                                return
+                            # Landed but below confirmed — keep waiting.
+                    else:
+                        try:
+                            block_height = await self.get_block_height()
+                            blockhash_expired = (
+                                block_height > last_valid_block_height
+                            )
+                        except Exception:
+                            # Height unavailable — rely on the poll cap.
+                            pass
 
             await asyncio.sleep(_CONFIRMATION_POLL_INTERVAL_SECS)
 

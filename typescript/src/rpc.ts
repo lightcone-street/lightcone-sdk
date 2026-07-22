@@ -1,4 +1,9 @@
-import type { Connection, PublicKey, SignatureStatus } from "@solana/web3.js";
+import type {
+  Connection,
+  PublicKey,
+  SignatureStatus,
+  SignatureStatusConfig,
+} from "@solana/web3.js";
 import type { ClientContext } from "./context";
 import { requireConnection, connectionWithFailover } from "./context";
 import { SdkError } from "./error";
@@ -87,13 +92,15 @@ export class Rpc {
    * Get the statuses of recently submitted transactions.
    *
    * Returns one entry per signature, in order; `null` means the cluster has
-   * not seen the signature (or it has aged out of the recent-status cache).
+   * not seen the signature (or, unless `config.searchTransactionHistory` is
+   * set, it has aged out of the recent-status cache).
    */
   async getSignatureStatuses(
-    signatures: string[]
+    signatures: string[],
+    config?: SignatureStatusConfig
   ): Promise<(SignatureStatus | null)[]> {
     const response = await connectionWithFailover(this.client, (connection) =>
-      connection.getSignatureStatuses(signatures)
+      connection.getSignatureStatuses(signatures, config)
     );
     return response.value;
   }
@@ -108,8 +115,8 @@ export class Rpc {
    * - `"TransactionFailed"` — the transaction landed but errored on-chain;
    *   resubmitting the same transaction would fail again.
    * - `"TransactionExpired"` — the chain moved past `lastValidBlockHeight`
-   *   without seeing the signature; the transaction can never land and is
-   *   safe to resubmit.
+   *   and a history-searching status check still cannot see the signature;
+   *   the transaction can never land and is safe to resubmit.
    * - `"ConfirmationTimeout"` — the outcome could not be determined
    *   (persistent RPC errors or the poll cap); check the signature on-chain
    *   before resubmitting.
@@ -152,13 +159,40 @@ export class Rpc {
           // passed `lastValidBlockHeight`, so a transaction confirming in
           // the same tick as expiry is not misreported as dropped.
           if (blockhashExpired) {
-            throw SdkError.transactionExpired(signature);
-          }
-          try {
-            const blockHeight = await this.getBlockHeight();
-            blockhashExpired = blockHeight > lastValidBlockHeight;
-          } catch {
-            // Height unavailable — rely on the poll cap instead.
+            // Search ledger history before declaring expiry — the
+            // recent-status cache can evict landed transactions, and
+            // `"TransactionExpired"` promises resubmit safety.
+            let history: (SignatureStatus | null)[] | undefined;
+            try {
+              history = await this.getSignatureStatuses([signature], {
+                searchTransactionHistory: true,
+              });
+            } catch {
+              // Could not verify — keep polling until the cap.
+            }
+            if (history) {
+              const landed = history[0];
+              if (!landed) {
+                throw SdkError.transactionExpired(signature);
+              }
+              if (isTransactionConfirmed(landed)) {
+                if (landed.err) {
+                  throw SdkError.transactionFailed(
+                    signature,
+                    JSON.stringify(landed.err)
+                  );
+                }
+                return;
+              }
+              // Landed but below `confirmed` — keep waiting.
+            }
+          } else {
+            try {
+              const blockHeight = await this.getBlockHeight();
+              blockhashExpired = blockHeight > lastValidBlockHeight;
+            } catch {
+              // Height unavailable — rely on the poll cap instead.
+            }
           }
         }
       }

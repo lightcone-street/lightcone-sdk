@@ -417,11 +417,31 @@ impl LightconeClient {
         &self,
         signatures: &[String],
     ) -> Result<Vec<Option<TransactionStatus>>, SdkError> {
+        self.get_signature_statuses_inner(signatures, false).await
+    }
+
+    /// Like [`Self::get_signature_statuses`], but also searches ledger history
+    /// for signatures that have aged out of the recent-status cache.
+    pub async fn get_signature_statuses_with_history(
+        &self,
+        signatures: &[String],
+    ) -> Result<Vec<Option<TransactionStatus>>, SdkError> {
+        self.get_signature_statuses_inner(signatures, true).await
+    }
+
+    async fn get_signature_statuses_inner(
+        &self,
+        signatures: &[String],
+        search_transaction_history: bool,
+    ) -> Result<Vec<Option<TransactionStatus>>, SdkError> {
         let body = serde_json::json!({
             "id": 1,
             "jsonrpc": "2.0",
             "method": "getSignatureStatuses",
-            "params": [signatures]
+            "params": [
+                signatures,
+                { "searchTransactionHistory": search_transaction_history }
+            ]
         });
 
         let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
@@ -443,8 +463,9 @@ impl LightconeClient {
     /// - [`SdkError::TransactionFailed`] — the transaction landed but errored
     ///   on-chain; resubmitting the same transaction would fail again.
     /// - [`SdkError::TransactionExpired`] — the chain moved past
-    ///   `last_valid_block_height` without seeing the signature; the
-    ///   transaction can never land and is safe to resubmit.
+    ///   `last_valid_block_height` and a history-searching status check still
+    ///   cannot see the signature; the transaction can never land and is safe
+    ///   to resubmit.
     /// - [`SdkError::ConfirmationTimeout`] — the outcome could not be
     ///   determined (persistent RPC errors or the poll cap); check the
     ///   signature on-chain before resubmitting.
@@ -491,11 +512,34 @@ impl LightconeClient {
                             // so a transaction confirming in the same tick as
                             // expiry is not misreported as dropped.
                             if blockhash_expired {
-                                return Err(SdkError::TransactionExpired {
-                                    signature: signature.to_string(),
-                                });
-                            }
-                            if let Ok(block_height) = self.get_block_height().await {
+                                // Search ledger history before declaring expiry
+                                // — the recent-status cache can evict landed
+                                // transactions, and `TransactionExpired`
+                                // promises resubmit safety. On a failed lookup,
+                                // keep polling until the cap.
+                                if let Ok(history) =
+                                    self.get_signature_statuses_with_history(&signatures).await
+                                {
+                                    match history.into_iter().next().flatten() {
+                                        None => {
+                                            return Err(SdkError::TransactionExpired {
+                                                signature: signature.to_string(),
+                                            });
+                                        }
+                                        Some(landed) if landed.is_confirmed() => {
+                                            return match landed.err {
+                                                Some(err) => Err(SdkError::TransactionFailed {
+                                                    signature: signature.to_string(),
+                                                    error: err.to_string(),
+                                                }),
+                                                None => Ok(()),
+                                            };
+                                        }
+                                        // Landed but below `confirmed` — keep waiting.
+                                        Some(_) => {}
+                                    }
+                                }
+                            } else if let Ok(block_height) = self.get_block_height().await {
                                 blockhash_expired = block_height > last_valid_block_height;
                             }
                         }

@@ -26,7 +26,7 @@ from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
 from .http.credential_restorer import CredentialRestorer
 from .env import LightconeEnv
 from .privy.client import Privy
-from .rpc import Rpc, require_connection
+from .rpc import Rpc
 from .error import SdkError
 from .rpc_failover import ActiveRpc, RpcFailoverState, is_infrastructure_error, FAST_RETRY_DELAY_SECS
 from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
@@ -254,6 +254,11 @@ class LightconeClient:
         to send once that prior transaction has confirmed. See
         ``Rpc.confirm_signature`` for the terminal error taxonomy.
 
+        For the wallet-adapter and Privy strategies the transaction's
+        blockhash is set by the caller, so its expiry cannot be proven —
+        confirmation then never reports ``TransactionExpired``, and a dropped
+        transaction surfaces as ``ConfirmationTimeout`` at the poll cap.
+
         Args:
             tx: A ``solders.transaction.Transaction`` instance.
 
@@ -261,13 +266,6 @@ class LightconeClient:
             Transaction signature string, once confirmed on-chain.
         """
         signature, last_valid_block_height = await self._sign_and_submit_tx_inner(tx)
-        if last_valid_block_height is None:
-            # Wallet-adapter and Privy transactions carry a blockhash set by
-            # the caller, so its exact expiry is unknown — a freshly fetched
-            # last_valid_block_height is a conservative upper bound.
-            _, last_valid_block_height = (
-                await self.rpc().get_latest_blockhash_with_height()
-            )
         await self.rpc().confirm_signature(signature, last_valid_block_height)
         return signature
 
@@ -287,9 +285,8 @@ class LightconeClient:
                 await self.rpc().get_latest_blockhash_with_height()
             )
             tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
-            connection = require_connection(self)
-            response = await connection.send_raw_transaction(bytes(tx))  # type: ignore[arg-type]
-            return str(response.value), last_valid_block_height
+            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[arg-type]
+            return signature, last_valid_block_height
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             signer: ExternalSigner = strategy.signer  # type: ignore[assignment]

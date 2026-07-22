@@ -26,15 +26,27 @@ function status(
 
 /**
  * Build a stub Connection whose getSignatureStatuses walks `sequence`
- * (repeating the final entry), throwing entries that are Errors.
+ * (repeating the final entry), throwing entries that are Errors. `history`
+ * scripts responses to history-searching status calls; when omitted, those
+ * calls fall through to `sequence`.
  */
 function stubRpc(
   sequence: Array<(SignatureStatus | null)[] | Error>,
-  blockHeight = 0
-): { rpc: Rpc; statusCalls: () => number } {
+  blockHeight = 0,
+  history?: Array<(SignatureStatus | null)[]>
+): { rpc: Rpc; statusCalls: () => number; historyCalls: () => number } {
   let calls = 0;
+  let historyLookups = 0;
   const connection = {
-    async getSignatureStatuses(_signatures: string[]) {
+    async getSignatureStatuses(
+      _signatures: string[],
+      config?: { searchTransactionHistory?: boolean }
+    ) {
+      if (config?.searchTransactionHistory && history) {
+        const next = history[Math.min(historyLookups, history.length - 1)];
+        historyLookups += 1;
+        return { context: { slot: 1 }, value: next };
+      }
       const next = sequence[Math.min(calls, sequence.length - 1)];
       calls += 1;
       if (next instanceof Error) throw next;
@@ -48,7 +60,11 @@ function stubRpc(
     primaryConnection: connection,
     rpcFailoverState: new RpcFailoverState(),
   } as unknown as ClientContext;
-  return { rpc: new Rpc(ctx), statusCalls: () => calls };
+  return {
+    rpc: new Rpc(ctx),
+    statusCalls: () => calls,
+    historyCalls: () => historyLookups,
+  };
 }
 
 describe("Rpc.confirmSignature", () => {
@@ -78,7 +94,7 @@ describe("Rpc.confirmSignature", () => {
   });
 
   it("throws TransactionExpired once the block height passes and the signature stays unseen", async () => {
-    const { rpc } = stubRpc([[null]], 101);
+    const { rpc, historyCalls } = stubRpc([[null]], 101, [[null]]);
     await assert.rejects(
       () => rpc.confirmSignature(SIGNATURE, 100),
       (error: unknown) => {
@@ -88,12 +104,22 @@ describe("Rpc.confirmSignature", () => {
         return true;
       }
     );
+    // Expiry is only declared after a history-searching check comes back empty.
+    assert.equal(historyCalls(), 1);
   });
 
   it("still resolves when the signature confirms on the poll after expiry was observed", async () => {
     const { rpc, statusCalls } = stubRpc([[null], [status("confirmed")]], 101);
     await rpc.confirmSignature(SIGNATURE, 100);
     assert.equal(statusCalls(), 2);
+  });
+
+  it("resolves via the history check when a landed transaction left the status cache", async () => {
+    const { rpc, historyCalls } = stubRpc([[null]], 101, [
+      [status("confirmed")],
+    ]);
+    await rpc.confirmSignature(SIGNATURE, 100);
+    assert.equal(historyCalls(), 1);
   });
 
   it("throws ConfirmationTimeout after persistent status-poll failures", async () => {

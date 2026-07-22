@@ -36,18 +36,31 @@ def _status(
 
 
 class _StubConnection:
-    """Scripted AsyncClient stand-in for the confirmation poll loop."""
+    """Scripted AsyncClient stand-in for the confirmation poll loop.
+
+    ``history`` scripts responses to history-searching status calls; when
+    omitted, those calls fall through to the regular ``sequence``.
+    """
 
     def __init__(
         self,
         sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
         block_height: int = 0,
+        history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
     ):
         self._sequence = list(sequence)
         self._block_height = block_height
+        self._history = list(history) if history is not None else None
         self.status_calls = 0
+        self.history_calls = 0
 
-    async def get_signature_statuses(self, signatures: object) -> SimpleNamespace:
+    async def get_signature_statuses(
+        self, signatures: object, search_transaction_history: bool = False
+    ) -> SimpleNamespace:
+        if search_transaction_history and self._history is not None:
+            step = self._history[min(self.history_calls, len(self._history) - 1)]
+            self.history_calls += 1
+            return SimpleNamespace(value=list(step))
         step = self._sequence[min(self.status_calls, len(self._sequence) - 1)]
         self.status_calls += 1
         if isinstance(step, Exception):
@@ -78,8 +91,9 @@ class _StubClient:
 def _rpc(
     sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
     block_height: int = 0,
+    history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
 ) -> tuple[Rpc, _StubConnection]:
-    connection = _StubConnection(sequence, block_height)
+    connection = _StubConnection(sequence, block_height, history)
     return Rpc(_StubClient(connection)), connection  # type: ignore[arg-type]
 
 
@@ -115,10 +129,12 @@ async def test_raises_transaction_failed_when_landed_with_error() -> None:
 
 @pytest.mark.asyncio
 async def test_raises_transaction_expired_when_unseen_past_height() -> None:
-    rpc, _ = _rpc([[None]], block_height=101)
+    rpc, connection = _rpc([[None]], block_height=101, history=[[None]])
     with pytest.raises(TransactionExpired) as raised:
         await rpc.confirm_signature(SIGNATURE, 100)
     assert raised.value.signature == SIGNATURE
+    # Expiry is only declared after a history-searching check comes back empty.
+    assert connection.history_calls == 1
 
 
 @pytest.mark.asyncio
@@ -129,6 +145,29 @@ async def test_resolves_on_grace_poll_after_expiry_observed() -> None:
     )
     await rpc.confirm_signature(SIGNATURE, 100)
     assert connection.status_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_history_check_rescues_landed_transaction() -> None:
+    rpc, connection = _rpc(
+        [[None]],
+        block_height=101,
+        history=[[_status(TransactionConfirmationStatus.Confirmed)]],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    assert connection.history_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_unknown_expiry_bound_never_reports_expired() -> None:
+    rpc, connection = _rpc(
+        [[None], [_status(TransactionConfirmationStatus.Confirmed)]],
+        block_height=101,
+    )
+    await rpc.confirm_signature(SIGNATURE, None)
+    # Without a bound the loop only polls statuses — no expiry machinery runs.
+    assert connection.status_calls == 2
+    assert connection.history_calls == 0
 
 
 @pytest.mark.asyncio
