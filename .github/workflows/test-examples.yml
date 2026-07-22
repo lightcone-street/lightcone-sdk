@@ -7,6 +7,13 @@ on:
         required: true
         type: string
         description: "Target environment (staging or prod)"
+    secrets:
+      TRITON_DEVNET_RPC_URL:
+        required: true
+        description: "Authenticated Triton devnet RPC URL"
+      TRITON_MAINNET_RPC_URL:
+        required: true
+        description: "Authenticated Triton mainnet RPC URL"
 
 env:
   LIGHTCONE_ENV: ${{ inputs.lightcone-env }}
@@ -20,6 +27,19 @@ jobs:
         working-directory: rust
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure paid RPC
+        env:
+          DEVNET_RPC_URL: ${{ secrets.TRITON_DEVNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.TRITON_MAINNET_RPC_URL }}
+        run: |
+          case "$LIGHTCONE_ENV" in
+            staging) rpc_url="$DEVNET_RPC_URL" ;;
+            prod) rpc_url="$MAINNET_RPC_URL" ;;
+            *) echo "::error::Unsupported LIGHTCONE_ENV: $LIGHTCONE_ENV"; exit 1 ;;
+          esac
+          test -n "$rpc_url" || { echo "::error::Triton $LIGHTCONE_ENV RPC secret is not configured"; exit 1; }
+          printf 'SDK_RPC_URL=%s\n' "$rpc_url" >> "$GITHUB_ENV"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -67,6 +87,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Configure paid RPC
+        env:
+          DEVNET_RPC_URL: ${{ secrets.TRITON_DEVNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.TRITON_MAINNET_RPC_URL }}
+        run: |
+          case "$LIGHTCONE_ENV" in
+            staging) rpc_url="$DEVNET_RPC_URL" ;;
+            prod) rpc_url="$MAINNET_RPC_URL" ;;
+            *) echo "::error::Unsupported LIGHTCONE_ENV: $LIGHTCONE_ENV"; exit 1 ;;
+          esac
+          test -n "$rpc_url" || { echo "::error::Triton $LIGHTCONE_ENV RPC secret is not configured"; exit 1; }
+          printf 'SDK_RPC_URL=%s\n' "$rpc_url" >> "$GITHUB_ENV"
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -102,6 +135,19 @@ jobs:
         working-directory: python
     steps:
       - uses: actions/checkout@v4
+
+      - name: Configure paid RPC
+        env:
+          DEVNET_RPC_URL: ${{ secrets.TRITON_DEVNET_RPC_URL }}
+          MAINNET_RPC_URL: ${{ secrets.TRITON_MAINNET_RPC_URL }}
+        run: |
+          case "$LIGHTCONE_ENV" in
+            staging) rpc_url="$DEVNET_RPC_URL" ;;
+            prod) rpc_url="$MAINNET_RPC_URL" ;;
+            *) echo "::error::Unsupported LIGHTCONE_ENV: $LIGHTCONE_ENV"; exit 1 ;;
+          esac
+          test -n "$rpc_url" || { echo "::error::Triton $LIGHTCONE_ENV RPC secret is not configured"; exit 1; }
+          printf 'SDK_RPC_URL=%s\n' "$rpc_url" >> "$GITHUB_ENV"
 
       - name: Setup Python
         uses: actions/setup-python@v5
