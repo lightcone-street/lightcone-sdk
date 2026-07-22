@@ -14,7 +14,7 @@ from lightcone_sdk.domain.market.convert import (
     market_from_wire,
     validation_errors_from_wire,
 )
-from lightcone_sdk.domain.market.wire import MarketWire
+from lightcone_sdk.domain.market.wire import MarketSearchResult, MarketWire
 from lightcone_sdk.domain.notification import Notification
 from lightcone_sdk.domain.notification.client import _parse_notification
 
@@ -152,12 +152,28 @@ def test_optional_metadata_fields_pass_through_when_present() -> None:
     payload = market_payload()
     payload["subcategory"] = "Bitcoin"
     payload["tags"] = ["btc"]
+    payload["resolution_by"] = 1_760_000_000_000
 
     market = market_from_wire(MarketWire.from_dict(payload))
     assert market.description == "Description"
     assert market.definition == "Definition"
     assert market.subcategory == "Bitcoin"
     assert market.tags == ["btc"]
+    assert market.resolution_by == 1_760_000_000_000
+
+
+def test_resolution_by_is_nullable_on_full_and_search_markets() -> None:
+    market = market_from_wire(MarketWire.from_dict(market_payload()))
+    search_result = MarketSearchResult.from_dict(
+        {
+            "slug": "test-market",
+            "market_name": "Test Market",
+            "resolution_by": None,
+        }
+    )
+
+    assert market.resolution_by is None
+    assert search_result.resolution_by is None
 
 
 @pytest.mark.parametrize("definition", [None, "", 1])

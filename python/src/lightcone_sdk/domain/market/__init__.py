@@ -232,6 +232,8 @@ class Market:
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
+    # Resolution deadline as a Unix timestamp in milliseconds.
+    resolution_by: Optional[int] = None
     resolution: Optional[MarketResolutionResponse] = None
     description: Optional[str] = None
     category: Optional[str] = None

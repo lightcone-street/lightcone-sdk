@@ -93,6 +93,8 @@ pub struct Market {
     pub created_at: DateTime<Utc>,
     pub activated_at: Option<DateTime<Utc>>,
     pub settled_at: Option<DateTime<Utc>>,
+    /// Resolution deadline as a Unix timestamp in milliseconds.
+    pub resolution_by: Option<i64>,
     pub resolution: Option<MarketResolutionResponse>,
     pub description: Option<String>,
     pub definition: String,
