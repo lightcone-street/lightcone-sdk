@@ -122,6 +122,17 @@ describe("Rpc.confirmSignature", () => {
     assert.equal(historyCalls(), 1);
   });
 
+  it("never reports expiry when the bound is unknown", async () => {
+    const { rpc, statusCalls, historyCalls } = stubRpc(
+      [[null], [status("confirmed")]],
+      101
+    );
+    await rpc.confirmSignature(SIGNATURE, null);
+    // Without a bound the loop only polls statuses — no expiry machinery runs.
+    assert.equal(statusCalls(), 2);
+    assert.equal(historyCalls(), 0);
+  });
+
   it("throws ConfirmationTimeout after persistent status-poll failures", async () => {
     const { rpc, statusCalls } = stubRpc([new Error("boom")]);
     await assert.rejects(

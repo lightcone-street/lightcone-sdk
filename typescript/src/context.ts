@@ -134,6 +134,13 @@ export async function signAndSubmitTx(
  * transaction that depends on a prior transaction's state is only safe to
  * send once that prior transaction has confirmed. See `Rpc.confirmSignature`
  * for the terminal error taxonomy.
+ *
+ * Expiry (`"TransactionExpired"`) is only ever reported when the submitted
+ * transaction provably still carries the blockhash this function fetched:
+ * always true for `native`, verified against the signed bytes for
+ * `walletAdapter`, and never assumed for `privy` (the backend signs and
+ * submits out of the SDK's sight) — those cases end in
+ * `"ConfirmationTimeout"` at the poll cap instead.
  */
 export async function signAndSubmitTxConfirmed(
   ctx: ClientContext,
@@ -151,12 +158,14 @@ export async function signAndSubmitTxConfirmed(
 
 /**
  * Shared submit path: sign, send, and return the signature together with the
- * `lastValidBlockHeight` of the blockhash the transaction was built on.
+ * `lastValidBlockHeight` of the blockhash the submitted wire bytes are known
+ * to carry — `null` when that cannot be proven (external signer replaced the
+ * blockhash, or the bytes were never visible to the SDK).
  */
 async function signAndSubmitTxInner(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
-): Promise<{ signature: string; lastValidBlockHeight: number }> {
+): Promise<{ signature: string; lastValidBlockHeight: number | null }> {
   const { isUserCancellation } = await import("./shared/signing");
   const { SdkError } = await import("./error");
   const { RetryPolicy } = await import("./http");
@@ -191,7 +200,15 @@ async function signAndSubmitTxInner(
       const signature = await connectionWithFailover(ctx, (conn) =>
         conn.sendRawTransaction(signedBytes)
       );
-      return { signature, lastValidBlockHeight };
+      return {
+        signature,
+        lastValidBlockHeight: (await signedBlockhashUnchanged(
+          signedBytes,
+          blockhash
+        ))
+          ? lastValidBlockHeight
+          : null,
+      };
     }
     case "privy": {
       const txBytes = tx.serialize({ requireAllSignatures: false });
@@ -202,7 +219,27 @@ async function signAndSubmitTxInner(
         { wallet_id: strategy.walletId, base64_tx: base64Tx },
         RetryPolicy.None
       );
-      return { signature: result.hash, lastValidBlockHeight };
+      // The backend signs and submits server-side; the SDK never sees the
+      // final wire bytes, so the blockhash it set cannot be trusted for
+      // expiry detection.
+      return { signature: result.hash, lastValidBlockHeight: null };
     }
+  }
+}
+
+/**
+ * True when the signed wire bytes still carry `expectedBlockhash`. External
+ * signers may re-blockhash a transaction before signing; a bound derived
+ * from the original blockhash must then not be used for expiry detection.
+ */
+async function signedBlockhashUnchanged(
+  signedBytes: Uint8Array,
+  expectedBlockhash: string
+): Promise<boolean> {
+  try {
+    const { Transaction } = await import("@solana/web3.js");
+    return Transaction.from(signedBytes).recentBlockhash === expectedBlockhash;
+  } catch {
+    return false;
   }
 }

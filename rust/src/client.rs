@@ -458,7 +458,11 @@ impl LightconeClient {
     ///
     /// Polls `getSignatureStatuses` (with automatic RPC failover) until the
     /// cluster reports the transaction as `confirmed` or `finalized`.
-    /// Terminal outcomes:
+    /// `last_valid_block_height` bounds the wait: pass the height returned
+    /// alongside the transaction's blockhash, or `None` when the submitted
+    /// transaction's blockhash cannot be proven (e.g. an external signer may
+    /// have replaced it) — expiry is then never reported and only the poll
+    /// cap ends the wait. Terminal outcomes:
     ///
     /// - [`SdkError::TransactionFailed`] — the transaction landed but errored
     ///   on-chain; resubmitting the same transaction would fail again.
@@ -472,7 +476,7 @@ impl LightconeClient {
     pub async fn confirm_signature(
         &self,
         signature: &str,
-        last_valid_block_height: u64,
+        last_valid_block_height: Option<u64>,
     ) -> Result<(), SdkError> {
         let signatures = [signature.to_string()];
         let mut consecutive_failures: u32 = 0;
@@ -506,41 +510,46 @@ impl LightconeClient {
                         // transactions land in blocks like any other, so an
                         // on-chain error is also reported once confirmed.
                         Some(_) => {}
+                        // Unseen. When the expiry bound is unknown, only the
+                        // poll cap ends the wait.
                         None => {
-                            // Unseen. Declare expiry only on the poll *after*
-                            // the block height passed `last_valid_block_height`,
-                            // so a transaction confirming in the same tick as
-                            // expiry is not misreported as dropped.
-                            if blockhash_expired {
-                                // Search ledger history before declaring expiry
-                                // — the recent-status cache can evict landed
-                                // transactions, and `TransactionExpired`
-                                // promises resubmit safety. On a failed lookup,
-                                // keep polling until the cap.
-                                if let Ok(history) =
-                                    self.get_signature_statuses_with_history(&signatures).await
-                                {
-                                    match history.into_iter().next().flatten() {
-                                        None => {
-                                            return Err(SdkError::TransactionExpired {
-                                                signature: signature.to_string(),
-                                            });
-                                        }
-                                        Some(landed) if landed.is_confirmed() => {
-                                            return match landed.err {
-                                                Some(err) => Err(SdkError::TransactionFailed {
+                            if let Some(last_valid_block_height) = last_valid_block_height {
+                                // Declare expiry only on the poll *after* the
+                                // block height passed `last_valid_block_height`,
+                                // so a transaction confirming in the same tick
+                                // as expiry is not misreported as dropped.
+                                if blockhash_expired {
+                                    // Search ledger history before declaring
+                                    // expiry — the recent-status cache can evict
+                                    // landed transactions, and
+                                    // `TransactionExpired` promises resubmit
+                                    // safety. On a failed lookup, keep polling
+                                    // until the cap.
+                                    if let Ok(history) =
+                                        self.get_signature_statuses_with_history(&signatures).await
+                                    {
+                                        match history.into_iter().next().flatten() {
+                                            None => {
+                                                return Err(SdkError::TransactionExpired {
                                                     signature: signature.to_string(),
-                                                    error: err.to_string(),
-                                                }),
-                                                None => Ok(()),
-                                            };
+                                                });
+                                            }
+                                            Some(landed) if landed.is_confirmed() => {
+                                                return match landed.err {
+                                                    Some(err) => Err(SdkError::TransactionFailed {
+                                                        signature: signature.to_string(),
+                                                        error: err.to_string(),
+                                                    }),
+                                                    None => Ok(()),
+                                                };
+                                            }
+                                            // Landed but below `confirmed` — keep waiting.
+                                            Some(_) => {}
                                         }
-                                        // Landed but below `confirmed` — keep waiting.
-                                        Some(_) => {}
                                     }
+                                } else if let Ok(block_height) = self.get_block_height().await {
+                                    blockhash_expired = block_height > last_valid_block_height;
                                 }
-                            } else if let Ok(block_height) = self.get_block_height().await {
-                                blockhash_expired = block_height > last_valid_block_height;
                             }
                         }
                     }
@@ -580,6 +589,13 @@ impl LightconeClient {
     /// a transaction that depends on a prior transaction's state is only safe
     /// to send once that prior transaction has confirmed. See
     /// [`Self::confirm_signature`] for the terminal error taxonomy.
+    ///
+    /// Expiry ([`SdkError::TransactionExpired`]) is only ever reported when
+    /// the submitted transaction provably still carries the blockhash fetched
+    /// here: always true for the native strategy, verified against the signed
+    /// bytes for wallet-adapter signers (which may re-blockhash before
+    /// signing). When unproven, a dropped transaction surfaces as
+    /// [`SdkError::ConfirmationTimeout`] at the poll cap instead.
     pub async fn sign_and_submit_tx_confirmed(
         &self,
         tx: solana_transaction::Transaction,
@@ -591,11 +607,13 @@ impl LightconeClient {
     }
 
     /// Shared submit path: sign, send, and return the signature together with
-    /// the `lastValidBlockHeight` of the blockhash the transaction was built on.
+    /// the `lastValidBlockHeight` of the blockhash the submitted wire bytes
+    /// are known to carry — `None` when that cannot be proven (an external
+    /// signer replaced the blockhash, or the bytes could not be inspected).
     async fn sign_and_submit_tx_inner(
         &self,
         mut tx: solana_transaction::Transaction,
-    ) -> Result<(String, u64), SdkError> {
+    ) -> Result<(String, Option<u64>), SdkError> {
         let strategy = self.signing_strategy().await.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
@@ -603,12 +621,13 @@ impl LightconeClient {
         let (blockhash, last_valid_block_height) = self.get_latest_blockhash_with_height().await?;
         tx.message.recent_blockhash = blockhash;
 
-        let signature = match strategy {
+        match strategy {
             #[cfg(feature = "native-auth")]
             SigningStrategy::Native(keypair) => {
                 tx.try_sign(&[keypair.as_ref()], blockhash)
                     .map_err(|error| SdkError::Signing(error.to_string()))?;
-                self.send_transaction_rpc(&tx).await?
+                let signature = self.send_transaction_rpc(&tx).await?;
+                Ok((signature, Some(last_valid_block_height)))
             }
             SigningStrategy::WalletAdapter(signer) => {
                 let tx_bytes = bincode::serialize(&tx).map_err(|error| {
@@ -618,16 +637,30 @@ impl LightconeClient {
                     .sign_transaction(&tx_bytes)
                     .await
                     .map_err(crate::shared::signing::classify_signer_error)?;
+                // External signers may re-blockhash before signing; only trust
+                // the expiry bound when the signed bytes still carry the
+                // blockhash fetched above.
+                let signed_blockhash_unchanged =
+                    bincode::deserialize::<solana_transaction::Transaction>(&signed_bytes)
+                        .map(|signed_tx| signed_tx.message.recent_blockhash == blockhash)
+                        .unwrap_or(false);
+                if !signed_blockhash_unchanged {
+                    tracing::warn!(
+                        "Signer changed the transaction blockhash; confirming without an expiry bound"
+                    );
+                }
                 // The signer returns fully signed tx bytes — send via base64
                 let base64_tx = base64::Engine::encode(
                     &base64::engine::general_purpose::STANDARD,
                     &signed_bytes,
                 );
-                self.send_raw_transaction_rpc(&base64_tx).await?
+                let signature = self.send_raw_transaction_rpc(&base64_tx).await?;
+                Ok((
+                    signature,
+                    signed_blockhash_unchanged.then_some(last_valid_block_height),
+                ))
             }
-        };
-
-        Ok((signature, last_valid_block_height))
+        }
     }
 
     /// Submit a signed transaction via JSON-RPC `sendTransaction`.

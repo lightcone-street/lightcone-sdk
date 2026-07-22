@@ -110,7 +110,12 @@ export class Rpc {
    * terminal `SdkError`.
    *
    * Polls `getSignatureStatuses` (with automatic failover) until the cluster
-   * reports the transaction as `confirmed` or `finalized`. Terminal outcomes:
+   * reports the transaction as `confirmed` or `finalized`.
+   * `lastValidBlockHeight` bounds the wait: pass the height returned
+   * alongside the transaction's blockhash, or `null` when the submitted
+   * transaction's blockhash cannot be proven (e.g. an external signer may
+   * have replaced it) — expiry is then never reported and only the poll cap
+   * ends the wait. Terminal outcomes:
    *
    * - `"TransactionFailed"` — the transaction landed but errored on-chain;
    *   resubmitting the same transaction would fail again.
@@ -123,7 +128,7 @@ export class Rpc {
    */
   async confirmSignature(
     signature: string,
-    lastValidBlockHeight: number
+    lastValidBlockHeight: number | null
   ): Promise<void> {
     let consecutiveFailures = 0;
     let blockhashExpired = false;
@@ -154,7 +159,7 @@ export class Rpc {
         // Seen but below `confirmed` — keep waiting. Failed transactions
         // land in blocks like any other, so an on-chain error is also
         // reported once confirmed.
-        if (!status) {
+        if (!status && lastValidBlockHeight !== null) {
           // Unseen. Declare expiry only on the poll *after* the block height
           // passed `lastValidBlockHeight`, so a transaction confirming in
           // the same tick as expiry is not misreported as dropped.
