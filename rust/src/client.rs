@@ -345,11 +345,30 @@ impl LightconeClient {
     /// Works on all platforms (native + WASM). Uses the active RPC URL,
     /// with automatic failover to the backup if configured.
     pub async fn get_latest_blockhash(&self) -> Result<solana_hash::Hash, SdkError> {
+        let (blockhash, _last_valid_block_height) = self.get_latest_blockhash_with_height().await?;
+        Ok(blockhash)
+    }
+
+    /// Fetch the latest blockhash together with its `lastValidBlockHeight`
+    /// via JSON-RPC POST.
+    ///
+    /// The blockhash is requested at `confirmed` commitment — the freshest
+    /// hash that is safe to build on, which maximizes the ~150-block validity
+    /// window. The returned height is the last block height at which the
+    /// blockhash is still valid: once the chain moves past it, a transaction
+    /// built on the blockhash can never land, which is what makes expiry
+    /// detection in [`Self::confirm_signature`] safe.
+    ///
+    /// Works on all platforms (native + WASM). Uses the active RPC URL,
+    /// with automatic failover to the backup if configured.
+    pub async fn get_latest_blockhash_with_height(
+        &self,
+    ) -> Result<(solana_hash::Hash, u64), SdkError> {
         let body = serde_json::json!({
             "id": 1,
             "jsonrpc": "2.0",
             "method": "getLatestBlockhash",
-            "params": []
+            "params": [{ "commitment": "confirmed" }]
         });
 
         let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
@@ -357,36 +376,195 @@ impl LightconeClient {
         let blockhash_str = response["result"]["value"]["blockhash"]
             .as_str()
             .ok_or_else(|| SdkError::Other("missing blockhash in RPC response".into()))?;
-
-        blockhash_str
+        let blockhash = blockhash_str
             .parse::<solana_hash::Hash>()
-            .map_err(|error| SdkError::Other(format!("invalid blockhash: {error}")))
+            .map_err(|error| SdkError::Other(format!("invalid blockhash: {error}")))?;
+
+        let last_valid_block_height = response["result"]["value"]["lastValidBlockHeight"]
+            .as_u64()
+            .ok_or_else(|| {
+                SdkError::Other("missing lastValidBlockHeight in RPC response".into())
+            })?;
+
+        Ok((blockhash, last_valid_block_height))
+    }
+
+    /// Fetch the current block height at `confirmed` commitment via JSON-RPC POST.
+    pub async fn get_block_height(&self) -> Result<u64, SdkError> {
+        let body = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "getBlockHeight",
+            "params": [{ "commitment": "confirmed" }]
+        });
+
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
+
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+
+        response["result"]
+            .as_u64()
+            .ok_or_else(|| SdkError::Other("missing block height in RPC response".into()))
+    }
+
+    /// Fetch the statuses of recently submitted transactions via JSON-RPC POST.
+    ///
+    /// Returns one entry per signature, in order; `None` means the cluster has
+    /// not seen the signature (or it has aged out of the recent-status cache).
+    pub async fn get_signature_statuses(
+        &self,
+        signatures: &[String],
+    ) -> Result<Vec<Option<TransactionStatus>>, SdkError> {
+        let body = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "getSignatureStatuses",
+            "params": [signatures]
+        });
+
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
+
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+
+        serde_json::from_value(response["result"]["value"].clone()).map_err(SdkError::Serde)
+    }
+
+    /// Wait until `signature` reaches `confirmed` commitment, or fail with a
+    /// terminal error.
+    ///
+    /// Polls `getSignatureStatuses` (with automatic RPC failover) until the
+    /// cluster reports the transaction as `confirmed` or `finalized`.
+    /// Terminal outcomes:
+    ///
+    /// - [`SdkError::TransactionFailed`] — the transaction landed but errored
+    ///   on-chain; resubmitting the same transaction would fail again.
+    /// - [`SdkError::TransactionExpired`] — the chain moved past
+    ///   `last_valid_block_height` without seeing the signature; the
+    ///   transaction can never land and is safe to resubmit.
+    /// - [`SdkError::ConfirmationTimeout`] — the outcome could not be
+    ///   determined (persistent RPC errors or the poll cap); check the
+    ///   signature on-chain before resubmitting.
+    pub async fn confirm_signature(
+        &self,
+        signature: &str,
+        last_valid_block_height: u64,
+    ) -> Result<(), SdkError> {
+        let signatures = [signature.to_string()];
+        let mut consecutive_failures: u32 = 0;
+        let mut blockhash_expired = false;
+
+        for _ in 0..MAX_CONFIRMATION_POLLS {
+            match self.get_signature_statuses(&signatures).await {
+                Err(error) => {
+                    consecutive_failures += 1;
+                    if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
+                        tracing::warn!("Giving up confirming {signature}: {error}");
+                        return Err(SdkError::ConfirmationTimeout {
+                            signature: signature.to_string(),
+                        });
+                    }
+                    tracing::warn!("Signature status poll failed: {error}");
+                }
+                Ok(statuses) => {
+                    consecutive_failures = 0;
+                    match statuses.into_iter().next().flatten() {
+                        Some(status) if status.is_confirmed() => {
+                            return match status.err {
+                                Some(err) => Err(SdkError::TransactionFailed {
+                                    signature: signature.to_string(),
+                                    error: err.to_string(),
+                                }),
+                                None => Ok(()),
+                            };
+                        }
+                        // Seen but below `confirmed` — keep waiting. Failed
+                        // transactions land in blocks like any other, so an
+                        // on-chain error is also reported once confirmed.
+                        Some(_) => {}
+                        None => {
+                            // Unseen. Declare expiry only on the poll *after*
+                            // the block height passed `last_valid_block_height`,
+                            // so a transaction confirming in the same tick as
+                            // expiry is not misreported as dropped.
+                            if blockhash_expired {
+                                return Err(SdkError::TransactionExpired {
+                                    signature: signature.to_string(),
+                                });
+                            }
+                            if let Ok(block_height) = self.get_block_height().await {
+                                blockhash_expired = block_height > last_valid_block_height;
+                            }
+                        }
+                    }
+                }
+            }
+
+            futures_timer::Delay::new(CONFIRMATION_POLL_INTERVAL).await;
+        }
+
+        Err(SdkError::ConfirmationTimeout {
+            signature: signature.to_string(),
+        })
     }
 
     /// Sign and submit a transaction using the client's signing strategy.
     ///
     /// Fetches a recent blockhash automatically. The caller does not need to set it.
+    /// Returns as soon as the RPC accepts the transaction — inclusion is not
+    /// awaited. When follow-up work depends on this transaction's on-chain
+    /// effects, use [`Self::sign_and_submit_tx_confirmed`] instead.
     ///
     /// - **Native**: signs locally with keypair, submits via RPC `sendTransaction`
     /// - **WalletAdapter**: signs via external signer, submits via RPC `sendTransaction`
     /// - **Privy**: serializes unsigned tx to base64, sends to backend for signing + submission
     pub async fn sign_and_submit_tx(
         &self,
-        mut tx: solana_transaction::Transaction,
+        tx: solana_transaction::Transaction,
     ) -> Result<String, SdkError> {
+        let (signature, _last_valid_block_height) = self.sign_and_submit_tx_inner(tx).await?;
+        Ok(signature)
+    }
+
+    /// Sign and submit a transaction, then wait until it reaches `confirmed`
+    /// commitment on-chain.
+    ///
+    /// Sequential flows should prefer this over [`Self::sign_and_submit_tx`]:
+    /// a transaction that depends on a prior transaction's state is only safe
+    /// to send once that prior transaction has confirmed. See
+    /// [`Self::confirm_signature`] for the terminal error taxonomy.
+    pub async fn sign_and_submit_tx_confirmed(
+        &self,
+        tx: solana_transaction::Transaction,
+    ) -> Result<String, SdkError> {
+        let (signature, last_valid_block_height) = self.sign_and_submit_tx_inner(tx).await?;
+        self.confirm_signature(&signature, last_valid_block_height)
+            .await?;
+        Ok(signature)
+    }
+
+    /// Shared submit path: sign, send, and return the signature together with
+    /// the `lastValidBlockHeight` of the blockhash the transaction was built on.
+    async fn sign_and_submit_tx_inner(
+        &self,
+        mut tx: solana_transaction::Transaction,
+    ) -> Result<(String, u64), SdkError> {
         let strategy = self.signing_strategy().await.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
 
-        let blockhash = self.get_latest_blockhash().await?;
+        let (blockhash, last_valid_block_height) = self.get_latest_blockhash_with_height().await?;
         tx.message.recent_blockhash = blockhash;
 
-        match strategy {
+        let signature = match strategy {
             #[cfg(feature = "native-auth")]
             SigningStrategy::Native(keypair) => {
                 tx.try_sign(&[keypair.as_ref()], blockhash)
                     .map_err(|error| SdkError::Signing(error.to_string()))?;
-                self.send_transaction_rpc(&tx).await
+                self.send_transaction_rpc(&tx).await?
             }
             SigningStrategy::WalletAdapter(signer) => {
                 let tx_bytes = bincode::serialize(&tx).map_err(|error| {
@@ -401,9 +579,11 @@ impl LightconeClient {
                     &base64::engine::general_purpose::STANDARD,
                     &signed_bytes,
                 );
-                self.send_raw_transaction_rpc(&base64_tx).await
+                self.send_raw_transaction_rpc(&base64_tx).await?
             }
-        }
+        };
+
+        Ok((signature, last_valid_block_height))
     }
 
     /// Submit a signed transaction via JSON-RPC `sendTransaction`.
@@ -444,6 +624,43 @@ impl LightconeClient {
             .as_str()
             .map(|s| s.to_string())
             .ok_or_else(|| SdkError::Other("no signature in sendTransaction response".into()))
+    }
+}
+
+// ── Transaction confirmation ─────────────────────────────────────────────────
+
+/// Interval between polls while awaiting transaction confirmation.
+const CONFIRMATION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(800);
+
+/// Hard cap on confirmation poll iterations (~90 s at the poll interval) — a
+/// backstop for when block-height expiry cannot be observed (e.g. a
+/// failed-over RPC node with a skewed view of the chain).
+const MAX_CONFIRMATION_POLLS: u32 = 110;
+
+/// Consecutive failed polls tolerated before the outcome is declared unknown.
+const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 3;
+
+/// Status of a submitted transaction, as reported by `getSignatureStatuses`.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TransactionStatus {
+    /// The slot the transaction was processed in.
+    pub slot: u64,
+    /// Confirmations since the transaction was processed; `None` once rooted.
+    pub confirmations: Option<u64>,
+    /// The on-chain error, present when the transaction landed but failed.
+    pub err: Option<serde_json::Value>,
+    /// Cluster confirmation level: `processed`, `confirmed`, or `finalized`.
+    pub confirmation_status: Option<String>,
+}
+
+impl TransactionStatus {
+    /// True once the cluster has voted the transaction to `confirmed` or beyond.
+    pub fn is_confirmed(&self) -> bool {
+        matches!(
+            self.confirmation_status.as_deref(),
+            Some("confirmed") | Some("finalized")
+        )
     }
 }
 
@@ -608,5 +825,63 @@ impl LightconeClientBuilder {
             backup_rpc_url: self.backup_rpc_url,
             rpc_failover_state: Arc::new(RwLock::new(RpcFailoverState::new())),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn transaction_status_parses_full_envelope() {
+        let value = serde_json::json!({
+            "slot": 393226687u64,
+            "confirmations": 12,
+            "err": null,
+            "confirmationStatus": "confirmed",
+            "status": { "Ok": null }
+        });
+        let status: TransactionStatus = serde_json::from_value(value).unwrap();
+        assert_eq!(status.slot, 393226687);
+        assert_eq!(status.confirmations, Some(12));
+        assert!(status.err.is_none());
+        assert!(status.is_confirmed());
+    }
+
+    #[test]
+    fn transaction_status_parses_rooted_failure() {
+        let value = serde_json::json!({
+            "slot": 5,
+            "confirmations": null,
+            "err": { "InstructionError": [0, { "Custom": 42 }] },
+            "confirmationStatus": "finalized"
+        });
+        let status: TransactionStatus = serde_json::from_value(value).unwrap();
+        assert_eq!(status.confirmations, None);
+        assert!(status.err.is_some());
+        assert!(status.is_confirmed());
+    }
+
+    #[test]
+    fn processed_status_is_not_confirmed() {
+        let value = serde_json::json!({
+            "slot": 5,
+            "confirmations": 0,
+            "err": null,
+            "confirmationStatus": "processed"
+        });
+        let status: TransactionStatus = serde_json::from_value(value).unwrap();
+        assert!(!status.is_confirmed());
+    }
+
+    #[test]
+    fn signature_statuses_envelope_parses_unseen_entries() {
+        let value = serde_json::json!([
+            null,
+            { "slot": 9, "confirmations": 1, "err": null, "confirmationStatus": "confirmed" }
+        ]);
+        let statuses: Vec<Option<TransactionStatus>> = serde_json::from_value(value).unwrap();
+        assert!(statuses[0].is_none());
+        assert!(statuses[1].as_ref().unwrap().is_confirmed());
     }
 }

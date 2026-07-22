@@ -1,6 +1,8 @@
-import type { Connection, PublicKey } from "@solana/web3.js";
+import type { Connection, PublicKey, SignatureStatus } from "@solana/web3.js";
 import type { ClientContext } from "./context";
 import { requireConnection, connectionWithFailover } from "./context";
+import { SdkError } from "./error";
+import { sleep } from "./rpcFailover";
 import { ProgramSdkError } from "./program/error";
 import {
   getExchangePda,
@@ -12,6 +14,29 @@ import {
   deserializeGlobalDepositToken,
 } from "./program/accounts";
 import type { Exchange, GlobalDepositToken } from "./program/types";
+
+// ── Transaction confirmation ──────────────────────────────────────────────
+
+/** Interval between polls while awaiting transaction confirmation. */
+const CONFIRMATION_POLL_INTERVAL_MS = 800;
+
+/**
+ * Hard cap on confirmation poll iterations (~90 s at the poll interval) — a
+ * backstop for when block-height expiry cannot be observed (e.g. a
+ * failed-over RPC node with a skewed view of the chain).
+ */
+const MAX_CONFIRMATION_POLLS = 110;
+
+/** Consecutive failed polls tolerated before the outcome is declared unknown. */
+const MAX_CONSECUTIVE_POLL_FAILURES = 3;
+
+/** True once the cluster has voted the transaction to `confirmed` or beyond. */
+function isTransactionConfirmed(status: SignatureStatus): boolean {
+  return (
+    status.confirmationStatus === "confirmed" ||
+    status.confirmationStatus === "finalized"
+  );
+}
 
 export class Rpc {
   constructor(private readonly client: ClientContext) {}
@@ -49,6 +74,99 @@ export class Rpc {
     return connectionWithFailover(this.client, (connection) =>
       connection.getLatestBlockhash()
     );
+  }
+
+  /** Get the current block height at `confirmed` commitment. */
+  async getBlockHeight(): Promise<number> {
+    return connectionWithFailover(this.client, (connection) =>
+      connection.getBlockHeight("confirmed")
+    );
+  }
+
+  /**
+   * Get the statuses of recently submitted transactions.
+   *
+   * Returns one entry per signature, in order; `null` means the cluster has
+   * not seen the signature (or it has aged out of the recent-status cache).
+   */
+  async getSignatureStatuses(
+    signatures: string[]
+  ): Promise<(SignatureStatus | null)[]> {
+    const response = await connectionWithFailover(this.client, (connection) =>
+      connection.getSignatureStatuses(signatures)
+    );
+    return response.value;
+  }
+
+  /**
+   * Wait until `signature` reaches `confirmed` commitment, or throw a
+   * terminal `SdkError`.
+   *
+   * Polls `getSignatureStatuses` (with automatic failover) until the cluster
+   * reports the transaction as `confirmed` or `finalized`. Terminal outcomes:
+   *
+   * - `"TransactionFailed"` — the transaction landed but errored on-chain;
+   *   resubmitting the same transaction would fail again.
+   * - `"TransactionExpired"` — the chain moved past `lastValidBlockHeight`
+   *   without seeing the signature; the transaction can never land and is
+   *   safe to resubmit.
+   * - `"ConfirmationTimeout"` — the outcome could not be determined
+   *   (persistent RPC errors or the poll cap); check the signature on-chain
+   *   before resubmitting.
+   */
+  async confirmSignature(
+    signature: string,
+    lastValidBlockHeight: number
+  ): Promise<void> {
+    let consecutiveFailures = 0;
+    let blockhashExpired = false;
+
+    for (let poll = 0; poll < MAX_CONFIRMATION_POLLS; poll++) {
+      let statuses: (SignatureStatus | null)[] | undefined;
+      try {
+        statuses = await this.getSignatureStatuses([signature]);
+        consecutiveFailures = 0;
+      } catch {
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
+          throw SdkError.confirmationTimeout(signature);
+        }
+      }
+
+      if (statuses) {
+        const status = statuses[0];
+        if (status && isTransactionConfirmed(status)) {
+          if (status.err) {
+            throw SdkError.transactionFailed(
+              signature,
+              JSON.stringify(status.err)
+            );
+          }
+          return;
+        }
+        // Seen but below `confirmed` — keep waiting. Failed transactions
+        // land in blocks like any other, so an on-chain error is also
+        // reported once confirmed.
+        if (!status) {
+          // Unseen. Declare expiry only on the poll *after* the block height
+          // passed `lastValidBlockHeight`, so a transaction confirming in
+          // the same tick as expiry is not misreported as dropped.
+          if (blockhashExpired) {
+            throw SdkError.transactionExpired(signature);
+          }
+          try {
+            const blockHeight = await this.getBlockHeight();
+            blockhashExpired = blockHeight > lastValidBlockHeight;
+          } catch {
+            // Height unavailable — rely on the poll cap instead.
+          }
+        }
+      }
+
+      await sleep(CONFIRMATION_POLL_INTERVAL_MS);
+    }
+
+    throw SdkError.confirmationTimeout(signature);
   }
 
   async getExchange(): Promise<Exchange> {
