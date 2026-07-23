@@ -484,17 +484,24 @@ impl LightconeClient {
 
         for _ in 0..MAX_CONFIRMATION_POLLS {
             match self.get_signature_statuses(&signatures).await {
-                Err(error) => {
+                Err(_error) => {
                     consecutive_failures += 1;
                     // A failed poll is a gap in expiry evidence — restart it.
                     over_bound_samples = 0;
+                    // Transport errors are deliberately not interpolated into
+                    // the logs: their rendered text can carry RPC endpoint
+                    // URLs with embedded provider credentials.
                     if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
-                        tracing::warn!("Giving up confirming {signature}: {error}");
+                        tracing::warn!(
+                            "Giving up confirming {signature} after {consecutive_failures} failed status polls"
+                        );
                         return Err(SdkError::ConfirmationTimeout {
                             signature: signature.to_string(),
                         });
                     }
-                    tracing::warn!("Signature status poll failed: {error}");
+                    tracing::warn!(
+                        "Signature status poll for {signature} failed ({consecutive_failures} consecutive)"
+                    );
                 }
                 Ok(statuses) => {
                     consecutive_failures = 0;
