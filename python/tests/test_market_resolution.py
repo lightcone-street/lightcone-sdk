@@ -67,6 +67,7 @@ def market_payload(resolution: dict | None = None) -> dict:
         "icon_url_low": "https://example.com/icon-low.png",
         "market_pubkey": "market_1",
         "market_id": 1,
+        "num_outcomes": 2,
         "oracle": "oracle",
         "question_id": "question",
         "condition_id": "condition",
@@ -174,6 +175,55 @@ def test_resolution_by_is_nullable_on_full_and_search_markets() -> None:
 
     assert market.resolution_by is None
     assert search_result.resolution_by is None
+
+
+def test_market_outcome_count_comes_from_market_response() -> None:
+    payload = market_payload()
+    payload["outcomes"] = []
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+    assert market.outcomes == []
+
+
+def test_market_outcome_count_falls_back_to_deposit_asset() -> None:
+    payload = market_payload()
+    del payload["num_outcomes"]
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+
+
+def test_null_market_outcome_count_falls_back_to_deposit_asset() -> None:
+    payload = market_payload()
+    payload["num_outcomes"] = None
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+
+
+def test_market_rejects_inconsistent_outcome_counts() -> None:
+    payload = market_payload()
+    payload["deposit_assets"][0]["num_outcomes"] = 3
+    wire = MarketWire.from_dict(payload)
+
+    assert "do not match market" in validation_errors_from_wire(wire)[0]
+    with pytest.raises(MarketValidationError, match="do not match market"):
+        market_from_wire(wire)
+
+
+@pytest.mark.parametrize("num_outcomes", [True, 2.0, "2"])
+def test_market_rejects_non_integer_outcome_counts(num_outcomes: object) -> None:
+    payload = market_payload()
+    payload["num_outcomes"] = num_outcomes
+    wire = MarketWire.from_dict(payload)
+
+    assert "Invalid outcome count" in validation_errors_from_wire(wire)[0]
+    with pytest.raises(MarketValidationError, match="Invalid outcome count"):
+        market_from_wire(wire)
 
 
 @pytest.mark.parametrize("definition", [None, "", 1])

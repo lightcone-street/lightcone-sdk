@@ -7,6 +7,7 @@ use super::tokens::sort_by_display_priority;
 use super::wire;
 use super::{Market, Status, ValidationError};
 use crate::domain::orderbook;
+use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::shared::PubkeyStr;
 use std::collections::HashMap;
 
@@ -16,6 +17,34 @@ impl TryFrom<wire::MarketResponse> for Market {
     fn try_from(source: wire::MarketResponse) -> Result<Self, Self::Error> {
         let mut errors: Vec<ValidationError> = Vec::new();
         let market_pubkey = source.market_pubkey.clone();
+        let wire_num_outcomes = source
+            .num_outcomes
+            .or_else(|| {
+                source
+                    .deposit_assets
+                    .first()
+                    .map(|asset| asset.num_outcomes)
+            })
+            .unwrap_or_default();
+        let num_outcomes = if wire_num_outcomes < i16::from(MIN_OUTCOMES)
+            || wire_num_outcomes > i16::from(MAX_OUTCOMES)
+        {
+            errors.push(ValidationError::InvalidOutcomeCount(wire_num_outcomes));
+            0
+        } else {
+            wire_num_outcomes as u8
+        };
+        let inconsistent_outcome_counts: Vec<i16> = source
+            .deposit_assets
+            .iter()
+            .map(|asset| asset.num_outcomes)
+            .filter(|count| *count != wire_num_outcomes)
+            .collect();
+        if !inconsistent_outcome_counts.is_empty() {
+            errors.push(ValidationError::InconsistentOutcomeCounts(
+                inconsistent_outcome_counts,
+            ));
+        }
 
         // Validate outcomes
         let mut outcomes: Vec<outcome::Outcome> = Vec::new();
@@ -125,6 +154,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             description: source.description,
             definition,
             tags: source.tags.unwrap_or_default(),
+            num_outcomes,
             outcomes,
             icon_url_low,
             icon_url_medium,
@@ -209,6 +239,7 @@ mod tests {
             featured_rank: None,
             market_pubkey: "mkt123".to_string(),
             market_id: 1,
+            num_outcomes: Some(2),
             oracle: "oracle".to_string(),
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
@@ -232,6 +263,46 @@ mod tests {
         response.deposit_assets = vec![deposit_asset_response()];
         response.orderbooks = vec![orderbook_response()];
         response
+    }
+
+    #[test]
+    fn market_outcome_count_comes_from_market_response() {
+        let mut response = valid_market_response(None);
+        response.outcomes.clear();
+
+        let market = match Market::try_from(response) {
+            Ok(market) => market,
+            Err(error) => panic!("expected valid market: {error}"),
+        };
+
+        assert_eq!(market.num_outcomes, 2);
+        assert!(market.outcomes.is_empty());
+    }
+
+    #[test]
+    fn market_outcome_count_falls_back_to_deposit_asset() {
+        let mut response = valid_market_response(None);
+        response.num_outcomes = None;
+
+        let market = match Market::try_from(response) {
+            Ok(market) => market,
+            Err(error) => panic!("expected valid market: {error}"),
+        };
+
+        assert_eq!(market.num_outcomes, 2);
+    }
+
+    #[test]
+    fn market_rejects_inconsistent_outcome_counts() {
+        let mut response = valid_market_response(None);
+        response.deposit_assets[0].num_outcomes = 3;
+
+        let error = match Market::try_from(response) {
+            Ok(_) => panic!("expected inconsistent outcome counts to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("Inconsistent outcome counts"));
     }
 
     fn deposit_asset_response() -> wire::DepositAssetResponse {

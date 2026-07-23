@@ -169,5 +169,5 @@ pub fn quote_deposit_mint(orderbook: &OrderBookPair) -> ExampleResult<Pubkey> {
 }
 
 pub fn num_outcomes(market: &Market) -> ExampleResult<u8> {
-    u8::try_from(market.outcomes.len()).map_err(|_| other("market outcome count exceeds u8").into())
+    Ok(market.num_outcomes)
 }

@@ -41,7 +41,7 @@ async function main() {
       .market(marketPubkey)
       .mint(dMint)
       .amount(amount)
-      .numOutcomes(m.outcomes.length)
+      .numOutcomes(m.numOutcomes)
       .buildIx(),
   ]);
 

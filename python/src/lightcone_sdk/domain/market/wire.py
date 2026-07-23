@@ -194,6 +194,7 @@ class SearchOrderbook:
 class MarketWire:
     """Raw market data from the API."""
     market_id: int = 0
+    num_outcomes: int = 0
     market_pubkey: str = ""
     market_name: str = ""
     slug: Optional[str] = None
@@ -237,8 +238,16 @@ class MarketWire:
     @staticmethod
     def from_dict(d: dict) -> "MarketWire":
         resolution_raw = d.get("resolution")
+        deposit_assets = [
+            DepositAssetWire.from_dict(da) for da in d.get("deposit_assets", [])
+        ]
+        if d.get("num_outcomes") is not None:
+            num_outcomes = d["num_outcomes"]
+        else:
+            num_outcomes = deposit_assets[0].num_outcomes if deposit_assets else 0
         return MarketWire(
             market_id=d.get("market_id", 0),
+            num_outcomes=num_outcomes,
             market_pubkey=_require(d, "market_pubkey", "MarketWire"),
             market_name=d.get("market_name", ""),
             slug=d.get("slug"),
@@ -268,10 +277,7 @@ class MarketWire:
                 OutcomeWire.from_dict(o, fallback_index=i)
                 for i, o in enumerate(d.get("outcomes", []))
             ],
-            deposit_assets=[
-                DepositAssetWire.from_dict(da)
-                for da in d.get("deposit_assets", [])
-            ],
+            deposit_assets=deposit_assets,
             orderbooks=[
                 OrderbookWire.from_dict(ob)
                 for ob in d.get("orderbooks", [])

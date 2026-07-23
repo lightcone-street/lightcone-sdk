@@ -411,6 +411,7 @@ impl<'a> Positions<'a> {
     }
 
     /// Create a conditional-token withdraw-from-position builder.
+    /// Set `.num_outcomes(...)` before building because this path only receives a market pubkey.
     ///
     /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
     pub fn withdraw_from_position(&self) -> WithdrawFromPositionBuilder<'a> {

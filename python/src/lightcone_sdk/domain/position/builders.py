@@ -12,7 +12,6 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from ...error import MissingMarketContext, SdkError
-from ...program.constants import MAX_OUTCOMES
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
@@ -26,7 +25,7 @@ from ...program.instructions import (
     build_withdraw_conditional_from_position_instruction,
 )
 from ...program.types import DepositToGlobalAltContext
-from ...program.utils import validate_outcome_index
+from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...shared.types import DepositSource
 
 if TYPE_CHECKING:
@@ -113,7 +112,7 @@ class DepositBuilder:
                     "market is required for Market deposit source"
                 )
             market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
-            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+            num_outcomes = market.num_outcomes  # type: ignore[attr-defined]
             return build_deposit_instruction(
                 user=user,
                 market=market_pubkey,
@@ -195,7 +194,7 @@ class MergeBuilder:
         if market is None:
             raise MissingMarketContext("market is required for merge")
         market_pubkey = Pubkey.from_string(market.pubkey)  # type: ignore[attr-defined]
-        num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
+        num_outcomes = market.num_outcomes  # type: ignore[attr-defined]
         return build_merge_instruction(
             user=user,
             market=market_pubkey,
@@ -312,12 +311,7 @@ class WithdrawBuilder:
             outcome_index = self._outcome_index
             if outcome_index is None:
                 raise SdkError("outcome_index is required for Market withdrawal")
-            # A market payload may carry an empty outcomes list; fall back to
-            # the program-wide bound rather than rejecting every index.
-            num_outcomes = len(market.outcomes)  # type: ignore[attr-defined]
-            validate_outcome_index(
-                outcome_index, num_outcomes if num_outcomes > 0 else MAX_OUTCOMES
-            )
+            validate_outcome_index(outcome_index, market.num_outcomes)  # type: ignore[attr-defined]
             return build_withdraw_conditional_from_position_instruction(
                 user=user,
                 market=market_pubkey,
@@ -424,6 +418,7 @@ class WithdrawFromPositionBuilder:
         self._deposit_mint: Optional[Pubkey] = None
         self._amount: Optional[int] = None
         self._outcome_index: Optional[int] = None
+        self._num_outcomes: Optional[int] = None
 
     def user(self, user: Pubkey) -> "WithdrawFromPositionBuilder":
         self._user = user
@@ -449,6 +444,11 @@ class WithdrawFromPositionBuilder:
         self._outcome_index = outcome_index
         return self
 
+    def num_outcomes(self, num_outcomes: int) -> "WithdrawFromPositionBuilder":
+        """Set the market's authoritative outcome count."""
+        self._num_outcomes = num_outcomes
+        return self
+
     def build_ix(self) -> Instruction:
         user = self._user
         if user is None:
@@ -465,8 +465,11 @@ class WithdrawFromPositionBuilder:
         outcome_index = self._outcome_index
         if outcome_index is None:
             raise SdkError("outcome_index is required")
-        # Only the market pubkey is known here; enforce the program-wide bound.
-        validate_outcome_index(outcome_index, MAX_OUTCOMES)
+        num_outcomes = self._num_outcomes
+        if num_outcomes is None:
+            raise SdkError("num_outcomes is required")
+        validate_outcome_count(num_outcomes)
+        validate_outcome_index(outcome_index, num_outcomes)
         return build_withdraw_conditional_from_position_instruction(
             user=user,
             market=market,

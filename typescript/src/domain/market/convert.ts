@@ -1,4 +1,5 @@
 import { asPubkeyStr } from "../../shared";
+import { MAX_OUTCOMES, MIN_OUTCOMES } from "../../program/constants";
 import type { OrderBookPair } from "../orderbook";
 import { orderBookPairFromWire } from "../orderbook/convert";
 import { resolveIconUrls } from "./icon";
@@ -17,6 +18,16 @@ export { globalDepositAssetFromWire, resolveIconUrls };
 
 export function marketFromWire(source: MarketResponse): Market {
   const errors: string[] = [];
+  const numOutcomes = source.num_outcomes ?? source.deposit_assets[0]?.num_outcomes ?? 0;
+  if (!Number.isInteger(numOutcomes) || numOutcomes < MIN_OUTCOMES || numOutcomes > MAX_OUTCOMES) {
+    errors.push(`Invalid outcome count: ${numOutcomes}`);
+  }
+  const inconsistentOutcomeCounts = source.deposit_assets
+    .map((asset) => asset.num_outcomes)
+    .filter((count) => count !== numOutcomes);
+  if (inconsistentOutcomeCounts.length > 0) {
+    errors.push(`Deposit asset outcome counts do not match market: ${inconsistentOutcomeCounts.join(", ")}`);
+  }
 
   const outcomes = source.outcomes.flatMap((outcome) => {
     try {
@@ -99,6 +110,7 @@ export function marketFromWire(source: MarketResponse): Market {
     category: source.category,
     subcategory: source.subcategory,
     tags: source.tags ?? [],
+    numOutcomes,
     depositAssets,
     depositAssetPairs,
     conditionalTokens,
