@@ -506,10 +506,15 @@ impl LightconeClient {
                                 None => Ok(()),
                             };
                         }
-                        // Seen but below `confirmed` — keep waiting. Failed
+                        // Seen but below `confirmed` — keep waiting (failed
                         // transactions land in blocks like any other, so an
-                        // on-chain error is also reported once confirmed.
-                        Some(_) => {}
+                        // on-chain error is also reported once confirmed) and
+                        // restart expiry evidence: a sighting means the
+                        // transaction is live, so expiry must be re-proven
+                        // from scratch afterwards.
+                        Some(_) => {
+                            over_bound_samples = 0;
+                        }
                         // Unseen. When the expiry bound is unknown, only the
                         // poll cap ends the wait.
                         None => {
@@ -552,8 +557,12 @@ impl LightconeClient {
                                                     None => Ok(()),
                                                 };
                                             }
-                                            // Landed but below `confirmed` — keep waiting.
-                                            Some(_) => {}
+                                            // Landed but below `confirmed` —
+                                            // keep waiting and restart expiry
+                                            // evidence.
+                                            Some(_) => {
+                                                over_bound_samples = 0;
+                                            }
                                         }
                                     }
                                 }

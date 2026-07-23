@@ -163,9 +163,14 @@ export class Rpc {
           }
           return;
         }
-        // Seen but below `confirmed` — keep waiting. Failed transactions
-        // land in blocks like any other, so an on-chain error is also
-        // reported once confirmed.
+        if (status) {
+          // Seen but below `confirmed` — keep waiting (failed transactions
+          // land in blocks like any other, so an on-chain error is also
+          // reported once confirmed) and restart expiry evidence: a sighting
+          // means the transaction is live, so expiry must be re-proven from
+          // scratch afterwards.
+          overBoundSamples = 0;
+        }
         if (!status && lastValidBlockHeight !== null) {
           // Unseen — sample the block height. Expiry requires
           // EXPIRY_HEIGHT_SAMPLES consecutive over-bound samples (a single
@@ -205,7 +210,9 @@ export class Rpc {
                 }
                 return;
               }
-              // Landed but below `confirmed` — keep waiting.
+              // Landed but below `confirmed` — keep waiting and restart
+              // expiry evidence.
+              overBoundSamples = 0;
             }
           }
         }

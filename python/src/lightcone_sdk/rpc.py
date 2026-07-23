@@ -279,9 +279,14 @@ class Rpc:
                     if status.err is not None:
                         raise TransactionFailed(signature, str(status.err))
                     return
-                # Seen but below confirmed — keep waiting. Failed transactions
-                # land in blocks like any other, so an on-chain error is also
-                # reported once confirmed.
+                if status is not None:
+                    # Seen but below confirmed — keep waiting (failed
+                    # transactions land in blocks like any other, so an
+                    # on-chain error is also reported once confirmed) and
+                    # restart expiry evidence: a sighting means the
+                    # transaction is live, so expiry must be re-proven from
+                    # scratch afterwards.
+                    over_bound_samples = 0
                 if status is None and last_valid_block_height is not None:
                     # Unseen — sample the block height. Expiry requires
                     # _EXPIRY_HEIGHT_SAMPLES consecutive over-bound samples
@@ -321,7 +326,9 @@ class Rpc:
                                         signature, str(landed.err)
                                     )
                                 return
-                            # Landed but below confirmed — keep waiting.
+                            # Landed but below confirmed — keep waiting and
+                            # restart expiry evidence.
+                            over_bound_samples = 0
 
             await asyncio.sleep(_CONFIRMATION_POLL_INTERVAL_SECS)
 

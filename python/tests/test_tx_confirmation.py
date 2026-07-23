@@ -181,6 +181,38 @@ async def test_single_skewed_height_sample_does_not_expire() -> None:
 
 
 @pytest.mark.asyncio
+async def test_processed_sighting_restarts_expiry_evidence() -> None:
+    rpc, connection = _rpc(
+        [
+            [None],
+            [_status(TransactionConfirmationStatus.Processed)],
+            [None],
+            [_status(TransactionConfirmationStatus.Confirmed)],
+        ],
+        block_height=101,
+        history=[[None]],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    # The processed sighting reset the over-bound streak, so the lone unseen
+    # poll after it never reached the history/expiry stage.
+    assert connection.history_calls == 0
+    assert connection.status_calls == 4
+
+
+@pytest.mark.asyncio
+async def test_history_sighting_restarts_expiry_evidence() -> None:
+    rpc, connection = _rpc(
+        [[None], [None], [None], [_status(TransactionConfirmationStatus.Confirmed)]],
+        block_height=101,
+        history=[[_status(TransactionConfirmationStatus.Processed)]],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    # The history sighting reset the streak, so only one lookup happened
+    # before the transaction confirmed.
+    assert connection.history_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_unknown_expiry_bound_never_reports_expired() -> None:
     rpc, connection = _rpc(
         [[None], [_status(TransactionConfirmationStatus.Confirmed)]],

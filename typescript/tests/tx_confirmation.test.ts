@@ -146,6 +146,31 @@ describe("Rpc.confirmSignature", () => {
     assert.equal(heightCalls(), 2);
   });
 
+  it("restarts expiry evidence after a processed sighting", async () => {
+    const { rpc, statusCalls, historyCalls } = stubRpc(
+      [[null], [status("processed")], [null], [status("confirmed")]],
+      101,
+      [[null]]
+    );
+    await rpc.confirmSignature(SIGNATURE, 100);
+    // The processed sighting reset the over-bound streak, so the lone unseen
+    // poll after it never reached the history/expiry stage.
+    assert.equal(historyCalls(), 0);
+    assert.equal(statusCalls(), 4);
+  });
+
+  it("restarts expiry evidence after a history sighting", async () => {
+    const { rpc, historyCalls } = stubRpc(
+      [[null], [null], [null], [status("confirmed")]],
+      101,
+      [[status("processed")]]
+    );
+    await rpc.confirmSignature(SIGNATURE, 100);
+    // The history sighting reset the streak, so only one lookup happened
+    // before the transaction confirmed.
+    assert.equal(historyCalls(), 1);
+  });
+
   it("never reports expiry when the bound is unknown", async () => {
     const { rpc, statusCalls, historyCalls } = stubRpc(
       [[null], [status("confirmed")]],
