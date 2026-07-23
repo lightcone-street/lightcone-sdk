@@ -36,7 +36,7 @@ A tradable pair of conditional tokens within a market.
 **Associated functions:**
 
 - `OrderBookPair::impact_pct(deposit_price, conditional_price)` -- price impact as a percentage relative to a deposit asset price
-- `OrderBookPair::impact(deposit_asset_price, conditional_price)` -- full impact calculation with sign, percentage, and dollar difference
+- `OrderBookPair::impact(deposit_asset_price, conditional_price)` -- full impact calculation with direction, percentage, and dollar difference
 
 Both short-circuit to zero/empty when `deposit_price` is zero; `impact_pct` also returns `(0.0, "")` when `conditional_price` is zero. Callers typically source `conditional_price` from `pair.last_trade_price` (with `Decimal::ZERO` as a fallback).
 
@@ -46,10 +46,11 @@ Result of an impact calculation.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sign` | `String` | `"+"` or `"-"` |
-| `is_positive` | `bool` | Whether impact is positive |
+| `direction` | `ImpactDirection` | Exact `Negative`, `Zero`, or `Positive` direction |
 | `pct` | `f64` | Absolute percentage change |
 | `dollar` | `Decimal` | Absolute dollar difference |
+
+Use `OutcomeImpact::sign()` when a display sign is needed. It returns `"-"`, `""`, or `"+"` from the direction without storing a second representation that can disagree.
 
 ### `TickerData`
 

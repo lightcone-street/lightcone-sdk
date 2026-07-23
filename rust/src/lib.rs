@@ -71,7 +71,7 @@ pub mod prelude {
 
     // Domain types — orderbook
     pub use crate::domain::orderbook::{
-        BookAggregation, OrderBookPair, OrderBookValidationError, OutcomeImpact,
+        BookAggregation, ImpactDirection, OrderBookPair, OrderBookValidationError, OutcomeImpact,
     };
 
     // Domain types — order
