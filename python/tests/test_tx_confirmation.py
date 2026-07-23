@@ -40,19 +40,24 @@ class _StubConnection:
 
     ``history`` scripts responses to history-searching status calls; when
     omitted, those calls fall through to the regular ``sequence``.
+    ``block_height`` may be a single value or a per-call sequence (repeating
+    the last entry).
     """
 
     def __init__(
         self,
         sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
-        block_height: int = 0,
+        block_height: int | Sequence[int] = 0,
         history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
     ):
         self._sequence = list(sequence)
-        self._block_height = block_height
+        self._block_heights = (
+            list(block_height) if isinstance(block_height, Sequence) else [block_height]
+        )
         self._history = list(history) if history is not None else None
         self.status_calls = 0
         self.history_calls = 0
+        self.height_calls = 0
 
     async def get_signature_statuses(
         self, signatures: object, search_transaction_history: bool = False
@@ -68,7 +73,11 @@ class _StubConnection:
         return SimpleNamespace(value=list(step))
 
     async def get_block_height(self) -> SimpleNamespace:
-        return SimpleNamespace(value=self._block_height)
+        height = self._block_heights[
+            min(self.height_calls, len(self._block_heights) - 1)
+        ]
+        self.height_calls += 1
+        return SimpleNamespace(value=height)
 
 
 class _StubClient:
@@ -90,7 +99,7 @@ class _StubClient:
 
 def _rpc(
     sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
-    block_height: int = 0,
+    block_height: int | Sequence[int] = 0,
     history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
 ) -> tuple[Rpc, _StubConnection]:
     connection = _StubConnection(sequence, block_height, history)
@@ -156,6 +165,19 @@ async def test_history_check_rescues_landed_transaction() -> None:
     )
     await rpc.confirm_signature(SIGNATURE, 100)
     assert connection.history_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_single_skewed_height_sample_does_not_expire() -> None:
+    rpc, connection = _rpc(
+        [[None], [None], [_status(TransactionConfirmationStatus.Confirmed)]],
+        block_height=[101, 99],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    # One over-bound sample followed by an under-bound one resets the streak,
+    # so no expiry (and no history lookup) happens.
+    assert connection.history_calls == 0
+    assert connection.height_calls == 2
 
 
 @pytest.mark.asyncio

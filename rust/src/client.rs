@@ -467,9 +467,9 @@ impl LightconeClient {
     /// - [`SdkError::TransactionFailed`] — the transaction landed but errored
     ///   on-chain; resubmitting the same transaction would fail again.
     /// - [`SdkError::TransactionExpired`] — the chain moved past
-    ///   `last_valid_block_height` and a history-searching status check still
-    ///   cannot see the signature; the transaction can never land and is safe
-    ///   to resubmit.
+    ///   `last_valid_block_height` on consecutive height samples and a
+    ///   history-searching status check still cannot see the signature; the
+    ///   transaction can never land and is safe to resubmit.
     /// - [`SdkError::ConfirmationTimeout`] — the outcome could not be
     ///   determined (persistent RPC errors or the poll cap); check the
     ///   signature on-chain before resubmitting.
@@ -480,7 +480,7 @@ impl LightconeClient {
     ) -> Result<(), SdkError> {
         let signatures = [signature.to_string()];
         let mut consecutive_failures: u32 = 0;
-        let mut blockhash_expired = false;
+        let mut over_bound_samples: u32 = 0;
 
         for _ in 0..MAX_CONFIRMATION_POLLS {
             match self.get_signature_statuses(&signatures).await {
@@ -514,11 +514,20 @@ impl LightconeClient {
                         // poll cap ends the wait.
                         None => {
                             if let Some(last_valid_block_height) = last_valid_block_height {
-                                // Declare expiry only on the poll *after* the
-                                // block height passed `last_valid_block_height`,
-                                // so a transaction confirming in the same tick
-                                // as expiry is not misreported as dropped.
-                                if blockhash_expired {
+                                // Sample the block height. Expiry requires
+                                // `EXPIRY_HEIGHT_SAMPLES` consecutive over-bound
+                                // samples (a single reading can come from a
+                                // forward-skewed node, and each sample follows a
+                                // fresh unseen status), then is still verified
+                                // against ledger history before being declared.
+                                if let Ok(block_height) = self.get_block_height().await {
+                                    over_bound_samples = if block_height > last_valid_block_height {
+                                        over_bound_samples + 1
+                                    } else {
+                                        0
+                                    };
+                                }
+                                if over_bound_samples >= EXPIRY_HEIGHT_SAMPLES {
                                     // Search ledger history before declaring
                                     // expiry — the recent-status cache can evict
                                     // landed transactions, and
@@ -547,8 +556,6 @@ impl LightconeClient {
                                             Some(_) => {}
                                         }
                                     }
-                                } else if let Ok(block_height) = self.get_block_height().await {
-                                    blockhash_expired = block_height > last_valid_block_height;
                                 }
                             }
                         }
@@ -716,6 +723,10 @@ const MAX_CONFIRMATION_POLLS: u32 = 110;
 
 /// Consecutive failed polls tolerated before the outcome is declared unknown.
 const MAX_CONSECUTIVE_POLL_FAILURES: u32 = 3;
+
+/// Consecutive over-bound block-height samples required before expiry may be
+/// declared — a single reading can come from a forward-skewed RPC node.
+const EXPIRY_HEIGHT_SAMPLES: u32 = 2;
 
 /// Status of a submitted transaction, as reported by `getSignatureStatuses`.
 #[derive(Debug, Clone, serde::Deserialize)]

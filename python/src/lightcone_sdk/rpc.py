@@ -61,6 +61,10 @@ _MAX_CONFIRMATION_POLLS = 110
 # Consecutive failed polls tolerated before the outcome is declared unknown.
 _MAX_CONSECUTIVE_POLL_FAILURES = 3
 
+# Consecutive over-bound block-height samples required before expiry may be
+# declared — a single reading can come from a forward-skewed RPC node.
+_EXPIRY_HEIGHT_SAMPLES = 2
+
 
 def _is_transaction_confirmed(status: TransactionStatus) -> bool:
     """True once the cluster has voted the transaction to confirmed or beyond."""
@@ -194,10 +198,23 @@ class Rpc:
         return response.value  # type: ignore[union-attr]
 
     async def send_raw_transaction(self, tx_bytes: bytes) -> str:
-        """Submit a signed transaction, returning its signature."""
+        """Submit a signed transaction, returning its signature.
+
+        Fire-and-forget: confirmation is skipped explicitly rather than left
+        to solana-py's ``TxOpts`` defaults — waiting is ``confirm_signature``'s
+        job, with its terminal error taxonomy.
+        """
+        from solana.rpc.types import TxOpts
+
         response = await _connection_with_failover(
             self._client,
-            lambda conn: conn.send_raw_transaction(tx_bytes),
+            lambda conn: conn.send_raw_transaction(
+                tx_bytes,
+                opts=TxOpts(
+                    skip_confirmation=True,
+                    preflight_commitment=conn.commitment,
+                ),
+            ),
         )
         return str(response.value)  # type: ignore[attr-defined]
 
@@ -236,15 +253,15 @@ class Rpc:
         - ``TransactionFailed``: the transaction landed but errored on-chain;
           resubmitting the same transaction would fail again.
         - ``TransactionExpired``: the chain moved past
-          ``last_valid_block_height`` and a history-searching status check
-          still cannot see the signature; the transaction can never land and
-          is safe to resubmit.
+          ``last_valid_block_height`` on consecutive height samples and a
+          history-searching status check still cannot see the signature; the
+          transaction can never land and is safe to resubmit.
         - ``ConfirmationTimeout``: the outcome could not be determined
           (persistent RPC errors or the poll cap); check the signature
           on-chain before resubmitting.
         """
         consecutive_failures = 0
-        blockhash_expired = False
+        over_bound_samples = 0
 
         for _ in range(_MAX_CONFIRMATION_POLLS):
             statuses: Optional[list[Optional[TransactionStatus]]] = None
@@ -266,11 +283,23 @@ class Rpc:
                 # land in blocks like any other, so an on-chain error is also
                 # reported once confirmed.
                 if status is None and last_valid_block_height is not None:
-                    # Unseen. Declare expiry only on the poll *after* the block
-                    # height passed last_valid_block_height, so a transaction
-                    # confirming in the same tick as expiry is not misreported
-                    # as dropped.
-                    if blockhash_expired:
+                    # Unseen — sample the block height. Expiry requires
+                    # _EXPIRY_HEIGHT_SAMPLES consecutive over-bound samples
+                    # (a single reading can come from a forward-skewed node,
+                    # and each sample follows a fresh unseen status), then is
+                    # still verified against ledger history before being
+                    # declared.
+                    try:
+                        block_height = await self.get_block_height()
+                    except Exception:
+                        # Height unavailable — don't count this poll.
+                        block_height = None
+                    if block_height is not None:
+                        if block_height > last_valid_block_height:
+                            over_bound_samples += 1
+                        else:
+                            over_bound_samples = 0
+                    if over_bound_samples >= _EXPIRY_HEIGHT_SAMPLES:
                         # Search ledger history before declaring expiry — the
                         # recent-status cache can evict landed transactions,
                         # and TransactionExpired promises resubmit safety.
@@ -293,15 +322,6 @@ class Rpc:
                                     )
                                 return
                             # Landed but below confirmed — keep waiting.
-                    else:
-                        try:
-                            block_height = await self.get_block_height()
-                            blockhash_expired = (
-                                block_height > last_valid_block_height
-                            )
-                        except Exception:
-                            # Height unavailable — rely on the poll cap.
-                            pass
 
             await asyncio.sleep(_CONFIRMATION_POLL_INTERVAL_SECS)
 

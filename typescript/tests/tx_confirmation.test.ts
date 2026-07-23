@@ -28,15 +28,23 @@ function status(
  * Build a stub Connection whose getSignatureStatuses walks `sequence`
  * (repeating the final entry), throwing entries that are Errors. `history`
  * scripts responses to history-searching status calls; when omitted, those
- * calls fall through to `sequence`.
+ * calls fall through to `sequence`. `blockHeight` may be a single value or a
+ * per-call sequence (repeating the last entry).
  */
 function stubRpc(
   sequence: Array<(SignatureStatus | null)[] | Error>,
-  blockHeight = 0,
+  blockHeight: number | number[] = 0,
   history?: Array<(SignatureStatus | null)[]>
-): { rpc: Rpc; statusCalls: () => number; historyCalls: () => number } {
+): {
+  rpc: Rpc;
+  statusCalls: () => number;
+  historyCalls: () => number;
+  heightCalls: () => number;
+} {
   let calls = 0;
   let historyLookups = 0;
+  let heightLookups = 0;
+  const blockHeights = Array.isArray(blockHeight) ? blockHeight : [blockHeight];
   const connection = {
     async getSignatureStatuses(
       _signatures: string[],
@@ -53,7 +61,10 @@ function stubRpc(
       return { context: { slot: 1 }, value: next };
     },
     async getBlockHeight(_commitment?: string) {
-      return blockHeight;
+      const next =
+        blockHeights[Math.min(heightLookups, blockHeights.length - 1)];
+      heightLookups += 1;
+      return next;
     },
   };
   const ctx = {
@@ -64,6 +75,7 @@ function stubRpc(
     rpc: new Rpc(ctx),
     statusCalls: () => calls,
     historyCalls: () => historyLookups,
+    heightCalls: () => heightLookups,
   };
 }
 
@@ -120,6 +132,18 @@ describe("Rpc.confirmSignature", () => {
     ]);
     await rpc.confirmSignature(SIGNATURE, 100);
     assert.equal(historyCalls(), 1);
+  });
+
+  it("does not expire on a single skewed height sample", async () => {
+    const { rpc, historyCalls, heightCalls } = stubRpc(
+      [[null], [null], [status("confirmed")]],
+      [101, 99]
+    );
+    await rpc.confirmSignature(SIGNATURE, 100);
+    // One over-bound sample followed by an under-bound one resets the
+    // streak, so no expiry (and no history lookup) happens.
+    assert.equal(historyCalls(), 0);
+    assert.equal(heightCalls(), 2);
   });
 
   it("never reports expiry when the bound is unknown", async () => {

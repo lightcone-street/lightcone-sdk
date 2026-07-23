@@ -35,6 +35,24 @@ from .ws import WsConfig, WS_DEFAULT_CONFIG
 from .ws.client import WsClient
 
 
+def _signed_blockhash_unchanged(signed_bytes: bytes, expected_blockhash: object) -> bool:
+    """True when the signed wire bytes still carry ``expected_blockhash``.
+
+    External signers may re-blockhash a transaction before signing; a bound
+    derived from the original blockhash must then not be used for expiry
+    detection.
+    """
+    from solders.transaction import Transaction
+
+    try:
+        return (
+            Transaction.from_bytes(signed_bytes).message.recent_blockhash
+            == expected_blockhash
+        )
+    except Exception:
+        return False
+
+
 class LightconeClient:
     """High-level client providing access to all Lightcone SDK sub-clients.
 
@@ -229,9 +247,11 @@ class LightconeClient:
     async def sign_and_submit_tx(self, tx: object) -> str:
         """Sign and submit a transaction using the client's signing strategy.
 
-        Returns as soon as the RPC accepts the transaction — inclusion is not
-        awaited. When follow-up work depends on this transaction's on-chain
-        effects, use ``sign_and_submit_tx_confirmed`` instead.
+        Fetches a recent blockhash automatically for the Native and
+        WalletAdapter strategies. Returns as soon as the RPC accepts the
+        transaction — inclusion is not awaited. When follow-up work depends on
+        this transaction's on-chain effects, use
+        ``sign_and_submit_tx_confirmed`` instead.
 
         - **Native**: signs locally with keypair, submits via RPC
         - **WalletAdapter**: signs via external signer, submits via RPC
@@ -254,10 +274,13 @@ class LightconeClient:
         to send once that prior transaction has confirmed. See
         ``Rpc.confirm_signature`` for the terminal error taxonomy.
 
-        For the wallet-adapter and Privy strategies the transaction's
-        blockhash is set by the caller, so its expiry cannot be proven —
-        confirmation then never reports ``TransactionExpired``, and a dropped
-        transaction surfaces as ``ConfirmationTimeout`` at the poll cap.
+        Expiry (``TransactionExpired``) is only ever reported when the
+        submitted transaction provably still carries the blockhash fetched
+        here: always true for Native, verified against the signed bytes for
+        WalletAdapter (signers may re-blockhash before signing), and never
+        assumed for Privy (the backend signs and submits out of the SDK's
+        sight) — unproven cases end in ``ConfirmationTimeout`` at the poll
+        cap instead.
 
         Args:
             tx: A ``solders.transaction.Transaction`` instance.
@@ -273,8 +296,10 @@ class LightconeClient:
         """Shared submit path.
 
         Signs, sends, and returns the signature plus the
-        ``last_valid_block_height`` of the blockhash — known only on the
-        Native path, where this client fetches the blockhash itself.
+        ``last_valid_block_height`` of the blockhash the submitted wire bytes
+        are known to carry — ``None`` when that cannot be proven (an external
+        signer replaced the blockhash, or the bytes were never visible to the
+        SDK).
         """
         strategy = self._require_signing_strategy()
 
@@ -291,8 +316,20 @@ class LightconeClient:
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
             import base64 as _b64
+            blockhash, last_valid_block_height = (
+                await self.rpc().get_latest_blockhash_with_height()
+            )
+            # Set the fresh blockhash without signing (empty keypair list),
+            # mirroring the Rust/TypeScript submit paths.
+            tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
             tx_bytes = bytes(tx)  # type: ignore[arg-type]
             signed_bytes = await signer.sign_transaction(tx_bytes)
+            # External signers may re-blockhash before signing; only trust the
+            # expiry bound when the signed bytes still carry the blockhash set
+            # above.
+            signed_blockhash_unchanged = _signed_blockhash_unchanged(
+                signed_bytes, blockhash
+            )
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
             # Submit via RPC with failover
             data = await self._rpc_call_with_failover({
@@ -302,7 +339,9 @@ class LightconeClient:
             })
             if "error" in data:
                 raise SdkError(f"RPC error: {data['error']}")
-            return data["result"], None
+            return data["result"], (
+                last_valid_block_height if signed_blockhash_unchanged else None
+            )
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
@@ -311,6 +350,8 @@ class LightconeClient:
             result = await self.privy().sign_and_send_tx(
                 strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
             )
+            # The backend signs and submits server-side; the SDK never sees
+            # the final wire bytes, so no expiry bound can be trusted.
             return result.hash, None
 
         raise SdkError(f"Unsupported signing strategy: {strategy.kind}")

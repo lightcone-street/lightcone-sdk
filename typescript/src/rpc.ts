@@ -35,6 +35,12 @@ const MAX_CONFIRMATION_POLLS = 110;
 /** Consecutive failed polls tolerated before the outcome is declared unknown. */
 const MAX_CONSECUTIVE_POLL_FAILURES = 3;
 
+/**
+ * Consecutive over-bound block-height samples required before expiry may be
+ * declared — a single reading can come from a forward-skewed RPC node.
+ */
+const EXPIRY_HEIGHT_SAMPLES = 2;
+
 /** True once the cluster has voted the transaction to `confirmed` or beyond. */
 function isTransactionConfirmed(status: SignatureStatus): boolean {
   return (
@@ -120,8 +126,9 @@ export class Rpc {
    * - `"TransactionFailed"` — the transaction landed but errored on-chain;
    *   resubmitting the same transaction would fail again.
    * - `"TransactionExpired"` — the chain moved past `lastValidBlockHeight`
-   *   and a history-searching status check still cannot see the signature;
-   *   the transaction can never land and is safe to resubmit.
+   *   on consecutive height samples and a history-searching status check
+   *   still cannot see the signature; the transaction can never land and is
+   *   safe to resubmit.
    * - `"ConfirmationTimeout"` — the outcome could not be determined
    *   (persistent RPC errors or the poll cap); check the signature on-chain
    *   before resubmitting.
@@ -131,7 +138,7 @@ export class Rpc {
     lastValidBlockHeight: number | null
   ): Promise<void> {
     let consecutiveFailures = 0;
-    let blockhashExpired = false;
+    let overBoundSamples = 0;
 
     for (let poll = 0; poll < MAX_CONFIRMATION_POLLS; poll++) {
       let statuses: (SignatureStatus | null)[] | undefined;
@@ -160,10 +167,19 @@ export class Rpc {
         // land in blocks like any other, so an on-chain error is also
         // reported once confirmed.
         if (!status && lastValidBlockHeight !== null) {
-          // Unseen. Declare expiry only on the poll *after* the block height
-          // passed `lastValidBlockHeight`, so a transaction confirming in
-          // the same tick as expiry is not misreported as dropped.
-          if (blockhashExpired) {
+          // Unseen — sample the block height. Expiry requires
+          // EXPIRY_HEIGHT_SAMPLES consecutive over-bound samples (a single
+          // reading can come from a forward-skewed node, and each sample
+          // follows a fresh unseen status), then is still verified against
+          // ledger history before being declared.
+          try {
+            const blockHeight = await this.getBlockHeight();
+            overBoundSamples =
+              blockHeight > lastValidBlockHeight ? overBoundSamples + 1 : 0;
+          } catch {
+            // Height unavailable — don't count this poll.
+          }
+          if (overBoundSamples >= EXPIRY_HEIGHT_SAMPLES) {
             // Search ledger history before declaring expiry — the
             // recent-status cache can evict landed transactions, and
             // `"TransactionExpired"` promises resubmit safety.
@@ -190,13 +206,6 @@ export class Rpc {
                 return;
               }
               // Landed but below `confirmed` — keep waiting.
-            }
-          } else {
-            try {
-              const blockHeight = await this.getBlockHeight();
-              blockhashExpired = blockHeight > lastValidBlockHeight;
-            } catch {
-              // Height unavailable — rely on the poll cap instead.
             }
           }
         }
