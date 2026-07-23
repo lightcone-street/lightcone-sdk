@@ -171,6 +171,15 @@ def test_market_outcome_count_comes_from_market_response() -> None:
     assert market.outcomes == []
 
 
+def test_market_outcome_count_falls_back_to_deposit_asset() -> None:
+    payload = market_payload()
+    del payload["num_outcomes"]
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+
+
 def test_market_rejects_inconsistent_outcome_counts() -> None:
     payload = market_payload()
     payload["deposit_assets"][0]["num_outcomes"] = 3
@@ -178,6 +187,17 @@ def test_market_rejects_inconsistent_outcome_counts() -> None:
 
     assert "do not match market" in validation_errors_from_wire(wire)[0]
     with pytest.raises(MarketValidationError, match="do not match market"):
+        market_from_wire(wire)
+
+
+@pytest.mark.parametrize("num_outcomes", [True, 2.0, "2"])
+def test_market_rejects_non_integer_outcome_counts(num_outcomes: object) -> None:
+    payload = market_payload()
+    payload["num_outcomes"] = num_outcomes
+    wire = MarketWire.from_dict(payload)
+
+    assert "Invalid outcome count" in validation_errors_from_wire(wire)[0]
+    with pytest.raises(MarketValidationError, match="Invalid outcome count"):
         market_from_wire(wire)
 
 

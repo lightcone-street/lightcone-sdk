@@ -1,7 +1,6 @@
 """Market wire-to-domain conversion."""
 
 from decimal import Decimal
-from typing import Optional
 
 from ...error import SdkError
 from ...program.constants import MAX_OUTCOMES, MIN_OUTCOMES
@@ -38,7 +37,7 @@ def _resolve_icon_urls(
     )
 
 
-def _parse_status(s: Optional[str]) -> Status:
+def _parse_status(s: str | None) -> Status:
     if s is None:
         return Status.PENDING
     return Status.from_str(s)
@@ -51,7 +50,12 @@ def _decimal_string_to_decimal(value: str | None) -> Decimal | None:
 
 
 def _market_outcome_count_error(wire: MarketWire) -> str | None:
-    if wire.num_outcomes < MIN_OUTCOMES or wire.num_outcomes > MAX_OUTCOMES:
+    if (
+        not isinstance(wire.num_outcomes, int)
+        or isinstance(wire.num_outcomes, bool)
+        or wire.num_outcomes < MIN_OUTCOMES
+        or wire.num_outcomes > MAX_OUTCOMES
+    ):
         return f"Invalid outcome count: {wire.num_outcomes}"
     inconsistent_counts = [
         asset.num_outcomes
@@ -59,7 +63,9 @@ def _market_outcome_count_error(wire: MarketWire) -> str | None:
         if asset.num_outcomes != wire.num_outcomes
     ]
     if inconsistent_counts:
-        return f"Deposit asset outcome counts do not match market: {inconsistent_counts}"
+        return (
+            f"Deposit asset outcome counts do not match market: {inconsistent_counts}"
+        )
     return None
 
 

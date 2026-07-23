@@ -18,7 +18,7 @@ export { globalDepositAssetFromWire, resolveIconUrls };
 
 export function marketFromWire(source: MarketResponse): Market {
   const errors: string[] = [];
-  const numOutcomes = source.num_outcomes;
+  const numOutcomes = source.num_outcomes ?? source.deposit_assets[0]?.num_outcomes ?? 0;
   if (!Number.isInteger(numOutcomes) || numOutcomes < MIN_OUTCOMES || numOutcomes > MAX_OUTCOMES) {
     errors.push(`Invalid outcome count: ${numOutcomes}`);
   }

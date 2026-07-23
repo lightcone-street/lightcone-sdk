@@ -162,6 +162,15 @@ describe("market metadata", () => {
     assert.deepEqual(market.outcomes, []);
   });
 
+  it("falls back to the deposit asset outcome count", () => {
+    const response = marketResponse();
+    delete response.num_outcomes;
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+  });
+
   it("rejects inconsistent deposit asset outcome counts", () => {
     const response = marketResponse();
     response.deposit_assets[0]!.num_outcomes = 3;

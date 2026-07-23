@@ -17,19 +17,28 @@ impl TryFrom<wire::MarketResponse> for Market {
     fn try_from(source: wire::MarketResponse) -> Result<Self, Self::Error> {
         let mut errors: Vec<ValidationError> = Vec::new();
         let market_pubkey = source.market_pubkey.clone();
-        let num_outcomes = if source.num_outcomes < i16::from(MIN_OUTCOMES)
-            || source.num_outcomes > i16::from(MAX_OUTCOMES)
+        let wire_num_outcomes = source
+            .num_outcomes
+            .or_else(|| {
+                source
+                    .deposit_assets
+                    .first()
+                    .map(|asset| asset.num_outcomes)
+            })
+            .unwrap_or_default();
+        let num_outcomes = if wire_num_outcomes < i16::from(MIN_OUTCOMES)
+            || wire_num_outcomes > i16::from(MAX_OUTCOMES)
         {
-            errors.push(ValidationError::InvalidOutcomeCount(source.num_outcomes));
+            errors.push(ValidationError::InvalidOutcomeCount(wire_num_outcomes));
             0
         } else {
-            source.num_outcomes as u8
+            wire_num_outcomes as u8
         };
         let inconsistent_outcome_counts: Vec<i16> = source
             .deposit_assets
             .iter()
             .map(|asset| asset.num_outcomes)
-            .filter(|count| *count != source.num_outcomes)
+            .filter(|count| *count != wire_num_outcomes)
             .collect();
         if !inconsistent_outcome_counts.is_empty() {
             errors.push(ValidationError::InconsistentOutcomeCounts(
@@ -229,7 +238,7 @@ mod tests {
             featured_rank: None,
             market_pubkey: "mkt123".to_string(),
             market_id: 1,
-            num_outcomes: 2,
+            num_outcomes: Some(2),
             oracle: "oracle".to_string(),
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
@@ -266,6 +275,19 @@ mod tests {
 
         assert_eq!(market.num_outcomes, 2);
         assert!(market.outcomes.is_empty());
+    }
+
+    #[test]
+    fn market_outcome_count_falls_back_to_deposit_asset() {
+        let mut response = valid_market_response(None);
+        response.num_outcomes = None;
+
+        let market = match Market::try_from(response) {
+            Ok(market) => market,
+            Err(error) => panic!("expected valid market: {error}"),
+        };
+
+        assert_eq!(market.num_outcomes, 2);
     }
 
     #[test]
