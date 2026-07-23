@@ -240,7 +240,7 @@ class MarketWire:
         deposit_assets = [
             DepositAssetWire.from_dict(da) for da in d.get("deposit_assets", [])
         ]
-        if "num_outcomes" in d:
+        if d.get("num_outcomes") is not None:
             num_outcomes = d["num_outcomes"]
         else:
             num_outcomes = deposit_assets[0].num_outcomes if deposit_assets else 0

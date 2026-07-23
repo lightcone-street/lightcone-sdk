@@ -180,6 +180,15 @@ def test_market_outcome_count_falls_back_to_deposit_asset() -> None:
     assert market.num_outcomes == 2
 
 
+def test_null_market_outcome_count_falls_back_to_deposit_asset() -> None:
+    payload = market_payload()
+    payload["num_outcomes"] = None
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+
+    assert market.num_outcomes == 2
+
+
 def test_market_rejects_inconsistent_outcome_counts() -> None:
     payload = market_payload()
     payload["deposit_assets"][0]["num_outcomes"] = 3
