@@ -182,7 +182,9 @@ export class Rpc {
             overBoundSamples =
               blockHeight > lastValidBlockHeight ? overBoundSamples + 1 : 0;
           } catch {
-            // Height unavailable — don't count this poll.
+            // Height unavailable — reset: expiry evidence must be strictly
+            // consecutive over-bound readings.
+            overBoundSamples = 0;
           }
           if (overBoundSamples >= EXPIRY_HEIGHT_SAMPLES) {
             // Search ledger history before declaring expiry — the

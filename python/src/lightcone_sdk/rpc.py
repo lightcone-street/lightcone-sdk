@@ -297,13 +297,16 @@ class Rpc:
                     try:
                         block_height = await self.get_block_height()
                     except Exception:
-                        # Height unavailable — don't count this poll.
+                        # Height unavailable — reset below: expiry evidence
+                        # must be strictly consecutive over-bound readings.
                         block_height = None
-                    if block_height is not None:
-                        if block_height > last_valid_block_height:
-                            over_bound_samples += 1
-                        else:
-                            over_bound_samples = 0
+                    if (
+                        block_height is not None
+                        and block_height > last_valid_block_height
+                    ):
+                        over_bound_samples += 1
+                    else:
+                        over_bound_samples = 0
                     if over_bound_samples >= _EXPIRY_HEIGHT_SAMPLES:
                         # Search ledger history before declaring expiry — the
                         # recent-status cache can evict landed transactions,

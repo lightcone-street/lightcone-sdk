@@ -29,11 +29,12 @@ function status(
  * (repeating the final entry), throwing entries that are Errors. `history`
  * scripts responses to history-searching status calls; when omitted, those
  * calls fall through to `sequence`. `blockHeight` may be a single value or a
- * per-call sequence (repeating the last entry).
+ * per-call sequence (repeating the last entry, throwing entries that are
+ * Errors).
  */
 function stubRpc(
   sequence: Array<(SignatureStatus | null)[] | Error>,
-  blockHeight: number | number[] = 0,
+  blockHeight: number | Array<number | Error> = 0,
   history?: Array<(SignatureStatus | null)[]>
 ): {
   rpc: Rpc;
@@ -64,6 +65,7 @@ function stubRpc(
       const next =
         blockHeights[Math.min(heightLookups, blockHeights.length - 1)];
       heightLookups += 1;
+      if (next instanceof Error) throw next;
       return next;
     },
   };
@@ -144,6 +146,19 @@ describe("Rpc.confirmSignature", () => {
     // streak, so no expiry (and no history lookup) happens.
     assert.equal(historyCalls(), 0);
     assert.equal(heightCalls(), 2);
+  });
+
+  it("restarts expiry evidence after a failed height poll", async () => {
+    const { rpc, historyCalls, heightCalls } = stubRpc(
+      [[null], [null], [null], [status("confirmed")]],
+      [101, new Error("boom"), 101],
+      [[null]]
+    );
+    await rpc.confirmSignature(SIGNATURE, 100);
+    // The failed height poll broke the streak, so the over-bound readings on
+    // either side of it never combined into an expiry declaration.
+    assert.equal(historyCalls(), 0);
+    assert.equal(heightCalls(), 3);
   });
 
   it("restarts expiry evidence after a processed sighting", async () => {

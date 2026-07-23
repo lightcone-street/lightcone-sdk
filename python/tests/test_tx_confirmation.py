@@ -41,13 +41,13 @@ class _StubConnection:
     ``history`` scripts responses to history-searching status calls; when
     omitted, those calls fall through to the regular ``sequence``.
     ``block_height`` may be a single value or a per-call sequence (repeating
-    the last entry).
+    the last entry, raising entries that are exceptions).
     """
 
     def __init__(
         self,
         sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
-        block_height: int | Sequence[int] = 0,
+        block_height: int | Sequence[int | Exception] = 0,
         history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
     ):
         self._sequence = list(sequence)
@@ -77,6 +77,8 @@ class _StubConnection:
             min(self.height_calls, len(self._block_heights) - 1)
         ]
         self.height_calls += 1
+        if isinstance(height, Exception):
+            raise height
         return SimpleNamespace(value=height)
 
 
@@ -99,7 +101,7 @@ class _StubClient:
 
 def _rpc(
     sequence: Sequence[Sequence[SimpleNamespace | None] | Exception],
-    block_height: int | Sequence[int] = 0,
+    block_height: int | Sequence[int | Exception] = 0,
     history: Sequence[Sequence[SimpleNamespace | None]] | None = None,
 ) -> tuple[Rpc, _StubConnection]:
     connection = _StubConnection(sequence, block_height, history)
@@ -178,6 +180,25 @@ async def test_single_skewed_height_sample_does_not_expire() -> None:
     # so no expiry (and no history lookup) happens.
     assert connection.history_calls == 0
     assert connection.height_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_height_failure_restarts_expiry_evidence() -> None:
+    rpc, connection = _rpc(
+        [
+            [None],
+            [None],
+            [None],
+            [_status(TransactionConfirmationStatus.Confirmed)],
+        ],
+        block_height=[101, RuntimeError("boom"), 101],
+        history=[[None]],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    # The failed height poll broke the streak, so the over-bound readings on
+    # either side of it never combined into an expiry declaration.
+    assert connection.history_calls == 0
+    assert connection.height_calls == 3
 
 
 @pytest.mark.asyncio

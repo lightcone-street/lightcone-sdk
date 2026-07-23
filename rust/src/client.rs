@@ -525,13 +525,15 @@ impl LightconeClient {
                                 // forward-skewed node, and each sample follows a
                                 // fresh unseen status), then is still verified
                                 // against ledger history before being declared.
-                                if let Ok(block_height) = self.get_block_height().await {
-                                    over_bound_samples = if block_height > last_valid_block_height {
+                                over_bound_samples = match self.get_block_height().await {
+                                    Ok(block_height) if block_height > last_valid_block_height => {
                                         over_bound_samples + 1
-                                    } else {
-                                        0
-                                    };
-                                }
+                                    }
+                                    // Under-bound reading, or height unavailable —
+                                    // expiry evidence must be strictly consecutive
+                                    // over-bound readings.
+                                    _ => 0,
+                                };
                                 if over_bound_samples >= EXPIRY_HEIGHT_SAMPLES {
                                     // Search ledger history before declaring
                                     // expiry — the recent-status cache can evict
