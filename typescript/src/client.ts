@@ -1,7 +1,10 @@
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
-import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
+import {
+  signAndSubmitTx as signAndSubmitTxFn,
+  signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
+} from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
@@ -168,6 +171,15 @@ export class LightconeClient implements ClientContext {
 
   async signAndSubmitTx(tx: Transaction): Promise<string> {
     return signAndSubmitTxFn(this, tx);
+  }
+
+  /**
+   * Sign and submit a transaction, then wait until it reaches `confirmed`
+   * commitment on-chain. Prefer this over {@link signAndSubmitTx} when a
+   * follow-up transaction depends on this one's state.
+   */
+  async signAndSubmitTxConfirmed(tx: Transaction): Promise<string> {
+    return signAndSubmitTxConfirmedFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {
