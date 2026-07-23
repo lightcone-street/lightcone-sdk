@@ -91,6 +91,8 @@ export interface MarketResponse {
   question_id: string;
   condition_id: string;
   market_status: string;
+  /** Resolution deadline as a Unix timestamp in milliseconds. */
+  resolution_by: number | null;
   resolution?: MarketResolutionResponse;
   created_at: string;
   activated_at?: string;
@@ -141,6 +143,8 @@ export interface MarketSearchResult {
   category?: string;
   tags: string[];
   featured_rank: number;
+  /** Resolution deadline as a Unix timestamp in milliseconds. */
+  resolution_by: number | null;
   description?: string;
   icon_url_low?: string;
   icon_url_medium?: string;

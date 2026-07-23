@@ -26,11 +26,27 @@ export interface OrderBookPair {
   active: boolean;
 }
 
+export enum ImpactDirection {
+  Negative = "negative",
+  Zero = "zero",
+  Positive = "positive",
+}
+
 export interface OutcomeImpact {
-  sign: string;
+  direction: ImpactDirection;
   pct: number;
   dollar: string;
-  isPositive: boolean;
+}
+
+export function impactSign(direction: ImpactDirection): string {
+  switch (direction) {
+    case ImpactDirection.Negative:
+      return "-";
+    case ImpactDirection.Zero:
+      return "";
+    case ImpactDirection.Positive:
+      return "+";
+  }
 }
 
 export function impactPct(depositPrice: Decimal, conditionalPrice: Decimal): [number, string] {
@@ -47,18 +63,22 @@ export function impact(
   conditionalPrice: Decimal
 ): OutcomeImpact {
   if (depositAssetPrice.isZero()) {
-    return { sign: "", pct: 0, dollar: "0", isPositive: false };
+    return { direction: ImpactDirection.Zero, pct: 0, dollar: "0" };
   }
 
-  const pctDecimal = conditionalPrice.minus(depositAssetPrice).div(depositAssetPrice).mul(100);
+  const dollarDelta = conditionalPrice.minus(depositAssetPrice);
+  const pctDecimal = dollarDelta.div(depositAssetPrice).mul(100);
   const pct = pctDecimal.toNumber();
-  const dollar = conditionalPrice.minus(depositAssetPrice).abs().toString();
+  const direction = dollarDelta.greaterThan(0)
+    ? ImpactDirection.Positive
+    : dollarDelta.lessThan(0)
+      ? ImpactDirection.Negative
+      : ImpactDirection.Zero;
 
   return {
-    sign: pct > 0 ? "+" : "-",
+    direction,
     pct: Math.abs(pct),
-    dollar,
-    isPositive: pct > 0,
+    dollar: dollarDelta.abs().toString(),
   };
 }
 

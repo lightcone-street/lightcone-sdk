@@ -33,6 +33,19 @@ pub enum SdkError {
     #[error("User cancelled signing")]
     UserCancelled,
 
+    #[error("Transaction {signature} failed on-chain: {error}")]
+    TransactionFailed { signature: String, error: String },
+
+    #[error(
+        "Transaction {signature} expired before confirmation — it was never processed and is safe to resubmit"
+    )]
+    TransactionExpired { signature: String },
+
+    #[error(
+        "Timed out confirming transaction {signature} — status unknown; check the signature on-chain before resubmitting"
+    )]
+    ConfirmationTimeout { signature: String },
+
     #[error("{0}")]
     ApiRejected(ApiRejectedDetails),
 

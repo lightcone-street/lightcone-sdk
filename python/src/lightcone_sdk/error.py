@@ -51,6 +51,46 @@ class UserCancelled(SdkError):
         super().__init__("User cancelled signing")
 
 
+class TransactionFailed(SdkError):
+    """Raised when a submitted transaction landed on-chain but failed.
+
+    Resubmitting the same transaction would fail again.
+    """
+
+    def __init__(self, signature: str, error: str):
+        super().__init__(f"Transaction {signature} failed on-chain: {error}")
+        self.signature = signature
+        self.error = error
+
+
+class TransactionExpired(SdkError):
+    """Raised when a transaction's blockhash expired before the cluster saw it.
+
+    The transaction can never land and is safe to resubmit.
+    """
+
+    def __init__(self, signature: str):
+        super().__init__(
+            f"Transaction {signature} expired before confirmation — "
+            "it was never processed and is safe to resubmit"
+        )
+        self.signature = signature
+
+
+class ConfirmationTimeout(SdkError):
+    """Raised when a transaction's confirmation outcome could not be determined.
+
+    Check the signature on-chain before resubmitting.
+    """
+
+    def __init__(self, signature: str):
+        super().__init__(
+            f"Timed out confirming transaction {signature} — "
+            "status unknown; check the signature on-chain before resubmitting"
+        )
+        self.signature = signature
+
+
 def _require(d: dict, key: str, type_name: str = ""):
     """Extract a required field from a dict, raising DeserializationError if missing."""
     if key not in d:
@@ -271,6 +311,9 @@ __all__ = [
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
+    "TransactionFailed",
+    "TransactionExpired",
+    "ConfirmationTimeout",
     "_require",
     "HttpError",
     "HttpErrorKind",

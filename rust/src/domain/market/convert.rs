@@ -149,6 +149,7 @@ impl TryFrom<wire::MarketResponse> for Market {
             created_at: source.created_at,
             activated_at: source.activated_at,
             settled_at: source.settled_at,
+            resolution_by: source.resolution_by,
             resolution: source.resolution,
             description: source.description,
             definition,
@@ -243,6 +244,7 @@ mod tests {
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
             market_status: "Active".to_string(),
+            resolution_by: None,
             resolution: None,
             created_at: Utc::now(),
             activated_at: None,
@@ -479,12 +481,14 @@ mod tests {
         resp.definition = Some("Definition".to_string());
         resp.subcategory = Some("Bitcoin".to_string());
         resp.tags = Some(vec!["btc".to_string()]);
+        resp.resolution_by = Some(1_760_000_000_000);
 
         let market = Market::try_from(resp).unwrap();
         assert_eq!(market.description.as_deref(), Some("Description"));
         assert_eq!(market.definition, "Definition");
         assert_eq!(market.subcategory.as_deref(), Some("Bitcoin"));
         assert_eq!(market.tags, vec!["btc".to_string()]);
+        assert_eq!(market.resolution_by, Some(1_760_000_000_000));
         assert_eq!(
             market.banner_image_url_low.as_deref(),
             Some("https://example.com/banner_low.png")

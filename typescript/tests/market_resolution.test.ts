@@ -67,6 +67,7 @@ function marketResponse(
     question_id: "question",
     condition_id: "condition",
     market_status: "Resolved",
+    resolution_by: null,
     resolution,
     created_at: NOW,
     settled_at: NOW,
@@ -144,12 +145,20 @@ describe("market metadata", () => {
     const response = marketResponse();
     response.subcategory = "Bitcoin";
     response.tags = ["btc"];
+    response.resolution_by = 1_760_000_000_000;
 
     const market = marketFromWire(response);
     assert.equal(market.description, "Description");
     assert.equal(market.definition, "Definition");
     assert.equal(market.subcategory, "Bitcoin");
     assert.deepEqual(market.tags, ["btc"]);
+    assert.equal(market.resolutionBy, 1_760_000_000_000);
+  });
+
+  it("maps a null resolution deadline to an absent domain value", () => {
+    const market = marketFromWire(marketResponse());
+
+    assert.equal(market.resolutionBy, undefined);
   });
 
   it("takes the authoritative outcome count from the market response", () => {

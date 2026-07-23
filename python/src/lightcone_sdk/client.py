@@ -5,6 +5,7 @@ Mirrors rust/src/client.rs — unified entry point with sub-client accessors.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional
 
 from solders.pubkey import Pubkey
@@ -32,6 +33,24 @@ from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind
 from .shared.types import DepositSource
 from .ws import WsConfig, WS_DEFAULT_CONFIG
 from .ws.client import WsClient
+
+
+def _signed_blockhash_unchanged(signed_bytes: bytes, expected_blockhash: object) -> bool:
+    """True when the signed wire bytes still carry ``expected_blockhash``.
+
+    External signers may re-blockhash a transaction before signing; a bound
+    derived from the original blockhash must then not be used for expiry
+    detection.
+    """
+    from solders.transaction import Transaction
+
+    try:
+        return (
+            Transaction.from_bytes(signed_bytes).message.recent_blockhash
+            == expected_blockhash
+        )
+    except Exception:
+        return False
 
 
 class LightconeClient:
@@ -228,6 +247,12 @@ class LightconeClient:
     async def sign_and_submit_tx(self, tx: object) -> str:
         """Sign and submit a transaction using the client's signing strategy.
 
+        Fetches a recent blockhash automatically for the Native and
+        WalletAdapter strategies. Returns as soon as the RPC accepts the
+        transaction — inclusion is not awaited. When follow-up work depends on
+        this transaction's on-chain effects, use
+        ``sign_and_submit_tx_confirmed`` instead.
+
         - **Native**: signs locally with keypair, submits via RPC
         - **WalletAdapter**: signs via external signer, submits via RPC
         - **Privy**: serializes unsigned tx to base64, sends to backend
@@ -238,21 +263,73 @@ class LightconeClient:
         Returns:
             Transaction signature string.
         """
+        signature, _last_valid_block_height = await self._sign_and_submit_tx_inner(tx)
+        return signature
+
+    async def sign_and_submit_tx_confirmed(self, tx: object) -> str:
+        """Sign and submit a transaction, then wait until it is confirmed.
+
+        Sequential flows should prefer this over ``sign_and_submit_tx``: a
+        transaction that depends on a prior transaction's state is only safe
+        to send once that prior transaction has confirmed. See
+        ``Rpc.confirm_signature`` for the terminal error taxonomy.
+
+        Expiry (``TransactionExpired``) is only ever reported when the
+        submitted transaction provably still carries the blockhash fetched
+        here: always true for Native, verified against the signed bytes for
+        WalletAdapter (signers may re-blockhash before signing), and never
+        assumed for Privy (the backend signs and submits out of the SDK's
+        sight) — unproven cases end in ``ConfirmationTimeout`` at the poll
+        cap instead.
+
+        Args:
+            tx: A ``solders.transaction.Transaction`` instance.
+
+        Returns:
+            Transaction signature string, once confirmed on-chain.
+        """
+        signature, last_valid_block_height = await self._sign_and_submit_tx_inner(tx)
+        await self.rpc().confirm_signature(signature, last_valid_block_height)
+        return signature
+
+    async def _sign_and_submit_tx_inner(self, tx: object) -> tuple[str, Optional[int]]:
+        """Shared submit path.
+
+        Signs, sends, and returns the signature plus the
+        ``last_valid_block_height`` of the blockhash the submitted wire bytes
+        are known to carry — ``None`` when that cannot be proven (an external
+        signer replaced the blockhash, or the bytes were never visible to the
+        SDK).
+        """
         strategy = self._require_signing_strategy()
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             from solders.keypair import Keypair as _Keypair
             keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
-            blockhash = await self.rpc().get_latest_blockhash()
+            blockhash, last_valid_block_height = (
+                await self.rpc().get_latest_blockhash_with_height()
+            )
             tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
-            response = await self._connection.send_raw_transaction(bytes(tx))  # type: ignore[union-attr]
-            return str(response.value)
+            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[arg-type]
+            return signature, last_valid_block_height
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
             import base64 as _b64
+            blockhash, last_valid_block_height = (
+                await self.rpc().get_latest_blockhash_with_height()
+            )
+            # Set the fresh blockhash without signing (empty keypair list),
+            # mirroring the Rust/TypeScript submit paths.
+            tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
             tx_bytes = bytes(tx)  # type: ignore[arg-type]
             signed_bytes = await signer.sign_transaction(tx_bytes)
+            # External signers may re-blockhash before signing; only trust the
+            # expiry bound when the signed bytes still carry the blockhash set
+            # above.
+            signed_blockhash_unchanged = _signed_blockhash_unchanged(
+                signed_bytes, blockhash
+            )
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
             # Submit via RPC with failover
             data = await self._rpc_call_with_failover({
@@ -262,7 +339,9 @@ class LightconeClient:
             })
             if "error" in data:
                 raise SdkError(f"RPC error: {data['error']}")
-            return data["result"]
+            return data["result"], (
+                last_valid_block_height if signed_blockhash_unchanged else None
+            )
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
@@ -271,7 +350,9 @@ class LightconeClient:
             result = await self.privy().sign_and_send_tx(
                 strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
             )
-            return result.hash
+            # The backend signs and submits server-side; the SDK never sees
+            # the final wire bytes, so no expiry bound can be trusted.
+            return result.hash, None
 
         raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 

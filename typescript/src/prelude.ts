@@ -114,7 +114,7 @@ export type {
   TickerData,
   WsBookLevel,
 } from "./domain/orderbook";
-export { OrderBookValidationError } from "./domain/orderbook";
+export { ImpactDirection, OrderBookValidationError } from "./domain/orderbook";
 export type { BookAggregation } from "./domain/orderbook/aggregation";
 export {
   aggregationFromFrame,
