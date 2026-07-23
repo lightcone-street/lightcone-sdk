@@ -148,6 +148,18 @@ describe("Rpc.confirmSignature", () => {
     assert.equal(heightCalls(), 2);
   });
 
+  it("restarts expiry evidence after a failed status poll", async () => {
+    const { rpc, historyCalls } = stubRpc(
+      [[null], new Error("boom"), [null], [status("confirmed")]],
+      101,
+      [[null]]
+    );
+    await rpc.confirmSignature(SIGNATURE, 100);
+    // The failed status poll broke the streak, so the unseen polls on either
+    // side of it never combined into an expiry declaration.
+    assert.equal(historyCalls(), 0);
+  });
+
   it("restarts expiry evidence after a failed height poll", async () => {
     const { rpc, historyCalls, heightCalls } = stubRpc(
       [[null], [null], [null], [status("confirmed")]],

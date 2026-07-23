@@ -172,10 +172,11 @@ async function signAndSubmitTxInner(
 
   const strategy = requireSigningStrategy(ctx);
 
-  // Get blockhash with failover.
+  // Get blockhash with failover, at `confirmed` commitment (pinned, not the
+  // Connection's default — matching the Rust and Python SDKs).
   const { blockhash, lastValidBlockHeight } = await connectionWithFailover(
     ctx,
-    (conn) => conn.getLatestBlockhash()
+    (conn) => conn.getLatestBlockhash("confirmed")
   );
   tx.recentBlockhash = blockhash;
   tx.lastValidBlockHeight = lastValidBlockHeight;

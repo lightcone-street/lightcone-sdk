@@ -78,12 +78,17 @@ export class Rpc {
 
   // ── Account fetchers (async, require Connection) ──────────────────────
 
+  /**
+   * Get the latest blockhash and its expiry height, at `confirmed`
+   * commitment (pinned, not the Connection's default — matching the Rust
+   * and Python SDKs).
+   */
   async getLatestBlockhash(): Promise<{
     blockhash: string;
     lastValidBlockHeight: number;
   }> {
     return connectionWithFailover(this.client, (connection) =>
-      connection.getLatestBlockhash()
+      connection.getLatestBlockhash("confirmed")
     );
   }
 
@@ -147,6 +152,8 @@ export class Rpc {
         consecutiveFailures = 0;
       } catch {
         consecutiveFailures += 1;
+        // A failed poll is a gap in expiry evidence — restart it.
+        overBoundSamples = 0;
         if (consecutiveFailures >= MAX_CONSECUTIVE_POLL_FAILURES) {
           throw SdkError.confirmationTimeout(signature);
         }

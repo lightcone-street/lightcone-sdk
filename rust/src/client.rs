@@ -486,6 +486,8 @@ impl LightconeClient {
             match self.get_signature_statuses(&signatures).await {
                 Err(error) => {
                     consecutive_failures += 1;
+                    // A failed poll is a gap in expiry evidence — restart it.
+                    over_bound_samples = 0;
                     if consecutive_failures >= MAX_CONSECUTIVE_POLL_FAILURES {
                         tracing::warn!("Giving up confirming {signature}: {error}");
                         return Err(SdkError::ConfirmationTimeout {

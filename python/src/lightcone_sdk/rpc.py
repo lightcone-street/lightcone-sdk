@@ -178,22 +178,28 @@ class Rpc:
     async def get_latest_blockhash_with_height(self) -> tuple[Hash, int]:
         """Get the latest blockhash and the last block height at which it is valid.
 
+        The blockhash is requested at ``confirmed`` commitment (pinned, not
+        the connection's default — matching the Rust and TypeScript SDKs).
         Past the returned height, a transaction built on the blockhash can
         never land, which is what makes expiry detection in
         ``confirm_signature`` safe.
         """
+        from solana.rpc.commitment import Confirmed
+
         response = await _connection_with_failover(
             self._client,
-            lambda conn: conn.get_latest_blockhash(),
+            lambda conn: conn.get_latest_blockhash(Confirmed),
         )
         value = response.value  # type: ignore[union-attr]
         return value.blockhash, value.last_valid_block_height
 
     async def get_block_height(self) -> int:
-        """Get the current block height at the connection's commitment (confirmed by default)."""
+        """Get the current block height at ``confirmed`` commitment (pinned)."""
+        from solana.rpc.commitment import Confirmed
+
         response = await _connection_with_failover(
             self._client,
-            lambda conn: conn.get_block_height(),
+            lambda conn: conn.get_block_height(Confirmed),
         )
         return response.value  # type: ignore[union-attr]
 
@@ -202,8 +208,10 @@ class Rpc:
 
         Fire-and-forget: confirmation is skipped explicitly rather than left
         to solana-py's ``TxOpts`` defaults — waiting is ``confirm_signature``'s
-        job, with its terminal error taxonomy.
+        job, with its terminal error taxonomy. Preflight simulates at
+        ``confirmed`` commitment, matching the other submit paths.
         """
+        from solana.rpc.commitment import Confirmed
         from solana.rpc.types import TxOpts
 
         response = await _connection_with_failover(
@@ -212,7 +220,7 @@ class Rpc:
                 tx_bytes,
                 opts=TxOpts(
                     skip_confirmation=True,
-                    preflight_commitment=conn.commitment,
+                    preflight_commitment=Confirmed,
                 ),
             ),
         )
@@ -270,6 +278,8 @@ class Rpc:
                 consecutive_failures = 0
             except Exception as error:
                 consecutive_failures += 1
+                # A failed poll is a gap in expiry evidence — restart it.
+                over_bound_samples = 0
                 if consecutive_failures >= _MAX_CONSECUTIVE_POLL_FAILURES:
                     raise ConfirmationTimeout(signature) from error
 

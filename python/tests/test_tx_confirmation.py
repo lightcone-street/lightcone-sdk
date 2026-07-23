@@ -72,7 +72,7 @@ class _StubConnection:
             raise step
         return SimpleNamespace(value=list(step))
 
-    async def get_block_height(self) -> SimpleNamespace:
+    async def get_block_height(self, commitment: object = None) -> SimpleNamespace:
         height = self._block_heights[
             min(self.height_calls, len(self._block_heights) - 1)
         ]
@@ -180,6 +180,24 @@ async def test_single_skewed_height_sample_does_not_expire() -> None:
     # so no expiry (and no history lookup) happens.
     assert connection.history_calls == 0
     assert connection.height_calls == 2
+
+
+@pytest.mark.asyncio
+async def test_status_poll_failure_restarts_expiry_evidence() -> None:
+    rpc, connection = _rpc(
+        [
+            [None],
+            RuntimeError("boom"),
+            [None],
+            [_status(TransactionConfirmationStatus.Confirmed)],
+        ],
+        block_height=101,
+        history=[[None]],
+    )
+    await rpc.confirm_signature(SIGNATURE, 100)
+    # The failed status poll broke the streak, so the unseen polls on either
+    # side of it never combined into an expiry declaration.
+    assert connection.history_calls == 0
 
 
 @pytest.mark.asyncio
