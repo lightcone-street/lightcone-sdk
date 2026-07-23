@@ -92,6 +92,7 @@ export function marketFromWire(source: MarketResponse): Market {
     createdAt: new Date(source.created_at),
     activatedAt: source.activated_at ? new Date(source.activated_at) : undefined,
     settledAt: source.settled_at ? new Date(source.settled_at) : undefined,
+    resolutionBy: source.resolution_by ?? undefined,
     resolution: source.resolution,
     description: source.description,
     definition: definition as string,
