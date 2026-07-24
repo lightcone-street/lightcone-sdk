@@ -246,7 +246,7 @@ For these cases, authed methods that need per-call forwarding ship a `*WithAuth(
 // from the incoming request:
 const balances = await client
   .positions()
-  .depositTokenBalancesWithAuth(authToken);
+  .depositTokenBalancesWithCookies(undefined, authToken);
 
 const positions = await client
   .positions()

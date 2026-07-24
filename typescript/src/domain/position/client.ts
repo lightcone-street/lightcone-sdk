@@ -30,11 +30,7 @@ import type {
   ClosePositionAltParams,
   ClosePositionTokenAccountsParams,
 } from "../../program/types";
-import type { PubkeyStr } from "../../shared";
-import type {
-  DepositTokenBalance,
-  DepositTokenBalancesSnapshot,
-} from "./index";
+import type { DepositTokenBalancesSnapshot } from "./index";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -130,17 +126,19 @@ export class Positions {
   }
 
   /**
-   * Get SPL deposit-token balances for the authenticated user.
-   *
-   * The wallet is resolved server-side from the auth cookie, so no
-   * parameter is required. Returns balances keyed by mint pubkey for every
-   * deposit token registered in the backend's `deposit_token_metadata`.
-   * An empty object means the user has none of the tracked balances — this
-   * is not an error.
+   * Get a confirmed-slot snapshot of the authenticated user's deposit-token
+   * balances. When supplied, `minContextSlot` prevents an older cached
+   * snapshot from satisfying the request.
    */
-  async depositTokenBalances(): Promise<Record<PubkeyStr, DepositTokenBalance>> {
-    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
-    return this.client.http.get<Record<PubkeyStr, DepositTokenBalance>>(
+  async depositTokenBalances(
+    minContextSlot?: number
+  ): Promise<DepositTokenBalancesSnapshot> {
+    const query =
+      minContextSlot === undefined
+        ? ""
+        : `?min_context_slot=${encodeURIComponent(minContextSlot)}`;
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances${query}`;
+    return this.client.http.get<DepositTokenBalancesSnapshot>(
       url,
       RetryPolicy.Idempotent,
     );
@@ -157,37 +155,6 @@ export class Positions {
    * the cookie via `credentials: "include"`.
    */
   async depositTokenBalancesWithCookies(
-    cookieHeader: string,
-  ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
-    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
-    return this.client.http.getWithCookies<Record<PubkeyStr, DepositTokenBalance>>(
-      url,
-      RetryPolicy.Idempotent,
-      cookieHeader,
-    );
-  }
-
-  /**
-   * Get a confirmed-slot snapshot of the authenticated user's deposit-token
-   * balances. When supplied, `minContextSlot` prevents an older cached
-   * snapshot from satisfying the request.
-   */
-  async depositTokenBalancesSnapshot(
-    minContextSlot?: number
-  ): Promise<DepositTokenBalancesSnapshot> {
-    const query =
-      minContextSlot === undefined
-        ? ""
-        : `?min_context_slot=${encodeURIComponent(minContextSlot)}`;
-    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances/snapshot${query}`;
-    return this.client.http.get<DepositTokenBalancesSnapshot>(
-      url,
-      RetryPolicy.Idempotent,
-    );
-  }
-
-  /** Same as {@link depositTokenBalancesSnapshot}, with a per-call cookie. */
-  async depositTokenBalancesSnapshotWithCookies(
     minContextSlot: number | undefined,
     cookieHeader: string,
   ): Promise<DepositTokenBalancesSnapshot> {
@@ -195,7 +162,7 @@ export class Positions {
       minContextSlot === undefined
         ? ""
         : `?min_context_slot=${encodeURIComponent(minContextSlot)}`;
-    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances/snapshot${query}`;
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances${query}`;
     return this.client.http.getWithCookies<DepositTokenBalancesSnapshot>(
       url,
       RetryPolicy.Idempotent,

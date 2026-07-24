@@ -13,7 +13,7 @@ const snapshot: DepositTokenBalancesSnapshot = {
   balances: {},
 };
 
-describe("Positions.depositTokenBalancesSnapshot", () => {
+describe("Positions.depositTokenBalances", () => {
   it("forwards the minimum slot and per-call cookie", async () => {
     const requests: Array<{ url: string; cookie?: string }> = [];
     const http = {
@@ -39,9 +39,9 @@ describe("Positions.depositTokenBalancesSnapshot", () => {
     } as unknown as ClientContext;
     const positions = new Positions(client);
 
-    assert.deepEqual(await positions.depositTokenBalancesSnapshot(1234), snapshot);
+    assert.deepEqual(await positions.depositTokenBalances(1234), snapshot);
     assert.deepEqual(
-      await positions.depositTokenBalancesSnapshotWithCookies(
+      await positions.depositTokenBalancesWithCookies(
         undefined,
         "lightcone-token=test"
       ),
@@ -49,10 +49,10 @@ describe("Positions.depositTokenBalancesSnapshot", () => {
     );
     assert.deepEqual(requests, [
       {
-        url: "https://api.example.test/api/users/deposit-token-balances/snapshot?min_context_slot=1234",
+        url: "https://api.example.test/api/users/deposit-token-balances?min_context_slot=1234",
       },
       {
-        url: "https://api.example.test/api/users/deposit-token-balances/snapshot",
+        url: "https://api.example.test/api/users/deposit-token-balances",
         cookie: "lightcone-token=test",
       },
     ]);

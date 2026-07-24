@@ -164,7 +164,7 @@ pub struct DepositTokenBalance {
 }
 
 /// Authenticated deposit-token balances observed at a confirmed Solana slot.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DepositTokenBalancesSnapshot {
     pub context_slot: u64,
     pub balances: HashMap<PubkeyStr, DepositTokenBalance>,

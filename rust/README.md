@@ -235,7 +235,7 @@ For these cases, authed methods that need per-call forwarding ship a `_with_cook
 // auth_token cookie from the incoming request:
 let balances = client
     .positions()
-    .deposit_token_balances_with_cookies(&auth_token)
+    .deposit_token_balances_with_cookies(None, &auth_token)
     .await?;
 
 let positions = client

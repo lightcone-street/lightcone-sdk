@@ -237,8 +237,9 @@ For these cases, authed methods that need per-call forwarding ship a `*_with_aut
 ```python
 # Inside a server route handler, after extracting the auth_token cookie
 # from the incoming request:
-balances = await client.positions().deposit_token_balances_with_auth(
-    auth_token=auth_token,
+balances = await client.positions().deposit_token_balances_with_cookies(
+    None,
+    auth_token,
 )
 
 positions = await client.positions().positions_with_auth(

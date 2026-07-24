@@ -62,12 +62,12 @@ class FakeClient:
 
 
 @pytest.mark.asyncio
-async def test_snapshot_methods_forward_minimum_slot_and_cookie() -> None:
+async def test_deposit_balance_methods_forward_minimum_slot_and_cookie() -> None:
     http = FakeHttp()
     positions = Positions(FakeClient(http))  # type: ignore[arg-type]
 
-    snapshot = await positions.deposit_token_balances_snapshot(1234)
-    cookie_snapshot = await positions.deposit_token_balances_snapshot_with_cookies(
+    snapshot = await positions.deposit_token_balances(1234)
+    cookie_snapshot = await positions.deposit_token_balances_with_cookies(
         None, "lightcone-token=test"
     )
 
@@ -75,12 +75,12 @@ async def test_snapshot_methods_forward_minimum_slot_and_cookie() -> None:
     assert cookie_snapshot.context_slot == 1234
     assert http.requests == [
         (
-            "/api/users/deposit-token-balances/snapshot",
+            "/api/users/deposit-token-balances",
             {"min_context_slot": "1234"},
             None,
         ),
         (
-            "/api/users/deposit-token-balances/snapshot",
+            "/api/users/deposit-token-balances",
             None,
             "lightcone-token=test",
         ),

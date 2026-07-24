@@ -11,12 +11,13 @@ async def main():
     session = await login(client, keypair)
     wallet = session.user.trading_wallet(session.auth_method)
 
-    balances = await client.positions().deposit_token_balances()
+    snapshot = await client.positions().deposit_token_balances()
 
     print(f"wallet: {wallet}")
-    print(f"tracked balances: {len(balances)}")
+    print(f"context slot: {snapshot.context_slot}")
+    print(f"tracked balances: {len(snapshot.balances)}")
 
-    entries = sorted(balances.values(), key=lambda b: b.symbol)
+    entries = sorted(snapshot.balances.values(), key=lambda b: b.symbol)
     for balance in entries:
         print(f"  {balance.symbol:>8}  {balance.mint:<42}  idle={balance.idle}")
 

@@ -7,7 +7,7 @@ use crate::domain::position::builders::{
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
 use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
-use crate::domain::position::{DepositTokenBalance, DepositTokenBalancesSnapshot};
+use crate::domain::position::DepositTokenBalancesSnapshot;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
@@ -17,15 +17,11 @@ use crate::program::types::{
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
-use crate::shared::PubkeyStr;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
-use std::collections::HashMap;
 
-fn deposit_token_balances_snapshot_query(
-    min_context_slot: Option<u64>,
-) -> Vec<(&'static str, String)> {
+fn deposit_token_balances_query(min_context_slot: Option<u64>) -> Vec<(&'static str, String)> {
     min_context_slot
         .map(|slot| vec![("min_context_slot", slot.to_string())])
         .unwrap_or_default()
@@ -131,21 +127,25 @@ impl<'a> Positions<'a> {
             .await
     }
 
-    /// Get SPL deposit-token balances for the authenticated user.
+    /// Get a confirmed-slot snapshot of the authenticated user's SPL
+    /// deposit-token balances.
     ///
-    /// The wallet is resolved server-side from the auth cookie, so no
-    /// parameter is required. Returns balances keyed by mint pubkey for every
-    /// deposit token registered in the backend's `deposit_token_metadata`.
-    /// An empty map means the user has none of the tracked balances — this is
-    /// not an error.
+    /// When `min_context_slot` is provided, the backend only returns cached
+    /// data if it was observed at or after that slot and otherwise asks
+    /// Solana RPC for a sufficiently recent view.
     pub async fn deposit_token_balances(
         &self,
-    ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
+        min_context_slot: Option<u64>,
+    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
         let url = format!(
             "{}/api/users/deposit-token-balances",
             self.client.http.base_url()
         );
-        self.client.http.get(&url, RetryPolicy::Idempotent).await
+        let query = deposit_token_balances_query(min_context_slot);
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
     }
 
     /// Same as [`Self::deposit_token_balances`], but forwards the supplied raw
@@ -159,51 +159,14 @@ impl<'a> Positions<'a> {
     /// attaching cookies via credentials mode.
     pub async fn deposit_token_balances_with_cookies(
         &self,
+        min_context_slot: Option<u64>,
         cookie_header: &str,
-    ) -> Result<HashMap<PubkeyStr, DepositTokenBalance>, SdkError> {
+    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
         let url = format!(
             "{}/api/users/deposit-token-balances",
             self.client.http.base_url()
         );
-        self.client
-            .http
-            .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
-            .await
-    }
-
-    /// Get a confirmed-slot snapshot of the authenticated user's SPL
-    /// deposit-token balances.
-    ///
-    /// When `min_context_slot` is provided, the backend only returns cached
-    /// data if it was observed at or after that slot and otherwise asks
-    /// Solana RPC for a sufficiently recent view.
-    pub async fn deposit_token_balances_snapshot(
-        &self,
-        min_context_slot: Option<u64>,
-    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
-        let url = format!(
-            "{}/api/users/deposit-token-balances/snapshot",
-            self.client.http.base_url()
-        );
-        let query = deposit_token_balances_snapshot_query(min_context_slot);
-        self.client
-            .http
-            .get_with_query(&url, &query, RetryPolicy::Idempotent)
-            .await
-    }
-
-    /// Same as [`Self::deposit_token_balances_snapshot`], but forwards the
-    /// supplied raw `Cookie` header for this call.
-    pub async fn deposit_token_balances_snapshot_with_cookies(
-        &self,
-        min_context_slot: Option<u64>,
-        cookie_header: &str,
-    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
-        let url = format!(
-            "{}/api/users/deposit-token-balances/snapshot",
-            self.client.http.base_url()
-        );
-        let query = deposit_token_balances_snapshot_query(min_context_slot);
+        let query = deposit_token_balances_query(min_context_slot);
         self.client
             .http
             .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
@@ -531,13 +494,13 @@ impl<'a> Positions<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::deposit_token_balances_snapshot_query;
+    use super::deposit_token_balances_query;
 
     #[test]
-    fn snapshot_query_includes_optional_minimum_context_slot() {
-        assert!(deposit_token_balances_snapshot_query(None).is_empty());
+    fn deposit_token_balances_query_includes_optional_minimum_context_slot() {
+        assert!(deposit_token_balances_query(None).is_empty());
         assert_eq!(
-            deposit_token_balances_snapshot_query(Some(1234)),
+            deposit_token_balances_query(Some(1234)),
             vec![("min_context_slot", "1234".to_string())]
         );
     }

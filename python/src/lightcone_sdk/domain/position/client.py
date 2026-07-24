@@ -37,7 +37,7 @@ from ...program.types import (
     WithdrawFromPositionParams,
 )
 from ...rpc import require_connection
-from . import DepositTokenBalance, DepositTokenBalancesSnapshot
+from . import DepositTokenBalancesSnapshot
 from .builders import (
     DepositBuilder,
     DepositToGlobalBuilder,
@@ -139,35 +139,7 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
-    async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
-        """Get SPL deposit-token balances for the authenticated user.
-
-        The wallet is resolved server-side from the ``cookie_header`` cookie, so
-        no parameter is required. Returns balances keyed by mint pubkey for
-        every deposit token registered in the backend's
-        ``deposit_token_metadata``. An empty dict means the user has none of
-        the tracked balances — this is not an error.
-        """
-        data = await self._client._http.get("/api/users/deposit-token-balances")
-        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
-
-    async def deposit_token_balances_with_cookies(
-        self, cookie_header: str
-    ) -> dict[str, DepositTokenBalance]:
-        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
-
-        Intended for server-side cookie forwarding (SSR / server functions)
-        where the per-request browser cookie can't propagate to the SDK's
-        process-wide cookie store. The token is used only for this call and
-        never written back to the shared store.
-        """
-        data = await self._client._http.get_with_cookies(
-            "/api/users/deposit-token-balances",
-            cookie_header=cookie_header,
-        )
-        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
-
-    async def deposit_token_balances_snapshot(
+    async def deposit_token_balances(
         self, min_context_slot: Optional[int] = None
     ) -> DepositTokenBalancesSnapshot:
         """Get balances and their confirmed Solana context slot."""
@@ -177,24 +149,30 @@ class Positions:
             else None
         )
         data = await self._client._http.get(
-            "/api/users/deposit-token-balances/snapshot",
+            "/api/users/deposit-token-balances",
             params=params,
         )
         return DepositTokenBalancesSnapshot.from_dict(data)
 
-    async def deposit_token_balances_snapshot_with_cookies(
+    async def deposit_token_balances_with_cookies(
         self,
         min_context_slot: Optional[int],
         cookie_header: str,
     ) -> DepositTokenBalancesSnapshot:
-        """Same as :meth:`deposit_token_balances_snapshot`, with a per-call cookie."""
+        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
+
+        Intended for server-side cookie forwarding (SSR / server functions)
+        where the per-request browser cookie can't propagate to the SDK's
+        process-wide cookie store. The token is used only for this call and
+        never written back to the shared store.
+        """
         params = (
             {"min_context_slot": str(min_context_slot)}
             if min_context_slot is not None
             else None
         )
         data = await self._client._http.get_with_cookies(
-            "/api/users/deposit-token-balances/snapshot",
+            "/api/users/deposit-token-balances",
             cookie_header=cookie_header,
             params=params,
         )
