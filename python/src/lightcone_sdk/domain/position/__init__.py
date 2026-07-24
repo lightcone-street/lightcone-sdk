@@ -97,12 +97,13 @@ class DepositTokenBalancesSnapshot:
         raw_balances = data.get("balances", {})
         if not isinstance(raw_balances, dict):
             raise TypeError("deposit-token snapshot balances must be an object")
+        if not all(isinstance(balance, dict) for balance in raw_balances.values()):
+            raise TypeError("deposit-token snapshot balance entries must be objects")
         return cls(
             context_slot=int(data["context_slot"]),
             balances={
                 str(mint): DepositTokenBalance(**balance)
                 for mint, balance in raw_balances.items()
-                if isinstance(balance, dict)
             },
         )
 

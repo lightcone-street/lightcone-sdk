@@ -23,6 +23,18 @@ def test_snapshot_parses_context_slot_and_nested_balances() -> None:
     assert snapshot.balances["MintA"].idle == "1.25"
 
 
+def test_snapshot_rejects_malformed_balance_entries() -> None:
+    with pytest.raises(
+        TypeError, match="deposit-token snapshot balance entries must be objects"
+    ):
+        DepositTokenBalancesSnapshot.from_dict(
+            {
+                "context_slot": 1234,
+                "balances": {"MintA": None},
+            }
+        )
+
+
 class FakeHttp:
     def __init__(self) -> None:
         self.requests: list[tuple[str, dict[str, str] | None, str | None]] = []
