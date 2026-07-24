@@ -31,7 +31,10 @@ import type {
   ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { PubkeyStr } from "../../shared";
-import type { DepositTokenBalance } from "./index";
+import type {
+  DepositTokenBalance,
+  DepositTokenBalancesSnapshot,
+} from "./index";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -158,6 +161,42 @@ export class Positions {
   ): Promise<Record<PubkeyStr, DepositTokenBalance>> {
     const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances`;
     return this.client.http.getWithCookies<Record<PubkeyStr, DepositTokenBalance>>(
+      url,
+      RetryPolicy.Idempotent,
+      cookieHeader,
+    );
+  }
+
+  /**
+   * Get a confirmed-slot snapshot of the authenticated user's deposit-token
+   * balances. When supplied, `minContextSlot` prevents an older cached
+   * snapshot from satisfying the request.
+   */
+  async depositTokenBalancesSnapshot(
+    minContextSlot?: number
+  ): Promise<DepositTokenBalancesSnapshot> {
+    const query =
+      minContextSlot === undefined
+        ? ""
+        : `?min_context_slot=${encodeURIComponent(minContextSlot)}`;
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances/snapshot${query}`;
+    return this.client.http.get<DepositTokenBalancesSnapshot>(
+      url,
+      RetryPolicy.Idempotent,
+    );
+  }
+
+  /** Same as {@link depositTokenBalancesSnapshot}, with a per-call cookie. */
+  async depositTokenBalancesSnapshotWithCookies(
+    minContextSlot: number | undefined,
+    cookieHeader: string,
+  ): Promise<DepositTokenBalancesSnapshot> {
+    const query =
+      minContextSlot === undefined
+        ? ""
+        : `?min_context_slot=${encodeURIComponent(minContextSlot)}`;
+    const url = `${this.client.http.baseUrl()}/api/users/deposit-token-balances/snapshot${query}`;
+    return this.client.http.getWithCookies<DepositTokenBalancesSnapshot>(
       url,
       RetryPolicy.Idempotent,
       cookieHeader,

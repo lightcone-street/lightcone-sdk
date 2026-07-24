@@ -146,14 +146,34 @@ export async function signAndSubmitTxConfirmed(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<string> {
+  const confirmed = await signAndSubmitTxConfirmedWithSlot(ctx, tx);
+  return confirmed.signature;
+}
+
+export interface ConfirmedTransaction {
+  signature: string;
+  slot: number;
+}
+
+/**
+ * Sign and submit a transaction, wait for confirmed commitment, and return
+ * both its signature and processing slot.
+ */
+export async function signAndSubmitTxConfirmedWithSlot(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction
+): Promise<ConfirmedTransaction> {
   const { Rpc } = await import("./rpc");
 
   const { signature, lastValidBlockHeight } = await signAndSubmitTxInner(
     ctx,
     tx
   );
-  await new Rpc(ctx).confirmSignature(signature, lastValidBlockHeight);
-  return signature;
+  const status = await new Rpc(ctx).confirmSignatureStatus(
+    signature,
+    lastValidBlockHeight
+  );
+  return { signature, slot: status.slot };
 }
 
 /**

@@ -4,7 +4,9 @@ import type { ClientContext } from "./context";
 import {
   signAndSubmitTx as signAndSubmitTxFn,
   signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
+  signAndSubmitTxConfirmedWithSlot as signAndSubmitTxConfirmedWithSlotFn,
 } from "./context";
+import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
@@ -180,6 +182,13 @@ export class LightconeClient implements ClientContext {
    */
   async signAndSubmitTxConfirmed(tx: Transaction): Promise<string> {
     return signAndSubmitTxConfirmedFn(this, tx);
+  }
+
+  /** Sign, submit, confirm, and return the transaction's processing slot. */
+  async signAndSubmitTxConfirmedWithSlot(
+    tx: Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitTxConfirmedWithSlotFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {

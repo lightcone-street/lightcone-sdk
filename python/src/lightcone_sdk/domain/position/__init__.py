@@ -88,6 +88,26 @@ class DepositTokenBalance:
 
 
 @dataclass
+class DepositTokenBalancesSnapshot:
+    context_slot: int
+    balances: dict[str, DepositTokenBalance] = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> "DepositTokenBalancesSnapshot":
+        raw_balances = data.get("balances", {})
+        if not isinstance(raw_balances, dict):
+            raise TypeError("deposit-token snapshot balances must be an object")
+        return cls(
+            context_slot=int(data["context_slot"]),
+            balances={
+                str(mint): DepositTokenBalance(**balance)
+                for mint, balance in raw_balances.items()
+                if isinstance(balance, dict)
+            },
+        )
+
+
+@dataclass
 class Portfolio:
     """User's full portfolio."""
     user_address: str
@@ -256,6 +276,7 @@ __all__ = [
     "WalletHolding",
     "DepositAssetMetadata",
     "DepositTokenBalance",
+    "DepositTokenBalancesSnapshot",
     "Portfolio",
     "TokenBalanceComputedBase",
     "ConditionalBalanceDelta",

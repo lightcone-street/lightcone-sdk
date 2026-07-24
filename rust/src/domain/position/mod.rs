@@ -163,6 +163,40 @@ pub struct DepositTokenBalance {
     pub icon_url_high: Option<String>,
 }
 
+/// Authenticated deposit-token balances observed at a confirmed Solana slot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DepositTokenBalancesSnapshot {
+    pub context_slot: u64,
+    pub balances: HashMap<PubkeyStr, DepositTokenBalance>,
+}
+
+#[cfg(test)]
+mod deposit_token_balance_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_deserializes_context_slot_and_balances() {
+        let snapshot: DepositTokenBalancesSnapshot = serde_json::from_value(serde_json::json!({
+            "context_slot": 1234,
+            "balances": {
+                "MintA": {
+                    "mint": "MintA",
+                    "idle": "1.25",
+                    "symbol": "USDC",
+                    "name": "USD Coin"
+                }
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(snapshot.context_slot, 1234);
+        assert_eq!(
+            snapshot.balances[&PubkeyStr::from("MintA")].idle,
+            Decimal::new(125, 2)
+        );
+    }
+}
+
 impl From<ConditionalBalanceDelta> for UserOutcomeBalance {
     fn from(delta: ConditionalBalanceDelta) -> Self {
         UserOutcomeBalance {

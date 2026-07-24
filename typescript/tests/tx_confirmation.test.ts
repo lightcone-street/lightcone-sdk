@@ -91,6 +91,12 @@ describe("Rpc.confirmSignature", () => {
     assert.equal(statusCalls(), 2);
   });
 
+  it("returns the confirmed transaction status with its slot", async () => {
+    const { rpc } = stubRpc([[status("confirmed")]]);
+    const confirmed = await rpc.confirmSignatureStatus(SIGNATURE, 100);
+    assert.equal(confirmed.slot, 1);
+  });
+
   it("throws TransactionFailed when the transaction landed with an error", async () => {
     const { rpc } = stubRpc([
       [status("confirmed", { InstructionError: [0, { Custom: 42 }] })],

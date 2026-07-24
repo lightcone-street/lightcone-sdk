@@ -37,7 +37,7 @@ from ...program.types import (
     WithdrawFromPositionParams,
 )
 from ...rpc import require_connection
-from . import DepositTokenBalance
+from . import DepositTokenBalance, DepositTokenBalancesSnapshot
 from .builders import (
     DepositBuilder,
     DepositToGlobalBuilder,
@@ -166,6 +166,39 @@ class Positions:
             cookie_header=cookie_header,
         )
         return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
+
+    async def deposit_token_balances_snapshot(
+        self, min_context_slot: Optional[int] = None
+    ) -> DepositTokenBalancesSnapshot:
+        """Get balances and their confirmed Solana context slot."""
+        params = (
+            {"min_context_slot": str(min_context_slot)}
+            if min_context_slot is not None
+            else None
+        )
+        data = await self._client._http.get(
+            "/api/users/deposit-token-balances/snapshot",
+            params=params,
+        )
+        return DepositTokenBalancesSnapshot.from_dict(data)
+
+    async def deposit_token_balances_snapshot_with_cookies(
+        self,
+        min_context_slot: Optional[int],
+        cookie_header: str,
+    ) -> DepositTokenBalancesSnapshot:
+        """Same as :meth:`deposit_token_balances_snapshot`, with a per-call cookie."""
+        params = (
+            {"min_context_slot": str(min_context_slot)}
+            if min_context_slot is not None
+            else None
+        )
+        data = await self._client._http.get_with_cookies(
+            "/api/users/deposit-token-balances/snapshot",
+            cookie_header=cookie_header,
+            params=params,
+        )
+        return DepositTokenBalancesSnapshot.from_dict(data)
 
     # ── On-chain instruction builders ────────────────────────────────────
 

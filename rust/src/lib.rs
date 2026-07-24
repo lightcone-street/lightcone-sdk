@@ -91,8 +91,9 @@ pub mod prelude {
 
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{
-        DepositAssetMetadata, DepositTokenBalance, Portfolio, Position, PositionOutcome,
-        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletHolding,
+        DepositAssetMetadata, DepositTokenBalance, DepositTokenBalancesSnapshot, Portfolio,
+        Position, PositionOutcome, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
+        WalletHolding,
     };
 
     // Domain types — trade, price history
@@ -170,10 +171,11 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AuthClient, FavoriteMarketUpdate, FavoriteMarkets, GlobalDepositAssetsResult,
-        LightconeClient, LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient,
-        NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
-        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        AuthClient, ConfirmedTransaction, FavoriteMarketUpdate, FavoriteMarkets,
+        GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
+        MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
+        PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

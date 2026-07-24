@@ -7,7 +7,7 @@ use crate::domain::position::builders::{
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
 use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
-use crate::domain::position::DepositTokenBalance;
+use crate::domain::position::{DepositTokenBalance, DepositTokenBalancesSnapshot};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
@@ -22,6 +22,14 @@ use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
 use std::collections::HashMap;
+
+fn deposit_token_balances_snapshot_query(
+    min_context_slot: Option<u64>,
+) -> Vec<(&'static str, String)> {
+    min_context_slot
+        .map(|slot| vec![("min_context_slot", slot.to_string())])
+        .unwrap_or_default()
+}
 
 pub struct Positions<'a> {
     pub(crate) client: &'a LightconeClient,
@@ -160,6 +168,45 @@ impl<'a> Positions<'a> {
         self.client
             .http
             .get_with_cookies(&url, RetryPolicy::Idempotent, cookie_header)
+            .await
+    }
+
+    /// Get a confirmed-slot snapshot of the authenticated user's SPL
+    /// deposit-token balances.
+    ///
+    /// When `min_context_slot` is provided, the backend only returns cached
+    /// data if it was observed at or after that slot and otherwise asks
+    /// Solana RPC for a sufficiently recent view.
+    pub async fn deposit_token_balances_snapshot(
+        &self,
+        min_context_slot: Option<u64>,
+    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
+        let url = format!(
+            "{}/api/users/deposit-token-balances/snapshot",
+            self.client.http.base_url()
+        );
+        let query = deposit_token_balances_snapshot_query(min_context_slot);
+        self.client
+            .http
+            .get_with_query(&url, &query, RetryPolicy::Idempotent)
+            .await
+    }
+
+    /// Same as [`Self::deposit_token_balances_snapshot`], but forwards the
+    /// supplied raw `Cookie` header for this call.
+    pub async fn deposit_token_balances_snapshot_with_cookies(
+        &self,
+        min_context_slot: Option<u64>,
+        cookie_header: &str,
+    ) -> Result<DepositTokenBalancesSnapshot, SdkError> {
+        let url = format!(
+            "{}/api/users/deposit-token-balances/snapshot",
+            self.client.http.base_url()
+        );
+        let query = deposit_token_balances_snapshot_query(min_context_slot);
+        self.client
+            .http
+            .get_with_cookies_and_query(&url, &query, RetryPolicy::Idempotent, cookie_header)
             .await
     }
 
@@ -479,5 +526,19 @@ impl<'a> Positions<'a> {
             )?)),
             Err(_) => Ok(None),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::deposit_token_balances_snapshot_query;
+
+    #[test]
+    fn snapshot_query_includes_optional_minimum_context_slot() {
+        assert!(deposit_token_balances_snapshot_query(None).is_empty());
+        assert_eq!(
+            deposit_token_balances_snapshot_query(Some(1234)),
+            vec![("min_context_slot", "1234".to_string())]
+        );
     }
 }
