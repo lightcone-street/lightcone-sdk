@@ -162,15 +162,16 @@ pub struct MarketResponse {
     pub condition_id: String,
     pub market_status: String,
     /// Maker fee in signed basis points (negative = rebate), set per market at
-    /// creation and admin-updatable on chain. `default` so an older backend
-    /// that doesn't serialize fees yet deserializes as 0 instead of failing
-    /// the whole market fetch over a display value.
+    /// creation and admin-updatable on chain. Optional on the wire so both a
+    /// missing key (older backend) and an explicit JSON null read as zero in
+    /// conversion instead of failing the whole market fetch over a display
+    /// value — matching the TypeScript (`?? 0`) and Python (`or 0`) SDKs.
     #[serde(default)]
-    pub maker_fee_bps: i16,
-    /// Taker fee in signed basis points (negative = rebate); `default` for the
-    /// same backend-compatibility reason as `maker_fee_bps`.
+    pub maker_fee_bps: Option<i16>,
+    /// Taker fee in signed basis points (negative = rebate); optional for the
+    /// same null/missing tolerance as `maker_fee_bps`.
     #[serde(default)]
-    pub taker_fee_bps: i16,
+    pub taker_fee_bps: Option<i16>,
     #[serde(default)]
     pub resolution_by: Option<i64>,
     #[serde(default)]

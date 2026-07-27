@@ -146,8 +146,8 @@ impl TryFrom<wire::MarketResponse> for Market {
             slug,
             name,
             status,
-            maker_fee_bps: source.maker_fee_bps,
-            taker_fee_bps: source.taker_fee_bps,
+            maker_fee_bps: source.maker_fee_bps.unwrap_or(0),
+            taker_fee_bps: source.taker_fee_bps.unwrap_or(0),
             created_at: source.created_at,
             activated_at: source.activated_at,
             settled_at: source.settled_at,
@@ -246,8 +246,8 @@ mod tests {
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
             market_status: "Active".to_string(),
-            maker_fee_bps: 25,
-            taker_fee_bps: 40,
+            maker_fee_bps: Some(25),
+            taker_fee_bps: Some(40),
             resolution_by: None,
             resolution: None,
             created_at: Utc::now(),
@@ -462,6 +462,31 @@ mod tests {
         let market = Market::try_from(valid_market_response(None)).unwrap();
         assert_eq!(market.maker_fee_bps, 25);
         assert_eq!(market.taker_fee_bps, 40);
+    }
+
+    #[test]
+    fn fee_bps_null_or_missing_deserializes_and_converts_to_zero() {
+        // The backend contract allows the fee fields to be absent (older
+        // backend) or JSON null; both must deserialize and convert to zero,
+        // matching the TypeScript and Python SDKs, rather than failing the
+        // whole market fetch.
+        let mut json = serde_json::to_value(valid_market_response(None)).unwrap();
+        json["maker_fee_bps"] = serde_json::Value::Null;
+        json["taker_fee_bps"] = serde_json::Value::Null;
+        let null_fees: wire::MarketResponse = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(null_fees.maker_fee_bps, None);
+        let market = Market::try_from(null_fees).unwrap();
+        assert_eq!(market.maker_fee_bps, 0);
+        assert_eq!(market.taker_fee_bps, 0);
+
+        let object = json.as_object_mut().unwrap();
+        object.remove("maker_fee_bps");
+        object.remove("taker_fee_bps");
+        let missing_fees: wire::MarketResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(missing_fees.taker_fee_bps, None);
+        let market = Market::try_from(missing_fees).unwrap();
+        assert_eq!(market.maker_fee_bps, 0);
+        assert_eq!(market.taker_fee_bps, 0);
     }
 
     #[test]
