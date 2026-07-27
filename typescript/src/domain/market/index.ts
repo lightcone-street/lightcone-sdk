@@ -50,6 +50,16 @@ export interface Market {
     featuredRank?: number;
     slug: string;
   status: Status;
+  /**
+   * Maker fee in basis points (1 bps = 0.01%); negative means a rebate.
+   * Set per market at creation, admin-updatable on chain.
+   */
+  makerFeeBps: number;
+  /**
+   * Taker fee in basis points (1 bps = 0.01%); negative means a rebate.
+   * Set per market at creation, admin-updatable on chain.
+   */
+  takerFeeBps: number;
   createdAt: Date;
   activatedAt?: Date;
   settledAt?: Date;

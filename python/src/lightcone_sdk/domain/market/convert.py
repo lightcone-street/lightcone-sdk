@@ -272,6 +272,8 @@ def market_from_wire(wire: MarketWire) -> Market:
         featured_rank=wire.featured_rank,
         slug=wire.slug or "",
         status=_parse_status(wire.market_status),
+        maker_fee_bps=wire.maker_fee_bps,
+        taker_fee_bps=wire.taker_fee_bps,
         created_at=wire.created_at,
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
