@@ -211,6 +211,10 @@ class MarketWire:
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
+    # Signed fee rates in basis points (negative = rebate); default 0 so an
+    # older backend that doesn't serialize them yet reads as zero.
+    maker_fee_bps: int = 0
+    taker_fee_bps: int = 0
     resolution_by: Optional[int] = None
     resolution: Optional[MarketResolutionResponse] = None
     created_at: Optional[str] = None
@@ -264,6 +268,8 @@ class MarketWire:
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
             market_status=d.get("market_status"),
+            maker_fee_bps=d.get("maker_fee_bps", 0),
+            taker_fee_bps=d.get("taker_fee_bps", 0),
             resolution_by=d.get("resolution_by"),
             resolution=(
                 MarketResolutionResponse.from_dict(resolution_raw)
