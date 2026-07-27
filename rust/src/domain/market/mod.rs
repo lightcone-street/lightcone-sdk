@@ -90,9 +90,11 @@ pub struct Market {
     pub featured_rank: Option<i16>,
     pub slug: String,
     pub status: Status,
-    /// Signed fee rates in basis points (1 bps = 0.01%); negative means a
-    /// rebate. Set per market at creation, admin-updatable on chain.
+    /// Maker fee in basis points (1 bps = 0.01%); negative means a rebate.
+    /// Set per market at creation, admin-updatable on chain.
     pub maker_fee_bps: i16,
+    /// Taker fee in basis points (1 bps = 0.01%); negative means a rebate.
+    /// Set per market at creation, admin-updatable on chain.
     pub taker_fee_bps: i16,
     pub created_at: DateTime<Utc>,
     pub activated_at: Option<DateTime<Utc>>,
