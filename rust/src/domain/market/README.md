@@ -24,6 +24,8 @@ A fully validated market with all nested domain types.
 | `name` | `String` | Market title (e.g., "Who wins the 2024 election?") |
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
+| `maker_fee_bps` | `i16` | Maker fee in signed basis points (negative = rebate) |
+| `taker_fee_bps` | `i16` | Taker fee in signed basis points (negative = rebate) |
 | `description` | `Option<String>` | Detailed market description |
 | `definition` | `String` | Resolution criteria |
 | `category` | `Option<String>` | Market category |

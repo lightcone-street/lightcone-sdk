@@ -146,6 +146,8 @@ impl TryFrom<wire::MarketResponse> for Market {
             slug,
             name,
             status,
+            maker_fee_bps: source.maker_fee_bps,
+            taker_fee_bps: source.taker_fee_bps,
             created_at: source.created_at,
             activated_at: source.activated_at,
             settled_at: source.settled_at,
@@ -244,6 +246,8 @@ mod tests {
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
             market_status: "Active".to_string(),
+            maker_fee_bps: 25,
+            taker_fee_bps: 40,
             resolution_by: None,
             resolution: None,
             created_at: Utc::now(),
@@ -451,6 +455,13 @@ mod tests {
         assert!(market.is_resolved());
         assert_eq!(market.single_winning_outcome(), Some(1));
         assert!(market.has_single_winning_outcome());
+    }
+
+    #[test]
+    fn market_conversion_passes_fee_bps_through() {
+        let market = Market::try_from(valid_market_response(None)).unwrap();
+        assert_eq!(market.maker_fee_bps, 25);
+        assert_eq!(market.taker_fee_bps, 40);
     }
 
     #[test]

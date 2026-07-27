@@ -161,6 +161,14 @@ pub struct MarketResponse {
     pub question_id: String,
     pub condition_id: String,
     pub market_status: String,
+    /// Signed fee rates in basis points (negative = rebate), set per market at
+    /// creation and admin-updatable on chain. `default` so an older backend that
+    /// doesn't serialize them yet deserializes as 0 instead of failing the whole
+    /// market fetch over a display value.
+    #[serde(default)]
+    pub maker_fee_bps: i16,
+    #[serde(default)]
+    pub taker_fee_bps: i16,
     #[serde(default)]
     pub resolution_by: Option<i64>,
     #[serde(default)]
