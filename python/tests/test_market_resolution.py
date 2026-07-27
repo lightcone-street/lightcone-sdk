@@ -226,6 +226,30 @@ def test_market_rejects_non_integer_outcome_counts(num_outcomes: object) -> None
         market_from_wire(wire)
 
 
+def test_fee_bps_null_or_missing_reads_as_zero() -> None:
+    # Older backends omit the fee fields entirely, and a backend could also
+    # serialize them as JSON null; both must read as zero so domain Market
+    # keeps its plain-int fee fields. Explicit values (including a negative
+    # maker rebate) must pass through untouched.
+    null_fees = market_payload()
+    null_fees["maker_fee_bps"] = None
+    null_fees["taker_fee_bps"] = None
+    signed_fees = market_payload()
+    signed_fees["maker_fee_bps"] = -5
+    signed_fees["taker_fee_bps"] = 40
+
+    null_market = market_from_wire(MarketWire.from_dict(null_fees))
+    missing_market = market_from_wire(MarketWire.from_dict(market_payload()))
+    signed_market = market_from_wire(MarketWire.from_dict(signed_fees))
+
+    assert null_market.maker_fee_bps == 0
+    assert null_market.taker_fee_bps == 0
+    assert missing_market.maker_fee_bps == 0
+    assert missing_market.taker_fee_bps == 0
+    assert signed_market.maker_fee_bps == -5
+    assert signed_market.taker_fee_bps == 40
+
+
 @pytest.mark.parametrize("definition", [None, "", 1])
 def test_definition_is_required(definition: object) -> None:
     payload = market_payload()
