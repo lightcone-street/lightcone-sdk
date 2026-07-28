@@ -47,6 +47,21 @@ thread_local! {
 /// for connection lifecycle and incoming messages.
 pub struct WsClient;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum SendDisposition {
+    SendImmediately,
+    QueueUntilOpen,
+    QueueAndReconnect,
+}
+
+fn send_disposition(ready_state: ReadyState) -> SendDisposition {
+    match ready_state {
+        ReadyState::Open => SendDisposition::SendImmediately,
+        ReadyState::Connecting => SendDisposition::QueueUntilOpen,
+        ReadyState::Closing | ReadyState::Closed => SendDisposition::QueueAndReconnect,
+    }
+}
+
 impl WsClient {
     /// Initialize and connect the WebSocket.
     ///
@@ -63,40 +78,50 @@ impl WsClient {
 
     /// Send a message through the WebSocket.
     ///
-    /// If connected, sends immediately. If disconnected, queues the message
-    /// and triggers reconnection. Subscribe/unsubscribe messages are tracked
-    /// for automatic resubscription on reconnect.
+    /// If open, sends immediately. While connecting, queues the message for
+    /// the in-flight connection. If closing or closed, queues the message and
+    /// triggers reconnection. Subscribe/unsubscribe messages are tracked for
+    /// automatic resubscription on reconnect.
     pub fn send(message: MessageOut) {
         Self::track_subscription(&message);
 
-        WS.with(|ws| {
-            match ws.try_borrow() {
-                Err(e) => {
-                    tracing::error!("WebSocket borrow failed: {}", e);
-                }
-                Ok(ws_ref) => match ws_ref.as_ref() {
-                    Some(w) if ReadyState::from(w.ready_state()) == ReadyState::Open => {
-                        if let Err(e) = w.send_with_str(&message.to_string()) {
-                            tracing::error!(
-                                "Failed to send message ({}): {}",
-                                message,
-                                extract_js_error(&e)
-                            );
+        let ready_state = Self::ready_state();
+        match send_disposition(ready_state) {
+            SendDisposition::SendImmediately => {
+                WS.with(|ws| match ws.try_borrow() {
+                    Err(e) => {
+                        tracing::error!("WebSocket borrow failed: {}", e);
+                    }
+                    Ok(ws_ref) => match ws_ref.as_ref() {
+                        Some(w) => {
+                            if let Err(e) = w.send_with_str(&message.to_string()) {
+                                tracing::error!(
+                                    "Failed to send message ({}): {}",
+                                    message,
+                                    extract_js_error(&e)
+                                );
+                            }
                         }
-                    }
-                    _ => {
-                        let state = Self::ready_state();
-                        tracing::warn!(
-                            "Cannot send message ({}) - WebSocket not open (state: {:?}). Triggering reconnect...",
-                            message,
-                            state
-                        );
-                        Self::queue_message(message);
-                        Self::reconnect();
-                    }
-                },
+                        None => {
+                            tracing::error!("WebSocket is open but no connection is available");
+                        }
+                    },
+                });
             }
-        })
+            SendDisposition::QueueUntilOpen => {
+                tracing::info!("WebSocket is connecting; queueing message until it opens");
+                Self::queue_message(message);
+            }
+            SendDisposition::QueueAndReconnect => {
+                tracing::warn!(
+                    "Cannot send message ({}) - WebSocket not open (state: {:?}). Triggering reconnect...",
+                    message,
+                    ready_state
+                );
+                Self::queue_message(message);
+                Self::reconnect();
+            }
+        }
     }
 
     /// Subscribe to a channel.
@@ -743,4 +768,23 @@ fn calculate_backoff_delay(attempt: u32, jitter_max: u32, cap: u32) -> u32 {
     let base = base_delay * (1 << exp);
     let jitter = (js_sys::Math::random() * jitter_max as f64) as u32;
     base.saturating_add(jitter).min(cap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_disposition_matches_connection_state() {
+        let cases = [
+            (ReadyState::Open, SendDisposition::SendImmediately),
+            (ReadyState::Connecting, SendDisposition::QueueUntilOpen),
+            (ReadyState::Closing, SendDisposition::QueueAndReconnect),
+            (ReadyState::Closed, SendDisposition::QueueAndReconnect),
+        ];
+
+        for (ready_state, expected_disposition) in cases {
+            assert_eq!(send_disposition(ready_state), expected_disposition);
+        }
+    }
 }
