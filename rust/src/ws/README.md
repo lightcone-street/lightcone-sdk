@@ -188,7 +188,7 @@ All methods are static (the WASM client manages a single global connection):
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `connect` | `fn connect(config: WsConfig, on_event: impl Fn(WsEvent))` | Connect with event callback |
-| `send` | `fn send(message: MessageOut)` | Send a message |
+| `send` | `fn send(message: MessageOut)` | Send immediately when open, queue while connecting, or queue and reconnect when closing/closed |
 | `subscribe` | `fn subscribe(params: SubscribeParams)` | Subscribe to a channel |
 | `unsubscribe` | `fn unsubscribe(params: UnsubscribeParams)` | Unsubscribe from a channel |
 | `is_connected` | `fn is_connected() -> bool` | Connection status |
