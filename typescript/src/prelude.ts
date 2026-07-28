@@ -166,6 +166,7 @@ export type {
   TokenBalanceTokenType,
   DepositAssetMetadata,
   DepositTokenBalance,
+  DepositTokenBalancesSnapshot,
 } from "./domain/position";
 
 export {

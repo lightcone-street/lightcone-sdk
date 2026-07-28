@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { PublicKey } from "@solana/web3.js";
+import type { DepositTokenBalancesSnapshot } from "../src";
 import type { ClientContext } from "../src/context";
 import { Positions } from "../src/domain/position/client";
-import type { DepositTokenBalancesSnapshot } from "../src/domain/position";
 import type { RetryPolicy } from "../src/http";
 import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
