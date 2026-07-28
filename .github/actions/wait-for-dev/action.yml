@@ -4,7 +4,8 @@ description: >
   HEAD, then point the SDK examples at the dev tier (SDK_API_URL / SDK_WS_URL). This is
   the cross-repo gate: the SDK is only tested once dev provably runs the backend it
   expects, so a not-yet-deployed backend can't produce a false pass/fail. No-op unless
-  the target env is staging (prod PRs test against prod as before).
+  the target env is staging (prod PRs test against prod as before). The rollout budget
+  starts when the backend commit is created, so later SDK reruns fail stale deploys quickly.
 inputs:
   lightcone-env:
     required: true
@@ -21,13 +22,27 @@ runs:
         GH_TOKEN: ${{ inputs.gh-token }}
       run: |
         set -euo pipefail
-        EXPECTED=$(gh api repos/lightcone-street/lightcone-backend/commits/staging --jq .sha)
-        echo "Waiting until api.dev runs backend $EXPECTED …"
-        for i in $(seq 1 120); do            # ~40 min: backend build (~15-25m) + rollout
+        read -r EXPECTED EXPECTED_AT < <(
+          gh api repos/lightcone-street/lightcone-backend/commits/staging \
+            --jq '[.sha, .commit.committer.date] | @tsv'
+        )
+        DEADLINE=$(($(date -d "$EXPECTED_AT" +%s) + 40 * 60))
+        echo "Waiting until api.dev runs backend $EXPECTED (committed $EXPECTED_AT)"
+        while true; do
           GOT=$(curl -s -m 8 https://api.dev.lightcone.xyz/version || true)
-          if [ "$GOT" = "$EXPECTED" ]; then echo "dev is on $GOT ✓"; break; fi
-          echo "  dev on '${GOT:-?}', waiting… ($i/120)"; sleep 20
-          if [ "$i" = 120 ]; then echo "timed out waiting for dev to reach $EXPECTED"; exit 1; fi
+          if [ "$GOT" = "$EXPECTED" ]; then echo "dev is on $GOT"; break; fi
+
+          NOW=$(date +%s)
+          if [ "$NOW" -ge "$DEADLINE" ]; then
+            echo "::error title=Dev backend deployment stale::api.dev is on ${GOT:-unknown}; expected $EXPECTED. The backend staging build and dev redeploy did not finish within 40 minutes of $EXPECTED_AT. Inspect CodeBuild project lightcone-backend-build-staging before rerunning."
+            exit 1
+          fi
+
+          REMAINING=$((DEADLINE - NOW))
+          SLEEP_SECONDS=20
+          if [ "$REMAINING" -lt "$SLEEP_SECONDS" ]; then SLEEP_SECONDS="$REMAINING"; fi
+          echo "  dev on '${GOT:-?}', waiting up to ${REMAINING}s"
+          sleep "$SLEEP_SECONDS"
         done
         {
           echo "SDK_API_URL=https://api.dev.lightcone.xyz"
