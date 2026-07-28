@@ -91,6 +91,17 @@ export interface MarketResponse {
   question_id: string;
   condition_id: string;
   market_status: string;
+  /**
+   * Maker fee in signed basis points (negative = rebate), set per market at
+   * creation and admin-updatable on chain. Optional so an older backend that
+   * doesn't serialize fees yet reads as 0 instead of failing the market fetch.
+   */
+  maker_fee_bps?: number;
+  /**
+   * Taker fee in signed basis points (negative = rebate); optional for the
+   * same backend-compatibility reason as `maker_fee_bps`.
+   */
+  taker_fee_bps?: number;
   /** Resolution deadline as a Unix timestamp in milliseconds. */
   resolution_by: number | null;
   resolution?: MarketResolutionResponse;

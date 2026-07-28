@@ -230,6 +230,10 @@ class Market:
     featured_rank: Optional[int] = None
     slug: str = ""
     status: Status = Status.PENDING
+    # Signed fee rates in basis points (1 bps = 0.01%); negative means a
+    # rebate. Set per market at creation, admin-updatable on chain.
+    maker_fee_bps: int = 0
+    taker_fee_bps: int = 0
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
