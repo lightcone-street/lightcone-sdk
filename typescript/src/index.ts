@@ -23,8 +23,15 @@ export * as ws from "./ws";
 // Layer 5: High-level client
 export { LightconeClient, LightconeClientBuilder } from "./client";
 export { Rpc } from "./rpc";
-export type { ClientContext } from "./context";
-export { requireConnection, requireSigningStrategy, resolveDepositSource, signAndSubmitTx, signAndSubmitTxConfirmed } from "./context";
+export type { ClientContext, ConfirmedTransaction } from "./context";
+export {
+  requireConnection,
+  requireSigningStrategy,
+  resolveDepositSource,
+  signAndSubmitTx,
+  signAndSubmitTxConfirmed,
+  signAndSubmitTxConfirmedWithSlot,
+} from "./context";
 
 // Convenience top-level type exports
 export type {

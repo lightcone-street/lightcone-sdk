@@ -105,8 +105,10 @@ export async function waitForGlobalBalance(
   console.log(`waiting for global balance: mint=${mintStr} required=${minimumAmount}`);
   while (Date.now() < deadline) {
     attempt++;
-    const balances = await client.positions().depositTokenBalances();
-    const entry = Object.values(balances).find((balance) => balance.mint === mintStr);
+    const snapshot = await client.positions().depositTokenBalances();
+    const entry = Object.values(snapshot.balances).find(
+      (balance) => balance.mint === mintStr
+    );
     const currentIdle = entry ? Number(entry.idle) : 0;
     const symbol = entry?.symbol ?? "unknown";
     if (currentIdle >= minimumAmount) {

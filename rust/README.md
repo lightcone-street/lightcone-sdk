@@ -233,10 +233,11 @@ For these cases, authed methods that need per-call forwarding ship a `_with_cook
 ```rust
 // Inside an axum / dioxus server function, after extracting the
 // auth_token cookie from the incoming request:
-let balances = client
+let snapshot = client
     .positions()
-    .deposit_token_balances_with_cookies(&auth_token)
+    .deposit_token_balances_with_cookies(None, &auth_token)
     .await?;
+println!("snapshot slot {}: {} balances", snapshot.context_slot, snapshot.balances.len());
 
 let positions = client
     .positions()

@@ -478,6 +478,18 @@ impl LightconeClient {
         signature: &str,
         last_valid_block_height: Option<u64>,
     ) -> Result<(), SdkError> {
+        self.confirm_signature_status(signature, last_valid_block_height)
+            .await
+            .map(|_| ())
+    }
+
+    /// Same as [`Self::confirm_signature`], but returns the confirmed
+    /// transaction status so callers can use its processing slot.
+    pub async fn confirm_signature_status(
+        &self,
+        signature: &str,
+        last_valid_block_height: Option<u64>,
+    ) -> Result<TransactionStatus, SdkError> {
         let signatures = [signature.to_string()];
         let mut consecutive_failures: u32 = 0;
         let mut over_bound_samples: u32 = 0;
@@ -507,12 +519,12 @@ impl LightconeClient {
                     consecutive_failures = 0;
                     match statuses.into_iter().next().flatten() {
                         Some(status) if status.is_confirmed() => {
-                            return match status.err {
+                            return match status.err.as_ref() {
                                 Some(err) => Err(SdkError::TransactionFailed {
                                     signature: signature.to_string(),
                                     error: err.to_string(),
                                 }),
-                                None => Ok(()),
+                                None => Ok(status),
                             };
                         }
                         // Seen but below `confirmed` — keep waiting (failed
@@ -560,12 +572,12 @@ impl LightconeClient {
                                                 });
                                             }
                                             Some(landed) if landed.is_confirmed() => {
-                                                return match landed.err {
+                                                return match landed.err.as_ref() {
                                                     Some(err) => Err(SdkError::TransactionFailed {
                                                         signature: signature.to_string(),
                                                         error: err.to_string(),
                                                     }),
-                                                    None => Ok(()),
+                                                    None => Ok(landed),
                                                 };
                                             }
                                             // Landed but below `confirmed` —
@@ -627,10 +639,25 @@ impl LightconeClient {
         &self,
         tx: solana_transaction::Transaction,
     ) -> Result<String, SdkError> {
+        self.sign_and_submit_tx_confirmed_with_slot(tx)
+            .await
+            .map(|confirmed| confirmed.signature)
+    }
+
+    /// Sign and submit a transaction, wait for confirmed commitment, and
+    /// return both its signature and processing slot.
+    pub async fn sign_and_submit_tx_confirmed_with_slot(
+        &self,
+        tx: solana_transaction::Transaction,
+    ) -> Result<ConfirmedTransaction, SdkError> {
         let (signature, last_valid_block_height) = self.sign_and_submit_tx_inner(tx).await?;
-        self.confirm_signature(&signature, last_valid_block_height)
+        let status = self
+            .confirm_signature_status(&signature, last_valid_block_height)
             .await?;
-        Ok(signature)
+        Ok(ConfirmedTransaction {
+            signature,
+            slot: status.slot,
+        })
     }
 
     /// Shared submit path: sign, send, and return the signature together with
@@ -760,6 +787,13 @@ pub struct TransactionStatus {
     pub err: Option<serde_json::Value>,
     /// Cluster confirmation level: `processed`, `confirmed`, or `finalized`.
     pub confirmation_status: Option<String>,
+}
+
+/// A successfully submitted transaction and the slot where it was confirmed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmedTransaction {
+    pub signature: String,
+    pub slot: u64,
 }
 
 impl TransactionStatus {

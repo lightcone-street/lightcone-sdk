@@ -121,6 +121,13 @@ async def test_resolves_once_signature_reaches_confirmed() -> None:
 
 
 @pytest.mark.asyncio
+async def test_returns_confirmed_status_with_slot() -> None:
+    rpc, _ = _rpc([[_status(TransactionConfirmationStatus.Confirmed)]])
+    confirmed = await rpc.confirm_signature_status(SIGNATURE, 100)
+    assert confirmed.slot == 1
+
+
+@pytest.mark.asyncio
 async def test_raises_transaction_failed_when_landed_with_error() -> None:
     rpc, _ = _rpc(
         [

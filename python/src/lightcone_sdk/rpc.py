@@ -268,6 +268,12 @@ class Rpc:
           (persistent RPC errors or the poll cap); check the signature
           on-chain before resubmitting.
         """
+        await self.confirm_signature_status(signature, last_valid_block_height)
+
+    async def confirm_signature_status(
+        self, signature: str, last_valid_block_height: Optional[int]
+    ) -> TransactionStatus:
+        """Same as :meth:`confirm_signature`, returning the confirmed status."""
         consecutive_failures = 0
         over_bound_samples = 0
 
@@ -288,7 +294,7 @@ class Rpc:
                 if status is not None and _is_transaction_confirmed(status):
                     if status.err is not None:
                         raise TransactionFailed(signature, str(status.err))
-                    return
+                    return status
                 if status is not None:
                     # Seen but below confirmed — keep waiting (failed
                     # transactions land in blocks like any other, so an
@@ -338,7 +344,7 @@ class Rpc:
                                     raise TransactionFailed(
                                         signature, str(landed.err)
                                     )
-                                return
+                                return landed
                             # Landed but below confirmed — keep waiting and
                             # restart expiry evidence.
                             over_bound_samples = 0

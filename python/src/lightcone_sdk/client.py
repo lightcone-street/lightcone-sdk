@@ -6,6 +6,7 @@ Mirrors rust/src/client.rs — unified entry point with sub-client accessors.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 from typing import Optional
 
 from solders.pubkey import Pubkey
@@ -33,6 +34,14 @@ from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind
 from .shared.types import DepositSource
 from .ws import WsConfig, WS_DEFAULT_CONFIG
 from .ws.client import WsClient
+
+
+@dataclass(frozen=True)
+class ConfirmedTransaction:
+    """A confirmed transaction signature and its processing slot."""
+
+    signature: str
+    slot: int
 
 
 def _signed_blockhash_unchanged(signed_bytes: bytes, expected_blockhash: object) -> bool:
@@ -288,9 +297,18 @@ class LightconeClient:
         Returns:
             Transaction signature string, once confirmed on-chain.
         """
+        confirmed = await self.sign_and_submit_tx_confirmed_with_slot(tx)
+        return confirmed.signature
+
+    async def sign_and_submit_tx_confirmed_with_slot(
+        self, tx: object
+    ) -> ConfirmedTransaction:
+        """Sign, submit, confirm, and return the transaction's processing slot."""
         signature, last_valid_block_height = await self._sign_and_submit_tx_inner(tx)
-        await self.rpc().confirm_signature(signature, last_valid_block_height)
-        return signature
+        status = await self.rpc().confirm_signature_status(
+            signature, last_valid_block_height
+        )
+        return ConfirmedTransaction(signature=signature, slot=status.slot)
 
     async def _sign_and_submit_tx_inner(self, tx: object) -> tuple[str, Optional[int]]:
         """Shared submit path.

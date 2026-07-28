@@ -38,6 +38,7 @@ jobs:
         run: cargo test --features native,trigger_orders
 
   test_examples:
+    if: github.base_ref == 'prod'
     uses: ./.github/workflows/test-examples.yml
     with:
       lightcone-env: ${{ github.base_ref == 'prod' && 'prod' || 'staging' }}
@@ -45,6 +46,7 @@ jobs:
 
   publish:
     needs: [test_examples, rust_tests]
+    if: ${{ always() && needs.rust_tests.result == 'success' && (github.base_ref == 'staging' || needs.test_examples.result == 'success') }}
     uses: ./.github/workflows/publish.yml
     with:
       mode: dry-run

@@ -19,8 +19,21 @@ env:
   LIGHTCONE_ENV: ${{ inputs.lightcone-env }}
 
 jobs:
+  backend-ready:
+    name: Backend Ready
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for backend version match
+        uses: ./.github/actions/wait-for-dev
+        with:
+          lightcone-env: ${{ inputs.lightcone-env }}
+          gh-token: ${{ secrets.LIGHTCONE_SDK_GH_CI }}
+
   rust-examples:
     name: Rust Examples
+    needs: backend-ready
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -80,6 +93,7 @@ jobs:
 
   typescript-examples:
     name: TypeScript Examples
+    needs: backend-ready
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -129,6 +143,7 @@ jobs:
 
   python-examples:
     name: Python Examples
+    needs: backend-ready
     runs-on: ubuntu-latest
     defaults:
       run:

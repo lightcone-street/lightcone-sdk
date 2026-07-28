@@ -124,8 +124,9 @@ pub async fn wait_for_global_balance(
 
     loop {
         attempt += 1;
-        let balances = client.positions().deposit_token_balances().await?;
-        let entry = balances
+        let snapshot = client.positions().deposit_token_balances(None).await?;
+        let entry = snapshot
+            .balances
             .values()
             .find(|balance| balance.mint.as_str() == mint_str);
         let current_idle = entry.map(|e| e.idle).unwrap_or_default();

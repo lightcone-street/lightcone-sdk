@@ -142,6 +142,17 @@ export class Rpc {
     signature: string,
     lastValidBlockHeight: number | null
   ): Promise<void> {
+    await this.confirmSignatureStatus(signature, lastValidBlockHeight);
+  }
+
+  /**
+   * Same as {@link confirmSignature}, but returns the confirmed status so
+   * callers can use the transaction's processing slot.
+   */
+  async confirmSignatureStatus(
+    signature: string,
+    lastValidBlockHeight: number | null
+  ): Promise<SignatureStatus> {
     let consecutiveFailures = 0;
     let overBoundSamples = 0;
 
@@ -168,7 +179,7 @@ export class Rpc {
               JSON.stringify(status.err)
             );
           }
-          return;
+          return status;
         }
         if (status) {
           // Seen but below `confirmed` — keep waiting (failed transactions
@@ -217,7 +228,7 @@ export class Rpc {
                     JSON.stringify(landed.err)
                   );
                 }
-                return;
+                return landed;
               }
               // Landed but below `confirmed` — keep waiting and restart
               // expiry evidence.

@@ -244,9 +244,10 @@ For these cases, authed methods that need per-call forwarding ship a `*WithAuth(
 ```typescript
 // Inside a server route, after extracting the auth_token cookie
 // from the incoming request:
-const balances = await client
+const snapshot = await client
   .positions()
-  .depositTokenBalancesWithAuth(authToken);
+  .depositTokenBalancesWithCookies(undefined, authToken);
+console.log(`snapshot slot ${snapshot.context_slot}: ${Object.keys(snapshot.balances).length} balances`);
 
 const positions = await client
   .positions()
