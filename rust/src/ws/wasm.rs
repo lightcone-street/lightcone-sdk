@@ -363,9 +363,15 @@ impl WsClient {
         onmessage.forget();
 
         let onerror = Closure::<dyn FnMut(_)>::new(move |e: ErrorEvent| {
-            let msg = extract_js_error(&e.error());
-            tracing::error!("WebSocket error: {:?}", msg);
-            Self::emit(WsEvent::Error(msg));
+            let error = e.error();
+            // Browser transport errors are followed by onclose, which owns
+            // lifecycle details and reconnect behavior. Keep useful payloads
+            // at one telemetry site instead of forwarding a duplicate event.
+            if has_websocket_error_payload(error.is_undefined(), error.is_null()) {
+                tracing::error!("WebSocket error: {}", extract_js_error(&error));
+            } else {
+                tracing::info!("WebSocket error had no diagnostic payload; awaiting close details");
+            }
         });
         ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
         onerror.forget();
@@ -719,6 +725,14 @@ impl WsClient {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/// Whether `ErrorEvent.error` contains diagnostic data worth extracting.
+///
+/// Browsers commonly expose null or undefined for WebSocket transport errors;
+/// the subsequent close event carries the actionable connection details.
+fn has_websocket_error_payload(is_undefined: bool, is_null: bool) -> bool {
+    !is_undefined && !is_null
+}
+
 fn extract_js_error(err: &JsValue) -> String {
     if let Some(error) = err.dyn_ref::<js_sys::Error>() {
         let name = (|| error.name().as_string())().unwrap_or_else(|| "Error".to_string());
@@ -786,5 +800,12 @@ mod tests {
         for (ready_state, expected_disposition) in cases {
             assert_eq!(send_disposition(ready_state), expected_disposition);
         }
+    }
+
+    #[test]
+    fn websocket_error_payload_requires_present_value() {
+        assert!(!has_websocket_error_payload(true, false));
+        assert!(!has_websocket_error_payload(false, true));
+        assert!(has_websocket_error_payload(false, false));
     }
 }
