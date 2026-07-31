@@ -41,6 +41,15 @@ Result of redeeming a referral code.
 | `success` | `bool` | Whether the redemption succeeded |
 | `is_beta` | `bool` | Whether the user now has beta access |
 
+### `ReferralRedeemErrorCode`
+
+Machine-readable error code returned in `ApiRejectedDetails.error_code` when
+referral redemption fails. Known API values map to typed variants, including
+`InvalidCode`, `CodeFullyRedeemed`, and `RateLimited`. Unrecognized values are
+preserved in `Unknown(String)` for forward compatibility.
+
+Parsing is case-sensitive and `as_str()` returns the exact API wire value.
+
 ## Client Methods
 
 Access via `client.referrals()`. All methods require an authenticated session.
@@ -59,7 +68,10 @@ Get the current user's referral status, including their beta access state and an
 async fn redeem(&self, code: &str) -> Result<RedeemResult, SdkError>
 ```
 
-Redeem a referral code to gain beta access. Returns an error if the code is invalid, expired, or already at max uses.
+Redeem a referral code to gain beta access. Returns `SdkError::ApiRejected` if
+the code is invalid, fully redeemed, or otherwise rejected. Callers can parse
+the rejection's `error_code` with `ReferralRedeemErrorCode` while retaining the
+complete `ApiRejectedDetails`.
 
 ## Examples
 

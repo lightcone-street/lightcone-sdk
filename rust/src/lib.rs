@@ -161,7 +161,9 @@ pub mod prelude {
     pub use crate::shared::signing::{ExternalSigner, SigningStrategy};
 
     // Domain types — referral
-    pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
+    pub use crate::domain::referral::{
+        RedeemResult, ReferralCodeInfo, ReferralRedeemErrorCode, ReferralStatus,
+    };
 
     // Domain types — notification
     pub use crate::domain::notification::{
