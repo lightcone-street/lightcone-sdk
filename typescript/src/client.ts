@@ -22,7 +22,7 @@ import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
 import { RpcFailoverState } from "./rpcFailover";
-import { DepositSource, type PubkeyStr } from "./shared";
+import { DepositSource, type OrderbookRules, type PubkeyStr } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
@@ -57,6 +57,7 @@ export class LightconeClient implements ClientContext {
   private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
+  readonly orderbookRulesCache: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for ClientContext compat. */
   get connection(): Connection | undefined {
@@ -75,6 +76,7 @@ export class LightconeClient implements ClientContext {
     orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
+    orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
   }) {
     this.http = params.http;
     this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
@@ -89,6 +91,7 @@ export class LightconeClient implements ClientContext {
     this.authStateStore =
       params.authState ??
       new AuthState(params.authCredentials);
+    this.orderbookRulesCache = params.orderbookRulesCache ?? new Map();
   }
 
   // ── Deposit source ──────────────────────────────────────────────────
@@ -293,6 +296,7 @@ export class LightconeClient implements ClientContext {
       signingStrategy: this.signingStrategyValue,
       orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
+      orderbookRulesCache: this.orderbookRulesCache,
     });
   }
 }

@@ -15,7 +15,11 @@ pub mod signing;
 pub use api_response::{ApiRejectedDetails, ApiResponse};
 pub use price::{format_decimal, parse_decimal};
 pub use rejection::RejectionCode;
-pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
+pub use scaling::{
+    exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
+    validate_trigger_price, OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64,
+    NONCE_MAX, PRICE_SCALE,
+};
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};

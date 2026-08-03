@@ -329,8 +329,8 @@ Create unsigned bid or ask orders from raw parameters.
 #### `create_signed_bid_order` / `create_signed_ask_order`
 
 ```rust
-fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> OrderPayload
-fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> OrderPayload
+fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> SdkResult<OrderPayload>
+fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> SdkResult<OrderPayload>
 ```
 
 Create and sign orders in one step. Requires the `native-auth` feature.
@@ -346,14 +346,22 @@ Compute the Keccak256 hash of an order (excludes the signature field).
 #### `sign_order`
 
 ```rust
-fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair)
+fn sign_order(
+    &self,
+    order: &mut OrderPayload,
+    keypair: &Keypair,
+    rules: &OrderbookRules,
+) -> SdkResult<()>
 ```
 
-Sign an order in place with the given keypair. Requires the `native-auth` feature.
+Preflight the raw ratio against fetched rules, then sign in place. Requires the
+`native-auth` feature.
 
 ## Order Envelope Builder
 
-The SDK provides a fluent builder API for constructing and signing orders. The envelope handles field validation, price/size scaling to raw amounts, and signature generation.
+The SDK provides a fluent builder API for constructing and signing orders. The
+envelope uses fetched immutable trading rules and exact integer arithmetic. It
+never rounds, truncates, or aligns a signed price or size implicitly.
 
 ### `LimitOrderEnvelope`
 
@@ -363,7 +371,7 @@ For standard limit orders:
 use lightcone::prelude::*;
 
 // Recommended: factory method pre-seeds client deposit source
-let request = client.orders().limit_order().await
+let response = client.orders().limit_order().await
     .maker(keypair.pubkey())
     .market(market_pubkey)
     .base_mint(base_mint)
@@ -374,14 +382,14 @@ let request = client.orders().limit_order().await
     .nonce(nonce)
     .expiration(0)                  // 0 = no expiration
     // .deposit_source(DepositSource::Global) // override if needed
-    .apply_scaling(&decimals)?      // convert to raw amounts
-    .sign(&keypair, orderbook_id)?; // sign and produce SubmitOrderRequest
+    .submit(&client, &orderbook).await?; // fetch/cache rules, validate, sign, submit
 
 // Alternative: standalone use without a client
+let rules = client.orderbooks().decimals(orderbook.orderbook_id.as_str()).await?;
 let request = LimitOrderEnvelope::new()
     .maker(keypair.pubkey())
     // ... same chain as above
-    .sign(&keypair, orderbook_id)?;
+    .sign(&keypair, &orderbook, &rules)?;
 ```
 
 ### `TriggerOrderEnvelope`
@@ -403,17 +411,16 @@ let request = client.orders().trigger_order().await
     .price("0.55")
     .size("100")
     .nonce(nonce)
-    .take_profit(0.65)              // or .stop_loss(0.45)
+    .take_profit("0.65")            // exact decimal string; or .stop_loss("0.45")
     .gtc()                          // or .ioc(), .fok(), .alo()
     // .deposit_source(DepositSource::Global) // override if needed
-    .apply_scaling(&decimals)?
-    .sign(&keypair, orderbook_id)?;
+    .submit(&client, &orderbook).await?;
 
 // Alternative: standalone use without a client
 let request = TriggerOrderEnvelope::new()
     .maker(keypair.pubkey())
     // ... same chain as above
-    .sign(&keypair, orderbook_id)?;
+    .sign(&keypair, &orderbook, &rules)?;
 ```
 
 ### `OrderEnvelope` trait
@@ -433,9 +440,9 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.nonce(u32)` | Set the order nonce. When using `submit()`, auto-populated from `client.order_nonce()` if omitted (falls back to 0). |
 | `.expiration(i64)` | Set expiration (0 = none) |
 | `.deposit_source(ds)` | Set collateral source (`Global` or `Market`). Pre-seeded by factory methods. |
-| `.apply_scaling(&decimals)` | Convert price/size to raw amounts using orderbook decimals |
-| `.sign(&keypair, orderbook_id)` | Sign with a keypair and produce `SubmitOrderRequest` |
-| `.finalize(sig_bs58, orderbook_id)` | Attach an external signature (for Privy/wallet adapter) |
+| `.sign(&keypair, orderbook, rules)` | Validate exact construction, sign, and produce `SubmitOrderRequest` |
+| `.finalize(sig_bs58, orderbook, rules)` | Validate and attach an external signature |
+| `.submit(client, orderbook)` | Fetch/cache rules, validate before wallet signing, and submit |
 | `.payload()` | Get the raw `OrderPayload` (for manual signing) |
 
 `TriggerOrderEnvelope` adds:
@@ -446,9 +453,12 @@ Both envelope types implement the `OrderEnvelope` trait with these shared method
 | `.stop_loss(price)` | Set trigger type to stop-loss at the given price |
 | `.gtc()` / `.ioc()` / `.fok()` / `.alo()` | Set time-in-force |
 
-### Scaling
+### Exact construction
 
-`apply_scaling()` converts human-readable price and size strings into the raw `amount_in` / `amount_out` values the matching engine expects. You **must** call this before signing. The `DecimalsResponse` from `client.orderbooks().decimals()` provides the required precision.
+`client.orderbooks().decimals()` returns the mandatory `OrderbookRules`.
+Human values are parsed as exact decimal strings; raw amount callers are
+preflighted against the same price, size, ratio, and signed-64-bit rules. All
+validation completes before hashing or invoking a wallet signer.
 
 ## State Containers
 
@@ -528,9 +538,8 @@ async fn market_make(client: &LightconeClient, keypair: &Keypair) -> Result<(), 
         .bid()
         .price("0.50")
         .size("100")
-        .nonce(order_nonce)
-        .apply_scaling(&decimals)?
-        .sign(keypair, ob.orderbook_id.as_str())?;
+        .nonce(order_nonce.into())
+        .sign(keypair, ob, &decimals)?;
 
     let response = client.orders().submit(&bid_request).await?;
     println!("Bid placed: {:?}", response);
@@ -577,8 +586,8 @@ async fn place_take_profit(
     client: &LightconeClient,
     keypair: &solana_keypair::Keypair,
     ob: &OrderBookPair,
-    decimals: &impl lightcone::shared::scaling::OrderbookDecimals,
 ) -> Result<(), SdkError> {
+    let rules = client.orderbooks().decimals(ob.orderbook_id.as_str()).await?;
     let request = client.orders().trigger_order().await
         .maker(keypair.pubkey())
         .market(ob.market_pubkey.to_pubkey().unwrap())
@@ -588,10 +597,9 @@ async fn place_take_profit(
         .price("0.70")
         .size("50")
         .nonce(2)
-        .take_profit(0.65)
+        .take_profit("0.65")
         .gtc()
-        .apply_scaling(decimals)?
-        .sign(keypair, ob.orderbook_id.as_str())?;
+        .sign(keypair, ob, &rules)?;
 
     let response = client.orders().submit_trigger(&request).await?;
     println!("Trigger order placed: {:?}", response);

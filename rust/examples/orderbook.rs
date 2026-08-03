@@ -17,7 +17,10 @@ async fn main() -> ExampleResult {
             BookAggregation::FULL,
         )
         .await?;
-    let decimals = orderbook.decimals();
+    let decimals = client
+        .orderbooks()
+        .decimals(orderbook.orderbook_id.as_str())
+        .await?;
 
     println!("market: {}", market.slug);
     println!("orderbook: {}", orderbook.orderbook_id);
@@ -34,12 +37,14 @@ async fn main() -> ExampleResult {
         "decimals: price={}, base={}, quote={}",
         decimals.price_decimals, decimals.base_decimals, decimals.quote_decimals
     );
-    if let Some(depth_decimals) = depth.decimals {
-        println!(
-            "depth decimals: price={}, size={}",
-            depth_decimals.price, depth_decimals.size
-        );
-    }
+    println!(
+        "size decimals: {}, price quantum: {}",
+        decimals.trading_rules.base_size_decimals, decimals.trading_rules.price_quantum
+    );
+    println!(
+        "depth decimals: price={}, size={}",
+        depth.decimals.price, depth.decimals.size
+    );
 
     // Hyperliquid-style aggregation: 5 significant figures, 1/2/5 mantissa
     // sub-steps. Bids bucket by flooring, asks by ceiling.

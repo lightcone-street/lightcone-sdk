@@ -67,22 +67,6 @@ class OrderBookPair:
         from solders.pubkey import Pubkey
         return Pubkey.from_string(self.quote.pubkey)
 
-    def decimals(self) -> "OrderbookDecimals":
-        """Derive scaling decimals from this pair's token metadata.
-
-        This is the recommended way to get OrderbookDecimals — no REST call needed.
-        """
-        from ...shared.scaling import OrderbookDecimals
-        base_decimals = self.base.decimals
-        quote_decimals = self.quote.decimals
-        return OrderbookDecimals(
-            orderbook_id=self.orderbook_id,
-            base_decimals=base_decimals,
-            quote_decimals=quote_decimals,
-            price_decimals=max(6 + quote_decimals - base_decimals, 0),
-            tick_size=max(self.tick_size, 0),
-        )
-
     @staticmethod
     def impact_pct(deposit_price: str, conditional_price: str) -> tuple[float, str]:
         """Price impact as percentage relative to a deposit asset price."""

@@ -41,19 +41,23 @@ export {
 export { RejectionCode } from "./rejection";
 
 export { formatDecimal, isZero, parseDecimal } from "./price";
+export { parseJsonExact, stringifyJsonExact } from "./json";
 
 export {
-  alignPriceToTick,
+  assertSignedRange,
+  exactScaledInteger,
+  I64_MAX,
+  PRICE_SCALE,
   scalePriceSize,
-  scalePriceSizeLegacy,
   ScalingError,
-  type LegacyScaledAmounts,
-  type OrderbookDecimals,
+  U32_MAX,
+  validateRawAmounts,
+  validateSignedFields,
+  validateTriggerPrice,
+  type OrderbookRules,
+  type TradingRules,
   type ScaledAmounts,
 } from "./scaling";
-
-// Backward-compatible name from v1.
-export { scalePriceSizeLegacy as scalePriceSizeV1 } from "./scaling";
 
 export {
   isUserCancellation,

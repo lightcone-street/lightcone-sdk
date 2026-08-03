@@ -8,7 +8,12 @@ from solders.pubkey import Pubkey
 from .types import SignedOrder, OrderSide
 from .orders import sign_order, signature_hex, is_signed
 from ..shared.types import Side, SubmitOrderRequest
-from ..shared.scaling import OrderbookDecimals, scale_price_size
+from ..shared.scaling import (
+    OrderbookRules,
+    scale_price_size,
+    validate_raw_amounts,
+    validate_signed_fields,
+)
 
 
 class OrderBuilder:
@@ -25,6 +30,7 @@ class OrderBuilder:
         self._amount_in: int = 0
         self._amount_out: int = 0
         self._expiration: int = 0
+        self._rules: Optional[OrderbookRules] = None
 
     def nonce(self, nonce: int) -> "OrderBuilder":
         self._nonce = nonce
@@ -74,19 +80,32 @@ class OrderBuilder:
         self._expiration = expiration
         return self
 
-    def price(self, price: str, size: str, decimals: OrderbookDecimals) -> "OrderBuilder":
-        """Set amounts from price and size using decimal scaling."""
-        scaled = scale_price_size(price, size, int(self._side), decimals)
+    def rules(self, rules: OrderbookRules) -> "OrderBuilder":
+        self._rules = rules
+        return self
+
+    def price(self, price: str, size: str, rules: OrderbookRules) -> "OrderBuilder":
+        """Construct exact amounts under fetched immutable trading rules."""
+        self._rules = rules
+        scaled = scale_price_size(price, size, int(self._side), rules)
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
         return self
 
-    def build(self) -> SignedOrder:
+    def build(self, rules: Optional[OrderbookRules] = None) -> SignedOrder:
         """Build an unsigned SignedOrder."""
         assert self._maker is not None, "maker is required"
         assert self._market is not None, "market is required"
         assert self._base_mint is not None, "base_mint is required"
         assert self._quote_mint is not None, "quote_mint is required"
+        resolved_rules = rules or self._rules
+        assert resolved_rules is not None, "trading_rules are required"
+        validate_raw_amounts(
+            self._amount_in, self._amount_out, int(self._side), resolved_rules
+        )
+        validate_signed_fields(
+            self._amount_in, self._amount_out, self._salt, self._nonce
+        )
 
         return SignedOrder(
             nonce=self._nonce,
@@ -101,15 +120,24 @@ class OrderBuilder:
             expiration=self._expiration,
         )
 
-    def build_and_sign(self, keypair: Keypair) -> SignedOrder:
+    def build_and_sign(
+        self, keypair: Keypair, rules: Optional[OrderbookRules] = None
+    ) -> SignedOrder:
         """Build and sign an order."""
-        order = self.build()
-        sign_order(order, keypair)
+        resolved_rules = rules or self._rules
+        assert resolved_rules is not None, "trading_rules are required"
+        order = self.build(resolved_rules)
+        sign_order(order, keypair, resolved_rules)
         return order
 
-    def to_submit_request(self, keypair: Keypair, orderbook_id: str) -> SubmitOrderRequest:
+    def to_submit_request(
+        self,
+        keypair: Keypair,
+        orderbook_id: str,
+        rules: Optional[OrderbookRules] = None,
+    ) -> SubmitOrderRequest:
         """Build, sign, and convert to an API submit request."""
-        order = self.build_and_sign(keypair)
+        order = self.build_and_sign(keypair, rules)
         return SubmitOrderRequest(
             maker=str(order.maker),
             nonce=order.nonce,

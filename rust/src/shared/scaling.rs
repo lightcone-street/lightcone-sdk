@@ -1,421 +1,446 @@
-//! Pure conversion module for price/size to raw lamport amounts.
+//! Exact order construction and trading-rule validation.
 //!
-//! All math uses `rust_decimal::Decimal` for exact integer arithmetic.
-//! No async, no network calls.
+//! The matching engine validates the signed ratio. This module therefore uses
+//! decimal-string parsing and integer arithmetic only: it never rounds, floors,
+//! or aligns a caller's value implicitly.
 
 use std::fmt;
 
-use rust_decimal::prelude::*;
-use rust_decimal::Decimal;
+use num_bigint::BigUint;
+use num_traits::{ToPrimitive, Zero};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::program::types::OrderSide;
 
-/// Decimal metadata for an orderbook (cached permanently).
-#[derive(Debug, Clone)]
-pub struct OrderbookDecimals {
+pub const PRICE_SCALE: u64 = 1_000_000;
+pub const I64_MAX_U64: u64 = i64::MAX as u64;
+pub const NONCE_MAX: u64 = u32::MAX as u64;
+
+/// Immutable admission rules returned by the orderbook decimals endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TradingRules {
+    pub base_size_decimals: u8,
+    pub max_price_decimals: u8,
+    pub max_price_significant_figures: u8,
+    pub integer_prices_always_allowed: bool,
+    /// Display-only formatted quantum.
+    pub price_quantum: String,
+    #[serde(with = "biguint_string")]
+    pub price_quantum_raw: BigUint,
+    /// Display-only formatted quantum.
+    pub base_size_quantum: String,
+    #[serde(with = "biguint_string")]
+    pub base_size_quantum_raw: BigUint,
+}
+
+/// Complete rules required to construct or preflight an order.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OrderbookRules {
     pub orderbook_id: String,
     pub base_decimals: u8,
     pub quote_decimals: u8,
     pub price_decimals: u8,
-    /// Minimum price increment in quote-token lamports (e.g. 1000 for 0.001 with 6 decimals).
-    /// Set to 0 or 1 to disable tick alignment.
-    pub tick_size: u64,
+    pub trading_rules: TradingRules,
 }
 
-/// Snap a human-readable price to the nearest valid tick.
-///
-/// Converts the price to quote-token lamports, truncates to the nearest
-/// `tick_size` multiple, and converts back to a `Decimal`.
-/// Returns the original price unchanged if `tick_size` is 0 or 1.
-pub fn align_price_to_tick(price: Decimal, decimals: &OrderbookDecimals) -> Decimal {
-    if decimals.tick_size <= 1 {
-        return price;
+mod biguint_string {
+    use super::*;
+
+    pub fn serialize<S>(value: &BigUint, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&value.to_str_radix(10))
     }
 
-    let quote_multiplier = Decimal::from(10u64.pow(decimals.quote_decimals as u32));
-    let tick = Decimal::from(decimals.tick_size);
-
-    let lamports = (price * quote_multiplier).trunc();
-    let aligned_lamports = (lamports / tick).trunc() * tick;
-    aligned_lamports / quote_multiplier
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<BigUint, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        BigUint::parse_bytes(value.as_bytes(), 10)
+            .ok_or_else(|| serde::de::Error::custom("expected an unsigned decimal integer string"))
+    }
 }
 
-/// Result of converting price + size to raw u64 amounts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScaledAmounts {
     pub amount_in: u64,
     pub amount_out: u64,
+    pub price_raw: u64,
+    pub base_atoms: u64,
+    pub quote_atoms: u64,
 }
 
-/// Errors that can occur during price/size scaling.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ScalingError {
+    InvalidDecimal { input: String, reason: String },
     NonPositivePrice(String),
     NonPositiveSize(String),
-    Overflow { context: String },
-    ZeroAmount,
-    FractionalAmount { value: String },
-    InvalidDecimal { input: String, reason: String },
+    InvalidSizeDecimals,
+    InvalidPriceDecimals,
+    InvalidPriceSignificantFigures,
+    PriceNotExactlyRepresentable,
+    PriceOutOfRange,
+    OrderFieldOutOfRange { field: &'static str },
+    TriggerPriceOutOfRange,
+    InvalidSide,
+    InvalidTradingRules(String),
 }
 
 impl fmt::Display for ScalingError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ScalingError::NonPositivePrice(v) => write!(f, "Price must be positive, got {}", v),
-            ScalingError::NonPositiveSize(v) => write!(f, "Size must be positive, got {}", v),
-            ScalingError::Overflow { context } => write!(f, "Overflow: {}", context),
-            ScalingError::ZeroAmount => write!(f, "Computed amount is zero"),
-            ScalingError::FractionalAmount { value } => {
-                write!(f, "Fractional lamports not allowed: {}", value)
+            Self::InvalidDecimal { input, reason } => {
+                write!(f, "invalid decimal '{input}': {reason}")
             }
-            ScalingError::InvalidDecimal { input, reason } => {
-                write!(f, "Invalid decimal '{}': {}", input, reason)
+            Self::NonPositivePrice(value) => write!(f, "price must be positive, got {value}"),
+            Self::NonPositiveSize(value) => write!(f, "size must be positive, got {value}"),
+            Self::InvalidSizeDecimals => write!(f, "INVALID_SIZE_DECIMALS"),
+            Self::InvalidPriceDecimals => write!(f, "INVALID_PRICE_DECIMALS"),
+            Self::InvalidPriceSignificantFigures => {
+                write!(f, "INVALID_PRICE_SIGNIFICANT_FIGURES")
             }
+            Self::PriceNotExactlyRepresentable => {
+                write!(f, "PRICE_NOT_EXACTLY_REPRESENTABLE")
+            }
+            Self::PriceOutOfRange => write!(f, "PRICE_OUT_OF_RANGE"),
+            Self::OrderFieldOutOfRange { field } => {
+                write!(f, "ORDER_FIELD_OUT_OF_RANGE: {field}")
+            }
+            Self::TriggerPriceOutOfRange => write!(f, "TRIGGER_PRICE_OUT_OF_RANGE"),
+            Self::InvalidSide => write!(f, "side must be BID or ASK"),
+            Self::InvalidTradingRules(reason) => write!(f, "invalid trading rules: {reason}"),
         }
     }
 }
 
 impl std::error::Error for ScalingError {}
 
-/// Convert human-readable price and size into raw u64 maker/taker amounts.
-///
-/// # Conversion math
-///
-/// ```text
-/// base_lamports  = size  * 10^base_decimals
-/// quote_lamports = price * size * 10^quote_decimals
-/// ```
-///
-/// Then assign based on side:
-///
-/// | Side | amount_in (gives) | amount_out (receives) |
-/// |------|-------------------|----------------------|
-/// | BID  | quote_lamports    | base_lamports        |
-/// | ASK  | base_lamports     | quote_lamports       |
+/// Convert a decimal string to an integer at `decimals` without rounding.
+/// Exponent notation is accepted. Fractional trailing zeros beyond the scale
+/// are accepted because they do not change the represented value.
+pub fn exact_scaled_integer(value: &str, decimals: u8) -> Result<BigUint, ScalingError> {
+    let input = value.trim();
+    if input.is_empty() {
+        return invalid_decimal(value, "empty input");
+    }
+    if input.starts_with('-') {
+        return invalid_decimal(value, "negative values are not supported");
+    }
+    let unsigned = input.strip_prefix('+').unwrap_or(input);
+    let mut exponent_parts = unsigned.split(['e', 'E']);
+    let mantissa = exponent_parts.next().unwrap_or_default();
+    let exponent = match exponent_parts.next() {
+        Some(raw) => raw
+            .parse::<i32>()
+            .map_err(|_| ScalingError::InvalidDecimal {
+                input: value.to_string(),
+                reason: "invalid exponent".to_string(),
+            })?,
+        None => 0,
+    };
+    if exponent_parts.next().is_some() || exponent.unsigned_abs() > 10_000 {
+        return invalid_decimal(value, "invalid or unsupported exponent");
+    }
+
+    let mut decimal_parts = mantissa.split('.');
+    let whole = decimal_parts.next().unwrap_or_default();
+    let fraction = decimal_parts.next().unwrap_or_default();
+    if decimal_parts.next().is_some()
+        || (whole.is_empty() && fraction.is_empty())
+        || !whole.bytes().all(|b| b.is_ascii_digit())
+        || !fraction.bytes().all(|b| b.is_ascii_digit())
+    {
+        return invalid_decimal(value, "expected base-10 decimal syntax");
+    }
+
+    let coefficient = format!("{whole}{fraction}");
+    let trimmed = coefficient.trim_start_matches('0');
+    if trimmed.is_empty() {
+        return Ok(BigUint::zero());
+    }
+
+    let shift = i64::from(decimals) + i64::from(exponent) - fraction.len() as i64;
+    let digits = if shift >= 0 {
+        let zero_count = usize::try_from(shift).map_err(|_| ScalingError::InvalidDecimal {
+            input: value.to_string(),
+            reason: "scaled value is too large".to_string(),
+        })?;
+        if trimmed.len().saturating_add(zero_count) > 10_000 {
+            return invalid_decimal(value, "scaled value is too large");
+        }
+        format!("{trimmed}{}", "0".repeat(zero_count))
+    } else {
+        let remove = usize::try_from(-shift).map_err(|_| ScalingError::InvalidDecimal {
+            input: value.to_string(),
+            reason: "scaled value is too precise".to_string(),
+        })?;
+        if remove > trimmed.len() {
+            return invalid_decimal(value, "cannot be represented exactly at this scale");
+        }
+        let split = trimmed.len() - remove;
+        if !trimmed.as_bytes()[split..].iter().all(|b| *b == b'0') {
+            return invalid_decimal(value, "cannot be represented exactly at this scale");
+        }
+        let remaining = &trimmed[..split];
+        if remaining.is_empty() {
+            "0".to_string()
+        } else {
+            remaining.to_string()
+        }
+    };
+
+    BigUint::parse_bytes(digits.as_bytes(), 10).ok_or_else(|| ScalingError::InvalidDecimal {
+        input: value.to_string(),
+        reason: "invalid integer coefficient".to_string(),
+    })
+}
+
+fn invalid_decimal<T>(input: &str, reason: &str) -> Result<T, ScalingError> {
+    Err(ScalingError::InvalidDecimal {
+        input: input.to_string(),
+        reason: reason.to_string(),
+    })
+}
+
+fn checked_i64(value: &BigUint, field: &'static str) -> Result<u64, ScalingError> {
+    let parsed = value
+        .to_u64()
+        .filter(|v| *v <= I64_MAX_U64)
+        .ok_or(ScalingError::OrderFieldOutOfRange { field })?;
+    Ok(parsed)
+}
+
+fn significant_digits(mut value: BigUint) -> usize {
+    let ten = BigUint::from(10u8);
+    while !value.is_zero() && (&value % &ten).is_zero() {
+        value /= &ten;
+    }
+    value.to_str_radix(10).len()
+}
+
+fn validate_price_raw(price_raw: &BigUint, rules: &OrderbookRules) -> Result<u64, ScalingError> {
+    if price_raw.is_zero() || price_raw > &BigUint::from(I64_MAX_U64) {
+        return Err(ScalingError::PriceOutOfRange);
+    }
+    let human_scale = BigUint::from(10u8).pow(u32::from(rules.price_decimals));
+    let is_integer = (price_raw % &human_scale).is_zero();
+    if !is_integer {
+        if rules.trading_rules.price_quantum_raw.is_zero()
+            || (price_raw % &rules.trading_rules.price_quantum_raw) != BigUint::zero()
+        {
+            return Err(ScalingError::InvalidPriceDecimals);
+        }
+        if significant_digits(price_raw.clone())
+            > usize::from(rules.trading_rules.max_price_significant_figures)
+        {
+            return Err(ScalingError::InvalidPriceSignificantFigures);
+        }
+    }
+    price_raw.to_u64().ok_or(ScalingError::PriceOutOfRange)
+}
+
+fn validate_base_atoms(base_atoms: &BigUint, rules: &OrderbookRules) -> Result<u64, ScalingError> {
+    if base_atoms.is_zero() {
+        return Err(ScalingError::NonPositiveSize("0".to_string()));
+    }
+    if rules.trading_rules.base_size_quantum_raw.is_zero()
+        || (base_atoms % &rules.trading_rules.base_size_quantum_raw) != BigUint::zero()
+    {
+        return Err(ScalingError::InvalidSizeDecimals);
+    }
+    checked_i64(base_atoms, "base amount")
+}
+
+/// Construct signed amounts from an exact human price and base size.
 pub fn scale_price_size(
-    price: Decimal,
-    size: Decimal,
+    price: &str,
+    size: &str,
     side: OrderSide,
-    decimals: &OrderbookDecimals,
+    rules: &OrderbookRules,
 ) -> Result<ScaledAmounts, ScalingError> {
-    // 1. Validate inputs
-    if price <= Decimal::ZERO {
+    let price_raw_big = exact_scaled_integer(price, rules.price_decimals)?;
+    if price_raw_big.is_zero() {
         return Err(ScalingError::NonPositivePrice(price.to_string()));
     }
-    if size <= Decimal::ZERO {
+    let base_atoms_big = exact_scaled_integer(size, rules.base_decimals)?;
+    if base_atoms_big.is_zero() {
         return Err(ScalingError::NonPositiveSize(size.to_string()));
     }
 
-    // 2. Compute lamport amounts
-    let base_multiplier = Decimal::from(
-        10u64
-            .checked_pow(decimals.base_decimals as u32)
-            .ok_or_else(|| ScalingError::Overflow {
-                context: format!("10^{} overflow", decimals.base_decimals),
-            })?,
-    );
-
-    let quote_multiplier = Decimal::from(
-        10u64
-            .checked_pow(decimals.quote_decimals as u32)
-            .ok_or_else(|| ScalingError::Overflow {
-                context: format!("10^{} overflow", decimals.quote_decimals),
-            })?,
-    );
-
-    // Truncate size to base_decimals — digits beyond the token's precision
-    // are unrepresentable on-chain and are always f64 noise (e.g. 15.763000000000002)
-    let size = size.trunc_with_scale(decimals.base_decimals as u32);
-
-    let base_lamports =
-        size.checked_mul(base_multiplier)
-            .ok_or_else(|| ScalingError::Overflow {
-                context: "size * 10^base_decimals".to_string(),
-            })?;
-
-    // Truncate quote_lamports to discard sub-lamport dust (analogous to the
-    // size truncation above).  price * size can produce fractions beyond the
-    // token's representable precision; these are meaningless on-chain.
-    let quote_lamports = price
-        .checked_mul(size)
-        .ok_or_else(|| ScalingError::Overflow {
-            context: "price * size".to_string(),
-        })?
-        .checked_mul(quote_multiplier)
-        .ok_or_else(|| ScalingError::Overflow {
-            context: "price * size * 10^quote_decimals".to_string(),
-        })?
-        .trunc();
-
-    // 3. Validate whole numbers (no fractional lamports)
-    if base_lamports.fract() != Decimal::ZERO {
-        return Err(ScalingError::FractionalAmount {
-            value: format!("base_lamports = {}", base_lamports),
+    let price_raw = validate_price_raw(&price_raw_big, rules)?;
+    let base_atoms = validate_base_atoms(&base_atoms_big, rules)?;
+    let numerator = &price_raw_big * &base_atoms_big;
+    let scale = BigUint::from(PRICE_SCALE);
+    if (&numerator % &scale) != BigUint::zero() {
+        return Err(ScalingError::PriceNotExactlyRepresentable);
+    }
+    let quote_atoms_big = numerator / scale;
+    if quote_atoms_big.is_zero() {
+        return Err(ScalingError::OrderFieldOutOfRange {
+            field: "quote amount",
         });
     }
-
-    // 4. Convert to u64
-    let base_u64 = base_lamports
-        .to_u64()
-        .ok_or_else(|| ScalingError::Overflow {
-            context: format!("base_lamports {} does not fit in u64", base_lamports),
-        })?;
-
-    let quote_u64 = quote_lamports
-        .to_u64()
-        .ok_or_else(|| ScalingError::Overflow {
-            context: format!("quote_lamports {} does not fit in u64", quote_lamports),
-        })?;
-
-    // 5. Validate non-zero
-    if base_u64 == 0 || quote_u64 == 0 {
-        return Err(ScalingError::ZeroAmount);
-    }
-
-    // 6. Assign based on side
+    let quote_atoms = checked_i64(&quote_atoms_big, "quote amount")?;
     let (amount_in, amount_out) = match side {
-        OrderSide::Bid => (quote_u64, base_u64),
-        OrderSide::Ask => (base_u64, quote_u64),
+        OrderSide::Bid => (quote_atoms, base_atoms),
+        OrderSide::Ask => (base_atoms, quote_atoms),
     };
-
     Ok(ScaledAmounts {
         amount_in,
         amount_out,
+        price_raw,
+        base_atoms,
+        quote_atoms,
     })
+}
+
+/// Preflight caller-supplied signed amounts against the same engine rules.
+pub fn validate_raw_amounts(
+    amount_in: u64,
+    amount_out: u64,
+    side: OrderSide,
+    rules: &OrderbookRules,
+) -> Result<ScaledAmounts, ScalingError> {
+    if amount_in == 0 || amount_in > I64_MAX_U64 {
+        return Err(ScalingError::OrderFieldOutOfRange { field: "amount_in" });
+    }
+    if amount_out == 0 || amount_out > I64_MAX_U64 {
+        return Err(ScalingError::OrderFieldOutOfRange {
+            field: "amount_out",
+        });
+    }
+    let (base_atoms, quote_atoms) = match side {
+        OrderSide::Bid => (amount_out, amount_in),
+        OrderSide::Ask => (amount_in, amount_out),
+    };
+    let base_big = BigUint::from(base_atoms);
+    validate_base_atoms(&base_big, rules)?;
+    let numerator = BigUint::from(quote_atoms) * BigUint::from(PRICE_SCALE);
+    if (&numerator % &base_big) != BigUint::zero() {
+        return Err(ScalingError::PriceNotExactlyRepresentable);
+    }
+    let price_big = numerator / base_big;
+    let price_raw = validate_price_raw(&price_big, rules)?;
+    Ok(ScaledAmounts {
+        amount_in,
+        amount_out,
+        price_raw,
+        base_atoms,
+        quote_atoms,
+    })
+}
+
+pub fn validate_signed_fields(
+    amount_in: u64,
+    amount_out: u64,
+    salt: u64,
+    nonce: u64,
+) -> Result<(), ScalingError> {
+    for (field, value, zero_allowed) in [
+        ("amount_in", amount_in, false),
+        ("amount_out", amount_out, false),
+        ("salt", salt, true),
+    ] {
+        if value > I64_MAX_U64 || (!zero_allowed && value == 0) {
+            return Err(ScalingError::OrderFieldOutOfRange { field });
+        }
+    }
+    if nonce > NONCE_MAX {
+        return Err(ScalingError::OrderFieldOutOfRange { field: "nonce" });
+    }
+    Ok(())
+}
+
+pub fn validate_trigger_price(value: &str, price_decimals: u8) -> Result<u64, ScalingError> {
+    let raw = exact_scaled_integer(value, price_decimals)
+        .map_err(|_| ScalingError::TriggerPriceOutOfRange)?;
+    if raw.is_zero() || raw > BigUint::from(I64_MAX_U64) {
+        return Err(ScalingError::TriggerPriceOutOfRange);
+    }
+    raw.to_u64().ok_or(ScalingError::TriggerPriceOutOfRange)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn decimals_6_6() -> OrderbookDecimals {
-        OrderbookDecimals {
-            orderbook_id: "test".to_string(),
-            base_decimals: 6,
+    fn rules() -> OrderbookRules {
+        OrderbookRules {
+            orderbook_id: "test".into(),
+            base_decimals: 8,
             quote_decimals: 6,
-            price_decimals: 2,
-            tick_size: 0,
+            price_decimals: 4,
+            trading_rules: TradingRules {
+                base_size_decimals: 5,
+                max_price_decimals: 1,
+                max_price_significant_figures: 5,
+                integer_prices_always_allowed: true,
+                price_quantum: "0.1000".into(),
+                price_quantum_raw: BigUint::from(1000u32),
+                base_size_quantum: "0.00001000".into(),
+                base_size_quantum_raw: BigUint::from(1000u32),
+            },
         }
     }
 
-    fn decimals_6_9() -> OrderbookDecimals {
-        OrderbookDecimals {
-            orderbook_id: "test".to_string(),
-            base_decimals: 6,
-            quote_decimals: 9,
-            price_decimals: 2,
-            tick_size: 0,
-        }
+    #[test]
+    fn worked_example_bid_and_ask() {
+        let bid = scale_price_size("12.3", "1.23456", OrderSide::Bid, &rules()).unwrap();
+        assert_eq!((bid.amount_in, bid.amount_out), (15_185_088, 123_456_000));
+        let ask = scale_price_size("12.3", "1.23456", OrderSide::Ask, &rules()).unwrap();
+        assert_eq!((ask.amount_in, ask.amount_out), (123_456_000, 15_185_088));
     }
 
     #[test]
-    fn test_bid_basic() {
-        // BID: price=0.65, size=100, decimals=6/6
-        // base_lamports  = 100 * 10^6 = 100_000_000
-        // quote_lamports = 0.65 * 100 * 10^6 = 65_000_000
-        // BID: maker gives quote, taker gives base
-        let result = scale_price_size(
-            Decimal::from_str("0.65").unwrap(),
-            Decimal::from_str("100").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 65_000_000);
-        assert_eq!(result.amount_out, 100_000_000);
-    }
-
-    #[test]
-    fn test_ask_basic() {
-        // ASK: price=0.65, size=100, decimals=6/6
-        // base_lamports  = 100 * 10^6 = 100_000_000
-        // quote_lamports = 0.65 * 100 * 10^6 = 65_000_000
-        // ASK: maker gives base, taker gives quote
-        let result = scale_price_size(
-            Decimal::from_str("0.65").unwrap(),
-            Decimal::from_str("100").unwrap(),
-            OrderSide::Ask,
-            &decimals_6_6(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 100_000_000);
-        assert_eq!(result.amount_out, 65_000_000);
-    }
-
-    #[test]
-    fn test_different_decimals() {
-        // base=6, quote=9
-        // base_lamports  = 100 * 10^6 = 100_000_000
-        // quote_lamports = 0.65 * 100 * 10^9 = 65_000_000_000
-        let result = scale_price_size(
-            Decimal::from_str("0.65").unwrap(),
-            Decimal::from_str("100").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_9(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 65_000_000_000);
-        assert_eq!(result.amount_out, 100_000_000);
-    }
-
-    #[test]
-    fn test_zero_price_rejected() {
-        let result = scale_price_size(
-            Decimal::ZERO,
-            Decimal::from_str("100").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
+    fn rejects_invalid_price_size_and_significant_figures() {
+        assert_eq!(
+            scale_price_size("12.34", "1.23456", OrderSide::Bid, &rules()).unwrap_err(),
+            ScalingError::InvalidPriceDecimals
         );
-        assert!(matches!(result, Err(ScalingError::NonPositivePrice(_))));
-    }
-
-    #[test]
-    fn test_negative_price_rejected() {
-        let result = scale_price_size(
-            Decimal::from_str("-0.5").unwrap(),
-            Decimal::from_str("100").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
+        assert_eq!(
+            scale_price_size("12.3", "1.234567", OrderSide::Bid, &rules()).unwrap_err(),
+            ScalingError::InvalidSizeDecimals
         );
-        assert!(matches!(result, Err(ScalingError::NonPositivePrice(_))));
-    }
-
-    #[test]
-    fn test_zero_size_rejected() {
-        let result = scale_price_size(
-            Decimal::from_str("0.65").unwrap(),
-            Decimal::ZERO,
-            OrderSide::Bid,
-            &decimals_6_6(),
+        assert_eq!(
+            scale_price_size("150250.1", "1", OrderSide::Bid, &rules()).unwrap_err(),
+            ScalingError::InvalidPriceSignificantFigures
         );
-        assert!(matches!(result, Err(ScalingError::NonPositiveSize(_))));
     }
 
     #[test]
-    fn test_negative_size_rejected() {
-        let result = scale_price_size(
-            Decimal::from_str("0.65").unwrap(),
-            Decimal::from_str("-10").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
+    fn accepts_large_integer_price_when_ratio_is_exact() {
+        let value = scale_price_size("150250", "1", OrderSide::Bid, &rules()).unwrap();
+        assert_eq!(value.price_raw, 1_502_500_000);
+    }
+
+    #[test]
+    fn exact_parser_never_truncates() {
+        assert_eq!(
+            exact_scaled_integer("1.23000", 2).unwrap(),
+            BigUint::from(123u8)
         );
-        assert!(matches!(result, Err(ScalingError::NonPositiveSize(_))));
-    }
-
-    #[test]
-    fn test_sub_lamport_size_becomes_zero() {
-        // size=0.0000001 with 6 decimals truncates to 0, yielding ZeroAmount
-        let result = scale_price_size(
-            Decimal::from_str("1").unwrap(),
-            Decimal::from_str("0.0000001").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
+        assert_eq!(
+            exact_scaled_integer("1.23e2", 2).unwrap(),
+            BigUint::from(12_300u16)
         );
-        assert!(matches!(result, Err(ScalingError::ZeroAmount)));
+        assert!(exact_scaled_integer("1.234", 2).is_err());
     }
 
     #[test]
-    fn test_f64_noise_in_size_is_truncated() {
-        // Simulates f64 floating-point noise: 15.763000000000002 instead of 15.763
-        // With base_decimals=6, truncates to 15.763000 and succeeds
-        let result = scale_price_size(
-            Decimal::from_str("1").unwrap(),
-            Decimal::from_str("15.763000000000002").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 15_763_000);
-        assert_eq!(result.amount_out, 15_763_000);
-    }
-
-    #[test]
-    fn test_overflow_u64_rejected() {
-        // Huge size that overflows u64
-        let result = scale_price_size(
-            Decimal::from_str("1").unwrap(),
-            Decimal::from_str("99999999999999999999").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
+    fn raw_ratio_must_be_exact() {
+        assert_eq!(
+            validate_raw_amounts(1, 3_000, OrderSide::Bid, &rules()).unwrap_err(),
+            ScalingError::PriceNotExactlyRepresentable
         );
-        assert!(matches!(result, Err(ScalingError::Overflow { .. })));
     }
 
     #[test]
-    fn test_small_valid_amounts() {
-        // Minimum valid: 1 lamport each
-        // size = 0.000001 (1 lamport with 6 decimals)
-        // price = 1.0 -> quote = 0.000001 * 10^6 = 1
-        let result = scale_price_size(
-            Decimal::from_str("1").unwrap(),
-            Decimal::from_str("0.000001").unwrap(),
-            OrderSide::Bid,
-            &decimals_6_6(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 1); // quote
-        assert_eq!(result.amount_out, 1); // base
-    }
-
-    #[test]
-    fn test_whole_number_price_and_size() {
-        // price=2, size=50, decimals=6/6
-        // base = 50 * 10^6 = 50_000_000
-        // quote = 2 * 50 * 10^6 = 100_000_000
-        let result = scale_price_size(
-            Decimal::from_str("2").unwrap(),
-            Decimal::from_str("50").unwrap(),
-            OrderSide::Ask,
-            &decimals_6_6(),
-        )
-        .unwrap();
-
-        assert_eq!(result.amount_in, 50_000_000);
-        assert_eq!(result.amount_out, 100_000_000);
-    }
-
-    #[test]
-    fn test_align_price_to_tick_basic() {
-        let d = OrderbookDecimals {
-            orderbook_id: "t".into(),
-            base_decimals: 8,
-            quote_decimals: 6,
-            price_decimals: 2,
-            tick_size: 1000,
-        };
-        // 0.6005 * 10^6 = 600500 lamports, tick=1000 -> 600 * 1000 = 600000 -> 0.6
-        let aligned = align_price_to_tick(Decimal::from_str("0.6005").unwrap(), &d);
-        assert_eq!(aligned, Decimal::from_str("0.6").unwrap());
-    }
-
-    #[test]
-    fn test_align_price_to_tick_exact() {
-        let d = OrderbookDecimals {
-            orderbook_id: "t".into(),
-            base_decimals: 8,
-            quote_decimals: 6,
-            price_decimals: 2,
-            tick_size: 1000,
-        };
-        let aligned = align_price_to_tick(Decimal::from_str("0.65").unwrap(), &d);
-        assert_eq!(aligned, Decimal::from_str("0.65").unwrap());
-    }
-
-    #[test]
-    fn test_align_price_no_tick() {
-        let d = OrderbookDecimals {
-            orderbook_id: "t".into(),
-            base_decimals: 6,
-            quote_decimals: 6,
-            price_decimals: 2,
-            tick_size: 0,
-        };
-        let price = Decimal::from_str("0.12345").unwrap();
-        assert_eq!(align_price_to_tick(price, &d), price);
+    fn signed_range_is_i64() {
+        assert!(
+            validate_signed_fields(I64_MAX_U64, I64_MAX_U64, I64_MAX_U64, u32::MAX as u64).is_ok()
+        );
+        assert!(validate_signed_fields(I64_MAX_U64 + 1, 1, 0, 0).is_err());
     }
 }

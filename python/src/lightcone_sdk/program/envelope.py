@@ -5,7 +5,6 @@ Provides fluent builder pattern for constructing limit and trigger orders.
 
 from __future__ import annotations
 
-from decimal import Decimal
 from typing import Optional, TYPE_CHECKING
 
 from solders.keypair import Keypair
@@ -21,7 +20,13 @@ from ..shared.types import (
     TimeInForce,
     TriggerType,
 )
-from ..shared.scaling import align_price_to_tick, scale_price_size
+from ..shared.scaling import (
+    OrderbookRules,
+    scale_price_size,
+    validate_raw_amounts,
+    validate_signed_fields,
+    validate_trigger_price,
+)
 from ..error import SigningError
 
 if TYPE_CHECKING:
@@ -31,7 +36,7 @@ if TYPE_CHECKING:
 class LimitOrderEnvelope:
     """Fluent builder for limit orders.
 
-    # Example (human-readable price/size — auto-scaled)
+    # Example (human-readable price/size — exactly constructed with fetched rules)
 
         request = (LimitOrderEnvelope()
             .maker(maker_pubkey)
@@ -42,9 +47,9 @@ class LimitOrderEnvelope:
             .nonce(5)
             .price("0.55")
             .size("100")
-            .sign(keypair, orderbook))
+            .sign(keypair, orderbook, rules))
 
-    # Example (pre-computed raw amounts — no scaling)
+    # Example (pre-computed raw amounts — exact rules preflight)
 
         request = (LimitOrderEnvelope()
             .maker(maker_pubkey)
@@ -55,7 +60,7 @@ class LimitOrderEnvelope:
             .nonce(5)
             .amount_in(1_000_000)
             .amount_out(500_000)
-            .sign(keypair, orderbook))
+            .sign(keypair, orderbook, rules))
     """
 
     def __init__(self):
@@ -66,8 +71,8 @@ class LimitOrderEnvelope:
         self._base_mint: Optional[Pubkey] = None
         self._quote_mint: Optional[Pubkey] = None
         self._side: OrderSide = OrderSide.BID
-        self._amount_in: int = 0
-        self._amount_out: int = 0
+        self._amount_in: Optional[int] = None
+        self._amount_out: Optional[int] = None
         self._expiration: int = 0
         self._price_str: Optional[str] = None
         self._size_str: Optional[str] = None
@@ -123,12 +128,12 @@ class LimitOrderEnvelope:
         return self
 
     def price(self, price: str) -> LimitOrderEnvelope:
-        """Store human-readable price for auto-scaling in sign()/finalize()."""
+        """Store an exact human-readable price for sign()/finalize()."""
         self._price_str = price
         return self
 
     def size(self, size: str) -> LimitOrderEnvelope:
-        """Store human-readable size for auto-scaling in sign()/finalize()."""
+        """Store an exact human-readable size for sign()/finalize()."""
         self._size_str = size
         return self
 
@@ -154,24 +159,22 @@ class LimitOrderEnvelope:
         if self._quote_mint is None:
             self._quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
-    def _auto_scale(self, orderbook: OrderBookPair) -> None:
-        """Auto-scale price/size to raw amounts if not already set.
-
-        Skips if amount_in/amount_out are already non-zero (raw amounts
-        were provided directly). Otherwise requires price() and size()
-        to have been called.
-        """
-        if self._amount_in or self._amount_out:
+    def _apply_rules(self, rules: OrderbookRules) -> None:
+        """Construct or preflight the exact signed ratio."""
+        if self._amount_in is not None and self._amount_out is not None:
+            validate_raw_amounts(
+                self._amount_in, self._amount_out, int(self._side), rules
+            )
             return
-
-        assert self._price_str is not None, \
-            "either price()+size() or amount_in()+amount_out() is required"
-        assert self._size_str is not None, \
-            "either price()+size() or amount_in()+amount_out() is required"
-
-        decimals = orderbook.decimals()
-        aligned_price = align_price_to_tick(Decimal(self._price_str), decimals)
-        scaled = scale_price_size(str(aligned_price), self._size_str, int(self._side), decimals)
+        if self._amount_in is not None or self._amount_out is not None:
+            raise ValueError("amount_in and amount_out must be supplied together")
+        if self._price_str is None or self._size_str is None:
+            raise ValueError(
+                "either price()+size() or amount_in()+amount_out() is required"
+            )
+        scaled = scale_price_size(
+            self._price_str, self._size_str, int(self._side), rules
+        )
         self._amount_in = scaled.amount_in
         self._amount_out = scaled.amount_out
 
@@ -182,6 +185,14 @@ class LimitOrderEnvelope:
         assert self._base_mint is not None, "base_mint is required"
         assert self._quote_mint is not None, "quote_mint is required"
         assert self._nonce is not None, "nonce is required"
+        assert self._amount_in is not None, "amount_in is required"
+        assert self._amount_out is not None, "amount_out is required"
+        if self._salt is None:
+            from .orders import generate_salt as _gen_salt
+            self._salt = _gen_salt()
+        validate_signed_fields(
+            self._amount_in, self._amount_out, self._salt, self._nonce
+        )
 
         return SignedOrder(
             nonce=self._nonce,
@@ -196,34 +207,36 @@ class LimitOrderEnvelope:
             expiration=self._expiration,
         )
 
-    def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
+    def finalize(
+        self, sig_bs58: str, orderbook: OrderBookPair, rules: OrderbookRules
+    ) -> SubmitOrderRequest:
         """Apply an external wallet-adapter signature and produce a SubmitOrderRequest.
 
-        If price() and size() were set, scaling is applied automatically
-        using the orderbook's decimals. If amount_in() and amount_out()
-        were set directly, those raw values are used as-is.
+        Fetched rules are mandatory. Human values are constructed exactly and
+        raw amounts are preflighted against the same admission rules.
         """
         self._auto_fill_from_orderbook(orderbook)
-        self._auto_scale(orderbook)
+        self._apply_rules(rules)
         order = self.payload()
-        apply_signature(order, sig_bs58)
+        apply_signature(order, sig_bs58, rules)
         return to_submit_request(
             order, orderbook.orderbook_id,
             time_in_force=self._time_in_force,
             deposit_source=self._deposit_source,
         )
 
-    def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
+    def sign(
+        self, keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules
+    ) -> SubmitOrderRequest:
         """Sign and produce a SubmitOrderRequest.
 
-        If price() and size() were set, scaling is applied automatically
-        using the orderbook's decimals. If amount_in() and amount_out()
-        were set directly, those raw values are used as-is.
+        Fetched rules are mandatory. Human values are constructed exactly and
+        raw amounts are preflighted against the same admission rules.
         """
         self._auto_fill_from_orderbook(orderbook)
-        self._auto_scale(orderbook)
+        self._apply_rules(rules)
         order = self.payload()
-        sign_order(order, keypair)
+        sign_order(order, keypair, rules)
         return to_submit_request(
             order, orderbook.orderbook_id,
             time_in_force=self._time_in_force,
@@ -298,9 +311,10 @@ class LimitOrderEnvelope:
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
-        # Pre-fill orderbook-derived fields and auto-scale before signing
+        rules = await client.orderbooks().decimals(orderbook.orderbook_id)  # type: ignore[attr-defined]
+        # Pre-fill orderbook-derived fields and validate before signing
         self._auto_fill_from_orderbook(orderbook)
-        self._auto_scale(orderbook)
+        self._apply_rules(rules)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._nonce is not None:
@@ -311,7 +325,7 @@ class LimitOrderEnvelope:
         strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
-            request = self.sign(strategy.keypair, orderbook)
+            request = self.sign(strategy.keypair, orderbook, rules)
             return await client.orders().submit(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
@@ -322,7 +336,7 @@ class LimitOrderEnvelope:
                 raise classify_signer_error(str(exc)) from exc
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
-            request = self.finalize(sig_bs58, orderbook)
+            request = self.finalize(sig_bs58, orderbook, rules)
             return await client.orders().submit(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
@@ -342,7 +356,7 @@ class TriggerOrderEnvelope:
 
     def __init__(self):
         self._limit = LimitOrderEnvelope()
-        self._trigger_price: Optional[float] = None
+        self._trigger_price: Optional[str] = None
         self._trigger_type: Optional[TriggerType] = None
         self._time_in_force: TimeInForce = TimeInForce.GTC
 
@@ -406,7 +420,7 @@ class TriggerOrderEnvelope:
         self._limit.deposit_source(ds)
         return self
 
-    def trigger_price(self, price: float) -> TriggerOrderEnvelope:
+    def trigger_price(self, price: str) -> TriggerOrderEnvelope:
         self._trigger_price = price
         return self
 
@@ -414,13 +428,13 @@ class TriggerOrderEnvelope:
         self._trigger_type = tt
         return self
 
-    def stop_loss(self, price: float) -> TriggerOrderEnvelope:
+    def stop_loss(self, price: str) -> TriggerOrderEnvelope:
         """Set trigger type to STOP_LOSS and trigger price."""
         self._trigger_type = TriggerType.STOP_LOSS
         self._trigger_price = price
         return self
 
-    def take_profit(self, price: float) -> TriggerOrderEnvelope:
+    def take_profit(self, price: str) -> TriggerOrderEnvelope:
         """Set trigger type to TAKE_PROFIT and trigger price."""
         self._trigger_type = TriggerType.TAKE_PROFIT
         self._trigger_price = price
@@ -451,42 +465,48 @@ class TriggerOrderEnvelope:
         """Build an unsigned SignedOrder without consuming the envelope."""
         return self._limit.payload()
 
-    def finalize(self, sig_bs58: str, orderbook: OrderBookPair) -> SubmitOrderRequest:
+    def finalize(
+        self, sig_bs58: str, orderbook: OrderBookPair, rules: OrderbookRules
+    ) -> SubmitOrderRequest:
         """Apply external signature and produce a SubmitOrderRequest.
 
-        Same auto-scaling behavior as sign().
+        Performs the same exact preflight as sign().
         """
         assert self._trigger_price is not None, "trigger_price is required for trigger orders"
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        validate_trigger_price(self._trigger_price, rules.price_decimals)
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._auto_scale(orderbook)
+        self._limit._apply_rules(rules)
         order = self.payload()
-        apply_signature(order, sig_bs58)
+        apply_signature(order, sig_bs58, rules)
         return to_submit_request(
             order,
             orderbook.orderbook_id,
             time_in_force=self._time_in_force,
-            trigger_price=self._trigger_price,
+            trigger_price=float(self._trigger_price),
             trigger_type=self._trigger_type,
             deposit_source=self._limit.get_deposit_source,
         )
 
-    def sign(self, keypair: Keypair, orderbook: OrderBookPair) -> SubmitOrderRequest:
+    def sign(
+        self, keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules
+    ) -> SubmitOrderRequest:
         """Sign and produce a SubmitOrderRequest.
 
-        Same auto-scaling behavior as LimitOrderEnvelope.sign().
+        Performs the same exact preflight as LimitOrderEnvelope.sign().
         """
         assert self._trigger_price is not None, "trigger_price is required for trigger orders"
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
+        validate_trigger_price(self._trigger_price, rules.price_decimals)
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._auto_scale(orderbook)
+        self._limit._apply_rules(rules)
         order = self.payload()
-        sign_order(order, keypair)
+        sign_order(order, keypair, rules)
         return to_submit_request(
             order,
             orderbook.orderbook_id,
             time_in_force=self._time_in_force,
-            trigger_price=self._trigger_price,
+            trigger_price=float(self._trigger_price),
             trigger_type=self._trigger_type,
             deposit_source=self._limit.get_deposit_source,
         )
@@ -562,7 +582,7 @@ class TriggerOrderEnvelope:
         return self._time_in_force
 
     @property
-    def get_trigger_price(self) -> Optional[float]:
+    def get_trigger_price(self) -> Optional[str]:
         return self._trigger_price
 
     @property
@@ -587,9 +607,13 @@ class TriggerOrderEnvelope:
         """
         from ..shared.signing import SigningStrategyKind, classify_signer_error
 
-        # Pre-fill orderbook-derived fields and auto-scale before signing
+        rules = await client.orderbooks().decimals(orderbook.orderbook_id)  # type: ignore[attr-defined]
+        if self._trigger_price is None:
+            raise ValueError("trigger_price is required for trigger orders")
+        validate_trigger_price(self._trigger_price, rules.price_decimals)
+        # Pre-fill orderbook-derived fields and validate before signing
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._auto_scale(orderbook)
+        self._limit._apply_rules(rules)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._limit._nonce is not None:
@@ -600,7 +624,7 @@ class TriggerOrderEnvelope:
         strategy = client._require_signing_strategy()  # type: ignore[attr-defined]
 
         if strategy.kind == SigningStrategyKind.NATIVE:
-            request = self.sign(strategy.keypair, orderbook)
+            request = self.sign(strategy.keypair, orderbook, rules)
             return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
@@ -611,7 +635,7 @@ class TriggerOrderEnvelope:
                 raise classify_signer_error(str(exc)) from exc
             import bs58 as _bs58
             sig_bs58 = _bs58.b58encode(sig_bytes).decode("ascii")
-            request = self.finalize(sig_bs58, orderbook)
+            request = self.finalize(sig_bs58, orderbook, rules)
             return await client.orders().submit_trigger(request)  # type: ignore[attr-defined]
 
         elif strategy.kind == SigningStrategyKind.PRIVY:

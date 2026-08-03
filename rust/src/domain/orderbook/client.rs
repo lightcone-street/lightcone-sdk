@@ -2,7 +2,7 @@
 
 use crate::client::LightconeClient;
 use crate::domain::orderbook::aggregation::BookAggregation;
-use crate::domain::orderbook::wire::OrderbookDepthResponse;
+use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
@@ -60,6 +60,47 @@ impl<'a> Orderbooks<'a> {
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
             .await
+    }
+
+    /// Fetch and permanently cache immutable trading rules for an active book.
+    /// Failed requests are not cached.
+    pub async fn decimals(&self, orderbook_id: &str) -> Result<DecimalsResponse, SdkError> {
+        if let Some(rules) = self
+            .client
+            .orderbook_rules
+            .read()
+            .await
+            .get(orderbook_id)
+            .cloned()
+        {
+            return Ok(rules);
+        }
+        // Hold the write lock through the request so concurrent builders share
+        // one discovery request. Rules requests are rare and immutable.
+        let mut cache = self.client.orderbook_rules.write().await;
+        if let Some(rules) = cache.get(orderbook_id).cloned() {
+            return Ok(rules);
+        }
+        let url = format!(
+            "{}/api/orderbooks/{}/decimals",
+            self.client.http.base_url(),
+            orderbook_id
+        );
+        let rules: DecimalsResponse = self.client.http.get(&url, RetryPolicy::Idempotent).await?;
+        cache.insert(orderbook_id.to_string(), rules.clone());
+        Ok(rules)
+    }
+
+    pub async fn invalidate_decimals(&self, orderbook_id: &str) {
+        self.client
+            .orderbook_rules
+            .write()
+            .await
+            .remove(orderbook_id);
+    }
+
+    pub async fn clear_decimals_cache(&self) {
+        self.client.orderbook_rules.write().await.clear();
     }
 
     /// Build CloseOrderbookAlt instruction.

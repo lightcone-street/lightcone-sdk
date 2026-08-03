@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ...error import _require
+from ...shared.scaling import OrderbookRules, TradingRules
 
 
 @dataclass
@@ -26,43 +27,102 @@ class OrderbookDepthDecimals:
     """Price/size display decimals from the depth endpoint. Distinct from
     ``DecimalsResponse`` (the ``/decimals`` endpoint)."""
 
-    price: int = 0
-    size: int = 0
+    price: int
+    size: int
 
     @staticmethod
     def from_dict(d: dict) -> "OrderbookDepthDecimals":
-        return OrderbookDepthDecimals(price=d.get("price", 0), size=d.get("size", 0))
+        price = _require(d, "price", "OrderbookDepthDecimals")
+        size = _require(d, "size", "OrderbookDepthDecimals")
+        if (
+            not isinstance(price, int)
+            or isinstance(price, bool)
+            or price < 0
+            or not isinstance(size, int)
+            or isinstance(size, bool)
+            or size < 0
+        ):
+            from ...error import DeserializationError
+
+            raise DeserializationError(
+                "OrderbookDepthDecimals price and size must be non-negative integers"
+            )
+        return OrderbookDepthDecimals(price=price, size=size)
 
 
 @dataclass
 class OrderbookDepthResponse:
     """REST depth response. Depth is capped server-side at 20 levels per side."""
 
+    orderbook_id: str
+    price_quantum: str
+    trading_rules: TradingRules
+    revision: int
+    captured_at_ms: int
+    decimals: OrderbookDepthDecimals
     bids: list[PriceLevel] = field(default_factory=list)
     asks: list[PriceLevel] = field(default_factory=list)
-    orderbook_id: Optional[str] = None
     market_pubkey: Optional[str] = None
     best_bid: Optional[str] = None
     best_ask: Optional[str] = None
     spread: Optional[str] = None
+    #: Deprecated backend alias. Never use for order admission.
     tick_size: Optional[str] = None
-    #: Display decimals for prices and sizes. Always sent by current backends;
-    #: optional for tolerance of older payloads.
-    decimals: Optional[OrderbookDepthDecimals] = None
+    bids_truncated: bool = False
+    asks_truncated: bool = False
 
     @staticmethod
     def from_dict(d: dict) -> "OrderbookDepthResponse":
-        decimals_raw = d.get("decimals")
+        decimals_raw = _require(d, "decimals", "OrderbookDepthResponse")
+        if not isinstance(decimals_raw, dict):
+            from ...error import DeserializationError
+
+            raise DeserializationError("OrderbookDepthResponse decimals must be an object")
+        revision = _require(d, "revision", "OrderbookDepthResponse")
+        captured_at_ms = _require(d, "captured_at_ms", "OrderbookDepthResponse")
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision < 0
+            or not isinstance(captured_at_ms, int)
+            or isinstance(captured_at_ms, bool)
+            or captured_at_ms < 0
+        ):
+            from ...error import DeserializationError
+
+            raise DeserializationError(
+                "OrderbookDepthResponse revision and captured_at_ms must be non-negative integers"
+            )
+        rules_raw = _require(d, "trading_rules", "OrderbookDepthResponse")
+        price_quantum = _require(d, "price_quantum", "OrderbookDepthResponse")
+        bids_truncated = d.get("bids_truncated", False)
+        asks_truncated = d.get("asks_truncated", False)
+        if (
+            not isinstance(price_quantum, str)
+            or not isinstance(bids_truncated, bool)
+            or not isinstance(asks_truncated, bool)
+        ):
+            from ...error import DeserializationError
+
+            raise DeserializationError(
+                "OrderbookDepthResponse quantum and truncation metadata have invalid types"
+            )
         return OrderbookDepthResponse(
             bids=[PriceLevel.from_dict(b) if isinstance(b, dict) else PriceLevel.from_list(b) for b in d.get("bids", [])],
             asks=[PriceLevel.from_dict(a) if isinstance(a, dict) else PriceLevel.from_list(a) for a in d.get("asks", [])],
-            orderbook_id=d.get("orderbook_id"),
+            orderbook_id=_require(d, "orderbook_id", "OrderbookDepthResponse"),
             market_pubkey=d.get("market_pubkey"),
             best_bid=d.get("best_bid"),
             best_ask=d.get("best_ask"),
             spread=d.get("spread"),
             tick_size=d.get("tick_size"),
-            decimals=OrderbookDepthDecimals.from_dict(decimals_raw) if isinstance(decimals_raw, dict) else None,
+            price_quantum=price_quantum,
+            trading_rules=_trading_rules_from_dict(rules_raw),
+            bids_truncated=bids_truncated,
+            asks_truncated=asks_truncated,
+            revision=revision,
+            captured_at_ms=captured_at_ms,
+            decimals=OrderbookDepthDecimals.from_dict(decimals_raw),
         )
 
 
@@ -139,17 +199,18 @@ class WsOrderBook:
     """WebSocket orderbook snapshot frame.
 
     The stream is snapshot-only: every data frame carries the full top-20
-    levels per side and replaces the previous book wholesale
-    (last-write-wins). ``seq`` is strictly increasing but non-contiguous, and
-    the initial snapshot after every (re)subscribe is ``seq: 0`` —
-    informational only, never a gate.
+    levels per side and replaces the previous book wholesale. ``seq`` is the
+    real engine depth revision and is gated within one subscription generation.
     """
     orderbook_id: str
+    seq: int
     is_snapshot: bool = False
-    seq: int = 0
     resync: bool = False
+    timestamp: Optional[str] = None
     bids: list[WsBookLevel] = field(default_factory=list)
     asks: list[WsBookLevel] = field(default_factory=list)
+    bids_truncated: bool = False
+    asks_truncated: bool = False
     #: Aggregation tags echoed by the backend (``None`` = full precision).
     #: Always normalized server-side ((5, none) arrives as (5, 1)).
     n_sig_figs: Optional[int] = None
@@ -170,13 +231,27 @@ class WsOrderBook:
         if ob_id is None:
             from ...error import DeserializationError
             raise DeserializationError("Missing required field 'orderbook_id' in WsOrderBook")
+        seq = _require(d, "seq", "WsOrderBook")
+        if not isinstance(seq, int) or isinstance(seq, bool) or seq < 0:
+            from ...error import DeserializationError
+
+            raise DeserializationError("WsOrderBook seq must be a non-negative integer")
+        bids_truncated = d.get("bids_truncated", False)
+        asks_truncated = d.get("asks_truncated", False)
+        if not isinstance(bids_truncated, bool) or not isinstance(asks_truncated, bool):
+            from ...error import DeserializationError
+
+            raise DeserializationError("WsOrderBook truncation flags must be booleans")
         return WsOrderBook(
             orderbook_id=ob_id,
             is_snapshot=d.get("is_snapshot", False),
-            seq=d.get("seq", 0),
+            seq=seq,
             resync=d.get("resync", False),
+            timestamp=d.get("timestamp"),
             bids=[WsBookLevel.from_dict(b) for b in d.get("bids", [])],
             asks=[WsBookLevel.from_dict(a) for a in d.get("asks", [])],
+            bids_truncated=bids_truncated,
+            asks_truncated=asks_truncated,
             n_sig_figs=d.get("n_sig_figs"),
             mantissa=d.get("mantissa"),
         )
@@ -184,19 +259,94 @@ class WsOrderBook:
 
 @dataclass
 class DecimalsResponse:
-    orderbook_id: str = ""
-    base_decimals: int = 6
-    quote_decimals: int = 6
-    price_decimals: int = 6
+    orderbook_id: str
+    base_decimals: int
+    quote_decimals: int
+    price_decimals: int
+    trading_rules: TradingRules
 
     @staticmethod
     def from_dict(d: dict) -> "DecimalsResponse":
+        rules = _require(d, "trading_rules", "DecimalsResponse")
+        orderbook_id = _require(d, "orderbook_id", "DecimalsResponse")
+        if not isinstance(orderbook_id, str) or not isinstance(rules, dict):
+            from ...error import DeserializationError
+
+            raise DeserializationError("DecimalsResponse has invalid required field types")
         return DecimalsResponse(
-            orderbook_id=d.get("orderbook_id", ""),
-            base_decimals=d.get("base_decimals", 6),
-            quote_decimals=d.get("quote_decimals", 6),
-            price_decimals=d.get("price_decimals", 6),
+            orderbook_id=orderbook_id,
+            base_decimals=_non_negative_int(d, "base_decimals", "DecimalsResponse"),
+            quote_decimals=_non_negative_int(d, "quote_decimals", "DecimalsResponse"),
+            price_decimals=_non_negative_int(d, "price_decimals", "DecimalsResponse"),
+            trading_rules=_trading_rules_from_dict(rules),
         )
+
+    def to_rules(self) -> OrderbookRules:
+        return OrderbookRules(
+            orderbook_id=self.orderbook_id,
+            base_decimals=self.base_decimals,
+            quote_decimals=self.quote_decimals,
+            price_decimals=self.price_decimals,
+            trading_rules=self.trading_rules,
+        )
+
+
+def _trading_rules_from_dict(d: dict) -> TradingRules:
+    if not isinstance(d, dict):
+        from ...error import DeserializationError
+
+        raise DeserializationError("TradingRules must be an object")
+    price_quantum_raw = _require(d, "price_quantum_raw", "TradingRules")
+    base_size_quantum_raw = _require(d, "base_size_quantum_raw", "TradingRules")
+    price_quantum = _require(d, "price_quantum", "TradingRules")
+    base_size_quantum = _require(d, "base_size_quantum", "TradingRules")
+    if (
+        not isinstance(price_quantum_raw, str)
+        or not price_quantum_raw
+        or any(char not in "0123456789" for char in price_quantum_raw)
+        or not isinstance(base_size_quantum_raw, str)
+        or not base_size_quantum_raw
+        or any(char not in "0123456789" for char in base_size_quantum_raw)
+        or not isinstance(price_quantum, str)
+        or not isinstance(base_size_quantum, str)
+    ):
+        from ...error import DeserializationError
+
+        raise DeserializationError(
+            "TradingRules quantum fields must be decimal strings"
+        )
+    integer_prices_always_allowed = _require(
+        d, "integer_prices_always_allowed", "TradingRules"
+    )
+    if not isinstance(integer_prices_always_allowed, bool):
+        from ...error import DeserializationError
+
+        raise DeserializationError(
+            "TradingRules integer_prices_always_allowed must be a boolean"
+        )
+    return TradingRules(
+        base_size_decimals=_non_negative_int(d, "base_size_decimals", "TradingRules"),
+        max_price_decimals=_non_negative_int(d, "max_price_decimals", "TradingRules"),
+        max_price_significant_figures=_non_negative_int(
+            d, "max_price_significant_figures", "TradingRules"
+        ),
+        integer_prices_always_allowed=integer_prices_always_allowed,
+        price_quantum=price_quantum,
+        price_quantum_raw=int(price_quantum_raw),
+        base_size_quantum=base_size_quantum,
+        base_size_quantum_raw=int(base_size_quantum_raw),
+    )
+
+
+def _non_negative_int(d: dict, key: str, context: str) -> int:
+    value = _require(d, key, context)
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        from ...error import DeserializationError
+
+        raise DeserializationError(
+            f"{context} field '{key}' must be a non-negative integer"
+        )
+    return value
 
 
 @dataclass

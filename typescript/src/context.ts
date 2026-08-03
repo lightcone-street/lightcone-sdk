@@ -1,7 +1,7 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
-import type { DepositSource } from "./shared";
+import type { DepositSource, OrderbookRules } from "./shared";
 import type { SigningStrategy } from "./shared/signing";
 import {
   ActiveRpc,
@@ -21,6 +21,7 @@ export interface ClientContext {
   readonly signingStrategy?: SigningStrategy;
   orderNonce?(): number | undefined;
   setOrderNonce?(nonce: number): void;
+  readonly orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for backward compat in domain sub-clients. */
   readonly connection?: Connection;

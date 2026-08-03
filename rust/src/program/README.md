@@ -284,11 +284,12 @@ let order = client.orders().create_bid_order(BidOrderParams {
 let order = client.orders().create_ask_order(AskOrderParams { ... });
 
 // Create and sign in one step (native-auth feature)
-let order = client.orders().create_signed_bid_order(params, &keypair);
-let order = client.orders().create_signed_ask_order(params, &keypair);
+let rules = client.orderbooks().decimals(orderbook_id).await?;
+let order = client.orders().create_signed_bid_order(params, &keypair, &rules)?;
+let order = client.orders().create_signed_ask_order(params, &keypair, &rules)?;
 
 // Manual signing
-client.orders().sign_order(&mut order, &keypair);
+client.orders().sign_order(&mut order, &keypair, &rules)?;
 
 // Get order hash
 let hash = client.orders().hash_order(&order);
@@ -348,16 +349,16 @@ Complete order with signature for off-chain storage and API submission.
 // Construction
 OrderPayload::new_bid(params) -> OrderPayload
 OrderPayload::new_ask(params) -> OrderPayload
-OrderPayload::new_bid_signed(params, &keypair) -> OrderPayload
-OrderPayload::new_ask_signed(params, &keypair) -> OrderPayload
+OrderPayload::new_bid_signed(params, &keypair, &rules) -> Result<OrderPayload>
+OrderPayload::new_ask_signed(params, &keypair, &rules) -> Result<OrderPayload>
 
 // Hashing and signing
 order.hash() -> [u8; 32]           // Keccak256 of fields (excludes signature)
-order.sign(&keypair)               // Sign in place
+order.sign(&keypair, &rules)?      // Exact-rule preflight, then sign in place
 order.verify_signature() -> Result<()>
 
 // Serialization
-order.serialize() -> [u8; 225]
+order.serialize() -> [u8; 233]
 OrderPayload::deserialize(data) -> Result<OrderPayload>
 
 // Conversion

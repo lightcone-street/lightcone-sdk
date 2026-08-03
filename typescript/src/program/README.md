@@ -7,7 +7,7 @@ On-chain Solana program interaction for the Lightcone protocol. This module cont
 On-chain operations are accessed through `LightconeClient`'s domain sub-clients:
 
 ```typescript
-import { LightconeClient } from "@lightconexyz/lightcone-sdk";
+import { LightconeClient, OrderBuilder } from "@lightconexyz/lightcone-sdk";
 
 // HTTP-only client (no Connection required for instruction building)
 const client = LightconeClient.builder().build();
@@ -212,22 +212,20 @@ async function main() {
   const mints = client.markets().getConditionalMints(marketPda, usdcMint, 2);
   const [yesMint, noMint] = mints;
 
-  // Create and sign orders via orders sub-client
+  // Construct and sign an exact order with immutable rules
   const orders = client.orders();
   const nonce = await orders.currentNonce(maker.publicKey);
+  const rules = await client.orderbooks().decimals(orderbookId);
 
-  const signedOrder = orders.createSignedBidOrder(
-    {
-      nonce,
-      maker: maker.publicKey,
-      market: marketPda,
-      baseMint: yesMint,
-      quoteMint: noMint,
-      amountIn: 500_000n,
-      amountOut: 500_000n,
-    },
-    maker
-  );
+  const signedOrder = new OrderBuilder()
+    .nonce(nonce)
+    .maker(maker.publicKey)
+    .market(marketPda)
+    .baseMint(yesMint)
+    .quoteMint(noMint)
+    .bid()
+    .price("0.5", "1", rules)
+    .buildAndSign(maker, rules);
 
   // Build match instruction via the raw encoder (operator-only on-chain)
   const matchIx = buildMatchOrdersMultiIx({
@@ -248,6 +246,11 @@ async function main() {
 ## Low-Level Building Blocks
 
 The `program` module also exports all building blocks directly for advanced usage:
+
+Raw signing helpers preserve the wire/signature contract and require fetched
+`OrderbookRules`; they validate the executable ratio, size quantum, and signed
+field ranges before signing. `LimitOrderEnvelope.submit()` fetches and caches
+those rules automatically.
 
 ```typescript
 import {

@@ -1,121 +1,218 @@
-"""Price and size scaling utilities for the Lightcone SDK."""
+"""Exact order construction and immutable trading-rule validation."""
 
+from __future__ import annotations
+
+import re
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal
+from typing import Union
+
+PRICE_SCALE = 1_000_000
+I64_MAX = 2**63 - 1
+U32_MAX = 2**32 - 1
+ExactDecimal = Union[str, Decimal]
 
 
-class ScalingError(Exception):
-    """Error during price/size scaling."""
+class ScalingError(ValueError):
+    """An order cannot be represented under the engine admission rules."""
 
-    pass
+    def __init__(self, message: str, code: str | None = None):
+        super().__init__(message)
+        self.code = code
+
+    @classmethod
+    def from_code(cls, code: str, detail: str | None = None) -> "ScalingError":
+        return cls(f"{code}: {detail}" if detail else code, code=code)
 
 
-@dataclass
-class OrderbookDecimals:
-    """Decimal metadata for an orderbook pair."""
+@dataclass(frozen=True)
+class TradingRules:
+    base_size_decimals: int
+    max_price_decimals: int
+    max_price_significant_figures: int
+    integer_prices_always_allowed: bool
+    price_quantum: str
+    price_quantum_raw: int
+    base_size_quantum: str
+    base_size_quantum_raw: int
 
+
+@dataclass(frozen=True)
+class OrderbookRules:
     orderbook_id: str
     base_decimals: int
     quote_decimals: int
     price_decimals: int
-    tick_size: int = 0
+    trading_rules: TradingRules
 
 
-@dataclass
+@dataclass(frozen=True)
 class ScaledAmounts:
-    """Result of scaling a price and size to raw lamport amounts."""
-
     amount_in: int
     amount_out: int
+    price_raw: int
+    base_atoms: int
+    quote_atoms: int
 
 
-def align_price_to_tick(price: Decimal, decimals: OrderbookDecimals) -> Decimal:
-    """Snap a price to the nearest valid tick.
+_DECIMAL_RE = re.compile(
+    r"^\+?(?:(?P<whole>\d+)(?:\.(?P<fraction>\d*))?|\.(?P<leading_fraction>\d+))"
+    r"(?:[eE](?P<exponent>[+-]?\d+))?$"
+)
 
-    Converts to quote-token lamports, truncates to the nearest tick_size
-    multiple, and converts back. Returns unchanged if tick_size is 0 or 1.
-    """
-    if decimals.tick_size <= 1:
-        return price
-    quote_multiplier = Decimal(10) ** decimals.quote_decimals
-    tick = Decimal(decimals.tick_size)
-    lamports = (price * quote_multiplier).to_integral_value()
-    aligned = (lamports / tick).to_integral_value() * tick
-    return aligned / quote_multiplier
+
+def exact_scaled_integer(value: ExactDecimal, decimals: int) -> int:
+    """Scale a decimal exactly, failing instead of rounding or truncating."""
+    if isinstance(value, float) or not isinstance(value, (str, Decimal)):
+        raise ScalingError("decimal values must be strings or Decimal instances")
+    if not isinstance(decimals, int) or decimals < 0:
+        raise ScalingError(f"invalid decimal scale: {decimals}")
+    source = str(value).strip()
+    if not source:
+        raise ScalingError("invalid decimal: empty input")
+    if source.startswith("-"):
+        raise ScalingError(f"invalid decimal '{source}': negative values are not supported")
+    match = _DECIMAL_RE.fullmatch(source)
+    if match is None:
+        raise ScalingError(f"invalid decimal '{source}': expected base-10 decimal syntax")
+    whole = match.group("whole") or ""
+    fraction = match.group("fraction")
+    if fraction is None:
+        fraction = match.group("leading_fraction") or ""
+    exponent = int(match.group("exponent") or 0)
+    if abs(exponent) > 10_000:
+        raise ScalingError(f"invalid decimal '{source}': unsupported exponent")
+    coefficient = (whole + fraction).lstrip("0")
+    if not coefficient:
+        return 0
+    shift = decimals + exponent - len(fraction)
+    if shift >= 0:
+        if len(coefficient) + shift > 10_000:
+            raise ScalingError(f"invalid decimal '{source}': scaled value is too large")
+        digits = coefficient + "0" * shift
+    else:
+        remove = -shift
+        if remove > len(coefficient) or any(char != "0" for char in coefficient[-remove:]):
+            raise ScalingError(
+                f"invalid decimal '{source}': cannot be represented exactly at this scale"
+            )
+        digits = coefficient[:-remove] or "0"
+    return int(digits)
+
+
+def _significant_digits(value: int) -> int:
+    while value and value % 10 == 0:
+        value //= 10
+    return len(str(value))
+
+
+def _validate_price_raw(price_raw: int, rules: OrderbookRules) -> int:
+    if price_raw <= 0 or price_raw > I64_MAX:
+        raise ScalingError.from_code("PRICE_OUT_OF_RANGE")
+    human_scale = 10**rules.price_decimals
+    integer_price = price_raw % human_scale == 0
+    trading = rules.trading_rules
+    if not integer_price:
+        if trading.price_quantum_raw <= 0 or price_raw % trading.price_quantum_raw != 0:
+            raise ScalingError.from_code("INVALID_PRICE_DECIMALS")
+        if _significant_digits(price_raw) > trading.max_price_significant_figures:
+            raise ScalingError.from_code("INVALID_PRICE_SIGNIFICANT_FIGURES")
+    return price_raw
+
+
+def _validate_base_atoms(base_atoms: int, rules: OrderbookRules) -> int:
+    if base_atoms <= 0:
+        raise ScalingError(f"size must be positive, got {base_atoms}")
+    quantum = rules.trading_rules.base_size_quantum_raw
+    if quantum <= 0 or base_atoms % quantum != 0:
+        raise ScalingError.from_code("INVALID_SIZE_DECIMALS")
+    validate_signed_field(base_atoms, "base amount", zero_allowed=False)
+    return base_atoms
 
 
 def scale_price_size(
-    price: str,
-    size: str,
+    price: ExactDecimal,
+    size: ExactDecimal,
     side: int,
-    decimals: OrderbookDecimals,
+    rules: OrderbookRules,
 ) -> ScaledAmounts:
-    """Scale a human-readable price and size to raw on-chain amounts.
-
-    Args:
-        price: Price as a decimal string (e.g., "0.55")
-        size: Size as a decimal string (e.g., "100.0")
-        side: 0 for BID, 1 for ASK
-        decimals: Decimal configuration for the orderbook
-
-    Returns:
-        ScaledAmounts with amount_in and amount_out in raw lamports
-
-    Raises:
-        ScalingError: If inputs are invalid or result in overflow
-    """
-    try:
-        price_d = Decimal(price)
-        size_d = Decimal(size)
-    except (InvalidOperation, ValueError) as e:
-        raise ScalingError(f"Invalid decimal input: {e}")
-
-    if price_d <= 0:
-        raise ScalingError(f"Price must be positive, got {price}")
-    if size_d <= 0:
-        raise ScalingError(f"Size must be positive, got {size}")
-
-    base_factor = Decimal(10) ** decimals.base_decimals
-    quote_factor = Decimal(10) ** decimals.quote_decimals
-
-    # Truncate size to base_decimals precision (strip f64 noise)
-    size_d = size_d.quantize(Decimal(10) ** -decimals.base_decimals, rounding=ROUND_DOWN)
-
-    # base_lamports = size * 10^base_decimals
-    base_lamports = size_d * base_factor
-
-    # Validate no fractional lamports
-    if base_lamports != base_lamports.to_integral_value():
-        raise ScalingError(f"Fractional lamports not allowed: base_lamports = {base_lamports}")
-
-    # quote_lamports = size * price * 10^quote_decimals (truncate sub-lamport dust)
-    quote_lamports = (size_d * price_d * quote_factor).to_integral_value(rounding=ROUND_DOWN)
-
-    base_lamports_int = int(base_lamports)
-    quote_lamports_int = int(quote_lamports)
-
-    if base_lamports_int == 0:
-        raise ScalingError("Computed base_lamports is zero (size too small)")
-    if quote_lamports_int == 0:
-        raise ScalingError("Computed quote_lamports is zero (price * size too small)")
-
-    max_u64 = 2**64 - 1
-    if base_lamports_int > max_u64:
-        raise ScalingError(f"base_lamports overflow: {base_lamports_int}")
-    if quote_lamports_int > max_u64:
-        raise ScalingError(f"quote_lamports overflow: {quote_lamports_int}")
-
-    # BID: maker gives quote, wants base
-    # ASK: maker gives base, wants quote
-    if side == 0:  # BID
-        return ScaledAmounts(
-            amount_in=quote_lamports_int,
-            amount_out=base_lamports_int,
-        )
-    elif side == 1:  # ASK
-        return ScaledAmounts(
-            amount_in=base_lamports_int,
-            amount_out=quote_lamports_int,
-        )
+    """Construct the exact signed amounts for a human price and base size."""
+    price_raw = exact_scaled_integer(price, rules.price_decimals)
+    if price_raw <= 0:
+        raise ScalingError(f"price must be positive, got {price}")
+    base_atoms = exact_scaled_integer(size, rules.base_decimals)
+    if base_atoms <= 0:
+        raise ScalingError(f"size must be positive, got {size}")
+    _validate_price_raw(price_raw, rules)
+    _validate_base_atoms(base_atoms, rules)
+    quote_numerator = price_raw * base_atoms
+    if quote_numerator % PRICE_SCALE:
+        raise ScalingError.from_code("PRICE_NOT_EXACTLY_REPRESENTABLE")
+    quote_atoms = quote_numerator // PRICE_SCALE
+    validate_signed_field(quote_atoms, "quote amount", zero_allowed=False)
+    if int(side) == 0:
+        amount_in, amount_out = quote_atoms, base_atoms
+    elif int(side) == 1:
+        amount_in, amount_out = base_atoms, quote_atoms
     else:
-        raise ScalingError(f"Invalid side: {side} (must be 0=BID or 1=ASK)")
+        raise ScalingError("side must be BID or ASK")
+    return ScaledAmounts(
+        amount_in=amount_in,
+        amount_out=amount_out,
+        price_raw=price_raw,
+        base_atoms=base_atoms,
+        quote_atoms=quote_atoms,
+    )
+
+
+def validate_raw_amounts(
+    amount_in: int,
+    amount_out: int,
+    side: int,
+    rules: OrderbookRules,
+) -> ScaledAmounts:
+    """Preflight caller-provided signed amounts against the engine rules."""
+    validate_signed_field(amount_in, "amount_in", zero_allowed=False)
+    validate_signed_field(amount_out, "amount_out", zero_allowed=False)
+    if int(side) == 0:
+        base_atoms, quote_atoms = amount_out, amount_in
+    elif int(side) == 1:
+        base_atoms, quote_atoms = amount_in, amount_out
+    else:
+        raise ScalingError("side must be BID or ASK")
+    _validate_base_atoms(base_atoms, rules)
+    numerator = quote_atoms * PRICE_SCALE
+    if numerator % base_atoms:
+        raise ScalingError.from_code("PRICE_NOT_EXACTLY_REPRESENTABLE")
+    price_raw = numerator // base_atoms
+    _validate_price_raw(price_raw, rules)
+    return ScaledAmounts(
+        amount_in=amount_in,
+        amount_out=amount_out,
+        price_raw=price_raw,
+        base_atoms=base_atoms,
+        quote_atoms=quote_atoms,
+    )
+
+
+def validate_signed_field(value: int, field: str, *, zero_allowed: bool = True) -> None:
+    if not isinstance(value, int) or value < 0 or value > I64_MAX or (not zero_allowed and value == 0):
+        raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", field)
+
+
+def validate_signed_fields(amount_in: int, amount_out: int, salt: int, nonce: int) -> None:
+    validate_signed_field(amount_in, "amount_in", zero_allowed=False)
+    validate_signed_field(amount_out, "amount_out", zero_allowed=False)
+    validate_signed_field(salt, "salt")
+    if not isinstance(nonce, int) or nonce < 0 or nonce > U32_MAX:
+        raise ScalingError.from_code("ORDER_FIELD_OUT_OF_RANGE", "nonce")
+
+
+def validate_trigger_price(value: ExactDecimal, price_decimals: int) -> int:
+    try:
+        raw = exact_scaled_integer(value, price_decimals)
+    except ScalingError as exc:
+        raise ScalingError.from_code("TRIGGER_PRICE_OUT_OF_RANGE") from exc
+    if raw <= 0 or raw > I64_MAX:
+        raise ScalingError.from_code("TRIGGER_PRICE_OUT_OF_RANGE")
+    return raw

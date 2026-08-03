@@ -44,21 +44,6 @@ impl HasDisplayToken for OrderBookPair {
 }
 
 impl OrderBookPair {
-    /// Derive scaling decimals from this pair's token metadata.
-    ///
-    /// This is the recommended way to get `OrderbookDecimals` — no REST call needed.
-    pub fn decimals(&self) -> crate::shared::scaling::OrderbookDecimals {
-        let base_decimals = self.base.decimals() as u8;
-        let quote_decimals = self.quote.decimals() as u8;
-        crate::shared::scaling::OrderbookDecimals {
-            orderbook_id: self.orderbook_id.as_str().to_string(),
-            base_decimals,
-            quote_decimals,
-            price_decimals: (6i16 + quote_decimals as i16 - base_decimals as i16).max(0) as u8,
-            tick_size: self.tick_size.max(0) as u64,
-        }
-    }
-
     /// Price impact as percentage relative to a deposit asset price.
     pub fn impact_pct(deposit_price: Decimal, conditional_price: Decimal) -> (f64, &'static str) {
         if deposit_price == Decimal::ZERO {

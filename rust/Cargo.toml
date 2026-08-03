@@ -35,6 +35,8 @@ serde_urlencoded = "0.7"
 # Utilities (WASM-compatible)
 thiserror = "2.0"
 rust_decimal = { version = "1", features = ["serde-str"] }
+num-bigint = "0.4"
+num-traits = "0.2"
 base64 = "0.22"
 bincode = "^1.3.3"
 bs58 = "0.5"

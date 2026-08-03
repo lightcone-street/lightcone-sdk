@@ -1727,6 +1727,8 @@ dependencies = [
  "hex",
  "js-sys",
  "lazy_static",
+ "num-bigint 0.4.6",
+ "num-traits",
  "pin-project-lite",
  "rand 0.8.5",
  "reqwest",

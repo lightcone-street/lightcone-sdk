@@ -15,6 +15,7 @@ import type { WsTrade } from "../domain/trade";
 import { WsError as WsErrorClass } from "../error";
 import { LightconeEnv, wsUrl } from "../env";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
+import { parseJsonExact } from "../shared/json";
 
 export * from "./client.node";
 export * from "./subscriptions";
@@ -315,7 +316,7 @@ const VALID_MESSAGE_TYPES = new Set([
 ]);
 
 export function parseMessageIn(input: string): MessageIn {
-  const parsed: unknown = JSON.parse(input);
+  const parsed: unknown = parseJsonExact(input);
   if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
     throw new WsErrorClass("ProtocolError", `Invalid WS message: missing "type" field`);
   }
@@ -329,7 +330,19 @@ export function parseMessageIn(input: string): MessageIn {
   if (!("data" in obj) || typeof obj.data !== "object" || obj.data === null) {
     throw new WsErrorClass("ProtocolError", `Invalid WS message: missing or invalid "data" field`);
   }
-  const message = parsed as MessageIn;
+  let message = parsed as MessageIn;
+  if (message.type === "book_update") {
+    const seq = (message.data as unknown as { seq?: number | bigint }).seq;
+    if ((typeof seq !== "number" && typeof seq !== "bigint") ||
+        (typeof seq === "number" && (!Number.isSafeInteger(seq) || seq < 0)) ||
+        (typeof seq === "bigint" && seq < 0n)) {
+      throw new WsErrorClass("ProtocolError", "Invalid book_update seq");
+    }
+    message = {
+      ...message,
+      data: { ...message.data, seq: BigInt(seq) },
+    };
+  }
   if (message.type === "user") {
     return {
       ...message,

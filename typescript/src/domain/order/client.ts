@@ -43,8 +43,20 @@ import type {
   AskOrderParams,
   OrderStatus as ProgramOrderStatus,
 } from "../../program/types";
-import { asOrderBookId, asPubkeyStr, type OrderBookId, type PubkeyStr } from "../../shared";
+import { OrderSide } from "../../program/types";
+import {
+  asOrderBookId,
+  asPubkeyStr,
+  validateRawAmounts,
+  validateSignedFields,
+  validateTriggerPrice,
+  type OrderBookId,
+  type OrderbookRules,
+  type PubkeyStr,
+  type SubmitOrderRequest,
+} from "../../shared";
 import { LimitOrderEnvelope, TriggerOrderEnvelope } from "../../program/envelope";
+import { Orderbooks } from "../orderbook/client";
 import {
   normalizeUserOrdersPayload,
   type UserMarketBalance,
@@ -226,9 +238,14 @@ export class Orders {
 
   // ── HTTP methods ─────────────────────────────────────────────────────
 
-  async submit(request: object): Promise<SubmitOrderResponse> {
+  async submit(request: SubmitOrderRequest): Promise<SubmitOrderResponse> {
+    await this.preflightSubmit(request);
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    return this.client.http.post<SubmitOrderResponse, object>(url, request, RetryPolicy.None);
+    return this.client.http.post<SubmitOrderResponse, SubmitOrderRequest>(
+      url,
+      request,
+      RetryPolicy.None
+    );
   }
 
   async cancel(body: CancelBody): Promise<CancelSuccess> {
@@ -245,13 +262,26 @@ export class Orders {
     );
   }
 
-  async submitTrigger(request: object): Promise<TriggerOrderResponse> {
+  async submitTrigger(request: SubmitOrderRequest): Promise<TriggerOrderResponse> {
+    await this.preflightSubmit(request);
     const url = `${this.client.http.baseUrl()}/api/orders/submit`;
-    return this.client.http.post<TriggerOrderResponse, object>(
+    return this.client.http.post<TriggerOrderResponse, SubmitOrderRequest>(
       url,
       request,
       RetryPolicy.None
     );
+  }
+
+  private async preflightSubmit(request: SubmitOrderRequest): Promise<void> {
+    const rules = await new Orderbooks(this.client).decimals(request.orderbook_id);
+    if (request.side !== OrderSide.BID && request.side !== OrderSide.ASK) {
+      throw ProgramSdkError.invalidSide(request.side);
+    }
+    validateRawAmounts(request.amount_in, request.amount_out, request.side, rules);
+    validateSignedFields(request.amount_in, request.amount_out, request.salt, request.nonce);
+    if (request.trigger_price !== undefined) {
+      validateTriggerPrice(String(request.trigger_price), rules.priceDecimals);
+    }
   }
 
   async cancelTrigger(body: CancelTriggerBody): Promise<CancelTriggerSuccess> {
@@ -548,27 +578,36 @@ export class Orders {
     return programCreateAskOrder(params);
   }
 
-  createSignedBidOrder(params: BidOrderParams, signer: Keypair): SignedOrder {
-    return programCreateSignedBidOrder(params, signer);
+  createSignedBidOrder(
+    params: BidOrderParams,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): SignedOrder {
+    return programCreateSignedBidOrder(params, signer, rules);
   }
 
-  createSignedAskOrder(params: AskOrderParams, signer: Keypair): SignedOrder {
-    return programCreateSignedAskOrder(params, signer);
+  createSignedAskOrder(
+    params: AskOrderParams,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): SignedOrder {
+    return programCreateSignedAskOrder(params, signer, rules);
   }
 
   hashOrder(order: SignedOrder): Buffer {
     return programHashOrder(order);
   }
 
-  signOrder(order: SignedOrder, signer: Keypair): Buffer {
-    return programSignOrder(order, signer);
+  signOrder(order: SignedOrder, signer: Keypair, rules: OrderbookRules): Buffer {
+    return programSignOrder(order, signer, rules);
   }
 
   signFullOrder(
     order: Omit<SignedOrder, "signature">,
-    signer: Keypair
+    signer: Keypair,
+    rules: OrderbookRules
   ): SignedOrder {
-    return signOrderFull(order, signer);
+    return signOrderFull(order, signer, rules);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

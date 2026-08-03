@@ -1072,6 +1072,27 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn http_200_error_envelope_is_rejected() {
+        let (base_url, _) = spawn_server(vec![TestResponse {
+            status: 200,
+            body: r#"{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}"#,
+        }])
+        .await;
+        let http = LightconeHttp::new(&base_url);
+        let error = http
+            .get::<serde_json::Value>(&format!("{base_url}/test"), RetryPolicy::None)
+            .await
+            .unwrap_err();
+        match error {
+            SdkError::ApiRejected(details) => assert_eq!(
+                details.rejection_code,
+                Some(crate::shared::RejectionCode::PriceNotExactlyRepresentable)
+            ),
+            other => panic!("expected ApiRejected, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn cookie_forwarded_post_and_delete_retry_expected_requests() -> Result<(), SdkError> {
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
