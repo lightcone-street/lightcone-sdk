@@ -334,8 +334,8 @@ impl<'a> Orders<'a> {
             request.nonce,
         )
         .map_err(ProgramSdkError::from)?;
-        if let Some(trigger_price) = request.trigger_price {
-            validate_trigger_price(&trigger_price.to_string(), rules.price_decimals)
+        if let Some(trigger_price) = &request.trigger_price {
+            validate_trigger_price(trigger_price.as_str(), rules.price_decimals)
                 .map_err(ProgramSdkError::from)?;
         }
         Ok(())

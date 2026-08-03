@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::{validate_raw_amounts, OrderbookRules, SubmitOrderRequest};
+use crate::shared::{validate_raw_amounts, ExactDecimal, OrderbookRules, SubmitOrderRequest};
 
 // ============================================================================
 // Signed Order (233 bytes)
@@ -305,7 +305,7 @@ impl OrderPayload {
         &self,
         orderbook_id: impl Into<String>,
         time_in_force: Option<crate::shared::TimeInForce>,
-        trigger_price: Option<f64>,
+        trigger_price: Option<ExactDecimal>,
         trigger_type: Option<crate::shared::TriggerType>,
         deposit_source: Option<crate::shared::DepositSource>,
     ) -> Result<SubmitOrderRequest, SdkError> {

@@ -4,11 +4,10 @@
 //! decimal-string parsing and integer arithmetic only: it never rounds, floors,
 //! or aligns a caller's value implicitly.
 
-use std::fmt;
-
 use num_bigint::BigUint;
 use num_traits::{ToPrimitive, Zero};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use thiserror::Error;
 
 use crate::program::types::OrderSide;
 
@@ -43,6 +42,21 @@ pub struct OrderbookRules {
     pub trading_rules: TradingRules,
 }
 
+impl OrderbookRules {
+    /// Ensure these rules belong to the orderbook being constructed or
+    /// submitted.
+    pub fn validate_for_orderbook(&self, orderbook_id: &str) -> Result<(), ScalingError> {
+        if self.orderbook_id == orderbook_id {
+            Ok(())
+        } else {
+            Err(ScalingError::OrderbookMismatch {
+                expected: orderbook_id.to_string(),
+                actual: self.orderbook_id.clone(),
+            })
+        }
+    }
+}
+
 mod biguint_string {
     use super::*;
 
@@ -72,50 +86,31 @@ pub struct ScaledAmounts {
     pub quote_atoms: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum ScalingError {
+    #[error("invalid decimal '{input}': {reason}")]
     InvalidDecimal { input: String, reason: String },
+    #[error("price must be positive, got {0}")]
     NonPositivePrice(String),
+    #[error("size must be positive, got {0}")]
     NonPositiveSize(String),
+    #[error("INVALID_SIZE_DECIMALS")]
     InvalidSizeDecimals,
+    #[error("INVALID_PRICE_DECIMALS")]
     InvalidPriceDecimals,
+    #[error("INVALID_PRICE_SIGNIFICANT_FIGURES")]
     InvalidPriceSignificantFigures,
+    #[error("PRICE_NOT_EXACTLY_REPRESENTABLE")]
     PriceNotExactlyRepresentable,
+    #[error("PRICE_OUT_OF_RANGE")]
     PriceOutOfRange,
+    #[error("ORDER_FIELD_OUT_OF_RANGE: {field}")]
     OrderFieldOutOfRange { field: &'static str },
+    #[error("TRIGGER_PRICE_OUT_OF_RANGE")]
     TriggerPriceOutOfRange,
-    InvalidSide,
-    InvalidTradingRules(String),
+    #[error("trading rules for orderbook '{actual}' cannot be used for '{expected}'")]
+    OrderbookMismatch { expected: String, actual: String },
 }
-
-impl fmt::Display for ScalingError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidDecimal { input, reason } => {
-                write!(f, "invalid decimal '{input}': {reason}")
-            }
-            Self::NonPositivePrice(value) => write!(f, "price must be positive, got {value}"),
-            Self::NonPositiveSize(value) => write!(f, "size must be positive, got {value}"),
-            Self::InvalidSizeDecimals => write!(f, "INVALID_SIZE_DECIMALS"),
-            Self::InvalidPriceDecimals => write!(f, "INVALID_PRICE_DECIMALS"),
-            Self::InvalidPriceSignificantFigures => {
-                write!(f, "INVALID_PRICE_SIGNIFICANT_FIGURES")
-            }
-            Self::PriceNotExactlyRepresentable => {
-                write!(f, "PRICE_NOT_EXACTLY_REPRESENTABLE")
-            }
-            Self::PriceOutOfRange => write!(f, "PRICE_OUT_OF_RANGE"),
-            Self::OrderFieldOutOfRange { field } => {
-                write!(f, "ORDER_FIELD_OUT_OF_RANGE: {field}")
-            }
-            Self::TriggerPriceOutOfRange => write!(f, "TRIGGER_PRICE_OUT_OF_RANGE"),
-            Self::InvalidSide => write!(f, "side must be BID or ASK"),
-            Self::InvalidTradingRules(reason) => write!(f, "invalid trading rules: {reason}"),
-        }
-    }
-}
-
-impl std::error::Error for ScalingError {}
 
 /// Convert a decimal string to an integer at `decimals` without rounding.
 /// Exponent notation is accepted. Fractional trailing zeros beyond the scale
@@ -442,5 +437,17 @@ mod tests {
             validate_signed_fields(I64_MAX_U64, I64_MAX_U64, I64_MAX_U64, u32::MAX as u64).is_ok()
         );
         assert!(validate_signed_fields(I64_MAX_U64 + 1, 1, 0, 0).is_err());
+    }
+
+    #[test]
+    fn rules_are_bound_to_their_orderbook() {
+        assert!(rules().validate_for_orderbook("test").is_ok());
+        assert_eq!(
+            rules().validate_for_orderbook("other").unwrap_err(),
+            ScalingError::OrderbookMismatch {
+                expected: "other".into(),
+                actual: "test".into(),
+            }
+        );
     }
 }

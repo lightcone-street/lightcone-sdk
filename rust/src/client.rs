@@ -36,10 +36,12 @@ use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
 #[cfg(feature = "solana-rpc")]
 use solana_commitment_config::CommitmentConfig;
 
-use async_lock::RwLock;
+use async_lock::{OnceCell, RwLock};
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+type OrderbookRulesCell = Arc<OnceCell<OrderbookRules>>;
 
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
@@ -80,7 +82,7 @@ pub struct LightconeClient {
     /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
     /// use this cached value, falling back to 0 if nothing has been cached.
     pub(crate) order_nonce: Arc<RwLock<Option<u64>>>,
-    pub(crate) orderbook_rules: Arc<RwLock<HashMap<String, OrderbookRules>>>,
+    pub(crate) orderbook_rules: Arc<RwLock<HashMap<String, OrderbookRulesCell>>>,
     /// Primary Solana RPC URL for blockhash fetching and transaction submission.
     pub(crate) primary_rpc_url: Option<String>,
     /// Backup Solana RPC URL for automatic failover.

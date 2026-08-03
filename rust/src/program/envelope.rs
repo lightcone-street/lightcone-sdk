@@ -10,11 +10,10 @@ use crate::program::error::SdkError;
 use crate::program::orders::{generate_salt, OrderPayload};
 use crate::program::types::OrderSide;
 use crate::shared::scaling::{
-    scale_price_size, validate_raw_amounts, validate_signed_fields, validate_trigger_price,
-    OrderbookRules,
+    scale_price_size, validate_raw_amounts, validate_signed_fields, OrderbookRules,
 };
 #[cfg(feature = "trigger_orders")]
-use crate::shared::TriggerType;
+use crate::shared::{validate_trigger_price, ExactDecimal, TriggerType};
 use crate::shared::{DepositSource, SubmitOrderRequest, TimeInForce};
 
 // ─── Shared base fields ─────────────────────────────────────────────────────
@@ -111,7 +110,8 @@ impl OrderFields {
     }
 
     /// Construct or preflight the exact signed ratio using fetched rules.
-    fn apply_rules(&mut self, rules: &OrderbookRules) -> Result<(), SdkError> {
+    fn apply_rules(&mut self, rules: &OrderbookRules, orderbook_id: &str) -> Result<(), SdkError> {
+        rules.validate_for_orderbook(orderbook_id)?;
         let side = self
             .side
             .ok_or_else(|| SdkError::MissingField("side (call .bid() or .ask())".into()))?;
@@ -337,7 +337,8 @@ impl OrderEnvelope for LimitOrderEnvelope {
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        self.fields.apply_rules(rules)?;
+        self.fields
+            .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.sign(keypair, rules)?;
         payload.to_submit_request(
@@ -356,7 +357,8 @@ impl OrderEnvelope for LimitOrderEnvelope {
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        self.fields.apply_rules(rules)?;
+        self.fields
+            .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.apply_signature(sig_bs58.to_string(), rules)?;
         payload.to_submit_request(
@@ -439,7 +441,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        let trigger_price = self.trigger_price.clone().ok_or_else(|| {
+        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
             SdkError::MissingField("trigger_price is required for trigger orders".into())
         })?;
         let trigger_type = self.trigger_type.ok_or_else(|| {
@@ -447,18 +449,18 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         })?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        validate_trigger_price(&trigger_price, rules.price_decimals)?;
-        self.fields.apply_rules(rules)?;
+        validate_trigger_price(trigger_price, rules.price_decimals)?;
+        let trigger_price = trigger_price
+            .parse::<ExactDecimal>()
+            .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?;
+        self.fields
+            .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.sign(keypair, rules)?;
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
             self.time_in_force,
-            Some(
-                trigger_price
-                    .parse()
-                    .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?,
-            ),
+            Some(trigger_price),
             Some(trigger_type),
             self.fields.deposit_source,
         )
@@ -470,7 +472,7 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        let trigger_price = self.trigger_price.clone().ok_or_else(|| {
+        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
             SdkError::MissingField("trigger_price is required for trigger orders".into())
         })?;
         let trigger_type = self.trigger_type.ok_or_else(|| {
@@ -478,18 +480,18 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         })?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        validate_trigger_price(&trigger_price, rules.price_decimals)?;
-        self.fields.apply_rules(rules)?;
+        validate_trigger_price(trigger_price, rules.price_decimals)?;
+        let trigger_price = trigger_price
+            .parse::<ExactDecimal>()
+            .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?;
+        self.fields
+            .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
         payload.apply_signature(sig_bs58.to_string(), rules)?;
         payload.to_submit_request(
             orderbook.orderbook_id.as_str(),
             self.time_in_force,
-            Some(
-                trigger_price
-                    .parse()
-                    .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?,
-            ),
+            Some(trigger_price),
             Some(trigger_type),
             self.fields.deposit_source,
         )
@@ -580,7 +582,8 @@ impl LimitOrderEnvelope {
         // and the Privy path reads fields like `get_market()`, both of which
         // happen before `sign()`/`finalize()` where these would otherwise run.
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        self.fields.apply_rules(&rules)?;
+        self.fields
+            .apply_rules(&rules, orderbook.orderbook_id.as_str())?;
 
         // Cache nonce if explicitly provided, or auto-populate from cache
         match self.fields.nonce {
@@ -645,7 +648,8 @@ impl TriggerOrderEnvelope {
         // and the Privy path reads fields like `get_market()`, both of which
         // happen before `sign()`/`finalize()` where these would otherwise run.
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        self.fields.apply_rules(&rules)?;
+        self.fields
+            .apply_rules(&rules, orderbook.orderbook_id.as_str())?;
         let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
             crate::program::error::SdkError::MissingField(
                 "trigger_price is required for trigger orders".into(),
@@ -776,6 +780,7 @@ impl TriggerOrderEnvelope {
 mod tests {
     use super::*;
     use crate::domain::orderbook::OrderBookPair;
+    use crate::shared::ScalingError;
 
     #[cfg(feature = "native-auth")]
     use solana_signer::Signer;
@@ -907,11 +912,42 @@ mod tests {
             .sign(&keypair, &ob, &test_rules())
             .unwrap();
 
-        assert_eq!(request.trigger_price, Some(0.75));
+        assert_eq!(request.trigger_price.unwrap().as_str(), "0.75");
         assert_eq!(request.trigger_type, Some(TriggerType::TakeProfit));
         assert_eq!(request.time_in_force, Some(TimeInForce::Gtc));
         assert_eq!(request.side, 1); // Ask
         assert_eq!(request.signature.len(), 128);
+    }
+
+    #[test]
+    #[cfg(all(feature = "native-auth", feature = "trigger_orders"))]
+    fn trigger_price_keeps_exact_json_number() {
+        let keypair = Keypair::new();
+        let ob = test_orderbook();
+        let trigger_price = "9007199254.740993";
+
+        let request = TriggerOrderEnvelope::new()
+            .nonce(1)
+            .salt(0)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .ask()
+            .amount_in(500_000)
+            .amount_out(1_000_000)
+            .take_profit(trigger_price)
+            .gtc()
+            .sign(&keypair, &ob, &test_rules())
+            .unwrap();
+
+        assert_eq!(
+            request.trigger_price.as_ref().unwrap().as_str(),
+            trigger_price
+        );
+        assert!(serde_json::to_string(&request)
+            .unwrap()
+            .contains(r#""trigger_price":9007199254.740993"#));
     }
 
     #[test]
@@ -960,7 +996,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(request.time_in_force, Some(TimeInForce::Ioc));
-        assert_eq!(request.trigger_price, Some(0.30));
+        assert_eq!(request.trigger_price.unwrap().as_str(), "0.30");
         assert_eq!(request.trigger_type, Some(TriggerType::StopLoss));
     }
 
@@ -982,6 +1018,35 @@ mod tests {
             result.unwrap_err().to_string().contains("amount_in"),
             "expected error about amount_in"
         );
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn rejects_rules_for_another_orderbook_before_signing() {
+        let keypair = Keypair::new();
+        let ob = test_orderbook();
+        let mut rules = test_rules();
+        rules.orderbook_id = "another_ob".into();
+
+        let result = LimitOrderEnvelope::new()
+            .nonce(1)
+            .salt(0)
+            .maker(keypair.pubkey())
+            .market(Pubkey::new_unique())
+            .base_mint(Pubkey::new_unique())
+            .quote_mint(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .sign(&keypair, &ob, &rules);
+
+        assert!(matches!(
+            result,
+            Err(SdkError::Scaling(ScalingError::OrderbookMismatch {
+                ref expected,
+                ref actual,
+            })) if expected == "test_ob" && actual == "another_ob"
+        ));
     }
 
     #[test]
