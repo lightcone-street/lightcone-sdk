@@ -225,12 +225,15 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
                     snapshot.best_ask(),
                     snapshot.spread()
                 ),
-                ApplyResult::Ignored(reason) => {
-                    eprintln!("Ignored book update: {reason:?}");
+                ApplyResult::DiscardedStale => {}
+                ApplyResult::SubscriptionMismatch => {
+                    eprintln!("Book update belongs to another subscription");
                 }
                 ApplyResult::RefreshRequired(reason) => {
                     eprintln!("Refresh required: {reason:?}");
-                    // re-subscribe or request a fresh snapshot
+                    // Unsubscribe, reset this subscription generation with
+                    // snapshot.begin_generation(), then re-subscribe using
+                    // the same aggregation parameters.
                 }
             }
         }

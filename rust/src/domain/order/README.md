@@ -329,11 +329,22 @@ Create unsigned bid or ask orders from raw parameters.
 #### `create_signed_bid_order` / `create_signed_ask_order`
 
 ```rust
-fn create_signed_bid_order(&self, params: BidOrderParams, keypair: &Keypair) -> SdkResult<OrderPayload>
-fn create_signed_ask_order(&self, params: AskOrderParams, keypair: &Keypair) -> SdkResult<OrderPayload>
+fn create_signed_bid_order(
+    &self,
+    params: BidOrderParams,
+    keypair: &Keypair,
+    rules: &OrderbookRules,
+) -> SdkResult<OrderPayload>
+fn create_signed_ask_order(
+    &self,
+    params: AskOrderParams,
+    keypair: &Keypair,
+    rules: &OrderbookRules,
+) -> SdkResult<OrderPayload>
 ```
 
-Create and sign orders in one step. Requires the `native-auth` feature.
+Preflight and sign orders in one step. Requires fetched trading rules and the
+`native-auth` feature.
 
 #### `hash_order`
 
