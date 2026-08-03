@@ -203,11 +203,45 @@ def test_depth_metadata_defaults_and_rules_cache_deduplicates():
     books = Orderbooks(Client())
 
     async def discover():
-        first, second = await asyncio.gather(books.decimals("ob"), books.decimals("ob"))
+        orderbook_id = RULES_WIRE["orderbook_id"]
+        first, second = await asyncio.gather(
+            books.decimals(orderbook_id), books.decimals(orderbook_id)
+        )
         assert first is second
 
     asyncio.run(discover())
     assert Client._http.calls == 1
+
+
+def test_mismatched_rules_are_rejected_and_not_cached():
+    wrong = deepcopy(RULES_WIRE)
+    wrong["orderbook_id"] = "wrong"
+    correct = deepcopy(RULES_WIRE)
+    correct["orderbook_id"] = "ob"
+
+    class Http:
+        calls = 0
+        responses = [wrong, correct]
+
+        async def get(self, _path, **_kwargs):
+            self.calls += 1
+            return self.responses.pop(0)
+
+    class Client:
+        _http = Http()
+
+    books = Orderbooks(Client())
+
+    async def discover():
+        with pytest.raises(ScalingError, match="cannot be used for 'ob'"):
+            await books.decimals("ob")
+
+        rules = await books.decimals("ob")
+        assert rules.orderbook_id == "ob"
+        assert await books.decimals("ob") is rules
+
+    asyncio.run(discover())
+    assert Client._http.calls == 2
 
 
 def test_raw_quantums_must_be_json_strings():

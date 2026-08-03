@@ -116,7 +116,9 @@ class Orderbooks:
                 data = await self._client._http.get(
                     f"/api/orderbooks/{orderbook_id}/decimals"
                 )
-                return DecimalsResponse.from_dict(data).to_rules()
+                rules = DecimalsResponse.from_dict(data).to_rules()
+                rules.validate_for_orderbook(orderbook_id)
+                return rules
 
             task = asyncio.create_task(_fetch())
             self._rules_in_flight[orderbook_id] = task
