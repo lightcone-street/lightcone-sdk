@@ -18,6 +18,7 @@ import { OrderSide } from "../src/program/types";
 import { parseMessageIn } from "../src/ws";
 import { LightconeClient } from "../src/client";
 import { LimitOrderEnvelope } from "../src/program/envelope";
+import { ProgramSdkError } from "../src/program/error";
 import type { OrderBookPair } from "../src/domain/orderbook";
 
 const rulesWire: DecimalsResponse = {
@@ -244,6 +245,31 @@ describe("exact order precision", () => {
       /PRICE_NOT_EXACTLY_REPRESENTABLE/
     );
     assert.equal(submitCalls, 0);
+  });
+
+  it("reports null projection metadata as a serialization error", async () => {
+    for (const field of ["revision", "captured_at_ms"] as const) {
+      const client = LightconeClient.builder().baseUrl("https://example.test").build();
+      (client.http as unknown as { get: () => Promise<unknown> }).get = async () => ({
+        orderbook_id: "ob",
+        best_bid: null,
+        best_ask: null,
+        bids: [],
+        asks: [],
+        price_quantum: "0.1000",
+        trading_rules: rulesWire.trading_rules,
+        revision: 1842,
+        captured_at_ms: 1785776400123,
+        decimals: { price: 4, size: 8 },
+        [field]: null,
+      });
+
+      await assert.rejects(
+        () => client.orderbooks().get("ob"),
+        (error) =>
+          error instanceof ProgramSdkError && error.variant === "Serialization"
+      );
+    }
   });
 
   it("recognizes every exact-order rejection code", () => {

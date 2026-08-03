@@ -73,8 +73,8 @@ export class Orderbooks {
     const raw = await this.client.http.get<
       Omit<OrderbookDepthResponse, "trading_rules" | "revision" | "captured_at_ms" | "bids_truncated" | "asks_truncated"> & {
         trading_rules: TradingRulesWire;
-        revision: number | bigint;
-        captured_at_ms: number | bigint;
+        revision: number | bigint | null;
+        captured_at_ms: number | bigint | null;
         bids_truncated?: boolean;
         asks_truncated?: boolean;
       }
@@ -90,7 +90,9 @@ export class Orderbooks {
       (raw.bids_truncated !== undefined && typeof raw.bids_truncated !== "boolean") ||
       (raw.asks_truncated !== undefined && typeof raw.asks_truncated !== "boolean") ||
       raw.revision === undefined ||
-      raw.captured_at_ms === undefined
+      raw.revision === null ||
+      raw.captured_at_ms === undefined ||
+      raw.captured_at_ms === null
     ) {
       throw ProgramSdkError.serialization(
         "orderbook depth is missing required projection or trading-rule metadata"
