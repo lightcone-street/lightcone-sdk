@@ -159,8 +159,9 @@ class LimitOrderEnvelope:
         if self._quote_mint is None:
             self._quote_mint = Pubkey.from_string(orderbook.quote.pubkey)
 
-    def _apply_rules(self, rules: OrderbookRules) -> None:
+    def _apply_rules(self, rules: OrderbookRules, orderbook_id: str) -> None:
         """Construct or preflight the exact signed ratio."""
+        rules.validate_for_orderbook(orderbook_id)
         if self._amount_in is not None and self._amount_out is not None:
             validate_raw_amounts(
                 self._amount_in, self._amount_out, int(self._side), rules
@@ -216,7 +217,7 @@ class LimitOrderEnvelope:
         raw amounts are preflighted against the same admission rules.
         """
         self._auto_fill_from_orderbook(orderbook)
-        self._apply_rules(rules)
+        self._apply_rules(rules, orderbook.orderbook_id)
         order = self.payload()
         apply_signature(order, sig_bs58, rules)
         return to_submit_request(
@@ -234,7 +235,7 @@ class LimitOrderEnvelope:
         raw amounts are preflighted against the same admission rules.
         """
         self._auto_fill_from_orderbook(orderbook)
-        self._apply_rules(rules)
+        self._apply_rules(rules, orderbook.orderbook_id)
         order = self.payload()
         sign_order(order, keypair, rules)
         return to_submit_request(
@@ -314,7 +315,7 @@ class LimitOrderEnvelope:
         rules = await client.orderbooks().decimals(orderbook.orderbook_id)  # type: ignore[attr-defined]
         # Pre-fill orderbook-derived fields and validate before signing
         self._auto_fill_from_orderbook(orderbook)
-        self._apply_rules(rules)
+        self._apply_rules(rules, orderbook.orderbook_id)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._nonce is not None:
@@ -476,7 +477,7 @@ class TriggerOrderEnvelope:
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
         validate_trigger_price(self._trigger_price, rules.price_decimals)
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules)
+        self._limit._apply_rules(rules, orderbook.orderbook_id)
         order = self.payload()
         apply_signature(order, sig_bs58, rules)
         return to_submit_request(
@@ -499,7 +500,7 @@ class TriggerOrderEnvelope:
         assert self._trigger_type is not None, "trigger_type is required for trigger orders"
         validate_trigger_price(self._trigger_price, rules.price_decimals)
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules)
+        self._limit._apply_rules(rules, orderbook.orderbook_id)
         order = self.payload()
         sign_order(order, keypair, rules)
         return to_submit_request(
@@ -613,7 +614,7 @@ class TriggerOrderEnvelope:
         validate_trigger_price(self._trigger_price, rules.price_decimals)
         # Pre-fill orderbook-derived fields and validate before signing
         self._limit._auto_fill_from_orderbook(orderbook)
-        self._limit._apply_rules(rules)
+        self._limit._apply_rules(rules, orderbook.orderbook_id)
 
         # Cache nonce if explicitly provided, or auto-populate from cache
         if self._limit._nonce is not None:

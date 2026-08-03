@@ -45,6 +45,14 @@ class OrderbookRules:
     price_decimals: int
     trading_rules: TradingRules
 
+    def validate_for_orderbook(self, orderbook_id: str) -> None:
+        """Reject rules supplied for a different orderbook."""
+        if self.orderbook_id != orderbook_id:
+            raise ScalingError(
+                f"trading rules for orderbook '{self.orderbook_id}' "
+                f"cannot be used for '{orderbook_id}'"
+            )
+
 
 @dataclass(frozen=True)
 class ScaledAmounts:

@@ -2,6 +2,7 @@
 
 import asyncio
 from copy import deepcopy
+from dataclasses import replace
 from types import SimpleNamespace
 
 import pytest
@@ -142,6 +143,18 @@ def test_high_level_signed_order_path_requires_and_applies_rules():
     )
     assert request.amount_in == 15_185_088
     assert request.amount_out == 123_456_000
+
+    with pytest.raises(ScalingError, match="cannot be used"):
+        (
+            LimitOrderEnvelope()
+            .nonce(1)
+            .salt(0)
+            .maker(keypair.pubkey())
+            .bid()
+            .price("12.3")
+            .size("1.23456")
+            .sign(keypair, pair, replace(RULES, orderbook_id="another-orderbook"))
+        )
 
     with pytest.raises(ScalingError, match="PRICE_NOT_EXACTLY_REPRESENTABLE"):
         (
