@@ -9,6 +9,7 @@ import {
   privyOrderFromTriggerEnvelope,
 } from "../privy";
 import {
+  ScalingError,
   scalePriceSize,
   validateRawAmounts,
   validateSignedFields,
@@ -256,7 +257,12 @@ class BaseEnvelope {
   }
 
   /** Construct or preflight the signed ratio using fetched immutable rules. */
-  protected applyRules(rules: OrderbookRules): void {
+  protected applyRules(rules: OrderbookRules, orderbookId: string): void {
+    if (rules.orderbookId !== orderbookId) {
+      throw new ScalingError(
+        `trading rules for orderbook '${rules.orderbookId}' cannot be used for '${orderbookId}'`
+      );
+    }
     if (this.fields.side === undefined) throw ProgramSdkError.missingField("side");
     if (this.fields.amountIn !== undefined && this.fields.amountOut !== undefined) {
       validateRawAmounts(this.fields.amountIn, this.fields.amountOut, this.fields.side, rules);
@@ -310,7 +316,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
 
   sign(keypair: Keypair, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
     const signed = signOrderFull(this.payload(), keypair, rules);
     return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
@@ -320,7 +326,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
 
   finalize(signatureBase58: string, orderbook: OrderBookPair, rules: OrderbookRules): SubmitOrderRequest {
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
@@ -334,7 +340,7 @@ export class LimitOrderEnvelope extends BaseEnvelope implements OrderEnvelope {
     const rules = await new Orderbooks(client).decimals(orderbook.orderbookId);
     const strategy = requireSigningStrategy(client);
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
 
     // Nonce cache: cache if explicitly set, auto-populate from cache if not
     if (this.fields.nonce !== undefined) {
@@ -452,7 +458,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     const trigger = this.requireTriggerFields();
     validateTriggerPrice(trigger.price, rules.priceDecimals);
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
     const signed = signOrderFull(this.payload(), keypair, rules);
     return toSubmitRequest(signed, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
@@ -466,7 +472,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     const trigger = this.requireTriggerFields();
     validateTriggerPrice(trigger.price, rules.priceDecimals);
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
     const signatureHex = Buffer.from(bs58.decode(signatureBase58)).toString("hex");
     return this.finalizeWithHexSignature(signatureHex, orderbook.orderbookId, {
       timeInForce: this.timeInForceValue,
@@ -484,7 +490,7 @@ export class TriggerOrderEnvelope extends BaseEnvelope implements OrderEnvelope 
     const trigger = this.requireTriggerFields();
     validateTriggerPrice(trigger.price, rules.priceDecimals);
     this.autoFillFromOrderbook(orderbook);
-    this.applyRules(rules);
+    this.applyRules(rules, orderbook.orderbookId);
 
     // Nonce cache: cache if explicitly set, auto-populate from cache if not
     if (this.fields.nonce !== undefined) {

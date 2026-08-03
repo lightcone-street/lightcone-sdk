@@ -141,6 +141,19 @@ describe("exact order precision", () => {
     assert.equal(request.amount_in, 15_185_088n);
     assert.equal(request.amount_out, 123_456_000n);
 
+    assert.throws(
+      () =>
+        LimitOrderEnvelope.new()
+          .nonce(1)
+          .salt(0n)
+          .maker(keypair.publicKey)
+          .bid()
+          .price("12.3")
+          .size("1.23456")
+          .sign(keypair, pair, { ...rules, orderbookId: "another-orderbook" }),
+      /cannot be used/
+    );
+
     assert.throws(() =>
       LimitOrderEnvelope.new()
         .nonce(1)
