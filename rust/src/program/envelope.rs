@@ -441,18 +441,9 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
-            SdkError::MissingField("trigger_price is required for trigger orders".into())
-        })?;
-        let trigger_type = self.trigger_type.ok_or_else(|| {
-            SdkError::MissingField("trigger_type is required for trigger orders".into())
-        })?;
+        let (trigger_price, trigger_type) = self.validated_trigger(rules)?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        validate_trigger_price(trigger_price, rules.price_decimals)?;
-        let trigger_price = trigger_price
-            .parse::<ExactDecimal>()
-            .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?;
         self.fields
             .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
@@ -472,18 +463,9 @@ impl OrderEnvelope for TriggerOrderEnvelope {
         orderbook: &OrderBookPair,
         rules: &OrderbookRules,
     ) -> Result<SubmitOrderRequest, SdkError> {
-        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
-            SdkError::MissingField("trigger_price is required for trigger orders".into())
-        })?;
-        let trigger_type = self.trigger_type.ok_or_else(|| {
-            SdkError::MissingField("trigger_type is required for trigger orders".into())
-        })?;
+        let (trigger_price, trigger_type) = self.validated_trigger(rules)?;
 
         self.fields.auto_fill_from_orderbook(orderbook)?;
-        validate_trigger_price(trigger_price, rules.price_decimals)?;
-        let trigger_price = trigger_price
-            .parse::<ExactDecimal>()
-            .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?;
         self.fields
             .apply_rules(rules, orderbook.orderbook_id.as_str())?;
         let mut payload = self.fields.to_payload()?;
@@ -500,6 +482,23 @@ impl OrderEnvelope for TriggerOrderEnvelope {
 
 #[cfg(feature = "trigger_orders")]
 impl TriggerOrderEnvelope {
+    fn validated_trigger(
+        &self,
+        rules: &OrderbookRules,
+    ) -> Result<(ExactDecimal, TriggerType), SdkError> {
+        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
+            SdkError::MissingField("trigger_price is required for trigger orders".into())
+        })?;
+        let trigger_type = self.trigger_type.ok_or_else(|| {
+            SdkError::MissingField("trigger_type is required for trigger orders".into())
+        })?;
+        validate_trigger_price(trigger_price, rules.price_decimals)?;
+        let trigger_price = trigger_price
+            .parse::<ExactDecimal>()
+            .map_err(|_| crate::shared::scaling::ScalingError::TriggerPriceOutOfRange)?;
+        Ok((trigger_price, trigger_type))
+    }
+
     /// Set time-in-force policy (GTC, IOC, FOK, ALO).
     pub fn time_in_force(mut self, tif: TimeInForce) -> Self {
         self.time_in_force = Some(tif);
@@ -642,21 +641,15 @@ impl TriggerOrderEnvelope {
             .orderbooks()
             .decimals(orderbook.orderbook_id.as_str())
             .await?;
+        // Validate every trigger field, including its exact JSON-number
+        // representation, before an external wallet is asked to sign.
+        self.validated_trigger(&rules)?;
         // Pre-fill orderbook-derived fields (market, mints, salt) and validate
-        // price/size before the signing strategy runs. This is necessary because
-        // the WalletAdapter path calls `payload()` to hash for external signing,
-        // and the Privy path reads fields like `get_market()`, both of which
-        // happen before `sign()`/`finalize()` where these would otherwise run.
+        // price/size before the signing strategy runs. The WalletAdapter path
+        // calls `payload()` to hash for external signing before `finalize()`.
         self.fields.auto_fill_from_orderbook(orderbook)?;
         self.fields
             .apply_rules(&rules, orderbook.orderbook_id.as_str())?;
-        let trigger_price = self.trigger_price.as_deref().ok_or_else(|| {
-            crate::program::error::SdkError::MissingField(
-                "trigger_price is required for trigger orders".into(),
-            )
-        })?;
-        validate_trigger_price(trigger_price, rules.price_decimals)
-            .map_err(crate::program::error::SdkError::from)?;
 
         // Cache nonce if explicitly provided, or auto-populate from cache
         match self.fields.nonce {
@@ -784,6 +777,27 @@ mod tests {
 
     #[cfg(feature = "native-auth")]
     use solana_signer::Signer;
+
+    #[cfg(all(
+        feature = "http",
+        feature = "trigger_orders",
+        not(target_arch = "wasm32")
+    ))]
+    use {
+        crate::shared::signing::ExternalSigner,
+        std::{
+            future::Future,
+            pin::Pin,
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc,
+            },
+        },
+        tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        },
+    };
 
     fn test_orderbook() -> OrderBookPair {
         OrderBookPair::test_new("test_ob", 6, 6, 0)
@@ -948,6 +962,94 @@ mod tests {
         assert!(serde_json::to_string(&request)
             .unwrap()
             .contains(r#""trigger_price":9007199254.740993"#));
+    }
+
+    #[cfg(all(
+        feature = "http",
+        feature = "trigger_orders",
+        not(target_arch = "wasm32")
+    ))]
+    struct CountingSigner {
+        message_calls: Arc<AtomicUsize>,
+    }
+
+    #[cfg(all(
+        feature = "http",
+        feature = "trigger_orders",
+        not(target_arch = "wasm32")
+    ))]
+    impl ExternalSigner for CountingSigner {
+        fn sign_message<'a>(
+            &'a self,
+            _message: &'a [u8],
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
+            self.message_calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { Ok(vec![0; 64]) })
+        }
+
+        fn sign_transaction<'a>(
+            &'a self,
+            _tx_bytes: &'a [u8],
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
+            Box::pin(async { Ok(Vec::new()) })
+        }
+    }
+
+    #[tokio::test]
+    #[cfg(all(
+        feature = "http",
+        feature = "trigger_orders",
+        not(target_arch = "wasm32")
+    ))]
+    async fn submit_validates_exact_trigger_before_wallet_signing() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 4096];
+            let bytes_read = socket.read(&mut request).await.unwrap();
+            assert!(bytes_read > 0);
+            let body = r#"{"status":"success","body":{"orderbook_id":"test_ob","base_decimals":6,"quote_decimals":6,"price_decimals":6,"trading_rules":{"base_size_decimals":6,"max_price_decimals":6,"max_price_significant_figures":5,"integer_prices_always_allowed":true,"price_quantum":"0.000001","price_quantum_raw":"1","base_size_quantum":"0.000001","base_size_quantum_raw":"1"}}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        let message_calls = Arc::new(AtomicUsize::new(0));
+        let signer = Arc::new(CountingSigner {
+            message_calls: Arc::clone(&message_calls),
+        });
+        let client = crate::client::LightconeClient::builder()
+            .base_url(&format!("http://{address}"))
+            .external_signer(signer)
+            .build()
+            .unwrap();
+        let orderbook = test_orderbook();
+
+        // `validate_trigger_price` accepts this exact decimal spelling, but it
+        // is not a valid JSON number and cannot be submitted as one.
+        assert!(validate_trigger_price("+0.75", 6).is_ok());
+        let result = TriggerOrderEnvelope::new()
+            .nonce(1)
+            .salt(0)
+            .maker(Pubkey::new_unique())
+            .bid()
+            .amount_in(1_000_000)
+            .amount_out(500_000)
+            .take_profit("+0.75")
+            .submit(&client, &orderbook)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(crate::error::SdkError::Program(SdkError::Scaling(
+                ScalingError::TriggerPriceOutOfRange
+            )))
+        ));
+        assert_eq!(message_calls.load(Ordering::SeqCst), 0);
     }
 
     #[test]
