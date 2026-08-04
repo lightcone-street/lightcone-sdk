@@ -157,6 +157,11 @@ impl User {
         }
     }
 
+    /// Short display label for the wallet this session operates as.
+    pub fn wallet_display_name(&self, auth_method: AuthMethod) -> String {
+        crate::shared::fmt::str::shorten(self.trading_wallet(auth_method), 8)
+    }
+
     /// Best display name for the user. Google: `name`, falling back to the
     /// email; X: `display_name`, falling back to the username; wallet
     /// identities show the shortened address (`FRGk...WcPR`).
@@ -268,4 +273,81 @@ pub struct SessionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NonceResponse {
     pub nonce: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        AuthMethod, ChainType, GoogleAccountData, PrivyEmbeddedWallet, User, UserIdentity,
+        UserPrivyData, XAccountData,
+    };
+
+    fn privy(address: &str) -> UserPrivyData {
+        UserPrivyData {
+            id: "did:privy:test".to_string(),
+            wallet: PrivyEmbeddedWallet {
+                privy_id: "wallet:test".to_string(),
+                chain: ChainType::Solana,
+                address: address.to_string(),
+            },
+        }
+    }
+
+    fn user(identity: UserIdentity) -> User {
+        User {
+            user_id: "user:test".to_string(),
+            identity,
+            connected_x: None,
+        }
+    }
+
+    #[test]
+    fn wallet_display_name_uses_the_session_trading_wallet() {
+        let google_wallet = "FRGkJho6fY7XivWsEBjousTaZBT6eUBkkrDyCN4nWcPR";
+        let x_wallet = "So11111111111111111111111111111111111111112";
+        let sign_in_wallet = "11111111111111111111111111111111";
+        let embedded_wallet = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+
+        let google = user(UserIdentity::Google {
+            account: GoogleAccountData {
+                email: "user@example.com".to_string(),
+                name: Some("Google User".to_string()),
+                given_name: None,
+                family_name: None,
+                avatar_url: None,
+            },
+            privy: privy(google_wallet),
+        });
+        let x = user(UserIdentity::X {
+            account: XAccountData {
+                user_id: Some("123".to_string()),
+                username: "x_user".to_string(),
+                display_name: Some("X User".to_string()),
+                avatar_url: None,
+            },
+            privy: privy(x_wallet),
+        });
+        let wallet = user(UserIdentity::Wallet {
+            address: sign_in_wallet.to_string(),
+            chain: ChainType::Solana,
+            privy: Some(privy(embedded_wallet)),
+        });
+        let wallet_no_privy = user(UserIdentity::Wallet {
+            address: sign_in_wallet.to_string(),
+            chain: ChainType::Solana,
+            privy: None,
+        });
+
+        assert_eq!(google.wallet_display_name(AuthMethod::Privy), "FRGk...WcPR");
+        assert_eq!(x.wallet_display_name(AuthMethod::Privy), "So11...1112");
+        assert_eq!(
+            wallet.wallet_display_name(AuthMethod::Lightcone),
+            "1111...1111"
+        );
+        assert_eq!(wallet.wallet_display_name(AuthMethod::Privy), "Toke...Q5DA");
+        assert_eq!(
+            wallet_no_privy.wallet_display_name(AuthMethod::Privy),
+            "1111...1111"
+        );
+    }
 }

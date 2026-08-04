@@ -140,6 +140,10 @@ class User:
             return self.identity.privy.wallet.address
         return self.identity.address
 
+    def wallet_display_name(self, auth_method: AuthMethod) -> str:
+        """Short display label for the wallet this session operates as."""
+        return shorten(self.trading_wallet(auth_method), 8)
+
     def display_name(self) -> str:
         """Best display name. Google: name -> email fallback; X: display_name
         -> username fallback; wallet identities show the shortened address

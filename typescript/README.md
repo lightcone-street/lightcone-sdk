@@ -240,6 +240,9 @@ const withdrawIx = client.positions().withdraw()
 
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
 
+Use `walletDisplayName(session.user, session.auth_method)` to show a shortened
+label for the wallet the session trades with, regardless of login identity.
+
 ### Cookie handling
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. Behaviour depends on the runtime:

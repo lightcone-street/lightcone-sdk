@@ -143,6 +143,11 @@ export function tradingWallet(user: User, authMethod: AuthMethod): string {
   }
 }
 
+/** Short display label for the wallet a session operates as. */
+export function walletDisplayName(user: User, authMethod: AuthMethod): string {
+  return shorten(tradingWallet(user, authMethod), 8);
+}
+
 /**
  * Best display name for the user. Google: `name`, falling back to the email;
  * X: `display_name`, falling back to the username; wallet identities show the
