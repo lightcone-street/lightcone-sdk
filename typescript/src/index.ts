@@ -46,7 +46,15 @@ export type {
   UserPrivyData,
   XAccountData,
 } from "./auth";
-export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
+export {
+  avatarUrl,
+  displayName,
+  identityText,
+  tradingWallet,
+  userPrivy,
+  userXAccount,
+  walletDisplayName,
+} from "./auth";
 
 export type {
   FavoriteMarkets,
