@@ -57,10 +57,16 @@ describe("walletDisplayName", () => {
       chain: ChainType.Solana,
       privy: privy(embeddedWallet),
     });
+    const walletNoPrivy = user({
+      type: "wallet",
+      address: signInWallet,
+      chain: ChainType.Solana,
+    });
 
     assert.equal(walletDisplayName(google, AuthMethod.Privy), "FRGk...WcPR");
     assert.equal(walletDisplayName(x, AuthMethod.Privy), "So11...1112");
     assert.equal(walletDisplayName(wallet, AuthMethod.Lightcone), "1111...1111");
     assert.equal(walletDisplayName(wallet, AuthMethod.Privy), "Toke...Q5DA");
+    assert.equal(walletDisplayName(walletNoPrivy, AuthMethod.Privy), "1111...1111");
   });
 });

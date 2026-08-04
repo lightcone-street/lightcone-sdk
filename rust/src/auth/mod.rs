@@ -332,6 +332,11 @@ mod tests {
             chain: ChainType::Solana,
             privy: Some(privy(embedded_wallet)),
         });
+        let wallet_no_privy = user(UserIdentity::Wallet {
+            address: sign_in_wallet.to_string(),
+            chain: ChainType::Solana,
+            privy: None,
+        });
 
         assert_eq!(google.wallet_display_name(AuthMethod::Privy), "FRGk...WcPR");
         assert_eq!(x.wallet_display_name(AuthMethod::Privy), "So11...1112");
@@ -340,5 +345,9 @@ mod tests {
             "1111...1111"
         );
         assert_eq!(wallet.wallet_display_name(AuthMethod::Privy), "Toke...Q5DA");
+        assert_eq!(
+            wallet_no_privy.wallet_display_name(AuthMethod::Privy),
+            "1111...1111"
+        );
     }
 }

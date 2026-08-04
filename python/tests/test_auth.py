@@ -60,8 +60,15 @@ def test_wallet_display_name_uses_the_session_trading_wallet():
             privy=privy(embedded_wallet),
         )
     )
+    wallet_no_privy = user(
+        WalletIdentity(
+            address=sign_in_wallet,
+            chain="solana",
+        )
+    )
 
     assert google.wallet_display_name("privy") == "FRGk...WcPR"
     assert x.wallet_display_name("privy") == "So11...1112"
     assert wallet.wallet_display_name("lightcone") == "1111...1111"
     assert wallet.wallet_display_name("privy") == "Toke...Q5DA"
+    assert wallet_no_privy.wallet_display_name("privy") == "1111...1111"
