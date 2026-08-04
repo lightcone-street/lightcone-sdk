@@ -462,7 +462,7 @@ mod tests {
 
     #[test]
     fn test_kind_book_update_deserialization() {
-        let json = r#"{"type": "book_update", "data": {"orderbook_id": "abc", "resync": true, "bids": [], "asks": []}, "version": 0.1}"#;
+        let json = r#"{"type": "book_update", "data": {"orderbook_id": "abc", "seq": 1842, "resync": true, "bids": [], "asks": []}, "version": 0.1}"#;
         let msg: MessageIn = serde_json::from_str(json).unwrap();
         match msg.kind {
             Kind::BookUpdate(book) => assert!(book.resync),

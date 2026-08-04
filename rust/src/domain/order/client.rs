@@ -11,8 +11,11 @@ use crate::program::envelope::{LimitOrderEnvelope, OrderEnvelope};
 use crate::program::error::{SdkError as ProgramSdkError, SdkResult};
 use crate::program::instructions;
 use crate::program::orders::OrderPayload;
-use crate::program::types::CloseOrderStatusParams;
-use crate::shared::{OrderBookId, PubkeyStr};
+use crate::program::types::{CloseOrderStatusParams, OrderSide};
+use crate::shared::{
+    validate_raw_amounts, validate_signed_fields, validate_trigger_price, OrderBookId, PubkeyStr,
+    SubmitOrderRequest,
+};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use solana_instruction::Instruction;
@@ -278,8 +281,9 @@ impl<'a> Orders<'a> {
 
     pub async fn submit(
         &self,
-        request: &impl serde::Serialize,
+        request: &SubmitOrderRequest,
     ) -> Result<SubmitOrderResponse, SdkError> {
+        self.preflight_submit(request).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
@@ -300,13 +304,41 @@ impl<'a> Orders<'a> {
     #[cfg(feature = "trigger_orders")]
     pub async fn submit_trigger(
         &self,
-        request: &impl serde::Serialize,
+        request: &SubmitOrderRequest,
     ) -> Result<TriggerOrderResponse, SdkError> {
+        self.preflight_submit(request).await?;
         let url = format!("{}/api/orders/submit", self.client.http.base_url());
         self.client
             .http
             .post(&url, request, RetryPolicy::None)
             .await
+    }
+
+    async fn preflight_submit(&self, request: &SubmitOrderRequest) -> Result<(), SdkError> {
+        let rules = self
+            .client
+            .orderbooks()
+            .decimals(&request.orderbook_id)
+            .await?;
+        let side = match request.side {
+            0 => OrderSide::Bid,
+            1 => OrderSide::Ask,
+            value => return Err(ProgramSdkError::InvalidSide(value as u8).into()),
+        };
+        validate_raw_amounts(request.amount_in, request.amount_out, side, &rules)
+            .map_err(ProgramSdkError::from)?;
+        validate_signed_fields(
+            request.amount_in,
+            request.amount_out,
+            request.salt,
+            request.nonce,
+        )
+        .map_err(ProgramSdkError::from)?;
+        if let Some(trigger_price) = &request.trigger_price {
+            validate_trigger_price(trigger_price.as_str(), rules.price_decimals)
+                .map_err(ProgramSdkError::from)?;
+        }
+        Ok(())
     }
 
     #[cfg(feature = "trigger_orders")]
@@ -659,8 +691,9 @@ impl<'a> Orders<'a> {
         &self,
         params: crate::program::types::BidOrderParams,
         keypair: &Keypair,
-    ) -> OrderPayload {
-        OrderPayload::new_bid_signed(params, keypair)
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<OrderPayload> {
+        OrderPayload::new_bid_signed(params, keypair, rules)
     }
 
     /// Create and sign an ask order.
@@ -669,8 +702,9 @@ impl<'a> Orders<'a> {
         &self,
         params: crate::program::types::AskOrderParams,
         keypair: &Keypair,
-    ) -> OrderPayload {
-        OrderPayload::new_ask_signed(params, keypair)
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<OrderPayload> {
+        OrderPayload::new_ask_signed(params, keypair, rules)
     }
 
     /// Compute the hash of an order.
@@ -680,8 +714,13 @@ impl<'a> Orders<'a> {
 
     /// Sign an order with the given keypair.
     #[cfg(feature = "native-auth")]
-    pub fn sign_order(&self, order: &mut OrderPayload, keypair: &Keypair) {
-        order.sign(keypair);
+    pub fn sign_order(
+        &self,
+        order: &mut OrderPayload,
+        keypair: &Keypair,
+        rules: &crate::shared::OrderbookRules,
+    ) -> SdkResult<()> {
+        order.sign(keypair, rules)
     }
 }
 

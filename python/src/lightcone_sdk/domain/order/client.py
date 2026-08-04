@@ -32,6 +32,7 @@ from ...program.types import (
     AskOrderParams,
     BidOrderParams,
     CloseOrderStatusParams,
+    OrderSide,
     OrderStatus,
     SignedOrder,
 )
@@ -39,6 +40,12 @@ from ...rpc import require_connection
 from ...shared.types import (
     SubmitOrderRequest,
     SubmitTriggerOrderRequest,
+)
+from ...shared.scaling import (
+    OrderbookRules,
+    validate_raw_amounts,
+    validate_signed_fields,
+    validate_trigger_price,
 )
 from . import (
     CancelAllBody,
@@ -89,24 +96,26 @@ class Orders:
         return create_ask_order(params)
 
     def create_signed_bid_order(
-        self, params: BidOrderParams, keypair: Keypair
+        self, params: BidOrderParams, keypair: Keypair, rules: OrderbookRules
     ) -> SignedOrder:
         """Create and sign a bid order."""
-        return create_signed_bid_order(params, keypair)
+        return create_signed_bid_order(params, keypair, rules)
 
     def create_signed_ask_order(
-        self, params: AskOrderParams, keypair: Keypair
+        self, params: AskOrderParams, keypair: Keypair, rules: OrderbookRules
     ) -> SignedOrder:
         """Create and sign an ask order."""
-        return create_signed_ask_order(params, keypair)
+        return create_signed_ask_order(params, keypair, rules)
 
     def hash_order(self, order: SignedOrder) -> bytes:
         """Compute the keccak256 hash of an order."""
         return hash_order(order)
 
-    def sign_order(self, order: SignedOrder, keypair: Keypair) -> bytes:
+    def sign_order(
+        self, order: SignedOrder, keypair: Keypair, rules: OrderbookRules
+    ) -> bytes:
         """Sign an order with a keypair."""
-        return sign_order(order, keypair)
+        return sign_order(order, keypair, rules)
 
     def generate_cancel_all_salt(self) -> str:
         """Generate a random salt for cancel-all replay protection."""
@@ -134,6 +143,7 @@ class Orders:
 
     async def submit(self, request: SubmitOrderRequest) -> SubmitOrderResponse:
         """Submit a limit order."""
+        await self._preflight_submit(request)
         data = await self._client._http.post("/api/orders/submit", request.to_dict())
         return submit_response_from_dict(data)
 
@@ -157,14 +167,37 @@ class Orders:
         )
 
     async def submit_trigger(
-        self, request: SubmitTriggerOrderRequest
+        self, request: SubmitTriggerOrderRequest | SubmitOrderRequest
     ) -> TriggerOrderResponse:
         """Submit a trigger order."""
-        data = await self._client._http.post("/api/orders/submit", request.to_dict())
+        normalized = (
+            request.to_submit_order_request()
+            if isinstance(request, SubmitTriggerOrderRequest)
+            else request
+        )
+        await self._preflight_submit(normalized)
+        data = await self._client._http.post(
+            "/api/orders/submit", normalized.to_dict()
+        )
         return TriggerOrderResponse(
             trigger_order_id=data.get("trigger_order_id", ""),
             order_hash=data.get("order_hash", ""),
         )
+
+    async def _preflight_submit(self, request: SubmitOrderRequest) -> None:
+        rules = await self._client.orderbooks().decimals(request.orderbook_id)
+        try:
+            side = OrderSide(request.side)
+        except ValueError as exc:
+            raise ValueError("side must be BID or ASK") from exc
+        validate_raw_amounts(
+            request.amount_in, request.amount_out, int(side), rules
+        )
+        validate_signed_fields(
+            request.amount_in, request.amount_out, request.salt, request.nonce
+        )
+        if request.trigger_price is not None:
+            validate_trigger_price(str(request.trigger_price), rules.price_decimals)
 
     async def cancel_trigger(self, body: CancelTriggerBody) -> CancelTriggerSuccess:
         """Cancel a trigger order."""

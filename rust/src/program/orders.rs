@@ -15,7 +15,7 @@ use solana_signer::Signer;
 use crate::program::constants::{ORDER_SIZE, SIGNED_ORDER_SIZE};
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::types::{AskOrderParams, BidOrderParams, OrderSide};
-use crate::shared::SubmitOrderRequest;
+use crate::shared::{validate_raw_amounts, ExactDecimal, OrderbookRules, SubmitOrderRequest};
 
 // ============================================================================
 // Signed Order (233 bytes)
@@ -133,27 +133,43 @@ impl OrderPayload {
 
     /// Sign the order with the given keypair.
     #[cfg(feature = "native-auth")]
-    pub fn sign(&mut self, keypair: &Keypair) {
+    pub fn sign(&mut self, keypair: &Keypair, rules: &OrderbookRules) -> SdkResult<()> {
+        crate::shared::validate_signed_fields(
+            self.amount_in,
+            self.amount_out,
+            self.salt,
+            self.nonce,
+        )?;
+        validate_raw_amounts(self.amount_in, self.amount_out, self.side, rules)?;
         let hash = self.hash_hex();
         let sig = keypair.sign_message(hash.as_bytes());
 
         self.signature.copy_from_slice(sig.as_ref());
+        Ok(())
     }
 
     /// Create and sign an order in one step.
     #[cfg(feature = "native-auth")]
-    pub fn new_bid_signed(params: BidOrderParams, keypair: &Keypair) -> Self {
+    pub fn new_bid_signed(
+        params: BidOrderParams,
+        keypair: &Keypair,
+        rules: &OrderbookRules,
+    ) -> SdkResult<Self> {
         let mut order = Self::new_bid(params);
-        order.sign(keypair);
-        order
+        order.sign(keypair, rules)?;
+        Ok(order)
     }
 
     /// Create and sign an ask order in one step.
     #[cfg(feature = "native-auth")]
-    pub fn new_ask_signed(params: AskOrderParams, keypair: &Keypair) -> Self {
+    pub fn new_ask_signed(
+        params: AskOrderParams,
+        keypair: &Keypair,
+        rules: &OrderbookRules,
+    ) -> SdkResult<Self> {
         let mut order = Self::new_ask(params);
-        order.sign(keypair);
-        order
+        order.sign(keypair, rules)?;
+        Ok(order)
     }
 
     /// Verify the Ed25519 signature over hex(keccak256(order_message)).
@@ -170,7 +186,14 @@ impl OrderPayload {
     }
 
     /// Apply a signature to the order.
-    pub fn apply_signature(&mut self, sig_bs58: String) -> SdkResult<()> {
+    pub fn apply_signature(&mut self, sig_bs58: String, rules: &OrderbookRules) -> SdkResult<()> {
+        crate::shared::validate_signed_fields(
+            self.amount_in,
+            self.amount_out,
+            self.salt,
+            self.nonce,
+        )?;
+        validate_raw_amounts(self.amount_in, self.amount_out, self.side, rules)?;
         let signature = sig_bs58
             .parse::<Signature>()
             .map_err(|_| SdkError::InvalidSignature)?;
@@ -282,7 +305,7 @@ impl OrderPayload {
         &self,
         orderbook_id: impl Into<String>,
         time_in_force: Option<crate::shared::TimeInForce>,
-        trigger_price: Option<f64>,
+        trigger_price: Option<ExactDecimal>,
         trigger_type: Option<crate::shared::TriggerType>,
         deposit_source: Option<crate::shared::DepositSource>,
     ) -> Result<SubmitOrderRequest, SdkError> {
@@ -533,7 +556,7 @@ pub fn cancel_all_message(
 
 /// Generate a random salt for order uniqueness.
 pub fn generate_salt() -> u64 {
-    rand::random::<u64>()
+    rand::random::<u64>() & crate::shared::scaling::I64_MAX_U64
 }
 
 /// Generate a random UUID v4 salt for cancel-all replay protection.
@@ -555,6 +578,85 @@ pub fn generate_cancel_all_salt() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn signing_rules() -> OrderbookRules {
+        serde_json::from_str(
+            r#"{
+                "orderbook_id":"test",
+                "base_decimals":0,
+                "quote_decimals":0,
+                "price_decimals":6,
+                "trading_rules":{
+                    "base_size_decimals":0,
+                    "max_price_decimals":6,
+                    "max_price_significant_figures":5,
+                    "integer_prices_always_allowed":true,
+                    "price_quantum":"0.000001",
+                    "price_quantum_raw":"1",
+                    "base_size_quantum":"1",
+                    "base_size_quantum_raw":"1"
+                }
+            }"#,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn generated_salts_fit_durable_signed_range() {
+        for _ in 0..10_000 {
+            assert!(generate_salt() <= crate::shared::I64_MAX_U64);
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn known_signing_contract_is_unchanged() {
+        let seed = hex::decode("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
+            .unwrap();
+        let keypair = solana_keypair::Keypair::new_from_array(seed.try_into().unwrap());
+        let mut order = OrderPayload {
+            nonce: 42,
+            salt: 123,
+            maker: "FAe4sisG95oZ42w7buUn5qEE4TAnfTTFPiguZUHmhiF"
+                .parse()
+                .unwrap(),
+            market: "4vJ9JU1bJJE96FWSJKvHsmmFADCg4gpZQff4P3bkLKi"
+                .parse()
+                .unwrap(),
+            base_mint: "8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR"
+                .parse()
+                .unwrap(),
+            quote_mint: "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8"
+                .parse()
+                .unwrap(),
+            side: OrderSide::Bid,
+            amount_in: 15_185_088,
+            amount_out: 123_456_000,
+            expiration: 0,
+            signature: [0; 64],
+        };
+        assert_eq!(OrderPayload::HASH_SIZE, 169);
+        assert_eq!(
+            order.hash_hex(),
+            "17228fe4bdf93c14714367454e948206bb4f001917d59e132e4aaad097819eac"
+        );
+        order.sign(&keypair, &signing_rules()).unwrap();
+        assert_eq!(
+            order.signature_hex(),
+            "1e68fe672f919085ed34333c86facf9ad816ae30ab23d3d6ccef0aeb4c40b161f841c8f68355c9720252fc9ab4d859e64416d81ffa170e5a6cd17dfe41038808"
+        );
+        order.salt = crate::shared::I64_MAX_U64 + 1;
+        assert!(order.sign(&keypair, &signing_rules()).is_err());
+        order.salt = 0;
+        order.amount_in = 1;
+        order.amount_out = 3_000;
+        assert!(matches!(
+            order.sign(&keypair, &signing_rules()),
+            Err(SdkError::Scaling(
+                crate::shared::scaling::ScalingError::PriceNotExactlyRepresentable
+            ))
+        ));
+    }
 
     #[test]
     fn test_order_payload_serialization_roundtrip() {
@@ -794,7 +896,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        order.sign(&keypair);
+        order.sign(&keypair, &signing_rules()).unwrap();
 
         let request = order
             .to_submit_request("test_orderbook", None, None, None, None)
@@ -860,7 +962,7 @@ mod tests {
 
         assert!(!order.is_signed());
 
-        order.sign(&keypair);
+        order.sign(&keypair, &signing_rules()).unwrap();
 
         assert!(order.is_signed());
     }
@@ -886,7 +988,7 @@ mod tests {
             signature: [0u8; 64],
         };
 
-        order.sign(&keypair);
+        order.sign(&keypair, &signing_rules()).unwrap();
 
         let sig_hex = order.signature_hex();
         let hash_hex = order.hash_hex();

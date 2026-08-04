@@ -5,6 +5,7 @@
 //! without conversion overhead.
 
 pub mod api_response;
+pub mod exact_decimal;
 pub mod fmt;
 pub mod price;
 pub mod rejection;
@@ -13,9 +14,14 @@ pub mod serde_util;
 pub mod signing;
 
 pub use api_response::{ApiRejectedDetails, ApiResponse};
+pub use exact_decimal::ExactDecimal;
 pub use price::{format_decimal, parse_decimal};
 pub use rejection::RejectionCode;
-pub use scaling::{scale_price_size, OrderbookDecimals, ScaledAmounts, ScalingError};
+pub use scaling::{
+    exact_scaled_integer, scale_price_size, validate_raw_amounts, validate_signed_fields,
+    validate_trigger_price, OrderbookRules, ScaledAmounts, ScalingError, TradingRules, I64_MAX_U64,
+    NONCE_MAX, PRICE_SCALE,
+};
 
 use rust_decimal::Decimal;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -706,7 +712,7 @@ mod tests {
             signature: "sig".into(),
             orderbook_id: "ob".into(),
             time_in_force: Some(TimeInForce::Ioc),
-            trigger_price: Some(0.55),
+            trigger_price: Some("0.55".parse().unwrap()),
             trigger_type: Some(TriggerType::TakeProfit),
             deposit_source: None,
         };
@@ -717,7 +723,7 @@ mod tests {
 
         let back: SubmitOrderRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(back.time_in_force, Some(TimeInForce::Ioc));
-        assert_eq!(back.trigger_price, Some(0.55));
+        assert_eq!(back.trigger_price.unwrap().as_str(), "0.55");
         assert_eq!(back.trigger_type, Some(TriggerType::TakeProfit));
     }
 
@@ -811,7 +817,7 @@ pub struct SubmitOrderRequest {
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "tif")]
     pub time_in_force: Option<TimeInForce>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trigger_price: Option<f64>,
+    pub trigger_price: Option<ExactDecimal>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trigger_type: Option<TriggerType>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

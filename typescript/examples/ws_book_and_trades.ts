@@ -23,7 +23,7 @@ async function main() {
   // pricing, a grouped view (5 sig figs, mantissa 2) for display.
   const groupedAggregation: BookAggregation = validateAggregation({ nSigFigs: 5, mantissa: 2 });
   const fullBook = new OrderbookState(orderbookId);
-  const groupedBook = new OrderbookState(orderbookId);
+  const groupedBook = new OrderbookState(orderbookId, groupedAggregation);
   const trades = new TradeHistory(orderbookId, 20);
   const ws = client.ws();
   let hits = 0;
@@ -39,20 +39,23 @@ async function main() {
       // Untagged frames are the full-precision view; frames from the grouped
       // subscription carry n_sig_figs/mantissa.
       const aggregation = aggregationFromFrame(update.n_sig_figs, update.mantissa);
+      const book = aggregationsEqual(aggregation, groupedAggregation) ? groupedBook : fullBook;
       if (update.resync) {
         // Refresh exactly the affected view: re-subscribe with the SAME
-        // aggregation. The fresh snapshot arrives with seq 0 and replaces
-        // the book (last-write-wins).
+        // aggregation and reset this subscription generation's gate.
         ws.send(unsubscribeBooks([update.orderbook_id], aggregation));
+        book.beginGeneration();
         ws.send(subscribeBooks([update.orderbook_id], aggregation));
         return;
       }
-      const book = aggregationsEqual(aggregation, groupedAggregation) ? groupedBook : fullBook;
       book.apply(update);
       console.log(
         `book[${aggregationKeySuffix(aggregation)}]: seq=${book.seq} bid=${book.bestBid()} ask=${book.bestAsk()}`
       );
       hits += 1;
+    } else if (event.type === "Connected") {
+      fullBook.beginGeneration();
+      groupedBook.beginGeneration();
     } else if (event.type === "Message" && event.message.type === "trades") {
       const trade: Trade = {
         orderbookId: event.message.data.orderbook_id,

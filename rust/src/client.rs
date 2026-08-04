@@ -27,6 +27,7 @@ use crate::rpc_failover::{
     is_infrastructure_error_http, with_failover, ActiveRpc, RpcFailoverState,
 };
 use crate::shared::signing::{ExternalSigner, SigningStrategy};
+use crate::shared::OrderbookRules;
 use crate::shared::{DepositSource, PubkeyStr};
 use crate::ws::WsConfig;
 
@@ -35,9 +36,12 @@ use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
 #[cfg(feature = "solana-rpc")]
 use solana_commitment_config::CommitmentConfig;
 
-use async_lock::RwLock;
+use async_lock::{OnceCell, RwLock};
 use solana_pubkey::Pubkey;
+use std::collections::HashMap;
 use std::sync::Arc;
+
+type OrderbookRulesCell = Arc<OnceCell<OrderbookRules>>;
 
 // Re-export sub-client types for convenience.
 pub use crate::auth::client::Auth as AuthClient;
@@ -60,8 +64,8 @@ pub use crate::rpc::Rpc as RpcClient;
 /// Provides nested sub-client accessors for each domain:
 /// `client.markets()`, `client.orders()`, etc.
 ///
-/// The client is intentionally stateless for HTTP data — no market cache,
-/// no slug index. The consumer manages caching at the application layer.
+/// Market data remains stateless. Immutable orderbook trading rules are cached
+/// because every signed order requires them.
 pub struct LightconeClient {
     pub(crate) http: LightconeHttp,
     pub(crate) ws_config: WsConfig,
@@ -78,6 +82,7 @@ pub struct LightconeClient {
     /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
     /// use this cached value, falling back to 0 if nothing has been cached.
     pub(crate) order_nonce: Arc<RwLock<Option<u64>>>,
+    pub(crate) orderbook_rules: Arc<RwLock<HashMap<String, OrderbookRulesCell>>>,
     /// Primary Solana RPC URL for blockhash fetching and transaction submission.
     pub(crate) primary_rpc_url: Option<String>,
     /// Backup Solana RPC URL for automatic failover.
@@ -815,6 +820,7 @@ impl Clone for LightconeClient {
             program_id: self.program_id,
             deposit_source: self.deposit_source.clone(),
             order_nonce: self.order_nonce.clone(),
+            orderbook_rules: self.orderbook_rules.clone(),
             signing_strategy: self.signing_strategy.clone(),
             primary_rpc_url: self.primary_rpc_url.clone(),
             backup_rpc_url: self.backup_rpc_url.clone(),
@@ -954,6 +960,7 @@ impl LightconeClientBuilder {
             program_id: self.program_id,
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
             order_nonce: Arc::new(RwLock::new(None)),
+            orderbook_rules: Arc::new(RwLock::new(HashMap::new())),
             signing_strategy: Arc::new(RwLock::new(self.signing_strategy)),
             #[cfg(feature = "solana-rpc")]
             primary_solana_rpc_client: self.primary_rpc_url.as_ref().map(|url| {

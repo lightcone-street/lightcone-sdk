@@ -9,6 +9,8 @@ from nacl.signing import SigningKey, VerifyKey
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
+from ..shared.scaling import OrderbookRules, validate_raw_amounts
+
 from .constants import (
     ORDER_SIZE,
     SIGNED_ORDER_SIZE,
@@ -55,15 +57,17 @@ from .utils import (
 # Backward compatibility alias
 FullOrder = SignedOrder
 
-# Maximum value for a u64 integer
+# Durable backend signed integer maximum.
+MAX_I64 = 2**63 - 1
+# Maximum value for a u64 integer used only by on-chain arithmetic helpers.
 MAX_U64 = 2**64 - 1
 # Maximum value for a u32 integer
 MAX_U32 = 2**32 - 1
 
 
 def generate_salt() -> int:
-    """Generate a random u64 salt for order uniqueness."""
-    return int.from_bytes(os.urandom(8), "little")
+    """Generate a uniform salt in the durable signed-64-bit range."""
+    return int.from_bytes(os.urandom(8), "little") & MAX_I64
 
 
 def create_bid_order(params: BidOrderParams) -> SignedOrder:
@@ -114,7 +118,7 @@ def serialize_order_for_hashing(order: SignedOrder) -> bytes:
       base_mint (32) | quote_mint (32) | side (1) | amount_in (8) |
       amount_out (8) | expiration (8)
     """
-    if order.nonce > MAX_U32:
+    if order.nonce < 0 or order.nonce > MAX_U32:
         raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
     return (
         encode_u64(order.nonce)  # Widen u32 to u64 for wire compatibility
@@ -144,13 +148,19 @@ def hash_order_hex(order: SignedOrder) -> str:
     return hash_order(order).hex()
 
 
-def sign_order(order: SignedOrder, keypair: Keypair) -> bytes:
+def sign_order(
+    order: SignedOrder, keypair: Keypair, rules: OrderbookRules
+) -> bytes:
     """Sign an order with a keypair.
 
     Signs the hex-encoded keccak256 hash of the order (64-char ASCII string)
     with the keypair's Ed25519 private key. Updates the order's signature in
     place and returns the signature.
     """
+    validate_order(order)
+    validate_raw_amounts(
+        order.amount_in, order.amount_out, int(order.side), rules
+    )
     order_hash_hex = hash_order_hex(order)
     message = order_hash_hex.encode("ascii")
 
@@ -288,17 +298,21 @@ def deserialize_order(data: bytes) -> Order:
 deserialize_compact_order = deserialize_order
 
 
-def create_signed_bid_order(params: BidOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_bid_order(
+    params: BidOrderParams, keypair: Keypair, rules: OrderbookRules
+) -> SignedOrder:
     """Create and sign a bid order in one call."""
     order = create_bid_order(params)
-    sign_order(order, keypair)
+    sign_order(order, keypair, rules)
     return order
 
 
-def create_signed_ask_order(params: AskOrderParams, keypair: Keypair) -> SignedOrder:
+def create_signed_ask_order(
+    params: AskOrderParams, keypair: Keypair, rules: OrderbookRules
+) -> SignedOrder:
     """Create and sign an ask order in one call."""
     order = create_ask_order(params)
-    sign_order(order, keypair)
+    sign_order(order, keypair, rules)
     return order
 
 
@@ -312,20 +326,21 @@ def validate_order(order: SignedOrder, check_expiration: bool = False) -> None:
     Raises InvalidOrderError if any field is invalid.
     """
     # Validate nonce range (u32)
-    if order.nonce > MAX_U32:
+    if order.nonce < 0 or order.nonce > MAX_U32:
         raise InvalidOrderError(f"nonce exceeds u32 max: {order.nonce}")
 
     # Validate amounts
-    if order.amount_in == 0:
+    if order.amount_in <= 0:
         raise InvalidOrderError("amount_in cannot be zero")
-    if order.amount_out == 0:
+    if order.amount_out <= 0:
         raise InvalidOrderError("amount_out cannot be zero")
 
-    # Validate u64 bounds
-    if order.amount_in > MAX_U64:
-        raise InvalidOrderError(f"amount_in exceeds u64 max: {order.amount_in}")
-    if order.amount_out > MAX_U64:
-        raise InvalidOrderError(f"amount_out exceeds u64 max: {order.amount_out}")
+    if order.amount_in > MAX_I64:
+        raise InvalidOrderError(f"amount_in exceeds i64 max: {order.amount_in}")
+    if order.amount_out > MAX_I64:
+        raise InvalidOrderError(f"amount_out exceeds i64 max: {order.amount_out}")
+    if order.salt < 0 or order.salt > MAX_I64:
+        raise InvalidOrderError(f"salt exceeds durable signed range: {order.salt}")
 
     # Validate side
     if order.side not in (OrderSide.BID, OrderSide.ASK):
@@ -484,6 +499,7 @@ def to_submit_request(
     """
     if not is_signed(order):
         raise InvalidOrderError("Order must be signed before submitting")
+    validate_order(order)
 
     # Import here to avoid circular dependency
     from ..shared.types import SubmitOrderRequest
@@ -515,9 +531,15 @@ def is_order_expired(order: SignedOrder, current_time: int) -> bool:
     return current_time >= order.expiration
 
 
-def apply_signature(order: SignedOrder, sig_bs58: str) -> None:
+def apply_signature(
+    order: SignedOrder, sig_bs58: str, rules: OrderbookRules
+) -> None:
     """Apply a base58-encoded signature to an order in place."""
     import base58
+    validate_order(order)
+    validate_raw_amounts(
+        order.amount_in, order.amount_out, int(order.side), rules
+    )
     sig_bytes = base58.b58decode(sig_bs58)
     if len(sig_bytes) != SIGNATURE_SIZE:
         raise InvalidSignatureError(

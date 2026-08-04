@@ -14,14 +14,14 @@ export interface SignAndSendTxResponse {
 export interface PrivyOrderEnvelope {
   maker: string;
   nonce: number;
-  salt: number;
+  salt: bigint;
   market_pubkey: string;
   base_token: string;
   quote_token: string;
   side: number;
-  amount_in: number;
-  amount_out: number;
-  expiration?: number;
+  amount_in: bigint;
+  amount_out: bigint;
+  expiration?: bigint;
   orderbook_id: string;
   tif?: import("../shared").TimeInForce;
   trigger_price?: number;
@@ -113,14 +113,6 @@ function requireDefined<T>(
   return value;
 }
 
-function bigintToSafeNumber(value: bigint, field: string): number {
-  const max = BigInt(Number.MAX_SAFE_INTEGER);
-  if (value > max || value < -max) {
-    throw SdkError.validation(`${field} exceeds Number.MAX_SAFE_INTEGER`);
-  }
-  return Number(value);
-}
-
 export function privyOrderFromLimitEnvelope(
   envelope: LimitOrderEnvelope,
   orderbookId: string
@@ -138,14 +130,14 @@ export function privyOrderFromLimitEnvelope(
   return {
     maker: maker.toBase58(),
     nonce,
-    salt: bigintToSafeNumber(salt, "salt"),
+    salt,
     market_pubkey: market.toBase58(),
     base_token: baseMint.toBase58(),
     quote_token: quoteMint.toBase58(),
     side,
-    amount_in: bigintToSafeNumber(amountIn, "amount_in"),
-    amount_out: bigintToSafeNumber(amountOut, "amount_out"),
-    expiration: bigintToSafeNumber(envelope.getExpiration(), "expiration"),
+    amount_in: amountIn,
+    amount_out: amountOut,
+    expiration: envelope.getExpiration(),
     orderbook_id: orderbookId,
     deposit_source: envelope.getDepositSource(),
   };
@@ -168,17 +160,19 @@ export function privyOrderFromTriggerEnvelope(
   return {
     maker: maker.toBase58(),
     nonce,
-    salt: bigintToSafeNumber(salt, "salt"),
+    salt,
     market_pubkey: market.toBase58(),
     base_token: baseMint.toBase58(),
     quote_token: quoteMint.toBase58(),
     side,
-    amount_in: bigintToSafeNumber(amountIn, "amount_in"),
-    amount_out: bigintToSafeNumber(amountOut, "amount_out"),
-    expiration: bigintToSafeNumber(envelope.getExpiration(), "expiration"),
+    amount_in: amountIn,
+    amount_out: amountOut,
+    expiration: envelope.getExpiration(),
     orderbook_id: orderbookId,
     tif: envelope.getTimeInForce(),
-    trigger_price: envelope.getTriggerPrice(),
+    trigger_price: envelope.getTriggerPrice() === undefined
+      ? undefined
+      : Number(envelope.getTriggerPrice()),
     trigger_type: envelope.getTriggerType(),
     deposit_source: envelope.getDepositSource(),
   };

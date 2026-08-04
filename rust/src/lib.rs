@@ -55,8 +55,8 @@ pub mod client;
 pub mod prelude {
     // Shared newtypes
     pub use crate::shared::{
-        Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
-        TriggerType,
+        Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
+        TimeInForce, TriggerType,
     };
 
     // Domain types — market (includes outcome + tokens)

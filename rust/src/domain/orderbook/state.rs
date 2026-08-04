@@ -1,13 +1,14 @@
 //! Orderbook state containers — app-owned, SDK-provided update logic.
 //!
 //! The `book_update` stream is snapshot-only: every data frame carries the
-//! full top-20 levels per side and replaces the previous book wholesale
-//! (last-write-wins). Consumers holding multiple aggregation views of one
-//! orderbook on the same connection key their [`OrderbookState`] instances by
+//! full top-20 levels per side and replaces the previous book wholesale.
+//! Equal and older revisions are discarded within a generation. Consumers
+//! holding multiple aggregation views of one orderbook on the same connection
+//! key their [`OrderbookState`] instances by
 //! `(orderbook_id, aggregation)` using
 //! [`OrderBook::aggregation`](crate::domain::orderbook::wire::OrderBook::aggregation).
 
-use crate::domain::orderbook::wire::OrderBook;
+use crate::domain::orderbook::{aggregation::BookAggregation, wire::OrderBook};
 use crate::shared::OrderBookId;
 use rust_decimal::Decimal;
 use std::collections::BTreeMap;
@@ -16,6 +17,8 @@ use std::collections::BTreeMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApplyResult {
     Applied,
+    DiscardedStale,
+    SubscriptionMismatch,
     RefreshRequired(RefreshReason),
 }
 
@@ -35,37 +38,48 @@ pub enum RefreshReason {
 #[derive(Debug, Clone, Default)]
 pub struct OrderbookState {
     pub orderbook_id: OrderBookId,
-    /// Projection version of the last applied frame. Strictly increasing but
-    /// non-contiguous server-side (conflation skips versions), and the
-    /// initial snapshot after every (re)subscribe is `seq: 0` — informational
-    /// only, never used to gate frames.
+    pub aggregation: BookAggregation,
+    /// Last accepted engine depth revision. Forward gaps are valid.
     pub seq: u64,
+    last_seq: Option<u64>,
+    pub bids_truncated: bool,
+    pub asks_truncated: bool,
     bids: BTreeMap<Decimal, Decimal>,
     asks: BTreeMap<Decimal, Decimal>,
 }
 
 impl OrderbookState {
     pub fn new(orderbook_id: OrderBookId) -> Self {
+        Self::with_aggregation(orderbook_id, BookAggregation::FULL)
+    }
+
+    pub fn with_aggregation(orderbook_id: OrderBookId, aggregation: BookAggregation) -> Self {
         Self {
             orderbook_id,
+            aggregation: aggregation.normalized(),
             seq: 0,
+            last_seq: None,
+            bids_truncated: false,
+            asks_truncated: false,
             bids: BTreeMap::new(),
             asks: BTreeMap::new(),
         }
     }
 
-    /// Apply a WS orderbook frame (snapshot-only stream, last-write-wins).
+    /// Apply a full WS snapshot when its revision is newer in this generation.
     ///
     /// `resync` frames take precedence and leave the book untouched — the
-    /// caller must re-subscribe with the same parameters. Every other data
-    /// frame is a full snapshot by contract and replaces the book wholesale
-    /// (the `is_snapshot` flag is not consulted), including the `seq: 0`
-    /// initial snapshot delivered after every (re)subscribe: gating on `seq`
-    /// would freeze the book after a resync or aggregation change, so `seq`
-    /// is stored as informational only.
+    /// caller must re-subscribe with the same parameters. Every accepted data
+    /// frame replaces the book wholesale; gaps are normal and do not resync.
     pub fn apply(&mut self, book: &OrderBook) -> ApplyResult {
+        if book.id != self.orderbook_id || book.aggregation() != self.aggregation {
+            return ApplyResult::SubscriptionMismatch;
+        }
         if book.resync {
             return ApplyResult::RefreshRequired(RefreshReason::ServerResync);
+        }
+        if self.last_seq.is_some_and(|last| book.seq <= last) {
+            return ApplyResult::DiscardedStale;
         }
 
         self.bids.clear();
@@ -82,6 +96,9 @@ impl OrderbookState {
             }
         }
         self.seq = book.seq;
+        self.last_seq = Some(book.seq);
+        self.bids_truncated = book.bids_truncated;
+        self.asks_truncated = book.asks_truncated;
 
         ApplyResult::Applied
     }
@@ -126,10 +143,19 @@ impl OrderbookState {
         self.bids.is_empty() && self.asks.is_empty()
     }
 
+    /// Start a reconnect/resubscribe generation. Existing levels remain visible
+    /// until the fresh initial snapshot is accepted.
+    pub fn begin_generation(&mut self) {
+        self.last_seq = None;
+    }
+
     pub fn clear(&mut self) {
         self.bids.clear();
         self.asks.clear();
         self.seq = 0;
+        self.last_seq = None;
+        self.bids_truncated = false;
+        self.asks_truncated = false;
     }
 }
 
@@ -153,7 +179,7 @@ mod tests {
         asks: Vec<(f64, f64)>,
     ) -> OrderBook {
         OrderBook {
-            id: OrderBookId::from("ob_test"),
+            id: OrderBookId::from("ob1"),
             is_snapshot: snapshot,
             seq,
             resync: false,
@@ -173,6 +199,9 @@ mod tests {
                     size: Decimal::try_from(size).unwrap(),
                 })
                 .collect(),
+            bids_truncated: false,
+            asks_truncated: false,
+            timestamp: None,
             n_sig_figs: None,
             mantissa: None,
         }
@@ -201,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn test_lower_seq_snapshot_still_applies_last_write_wins() {
+    fn test_lower_and_equal_revisions_are_discarded() {
         let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 42, vec![(50.0, 10.0)], vec![])),
@@ -209,18 +238,20 @@ mod tests {
         );
         assert_eq!(snap.seq, 42);
 
-        // A snapshot with a lower seq (e.g. queued behind a re-subscribe)
-        // still replaces the book — seq never gates.
         assert_eq!(
             snap.apply(&order_book(true, 7, vec![(49.0, 20.0)], vec![])),
-            ApplyResult::Applied
+            ApplyResult::DiscardedStale
         );
-        assert_eq!(snap.seq, 7);
-        assert_eq!(snap.best_bid(), Some(Decimal::try_from(49.0).unwrap()));
+        assert_eq!(
+            snap.apply(&order_book(true, 42, vec![], vec![])),
+            ApplyResult::DiscardedStale
+        );
+        assert_eq!(snap.seq, 42);
+        assert_eq!(snap.best_bid(), Some(Decimal::try_from(50.0).unwrap()));
     }
 
     #[test]
-    fn test_post_resync_seq_zero_snapshot_applies() {
+    fn test_lower_fresh_revision_applies_after_resubscribe() {
         let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
         assert_eq!(
             snap.apply(&order_book(true, 42, vec![(50.0, 10.0)], vec![(51.0, 5.0)])),
@@ -237,15 +268,49 @@ mod tests {
         assert_eq!(snap.seq, 42);
         assert_eq!(snap.bids().len(), 1);
 
-        // The fresh snapshot after re-subscribing is always seq 0 and MUST
-        // apply — gating on seq here would freeze the book forever.
+        // A lower revision is valid in a fresh subscription generation.
+        snap.begin_generation();
         assert_eq!(
-            snap.apply(&order_book(true, 0, vec![(48.0, 5.0)], vec![(52.0, 2.0)])),
+            snap.apply(&order_book(true, 7, vec![(48.0, 5.0)], vec![(52.0, 2.0)])),
             ApplyResult::Applied
         );
-        assert_eq!(snap.seq, 0);
+        assert_eq!(snap.seq, 7);
         assert_eq!(snap.best_bid(), Some(Decimal::try_from(48.0).unwrap()));
         assert_eq!(snap.best_ask(), Some(Decimal::try_from(52.0).unwrap()));
+    }
+
+    #[test]
+    fn test_forward_gap_and_truncation_metadata_apply() {
+        let mut snap = OrderbookState::new(OrderBookId::from("ob1"));
+        assert_eq!(
+            snap.apply(&order_book(true, 10, vec![], vec![])),
+            ApplyResult::Applied
+        );
+        let mut next = order_book(true, 15, vec![(50.0, 1.0)], vec![]);
+        next.bids_truncated = true;
+        assert_eq!(snap.apply(&next), ApplyResult::Applied);
+        assert_eq!(snap.seq, 15);
+        assert!(snap.bids_truncated);
+        assert!(!snap.asks_truncated);
+    }
+
+    #[test]
+    fn test_aggregation_generations_are_separate() {
+        let mut full = OrderbookState::new(OrderBookId::from("ob1"));
+        let aggregation = BookAggregation::validate(Some(5), Some(2)).unwrap();
+        let mut grouped = OrderbookState::with_aggregation(OrderBookId::from("ob1"), aggregation);
+        let full_frame = order_book(true, 100, vec![], vec![]);
+        let mut grouped_frame = order_book(true, 3, vec![], vec![]);
+        grouped_frame.n_sig_figs = Some(5);
+        grouped_frame.mantissa = Some(2);
+        assert_eq!(full.apply(&full_frame), ApplyResult::Applied);
+        assert_eq!(grouped.apply(&grouped_frame), ApplyResult::Applied);
+        assert_eq!(
+            full.apply(&grouped_frame),
+            ApplyResult::SubscriptionMismatch
+        );
+        assert_eq!(full.seq, 100);
+        assert_eq!(grouped.seq, 3);
     }
 
     #[test]

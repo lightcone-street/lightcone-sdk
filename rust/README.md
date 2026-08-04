@@ -82,15 +82,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .build_ix()
         .await?;
 
-    // 4. Build, sign, and submit a limit order
-    let request = client.orders().limit_order().await
+    // 4. Fetch/cache trading rules, validate exactly, sign, and submit
+    let response = client.orders().limit_order().await
         .maker(keypair.pubkey())
         .bid()
         .price("0.55")
         .size("100")
-        .sign(&keypair, &orderbook)?;
-
-    let response = client.orders().submit(&request).await?;
+        .submit(&client, orderbook).await?;
     println!("Order submitted: {:?}", response);
 
     // 5. Withdraw from the global pool
@@ -153,14 +151,19 @@ let deposit_ix = client.positions().deposit().await
 ### Step 3: Place an Order
 
 ```rust
-let request = client.orders().limit_order().await
+let order = client.orders().limit_order().await
     .maker(keypair.pubkey())
     .bid()
     .price("0.55")
     .size("1")
-    .sign(&keypair, &orderbook)?;
-let order = client.orders().submit(&request).await?;
+    .submit(&client, &orderbook).await?;
 ```
+
+Order submission uses immutable rules from
+`GET /api/orderbooks/{orderbook_id}/decimals`, cached per client. Decimal
+strings are converted with integer arithmetic and rejected rather than rounded.
+Direct `sign`/`finalize` calls require the fetched `OrderbookRules`; raw amount
+orders are preflighted against the same exact ratio and signed-64-bit limits.
 
 ### Step 4: Monitor
 
@@ -178,6 +181,18 @@ ws.subscribe(SubscribeParams::User {
     wallet_address: keypair.pubkey().into(),
 })?;
 ```
+
+Book streams are snapshot-only: every accepted `book_update` replaces the full
+top-20 view. `OrderbookState` discards equal/older `seq` values within a
+subscription generation and accepts forward gaps. Call `begin_generation()` on
+reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
+same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+Truncation flags are preserved and mean that side is not exhaustive.
+
+Ticker consumers should use the supplied `mid`/`mid_price`; it is
+engine-authoritative and may use one-sided-book or last-trade fallback.
+REST depth is a coherent projection that may briefly lag a mutation. Use its
+`revision` and `captured_at_ms` metadata, and expect revision gaps.
 
 ### Step 5: Cancel an Order
 
@@ -326,7 +341,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.rs) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
+| [`submit_order`](examples/submit_order.rs) | Deposit collateral, then place an exactly validated limit order using cached trading rules. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 

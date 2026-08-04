@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Optional, TYPE_CHECKING
 
 from solders.instruction import Instruction
@@ -9,7 +10,8 @@ from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
 from .aggregation import BookAggregation
-from .wire import OrderbookDepthResponse
+from .wire import DecimalsResponse, OrderbookDepthResponse
+from ...shared.scaling import OrderbookRules
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
 from ...program.instructions import (
@@ -33,6 +35,8 @@ class Orderbooks:
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
+        self._rules_cache: dict[str, OrderbookRules] = {}
+        self._rules_in_flight: dict[str, asyncio.Task[OrderbookRules]] = {}
 
     # ── PDA helpers ──────────────────────────────────────────────────────
 
@@ -100,6 +104,37 @@ class Orderbooks:
             f"/api/orderbook/{orderbook_id}", params=params or None
         )
         return OrderbookDepthResponse.from_dict(data)
+
+    async def decimals(self, orderbook_id: str) -> OrderbookRules:
+        """Fetch and cache immutable exact admission rules for an active book."""
+        cached = self._rules_cache.get(orderbook_id)
+        if cached is not None:
+            return cached
+        task = self._rules_in_flight.get(orderbook_id)
+        if task is None:
+            async def _fetch() -> OrderbookRules:
+                data = await self._client._http.get(
+                    f"/api/orderbooks/{orderbook_id}/decimals"
+                )
+                rules = DecimalsResponse.from_dict(data).to_rules()
+                rules.validate_for_orderbook(orderbook_id)
+                return rules
+
+            task = asyncio.create_task(_fetch())
+            self._rules_in_flight[orderbook_id] = task
+        try:
+            rules = await task
+            self._rules_cache[orderbook_id] = rules
+            return rules
+        finally:
+            if self._rules_in_flight.get(orderbook_id) is task:
+                self._rules_in_flight.pop(orderbook_id, None)
+
+    def invalidate_decimals(self, orderbook_id: str) -> None:
+        self._rules_cache.pop(orderbook_id, None)
+
+    def clear_decimals_cache(self) -> None:
+        self._rules_cache.clear()
 
     # ── On-chain account fetchers (require connection) ───────────────────
 

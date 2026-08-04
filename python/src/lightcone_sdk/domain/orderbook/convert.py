@@ -3,20 +3,15 @@
 from typing import TYPE_CHECKING
 
 from .wire import DecimalsResponse, OrderbookResponse
-from ...shared.scaling import OrderbookDecimals
+from ...shared.scaling import OrderbookRules
 from . import OrderBookPair, OrderBookValidationError
 
 if TYPE_CHECKING:
     from ..market import ConditionalToken
 
 
-def decimals_from_wire(wire: DecimalsResponse) -> OrderbookDecimals:
-    return OrderbookDecimals(
-        orderbook_id=wire.orderbook_id,
-        base_decimals=wire.base_decimals,
-        quote_decimals=wire.quote_decimals,
-        price_decimals=wire.price_decimals,
-    )
+def decimals_from_wire(wire: DecimalsResponse) -> OrderbookRules:
+    return wire.to_rules()
 
 
 def orderbook_pair_from_wire(

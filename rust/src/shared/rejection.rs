@@ -32,6 +32,14 @@ pub enum RejectionCode {
     TokenPairMismatch,
     InsufficientMarketFeeBuffer,
     SignatureExpired,
+    TradingRulesUnavailable,
+    OrderFieldOutOfRange,
+    PriceNotExactlyRepresentable,
+    PriceOutOfRange,
+    InvalidPriceDecimals,
+    InvalidPriceSignificantFigures,
+    InvalidSizeDecimals,
+    TriggerPriceOutOfRange,
     Unknown(String),
 }
 
@@ -64,6 +72,14 @@ impl RejectionCode {
             Self::TokenPairMismatch => "Token Pair Mismatch".to_string(),
             Self::InsufficientMarketFeeBuffer => "Insufficient Market Fee Buffer".to_string(),
             Self::SignatureExpired => "Signature Expired".to_string(),
+            Self::TradingRulesUnavailable => "Trading Rules Unavailable".to_string(),
+            Self::OrderFieldOutOfRange => "Order Field Out of Range".to_string(),
+            Self::PriceNotExactlyRepresentable => "Price Not Exactly Representable".to_string(),
+            Self::PriceOutOfRange => "Price Out of Range".to_string(),
+            Self::InvalidPriceDecimals => "Invalid Price Decimals".to_string(),
+            Self::InvalidPriceSignificantFigures => "Invalid Price Significant Figures".to_string(),
+            Self::InvalidSizeDecimals => "Invalid Size Decimals".to_string(),
+            Self::TriggerPriceOutOfRange => "Trigger Price Out of Range".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -94,6 +110,14 @@ impl RejectionCode {
             Self::TokenPairMismatch => "TOKEN_PAIR_MISMATCH".to_string(),
             Self::InsufficientMarketFeeBuffer => "INSUFFICIENT_MARKET_FEE_BUFFER".to_string(),
             Self::SignatureExpired => "SIGNATURE_EXPIRED".to_string(),
+            Self::TradingRulesUnavailable => "TRADING_RULES_UNAVAILABLE".to_string(),
+            Self::OrderFieldOutOfRange => "ORDER_FIELD_OUT_OF_RANGE".to_string(),
+            Self::PriceNotExactlyRepresentable => "PRICE_NOT_EXACTLY_REPRESENTABLE".to_string(),
+            Self::PriceOutOfRange => "PRICE_OUT_OF_RANGE".to_string(),
+            Self::InvalidPriceDecimals => "INVALID_PRICE_DECIMALS".to_string(),
+            Self::InvalidPriceSignificantFigures => "INVALID_PRICE_SIGNIFICANT_FIGURES".to_string(),
+            Self::InvalidSizeDecimals => "INVALID_SIZE_DECIMALS".to_string(),
+            Self::TriggerPriceOutOfRange => "TRIGGER_PRICE_OUT_OF_RANGE".to_string(),
             Self::Unknown(code) => code.clone(),
         }
     }
@@ -123,6 +147,14 @@ impl RejectionCode {
             "TOKEN_PAIR_MISMATCH" => Self::TokenPairMismatch,
             "INSUFFICIENT_MARKET_FEE_BUFFER" => Self::InsufficientMarketFeeBuffer,
             "SIGNATURE_EXPIRED" => Self::SignatureExpired,
+            "TRADING_RULES_UNAVAILABLE" => Self::TradingRulesUnavailable,
+            "ORDER_FIELD_OUT_OF_RANGE" => Self::OrderFieldOutOfRange,
+            "PRICE_NOT_EXACTLY_REPRESENTABLE" => Self::PriceNotExactlyRepresentable,
+            "PRICE_OUT_OF_RANGE" => Self::PriceOutOfRange,
+            "INVALID_PRICE_DECIMALS" => Self::InvalidPriceDecimals,
+            "INVALID_PRICE_SIGNIFICANT_FIGURES" => Self::InvalidPriceSignificantFigures,
+            "INVALID_SIZE_DECIMALS" => Self::InvalidSizeDecimals,
+            "TRIGGER_PRICE_OUT_OF_RANGE" => Self::TriggerPriceOutOfRange,
             _ => Self::Unknown(raw.to_string()),
         }
     }
@@ -237,6 +269,14 @@ mod tests {
             RejectionCode::TokenPairMismatch,
             RejectionCode::InsufficientMarketFeeBuffer,
             RejectionCode::SignatureExpired,
+            RejectionCode::TradingRulesUnavailable,
+            RejectionCode::OrderFieldOutOfRange,
+            RejectionCode::PriceNotExactlyRepresentable,
+            RejectionCode::PriceOutOfRange,
+            RejectionCode::InvalidPriceDecimals,
+            RejectionCode::InvalidPriceSignificantFigures,
+            RejectionCode::InvalidSizeDecimals,
+            RejectionCode::TriggerPriceOutOfRange,
         ];
         for code in codes {
             let json = serde_json::to_string(&code).unwrap();

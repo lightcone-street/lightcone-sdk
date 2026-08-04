@@ -29,6 +29,25 @@ from lightcone_sdk.program import (
     validate_signed_order,
     verify_order_signature,
 )
+from lightcone_sdk.shared.scaling import OrderbookRules, TradingRules
+
+
+RULES = OrderbookRules(
+    orderbook_id="test",
+    base_decimals=0,
+    quote_decimals=0,
+    price_decimals=6,
+    trading_rules=TradingRules(
+        base_size_decimals=0,
+        max_price_decimals=6,
+        max_price_significant_figures=5,
+        integer_prices_always_allowed=True,
+        price_quantum="0.000001",
+        price_quantum_raw=1,
+        base_size_quantum="1",
+        base_size_quantum_raw=1,
+    ),
+)
 
 
 @pytest.fixture
@@ -154,7 +173,7 @@ class TestSignOrder:
         )
         order = create_bid_order(params)
 
-        signature = sign_order(order, keypair)
+        signature = sign_order(order, keypair, RULES)
 
         assert len(signature) == 64
         assert signature != bytes(64)
@@ -173,7 +192,7 @@ class TestSignOrder:
             expiration=1700000000,
         )
         order = create_bid_order(params)
-        sign_order(order, keypair)
+        sign_order(order, keypair, RULES)
 
         assert verify_order_signature(order) is True
 
@@ -191,7 +210,7 @@ class TestVerifyOrderSignature:
             amount_out=500000,
             expiration=1700000000,
         )
-        order = create_signed_bid_order(params, keypair)
+        order = create_signed_bid_order(params, keypair, RULES)
 
         assert verify_order_signature(order) is True
 
@@ -213,7 +232,7 @@ class TestVerifyOrderSignature:
             amount_out=500000,
             expiration=1700000000,
         )
-        order = create_signed_bid_order(params, keypair)
+        order = create_signed_bid_order(params, keypair, RULES)
 
         # Tamper with the order
         order.amount_in = 2000000
@@ -312,7 +331,7 @@ class TestValidateSignedOrder:
             amount_out=500000,
             expiration=1700000000,
         )
-        order = create_signed_bid_order(params, keypair)
+        order = create_signed_bid_order(params, keypair, RULES)
 
         # Should not raise
         validate_signed_order(order)
@@ -339,7 +358,7 @@ class TestCreateSignedBidOrder:
             expiration=1700000000,
         )
 
-        order = create_signed_bid_order(params, keypair)
+        order = create_signed_bid_order(params, keypair, RULES)
 
         assert order.side == OrderSide.BID
         assert order.signature != bytes(64)
@@ -360,7 +379,7 @@ class TestCreateSignedAskOrder:
             expiration=1700000000,
         )
 
-        order = create_signed_ask_order(params, keypair)
+        order = create_signed_ask_order(params, keypair, RULES)
 
         assert order.side == OrderSide.ASK
         assert verify_order_signature(order) is True

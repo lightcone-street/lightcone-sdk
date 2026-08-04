@@ -17,8 +17,7 @@ async def main():
     print("orderbook:", orderbook_id)
     print(f"best bid: {depth.best_bid}, best ask: {depth.best_ask}")
     print(f"levels: {len(depth.bids)} bids / {len(depth.asks)} asks")
-    if depth.decimals is not None:
-        print(f"depth decimals: price={depth.decimals.price}, size={depth.decimals.size}")
+    print(f"depth decimals: price={depth.decimals.price}, size={depth.decimals.size}")
 
     # 2. Hyperliquid-style aggregation: 5 significant figures, 1/2/5 mantissa
     # sub-steps. Bids bucket by flooring, asks by ceiling.
