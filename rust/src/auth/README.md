@@ -67,6 +67,7 @@ the durable user profile plus session-scoped facts. There is no
 - `privy()` — Privy account data regardless of identity type
 - `x_account()` — the X account, whether login identity or connected account
 - `trading_wallet(auth_method)` — the wallet this session operates as. Google/X identities always trade via their Privy embedded wallet; wallet identities trade via the embedded wallet on Privy (SIWS) sessions and via the sign-in wallet on Lightcone sessions
+- `wallet_display_name(auth_method)` — shortened display label for the session's trading wallet (`FRGk...WcPR`)
 - `display_name()` — Google: `name` → email fallback; X: `display_name` → username fallback; wallet: shortened address (`FRGk...WcPR`)
 - `avatar_url()` — avatar from the login identity's OAuth provider
 
