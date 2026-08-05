@@ -4,20 +4,22 @@ import asyncio
 
 from common import (
     client as make_client,
+)
+from common import (
     get_keypair,
     login,
     market_and_orderbook,
     quote_deposit_mint,
     wait_for_global_balance,
 )
+
 from lightcone_sdk.program.orders import generate_salt
 from lightcone_sdk.rpc import require_connection
 from lightcone_sdk.shared.signing import SigningStrategy
 
-# Quote needed for the bid below (price * size, scaled to the deposit asset's
-# decimals). Must stay in sync with the same constant in cancel_order.py,
-# which withdraws this amount back out of the global pool after cancelling.
-ORDER_QUOTE_AMOUNT = 1_100_000  # 0.55 * 2 USDC, 6 decimals
+# Quote deposited for the bid below, including a small buffer. Must stay in
+# sync with cancel_order.py, which withdraws the same amount after cancelling.
+ORDER_QUOTE_AMOUNT = 1_100_000  # 1.1 USDC, 6 decimals
 
 
 async def main():
@@ -27,6 +29,8 @@ async def main():
     await login(client, keypair)
 
     market, orderbook = await market_and_orderbook(client)
+    rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+    order_price = rules.trading_rules.price_quantum
     mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
 
@@ -39,7 +43,8 @@ async def main():
     # token account, keeping the deposit/submit/cancel/withdraw cycle
     # net-neutral across CI runs.
     deposit_ix = (
-        client.positions().deposit_to_global()
+        client.positions()
+        .deposit_to_global()
         .user(keypair.pubkey())
         .mint(mint)
         .amount(ORDER_QUOTE_AMOUNT)
@@ -60,11 +65,12 @@ async def main():
     client.set_order_nonce(nonce)
 
     response = await (
-        client.orders().limit_order()
+        client.orders()
+        .limit_order()
         .maker(keypair.pubkey())
         .bid()
-        .price("0.55")
-        .size("2")
+        .price(order_price)
+        .size("1")
         .salt(generate_salt())
         .submit(client, orderbook)
     )

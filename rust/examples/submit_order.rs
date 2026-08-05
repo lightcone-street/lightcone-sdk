@@ -9,10 +9,9 @@ use solana_signer::Signer;
 use solana_transaction::Transaction;
 use std::sync::Arc;
 
-// Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Must stay in sync with the same constant in `cancel_order.rs`,
-// which withdraws this amount back out of the global pool after cancelling.
-const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
+// Quote deposited for the bid below, including a small buffer. Must stay in
+// sync with `cancel_order.rs`, which withdraws the same amount after cancelling.
+const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 1.1 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -22,6 +21,11 @@ async fn main() -> ExampleResult {
     common::login(&client, keypair.as_ref(), false).await?;
 
     let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let rules = client
+        .orderbooks()
+        .decimals(orderbook.orderbook_id.as_str())
+        .await?;
+    let order_price = rules.trading_rules.price_quantum;
     let mint = quote_deposit_mint(&orderbook)?;
     let rpc_sub = client.rpc();
     let rpc = rpc_sub.inner().await?;
@@ -64,8 +68,8 @@ async fn main() -> ExampleResult {
         .await
         .maker(maker)
         .bid()
-        .price("0.55")
-        .size("2")
+        .price(&order_price)
+        .size("1")
         .salt(lightcone::program::orders::generate_salt())
         .submit(&client, &orderbook)
         .await?;

@@ -12,10 +12,9 @@ import {
   waitForGlobalBalance,
 } from "./common";
 
-// Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Must stay in sync with the same constant in `cancel_order.ts`,
-// which withdraws this amount back out of the global pool after cancelling.
-const ORDER_QUOTE_AMOUNT = 1_100_000n; // 0.55 * 2 USDC, 6 decimals
+// Quote deposited for the bid below, including a small buffer. Must stay in
+// sync with `cancel_order.ts`, which withdraws the same amount after cancelling.
+const ORDER_QUOTE_AMOUNT = 1_100_000n; // 1.1 USDC, 6 decimals
 
 async function main() {
   const keypair = getKeypair();
@@ -24,6 +23,8 @@ async function main() {
   await login(client, keypair);
 
   const [market, orderbook] = await marketAndOrderbook(client);
+  const rules = await client.orderbooks().decimals(orderbook.orderbookId);
+  const orderPrice = rules.tradingRules.priceQuantum;
   const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
 
@@ -67,8 +68,8 @@ async function main() {
     .limitOrder()
     .maker(keypair.publicKey)
     .bid()
-    .price("0.55")
-    .size("2")
+    .price(orderPrice)
+    .size("1")
     .salt(generateSalt())
     .submit(client, orderbook);
   console.log(

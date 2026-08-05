@@ -4,24 +4,27 @@ import asyncio
 
 from common import (
     client as make_client,
+)
+from common import (
     get_keypair,
     login,
     market_and_orderbook,
     quote_deposit_mint,
     unix_timestamp,
 )
-from lightcone_sdk.domain.order import CancelBody, CancelAllBody
+
+from lightcone_sdk.domain.order import CancelAllBody, CancelBody
 from lightcone_sdk.program.orders import (
     generate_cancel_all_salt,
-    sign_cancel_order,
     sign_cancel_all,
+    sign_cancel_order,
 )
 from lightcone_sdk.rpc import require_connection
 
 # Mirrors the constant in submit_order.py. When we cancel the order that
 # example left open, we withdraw the same quote amount back from the global
 # pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-ORDER_QUOTE_AMOUNT = 1_100_000  # 0.55 * 2 USDC, 6 decimals
+ORDER_QUOTE_AMOUNT = 1_100_000  # 1.1 USDC, 6 decimals
 
 
 async def main():
@@ -32,9 +35,7 @@ async def main():
 
     # 1. Find an open limit order
     snapshot = await client.orders().get_user_orders(50)
-    limit_order = next(
-        (o for o in snapshot.orders if o.order_type == "limit"), None
-    )
+    limit_order = next((o for o in snapshot.orders if o.order_type == "limit"), None)
 
     if limit_order is None:
         print("No open limit orders to cancel.")
@@ -74,7 +75,8 @@ async def main():
     mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
     withdraw_ix = (
-        client.positions().withdraw_from_global()
+        client.positions()
+        .withdraw_from_global()
         .user(keypair.pubkey())
         .mint(mint)
         .amount(ORDER_QUOTE_AMOUNT)

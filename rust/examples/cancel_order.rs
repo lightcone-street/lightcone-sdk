@@ -11,7 +11,7 @@ use solana_transaction::Transaction;
 // Mirrors the constant in `submit_order.rs`. When we cancel the order that
 // example left open, we withdraw the same quote amount back from the global
 // pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 0.55 * 2 USDC, 6 decimals
+const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 1.1 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {

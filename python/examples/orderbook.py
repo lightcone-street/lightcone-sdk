@@ -2,7 +2,8 @@
 
 import asyncio
 
-from common import rest_client, market_and_orderbook
+from common import market_and_orderbook, rest_client
+
 from lightcone_sdk.domain.orderbook.aggregation import BookAggregation
 
 
@@ -32,8 +33,8 @@ async def main():
         f"{len(grouped.bids)} bids / {len(grouped.asks)} asks"
     )
 
-    # 3. Get decimal precision metadata (derived locally from token metadata)
-    decimals = orderbook.decimals()
+    # 3. Fetch and cache the exact admission rules for this orderbook.
+    decimals = await client.orderbooks().decimals(orderbook_id)
     print(
         "decimals: "
         f"price={decimals.price_decimals}, "
