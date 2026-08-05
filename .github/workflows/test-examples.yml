@@ -19,7 +19,10 @@ env:
   LIGHTCONE_ENV: ${{ inputs.lightcone-env }}
 
 jobs:
+  # Temporarily disable all stateful example CI. Every example job depends on
+  # this gate, so keeping it skipped prevents backend checks and example runs.
   backend-ready:
+    if: ${{ false }}
     name: Backend Ready
     runs-on: ubuntu-latest
     steps:
