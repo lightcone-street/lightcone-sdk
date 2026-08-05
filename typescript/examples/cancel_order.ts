@@ -4,7 +4,8 @@ import {
   cancelBodySigned,
   cancelAllBodySigned,
 } from "../src/domain/order/client";
-import { generateCancelAllSalt } from "../src/program";
+import { generateCancelAllSalt, OrderSide } from "../src/program";
+import { scalePriceSize } from "../src/shared";
 import {
   confirmTransactionOrThrow,
   getKeypair,
@@ -15,11 +16,6 @@ import {
   runExample,
   unixTimestamp,
 } from "./common";
-
-// Mirrors the constant in `submit_order.ts`. When we cancel the order that
-// example left open, we withdraw the same quote amount back from the global
-// pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-const ORDER_QUOTE_AMOUNT = 1_100_000n; // 0.55 * 2 USDC, 6 decimals
 
 async function main() {
   const client = restClient();
@@ -59,6 +55,13 @@ async function main() {
   // companion `submit_order` → `cancel_order` cycle is net-neutral on the
   // wallet's balance and the global pool.
   const [, orderbook] = await marketAndOrderbook(client);
+  const rules = await client.orderbooks().decimals(orderbook.orderbookId);
+  const orderQuoteAmount = scalePriceSize(
+    rules.tradingRules.priceQuantum,
+    "1",
+    OrderSide.BID,
+    rules
+  ).quoteAtoms;
   const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
   const withdrawIx = client
@@ -66,7 +69,7 @@ async function main() {
     .withdrawFromGlobal()
     .user(keypair.publicKey)
     .mint(mint)
-    .amount(ORDER_QUOTE_AMOUNT)
+    .amount(orderQuoteAmount)
     .buildIx();
   const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
   const tx = new Transaction({

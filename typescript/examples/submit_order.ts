@@ -1,5 +1,6 @@
 import { Transaction } from "@solana/web3.js";
-import { generateSalt } from "../src/program";
+import { generateSalt, OrderSide } from "../src/program";
+import { scalePriceSize } from "../src/shared";
 import {
   confirmTransactionOrThrow,
   freshOrderNonce,
@@ -12,11 +13,6 @@ import {
   waitForGlobalBalance,
 } from "./common";
 
-// Quote needed for the bid below (price * size, scaled to the deposit asset's
-// decimals). Must stay in sync with the same constant in `cancel_order.ts`,
-// which withdraws this amount back out of the global pool after cancelling.
-const ORDER_QUOTE_AMOUNT = 1_100_000n; // 0.55 * 2 USDC, 6 decimals
-
 async function main() {
   const keypair = getKeypair();
   const client = rpcClient();
@@ -24,6 +20,16 @@ async function main() {
   await login(client, keypair);
 
   const [market, orderbook] = await marketAndOrderbook(client);
+  const rules = await client.orderbooks().decimals(orderbook.orderbookId);
+  const orderPrice = rules.tradingRules.priceQuantum;
+  const orderSize = "1";
+  const orderQuoteAmount = scalePriceSize(
+    orderPrice,
+    orderSize,
+    OrderSide.BID,
+    rules
+  ).quoteAtoms;
+  const requiredBalance = Number(orderQuoteAmount) / 10 ** rules.quoteDecimals;
   const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
 
@@ -40,7 +46,7 @@ async function main() {
     .depositToGlobal()
     .user(keypair.publicKey)
     .mint(mint)
-    .amount(ORDER_QUOTE_AMOUNT)
+    .amount(orderQuoteAmount)
     .buildIx();
   {
     const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
@@ -55,7 +61,7 @@ async function main() {
     console.log(`deposit_to_global: confirmed ${sig}`);
   }
 
-  await waitForGlobalBalance(client, mint, 1.1);
+  await waitForGlobalBalance(client, mint, requiredBalance);
 
   // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
   //    subsequent orders that omit `.nonce()` use this cached value.
@@ -67,8 +73,8 @@ async function main() {
     .limitOrder()
     .maker(keypair.publicKey)
     .bid()
-    .price("0.55")
-    .size("2")
+    .price(orderPrice)
+    .size(orderSize)
     .salt(generateSalt())
     .submit(client, orderbook);
   console.log(
