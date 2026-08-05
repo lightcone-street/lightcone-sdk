@@ -1,5 +1,6 @@
 import { Transaction } from "@solana/web3.js";
-import { generateSalt } from "../src/program";
+import { generateSalt, OrderSide } from "../src/program";
+import { scalePriceSize } from "../src/shared";
 import {
   confirmTransactionOrThrow,
   freshOrderNonce,
@@ -12,10 +13,6 @@ import {
   waitForGlobalBalance,
 } from "./common";
 
-// Quote deposited for the bid below, including a small buffer. Must stay in
-// sync with `cancel_order.ts`, which withdraws the same amount after cancelling.
-const ORDER_QUOTE_AMOUNT = 1_100_000n; // 1.1 USDC, 6 decimals
-
 async function main() {
   const keypair = getKeypair();
   const client = rpcClient();
@@ -25,6 +22,14 @@ async function main() {
   const [market, orderbook] = await marketAndOrderbook(client);
   const rules = await client.orderbooks().decimals(orderbook.orderbookId);
   const orderPrice = rules.tradingRules.priceQuantum;
+  const orderSize = "1";
+  const orderQuoteAmount = scalePriceSize(
+    orderPrice,
+    orderSize,
+    OrderSide.BID,
+    rules
+  ).quoteAtoms;
+  const requiredBalance = Number(orderQuoteAmount) / 10 ** rules.quoteDecimals;
   const mint = quoteDepositMint(orderbook);
   const connection = client.rpc().inner();
 
@@ -41,7 +46,7 @@ async function main() {
     .depositToGlobal()
     .user(keypair.publicKey)
     .mint(mint)
-    .amount(ORDER_QUOTE_AMOUNT)
+    .amount(orderQuoteAmount)
     .buildIx();
   {
     const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
@@ -56,7 +61,7 @@ async function main() {
     console.log(`deposit_to_global: confirmed ${sig}`);
   }
 
-  await waitForGlobalBalance(client, mint, 1.1);
+  await waitForGlobalBalance(client, mint, requiredBalance);
 
   // 2. Submit the limit order. Fetch and cache the on-chain nonce once —
   //    subsequent orders that omit `.nonce()` use this cached value.
@@ -69,7 +74,7 @@ async function main() {
     .maker(keypair.publicKey)
     .bid()
     .price(orderPrice)
-    .size("1")
+    .size(orderSize)
     .salt(generateSalt())
     .submit(client, orderbook);
   console.log(

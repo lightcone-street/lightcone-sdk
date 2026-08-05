@@ -14,12 +14,10 @@ from common import (
 )
 
 from lightcone_sdk.program.orders import generate_salt
+from lightcone_sdk.program.types import OrderSide
 from lightcone_sdk.rpc import require_connection
+from lightcone_sdk.shared.scaling import scale_price_size
 from lightcone_sdk.shared.signing import SigningStrategy
-
-# Quote deposited for the bid below, including a small buffer. Must stay in
-# sync with cancel_order.py, which withdraws the same amount after cancelling.
-ORDER_QUOTE_AMOUNT = 1_100_000  # 1.1 USDC, 6 decimals
 
 
 async def main():
@@ -31,6 +29,11 @@ async def main():
     market, orderbook = await market_and_orderbook(client)
     rules = await client.orderbooks().decimals(orderbook.orderbook_id)
     order_price = rules.trading_rules.price_quantum
+    order_size = "1"
+    order_quote_amount = scale_price_size(
+        order_price, order_size, int(OrderSide.BID), rules
+    ).quote_atoms
+    required_balance = order_quote_amount / 10**rules.quote_decimals
     mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
 
@@ -47,7 +50,7 @@ async def main():
         .deposit_to_global()
         .user(keypair.pubkey())
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()
     )
     blockhash = await client.rpc().get_latest_blockhash()
@@ -57,7 +60,7 @@ async def main():
     await connection.confirm_transaction(deposit_result.value)
     print(f"deposit_to_global: confirmed {deposit_result.value}")
 
-    await wait_for_global_balance(client, mint, 1.1)
+    await wait_for_global_balance(client, mint, required_balance)
 
     # 2. Submit the limit order. Fetch and cache the on-chain nonce once —
     #    subsequent orders that omit .nonce() use this cached value.
@@ -70,7 +73,7 @@ async def main():
         .maker(keypair.pubkey())
         .bid()
         .price(order_price)
-        .size("1")
+        .size(order_size)
         .salt(generate_salt())
         .submit(client, orderbook)
     )

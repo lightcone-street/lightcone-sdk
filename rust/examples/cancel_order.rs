@@ -5,13 +5,9 @@ use common::{
     ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::{program::types::OrderSide, shared::scale_price_size};
 use solana_signer::Signer;
 use solana_transaction::Transaction;
-
-// Mirrors the constant in `submit_order.rs`. When we cancel the order that
-// example left open, we withdraw the same quote amount back from the global
-// pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-const ORDER_QUOTE_AMOUNT: u64 = 1_100_000; // 1.1 USDC, 6 decimals
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -58,6 +54,17 @@ async fn main() -> ExampleResult {
     // companion `submit_order` → `cancel_order` cycle is net-neutral on the
     // wallet's balance and the global pool.
     let (_market, orderbook) = market_and_orderbook(&client).await?;
+    let rules = client
+        .orderbooks()
+        .decimals(orderbook.orderbook_id.as_str())
+        .await?;
+    let order_quote_amount = scale_price_size(
+        &rules.trading_rules.price_quantum,
+        "1",
+        OrderSide::Bid,
+        &rules,
+    )?
+    .quote_atoms;
     let mint = quote_deposit_mint(&orderbook)?;
     let rpc_sub = client.rpc();
     let rpc = rpc_sub.inner().await?;
@@ -66,7 +73,7 @@ async fn main() -> ExampleResult {
         .withdraw_from_global()
         .user(keypair.pubkey())
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()?;
     let blockhash = rpc_sub.get_latest_blockhash().await?;
     let mut withdraw_tx = Transaction::new_with_payer(&[withdraw_ix], Some(&keypair.pubkey()));

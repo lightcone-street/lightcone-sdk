@@ -19,12 +19,9 @@ from lightcone_sdk.program.orders import (
     sign_cancel_all,
     sign_cancel_order,
 )
+from lightcone_sdk.program.types import OrderSide
 from lightcone_sdk.rpc import require_connection
-
-# Mirrors the constant in submit_order.py. When we cancel the order that
-# example left open, we withdraw the same quote amount back from the global
-# pool so the deposit/submit/cancel/withdraw cycle is net-neutral.
-ORDER_QUOTE_AMOUNT = 1_100_000  # 1.1 USDC, 6 decimals
+from lightcone_sdk.shared.scaling import scale_price_size
 
 
 async def main():
@@ -72,6 +69,10 @@ async def main():
     #    the companion submit_order → cancel_order cycle is net-neutral on the
     #    wallet's balance and the global pool.
     _, orderbook = await market_and_orderbook(client)
+    rules = await client.orderbooks().decimals(orderbook.orderbook_id)
+    order_quote_amount = scale_price_size(
+        rules.trading_rules.price_quantum, "1", int(OrderSide.BID), rules
+    ).quote_atoms
     mint = quote_deposit_mint(orderbook)
     connection = require_connection(client)
     withdraw_ix = (
@@ -79,7 +80,7 @@ async def main():
         .withdraw_from_global()
         .user(keypair.pubkey())
         .mint(mint)
-        .amount(ORDER_QUOTE_AMOUNT)
+        .amount(order_quote_amount)
         .build_ix()
     )
     blockhash = await client.rpc().get_latest_blockhash()
