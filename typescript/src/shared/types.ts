@@ -145,6 +145,7 @@ export enum OrderUpdateType {
   Placement = "PLACEMENT",
   Update = "UPDATE",
   Cancellation = "CANCELLATION",
+  Expiration = "EXPIRATION",
 }
 
 export enum TriggerUpdateType {

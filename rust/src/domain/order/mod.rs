@@ -118,6 +118,7 @@ pub enum OrderStatus {
     Cancelled,
     Filled,
     Pending,
+    Expired,
 }
 
 // ─── LimitOrder ─────────────────────────────────────────────────────────────

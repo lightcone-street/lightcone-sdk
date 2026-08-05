@@ -112,6 +112,8 @@ class Markets:
         return MarketsResult(
             markets=markets,
             validation_errors=validation_errors,
+            next_cursor=resp.next_cursor,
+            has_more=resp.has_more,
         )
 
     async def get_by_slug(self, slug: str) -> Market:

@@ -1,10 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { OrderStatus } from "../src/domain/order";
 import {
   normalizeConditionalBalance,
   normalizeUserOrdersPayload,
   normalizeUserUpdate,
 } from "../src/domain/order/wire";
+import { OrderUpdateType } from "../src/shared";
 import { parseMessageIn } from "../src/ws";
 
 const marketBalance = {
@@ -112,6 +114,49 @@ describe("user market balances", () => {
       message.data.market_balance.deposit_assets[0].outcomes[0].conditional_token,
       "trump-usdc-mint"
     );
+  });
+
+  it("normalizes limit-order expiration events", () => {
+    const message = parseMessageIn(
+      JSON.stringify({
+        type: "user",
+        version: 1,
+        data: {
+          event_type: "order",
+          order_type: "limit",
+          market_pubkey: "market-1",
+          orderbook_id: "orderbook-1",
+          timestamp: "2026-08-05T12:00:00Z",
+          type: "EXPIRATION",
+          order: {
+            order_hash: "order-1",
+            price: "0.5",
+            is_maker: true,
+            remaining: "0",
+            filled: "1",
+            fill_amount: "0",
+            side: "bid",
+            created_at: 0,
+            base_mint: "base",
+            quote_mint: "quote",
+            outcome_index: 0,
+            status: "EXPIRED",
+          },
+        },
+      })
+    );
+
+    assert.equal(message.type, "user");
+    if (message.type !== "user") throw new Error("expected user message");
+    assert.equal(message.data.event_type, "order");
+    if (
+      message.data.event_type !== "order" ||
+      message.data.order_type !== "limit"
+    ) {
+      throw new Error("expected limit order update");
+    }
+    assert.equal(message.data.type, OrderUpdateType.Expiration);
+    assert.equal(message.data.order.status, OrderStatus.Expired);
   });
 
   it("normalizes REST user orders with market_balances", () => {

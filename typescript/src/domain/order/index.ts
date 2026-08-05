@@ -26,6 +26,7 @@ export enum OrderStatus {
   Cancelled = "CANCELLED",
   Filled = "FILLED",
   Pending = "PENDING",
+  Expired = "EXPIRED",
 }
 
 export interface LimitOrder {

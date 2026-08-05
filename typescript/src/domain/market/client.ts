@@ -21,9 +21,12 @@ import type {
   SingleMarketResponse,
 } from "./wire";
 
+/** Validated markets, validation errors, and backend pagination metadata. */
 export interface MarketsResult {
   markets: Market[];
   validationErrors: string[];
+  nextCursor?: number;
+  hasMore: boolean;
 }
 
 /**
@@ -103,7 +106,12 @@ export class Markets {
       }
     }
 
-    return { markets, validationErrors };
+    return {
+      markets,
+      validationErrors,
+      nextCursor: response.next_cursor ?? undefined,
+      hasMore: response.has_more ?? false,
+    };
   }
 
   async getBySlug(slug: string): Promise<Market> {

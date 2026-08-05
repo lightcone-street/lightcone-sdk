@@ -26,6 +26,7 @@ class OrderStatus(str, Enum):
     CANCELLED = "CANCELLED"
     FILLED = "FILLED"
     PENDING = "PENDING"
+    EXPIRED = "EXPIRED"
 
 
 class SubmitOrderStatus(str, Enum):

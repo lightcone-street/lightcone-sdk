@@ -212,6 +212,7 @@ class OrderUpdateType(str, Enum):
     PLACEMENT = "PLACEMENT"
     UPDATE = "UPDATE"
     CANCELLATION = "CANCELLATION"
+    EXPIRATION = "EXPIRATION"
 
     def as_wire(self) -> str:
         return self.value

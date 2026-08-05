@@ -4,10 +4,17 @@ import json
 
 import pytest
 
-from lightcone_sdk.domain.order import ConditionalBalance
+from lightcone_sdk.domain.order import ConditionalBalance, OrderStatus
 from lightcone_sdk.domain.order.client import _user_orders_response_from_wire
-from lightcone_sdk.domain.order.wire import UserBalanceUpdate, UserSnapshot, UserUpdate
+from lightcone_sdk.domain.order.convert import order_from_ws
+from lightcone_sdk.domain.order.wire import (
+    OrderUpdate,
+    UserBalanceUpdate,
+    UserSnapshot,
+    UserUpdate,
+)
 from lightcone_sdk.error import DeserializationError
+from lightcone_sdk.shared import OrderUpdateType
 from lightcone_sdk.ws import parse_message_in
 
 
@@ -122,6 +129,46 @@ def test_websocket_market_balance_update_parses_new_event():
         .conditional_token
         == "trump-usdc-mint"
     )
+
+
+def test_limit_order_expiration_event_uses_expired_variants():
+    update = UserUpdate.from_dict(
+        {
+            "event_type": "order",
+            "order_type": "limit",
+            "market_pubkey": "market-1",
+            "orderbook_id": "orderbook-1",
+            "timestamp": "2026-08-05T12:00:00Z",
+            "type": "EXPIRATION",
+            "order": {
+                "order_hash": "order-1",
+                "price": "0.5",
+                "is_maker": True,
+                "remaining": "0",
+                "filled": "1",
+                "fill_amount": "0",
+                "side": "bid",
+                "created_at": 0,
+                "base_mint": "base",
+                "quote_mint": "quote",
+                "outcome_index": 0,
+                "status": "EXPIRED",
+            },
+        }
+    )
+
+    assert isinstance(update.data, OrderUpdate)
+    assert update.data.order is not None
+    assert update.data.update_type is not None
+    assert (
+        OrderUpdateType.from_wire(update.data.update_type) is OrderUpdateType.EXPIRATION
+    )
+    order = order_from_ws(
+        update.data.order,
+        update.data.market_pubkey,
+        update.data.orderbook_id,
+    )
+    assert order.status is OrderStatus.EXPIRED
 
 
 def test_user_orders_rest_response_uses_market_balances():

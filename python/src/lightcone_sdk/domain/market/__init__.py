@@ -295,8 +295,12 @@ class FavoriteMarketUpdate:
 
 @dataclass
 class MarketsResult:
+    """Validated markets, validation errors, and backend pagination metadata."""
+
     markets: list[Market] = field(default_factory=list)
     validation_errors: list[str] = field(default_factory=list)
+    next_cursor: Optional[int] = None
+    has_more: bool = False
 
 
 @dataclass

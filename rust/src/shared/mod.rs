@@ -372,6 +372,7 @@ pub enum OrderUpdateType {
     #[default]
     Update,
     Cancellation,
+    Expiration,
 }
 
 // ─── TriggerUpdateType ─────────────────────────────────────────────────────

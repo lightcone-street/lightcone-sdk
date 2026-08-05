@@ -163,7 +163,7 @@ async fn get(
 ) -> Result<MarketsResult, SdkError>
 ```
 
-Fetch markets with cursor-based pagination. Returns only `Active` and `Resolved` markets. Invalid markets (failing validation) are skipped and reported in `MarketsResult::validation_errors`.
+Fetch markets with cursor-based pagination. Returns only `Active` and `Resolved` markets. Invalid markets (failing validation) are skipped and reported in `MarketsResult::validation_errors`. Continue pagination with `MarketsResult::next_cursor` while `MarketsResult::has_more` is true.
 
 **Parameters:**
 - `cursor` -- pagination cursor from a previous response's `next_cursor`

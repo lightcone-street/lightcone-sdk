@@ -12,12 +12,14 @@ use crate::shared::PubkeyStr;
 use serde::{Deserialize, Serialize};
 use solana_pubkey::Pubkey;
 
-/// Result of fetching multiple markets. Contains valid markets and any
-/// validation errors encountered (invalid markets are skipped, not fatal).
+/// Result of fetching multiple markets, including pagination metadata.
+/// Invalid markets are skipped and reported through `validation_errors`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketsResult {
     pub markets: Vec<Market>,
     pub validation_errors: Vec<String>,
+    pub next_cursor: Option<i64>,
+    pub has_more: bool,
 }
 
 /// Result of fetching the global deposit asset whitelist. Assets that fail
@@ -64,17 +66,22 @@ impl<'a> Markets<'a> {
             query.push(("limit", limit.to_string()));
         }
 
-        let resp: MarketsResponse = self
+        let response: MarketsResponse = self
             .client
             .http
             .get_with_query(&url, &query, RetryPolicy::Idempotent)
             .await?;
+        let MarketsResponse {
+            markets: response_markets,
+            next_cursor,
+            has_more,
+        } = response;
 
         let mut markets = Vec::new();
         let mut validation_errors = Vec::new();
 
-        for mr in resp.markets {
-            match Market::try_from(mr) {
+        for market_response in response_markets {
+            match Market::try_from(market_response) {
                 Ok(market) => {
                     if matches!(market.status, Status::Active | Status::Resolved) {
                         markets.push(market);
@@ -97,6 +104,8 @@ impl<'a> Markets<'a> {
         Ok(MarketsResult {
             markets,
             validation_errors,
+            next_cursor,
+            has_more,
         })
     }
 
@@ -393,6 +402,44 @@ mod tests {
             }
             Err(error) => assert!(false, "Favorite market page failed to deserialize: {error}"),
         }
+    }
+
+    #[tokio::test]
+    async fn markets_get_preserves_page_metadata() -> Result<(), SdkError> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        let address = listener
+            .local_addr()
+            .map_err(|error| SdkError::Validation(error.to_string()))?;
+        tokio::spawn(async move {
+            let Ok((mut socket, _)) = listener.accept().await else {
+                return;
+            };
+            let mut buffer = [0_u8; 4096];
+            if socket.read(&mut buffer).await.is_err() {
+                return;
+            }
+            let body =
+                r#"{"status":"success","body":{"markets":[],"next_cursor":42,"has_more":true}}"#;
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(), body,
+            );
+            let _ = socket.write_all(response.as_bytes()).await;
+        });
+
+        let base_url = format!("http://{address}");
+        let client = LightconeClientBuilder::default()
+            .base_url(&base_url)
+            .build()?;
+        let page = client.markets().get(Some(7), Some(50)).await?;
+
+        assert!(page.markets.is_empty());
+        assert!(page.validation_errors.is_empty());
+        assert_eq!(page.next_cursor, Some(42));
+        assert!(page.has_more);
+        Ok(())
     }
 
     #[tokio::test]

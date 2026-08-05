@@ -114,7 +114,7 @@ export interface MarketResponse {
 
 export interface MarketsResponse {
   markets: MarketResponse[];
-  next_cursor?: number;
+  next_cursor?: number | null;
   has_more?: boolean;
 }
 

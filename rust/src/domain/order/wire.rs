@@ -90,7 +90,7 @@ pub struct OrderUpdate {
     pub orderbook_id: OrderBookId,
     pub timestamp: DateTime<Utc>,
     pub tx_signature: Option<String>,
-    /// "PLACEMENT", "UPDATE", or "CANCELLATION".
+    /// "PLACEMENT", "UPDATE", "CANCELLATION", or "EXPIRATION".
     #[serde(rename = "type", default)]
     pub update_type: OrderUpdateType,
     pub order: WsOrder,
@@ -374,4 +374,46 @@ pub enum FillStatus {
     Filled,
     Cancelled,
     PartiallyFilled,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{OrderEvent, UserUpdate};
+    use crate::domain::order::OrderStatus;
+    use crate::shared::OrderUpdateType;
+
+    #[test]
+    fn deserializes_limit_order_expiration_event() {
+        let update: UserUpdate = serde_json::from_value(serde_json::json!({
+            "event_type": "order",
+            "order_type": "limit",
+            "market_pubkey": "market",
+            "orderbook_id": "orderbook",
+            "timestamp": "2026-08-05T12:00:00Z",
+            "type": "EXPIRATION",
+            "order": {
+                "order_hash": "hash",
+                "price": "0.5",
+                "is_maker": true,
+                "remaining": "0",
+                "filled": "1",
+                "fill_amount": "0",
+                "side": "bid",
+                "created_at": 0,
+                "base_mint": "base",
+                "quote_mint": "quote",
+                "outcome_index": 0,
+                "status": "EXPIRED"
+            }
+        }))
+        .expect("expiration event should deserialize");
+
+        match update {
+            UserUpdate::Order(OrderEvent::Limit(update)) => {
+                assert_eq!(update.update_type, OrderUpdateType::Expiration);
+                assert_eq!(update.order.status, OrderStatus::Expired);
+            }
+            _ => panic!("expected a limit order event"),
+        }
+    }
 }
