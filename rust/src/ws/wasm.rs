@@ -139,18 +139,13 @@ impl WsClient {
     /// Closes any existing connection, cancels pending reconnection,
     /// resets the attempt counter, and initiates a new connection.
     pub fn restart_connection() {
-        match Self::ready_state() {
-            ReadyState::Connecting => {
-                tracing::info!("Already connecting, skipping restart");
-                return;
-            }
-            _ => {}
-        }
-
         tracing::info!("Manual reconnection requested");
         STOPPED.with(|s| {
             let _ = s.try_borrow_mut().map(|mut v| *v = false);
         });
+        // A browser WebSocket upgrade captures cookies when it is created. An
+        // auth transition must therefore abort even a Connecting socket; letting
+        // that pre-login handshake finish would keep the new session anonymous.
         Self::cleanup_connection();
         Self::cancel_reconnect();
 
