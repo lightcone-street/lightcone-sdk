@@ -218,16 +218,16 @@ export function deriveOrderbookId(baseToken: string, quoteToken: string): OrderB
 export interface SubmitOrderRequest {
   maker: string;
   nonce: number;
-  salt: number;
+  salt: bigint;
   market_pubkey: string;
   base_token: string;
   quote_token: string;
   side: number;
-  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
-  amount_in: number;
-  /** u64 amount — validated to fit in Number.MAX_SAFE_INTEGER at construction time */
-  amount_out: number;
-  expiration: number;
+  /** Positive durable signed-64-bit amount. */
+  amount_in: bigint;
+  /** Positive durable signed-64-bit amount. */
+  amount_out: bigint;
+  expiration: bigint;
   signature: string;
   orderbook_id: string;
   tif?: TimeInForce;

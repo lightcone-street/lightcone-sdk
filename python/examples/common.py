@@ -97,7 +97,7 @@ def quote_deposit_mint(orderbook: OrderBookPair) -> Pubkey:
 
 
 def num_outcomes(m: Market) -> int:
-    return len(m.outcomes)
+    return m.num_outcomes
 
 
 async def wait_for_global_balance(
@@ -115,9 +115,13 @@ async def wait_for_global_balance(
     print(f"waiting for global balance: mint={mint_str} required={minimum_amount}")
     while time.monotonic() < deadline:
         attempt += 1
-        balances = await client.positions().deposit_token_balances()
+        snapshot = await client.positions().deposit_token_balances()
         entry = next(
-            (balance for balance in balances.values() if balance.mint == mint_str),
+            (
+                balance
+                for balance in snapshot.balances.values()
+                if balance.mint == mint_str
+            ),
             None,
         )
         current_idle = float(entry.idle) if entry is not None else 0.0

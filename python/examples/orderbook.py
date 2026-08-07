@@ -2,7 +2,8 @@
 
 import asyncio
 
-from common import rest_client, market_and_orderbook
+from common import market_and_orderbook, rest_client
+
 from lightcone_sdk.domain.orderbook.aggregation import BookAggregation
 
 
@@ -17,8 +18,7 @@ async def main():
     print("orderbook:", orderbook_id)
     print(f"best bid: {depth.best_bid}, best ask: {depth.best_ask}")
     print(f"levels: {len(depth.bids)} bids / {len(depth.asks)} asks")
-    if depth.decimals is not None:
-        print(f"depth decimals: price={depth.decimals.price}, size={depth.decimals.size}")
+    print(f"depth decimals: price={depth.decimals.price}, size={depth.decimals.size}")
 
     # 2. Hyperliquid-style aggregation: 5 significant figures, 1/2/5 mantissa
     # sub-steps. Bids bucket by flooring, asks by ceiling.
@@ -33,8 +33,8 @@ async def main():
         f"{len(grouped.bids)} bids / {len(grouped.asks)} asks"
     )
 
-    # 3. Get decimal precision metadata (derived locally from token metadata)
-    decimals = orderbook.decimals()
+    # 3. Fetch and cache the exact admission rules for this orderbook.
+    decimals = await client.orderbooks().decimals(orderbook_id)
     print(
         "decimals: "
         f"price={decimals.price_decimals}, "

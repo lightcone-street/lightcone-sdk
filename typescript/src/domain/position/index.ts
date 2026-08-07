@@ -87,6 +87,11 @@ export interface DepositTokenBalance {
   icon_url_high?: string;
 }
 
+export interface DepositTokenBalancesSnapshot {
+  context_slot: number;
+  balances: Record<PubkeyStr, DepositTokenBalance>;
+}
+
 export function computedBase(
   balance: TokenBalance,
   conditionalPrice: Decimal

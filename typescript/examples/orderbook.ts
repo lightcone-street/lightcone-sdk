@@ -1,5 +1,4 @@
 import { restClient, marketAndOrderbook, runExample } from "./common";
-import { orderbookDecimals } from "../src/domain/orderbook";
 
 async function main() {
   const client = restClient();
@@ -7,13 +6,16 @@ async function main() {
   const orderbookId = orderbook.orderbookId;
 
   const depth = await client.orderbooks().get(orderbookId, 10);
-  const decimals = orderbookDecimals(orderbook);
+  const decimals = await client.orderbooks().decimals(orderbookId);
   console.log("market:", market.slug);
   console.log("orderbook:", orderbookId);
   console.log(`best bid: ${depth.best_bid}, best ask: ${depth.best_ask}`);
   console.log(`levels: ${depth.bids.length} bids / ${depth.asks.length} asks`);
   console.log(
     `decimals: price=${decimals.priceDecimals}, base=${decimals.baseDecimals}, quote=${decimals.quoteDecimals}`
+  );
+  console.log(
+    `size decimals: ${decimals.tradingRules.baseSizeDecimals}, price quantum: ${decimals.tradingRules.priceQuantum}`
   );
 }
 

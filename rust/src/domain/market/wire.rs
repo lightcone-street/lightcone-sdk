@@ -155,10 +155,25 @@ pub struct MarketResponse {
     pub featured_rank: Option<i16>,
     pub market_pubkey: String,
     pub market_id: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub num_outcomes: Option<i16>,
     pub oracle: String,
     pub question_id: String,
     pub condition_id: String,
     pub market_status: String,
+    /// Maker fee in signed basis points (negative = rebate), set per market at
+    /// creation and admin-updatable on chain. Optional on the wire so both a
+    /// missing key (older backend) and an explicit JSON null read as zero in
+    /// conversion instead of failing the whole market fetch over a display
+    /// value — matching the TypeScript (`?? 0`) and Python (`or 0`) SDKs.
+    #[serde(default)]
+    pub maker_fee_bps: Option<i16>,
+    /// Taker fee in signed basis points (negative = rebate); optional for the
+    /// same null/missing tolerance as `maker_fee_bps`.
+    #[serde(default)]
+    pub taker_fee_bps: Option<i16>,
+    #[serde(default)]
+    pub resolution_by: Option<i64>,
     #[serde(default)]
     pub resolution: Option<MarketResolutionResponse>,
     pub created_at: DateTime<Utc>,
@@ -248,6 +263,7 @@ pub struct MarketSearchResult {
     #[serde(default)]
     pub tags: Vec<String>,
     pub featured_rank: i16,
+    pub resolution_by: Option<i64>,
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub icon_url_low: Option<String>,
@@ -328,6 +344,49 @@ pub enum MarketEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn market_response_round_trips_resolution_by_milliseconds() {
+        let json = serde_json::json!({
+            "outcomes": [],
+            "market_pubkey": "MARKET",
+            "market_id": 1,
+            "oracle": "ORACLE",
+            "question_id": "QUESTION",
+            "condition_id": "CONDITION",
+            "market_status": "Active",
+            "resolution_by": 1_760_000_000_000_i64,
+            "created_at": "2026-05-12T00:00:00Z",
+            "activated_at": null,
+            "settled_at": null,
+            "deposit_assets": [],
+            "orderbooks": []
+        });
+
+        let response: MarketResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(response.resolution_by, Some(1_760_000_000_000));
+
+        let serialized = serde_json::to_value(response).unwrap();
+        assert_eq!(serialized["resolution_by"], 1_760_000_000_000_i64);
+    }
+
+    #[test]
+    fn market_search_result_deserializes_nullable_resolution_by() {
+        let result: MarketSearchResult = serde_json::from_value(serde_json::json!({
+            "slug": "test-market",
+            "market_name": "Test Market",
+            "market_status": "Active",
+            "category": null,
+            "tags": [],
+            "featured_rank": 1,
+            "resolution_by": null,
+            "description": null,
+            "orderbooks": []
+        }))
+        .unwrap();
+
+        assert_eq!(result.resolution_by, None);
+    }
 
     #[test]
     fn market_resolution_deserializes_single_winner() {

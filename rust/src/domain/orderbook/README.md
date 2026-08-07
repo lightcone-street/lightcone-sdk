@@ -26,7 +26,7 @@ A tradable pair of conditional tokens within a market.
 | `base` | `ConditionalToken` | Token being bought (bids) or sold (asks) |
 | `quote` | `ConditionalToken` | Token being given (bids) or received (asks) |
 | `outcome_index` | `i16` | Which outcome this pair represents |
-| `tick_size` | `i64` | Minimum price increment |
+| `tick_size` | `i64` | Deprecated market metadata; never use for order admission |
 | `total_bids` | `i32` | Number of resting bid orders |
 | `total_asks` | `i32` | Number of resting ask orders |
 | `last_trade_price` | `Option<Decimal>` | Most recent trade price |
@@ -36,7 +36,7 @@ A tradable pair of conditional tokens within a market.
 **Associated functions:**
 
 - `OrderBookPair::impact_pct(deposit_price, conditional_price)` -- price impact as a percentage relative to a deposit asset price
-- `OrderBookPair::impact(deposit_asset_price, conditional_price)` -- full impact calculation with sign, percentage, and dollar difference
+- `OrderBookPair::impact(deposit_asset_price, conditional_price)` -- full impact calculation with direction, percentage, and dollar difference
 
 Both short-circuit to zero/empty when `deposit_price` is zero; `impact_pct` also returns `(0.0, "")` when `conditional_price` is zero. Callers typically source `conditional_price` from `pair.last_trade_price` (with `Decimal::ZERO` as a fallback).
 
@@ -46,10 +46,11 @@ Result of an impact calculation.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `sign` | `String` | `"+"` or `"-"` |
-| `is_positive` | `bool` | Whether impact is positive |
+| `direction` | `ImpactDirection` | Exact `Negative`, `Zero`, or `Positive` direction |
 | `pct` | `f64` | Absolute percentage change |
 | `dollar` | `Decimal` | Absolute dollar difference |
+
+Use `OutcomeImpact::sign()` when a display sign is needed. It returns `"-"`, `""`, or `"+"` from the direction without storing a second representation that can disagree.
 
 ### `TickerData`
 
@@ -60,7 +61,7 @@ Best bid/ask/mid for an orderbook (from the `ticker` WS channel).
 | `orderbook_id` | `OrderBookId` | Which orderbook |
 | `best_bid` | `Option<Decimal>` | Highest bid price |
 | `best_ask` | `Option<Decimal>` | Lowest ask price |
-| `mid_price` | `Option<Decimal>` | Midpoint of bid and ask |
+| `mid_price` | `Option<Decimal>` | Engine-authoritative midpoint, including one-sided/last-trade fallback |
 
 ## Client Methods
 
@@ -94,14 +95,16 @@ Shared aggregation value type (re-exported in the prelude): `n_sig_figs` 2–5, 
 async fn decimals(&self, orderbook_id: &str) -> Result<DecimalsResponse, SdkError>
 ```
 
-Get the price and size decimals for an orderbook. Results are cached internally since decimals are effectively immutable.
+Get the complete immutable `OrderbookRules` required for exact order admission.
+Both raw quantum fields are parsed from JSON strings as arbitrary-precision
+integers. Results are cached per client/orderbook; failed requests are not cached.
+The display quantum strings are never used for arithmetic.
 
-The returned `DecimalsResponse` implements `OrderbookDecimals`, which is required by the order envelope's `apply_scaling()` method.
-
-### `clear_cache`
+### Cache invalidation
 
 ```rust
-async fn clear_cache(&self)
+async fn invalidate_decimals(&self, orderbook_id: &str)
+async fn clear_decimals_cache(&self)
 ```
 
 Clear the internal decimals cache. Rarely needed.
@@ -134,7 +137,8 @@ One connection may hold multiple aggregation views of the same orderbook — key
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
-| `apply` | `fn apply(&mut self, book: &OrderBook) -> ApplyResult` | Apply a WS book frame. The stream is snapshot-only: every snapshot replaces the book wholesale (last-write-wins). Zero-size levels are skipped. Returns the outcome of the apply. |
+| `apply` | `fn apply(&mut self, book: &OrderBook) -> ApplyResult` | Discard duplicate/older revisions; otherwise replace the full snapshot and preserve truncation flags. |
+| `begin_generation` | `fn begin_generation(&mut self)` | Reset the sequence gate on reconnect/resubscribe while retaining visible levels. |
 | `bids` | `fn bids(&self) -> &BTreeMap<Decimal, Decimal>` | All bids, sorted by price descending |
 | `asks` | `fn asks(&self) -> &BTreeMap<Decimal, Decimal>` | All asks, sorted by price ascending |
 | `best_bid` | `fn best_bid(&self) -> Option<Decimal>` | Highest bid price |
@@ -151,9 +155,24 @@ Returned by `apply()` to indicate what happened:
 | Variant | Description |
 |---------|-------------|
 | `Applied` | The snapshot replaced the book. Every non-resync data frame is a snapshot by contract; the `is_snapshot` flag is not consulted. |
+| `DiscardedStale` | The frame revision was equal to or lower than the last accepted revision in this generation. |
+| `SubscriptionMismatch` | The frame belonged to another orderbook or aggregation view. |
 | `RefreshRequired(RefreshReason::ServerResync)` | The backend requested a resync: unsubscribe and re-subscribe with the same parameters (including aggregation) to receive a fresh snapshot. The book is left untouched. |
 
-**Sequence protocol:** Every data frame is a full snapshot of the top-20 levels per side, conflated to ~50ms. `seq` is strictly increasing per book but **non-contiguous** (conflation skips versions), and the initial snapshot after every (re)subscribe is always `seq: 0` — so `seq` is stored as informational only and never gates a frame. Apply every snapshot, last-write-wins; any seq-based guard would freeze the book after a resync or aggregation change.
+**Sequence protocol:** Every accepted frame is a full top-20 replacement.
+The initial snapshot carries its real engine revision. Within one subscription
+generation, discard `seq <= last_seq` and accept any forward jump. Call
+`begin_generation()` on reconnect, unsubscribe/resubscribe, aggregation change,
+book recreation, or resync. Revision gaps are normal and never require resync.
+
+Depth responses and WebSocket state expose `bids_truncated` and
+`asks_truncated`. A true flag means the returned levels are useful but that side
+must not be presented as exhaustive liquidity. REST depth also exposes required
+`revision` and `captured_at_ms` freshness metadata.
+
+REST depth is a coherent projection and may briefly lag an authoritative book
+mutation. Compare `revision` and `captured_at_ms` when freshness matters; do not
+poll for the next consecutive integer because projection revisions may jump.
 
 ## Examples
 
@@ -206,12 +225,15 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
                     snapshot.best_ask(),
                     snapshot.spread()
                 ),
-                ApplyResult::Ignored(reason) => {
-                    eprintln!("Ignored book update: {reason:?}");
+                ApplyResult::DiscardedStale => {}
+                ApplyResult::SubscriptionMismatch => {
+                    eprintln!("Book update belongs to another subscription");
                 }
                 ApplyResult::RefreshRequired(reason) => {
                     eprintln!("Refresh required: {reason:?}");
-                    // re-subscribe or request a fresh snapshot
+                    // Unsubscribe, reset this subscription generation with
+                    // snapshot.begin_generation(), then re-subscribe using
+                    // the same aggregation parameters.
                 }
             }
         }
@@ -221,7 +243,7 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse` (with `decimals: Option<OrderbookDepthDecimals>`), `DecimalsResponse`, `OrderBook` (with optional `n_sig_figs`/`mantissa` aggregation tags and an `aggregation()` helper), `WsBookLevel`, and `WsTickerData`.
+Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse` (with required display `decimals`), `DecimalsResponse`, `OrderBook` (with optional `n_sig_figs`/`mantissa` aggregation tags and an `aggregation()` helper), `WsBookLevel`, and `WsTickerData`.
 
 ---
 

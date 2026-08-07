@@ -69,7 +69,7 @@ async function main() {
     .amount(1_000_000n)
     .buildIx();
 
-  // 4. Build, sign, and submit a limit order
+  // 4. Fetch/cache immutable trading rules, validate exactly, sign, and submit
   const response = await client.orders().limitOrder()
     .maker(keypair.publicKey)
     .bid()
@@ -177,7 +177,23 @@ ws.subscribe({
 });
 ```
 
-Book streams are snapshot-only: every `book_update` frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale (`OrderbookState` handles this; never gate on `seq` — the initial snapshot after every (re)subscribe is `seq: 0`). Subscriptions accept an optional Hyperliquid-style aggregation (`nSigFigs` 2–5, `mantissa` 1/2/5 only with `nSigFigs: 5`; validate with `validateAggregation`). Each `(orderbook, aggregation)` pair is a distinct subscription, so one connection can hold the full-precision and a grouped view of the same book simultaneously — incoming frames are tagged with snake_case `n_sig_figs`/`mantissa` (absent = full precision); key state by `aggregationFromFrame(frame.n_sig_figs, frame.mantissa)`. See [`examples/ws_book_and_trades.ts`](examples/ws_book_and_trades.ts).
+Book streams are snapshot-only: every accepted `book_update` replaces the full
+top-20 view. `OrderbookState` discards equal/older `seq` values within a
+subscription generation and accepts forward gaps. Call `beginGeneration()` on
+reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
+same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+Truncation flags are preserved and mean that side is not exhaustive. See
+[`examples/ws_book_and_trades.ts`](examples/ws_book_and_trades.ts).
+Ticker consumers should use the supplied `mid`; it is engine-authoritative and
+may use one-sided-book or last-trade fallback.
+REST depth is a coherent projection that may briefly lag a mutation. Use its
+`revision` and `captured_at_ms` metadata, and expect revision gaps.
+
+Order submission accepts decimal strings and uses exact `bigint` construction.
+`submit()` fetches and caches `/api/orderbooks/{id}/decimals` before invoking a
+signer. Direct `sign()`/`finalize()` calls require the returned `OrderbookRules`.
+Raw amounts, explicit salts, and derived prices are preflighted against the same
+signed-64-bit admission rules; no tick or size normalization is implicit.
 
 ```typescript
 ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
@@ -208,6 +224,8 @@ const txHash = await client.positions().merge()
   .signAndSubmit();
 ```
 
+`market.numOutcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdrawFromPosition()` builder requires `.numOutcomes(market.numOutcomes)` before building.
+
 ### Step 7: Withdraw
 
 ```typescript
@@ -221,6 +239,9 @@ const withdrawIx = client.positions().withdraw()
 ## Authentication
 
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
+
+Use `walletDisplayName(session.user, session.auth_method)` to show a shortened
+label for the wallet the session trades with, regardless of login identity.
 
 ### Cookie handling
 
@@ -242,9 +263,10 @@ For these cases, authed methods that need per-call forwarding ship a `*WithAuth(
 ```typescript
 // Inside a server route, after extracting the auth_token cookie
 // from the incoming request:
-const balances = await client
+const snapshot = await client
   .positions()
-  .depositTokenBalancesWithAuth(authToken);
+  .depositTokenBalancesWithCookies(undefined, authToken);
+console.log(`snapshot slot ${snapshot.context_slot}: ${Object.keys(snapshot.balances).length} balances`);
 
 const positions = await client
   .positions()
@@ -309,7 +331,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.ts) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limitOrder()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
+| [`submit_order`](examples/submit_order.ts) | Deposit collateral, then place an exactly validated limit order using cached trading rules. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 

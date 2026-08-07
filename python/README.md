@@ -61,7 +61,7 @@ async def main():
     market = await client.markets().get_by_slug("some-market")
     orderbook = market.orderbook_pairs[0]
 
-    # 3. Build, sign, and submit a limit order (scaling is automatic)
+    # 3. Fetch/cache trading rules, validate exactly, sign, and submit
     #    market, base_mint, quote_mint, and nonce are auto-filled from the orderbook.
     response = await (
         client.orders().limit_order()
@@ -183,7 +183,24 @@ await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id]))
 await ws.subscribe(UserParams(wallet_address=str(keypair.pubkey())))
 ```
 
-Book streams are snapshot-only: every `book_update` frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale (`OrderbookState` handles this; never gate on `seq` — the initial snapshot after every (re)subscribe is `seq: 0`). Subscriptions accept an optional Hyperliquid-style aggregation (`n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs=5`; validate with `BookAggregation.validate`; sent on the wire as camelCase `nSigFigs` with `None` fields omitted). Each `(orderbook, aggregation)` pair is a distinct subscription, so one connection can hold the full-precision and a grouped view of the same book simultaneously — incoming frames are tagged (absent = full precision); key state by `frame.aggregation()`. See [`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
+Book streams are snapshot-only: every accepted `book_update` replaces the full
+top-20 view. `OrderbookState` discards equal/older `seq` values within a
+subscription generation and accepts forward gaps. Call `begin_generation()` on
+reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
+same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
+Truncation flags are preserved and mean that side is not exhaustive. See
+[`examples/ws_book_and_trades.py`](examples/ws_book_and_trades.py).
+Ticker consumers should use the supplied `mid_price`; it is
+engine-authoritative and may use one-sided-book or last-trade fallback.
+REST depth is a coherent projection that may briefly lag a mutation. Use its
+`revision` and `captured_at_ms` metadata, and expect revision gaps.
+
+Order submission accepts strings or exact `Decimal` values and uses Python
+integer arithmetic. `submit()` fetches and caches
+`/api/orderbooks/{id}/decimals` before invoking a signer. Direct
+`sign()`/`finalize()` calls require the returned `OrderbookRules`. Raw amounts,
+explicit salts, and derived prices are checked against the same signed-64-bit
+rules; no tick or size normalization is implicit.
 
 ```python
 await ws.subscribe(BookUpdateParams(orderbook_ids=[orderbook.orderbook_id], n_sig_figs=5, mantissa=2))
@@ -217,8 +234,13 @@ tx_hash = await (client.positions().merge()
     .sign_and_submit())
 ```
 
+`market.num_outcomes` is the validated protocol outcome count. Market deposit, merge, and unified withdrawal use it instead of the length of display outcome metadata. The pubkey-only `withdraw_from_position()` builder requires `.num_outcomes(market.num_outcomes)` before building.
+
 ## Authentication
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session token.
+
+Use `session.user.wallet_display_name(session.auth_method)` to show a shortened
+label for the wallet the session trades with, regardless of login identity.
 
 ### Cookie handling
 
@@ -235,9 +257,11 @@ For these cases, authed methods that need per-call forwarding ship a `*_with_aut
 ```python
 # Inside a server route handler, after extracting the auth_token cookie
 # from the incoming request:
-balances = await client.positions().deposit_token_balances_with_auth(
-    auth_token=auth_token,
+snapshot = await client.positions().deposit_token_balances_with_cookies(
+    None,
+    auth_token,
 )
+print(f"snapshot slot {snapshot.context_slot}: {len(snapshot.balances)} balances")
 
 positions = await client.positions().positions_with_auth(
     auth_token=auth_token,
@@ -271,7 +295,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 
 | Example | Description |
 |---------|-------------|
-| [`submit_order`](examples/submit_order.py) | Deposit the quote amount into the global pool, then place a limit order via `client.orders().limit_order()` with human-readable price/size, auto-scaling, and fill tracking. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
+| [`submit_order`](examples/submit_order.py) | Deposit collateral, then place an exactly validated limit order using cached trading rules. Companion `cancel_order` cancels it and withdraws to stay net-neutral |
 
 ### Cancelling Orders
 

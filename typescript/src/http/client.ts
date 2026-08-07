@@ -5,6 +5,7 @@ import {
   type ApiResponse,
 } from "../shared/api_response";
 import type { CredentialRestorer } from "./credentialRestorer";
+import { parseJsonExact, stringifyJsonExact } from "../shared/json";
 import {
   delayForAttempt,
   retryConfigForPolicy,
@@ -317,7 +318,7 @@ export class LightconeHttp {
     // correlation, and the hook for future server-side idempotency) and the
     // same bytes (a mutable body can't drift between attempts).
     const requestId = generateRequestId();
-    const bodyText = body === undefined ? undefined : JSON.stringify(body);
+    const bodyText = body === undefined ? undefined : stringifyJsonExact(body);
 
     const startEpoch = this.restorationEpoch;
     let credentialsRestored = false;
@@ -482,7 +483,7 @@ export class LightconeHttp {
       const text = await response.text();
       let payload: T;
       try {
-        payload = JSON.parse(text) as T;
+        payload = parseJsonExact<T>(text);
       } catch (e) {
         throw HttpError.request(e instanceof Error ? e.message : "JSON parse failed");
       }
@@ -570,7 +571,7 @@ function parseRejectedBody(
 ): SdkError | undefined {
   let payload: unknown;
   try {
-    payload = JSON.parse(body);
+    payload = parseJsonExact(body);
   } catch {
     return undefined;
   }

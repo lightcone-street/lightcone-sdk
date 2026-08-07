@@ -1,7 +1,7 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
-import type { DepositSource } from "./shared";
+import type { DepositSource, OrderbookRules } from "./shared";
 import type { SigningStrategy } from "./shared/signing";
 import {
   ActiveRpc,
@@ -21,6 +21,7 @@ export interface ClientContext {
   readonly signingStrategy?: SigningStrategy;
   orderNonce?(): number | undefined;
   setOrderNonce?(nonce: number): void;
+  readonly orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for backward compat in domain sub-clients. */
   readonly connection?: Connection;
@@ -110,28 +111,104 @@ export function requireSigningStrategy(ctx: ClientContext): SigningStrategy {
   return ctx.signingStrategy;
 }
 
+/**
+ * Sign and submit a transaction using the client's signing strategy.
+ *
+ * Fetches a recent blockhash automatically. Returns as soon as the RPC
+ * accepts the transaction — inclusion is not awaited. When follow-up work
+ * depends on this transaction's on-chain effects, use
+ * {@link signAndSubmitTxConfirmed} instead.
+ */
 export async function signAndSubmitTx(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<string> {
+  const { signature } = await signAndSubmitTxInner(ctx, tx);
+  return signature;
+}
+
+/**
+ * Sign and submit a transaction, then wait until it reaches `confirmed`
+ * commitment on-chain.
+ *
+ * Sequential flows should prefer this over {@link signAndSubmitTx}: a
+ * transaction that depends on a prior transaction's state is only safe to
+ * send once that prior transaction has confirmed. See `Rpc.confirmSignature`
+ * for the terminal error taxonomy.
+ *
+ * Expiry (`"TransactionExpired"`) is only ever reported when the submitted
+ * transaction provably still carries the blockhash this function fetched:
+ * always true for `native`, verified against the signed bytes for
+ * `walletAdapter`, and never assumed for `privy` (the backend signs and
+ * submits out of the SDK's sight) — those cases end in
+ * `"ConfirmationTimeout"` at the poll cap instead.
+ */
+export async function signAndSubmitTxConfirmed(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction
+): Promise<string> {
+  const confirmed = await signAndSubmitTxConfirmedWithSlot(ctx, tx);
+  return confirmed.signature;
+}
+
+export interface ConfirmedTransaction {
+  signature: string;
+  slot: number;
+}
+
+/**
+ * Sign and submit a transaction, wait for confirmed commitment, and return
+ * both its signature and processing slot.
+ */
+export async function signAndSubmitTxConfirmedWithSlot(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction
+): Promise<ConfirmedTransaction> {
+  const { Rpc } = await import("./rpc");
+
+  const { signature, lastValidBlockHeight } = await signAndSubmitTxInner(
+    ctx,
+    tx
+  );
+  const status = await new Rpc(ctx).confirmSignatureStatus(
+    signature,
+    lastValidBlockHeight
+  );
+  return { signature, slot: status.slot };
+}
+
+/**
+ * Shared submit path: sign, send, and return the signature together with the
+ * `lastValidBlockHeight` of the blockhash the submitted wire bytes are known
+ * to carry — `null` when that cannot be proven (external signer replaced the
+ * blockhash, or the bytes were never visible to the SDK).
+ */
+async function signAndSubmitTxInner(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction
+): Promise<{ signature: string; lastValidBlockHeight: number | null }> {
   const { isUserCancellation } = await import("./shared/signing");
   const { SdkError } = await import("./error");
   const { RetryPolicy } = await import("./http");
 
   const strategy = requireSigningStrategy(ctx);
 
-  // Get blockhash with failover.
-  const { blockhash } = await connectionWithFailover(ctx, (conn) =>
-    conn.getLatestBlockhash()
+  // Get blockhash with failover, at `confirmed` commitment (pinned, not the
+  // Connection's default — matching the Rust and Python SDKs).
+  const { blockhash, lastValidBlockHeight } = await connectionWithFailover(
+    ctx,
+    (conn) => conn.getLatestBlockhash("confirmed")
   );
   tx.recentBlockhash = blockhash;
+  tx.lastValidBlockHeight = lastValidBlockHeight;
 
   switch (strategy.type) {
     case "native": {
       tx.partialSign(strategy.keypair);
-      return connectionWithFailover(ctx, (conn) =>
+      const signature = await connectionWithFailover(ctx, (conn) =>
         conn.sendRawTransaction(tx.serialize())
       );
+      return { signature, lastValidBlockHeight };
     }
     case "walletAdapter": {
       const txBytes = tx.serialize({ requireAllSignatures: false });
@@ -142,9 +219,18 @@ export async function signAndSubmitTx(
           if (isUserCancellation(msg)) throw SdkError.userCancelled();
           throw SdkError.signing(msg);
         });
-      return connectionWithFailover(ctx, (conn) =>
+      const signature = await connectionWithFailover(ctx, (conn) =>
         conn.sendRawTransaction(signedBytes)
       );
+      return {
+        signature,
+        lastValidBlockHeight: (await signedBlockhashUnchanged(
+          signedBytes,
+          blockhash
+        ))
+          ? lastValidBlockHeight
+          : null,
+      };
     }
     case "privy": {
       const txBytes = tx.serialize({ requireAllSignatures: false });
@@ -155,7 +241,27 @@ export async function signAndSubmitTx(
         { wallet_id: strategy.walletId, base64_tx: base64Tx },
         RetryPolicy.None
       );
-      return result.hash;
+      // The backend signs and submits server-side; the SDK never sees the
+      // final wire bytes, so the blockhash it set cannot be trusted for
+      // expiry detection.
+      return { signature: result.hash, lastValidBlockHeight: null };
     }
+  }
+}
+
+/**
+ * True when the signed wire bytes still carry `expectedBlockhash`. External
+ * signers may re-blockhash a transaction before signing; a bound derived
+ * from the original blockhash must then not be used for expiry detection.
+ */
+async function signedBlockhashUnchanged(
+  signedBytes: Uint8Array,
+  expectedBlockhash: string
+): Promise<boolean> {
+  try {
+    const { Transaction } = await import("@solana/web3.js");
+    return Transaction.from(signedBytes).recentBlockhash === expectedBlockhash;
+  } catch {
+    return false;
   }
 }

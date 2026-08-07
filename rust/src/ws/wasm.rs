@@ -47,6 +47,21 @@ thread_local! {
 /// for connection lifecycle and incoming messages.
 pub struct WsClient;
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum SendDisposition {
+    SendImmediately,
+    QueueUntilOpen,
+    QueueAndReconnect,
+}
+
+fn send_disposition(ready_state: ReadyState) -> SendDisposition {
+    match ready_state {
+        ReadyState::Open => SendDisposition::SendImmediately,
+        ReadyState::Connecting => SendDisposition::QueueUntilOpen,
+        ReadyState::Closing | ReadyState::Closed => SendDisposition::QueueAndReconnect,
+    }
+}
+
 impl WsClient {
     /// Initialize and connect the WebSocket.
     ///
@@ -63,40 +78,50 @@ impl WsClient {
 
     /// Send a message through the WebSocket.
     ///
-    /// If connected, sends immediately. If disconnected, queues the message
-    /// and triggers reconnection. Subscribe/unsubscribe messages are tracked
-    /// for automatic resubscription on reconnect.
+    /// If open, sends immediately. While connecting, queues the message for
+    /// the in-flight connection. If closing or closed, queues the message and
+    /// triggers reconnection. Subscribe/unsubscribe messages are tracked for
+    /// automatic resubscription on reconnect.
     pub fn send(message: MessageOut) {
         Self::track_subscription(&message);
 
-        WS.with(|ws| {
-            match ws.try_borrow() {
-                Err(e) => {
-                    tracing::error!("WebSocket borrow failed: {}", e);
-                }
-                Ok(ws_ref) => match ws_ref.as_ref() {
-                    Some(w) if ReadyState::from(w.ready_state()) == ReadyState::Open => {
-                        if let Err(e) = w.send_with_str(&message.to_string()) {
-                            tracing::error!(
-                                "Failed to send message ({}): {}",
-                                message,
-                                extract_js_error(&e)
-                            );
+        let ready_state = Self::ready_state();
+        match send_disposition(ready_state) {
+            SendDisposition::SendImmediately => {
+                WS.with(|ws| match ws.try_borrow() {
+                    Err(e) => {
+                        tracing::error!("WebSocket borrow failed: {}", e);
+                    }
+                    Ok(ws_ref) => match ws_ref.as_ref() {
+                        Some(w) => {
+                            if let Err(e) = w.send_with_str(&message.to_string()) {
+                                tracing::error!(
+                                    "Failed to send message ({}): {}",
+                                    message,
+                                    extract_js_error(&e)
+                                );
+                            }
                         }
-                    }
-                    _ => {
-                        let state = Self::ready_state();
-                        tracing::warn!(
-                            "Cannot send message ({}) - WebSocket not open (state: {:?}). Triggering reconnect...",
-                            message,
-                            state
-                        );
-                        Self::queue_message(message);
-                        Self::reconnect();
-                    }
-                },
+                        None => {
+                            tracing::error!("WebSocket is open but no connection is available");
+                        }
+                    },
+                });
             }
-        })
+            SendDisposition::QueueUntilOpen => {
+                tracing::info!("WebSocket is connecting; queueing message until it opens");
+                Self::queue_message(message);
+            }
+            SendDisposition::QueueAndReconnect => {
+                tracing::warn!(
+                    "Cannot send message ({}) - WebSocket not open (state: {:?}). Triggering reconnect...",
+                    message,
+                    ready_state
+                );
+                Self::queue_message(message);
+                Self::reconnect();
+            }
+        }
     }
 
     /// Subscribe to a channel.
@@ -114,18 +139,13 @@ impl WsClient {
     /// Closes any existing connection, cancels pending reconnection,
     /// resets the attempt counter, and initiates a new connection.
     pub fn restart_connection() {
-        match Self::ready_state() {
-            ReadyState::Connecting => {
-                tracing::info!("Already connecting, skipping restart");
-                return;
-            }
-            _ => {}
-        }
-
         tracing::info!("Manual reconnection requested");
         STOPPED.with(|s| {
             let _ = s.try_borrow_mut().map(|mut v| *v = false);
         });
+        // A browser WebSocket upgrade captures cookies when it is created. An
+        // auth transition must therefore abort even a Connecting socket; letting
+        // that pre-login handshake finish would keep the new session anonymous.
         Self::cleanup_connection();
         Self::cancel_reconnect();
 
@@ -338,9 +358,15 @@ impl WsClient {
         onmessage.forget();
 
         let onerror = Closure::<dyn FnMut(_)>::new(move |e: ErrorEvent| {
-            let msg = extract_js_error(&e.error());
-            tracing::error!("WebSocket error: {:?}", msg);
-            Self::emit(WsEvent::Error(msg));
+            let error = e.error();
+            // Browser transport errors are followed by onclose, which owns
+            // lifecycle details and reconnect behavior. Keep useful payloads
+            // at one telemetry site instead of forwarding a duplicate event.
+            if has_websocket_error_payload(error.is_undefined(), error.is_null()) {
+                tracing::error!("WebSocket error: {}", extract_js_error(&error));
+            } else {
+                tracing::info!("WebSocket error had no diagnostic payload; awaiting close details");
+            }
         });
         ws.set_onerror(Some(onerror.as_ref().unchecked_ref()));
         onerror.forget();
@@ -424,7 +450,7 @@ impl WsClient {
 
                 let pong_timeout_ms = Self::get_config_val(|c| c.pong_timeout_ms, 10_000);
                 *timeout_ref = Some(Timeout::new(pong_timeout_ms, || {
-                    tracing::warn!("Pong timeout - no response to ping");
+                    tracing::info!("Pong timeout - no response to ping");
                     WsClient::reconnect();
                 }));
             }
@@ -694,6 +720,14 @@ impl WsClient {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+/// Whether `ErrorEvent.error` contains diagnostic data worth extracting.
+///
+/// Browsers commonly expose null or undefined for WebSocket transport errors;
+/// the subsequent close event carries the actionable connection details.
+fn has_websocket_error_payload(is_undefined: bool, is_null: bool) -> bool {
+    !is_undefined && !is_null
+}
+
 fn extract_js_error(err: &JsValue) -> String {
     if let Some(error) = err.dyn_ref::<js_sys::Error>() {
         let name = (|| error.name().as_string())().unwrap_or_else(|| "Error".to_string());
@@ -743,4 +777,30 @@ fn calculate_backoff_delay(attempt: u32, jitter_max: u32, cap: u32) -> u32 {
     let base = base_delay * (1 << exp);
     let jitter = (js_sys::Math::random() * jitter_max as f64) as u32;
     base.saturating_add(jitter).min(cap)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn send_disposition_matches_connection_state() {
+        let cases = [
+            (ReadyState::Open, SendDisposition::SendImmediately),
+            (ReadyState::Connecting, SendDisposition::QueueUntilOpen),
+            (ReadyState::Closing, SendDisposition::QueueAndReconnect),
+            (ReadyState::Closed, SendDisposition::QueueAndReconnect),
+        ];
+
+        for (ready_state, expected_disposition) in cases {
+            assert_eq!(send_disposition(ready_state), expected_disposition);
+        }
+    }
+
+    #[test]
+    fn websocket_error_payload_requires_present_value() {
+        assert!(!has_websocket_error_payload(true, false));
+        assert!(!has_websocket_error_payload(false, true));
+        assert!(has_websocket_error_payload(false, false));
+    }
 }

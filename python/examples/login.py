@@ -21,6 +21,7 @@ async def main():
     print(f"logged in: {session.user.user_id} ({wallet})")
     print("identity:", identity_text(session.user.identity))
     print("display name:", session.user.display_name())
+    print("wallet display name:", session.user.wallet_display_name(session.auth_method))
     print("cached auth state:", client.auth().is_authenticated())
     me = await client.auth().check_session()
     print("session wallet:", me.user.trading_wallet(me.auth_method))

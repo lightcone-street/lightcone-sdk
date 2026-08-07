@@ -9,12 +9,13 @@ async fn main() -> ExampleResult {
     let session = login(&client, &keypair, false).await?;
     let wallet = session.user.trading_wallet(session.auth_method);
 
-    let balances = client.positions().deposit_token_balances().await?;
+    let snapshot = client.positions().deposit_token_balances(None).await?;
 
     println!("wallet: {}", wallet);
-    println!("tracked balances: {}", balances.len());
+    println!("context slot: {}", snapshot.context_slot);
+    println!("tracked balances: {}", snapshot.balances.len());
 
-    let mut entries: Vec<_> = balances.values().collect();
+    let mut entries: Vec<_> = snapshot.balances.values().collect();
     entries.sort_by(|a, b| a.symbol.cmp(&b.symbol));
     for balance in entries {
         println!(

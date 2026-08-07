@@ -136,6 +136,8 @@ fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Resul
 
 Build a conditional-token withdrawal instruction/transaction. The params take the market's registered `deposit_mint`; the SDK derives the conditional mint from `(market, deposit_mint, outcome_index)` and withdraws from the position's canonical conditional-token ATA to the user's canonical ATA.
 
+The fluent `withdraw_from_position()` and `withdraw_conditional_from_position()` builders only receive a market pubkey, so callers must pass `.num_outcomes(market.num_outcomes)` before building. Unified market deposit, merge, and withdrawal use `Market::num_outcomes` directly rather than the length of display outcome metadata.
+
 #### `init_position_tokens_ix` / `init_position_tokens_tx`
 
 ```rust

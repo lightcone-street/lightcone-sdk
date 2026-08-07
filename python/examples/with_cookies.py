@@ -40,8 +40,10 @@ async def main():
     positions = await client.positions().positions_with_cookies(cookie_header)
     print(f"markets with positions: {positions.total_markets}")
 
-    balances = await client.positions().deposit_token_balances_with_cookies(cookie_header)
-    print(f"tracked deposit balances: {len(balances)}")
+    balances = await client.positions().deposit_token_balances_with_cookies(
+        None, cookie_header
+    )
+    print(f"tracked deposit balances: {len(balances.balances)}")
 
     notifications = await client.notifications().fetch_with_cookies(cookie_header)
     print(f"notifications: {len(notifications)}")

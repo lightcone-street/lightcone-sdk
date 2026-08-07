@@ -194,6 +194,7 @@ class SearchOrderbook:
 class MarketWire:
     """Raw market data from the API."""
     market_id: int = 0
+    num_outcomes: int = 0
     market_pubkey: str = ""
     market_name: str = ""
     slug: Optional[str] = None
@@ -210,6 +211,11 @@ class MarketWire:
     tags: list[str] = field(default_factory=list)
     featured_rank: Optional[int] = None
     market_status: Optional[str] = None
+    # Signed fee rates in basis points (negative = rebate); default 0 so an
+    # older backend that doesn't serialize them yet reads as zero.
+    maker_fee_bps: int = 0
+    taker_fee_bps: int = 0
+    resolution_by: Optional[int] = None
     resolution: Optional[MarketResolutionResponse] = None
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
@@ -236,8 +242,16 @@ class MarketWire:
     @staticmethod
     def from_dict(d: dict) -> "MarketWire":
         resolution_raw = d.get("resolution")
+        deposit_assets = [
+            DepositAssetWire.from_dict(da) for da in d.get("deposit_assets", [])
+        ]
+        if d.get("num_outcomes") is not None:
+            num_outcomes = d["num_outcomes"]
+        else:
+            num_outcomes = deposit_assets[0].num_outcomes if deposit_assets else 0
         return MarketWire(
             market_id=d.get("market_id", 0),
+            num_outcomes=num_outcomes,
             market_pubkey=_require(d, "market_pubkey", "MarketWire"),
             market_name=d.get("market_name", ""),
             slug=d.get("slug"),
@@ -254,6 +268,12 @@ class MarketWire:
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank"),
             market_status=d.get("market_status"),
+            # `or 0` rather than a `d.get` default: the default only applies
+            # when the key is absent, so a JSON null would slip through as
+            # None and land in domain Market fields that promise plain ints.
+            maker_fee_bps=d.get("maker_fee_bps") or 0,
+            taker_fee_bps=d.get("taker_fee_bps") or 0,
+            resolution_by=d.get("resolution_by"),
             resolution=(
                 MarketResolutionResponse.from_dict(resolution_raw)
                 if isinstance(resolution_raw, dict)
@@ -266,10 +286,7 @@ class MarketWire:
                 OutcomeWire.from_dict(o, fallback_index=i)
                 for i, o in enumerate(d.get("outcomes", []))
             ],
-            deposit_assets=[
-                DepositAssetWire.from_dict(da)
-                for da in d.get("deposit_assets", [])
-            ],
+            deposit_assets=deposit_assets,
             orderbooks=[
                 OrderbookWire.from_dict(ob)
                 for ob in d.get("orderbooks", [])
@@ -305,6 +322,7 @@ class MarketSearchResult:
     category: Optional[str] = None
     tags: list[str] = field(default_factory=list)
     featured_rank: int = 0
+    resolution_by: Optional[int] = None
     description: Optional[str] = None
     icon_url_low: Optional[str] = None
     icon_url_medium: Optional[str] = None
@@ -320,6 +338,7 @@ class MarketSearchResult:
             category=d.get("category"),
             tags=d.get("tags") or [],
             featured_rank=d.get("featured_rank", 0),
+            resolution_by=d.get("resolution_by"),
             description=d.get("description"),
             icon_url_low=d.get("icon_url_low"),
             icon_url_medium=d.get("icon_url_medium"),

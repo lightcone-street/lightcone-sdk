@@ -1,17 +1,26 @@
 import Decimal from "decimal.js";
 import type { OrderBookId } from "../../shared";
 import type { OrderBook } from "./wire";
+import {
+  aggregationFromFrame,
+  aggregationsEqual,
+  normalizeAggregation,
+  type BookAggregation,
+} from "./aggregation";
 
 /**
  * The `book_update` stream is snapshot-only: every data frame carries the
- * full top-20 levels per side and replaces the previous book wholesale
- * (last-write-wins). Consumers holding multiple aggregation views of one
- * orderbook on the same connection key their `OrderbookState` instances by
+ * full top-20 levels per side and replaces the previous book wholesale.
+ * Equal and older revisions are discarded within one generation.
+ * Consumers holding multiple aggregation views of one orderbook on the same
+ * connection key their `OrderbookState` instances by
  * `(orderbook_id, aggregation)` using
  * `aggregationFromFrame(book.n_sig_figs, book.mantissa)`.
  */
 export type OrderbookApplyResult =
   | { kind: "applied" }
+  | { kind: "discarded_stale" }
+  | { kind: "subscription_mismatch" }
   | { kind: "refresh_required"; reason: OrderbookRefreshReason };
 
 export type OrderbookRefreshReason =
@@ -24,21 +33,26 @@ export type OrderbookRefreshReason =
 
 export class OrderbookState {
   readonly orderbookId: OrderBookId;
+  readonly aggregation: BookAggregation;
   /**
-   * Projection version of the last applied frame. Strictly increasing but
-   * non-contiguous server-side (conflation skips versions), and the initial
-   * snapshot after every (re)subscribe is `seq: 0` — informational only,
-   * never used to gate frames.
+   * Last accepted engine depth revision. Forward gaps are expected.
    */
-  seq: number;
+  seq: bigint;
+  private lastSeq: bigint | undefined;
+  bidsTruncated: boolean;
+  asksTruncated: boolean;
   private readonly bidsMap: Map<string, string>;
   private readonly asksMap: Map<string, string>;
   private cachedBestBid: string | undefined | null;
   private cachedBestAsk: string | undefined | null;
 
-  constructor(orderbookId: OrderBookId) {
+  constructor(orderbookId: OrderBookId, aggregation: BookAggregation = {}) {
     this.orderbookId = orderbookId;
-    this.seq = 0;
+    this.aggregation = normalizeAggregation(aggregation);
+    this.seq = 0n;
+    this.lastSeq = undefined;
+    this.bidsTruncated = false;
+    this.asksTruncated = false;
     this.bidsMap = new Map();
     this.asksMap = new Map();
     this.cachedBestBid = null;
@@ -46,22 +60,31 @@ export class OrderbookState {
   }
 
   /**
-   * Apply a WS orderbook frame (snapshot-only stream, last-write-wins).
+   * Apply a full snapshot when its revision is newer in this generation.
    *
    * `resync` frames take precedence and leave the book untouched — the
    * caller must re-subscribe with the same parameters. Every other data
-   * frame is a full snapshot by contract and replaces the book wholesale
-   * (the `is_snapshot` flag is not consulted), including the `seq: 0`
-   * initial snapshot delivered after every (re)subscribe: gating on `seq`
-   * would freeze the book after a resync or aggregation change, so `seq` is
-   * stored as informational only.
-   */
+  * accepted frame replaces the book wholesale. Revision gaps are normal.
+  */
   apply(book: OrderBook): OrderbookApplyResult {
+    if (book.seq < 0n) throw new Error("book_update seq must be non-negative");
+    if (
+      book.orderbook_id !== this.orderbookId ||
+      !aggregationsEqual(
+        aggregationFromFrame(book.n_sig_figs, book.mantissa),
+        this.aggregation
+      )
+    ) {
+      return { kind: "subscription_mismatch" };
+    }
     if (book.resync) {
       return {
         kind: "refresh_required",
         reason: { kind: "server_resync" },
       };
+    }
+    if (this.lastSeq !== undefined && book.seq <= this.lastSeq) {
+      return { kind: "discarded_stale" };
     }
 
     this.bidsMap.clear();
@@ -76,7 +99,10 @@ export class OrderbookState {
         this.asksMap.set(level.price, level.size);
       }
     }
-    this.seq = book.seq ?? 0;
+    this.seq = book.seq;
+    this.lastSeq = book.seq;
+    this.bidsTruncated = book.bids_truncated ?? false;
+    this.asksTruncated = book.asks_truncated ?? false;
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
 
@@ -144,10 +170,18 @@ export class OrderbookState {
     return this.bidsMap.size === 0 && this.asksMap.size === 0;
   }
 
+  /** Reset the revision gate for reconnect/resubscribe without hiding levels. */
+  beginGeneration(): void {
+    this.lastSeq = undefined;
+  }
+
   clear(): void {
     this.bidsMap.clear();
     this.asksMap.clear();
-    this.seq = 0;
+    this.seq = 0n;
+    this.lastSeq = undefined;
+    this.bidsTruncated = false;
+    this.asksTruncated = false;
     this.cachedBestBid = null;
     this.cachedBestAsk = null;
   }

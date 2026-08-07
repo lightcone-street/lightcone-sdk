@@ -43,9 +43,9 @@ async fn main() -> ExampleResult {
 
     let balances = client
         .positions()
-        .deposit_token_balances_with_cookies(&cookie_header)
+        .deposit_token_balances_with_cookies(None, &cookie_header)
         .await?;
-    println!("tracked deposit balances: {}", balances.len());
+    println!("tracked deposit balances: {}", balances.balances.len());
 
     let notifications = client
         .notifications()

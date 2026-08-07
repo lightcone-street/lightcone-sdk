@@ -1,9 +1,9 @@
 """Market wire-to-domain conversion."""
 
 from decimal import Decimal
-from typing import Optional
 
 from ...error import SdkError
+from ...program.constants import MAX_OUTCOMES, MIN_OUTCOMES
 from ..orderbook import OrderBookPair
 from . import (
     ConditionalToken,
@@ -37,7 +37,7 @@ def _resolve_icon_urls(
     )
 
 
-def _parse_status(s: Optional[str]) -> Status:
+def _parse_status(s: str | None) -> Status:
     if s is None:
         return Status.PENDING
     return Status.from_str(s)
@@ -47,6 +47,26 @@ def _decimal_string_to_decimal(value: str | None) -> Decimal | None:
     if value is None:
         return None
     return Decimal(value)
+
+
+def _market_outcome_count_error(wire: MarketWire) -> str | None:
+    if (
+        not isinstance(wire.num_outcomes, int)
+        or isinstance(wire.num_outcomes, bool)
+        or wire.num_outcomes < MIN_OUTCOMES
+        or wire.num_outcomes > MAX_OUTCOMES
+    ):
+        return f"Invalid outcome count: {wire.num_outcomes}"
+    inconsistent_counts = [
+        asset.num_outcomes
+        for asset in wire.deposit_assets
+        if asset.num_outcomes != wire.num_outcomes
+    ]
+    if inconsistent_counts:
+        return (
+            f"Deposit asset outcome counts do not match market: {inconsistent_counts}"
+        )
+    return None
 
 
 def validation_errors_from_wire(wire: MarketWire) -> list[str]:
@@ -70,6 +90,9 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
         "Cancelled",
     }:
         errors.append("Invalid status")
+    outcome_count_error = _market_outcome_count_error(wire)
+    if outcome_count_error:
+        errors.append(outcome_count_error)
 
     if not errors:
         return []
@@ -86,6 +109,14 @@ def market_from_wire(wire: MarketWire) -> Market:
         raise MarketValidationError(
             f"Market validation errors ({identifier}): Missing definition",
             ["Missing definition"],
+        )
+
+    outcome_count_error = _market_outcome_count_error(wire)
+    if outcome_count_error:
+        identifier = wire.market_pubkey or str(wire.market_id)
+        raise MarketValidationError(
+            f"Market validation errors ({identifier}): {outcome_count_error}",
+            [outcome_count_error],
         )
 
     outcomes = []
@@ -231,6 +262,7 @@ def market_from_wire(wire: MarketWire) -> Market:
         id=wire.market_id,
         pubkey=wire.market_pubkey,
         name=wire.market_name,
+        num_outcomes=wire.num_outcomes,
         banner_image_url_low=banner_icons[0] if banner_icons else None,
         banner_image_url_medium=banner_icons[1] if banner_icons else None,
         banner_image_url_high=banner_icons[2] if banner_icons else None,
@@ -240,9 +272,12 @@ def market_from_wire(wire: MarketWire) -> Market:
         featured_rank=wire.featured_rank,
         slug=wire.slug or "",
         status=_parse_status(wire.market_status),
+        maker_fee_bps=wire.maker_fee_bps,
+        taker_fee_bps=wire.taker_fee_bps,
         created_at=wire.created_at,
         activated_at=wire.activated_at,
         settled_at=wire.settled_at,
+        resolution_by=wire.resolution_by,
         resolution=wire.resolution,
         description=wire.description,
         definition=definition,

@@ -408,7 +408,11 @@ bid_order = create_bid_order(BidOrderParams(
 
 # Create and sign in one step
 keypair = Keypair()
-signed_bid = create_signed_bid_order(bid_params, keypair)
+rules = await client.orderbooks().decimals(orderbook_id)
+signed_bid = create_signed_bid_order(bid_params, keypair, rules)
+
+# Signing helpers require fetched OrderbookRules and preflight the exact price
+# ratio, size quantum, and durable field ranges before producing a signature.
 
 # Hash order (keccak256)
 order_hash = hash_order(order)  # 32 bytes
@@ -568,33 +572,37 @@ market = await client.get_market_by_address(market_pubkey)
 
 ### Order Helpers
 
+These are low-level wire/signature helpers. Every signing operation requires
+fetched rules and applies the same exact preflight as the envelope path.
+
 ```python
 from lightcone_sdk.program import BidOrderParams, AskOrderParams
 from solders.keypair import Keypair
 
 keypair = Keypair()
+rules = await client.orderbooks().decimals(orderbook_id)
 
 # Create unsigned orders
 bid = client.create_bid_order(BidOrderParams(...))
 ask = client.create_ask_order(AskOrderParams(...))
 
 # Create and sign in one step
-signed_bid = client.create_signed_bid_order(BidOrderParams(...), keypair)
-signed_ask = client.create_signed_ask_order(AskOrderParams(...), keypair)
+signed_bid = client.create_signed_bid_order(BidOrderParams(...), keypair, rules)
+signed_ask = client.create_signed_ask_order(AskOrderParams(...), keypair, rules)
 
 # Manual hash and sign
 order_hash = client.hash_order(order)  # Returns 32 bytes
-signature = client.sign_order(order, keypair)  # Returns 64 bytes
+signature = client.sign_order(order, keypair, rules)  # Returns 64 bytes
 ```
 
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `create_bid_order(params)` | FullOrder | Create unsigned bid |
 | `create_ask_order(params)` | FullOrder | Create unsigned ask |
-| `create_signed_bid_order(params, keypair)` | FullOrder | Create and sign bid |
-| `create_signed_ask_order(params, keypair)` | FullOrder | Create and sign ask |
+| `create_signed_bid_order(params, keypair, rules)` | FullOrder | Preflight and sign bid |
+| `create_signed_ask_order(params, keypair, rules)` | FullOrder | Preflight and sign ask |
 | `hash_order(order)` | bytes | Keccak256 hash (32 bytes) |
-| `sign_order(order, keypair)` | bytes | Ed25519 signature (64 bytes) |
+| `sign_order(order, keypair, rules)` | bytes | Exact-preflight Ed25519 signature (64 bytes) |
 
 ### Condition Helpers
 

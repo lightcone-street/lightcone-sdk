@@ -7,12 +7,13 @@ async function main() {
   const session = await login(client, keypair);
   const wallet = tradingWallet(session.user, session.auth_method);
 
-  const balances = await client.positions().depositTokenBalances();
+  const snapshot = await client.positions().depositTokenBalances();
 
   console.log("wallet:", wallet);
-  console.log("tracked balances:", Object.keys(balances).length);
+  console.log("context slot:", snapshot.context_slot);
+  console.log("tracked balances:", Object.keys(snapshot.balances).length);
 
-  const entries = Object.values(balances).sort((a, b) =>
+  const entries = Object.values(snapshot.balances).sort((a, b) =>
     a.symbol.localeCompare(b.symbol),
   );
   for (const balance of entries) {

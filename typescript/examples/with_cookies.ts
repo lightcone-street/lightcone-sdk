@@ -37,8 +37,8 @@ async function main() {
 
   const balances = await client
     .positions()
-    .depositTokenBalancesWithCookies(cookieHeader);
-  console.log("tracked deposit balances:", Object.keys(balances).length);
+    .depositTokenBalancesWithCookies(undefined, cookieHeader);
+  console.log("tracked deposit balances:", Object.keys(balances.balances).length);
 
   const notifications = await client.notifications().fetchWithCookies(cookieHeader);
   console.log("notifications:", notifications.length);

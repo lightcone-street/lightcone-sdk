@@ -69,6 +69,30 @@ def _fast_retry(statuses: set[int]) -> RetryPolicy:
 
 
 @pytest.mark.asyncio
+async def test_http_200_error_envelope_is_rejected() -> None:
+    base_url, _, cleanup = await _server(
+        [
+            (
+                200,
+                '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}',
+            )
+        ]
+    )
+    client = LightconeHttp(base_url)
+    try:
+        with pytest.raises(ApiRejected) as raised:
+            await client.get("/test", RetryPolicy.NONE)
+        assert raised.value.details.rejection_code is not None
+        assert (
+            raised.value.details.rejection_code.wire_name()
+            == "PRICE_NOT_EXACTLY_REPRESENTABLE"
+        )
+    finally:
+        await client.close()
+        await cleanup()
+
+
+@pytest.mark.asyncio
 async def test_structured_500_returns_api_rejected_details() -> None:
     base_url, _, cleanup = await _server(
         [

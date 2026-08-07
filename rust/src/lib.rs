@@ -55,8 +55,8 @@ pub mod client;
 pub mod prelude {
     // Shared newtypes
     pub use crate::shared::{
-        Denominator, DepositSource, OrderBookId, PubkeyStr, Resolution, Side, TimeInForce,
-        TriggerType,
+        Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
+        TimeInForce, TriggerType,
     };
 
     // Domain types — market (includes outcome + tokens)
@@ -71,7 +71,7 @@ pub mod prelude {
 
     // Domain types — orderbook
     pub use crate::domain::orderbook::{
-        BookAggregation, OrderBookPair, OrderBookValidationError, OutcomeImpact,
+        BookAggregation, ImpactDirection, OrderBookPair, OrderBookValidationError, OutcomeImpact,
     };
 
     // Domain types — order
@@ -91,8 +91,9 @@ pub mod prelude {
 
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{
-        DepositAssetMetadata, DepositTokenBalance, Portfolio, Position, PositionOutcome,
-        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletHolding,
+        DepositAssetMetadata, DepositTokenBalance, DepositTokenBalancesSnapshot, Portfolio,
+        Position, PositionOutcome, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
+        WalletHolding,
     };
 
     // Domain types — trade, price history
@@ -160,7 +161,9 @@ pub mod prelude {
     pub use crate::shared::signing::{ExternalSigner, SigningStrategy};
 
     // Domain types — referral
-    pub use crate::domain::referral::{RedeemResult, ReferralCodeInfo, ReferralStatus};
+    pub use crate::domain::referral::{
+        RedeemResult, ReferralCodeInfo, ReferralRedeemErrorCode, ReferralStatus,
+    };
 
     // Domain types — notification
     pub use crate::domain::notification::{
@@ -170,10 +173,11 @@ pub mod prelude {
     // HTTP client + sub-clients
     #[cfg(feature = "http")]
     pub use crate::client::{
-        AuthClient, FavoriteMarketUpdate, FavoriteMarkets, GlobalDepositAssetsResult,
-        LightconeClient, LightconeClientBuilder, MarketsClient, MarketsResult, MetricsClient,
-        NotificationsClient, OrderbooksClient, OrdersClient, PositionsClient,
-        PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        AuthClient, ConfirmedTransaction, FavoriteMarketUpdate, FavoriteMarkets,
+        GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
+        MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
+        PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
+        TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

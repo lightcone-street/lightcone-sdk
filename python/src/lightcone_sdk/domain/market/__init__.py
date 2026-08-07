@@ -220,6 +220,7 @@ class Market:
     pubkey: str
     name: str
     definition: str
+    num_outcomes: int
     banner_image_url_low: Optional[str] = None
     banner_image_url_medium: Optional[str] = None
     banner_image_url_high: Optional[str] = None
@@ -229,9 +230,15 @@ class Market:
     featured_rank: Optional[int] = None
     slug: str = ""
     status: Status = Status.PENDING
+    # Signed fee rates in basis points (1 bps = 0.01%); negative means a
+    # rebate. Set per market at creation, admin-updatable on chain.
+    maker_fee_bps: int = 0
+    taker_fee_bps: int = 0
     created_at: Optional[str] = None
     activated_at: Optional[str] = None
     settled_at: Optional[str] = None
+    # Resolution deadline as a Unix timestamp in milliseconds.
+    resolution_by: Optional[int] = None
     resolution: Optional[MarketResolutionResponse] = None
     description: Optional[str] = None
     category: Optional[str] = None

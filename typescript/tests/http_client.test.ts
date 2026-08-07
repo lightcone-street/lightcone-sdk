@@ -83,6 +83,28 @@ async function close(server: Server): Promise<void> {
 }
 
 describe("LightconeHttp", () => {
+  it("treats HTTP 200 error envelopes as rejections", async () => {
+    await withServer(
+      [
+        {
+          status: 200,
+          body: '{"status":"error","error_details":{"reason":"invalid exact ratio","rejection_code":"PRICE_NOT_EXACTLY_REPRESENTABLE"}}',
+        },
+      ],
+      async (baseUrl) => {
+        const client = new LightconeHttp(baseUrl);
+        await assert.rejects(
+          () => client.get(`${baseUrl}/test`, RetryPolicy.None),
+          (error) =>
+            error instanceof SdkError &&
+            error.variant === "ApiRejected" &&
+            error.apiRejectedDetails?.rejectionCode?.wireName() ===
+              "PRICE_NOT_EXACTLY_REPRESENTABLE",
+        );
+      },
+    );
+  });
+
   it("returns structured 500 rejection details", async () => {
     await withServer(
       [

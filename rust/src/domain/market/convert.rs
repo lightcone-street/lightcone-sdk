@@ -7,6 +7,7 @@ use super::tokens::sort_by_display_priority;
 use super::wire;
 use super::{Market, Status, ValidationError};
 use crate::domain::orderbook;
+use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::shared::PubkeyStr;
 use std::collections::HashMap;
 
@@ -16,6 +17,34 @@ impl TryFrom<wire::MarketResponse> for Market {
     fn try_from(source: wire::MarketResponse) -> Result<Self, Self::Error> {
         let mut errors: Vec<ValidationError> = Vec::new();
         let market_pubkey = source.market_pubkey.clone();
+        let wire_num_outcomes = source
+            .num_outcomes
+            .or_else(|| {
+                source
+                    .deposit_assets
+                    .first()
+                    .map(|asset| asset.num_outcomes)
+            })
+            .unwrap_or_default();
+        let num_outcomes = if wire_num_outcomes < i16::from(MIN_OUTCOMES)
+            || wire_num_outcomes > i16::from(MAX_OUTCOMES)
+        {
+            errors.push(ValidationError::InvalidOutcomeCount(wire_num_outcomes));
+            0
+        } else {
+            wire_num_outcomes as u8
+        };
+        let inconsistent_outcome_counts: Vec<i16> = source
+            .deposit_assets
+            .iter()
+            .map(|asset| asset.num_outcomes)
+            .filter(|count| *count != wire_num_outcomes)
+            .collect();
+        if !inconsistent_outcome_counts.is_empty() {
+            errors.push(ValidationError::InconsistentOutcomeCounts(
+                inconsistent_outcome_counts,
+            ));
+        }
 
         // Validate outcomes
         let mut outcomes: Vec<outcome::Outcome> = Vec::new();
@@ -117,13 +146,17 @@ impl TryFrom<wire::MarketResponse> for Market {
             slug,
             name,
             status,
+            maker_fee_bps: source.maker_fee_bps.unwrap_or(0),
+            taker_fee_bps: source.taker_fee_bps.unwrap_or(0),
             created_at: source.created_at,
             activated_at: source.activated_at,
             settled_at: source.settled_at,
+            resolution_by: source.resolution_by,
             resolution: source.resolution,
             description: source.description,
             definition,
             tags: source.tags.unwrap_or_default(),
+            num_outcomes,
             outcomes,
             icon_url_low,
             icon_url_medium,
@@ -208,10 +241,14 @@ mod tests {
             featured_rank: None,
             market_pubkey: "mkt123".to_string(),
             market_id: 1,
+            num_outcomes: Some(2),
             oracle: "oracle".to_string(),
             question_id: "q1".to_string(),
             condition_id: "c1".to_string(),
             market_status: "Active".to_string(),
+            maker_fee_bps: Some(25),
+            taker_fee_bps: Some(40),
+            resolution_by: None,
             resolution: None,
             created_at: Utc::now(),
             activated_at: None,
@@ -230,6 +267,46 @@ mod tests {
         response.deposit_assets = vec![deposit_asset_response()];
         response.orderbooks = vec![orderbook_response()];
         response
+    }
+
+    #[test]
+    fn market_outcome_count_comes_from_market_response() {
+        let mut response = valid_market_response(None);
+        response.outcomes.clear();
+
+        let market = match Market::try_from(response) {
+            Ok(market) => market,
+            Err(error) => panic!("expected valid market: {error}"),
+        };
+
+        assert_eq!(market.num_outcomes, 2);
+        assert!(market.outcomes.is_empty());
+    }
+
+    #[test]
+    fn market_outcome_count_falls_back_to_deposit_asset() {
+        let mut response = valid_market_response(None);
+        response.num_outcomes = None;
+
+        let market = match Market::try_from(response) {
+            Ok(market) => market,
+            Err(error) => panic!("expected valid market: {error}"),
+        };
+
+        assert_eq!(market.num_outcomes, 2);
+    }
+
+    #[test]
+    fn market_rejects_inconsistent_outcome_counts() {
+        let mut response = valid_market_response(None);
+        response.deposit_assets[0].num_outcomes = 3;
+
+        let error = match Market::try_from(response) {
+            Ok(_) => panic!("expected inconsistent outcome counts to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("Inconsistent outcome counts"));
     }
 
     fn deposit_asset_response() -> wire::DepositAssetResponse {
@@ -381,6 +458,38 @@ mod tests {
     }
 
     #[test]
+    fn market_conversion_passes_fee_bps_through() {
+        let market = Market::try_from(valid_market_response(None)).unwrap();
+        assert_eq!(market.maker_fee_bps, 25);
+        assert_eq!(market.taker_fee_bps, 40);
+    }
+
+    #[test]
+    fn fee_bps_null_or_missing_deserializes_and_converts_to_zero() {
+        // The backend contract allows the fee fields to be absent (older
+        // backend) or JSON null; both must deserialize and convert to zero,
+        // matching the TypeScript and Python SDKs, rather than failing the
+        // whole market fetch.
+        let mut json = serde_json::to_value(valid_market_response(None)).unwrap();
+        json["maker_fee_bps"] = serde_json::Value::Null;
+        json["taker_fee_bps"] = serde_json::Value::Null;
+        let null_fees: wire::MarketResponse = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(null_fees.maker_fee_bps, None);
+        let market = Market::try_from(null_fees).unwrap();
+        assert_eq!(market.maker_fee_bps, 0);
+        assert_eq!(market.taker_fee_bps, 0);
+
+        let object = json.as_object_mut().unwrap();
+        object.remove("maker_fee_bps");
+        object.remove("taker_fee_bps");
+        let missing_fees: wire::MarketResponse = serde_json::from_value(json).unwrap();
+        assert_eq!(missing_fees.taker_fee_bps, None);
+        let market = Market::try_from(missing_fees).unwrap();
+        assert_eq!(market.maker_fee_bps, 0);
+        assert_eq!(market.taker_fee_bps, 0);
+    }
+
+    #[test]
     fn optional_metadata_fields_do_not_fail_validation() {
         // Description, banners, subcategory, and tags are all optional.
         let mut resp = valid_market_response(None);
@@ -408,12 +517,14 @@ mod tests {
         resp.definition = Some("Definition".to_string());
         resp.subcategory = Some("Bitcoin".to_string());
         resp.tags = Some(vec!["btc".to_string()]);
+        resp.resolution_by = Some(1_760_000_000_000);
 
         let market = Market::try_from(resp).unwrap();
         assert_eq!(market.description.as_deref(), Some("Description"));
         assert_eq!(market.definition, "Definition");
         assert_eq!(market.subcategory.as_deref(), Some("Bitcoin"));
         assert_eq!(market.tags, vec!["btc".to_string()]);
+        assert_eq!(market.resolution_by, Some(1_760_000_000_000));
         assert_eq!(
             market.banner_image_url_low.as_deref(),
             Some("https://example.com/banner_low.png")

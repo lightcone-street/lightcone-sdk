@@ -62,10 +62,12 @@ function marketResponse(
     icon_url_low: "https://example.com/icon-low.png",
     market_pubkey: "market_1",
     market_id: 1,
+    num_outcomes: 2,
     oracle: "oracle",
     question_id: "question",
     condition_id: "condition",
     market_status: "Resolved",
+    resolution_by: null,
     resolution,
     created_at: NOW,
     settled_at: NOW,
@@ -143,12 +145,46 @@ describe("market metadata", () => {
     const response = marketResponse();
     response.subcategory = "Bitcoin";
     response.tags = ["btc"];
+    response.resolution_by = 1_760_000_000_000;
 
     const market = marketFromWire(response);
     assert.equal(market.description, "Description");
     assert.equal(market.definition, "Definition");
     assert.equal(market.subcategory, "Bitcoin");
     assert.deepEqual(market.tags, ["btc"]);
+    assert.equal(market.resolutionBy, 1_760_000_000_000);
+  });
+
+  it("maps a null resolution deadline to an absent domain value", () => {
+    const market = marketFromWire(marketResponse());
+
+    assert.equal(market.resolutionBy, undefined);
+  });
+
+  it("takes the authoritative outcome count from the market response", () => {
+    const response = marketResponse();
+    response.outcomes = [];
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+    assert.deepEqual(market.outcomes, []);
+  });
+
+  it("falls back to the deposit asset outcome count", () => {
+    const response = marketResponse();
+    delete response.num_outcomes;
+
+    const market = marketFromWire(response);
+
+    assert.equal(market.numOutcomes, 2);
+  });
+
+  it("rejects inconsistent deposit asset outcome counts", () => {
+    const response = marketResponse();
+    response.deposit_assets[0]!.num_outcomes = 3;
+
+    assert.throws(() => marketFromWire(response), /do not match market/);
   });
 
   it("rejects markets without a non-empty string definition", () => {

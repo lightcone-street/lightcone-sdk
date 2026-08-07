@@ -30,7 +30,8 @@ from .shared import (
     is_zero,
     from_decimal_value,
     # Scaling
-    OrderbookDecimals,
+    OrderbookRules,
+    TradingRules,
     ScaledAmounts,
     ScalingError,
     scale_price_size,
@@ -47,6 +48,9 @@ from .error import (
     MissingMarketContext,
     SigningError,
     UserCancelled,
+    TransactionFailed,
+    TransactionExpired,
+    ConfirmationTimeout,
     HttpError,
     HttpErrorKind,
     WsError,
@@ -154,7 +158,7 @@ from .ws.client import WsClient
 # Layer 5: Client
 # ============================================================================
 
-from .client import LightconeClient, LightconeClientBuilder
+from .client import ConfirmedTransaction, LightconeClient, LightconeClientBuilder
 from .rpc import Rpc
 
 from .domain.market import (
@@ -403,6 +407,7 @@ __all__ = [
     # Client
     "LightconeClient",
     "LightconeClientBuilder",
+    "ConfirmedTransaction",
     "Rpc",
     "MarketResolutionKind",
     "MarketResolutionPayout",
@@ -429,7 +434,8 @@ __all__ = [
     "format_decimal",
     "is_zero",
     "from_decimal_value",
-    "OrderbookDecimals",
+    "OrderbookRules",
+    "TradingRules",
     "ScaledAmounts",
     "ScalingError",
     "scale_price_size",
@@ -442,6 +448,9 @@ __all__ = [
     "MissingMarketContext",
     "SigningError",
     "UserCancelled",
+    "TransactionFailed",
+    "TransactionExpired",
+    "ConfirmationTimeout",
     "HttpError",
     "HttpErrorKind",
     "WsError",

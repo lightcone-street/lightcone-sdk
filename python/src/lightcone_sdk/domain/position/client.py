@@ -37,7 +37,7 @@ from ...program.types import (
     WithdrawFromPositionParams,
 )
 from ...rpc import require_connection
-from . import DepositTokenBalance
+from . import DepositTokenBalancesSnapshot
 from .builders import (
     DepositBuilder,
     DepositToGlobalBuilder,
@@ -139,21 +139,26 @@ class Positions:
         )
         return MarketPositionsResponseWire.from_dict(data)
 
-    async def deposit_token_balances(self) -> dict[str, DepositTokenBalance]:
-        """Get SPL deposit-token balances for the authenticated user.
-
-        The wallet is resolved server-side from the ``cookie_header`` cookie, so
-        no parameter is required. Returns balances keyed by mint pubkey for
-        every deposit token registered in the backend's
-        ``deposit_token_metadata``. An empty dict means the user has none of
-        the tracked balances — this is not an error.
-        """
-        data = await self._client._http.get("/api/users/deposit-token-balances")
-        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
+    async def deposit_token_balances(
+        self, min_context_slot: Optional[int] = None
+    ) -> DepositTokenBalancesSnapshot:
+        """Get balances and their confirmed Solana context slot."""
+        params = (
+            {"min_context_slot": str(min_context_slot)}
+            if min_context_slot is not None
+            else None
+        )
+        data = await self._client._http.get(
+            "/api/users/deposit-token-balances",
+            params=params,
+        )
+        return DepositTokenBalancesSnapshot.from_dict(data)
 
     async def deposit_token_balances_with_cookies(
-        self, cookie_header: str
-    ) -> dict[str, DepositTokenBalance]:
+        self,
+        min_context_slot: Optional[int],
+        cookie_header: str,
+    ) -> DepositTokenBalancesSnapshot:
         """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
 
         Intended for server-side cookie forwarding (SSR / server functions)
@@ -161,11 +166,17 @@ class Positions:
         process-wide cookie store. The token is used only for this call and
         never written back to the shared store.
         """
+        params = (
+            {"min_context_slot": str(min_context_slot)}
+            if min_context_slot is not None
+            else None
+        )
         data = await self._client._http.get_with_cookies(
             "/api/users/deposit-token-balances",
             cookie_header=cookie_header,
+            params=params,
         )
-        return {mint: DepositTokenBalance(**balance) for mint, balance in data.items()}
+        return DepositTokenBalancesSnapshot.from_dict(data)
 
     # ── On-chain instruction builders ────────────────────────────────────
 
@@ -387,11 +398,11 @@ class Positions:
         return RedeemWinningsBuilder(self._client)
 
     def withdraw_from_position(self) -> WithdrawFromPositionBuilder:
-        """Create a conditional-token withdraw-from-position builder."""
+        """Create a builder that requires ``.num_outcomes(...)`` before building."""
         return WithdrawFromPositionBuilder(self._client)
 
     def withdraw_conditional_from_position(self) -> WithdrawFromPositionBuilder:
-        """Create a conditional-token withdraw-from-position builder."""
+        """Create a builder that requires ``.num_outcomes(...)`` before building."""
         return WithdrawFromPositionBuilder(self._client)
 
     def init_position_tokens(self) -> InitPositionTokensBuilder:

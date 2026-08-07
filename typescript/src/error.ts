@@ -148,6 +148,9 @@ export type SdkErrorVariant =
   | "MissingMarketContext"
   | "Signing"
   | "UserCancelled"
+  | "TransactionFailed"
+  | "TransactionExpired"
+  | "ConfirmationTimeout"
   | "ApiRejected"
   | "Program"
   | "Other";
@@ -156,18 +159,22 @@ export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
   readonly causeError?: Error;
   readonly apiRejectedDetails?: ApiRejectedDetails;
+  /** Transaction signature, set on the transaction-confirmation variants. */
+  readonly signature?: string;
 
   constructor(
     variant: SdkErrorVariant,
     message: string,
     causeError?: Error,
-    apiRejectedDetails?: ApiRejectedDetails
+    apiRejectedDetails?: ApiRejectedDetails,
+    signature?: string
   ) {
     super(message);
     this.name = "SdkError";
     this.variant = variant;
     this.causeError = causeError;
     this.apiRejectedDetails = apiRejectedDetails;
+    this.signature = signature;
   }
 
   static from(error: unknown): SdkError {
@@ -221,6 +228,36 @@ export class SdkError extends Error {
 
   static userCancelled(): SdkError {
     return new SdkError("UserCancelled", "User cancelled signing");
+  }
+
+  static transactionFailed(signature: string, error: string): SdkError {
+    return new SdkError(
+      "TransactionFailed",
+      `Transaction ${signature} failed on-chain: ${error}`,
+      undefined,
+      undefined,
+      signature
+    );
+  }
+
+  static transactionExpired(signature: string): SdkError {
+    return new SdkError(
+      "TransactionExpired",
+      `Transaction ${signature} expired before confirmation — it was never processed and is safe to resubmit`,
+      undefined,
+      undefined,
+      signature
+    );
+  }
+
+  static confirmationTimeout(signature: string): SdkError {
+    return new SdkError(
+      "ConfirmationTimeout",
+      `Timed out confirming transaction ${signature} — status unknown; check the signature on-chain before resubmitting`,
+      undefined,
+      undefined,
+      signature
+    );
   }
 
   static apiRejected(details: ApiRejectedDetails): SdkError {

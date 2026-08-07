@@ -1,7 +1,12 @@
 import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
-import { signAndSubmitTx as signAndSubmitTxFn } from "./context";
+import {
+  signAndSubmitTx as signAndSubmitTxFn,
+  signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
+  signAndSubmitTxConfirmedWithSlot as signAndSubmitTxConfirmedWithSlotFn,
+} from "./context";
+import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
 import { Markets } from "./domain/market";
 import { Metrics } from "./domain/metrics";
@@ -17,7 +22,7 @@ import { LightconeEnv, apiUrl, wsUrl, rpcUrl, programId as envProgramId } from "
 import { Privy } from "./privy";
 import { Rpc } from "./rpc";
 import { RpcFailoverState } from "./rpcFailover";
-import { DepositSource, type PubkeyStr } from "./shared";
+import { DepositSource, type OrderbookRules, type PubkeyStr } from "./shared";
 import { type ExternalSigner, type SigningStrategy } from "./shared/signing";
 import { WsClient, type WsConfig } from "./ws";
 
@@ -52,6 +57,7 @@ export class LightconeClient implements ClientContext {
   private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
+  readonly orderbookRulesCache: Map<string, Promise<OrderbookRules>>;
 
   /** @deprecated Use primaryConnection — kept for ClientContext compat. */
   get connection(): Connection | undefined {
@@ -70,6 +76,7 @@ export class LightconeClient implements ClientContext {
     orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
+    orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
   }) {
     this.http = params.http;
     this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
@@ -84,6 +91,7 @@ export class LightconeClient implements ClientContext {
     this.authStateStore =
       params.authState ??
       new AuthState(params.authCredentials);
+    this.orderbookRulesCache = params.orderbookRulesCache ?? new Map();
   }
 
   // ── Deposit source ──────────────────────────────────────────────────
@@ -168,6 +176,22 @@ export class LightconeClient implements ClientContext {
 
   async signAndSubmitTx(tx: Transaction): Promise<string> {
     return signAndSubmitTxFn(this, tx);
+  }
+
+  /**
+   * Sign and submit a transaction, then wait until it reaches `confirmed`
+   * commitment on-chain. Prefer this over {@link signAndSubmitTx} when a
+   * follow-up transaction depends on this one's state.
+   */
+  async signAndSubmitTxConfirmed(tx: Transaction): Promise<string> {
+    return signAndSubmitTxConfirmedFn(this, tx);
+  }
+
+  /** Sign, submit, confirm, and return the transaction's processing slot. */
+  async signAndSubmitTxConfirmedWithSlot(
+    tx: Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitTxConfirmedWithSlotFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {
@@ -272,6 +296,7 @@ export class LightconeClient implements ClientContext {
       signingStrategy: this.signingStrategyValue,
       orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
+      orderbookRulesCache: this.orderbookRulesCache,
     });
   }
 }

@@ -24,11 +24,14 @@ A fully validated market with all nested domain types.
 | `name` | `String` | Market title (e.g., "Who wins the 2024 election?") |
 | `slug` | `String` | URL-friendly identifier |
 | `status` | `Status` | Lifecycle status |
+| `maker_fee_bps` | `i16` | Maker fee in signed basis points (negative = rebate) |
+| `taker_fee_bps` | `i16` | Taker fee in signed basis points (negative = rebate) |
 | `description` | `Option<String>` | Detailed market description |
 | `definition` | `String` | Resolution criteria |
 | `category` | `Option<String>` | Market category |
 | `subcategory` | `Option<String>` | Market subcategory |
 | `tags` | `Vec<String>` | Searchable tags (empty if unset) |
+| `num_outcomes` | `u8` | Authoritative protocol outcome count from the market record |
 | `deposit_assets` | `Vec<DepositAsset>` | Accepted collateral tokens |
 | `conditional_tokens` | `Vec<ConditionalToken>` | One per outcome |
 | `outcomes` | `Vec<Outcome>` | Outcome definitions with metadata |
@@ -42,6 +45,8 @@ A fully validated market with all nested domain types.
 | `icon_url_medium` | `String` | Market thumbnail (medium quality) |
 | `icon_url_high` | `String` | Market thumbnail (high quality) |
 | `featured_rank` | `Option<i16>` | Featured position (if featured) |
+
+`outcomes` is display metadata and can be empty when metadata is incomplete. Use `num_outcomes` for instruction validation and account derivation.
 | `created_at` | `DateTime<Utc>` | Creation timestamp |
 | `activated_at` | `Option<DateTime<Utc>>` | When market became active |
 | `settled_at` | `Option<DateTime<Utc>>` | When market was resolved |

@@ -62,7 +62,11 @@ Book subscriptions accept an optional Hyperliquid-style aggregation: `n_sig_figs
 
 Every incoming `book_update` frame is tagged with its (normalized) aggregation as `n_sig_figs`/`mantissa`, omitted for full precision — `OrderBook::aggregation()` returns the view's `BookAggregation`. Each `(orderbook, aggregation)` pair is a **distinct subscription**: one connection may hold multiple aggregation views of the same orderbook simultaneously (key your `OrderbookState` instances by `(orderbook_id, aggregation)`), each counts against the per-connection subscription limit, and unsubscribe must repeat the same aggregation to match. Book-scoped error frames (`ENGINE_UNAVAILABLE` — subscribe rolled back, retry; `SUBSCRIPTION_LIMIT_REACHED`; `INVALID_ORDERBOOK_SUBSCRIPTION`) carry `orderbook_id` plus the same tag fields (`WsError::aggregation()`) so retries can target the exact subscription.
 
-The stream is **snapshot-only**: every data frame carries the full top-20 levels per side (~50ms conflation) and replaces the previous book wholesale, last-write-wins. `seq` is strictly increasing but non-contiguous, and the initial snapshot after every (re)subscribe is `seq: 0` — never gate frames on `seq`. A `resync: true` frame (also tagged) means unsubscribe and re-subscribe that exact `(orderbook, aggregation)`.
+The stream is **snapshot-only**: every accepted frame replaces the full top-20
+view. `seq` is the real engine revision. Within one subscription generation,
+discard equal/lower revisions and accept non-contiguous forward jumps. Reset the
+gate on reconnect or resubscribe. A `resync: true` frame means unsubscribe and
+re-subscribe that exact `(orderbook, aggregation)` and begin a fresh generation.
 
 ## Inbound Messages
 
@@ -188,7 +192,7 @@ All methods are static (the WASM client manages a single global connection):
 | Method | Signature | Description |
 |--------|-----------|-------------|
 | `connect` | `fn connect(config: WsConfig, on_event: impl Fn(WsEvent))` | Connect with event callback |
-| `send` | `fn send(message: MessageOut)` | Send a message |
+| `send` | `fn send(message: MessageOut)` | Send immediately when open, queue while connecting, or queue and reconnect when closing/closed |
 | `subscribe` | `fn subscribe(params: SubscribeParams)` | Subscribe to a channel |
 | `unsubscribe` | `fn unsubscribe(params: UnsubscribeParams)` | Unsubscribe from a channel |
 | `is_connected` | `fn is_connected() -> bool` | Connection status |
