@@ -2,7 +2,13 @@ import { SdkError, isUnauthorized } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import { asPubkeyStr } from "../shared";
 import { tradingWallet } from "./index";
-import type { AuthCredentials, LoginRequest, NonceResponse, SessionResponse } from "./index";
+import type {
+  AuthCredentials,
+  LoginRequest,
+  MaxSlippagePreferenceBody,
+  NonceResponse,
+  SessionResponse,
+} from "./index";
 
 interface AuthState {
   getCredentials(): AuthCredentials | undefined;
@@ -46,6 +52,7 @@ export class Auth {
       SessionResponse,
       LoginRequest
     >(url, body, RetryPolicy.None);
+    normalizeSessionMaxSlippagePreference(session);
 
     this.client.authState.setCredentials(credentialsFromSession(session));
 
@@ -58,6 +65,7 @@ export class Auth {
     let session: SessionResponse;
     try {
       session = await this.client.http.get<SessionResponse>(url, RetryPolicy.Idempotent);
+      normalizeSessionMaxSlippagePreference(session);
     } catch (error) {
       this.client.authState.setCredentials(undefined);
       throw SdkError.from(error);
@@ -108,6 +116,24 @@ export class Auth {
     await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
   }
 
+  /** Persist the authenticated user's account-wide max-slippage preference. */
+  async updateMaxSlippagePreference(maxSlippagePreference: string): Promise<string> {
+    const url = `${this.client.http.baseUrl()}/api/auth/max_slippage_preference`;
+    const response = await this.client.http.post<
+      MaxSlippagePreferenceBody,
+      MaxSlippagePreferenceBody
+    >(
+      url,
+      { max_slippage_preference: maxSlippagePreference },
+      RetryPolicy.Idempotent
+    );
+    const preference = decodeMaxSlippagePreference(response, false, "update response");
+    if (preference === null) {
+      throw SdkError.serde("Max-slippage update response must contain a decimal string");
+    }
+    return preference;
+  }
+
   connectXUrl(): string {
     return `${this.client.http.baseUrl()}/api/auth/oauth/link/x`;
   }
@@ -123,6 +149,45 @@ export class Auth {
     }
     return Date.now() < credentials.expires_at.getTime();
   }
+}
+
+function normalizeSessionMaxSlippagePreference(session: SessionResponse): void {
+  const preference = decodeMaxSlippagePreference(
+    session?.user,
+    true,
+    "session user",
+    true
+  );
+  session.user.max_slippage_preference = preference;
+}
+
+/** Enforces the exact nullable/string JSON contract erased by TypeScript types. */
+function decodeMaxSlippagePreference(
+  payload: unknown,
+  allowNull: boolean,
+  context: string,
+  allowMissing = false
+): string | null {
+  if (typeof payload !== "object" || payload === null) {
+    throw SdkError.serde(`Max-slippage ${context} is malformed`);
+  }
+  if (!Object.prototype.hasOwnProperty.call(payload, "max_slippage_preference")) {
+    if (allowMissing) {
+      return null;
+    }
+    throw SdkError.serde(`Max-slippage ${context} is missing max_slippage_preference`);
+  }
+
+  const preference = (payload as Record<string, unknown>).max_slippage_preference;
+  if (typeof preference === "string") {
+    return preference;
+  }
+  if (allowNull && preference === null) {
+    return null;
+  }
+  throw SdkError.serde(
+    `Max-slippage ${context} must contain ${allowNull ? "a string or null" : "a string"}`
+  );
 }
 
 /**

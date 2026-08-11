@@ -61,6 +61,7 @@ the durable user profile plus session-scoped facts. There is no
 |-------|------|-------------|
 | `user_id` | `String` | User ID |
 | `identity` | `UserIdentity` | The login identity (tagged union) |
+| `max_slippage_preference` | `Option<Decimal>` | Account-wide percentage; `None` until explicitly changed |
 | `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
 
 **Methods:**
@@ -223,6 +224,20 @@ async fn disconnect_x(&self) -> Result<(), SdkError>
 ```
 
 Disconnect the user's linked X (Twitter) account.
+
+### `update_max_slippage_preference`
+
+```rust
+async fn update_max_slippage_preference(
+    &self,
+    max_slippage_preference: Decimal,
+) -> Result<Decimal, SdkError>
+```
+
+Persist the authenticated user's account-wide percentage preference. The
+backend accepts any decimal greater than zero, with no policy maximum, and
+returns the canonical exact decimal value. Session user profiles return `None`
+until the first explicit update.
 
 ## Native Login Flow
 

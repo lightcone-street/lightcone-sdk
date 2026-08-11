@@ -54,20 +54,30 @@ export function receiveDenominator(side: Side): Denominator {
  * padded by the impact-protection percentage in the direction that lets the
  * order fill.
  *
- * Returns null unless both inputs are positive.
+ * Returns null unless the fill price and protection are finite and positive.
+ * Protection has no policy maximum; Ask protection at or above 100% saturates
+ * at zero.
  */
 export function applyImpactProtection(
   side: Side,
   worstFillPrice: Decimal,
   protectionPercent: Decimal
 ): Decimal | null {
-  if (worstFillPrice.lte(0) || protectionPercent.lte(0)) {
+  if (
+    !worstFillPrice.isFinite() ||
+    !protectionPercent.isFinite() ||
+    worstFillPrice.lte(0) ||
+    protectionPercent.lte(0)
+  ) {
     return null;
   }
   const factor = protectionPercent.div(100);
-  return side === Side.Bid
+  const price = side === Side.Bid
     ? worstFillPrice.mul(factor.add(1)) // buying: willing to pay more
-    : worstFillPrice.mul(new Decimal(1).sub(factor)); // selling: willing to receive less
+    : protectionPercent.gte(100)
+      ? new Decimal(0)
+      : worstFillPrice.mul(new Decimal(1).sub(factor)); // selling: willing to receive less
+  return price.isFinite() ? price : null;
 }
 
 /** Map a wire/domain `Side` onto the on-chain `OrderSide`. */

@@ -39,6 +39,7 @@ export type {
   AuthMethod,
   ChainType,
   GoogleAccountData,
+  MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
   SessionResponse,
   User,

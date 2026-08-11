@@ -261,7 +261,8 @@ impl Side {
     /// The price to submit with a market (IOC) order: the worst book fill price padded
     /// by the impact-protection percentage in the direction that lets the order fill.
     ///
-    /// `None` unless both inputs are positive.
+    /// `None` unless the fill price and protection are positive. Protection has
+    /// no policy maximum; Ask protection at or above 100% saturates at zero.
     pub fn apply_impact_protection(
         &self,
         worst_fill_price: Decimal,
@@ -270,12 +271,14 @@ impl Side {
         if worst_fill_price <= Decimal::ZERO || protection_percent <= Decimal::ZERO {
             return None;
         }
-        let factor = protection_percent / Decimal::from(100);
-        let price = match self {
-            Side::Bid => worst_fill_price * (Decimal::ONE + factor), // buying: willing to pay more
-            Side::Ask => worst_fill_price * (Decimal::ONE - factor), // selling: willing to receive less
-        };
-        Some(price)
+        let factor = protection_percent.checked_div(Decimal::ONE_HUNDRED)?;
+        match self {
+            // Buying: willing to pay more.
+            Side::Bid => worst_fill_price.checked_mul(Decimal::ONE.checked_add(factor)?),
+            // Selling: willing to receive less, but never at a negative price.
+            Side::Ask if factor >= Decimal::ONE => Some(Decimal::ZERO),
+            Side::Ask => worst_fill_price.checked_mul(Decimal::ONE.checked_sub(factor)?),
+        }
     }
 }
 
@@ -615,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn test_apply_impact_protection_requires_positive_inputs() {
+    fn test_apply_impact_protection_requires_positive_unbounded_percent() {
         assert_eq!(
             Side::Bid.apply_impact_protection(Decimal::ZERO, Decimal::from(10)),
             None
@@ -623,6 +626,26 @@ mod tests {
         assert_eq!(
             Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::ZERO),
             None
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::ONE_HUNDRED),
+            Some(Decimal::from(200))
+        );
+        assert_eq!(
+            Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::ONE_HUNDRED),
+            Some(Decimal::ZERO)
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::from(-1)),
+            None
+        );
+        assert_eq!(
+            Side::Bid.apply_impact_protection(Decimal::from(100), Decimal::from(101)),
+            Some(Decimal::from(201))
+        );
+        assert_eq!(
+            Side::Ask.apply_impact_protection(Decimal::from(100), Decimal::from(101)),
+            Some(Decimal::ZERO)
         );
     }
 

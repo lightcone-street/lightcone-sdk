@@ -7,6 +7,7 @@ pub mod client;
 pub mod native;
 
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::PubkeyStr;
@@ -113,6 +114,15 @@ impl UserIdentity {
 pub struct User {
     pub user_id: String,
     pub identity: UserIdentity,
+    /// Account-wide percentage preference. `None` means the user has never
+    /// explicitly changed it; clients decide their own display fallback.
+    /// Missing values from an older backend are normalized to `None` during a
+    /// rolling deployment; present values must still be an exact string or null.
+    #[serde(
+        default,
+        deserialize_with = "crate::shared::serde_util::deserialize_required_nullable_decimal"
+    )]
+    pub max_slippage_preference: Option<Decimal>,
     /// X account connected by a non-X-identity user; `None` when identity is X.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_x: Option<XAccountData>,
@@ -275,6 +285,12 @@ pub struct NonceResponse {
     pub nonce: String,
 }
 
+/// Exact decimal-string body used to update and return max slippage.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MaxSlippagePreferenceBody {
+    pub max_slippage_preference: Decimal,
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -297,6 +313,7 @@ mod tests {
         User {
             user_id: "user:test".to_string(),
             identity,
+            max_slippage_preference: None,
             connected_x: None,
         }
     }
@@ -349,5 +366,57 @@ mod tests {
             wallet_no_privy.wallet_display_name(AuthMethod::Privy),
             "1111...1111"
         );
+    }
+
+    #[test]
+    fn max_slippage_preference_deserializes_null_or_exact_string() {
+        let null_user: User = serde_json::from_value(serde_json::json!({
+            "user_id": "user:test",
+            "identity": {
+                "type": "wallet",
+                "address": "11111111111111111111111111111111",
+                "chain": "solana"
+            },
+            "max_slippage_preference": null
+        }))
+        .unwrap();
+        assert_eq!(null_user.max_slippage_preference, None);
+
+        let stored_user: User = serde_json::from_value(serde_json::json!({
+            "user_id": "user:test",
+            "identity": {
+                "type": "wallet",
+                "address": "11111111111111111111111111111111",
+                "chain": "solana"
+            },
+            "max_slippage_preference": "10.00"
+        }))
+        .unwrap();
+        assert_eq!(
+            stored_user.max_slippage_preference,
+            Some(rust_decimal::Decimal::new(1000, 2))
+        );
+
+        let missing: User = serde_json::from_value(serde_json::json!({
+            "user_id": "user:test",
+            "identity": {
+                "type": "wallet",
+                "address": "11111111111111111111111111111111",
+                "chain": "solana"
+            }
+        }))
+        .unwrap();
+        assert_eq!(missing.max_slippage_preference, None);
+
+        let numeric = serde_json::json!({
+            "user_id": "user:test",
+            "identity": {
+                "type": "wallet",
+                "address": "11111111111111111111111111111111",
+                "chain": "solana"
+            },
+            "max_slippage_preference": 10
+        });
+        assert!(serde_json::from_value::<User>(numeric).is_err());
     }
 }

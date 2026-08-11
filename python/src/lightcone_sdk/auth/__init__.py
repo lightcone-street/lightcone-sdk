@@ -112,6 +112,8 @@ class User:
 
     user_id: str
     identity: UserIdentity
+    max_slippage_preference: Optional[str]
+    """Account-wide percentage preference; None until explicitly changed."""
     connected_x: Optional[XAccountData] = None
     """X account connected by a non-X-identity user; None when identity is X."""
 

@@ -60,9 +60,16 @@ describe("trading math", () => {
     assert.ok(applyImpactProtection(Side.Ask, worstFillPrice, protectionPercent)?.eq(90));
   });
 
-  it("requires positive impact-protection inputs", () => {
+  it("requires positive unbounded impact protection", () => {
     assert.equal(applyImpactProtection(Side.Bid, new Decimal(0), new Decimal(10)), null);
     assert.equal(applyImpactProtection(Side.Ask, new Decimal(100), new Decimal(0)), null);
+    assert.ok(applyImpactProtection(Side.Bid, new Decimal(100), new Decimal(100))?.eq(200));
+    assert.ok(applyImpactProtection(Side.Ask, new Decimal(100), new Decimal(100))?.eq(0));
+    assert.ok(applyImpactProtection(Side.Bid, new Decimal(100), new Decimal(101))?.eq(201));
+    assert.ok(applyImpactProtection(Side.Ask, new Decimal(100), new Decimal(101))?.eq(0));
+    assert.equal(applyImpactProtection(Side.Bid, new Decimal(100), new Decimal(-1)), null);
+    assert.equal(applyImpactProtection(Side.Bid, new Decimal(NaN), new Decimal(10)), null);
+    assert.equal(applyImpactProtection(Side.Bid, new Decimal(100), new Decimal(Infinity)), null);
   });
 
   it("maps Side onto OrderSide", () => {
