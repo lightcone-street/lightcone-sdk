@@ -116,7 +116,7 @@ export class Auth {
     await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
   }
 
-  /** Persist the authenticated user's account-wide max-slippage preference. */
+  /** Persist an account-wide max-slippage preference strictly below 10%. */
   async updateMaxSlippagePreference(maxSlippagePreference: string): Promise<string> {
     const url = `${this.client.http.baseUrl()}/api/auth/max_slippage_preference`;
     const response = await this.client.http.post<

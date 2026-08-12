@@ -190,7 +190,7 @@ impl<'a> Auth<'a> {
         Ok(())
     }
 
-    /// Persist the authenticated user's account-wide max-slippage preference.
+    /// Persist an account-wide max-slippage preference strictly below 10%.
     pub async fn update_max_slippage_preference(
         &self,
         max_slippage_preference: Decimal,
@@ -357,7 +357,7 @@ mod tests {
     #[tokio::test]
     async fn update_max_slippage_preference_uses_exact_contract() {
         let (base_url, request) = spawn_capturing_response_server(
-            r#"{"status":"success","body":{"max_slippage_preference":"12.50"}}"#,
+            r#"{"status":"success","body":{"max_slippage_preference":"5.50"}}"#,
         )
         .await;
         let client = LightconeClient::builder()
@@ -367,13 +367,13 @@ mod tests {
 
         let persisted = client
             .auth()
-            .update_max_slippage_preference(Decimal::new(1250, 2))
+            .update_max_slippage_preference(Decimal::new(550, 2))
             .await
             .unwrap();
         let request = request.await.unwrap();
 
-        assert_eq!(persisted, Decimal::new(1250, 2));
+        assert_eq!(persisted, Decimal::new(550, 2));
         assert!(request.starts_with("POST /api/auth/max_slippage_preference "));
-        assert!(request.contains(r#"{"max_slippage_preference":"12.50"}"#));
+        assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
     }
 }

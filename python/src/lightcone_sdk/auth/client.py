@@ -192,7 +192,7 @@ class Auth:
         )
 
     async def update_max_slippage_preference(self, max_slippage_preference: str) -> str:
-        """Persist the authenticated user's account-wide max-slippage preference."""
+        """Persist an account-wide max-slippage preference strictly below 10%."""
         data = await self._client._http.post(
             "/api/auth/max_slippage_preference",
             {"max_slippage_preference": max_slippage_preference},

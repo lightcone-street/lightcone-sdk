@@ -111,25 +111,25 @@ describe("max slippage preference", () => {
       baseUrl: () => "https://api.example.test",
       post: async (...args: unknown[]) => {
         calls.push(args);
-        return { max_slippage_preference: "12.50" };
+        return { max_slippage_preference: "5.50" };
       },
     } as unknown as LightconeHttp;
     const auth = authWithHttp(http);
 
-    const persisted = await auth.updateMaxSlippagePreference("12.50");
+    const persisted = await auth.updateMaxSlippagePreference("5.50");
 
-    assert.equal(persisted, "12.50");
+    assert.equal(persisted, "5.50");
     assert.deepEqual(calls, [
       [
         "https://api.example.test/api/auth/max_slippage_preference",
-        { max_slippage_preference: "12.50" },
+        { max_slippage_preference: "5.50" },
         RetryPolicy.Idempotent,
       ],
     ]);
   });
 
   it("accepts exact nullable session values", async () => {
-    for (const preference of [null, "10.00"] as const) {
+    for (const preference of [null, "5.50"] as const) {
       const expected = session(preference);
       const http = {
         baseUrl: () => "https://api.example.test",
@@ -184,7 +184,7 @@ describe("max slippage preference", () => {
       } as unknown as LightconeHttp;
 
       await assert.rejects(
-        authWithHttp(http).updateMaxSlippagePreference("12.50"),
+        authWithHttp(http).updateMaxSlippagePreference("5.50"),
         (error: unknown) => error instanceof SdkError && error.variant === "Serde"
       );
     }

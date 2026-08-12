@@ -103,9 +103,9 @@ def test_user_parser_accepts_omitted_or_nullable_string_max_slippage_preference(
     )
     assert (
         _user_from_dict(
-            {**base, "max_slippage_preference": "10.00"}
+            {**base, "max_slippage_preference": "5.50"}
         ).max_slippage_preference
-        == "10.00"
+        == "5.50"
     )
     with pytest.raises(DeserializationError):
         _user_from_dict({**base, "max_slippage_preference": 10})
@@ -124,16 +124,16 @@ async def test_update_max_slippage_preference_uses_exact_contract():
             retry_policy: RetryPolicy,
         ) -> dict:
             calls.append((path, body, retry_policy))
-            return {"max_slippage_preference": "12.50"}
+            return {"max_slippage_preference": "5.50"}
 
     auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
-    persisted = await auth.update_max_slippage_preference("12.50")
+    persisted = await auth.update_max_slippage_preference("5.50")
 
-    assert persisted == "12.50"
+    assert persisted == "5.50"
     assert calls == [
         (
             "/api/auth/max_slippage_preference",
-            {"max_slippage_preference": "12.50"},
+            {"max_slippage_preference": "5.50"},
             RetryPolicy.IDEMPOTENT,
         )
     ]
@@ -153,4 +153,4 @@ async def test_update_max_slippage_preference_rejects_non_string_response():
 
     auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
     with pytest.raises(DeserializationError):
-        await auth.update_max_slippage_preference("12.50")
+        await auth.update_max_slippage_preference("5.50")

@@ -114,8 +114,8 @@ impl UserIdentity {
 pub struct User {
     pub user_id: String,
     pub identity: UserIdentity,
-    /// Account-wide percentage preference. `None` means the user has never
-    /// explicitly changed it; clients decide their own display fallback.
+    /// Remembered account-wide percentage strictly below 10%. `None` means no
+    /// such preference is stored; clients decide their own display fallback.
     /// Missing values from an older backend are normalized to `None` during a
     /// rolling deployment; present values must still be an exact string or null.
     #[serde(
@@ -389,12 +389,12 @@ mod tests {
                 "address": "11111111111111111111111111111111",
                 "chain": "solana"
             },
-            "max_slippage_preference": "10.00"
+            "max_slippage_preference": "5.50"
         }))
         .unwrap();
         assert_eq!(
             stored_user.max_slippage_preference,
-            Some(rust_decimal::Decimal::new(1000, 2))
+            Some(rust_decimal::Decimal::new(550, 2))
         );
 
         let missing: User = serde_json::from_value(serde_json::json!({

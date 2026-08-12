@@ -61,7 +61,7 @@ the durable user profile plus session-scoped facts. There is no
 |-------|------|-------------|
 | `user_id` | `String` | User ID |
 | `identity` | `UserIdentity` | The login identity (tagged union) |
-| `max_slippage_preference` | `Option<Decimal>` | Account-wide percentage; `None` until explicitly changed |
+| `max_slippage_preference` | `Option<Decimal>` | Remembered account-wide percentage strictly below 10%; `None` until one is stored |
 | `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
 
 **Methods:**
@@ -235,9 +235,10 @@ async fn update_max_slippage_preference(
 ```
 
 Persist the authenticated user's account-wide percentage preference. The
-backend accepts any decimal greater than zero, with no policy maximum, and
+backend accepts exact decimals strictly greater than zero and less than 10, and
 returns the canonical exact decimal value. Session user profiles return `None`
-until the first explicit update.
+until the first below-default preference is stored. Values at or above 10% may
+still be used as order protection, but are not remembered through this API.
 
 ## Native Login Flow
 
