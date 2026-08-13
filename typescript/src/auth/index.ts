@@ -74,6 +74,8 @@ export type UserIdentity =
 export interface User {
   user_id: string;
   identity: UserIdentity;
+  /** Remembered account-wide percentage below 10%; null until one is stored. */
+  max_slippage_preference: string | null;
   /** X account connected by a non-X-identity user; absent when identity is X. */
   connected_x?: XAccountData;
 }
@@ -88,6 +90,11 @@ export interface SessionResponse {
   expires_at: number;
   auth_method: AuthMethod;
   is_beta: boolean;
+}
+
+/** Exact decimal-string body used to update and return max slippage. */
+export interface MaxSlippagePreferenceBody {
+  max_slippage_preference: string;
 }
 
 /** Human-readable login-method label ("Google" / "X" / "Solana"). */

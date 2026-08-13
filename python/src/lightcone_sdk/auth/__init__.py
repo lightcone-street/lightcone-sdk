@@ -112,6 +112,8 @@ class User:
 
     user_id: str
     identity: UserIdentity
+    max_slippage_preference: Optional[str]
+    """Remembered percentage below 10%; None until one is stored."""
     connected_x: Optional[XAccountData] = None
     """X account connected by a non-X-identity user; None when identity is X."""
 

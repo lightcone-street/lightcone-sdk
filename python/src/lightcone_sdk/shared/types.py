@@ -1,7 +1,7 @@
 """Shared type definitions used across the Lightcone SDK."""
 
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, DecimalException
 from enum import Enum, IntEnum
 from typing import NewType, Optional
 
@@ -62,16 +62,30 @@ class Side(IntEnum):
         price padded by the impact-protection percentage in the direction that
         lets the order fill.
 
-        Returns None unless both inputs are positive.
+        Returns None unless the fill price and protection are finite and
+        positive. Protection has no policy maximum; Ask protection at or above
+        100% saturates at zero.
         """
-        if worst_fill_price <= 0 or protection_percent <= 0:
+        if (
+            not worst_fill_price.is_finite()
+            or not protection_percent.is_finite()
+            or worst_fill_price <= 0
+            or protection_percent <= 0
+        ):
             return None
-        factor = protection_percent / Decimal(100)
-        if self == Side.BID:
-            # buying: willing to pay more
-            return worst_fill_price * (Decimal(1) + factor)
-        # selling: willing to receive less
-        return worst_fill_price * (Decimal(1) - factor)
+        try:
+            factor = protection_percent / Decimal(100)
+            if self == Side.BID:
+                # buying: willing to pay more
+                price = worst_fill_price * (Decimal(1) + factor)
+            elif protection_percent >= 100:
+                price = Decimal(0)
+            else:
+                # selling: willing to receive less
+                price = worst_fill_price * (Decimal(1) - factor)
+        except DecimalException:
+            return None
+        return price if price.is_finite() else None
 
 
 class Denominator(str, Enum):

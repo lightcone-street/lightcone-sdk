@@ -2,11 +2,14 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::auth::{AuthCredentials, LoginRequest, NonceResponse, SessionResponse};
+use crate::auth::{
+    AuthCredentials, LoginRequest, MaxSlippagePreferenceBody, NonceResponse, SessionResponse,
+};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::shared::PubkeyStr;
+use rust_decimal::Decimal;
 
 /// Sub-client for authentication operations.
 pub struct Auth<'a> {
@@ -187,6 +190,29 @@ impl<'a> Auth<'a> {
         Ok(())
     }
 
+    /// Persist an account-wide max-slippage preference strictly below 10%.
+    pub async fn update_max_slippage_preference(
+        &self,
+        max_slippage_preference: Decimal,
+    ) -> Result<Decimal, SdkError> {
+        let url = format!(
+            "{}/api/auth/max_slippage_preference",
+            self.client.http.base_url()
+        );
+        let response: MaxSlippagePreferenceBody = self
+            .client
+            .http
+            .post(
+                &url,
+                &MaxSlippagePreferenceBody {
+                    max_slippage_preference,
+                },
+                RetryPolicy::Idempotent,
+            )
+            .await?;
+        Ok(response.max_slippage_preference)
+    }
+
     /// Get the URL for linking an X (Twitter) account via OAuth.
     pub fn connect_x_url(&self) -> String {
         format!("{}/api/auth/oauth/link/x", self.client.http.base_url())
@@ -230,8 +256,10 @@ fn parse_expires_at(timestamp: i64) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use crate::client::LightconeClient;
+    use rust_decimal::Decimal;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
 
     // Minimal single-response server: the http-layer harness lives in a
     // private test module, and logout only needs one canned reply.
@@ -273,6 +301,28 @@ mod tests {
         client
     }
 
+    async fn spawn_capturing_response_server(
+        body: &'static str,
+    ) -> (String, oneshot::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let _ = request_tx.send(request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        (format!("http://{}", addr), request_rx)
+    }
+
     #[tokio::test]
     async fn logout_failure_propagates_after_clearing_local_state() {
         // The app's logout teardown gate reads this result to decide whether
@@ -302,5 +352,28 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(client.auth_token().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_max_slippage_preference_uses_exact_contract() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"max_slippage_preference":"5.50"}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+
+        let persisted = client
+            .auth()
+            .update_max_slippage_preference(Decimal::new(550, 2))
+            .await
+            .unwrap();
+        let request = request.await.unwrap();
+
+        assert_eq!(persisted, Decimal::new(550, 2));
+        assert!(request.starts_with("POST /api/auth/max_slippage_preference "));
+        assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
     }
 }

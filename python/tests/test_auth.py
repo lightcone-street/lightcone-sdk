@@ -1,5 +1,9 @@
 """Tests for authentication profile helpers."""
 
+from types import SimpleNamespace
+
+import pytest
+
 from lightcone_sdk.auth import (
     GoogleAccountData,
     GoogleIdentity,
@@ -11,6 +15,9 @@ from lightcone_sdk.auth import (
     XAccountData,
     XIdentity,
 )
+from lightcone_sdk.auth.client import Auth, _user_from_dict
+from lightcone_sdk.error import DeserializationError
+from lightcone_sdk.http.retry import RetryPolicy
 
 
 def privy(address: str) -> UserPrivyData:
@@ -25,7 +32,11 @@ def privy(address: str) -> UserPrivyData:
 
 
 def user(identity: UserIdentity) -> User:
-    return User(user_id="user:test", identity=identity)
+    return User(
+        user_id="user:test",
+        identity=identity,
+        max_slippage_preference=None,
+    )
 
 
 def test_wallet_display_name_uses_the_session_trading_wallet():
@@ -72,3 +83,74 @@ def test_wallet_display_name_uses_the_session_trading_wallet():
     assert wallet.wallet_display_name("lightcone") == "1111...1111"
     assert wallet.wallet_display_name("privy") == "Toke...Q5DA"
     assert wallet_no_privy.wallet_display_name("privy") == "1111...1111"
+
+
+def test_user_parser_accepts_omitted_or_nullable_string_max_slippage_preference():
+    base = {
+        "user_id": "user:test",
+        "identity": {
+            "type": "wallet",
+            "address": "11111111111111111111111111111111",
+            "chain": "solana",
+        },
+    }
+    assert _user_from_dict(base).max_slippage_preference is None
+    assert (
+        _user_from_dict(
+            {**base, "max_slippage_preference": None}
+        ).max_slippage_preference
+        is None
+    )
+    assert (
+        _user_from_dict(
+            {**base, "max_slippage_preference": "5.50"}
+        ).max_slippage_preference
+        == "5.50"
+    )
+    with pytest.raises(DeserializationError):
+        _user_from_dict({**base, "max_slippage_preference": 10})
+
+
+@pytest.mark.asyncio
+async def test_update_max_slippage_preference_uses_exact_contract():
+    calls: list[tuple[str, dict, RetryPolicy]] = []
+
+    class Http:
+        async def post(
+            self,
+            path: str,
+            body: dict,
+            *,
+            retry_policy: RetryPolicy,
+        ) -> dict:
+            calls.append((path, body, retry_policy))
+            return {"max_slippage_preference": "5.50"}
+
+    auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
+    persisted = await auth.update_max_slippage_preference("5.50")
+
+    assert persisted == "5.50"
+    assert calls == [
+        (
+            "/api/auth/max_slippage_preference",
+            {"max_slippage_preference": "5.50"},
+            RetryPolicy.IDEMPOTENT,
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_update_max_slippage_preference_rejects_non_string_response():
+    class Http:
+        async def post(
+            self,
+            path: str,
+            body: dict,
+            *,
+            retry_policy: RetryPolicy,
+        ) -> dict:
+            return {"max_slippage_preference": 12.5}
+
+    auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
+    with pytest.raises(DeserializationError):
+        await auth.update_max_slippage_preference("5.50")

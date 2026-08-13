@@ -242,6 +242,12 @@ Authentication is only required for user-specific endpoints. Authentication is s
 Use `session.user.wallet_display_name(session.auth_method)` to show a shortened
 label for the wallet the session trades with, regardless of login identity.
 
+`session.user.max_slippage_preference` is an exact decimal string strictly below
+`10`, or `None` until one is stored. Persist a value greater than zero and less
+than 10 using `await client.auth().update_max_slippage_preference(value)`; the
+method returns the canonical exact decimal string. Values at or above 10%
+remain valid order protection but are not remembered through this API.
+
 ### Cookie handling
 
 After login succeeds, the SDK stores the session token internally and attaches it as `Cookie: lightcone-token=…` on every authenticated request. The token lives on the `LightconeHttp` instance and is added per request.

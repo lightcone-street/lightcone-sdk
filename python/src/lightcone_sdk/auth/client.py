@@ -191,6 +191,20 @@ class Auth:
             retry_policy=RetryPolicy.NONE,
         )
 
+    async def update_max_slippage_preference(self, max_slippage_preference: str) -> str:
+        """Persist an account-wide max-slippage preference strictly below 10%."""
+        data = await self._client._http.post(
+            "/api/auth/max_slippage_preference",
+            {"max_slippage_preference": max_slippage_preference},
+            retry_policy=RetryPolicy.IDEMPOTENT,
+        )
+        persisted = _require(data, "max_slippage_preference", "max slippage response")
+        if not isinstance(persisted, str):
+            raise DeserializationError(
+                "max slippage response has malformed max_slippage_preference"
+            )
+        return persisted
+
     def connect_x_url(self) -> str:
         """Get the URL for linking an X (Twitter) account via OAuth."""
         return f"{self._client._http.base_url}/api/auth/oauth/link/x"
@@ -276,9 +290,18 @@ def _user_from_dict(d: dict) -> User:
     if isinstance(connected_x_dict, dict):
         connected_x = _x_account_from_dict(connected_x_dict)
 
+    # Older backend versions omit this newly added field. Normalize that rollout
+    # state to unset while retaining strict validation when the key is present.
+    max_slippage_preference = d.get("max_slippage_preference")
+    if max_slippage_preference is not None and not isinstance(
+        max_slippage_preference, str
+    ):
+        raise DeserializationError("user has malformed max_slippage_preference")
+
     return User(
         user_id=str(_require(d, "user_id", "user")),
         identity=_identity_from_dict(identity_dict),
+        max_slippage_preference=max_slippage_preference,
         connected_x=connected_x,
     )
 
