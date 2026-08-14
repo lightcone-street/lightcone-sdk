@@ -1,11 +1,17 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import Decimal from "decimal.js";
 import { OrderbookState } from "../src/domain/orderbook/state";
 import type { OrderBook, WsBookLevel } from "../src/domain/orderbook/wire";
 import { Side, type OrderBookId } from "../src/shared";
 
 function level(side: Side, price: string, size: string): WsBookLevel {
-  return { side, price, size };
+  return {
+    side,
+    price,
+    size,
+    quote_notional: new Decimal(price).mul(size).toString(),
+  };
 }
 
 function orderBook(

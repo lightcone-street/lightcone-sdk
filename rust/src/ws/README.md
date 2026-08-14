@@ -62,6 +62,12 @@ Book subscriptions accept an optional Hyperliquid-style aggregation: `n_sig_figs
 
 Every incoming `book_update` frame is tagged with its (normalized) aggregation as `n_sig_figs`/`mantissa`, omitted for full precision — `OrderBook::aggregation()` returns the view's `BookAggregation`. Each `(orderbook, aggregation)` pair is a **distinct subscription**: one connection may hold multiple aggregation views of the same orderbook simultaneously (key your `OrderbookState` instances by `(orderbook_id, aggregation)`), each counts against the per-connection subscription limit, and unsubscribe must repeat the same aggregation to match. Book-scoped error frames (`ENGINE_UNAVAILABLE` — subscribe rolled back, retry; `SUBSCRIPTION_LIMIT_REACHED`; `INVALID_ORDERBOOK_SUBSCRIPTION`) carry `orderbook_id` plus the same tag fields (`WsError::aggregation()`) so retries can target the exact subscription.
 
+Each bid and ask level carries exact decimal `quote_notional`. Grouped `price`
+is a side-safe bucket boundary, while `quote_notional` independently sums the
+underlying maker orders. Use that field for quote liquidity and totals, never
+grouped `price * size`. `OrderbookState` retains price and base size only, so
+quote notional remains on the decoded `OrderBook` levels.
+
 The stream is **snapshot-only**: every accepted frame replaces the full top-20
 view. `seq` is the real engine revision. Within one subscription generation,
 discard equal/lower revisions and accept non-contiguous forward jumps. Reset the

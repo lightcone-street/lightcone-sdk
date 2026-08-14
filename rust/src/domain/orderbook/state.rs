@@ -185,18 +185,28 @@ mod tests {
             resync: false,
             bids: bids
                 .into_iter()
-                .map(|(price, size)| WsBookLevel {
-                    side: Side::Bid,
-                    price: Decimal::try_from(price).unwrap(),
-                    size: Decimal::try_from(size).unwrap(),
+                .map(|(price, size)| {
+                    let price = Decimal::try_from(price).unwrap();
+                    let size = Decimal::try_from(size).unwrap();
+                    WsBookLevel {
+                        side: Side::Bid,
+                        price,
+                        size,
+                        quote_notional: price * size,
+                    }
                 })
                 .collect(),
             asks: asks
                 .into_iter()
-                .map(|(price, size)| WsBookLevel {
-                    side: Side::Ask,
-                    price: Decimal::try_from(price).unwrap(),
-                    size: Decimal::try_from(size).unwrap(),
+                .map(|(price, size)| {
+                    let price = Decimal::try_from(price).unwrap();
+                    let size = Decimal::try_from(size).unwrap();
+                    WsBookLevel {
+                        side: Side::Ask,
+                        price,
+                        size,
+                        quote_notional: price * size,
+                    }
                 })
                 .collect(),
             bids_truncated: false,
