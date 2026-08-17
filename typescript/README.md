@@ -239,12 +239,14 @@ already-open server stream; send the matching unsubscribe or disconnect the sock
 for live teardown.
 
 The [`deposit_token_balances`](examples/deposit_token_balances.ts) self-custody
-example runs only with `LIGHTCONE_ENV=local` or `staging`. It uses the
-SDK-selected WebSocket endpoint to initialize and refresh state, wraps `0.1`
-SOL, then closes the full canonical WSOL account after observing its exact 0.1
-SOL increase. Running it moves funds and closes any pre-existing canonical
-WSOL balance as well. If it fails after submission, inspect authoritative balances
-before retrying because funds may already have moved.
+example is manual-only and runs with `LIGHTCONE_ENV=local` or `staging` only
+when `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all
+unset. It uses the SDK-selected WebSocket endpoint to initialize and refresh
+state, wraps `0.1` SOL, then closes the full canonical WSOL account after
+observing its exact 0.1 SOL increase. Running it moves funds and closes any
+pre-existing canonical WSOL balance as well. If it fails after submission,
+inspect authoritative balances before retrying because funds may already have
+moved.
 
 ### Step 5: Cancel an Order
 

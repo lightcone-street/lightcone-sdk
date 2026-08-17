@@ -153,12 +153,23 @@ fn canonical_wsol_lamports(state: &WalletDepositBalancesState) -> Option<BigUint
 fn require_non_production() -> ExampleResult {
     // Missing configuration fails closed because this example moves funds and
     // destructively closes the wallet's complete canonical WSOL account.
-    match env::var("LIGHTCONE_ENV")
+    let environment = env::var("LIGHTCONE_ENV")
         .unwrap_or_else(|_| "prod".into())
-        .to_lowercase()
-        .as_str()
-    {
-        "local" | "staging" => Ok(()),
-        _ => Err("SOL conversion examples are disabled in production".into()),
+        .to_lowercase();
+    if !matches!(environment.as_str(), "local" | "staging") {
+        return Err("SOL conversion examples are disabled in production".into());
     }
+
+    // Overrides can repoint a safe environment label at production infrastructure.
+    let override_name = ["SDK_API_URL", "SDK_WS_URL", "SDK_RPC_URL", "SDK_PROGRAM_ID"]
+        .into_iter()
+        .find(|name| env::var_os(name).is_some());
+    if let Some(name) = override_name {
+        return Err(format!(
+            "SOL conversion examples require built-in local/staging configuration; unset {name}"
+        )
+        .into());
+    }
+
+    Ok(())
 }

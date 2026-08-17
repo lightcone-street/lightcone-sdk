@@ -349,12 +349,14 @@ reconnect tracking and queued authenticated messages. It does not stop an
 already-open server stream; send the matching unsubscribe or disconnect for live
 teardown.
 
-The `deposit_token_balances` example runs only with `LIGHTCONE_ENV=local` or
-`staging`. It uses the SDK-selected WebSocket endpoint to initialize and refresh
-state, wraps `0.1` SOL, then closes the full canonical WSOL account after observing
-its exact 0.1 SOL increase. Running it moves funds and closes any pre-existing
-canonical WSOL balance as well. If it fails after submission, inspect authoritative
-balances before retrying because funds may already have moved.
+The `deposit_token_balances` example is manual-only and runs with
+`LIGHTCONE_ENV=local` or `staging` only when `SDK_API_URL`, `SDK_WS_URL`,
+`SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all unset. It uses the SDK-selected
+WebSocket endpoint to initialize and refresh state, wraps `0.1` SOL, then closes
+the full canonical WSOL account after observing its exact 0.1 SOL increase.
+Running it moves funds and closes any pre-existing canonical WSOL balance as
+well. If it fails after submission, inspect authoritative balances before
+retrying because funds may already have moved.
 
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.

@@ -128,6 +128,19 @@ function requireNonProduction(): void {
   if (environment !== "local" && environment !== "staging") {
     throw new Error("SOL conversion examples are disabled in production");
   }
+
+  // Overrides can repoint a safe environment label at production infrastructure.
+  const overrideName = [
+    "SDK_API_URL",
+    "SDK_WS_URL",
+    "SDK_RPC_URL",
+    "SDK_PROGRAM_ID",
+  ].find((name) => process.env[name] !== undefined);
+  if (overrideName) {
+    throw new Error(
+      `SOL conversion examples require built-in local/staging configuration; unset ${overrideName}`
+    );
+  }
 }
 
 void runExample(main);

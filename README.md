@@ -72,6 +72,12 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |
 | `LIGHTCONE_WALLET_PATH_PYTHON` | Yes | Path to Solana keypair JSON for Python examples |
 
+The fund-moving `deposit_token_balances` example is intentionally excluded from
+`scripts/run-examples.sh`. Run it manually with `LIGHTCONE_ENV=local` or
+`staging` and all `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and
+`SDK_PROGRAM_ID` overrides unset; it refuses overrides so built-in
+non-production routing cannot be repointed at production infrastructure.
+
 Add these to your shell profile (`.bashrc` / `.zshrc`):
 
 ```bash

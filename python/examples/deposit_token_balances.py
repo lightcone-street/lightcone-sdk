@@ -133,5 +133,20 @@ def require_non_production() -> None:
     if os.environ.get("LIGHTCONE_ENV", "prod").lower() not in {"local", "staging"}:
         raise RuntimeError("SOL conversion examples are disabled in production")
 
+    # Overrides can repoint a safe environment label at production infrastructure.
+    override_name = next(
+        (
+            name
+            for name in ("SDK_API_URL", "SDK_WS_URL", "SDK_RPC_URL", "SDK_PROGRAM_ID")
+            if name in os.environ
+        ),
+        None,
+    )
+    if override_name is not None:
+        raise RuntimeError(
+            "SOL conversion examples require built-in local/staging configuration; "
+            f"unset {override_name}"
+        )
+
 
 asyncio.run(main())
