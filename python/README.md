@@ -295,6 +295,8 @@ replaces one absolute SPL balance and removes explicit zero, while
 than applying a delta. Pre-baseline updates, wrong-wallet updates, and
 `wallet_deposit_balance_status` do not mutate state. `context_slot` records the
 latest accepted component observation rather than enforcing global monotonicity.
+Matching SPL updates with invalid or negative idle balances return `REJECTED`
+without changing balances or the context slot.
 
 ```python
 import asyncio
@@ -341,7 +343,9 @@ on-chain. `unwrap_wsol(state)` requires positive cached canonical WSOL and takes
 amount: it returns a confirmed signature after closing the full account and
 returning all lamports, including rent. Neither helper mutates cached state. A
 confirmation error does not prove rollback; refresh REST or WebSocket authority
-before retrying.
+before retrying. Native signer identity is inspected directly. Wallet adapters
+must expose `ExternalSigner.wallet_address`; Privy callers pass the address as the
+second argument to `privy_wallet_id` when using these conversion helpers.
 
 WebSocket clients are owned independently from `Auth`; logout does not clean them
 up. For each retained client, `clear_authed_subscriptions()` purges User/wallet

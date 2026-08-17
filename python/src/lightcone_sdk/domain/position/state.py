@@ -28,6 +28,8 @@ class WalletDepositBalancesApplyResult(str, Enum):
     APPLIED = "applied"
     #: Status, pre-baseline, or wrong-wallet events do not change state.
     IGNORED = "ignored"
+    #: A matching event carried an invalid balance and was not applied.
+    REJECTED = "rejected"
 
 
 @dataclass
@@ -83,7 +85,11 @@ class WalletDepositBalancesState:
         if not self._matches_initialized_wallet(event.wallet_address):
             return WalletDepositBalancesApplyResult.IGNORED
         if isinstance(event, WalletDepositBalanceUpdate):
-            if _is_zero_token_amount(event.balance.idle):
+            try:
+                is_zero = _is_zero_token_amount(event.balance.idle)
+            except ValueError:
+                return WalletDepositBalancesApplyResult.REJECTED
+            if is_zero:
                 self.balances.pop(event.balance.mint, None)
             else:
                 self.balances[event.balance.mint] = event.balance

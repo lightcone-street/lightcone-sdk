@@ -213,7 +213,8 @@ the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
 absolute native-SOL, and status events to `applyEvent()`. Complete snapshots
 replace state even after a higher component slot; status and wrong-wallet events
 do not mutate it, pre-baseline component updates are ignored, and explicit-zero
-SPL updates remove their mint. `contextSlot` records the latest accepted
+SPL updates remove their mint. Matching SPL updates with invalid or negative
+idle balances return `rejected` without mutation. `contextSlot` records the latest accepted
 component observation rather than enforcing global monotonic ordering.
 `combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
 while retaining both stored values. REST response types are trusted rather than
@@ -231,6 +232,9 @@ closing the full ATA; the wallet receives its full balance plus rent. Wrap
 preflight does not guess a fee or ATA-rent reserve, so the full cached native
 balance can still fail on-chain. Neither method mutates state. A confirmation
 error does not prove rollback; refresh REST or WebSocket authority before retrying.
+Native signer identity is inspected directly. Wallet adapters must expose
+`ExternalSigner.walletAddress`; Privy callers pass the address as the second
+argument to `privyWalletId` when using these conversion helpers.
 
 WebSocket clients are owned independently from `Auth`; logout does not clean them
 up. For each retained client, `clearAuthedSubscriptions()` purges User/wallet

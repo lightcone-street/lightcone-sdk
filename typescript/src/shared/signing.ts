@@ -1,6 +1,8 @@
 import type { Keypair } from "@solana/web3.js";
 
 export interface ExternalSigner {
+  /** Wallet controlled by this signer for identity-bound transactions. */
+  readonly walletAddress?: string;
   signMessage(message: Uint8Array): Promise<Uint8Array>;
   signTransaction(txBytes: Uint8Array): Promise<Uint8Array>;
 }
@@ -8,7 +10,7 @@ export interface ExternalSigner {
 export type SigningStrategy =
   | { type: "native"; keypair: Keypair }
   | { type: "walletAdapter"; signer: ExternalSigner }
-  | { type: "privy"; walletId: string };
+  | { type: "privy"; walletId: string; walletAddress?: string };
 
 export function isUserCancellation(error: string): boolean {
   const lower = error.toLowerCase();

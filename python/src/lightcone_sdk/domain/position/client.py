@@ -67,6 +67,7 @@ from .wire import MarketPositionsResponseWire, PositionsResponseWire
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
+    from ...shared.signing import SigningStrategy
 
 
 class Positions:
@@ -209,7 +210,7 @@ class Positions:
         cached state is never mutated. A confirmation error does not prove rollback;
         refresh authoritative state before retrying.
         """
-        wallet = self._conversion_wallet(state)
+        wallet, strategy = self._conversion_wallet(state)
         try:
             lamports = sol_amount_to_lamports(amount)
             native_lamports = state.native_sol_lamports()
@@ -241,7 +242,9 @@ class Positions:
             ],
             wallet,
         )
-        return await self._client.sign_and_submit_tx_confirmed(transaction)
+        return await self._client._sign_and_submit_tx_confirmed_with_strategy(
+            transaction, strategy
+        )
 
     async def unwrap_wsol(self, state: WalletDepositBalancesState) -> str:
         """Fully unwrap the authenticated wallet's canonical Tokenkeg WSOL ATA.
@@ -253,7 +256,7 @@ class Positions:
         confirmation error does not prove the account stayed open; refresh
         authoritative state before retrying.
         """
-        wallet = self._conversion_wallet(state)
+        wallet, strategy = self._conversion_wallet(state)
         try:
             has_wsol = state.has_positive_wsol()
         except ScalingError as error:
@@ -275,9 +278,13 @@ class Positions:
             ],
             wallet,
         )
-        return await self._client.sign_and_submit_tx_confirmed(transaction)
+        return await self._client._sign_and_submit_tx_confirmed_with_strategy(
+            transaction, strategy
+        )
 
-    def _conversion_wallet(self, state: WalletDepositBalancesState) -> Pubkey:
+    def _conversion_wallet(
+        self, state: WalletDepositBalancesState
+    ) -> tuple[Pubkey, SigningStrategy]:
         """Validate the cached identity/state signing boundary.
 
         Matching proves which wallet may sign against the cached preflight; it
@@ -297,9 +304,20 @@ class Positions:
         if state.wallet_address != credentials.wallet_address:
             raise SdkError("authenticated wallet does not match wallet balance state")
         try:
-            return Pubkey.from_string(credentials.wallet_address)
+            wallet = Pubkey.from_string(credentials.wallet_address)
         except ValueError as error:
             raise SdkError(f"authenticated wallet is invalid: {error}") from error
+        strategy = self._client._require_signing_strategy()
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is None:
+            raise SdkError("signing strategy wallet identity is required")
+        try:
+            signing_wallet = Pubkey.from_string(signing_address)
+        except (TypeError, ValueError) as error:
+            raise SdkError(f"signing strategy wallet is invalid: {error}") from error
+        if signing_wallet != wallet:
+            raise SdkError("signing strategy does not control authenticated wallet")
+        return wallet, strategy
 
     # ── On-chain instruction builders ────────────────────────────────────
 

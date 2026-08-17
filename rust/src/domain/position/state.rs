@@ -29,6 +29,8 @@ pub enum WalletDepositBalancesApplyResult {
     Applied,
     /// The event was informational, pre-initialization, or scoped to another wallet.
     Ignored,
+    /// The event targeted this state but carried an invalid balance.
+    Rejected,
 }
 
 /// Mutable wallet-scoped balance state owned by the application.
@@ -99,7 +101,9 @@ impl WalletDepositBalancesState {
                 context_slot,
                 balance,
             } if self.matches_initialized_wallet(wallet_address) => {
-                if balance.idle.is_zero() {
+                if balance.idle.is_sign_negative() {
+                    return WalletDepositBalancesApplyResult::Rejected;
+                } else if balance.idle.is_zero() {
                     self.balances.remove(&balance.mint);
                 } else {
                     self.balances.insert(balance.mint.clone(), balance.clone());
@@ -288,15 +292,26 @@ mod tests {
         state.apply_event(&zero);
         assert!(!state.balances.contains_key(&PubkeyStr::from("MintA")));
 
+        let before = state.clone();
+        assert_eq!(
+            state.apply_event(&WalletDepositBalancesEvent::BalanceUpdate {
+                wallet_address: PubkeyStr::from("WalletA"),
+                context_slot: 4,
+                balance: balance("MintA", "-1"),
+            }),
+            WalletDepositBalancesApplyResult::Rejected
+        );
+        assert_eq!(state, before);
+
         assert_eq!(
             state.apply_event(&WalletDepositBalancesEvent::NativeSolBalanceUpdate {
                 wallet_address: PubkeyStr::from("WalletA"),
-                context_slot: 4,
+                context_slot: 5,
                 native_sol_balance: "2.000000001".into(),
             }),
             WalletDepositBalancesApplyResult::Applied
         );
-        assert_eq!(state.context_slot, Some(4));
+        assert_eq!(state.context_slot, Some(5));
         assert_eq!(state.native_sol_balance.as_deref(), Some("2.000000001"));
     }
 

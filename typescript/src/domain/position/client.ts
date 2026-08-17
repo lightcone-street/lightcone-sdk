@@ -17,11 +17,13 @@ import { isAuthenticated } from "../../auth";
 import type { ClientContext } from "../../context";
 import {
   requireConnection,
-  signAndSubmitTxConfirmed,
+  requireSigningStrategy,
+  signAndSubmitTxConfirmedUsingStrategy,
 } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
 import { exactScaledInteger } from "../../shared";
+import type { SigningStrategy } from "../../shared/signing";
 import {
   buildRedeemWinningsIx,
   buildWithdrawConditionalFromPositionIx,
@@ -210,7 +212,7 @@ export class Positions {
     amount: string | Decimal,
     state: WalletDepositBalancesState
   ): Promise<string> {
-    const wallet = this.conversionWallet(state);
+    const { wallet, strategy } = this.conversionWallet(state);
     const lamports = solLamports(amount);
     if (lamports <= 0n) {
       throw SdkError.validation("wrap amount must be greater than zero");
@@ -244,7 +246,11 @@ export class Positions {
       }),
       createSyncNativeInstruction(account, TOKEN_PROGRAM_ID)
     );
-    return signAndSubmitTxConfirmed(this.client, transaction);
+    return signAndSubmitTxConfirmedUsingStrategy(
+      this.client,
+      transaction,
+      strategy
+    );
   }
 
   /**
@@ -258,7 +264,7 @@ export class Positions {
    * authoritative state before retrying.
    */
   async unwrapWsol(state: WalletDepositBalancesState): Promise<string> {
-    const wallet = this.conversionWallet(state);
+    const { wallet, strategy } = this.conversionWallet(state);
     if (!state.hasPositiveWsol()) {
       throw SdkError.validation(
         "canonical WSOL balance must be greater than zero"
@@ -279,10 +285,17 @@ export class Positions {
         TOKEN_PROGRAM_ID
       )
     );
-    return signAndSubmitTxConfirmed(this.client, transaction);
+    return signAndSubmitTxConfirmedUsingStrategy(
+      this.client,
+      transaction,
+      strategy
+    );
   }
 
-  private conversionWallet(state: WalletDepositBalancesState): PublicKey {
+  private conversionWallet(state: WalletDepositBalancesState): {
+    wallet: PublicKey;
+    strategy: SigningStrategy;
+  } {
     // Cached identity is a signing trust boundary: validate expiry, complete
     // state initialization, and wallet equality before constructing a transaction.
     const credentials = this.client.authCredentials;
@@ -304,13 +317,40 @@ export class Positions {
         "authenticated wallet does not match wallet balance state"
       );
     }
+    let wallet: PublicKey;
     try {
-      return new PublicKey(credentials.wallet_address);
+      wallet = new PublicKey(credentials.wallet_address);
     } catch (error) {
       throw SdkError.validation(
         `authenticated wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
       );
     }
+    const strategy = requireSigningStrategy(this.client);
+    const signingAddress =
+      strategy.type === "native"
+        ? strategy.keypair.publicKey.toBase58()
+        : strategy.type === "walletAdapter"
+          ? strategy.signer.walletAddress
+          : strategy.walletAddress;
+    if (signingAddress === undefined) {
+      throw SdkError.validation(
+        "signing strategy wallet identity is required"
+      );
+    }
+    let signingWallet: PublicKey;
+    try {
+      signingWallet = new PublicKey(signingAddress);
+    } catch (error) {
+      throw SdkError.validation(
+        `signing strategy wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (!signingWallet.equals(wallet)) {
+      throw SdkError.validation(
+        "signing strategy does not control authenticated wallet"
+      );
+    }
+    return { wallet, strategy };
   }
 
   // ── On-chain transaction builders ────────────────────────────────────

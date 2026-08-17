@@ -9,6 +9,9 @@ use std::sync::Arc;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
+#[cfg(feature = "native-auth")]
+use solana_signer::Signer;
 
 /// Trait for external wallet signers (browser wallet adapters).
 ///
@@ -41,6 +44,12 @@ use solana_keypair::Keypair;
 /// }
 /// ```
 pub trait ExternalSigner: Send + Sync {
+    /// Return the wallet controlled by this signer when it can be verified
+    /// before signing an identity-bound transaction.
+    fn wallet_address(&self) -> Option<Pubkey> {
+        None
+    }
+
     /// Sign a message and return the raw signature bytes.
     fn sign_message<'a>(
         &'a self,
@@ -67,6 +76,16 @@ pub enum SigningStrategy {
     /// External wallet adapter (browser).
     /// Delegates signing to the provided `ExternalSigner` implementation.
     WalletAdapter(Arc<dyn ExternalSigner>),
+}
+
+impl SigningStrategy {
+    pub(crate) fn wallet_address(&self) -> Option<Pubkey> {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(keypair) => Some(keypair.pubkey()),
+            Self::WalletAdapter(signer) => signer.wallet_address(),
+        }
+    }
 }
 
 /// Check if an external signer error indicates the user cancelled/rejected

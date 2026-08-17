@@ -622,7 +622,11 @@ impl LightconeClient {
         &self,
         tx: solana_transaction::Transaction,
     ) -> Result<String, SdkError> {
-        let (signature, _last_valid_block_height) = self.sign_and_submit_tx_inner(tx).await?;
+        let strategy = self.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+        let (signature, _last_valid_block_height) =
+            self.sign_and_submit_tx_inner(tx, strategy).await?;
         Ok(signature)
     }
 
@@ -655,7 +659,11 @@ impl LightconeClient {
         &self,
         tx: solana_transaction::Transaction,
     ) -> Result<ConfirmedTransaction, SdkError> {
-        let (signature, last_valid_block_height) = self.sign_and_submit_tx_inner(tx).await?;
+        let strategy = self.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+        let (signature, last_valid_block_height) =
+            self.sign_and_submit_tx_inner(tx, strategy).await?;
         let status = self
             .confirm_signature_status(&signature, last_valid_block_height)
             .await?;
@@ -665,6 +673,18 @@ impl LightconeClient {
         })
     }
 
+    pub(crate) async fn sign_and_submit_tx_confirmed_with_strategy(
+        &self,
+        tx: solana_transaction::Transaction,
+        strategy: SigningStrategy,
+    ) -> Result<String, SdkError> {
+        let (signature, last_valid_block_height) =
+            self.sign_and_submit_tx_inner(tx, strategy).await?;
+        self.confirm_signature_status(&signature, last_valid_block_height)
+            .await?;
+        Ok(signature)
+    }
+
     /// Shared submit path: sign, send, and return the signature together with
     /// the `lastValidBlockHeight` of the blockhash the submitted wire bytes
     /// are known to carry — `None` when that cannot be proven (an external
@@ -672,11 +692,8 @@ impl LightconeClient {
     async fn sign_and_submit_tx_inner(
         &self,
         mut tx: solana_transaction::Transaction,
+        strategy: SigningStrategy,
     ) -> Result<(String, Option<u64>), SdkError> {
-        let strategy = self.signing_strategy().await.ok_or_else(|| {
-            SdkError::Validation("signing strategy is not set on the client".into())
-        })?;
-
         let (blockhash, last_valid_block_height) = self.get_latest_blockhash_with_height().await?;
         tx.message.recent_blockhash = blockhash;
 

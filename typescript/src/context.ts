@@ -126,7 +126,8 @@ export async function signAndSubmitTx(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<string> {
-  const { signature } = await signAndSubmitTxInner(ctx, tx);
+  const strategy = requireSigningStrategy(ctx);
+  const { signature } = await signAndSubmitTxInner(ctx, tx, strategy);
   return signature;
 }
 
@@ -167,11 +168,38 @@ export async function signAndSubmitTxConfirmedWithSlot(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<ConfirmedTransaction> {
+  return signAndSubmitTxConfirmedWithSlotUsingStrategy(
+    ctx,
+    tx,
+    requireSigningStrategy(ctx)
+  );
+}
+
+/** @internal Submit with a strategy already validated for an identity-bound operation. */
+export async function signAndSubmitTxConfirmedUsingStrategy(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction,
+  strategy: SigningStrategy
+): Promise<string> {
+  const confirmed = await signAndSubmitTxConfirmedWithSlotUsingStrategy(
+    ctx,
+    tx,
+    strategy
+  );
+  return confirmed.signature;
+}
+
+async function signAndSubmitTxConfirmedWithSlotUsingStrategy(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction,
+  strategy: SigningStrategy
+): Promise<ConfirmedTransaction> {
   const { Rpc } = await import("./rpc");
 
   const { signature, lastValidBlockHeight } = await signAndSubmitTxInner(
     ctx,
-    tx
+    tx,
+    strategy
   );
   const status = await new Rpc(ctx).confirmSignatureStatus(
     signature,
@@ -188,13 +216,12 @@ export async function signAndSubmitTxConfirmedWithSlot(
  */
 async function signAndSubmitTxInner(
   ctx: ClientContext,
-  tx: import("@solana/web3.js").Transaction
+  tx: import("@solana/web3.js").Transaction,
+  strategy: SigningStrategy
 ): Promise<{ signature: string; lastValidBlockHeight: number | null }> {
   const { isUserCancellation } = await import("./shared/signing");
   const { SdkError } = await import("./error");
   const { RetryPolicy } = await import("./http");
-
-  const strategy = requireSigningStrategy(ctx);
 
   // Get blockhash with failover, at `confirmed` commitment (pinned, not the
   // Connection's default — matching the Rust and Python SDKs).

@@ -23,6 +23,7 @@ import {
   WalletDepositBalancesState,
 } from "../src/domain/position/state";
 import type { PubkeyStr } from "../src/shared";
+import type { SigningStrategy } from "../src/shared/signing";
 import type { ClientContext } from "../src/context";
 import { DepositSource } from "../src/shared";
 import { RpcFailoverState } from "../src/rpcFailover";
@@ -236,6 +237,22 @@ describe("WalletDepositBalancesState", () => {
     });
     assert.equal(state.balances.has("MintA" as PubkeyStr), false);
 
+    const beforeInvalid = {
+      contextSlot: state.contextSlot,
+      balances: new Map(state.balances),
+    };
+    assert.deepEqual(
+      state.applyEvent({
+        event_type: "wallet_deposit_balance_update",
+        wallet_address: wallet,
+        context_slot: 5,
+        balance: balance("MintA" as PubkeyStr, "-1"),
+      }),
+      { kind: "rejected" }
+    );
+    assert.equal(state.contextSlot, beforeInvalid.contextSlot);
+    assert.deepEqual(state.balances, beforeInvalid.balances);
+
     const before = state.nativeSolBalance;
     assert.deepEqual(
       state.applyEvent({
@@ -283,6 +300,7 @@ describe("self-custody SOL conversion", () => {
     state: WalletDepositBalancesState;
     sent: Transaction[];
     context: ClientContext;
+    keypair: Keypair;
   } {
     const keypair = Keypair.generate();
     const walletAddress = keypair.publicKey.toBase58() as PubkeyStr;
@@ -329,7 +347,7 @@ describe("self-custody SOL conversion", () => {
         [WRAPPED_SOL_MINT]: balance(WRAPPED_SOL_MINT, "1.000000000"),
       } as Record<PubkeyStr, DepositTokenBalance>,
     });
-    return { positions: new Positions(context), state, sent, context };
+    return { positions: new Positions(context), state, sent, context, keypair };
   }
 
   it("builds maintained create-transfer-sync instructions and confirms", async () => {
@@ -417,6 +435,99 @@ describe("self-custody SOL conversion", () => {
     };
     await assert.rejects(() => positions.wrapSol("0.1", state));
     assert.equal(sent.length, 0);
+  });
+
+  it("requires the signing strategy to control the authenticated wallet", async () => {
+    const cases: Array<[SigningStrategy, string]> = [
+      [
+        { type: "native", keypair: Keypair.generate() },
+        "signing strategy does not control authenticated wallet",
+      ],
+      [
+        { type: "privy", walletId: "wallet-id" },
+        "signing strategy wallet identity is required",
+      ],
+      [
+        {
+          type: "privy",
+          walletId: "wallet-id",
+          walletAddress: Keypair.generate().publicKey.toBase58(),
+        },
+        "signing strategy does not control authenticated wallet",
+      ],
+      [
+        {
+          type: "walletAdapter",
+          signer: {
+            signMessage: async (message) => message,
+            signTransaction: async (transaction) => transaction,
+          },
+        },
+        "signing strategy wallet identity is required",
+      ],
+      [
+        {
+          type: "walletAdapter",
+          signer: {
+            walletAddress: "invalid",
+            signMessage: async (message) => message,
+            signTransaction: async (transaction) => transaction,
+          },
+        },
+        "signing strategy wallet is invalid",
+      ],
+    ];
+
+    for (const [strategy, expected] of cases) {
+      const { positions, state, sent, context } = conversionHarness();
+      (context as { signingStrategy: SigningStrategy }).signingStrategy = strategy;
+      await assert.rejects(() => positions.wrapSol("0.1", state), (error) => {
+        assert.ok(error instanceof Error);
+        return error.message.startsWith(expected);
+      });
+      await assert.rejects(() => positions.unwrapWsol(state), (error) => {
+        assert.ok(error instanceof Error);
+        return error.message.startsWith(expected);
+      });
+      assert.equal(sent.length, 0);
+    }
+  });
+
+  it("submits with the wallet adapter validated before a strategy swap", async () => {
+    const { positions, state, sent, context, keypair } = conversionHarness();
+    let validatedCalls = 0;
+    let replacementCalls = 0;
+    (context as { signingStrategy: SigningStrategy }).signingStrategy = {
+      type: "walletAdapter",
+      signer: {
+        walletAddress: keypair.publicKey.toBase58(),
+        signMessage: async (message) => message,
+        signTransaction: async (wire) => {
+          validatedCalls += 1;
+          const transaction = Transaction.from(wire);
+          transaction.partialSign(keypair);
+          return transaction.serialize();
+        },
+      },
+    };
+
+    const conversion = positions.wrapSol("0.1", state);
+    (context as { signingStrategy: SigningStrategy }).signingStrategy = {
+      type: "walletAdapter",
+      signer: {
+        walletAddress: Keypair.generate().publicKey.toBase58(),
+        signMessage: async (message) => message,
+        signTransaction: async (wire) => {
+          replacementCalls += 1;
+          return wire;
+        },
+      },
+    };
+
+    assert.equal(await conversion, "confirmed-signature");
+    assert.equal(validatedCalls, 1);
+    assert.equal(replacementCalls, 0);
+    assert.equal(sent.length, 1);
   });
 
   it("propagates submission failures without mutating state", async () => {

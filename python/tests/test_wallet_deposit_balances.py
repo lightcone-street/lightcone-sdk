@@ -28,6 +28,7 @@ from lightcone_sdk.domain.position import (
 from lightcone_sdk.domain.position.client import Positions
 from lightcone_sdk.error import SdkError
 from lightcone_sdk.program import get_associated_token_address
+from lightcone_sdk.shared.signing import ExternalSigner, SigningStrategy
 from lightcone_sdk.ws import parse_message_in
 
 WSOL_MINT = str(WRAPPED_SOL_MINT)
@@ -208,6 +209,22 @@ def test_state_replacement_component_updates_zero_removal_and_exact_combined_sol
     )
     assert "MintHighPrecision" not in state.balances
 
+    before_slot = state.context_slot
+    before_balances = dict(state.balances)
+    assert (
+        state.apply_event(
+            WalletDepositBalanceUpdate(
+                event_type="wallet_deposit_balance_update",
+                wallet_address="wallet-a",
+                context_slot=104,
+                balance=balance("MintHighPrecision", "-1"),
+            )
+        )
+        is WalletDepositBalancesApplyResult.REJECTED
+    )
+    assert state.context_slot == before_slot
+    assert state.balances == before_balances
+
     state.apply_event(
         WalletDepositBalanceSnapshot(
             event_type="wallet_deposit_balance_snapshot",
@@ -242,18 +259,49 @@ class FakeAuth:
         return self._credentials
 
 
+class FakeExternalSigner(ExternalSigner):
+    def __init__(self, wallet_address: str | None = None) -> None:
+        self.wallet_address = wallet_address
+
+    async def sign_message(self, message: bytes) -> bytes:
+        return message
+
+    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
+        return tx_bytes
+
+
 class FakeConversionClient:
     def __init__(
-        self, credentials: AuthCredentials | None, failure: Exception | None = None
+        self,
+        credentials: AuthCredentials | None,
+        failure: Exception | None = None,
+        signing_strategy: SigningStrategy | None = None,
     ) -> None:
         self._auth = FakeAuth(credentials)
         self.transactions = []
         self.failure = failure
+        self._signing_strategy = signing_strategy
+        self.swap_before_submission: SigningStrategy | None = None
+        self.submitted_strategies: list[SigningStrategy] = []
+        if self._signing_strategy is None and credentials is not None:
+            self._signing_strategy = SigningStrategy.privy(
+                "test-wallet-id", credentials.wallet_address
+            )
 
     def auth(self) -> FakeAuth:
         return self._auth
 
-    async def sign_and_submit_tx_confirmed(self, transaction) -> str:
+    def _require_signing_strategy(self) -> SigningStrategy:
+        if self._signing_strategy is None:
+            raise SdkError("signing strategy is not set on the client")
+        return self._signing_strategy
+
+    async def _sign_and_submit_tx_confirmed_with_strategy(
+        self, transaction, strategy: SigningStrategy
+    ) -> str:
+        if self.swap_before_submission is not None:
+            self._signing_strategy = self.swap_before_submission
+        self.submitted_strategies.append(strategy)
         self.transactions.append(transaction)
         if self.failure is not None:
             raise self.failure
@@ -273,14 +321,16 @@ def compiled_instruction(transaction, index: int) -> Instruction:
 
 @pytest.mark.asyncio
 async def test_wrap_uses_maintained_builders_and_confirmed_submission() -> None:
-    wallet_key = Keypair().pubkey()
+    keypair = Keypair()
+    wallet_key = keypair.pubkey()
     wallet = str(wallet_key)
     client = FakeConversionClient(
         AuthCredentials(
             user_id="user-a",
             wallet_address=wallet,
             expires_at=int(time.time()) + 60,
-        )
+        ),
+        signing_strategy=SigningStrategy.native(keypair),
     )
     state = initialized_state(wallet)
 
@@ -407,6 +457,100 @@ async def test_conversion_requires_unexpired_matching_credentials() -> None:
                 "0.100000000", initialized_state(wallet)
             )
         assert client.transactions == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("strategy", "expected"),
+    [
+        (
+            SigningStrategy.native(Keypair()),
+            "signing strategy does not control authenticated wallet",
+        ),
+        (
+            SigningStrategy.privy("wallet-id"),
+            "signing strategy wallet identity is required",
+        ),
+        (
+            SigningStrategy.privy("wallet-id", str(Keypair().pubkey())),
+            "signing strategy does not control authenticated wallet",
+        ),
+        (
+            SigningStrategy.wallet_adapter(FakeExternalSigner()),
+            "signing strategy wallet identity is required",
+        ),
+        (
+            SigningStrategy.wallet_adapter(FakeExternalSigner("invalid")),
+            "signing strategy wallet is invalid",
+        ),
+    ],
+)
+async def test_conversion_requires_signer_control(
+    strategy: SigningStrategy, expected: str
+) -> None:
+    wallet = str(Keypair().pubkey())
+    client = FakeConversionClient(
+        AuthCredentials(
+            user_id="user-a",
+            wallet_address=wallet,
+            expires_at=int(time.time()) + 60,
+        ),
+        signing_strategy=strategy,
+    )
+    state = initialized_state(wallet)
+
+    with pytest.raises(SdkError) as wrap_error:
+        await Positions(client).wrap_sol("0.100000000", state)  # type: ignore[arg-type]
+    assert str(wrap_error.value).startswith(expected)
+    with pytest.raises(SdkError) as unwrap_error:
+        await Positions(client).unwrap_wsol(state)  # type: ignore[arg-type]
+    assert str(unwrap_error.value).startswith(expected)
+    assert client.transactions == []
+
+
+@pytest.mark.asyncio
+async def test_conversion_accepts_matching_external_signer_identity() -> None:
+    wallet = str(Keypair().pubkey())
+    client = FakeConversionClient(
+        AuthCredentials(
+            user_id="user-a",
+            wallet_address=wallet,
+            expires_at=int(time.time()) + 60,
+        ),
+        signing_strategy=SigningStrategy.wallet_adapter(FakeExternalSigner(wallet)),
+    )
+
+    signature = await Positions(client).wrap_sol(  # type: ignore[arg-type]
+        "0.100000000", initialized_state(wallet)
+    )
+    assert signature == "confirmed-signature"
+    assert len(client.transactions) == 1
+
+
+@pytest.mark.asyncio
+async def test_conversion_submits_with_the_strategy_validated_before_a_swap() -> None:
+    keypair = Keypair()
+    wallet = str(keypair.pubkey())
+    validated_strategy = SigningStrategy.native(keypair)
+    replacement_strategy = SigningStrategy.native(Keypair())
+    client = FakeConversionClient(
+        AuthCredentials(
+            user_id="user-a",
+            wallet_address=wallet,
+            expires_at=int(time.time()) + 60,
+        ),
+        signing_strategy=validated_strategy,
+    )
+    client.swap_before_submission = replacement_strategy
+
+    assert (
+        await Positions(client).wrap_sol(  # type: ignore[arg-type]
+            "0.100000000", initialized_state(wallet)
+        )
+        == "confirmed-signature"
+    )
+    assert client._signing_strategy is replacement_strategy
+    assert client.submitted_strategies == [validated_strategy]
 
 
 @pytest.mark.asyncio

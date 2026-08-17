@@ -310,7 +310,19 @@ class LightconeClient:
         )
         return ConfirmedTransaction(signature=signature, slot=status.slot)
 
-    async def _sign_and_submit_tx_inner(self, tx: object) -> tuple[str, Optional[int]]:
+    async def _sign_and_submit_tx_confirmed_with_strategy(
+        self, tx: object, strategy: SigningStrategy
+    ) -> str:
+        """Confirm a transaction with a strategy already validated by its caller."""
+        signature, last_valid_block_height = await self._sign_and_submit_tx_inner(
+            tx, strategy
+        )
+        await self.rpc().confirm_signature_status(signature, last_valid_block_height)
+        return signature
+
+    async def _sign_and_submit_tx_inner(
+        self, tx: object, strategy: Optional[SigningStrategy] = None
+    ) -> tuple[str, Optional[int]]:
         """Shared submit path.
 
         Signs, sends, and returns the signature plus the
@@ -319,7 +331,8 @@ class LightconeClient:
         signer replaced the blockhash, or the bytes were never visible to the
         SDK).
         """
-        strategy = self._require_signing_strategy()
+        if strategy is None:
+            strategy = self._require_signing_strategy()
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             from solders.keypair import Keypair as _Keypair
@@ -559,9 +572,11 @@ class LightconeClientBuilder:
         self._signing_strategy = SigningStrategy.wallet_adapter(signer)
         return self
 
-    def privy_wallet_id(self, wallet_id: str) -> "LightconeClientBuilder":
+    def privy_wallet_id(
+        self, wallet_id: str, wallet_address: Optional[str] = None
+    ) -> "LightconeClientBuilder":
         """Set a Privy embedded wallet ID for signing."""
-        self._signing_strategy = SigningStrategy.privy(wallet_id)
+        self._signing_strategy = SigningStrategy.privy(wallet_id, wallet_address)
         return self
 
     def rpc_url(self, url: str) -> "LightconeClientBuilder":

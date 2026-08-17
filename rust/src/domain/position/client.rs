@@ -21,6 +21,7 @@ use crate::program::types::{
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
+use crate::shared::signing::SigningStrategy;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
@@ -276,7 +277,7 @@ impl<'a> Positions<'a> {
         amount: &str,
         state: &WalletDepositBalancesState,
     ) -> Result<String, SdkError> {
-        let wallet = self.conversion_wallet(state).await?;
+        let (wallet, strategy) = self.conversion_wallet(state).await?;
         let lamports = sol_amount_to_lamports(amount)?;
         if lamports == 0 {
             return Err(SdkError::Validation(
@@ -292,7 +293,10 @@ impl<'a> Positions<'a> {
         }
 
         self.client
-            .sign_and_submit_tx_confirmed(build_wrap_sol_transaction(wallet, lamports)?)
+            .sign_and_submit_tx_confirmed_with_strategy(
+                build_wrap_sol_transaction(wallet, lamports)?,
+                strategy,
+            )
             .await
     }
 
@@ -308,7 +312,7 @@ impl<'a> Positions<'a> {
         &self,
         state: &WalletDepositBalancesState,
     ) -> Result<String, SdkError> {
-        let wallet = self.conversion_wallet(state).await?;
+        let (wallet, strategy) = self.conversion_wallet(state).await?;
         if !state.has_positive_wsol()? {
             return Err(SdkError::Validation(
                 "canonical WSOL balance must be greater than zero".into(),
@@ -316,18 +320,33 @@ impl<'a> Positions<'a> {
         }
 
         self.client
-            .sign_and_submit_tx_confirmed(build_unwrap_wsol_transaction(wallet)?)
+            .sign_and_submit_tx_confirmed_with_strategy(
+                build_unwrap_wsol_transaction(wallet)?,
+                strategy,
+            )
             .await
     }
 
     async fn conversion_wallet(
         &self,
         state: &WalletDepositBalancesState,
-    ) -> Result<Pubkey, SdkError> {
+    ) -> Result<(Pubkey, SigningStrategy), SdkError> {
         // Keep all conversion entry points behind the same credential/state
         // identity check before constructing a wallet-authorized transaction.
         let credentials = self.client.auth().credentials().await;
-        validated_conversion_wallet(credentials.as_ref(), state)
+        let wallet = validated_conversion_wallet(credentials.as_ref(), state)?;
+        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+        let signing_wallet = strategy.wallet_address().ok_or_else(|| {
+            SdkError::Validation("signing strategy wallet identity is required".into())
+        })?;
+        if signing_wallet != wallet {
+            return Err(SdkError::Validation(
+                "signing strategy does not control authenticated wallet".into(),
+            ));
+        }
+        Ok((wallet, strategy))
     }
 
     // ── On-chain instruction builders ───────────────────────────────────
@@ -665,13 +684,22 @@ mod tests {
     use {
         crate::client::LightconeClient,
         crate::domain::position::DepositTokenBalance,
+        crate::error::SdkError,
+        crate::shared::signing::{ExternalSigner, SigningStrategy},
         crate::shared::PubkeyStr,
+        async_lock::RwLock,
         rust_decimal::Decimal,
         solana_keypair::Keypair,
         solana_signer::Signer,
+        solana_transaction::Transaction,
         std::{
             collections::VecDeque,
-            sync::{Arc, Mutex},
+            future::Future,
+            pin::Pin,
+            sync::{
+                atomic::{AtomicUsize, Ordering},
+                Arc, Mutex, OnceLock,
+            },
         },
         tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
@@ -748,6 +776,93 @@ mod tests {
             ..Default::default()
         };
         (client, state)
+    }
+
+    #[cfg(feature = "native-auth")]
+    struct TestTransactionSigner {
+        keypair: Arc<Keypair>,
+        expose_identity: bool,
+        transaction_calls: Arc<AtomicUsize>,
+        strategy_swap: Option<(
+            Arc<OnceLock<Arc<RwLock<Option<SigningStrategy>>>>>,
+            SigningStrategy,
+        )>,
+    }
+
+    #[cfg(feature = "native-auth")]
+    impl ExternalSigner for TestTransactionSigner {
+        fn wallet_address(&self) -> Option<Pubkey> {
+            if let Some((target, replacement)) = &self.strategy_swap {
+                let mut configured = target
+                    .get()
+                    .expect("strategy swap target must be initialized")
+                    .try_write()
+                    .expect("conversion must release its strategy read lock");
+                *configured = Some(replacement.clone());
+            }
+            self.expose_identity.then(|| self.keypair.pubkey())
+        }
+
+        fn sign_message<'a>(
+            &'a self,
+            message: &'a [u8],
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
+            Box::pin(async move { Ok(message.to_vec()) })
+        }
+
+        fn sign_transaction<'a>(
+            &'a self,
+            tx_bytes: &'a [u8],
+        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
+            Box::pin(async move {
+                let mut transaction: Transaction =
+                    bincode::deserialize(tx_bytes).map_err(|error| error.to_string())?;
+                let blockhash = transaction.message.recent_blockhash;
+                transaction
+                    .try_sign(&[self.keypair.as_ref()], blockhash)
+                    .map_err(|error| error.to_string())?;
+                self.transaction_calls.fetch_add(1, Ordering::SeqCst);
+                bincode::serialize(&transaction).map_err(|error| error.to_string())
+            })
+        }
+    }
+
+    #[cfg(feature = "native-auth")]
+    fn external_conversion_client(
+        rpc_url: &str,
+        expose_identity: bool,
+    ) -> (
+        LightconeClient,
+        WalletDepositBalancesState,
+        Arc<AtomicUsize>,
+    ) {
+        let keypair = Arc::new(Keypair::new());
+        let wallet_address = PubkeyStr::from(keypair.pubkey().to_string());
+        let credentials = AuthCredentials {
+            user_id: "user-a".into(),
+            wallet_address: wallet_address.clone(),
+            expires_at: Utc::now() + Duration::minutes(1),
+        };
+        let transaction_calls = Arc::new(AtomicUsize::new(0));
+        let signer = Arc::new(TestTransactionSigner {
+            keypair,
+            expose_identity,
+            transaction_calls: Arc::clone(&transaction_calls),
+            strategy_swap: None,
+        });
+        let client = LightconeClient::builder()
+            .auth(credentials)
+            .external_signer(signer)
+            .rpc_url(rpc_url)
+            .build()
+            .unwrap();
+        let state = WalletDepositBalancesState {
+            wallet_address: Some(wallet_address),
+            context_slot: Some(1),
+            native_sol_balance: Some("2.000000000".into()),
+            ..Default::default()
+        };
+        (client, state, transaction_calls)
     }
 
     #[cfg(feature = "native-auth")]
@@ -917,6 +1032,155 @@ mod tests {
         assert!(requests[0].contains("getLatestBlockhash"));
         assert!(requests[1].contains("sendTransaction"));
         assert!(requests[2].contains("getSignatureStatuses"));
+    }
+
+    #[cfg(feature = "native-auth")]
+    #[tokio::test]
+    async fn conversion_rejects_a_mismatched_native_signer_before_rpc() {
+        let (client, state) = conversion_client("http://127.0.0.1:1");
+        client
+            .set_signing_strategy(SigningStrategy::Native(Arc::new(Keypair::new())))
+            .await;
+
+        let error = client
+            .positions()
+            .wrap_sol("0.1", &state)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            SdkError::Validation(message)
+                if message == "signing strategy does not control authenticated wallet"
+        ));
+    }
+
+    #[cfg(feature = "native-auth")]
+    #[tokio::test]
+    async fn conversion_rejects_an_external_signer_without_wallet_identity() {
+        let (client, state, transaction_calls) =
+            external_conversion_client("http://127.0.0.1:1", false);
+
+        let error = client
+            .positions()
+            .wrap_sol("0.1", &state)
+            .await
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            SdkError::Validation(message)
+                if message == "signing strategy wallet identity is required"
+        ));
+        assert_eq!(transaction_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[cfg(feature = "native-auth")]
+    #[tokio::test]
+    async fn conversion_accepts_an_external_signer_with_matching_wallet_identity() {
+        let blockhash = solana_hash::Hash::default().to_string();
+        let (rpc_url, _) = spawn_rpc_server(vec![
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": {"slot": 1},
+                    "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
+                }
+            }),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": {"slot": 42},
+                    "value": [{
+                        "slot": 42,
+                        "confirmations": 1,
+                        "err": null,
+                        "confirmationStatus": "confirmed",
+                        "status": {"Ok": null}
+                    }]
+                }
+            }),
+        ])
+        .await;
+        let (client, state, transaction_calls) = external_conversion_client(&rpc_url, true);
+
+        assert_eq!(
+            client.positions().wrap_sol("0.1", &state).await.unwrap(),
+            "confirmed-signature"
+        );
+        assert_eq!(transaction_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[cfg(feature = "native-auth")]
+    #[tokio::test]
+    async fn conversion_submission_uses_the_strategy_validated_before_a_swap() {
+        let blockhash = solana_hash::Hash::default().to_string();
+        let (rpc_url, _) = spawn_rpc_server(vec![
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": {"slot": 1},
+                    "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
+                }
+            }),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": {"slot": 42},
+                    "value": [{
+                        "slot": 42,
+                        "confirmations": 1,
+                        "err": null,
+                        "confirmationStatus": "confirmed",
+                        "status": {"Ok": null}
+                    }]
+                }
+            }),
+        ])
+        .await;
+        let keypair = Arc::new(Keypair::new());
+        let wallet_address = PubkeyStr::from(keypair.pubkey().to_string());
+        let credentials = AuthCredentials {
+            user_id: "user-a".into(),
+            wallet_address: wallet_address.clone(),
+            expires_at: Utc::now() + Duration::minutes(1),
+        };
+        let transaction_calls = Arc::new(AtomicUsize::new(0));
+        let swap_target = Arc::new(OnceLock::new());
+        let signer = Arc::new(TestTransactionSigner {
+            keypair,
+            expose_identity: true,
+            transaction_calls: Arc::clone(&transaction_calls),
+            strategy_swap: Some((
+                Arc::clone(&swap_target),
+                SigningStrategy::Native(Arc::new(Keypair::new())),
+            )),
+        });
+        let client = LightconeClient::builder()
+            .auth(credentials)
+            .external_signer(signer)
+            .rpc_url(&rpc_url)
+            .build()
+            .unwrap();
+        assert!(swap_target
+            .set(Arc::clone(&client.signing_strategy))
+            .is_ok());
+        let state = WalletDepositBalancesState {
+            wallet_address: Some(wallet_address),
+            context_slot: Some(1),
+            native_sol_balance: Some("2.000000000".into()),
+            ..Default::default()
+        };
+
+        assert_eq!(
+            client.positions().wrap_sol("0.1", &state).await.unwrap(),
+            "confirmed-signature"
+        );
+        assert_eq!(transaction_calls.load(Ordering::SeqCst), 1);
     }
 
     #[cfg(feature = "native-auth")]

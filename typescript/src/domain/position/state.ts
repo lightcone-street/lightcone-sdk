@@ -14,7 +14,8 @@ export const WRAPPED_SOL_MINT =
 /** Whether an event was accepted by, or rejected by, its lifecycle guard. */
 export type WalletDepositBalancesApplyResult =
   | { kind: "applied" }
-  | { kind: "ignored" };
+  | { kind: "ignored" }
+  | { kind: "rejected" };
 
 /**
  * Mutable application-owned wallet balance state.
@@ -78,7 +79,13 @@ export class WalletDepositBalancesState {
         if (!this.matchesInitializedWallet(event.wallet_address)) {
           return { kind: "ignored" };
         }
-        if (isZeroTokenAmount(event.balance.idle)) {
+        let isZero: boolean;
+        try {
+          isZero = isZeroTokenAmount(event.balance.idle);
+        } catch {
+          return { kind: "rejected" };
+        }
+        if (isZero) {
           this.balances.delete(event.balance.mint);
         } else {
           this.balances.set(event.balance.mint, event.balance);

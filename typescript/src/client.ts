@@ -383,8 +383,11 @@ export class LightconeClientBuilder {
     return this;
   }
 
-  privyWalletId(walletId: string): LightconeClientBuilder {
-    this.signingStrategyValue = { type: "privy", walletId };
+  privyWalletId(
+    walletId: string,
+    walletAddress?: string
+  ): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "privy", walletId, walletAddress };
     return this;
   }
 

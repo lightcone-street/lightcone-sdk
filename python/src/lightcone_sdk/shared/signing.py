@@ -21,6 +21,10 @@ class ExternalSigner(ABC):
     is ``WalletAdapter``.
     """
 
+    # Set this when the signer can expose its wallet before signing an
+    # identity-bound transaction.
+    wallet_address: Optional[str] = None
+
     @abstractmethod
     async def sign_message(self, message: bytes) -> bytes:
         """Sign a message and return the raw signature bytes."""
@@ -53,11 +57,13 @@ class SigningStrategy:
         keypair: object = None,
         signer: Optional[ExternalSigner] = None,
         wallet_id: Optional[str] = None,
+        wallet_address: Optional[str] = None,
     ):
         self.kind = kind
         self.keypair = keypair  # solders.keypair.Keypair (optional import)
         self.signer = signer
         self.wallet_id = wallet_id
+        self.wallet_address = wallet_address
 
     @staticmethod
     def native(keypair: object) -> "SigningStrategy":
@@ -82,7 +88,9 @@ class SigningStrategy:
         )
 
     @staticmethod
-    def privy(wallet_id: str) -> "SigningStrategy":
+    def privy(
+        wallet_id: str, wallet_address: Optional[str] = None
+    ) -> "SigningStrategy":
         """Privy embedded wallet (backend-managed signing).
 
         The backend signs on behalf of the user using the Privy wallet.
@@ -90,7 +98,19 @@ class SigningStrategy:
         return SigningStrategy(
             kind=SigningStrategyKind.PRIVY,
             wallet_id=wallet_id,
+            wallet_address=wallet_address,
         )
+
+    def controlled_wallet_address(self) -> Optional[str]:
+        """Return the wallet identity this strategy can prove before signing."""
+        if self.kind == SigningStrategyKind.NATIVE:
+            try:
+                return str(self.keypair.pubkey())
+            except (AttributeError, TypeError):
+                return None
+        if self.kind == SigningStrategyKind.WALLET_ADAPTER:
+            return self.signer.wallet_address if self.signer is not None else None
+        return self.wallet_address
 
 
 # ── Rejection detection ──────────────────────────────────────────────────────
