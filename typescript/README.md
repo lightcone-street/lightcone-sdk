@@ -184,6 +184,11 @@ reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
 same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
 Truncation flags are preserved and mean that side is not exhaustive. See
 [`examples/ws_book_and_trades.ts`](examples/ws_book_and_trades.ts).
+Each decoded bid and ask level includes exact decimal-string `quote_notional`.
+For grouped books, `price` is a display bucket boundary, so quote liquidity
+and totals must use `quote_notional` rather than `price * size`. The
+price-to-base-size `OrderbookState` maps do not retain quote notional; read it
+from the decoded `OrderBook` levels.
 Ticker consumers should use the supplied `mid`; it is engine-authoritative and
 may use one-sided-book or last-trade fallback.
 REST depth is a coherent projection that may briefly lag a mutation. Use its

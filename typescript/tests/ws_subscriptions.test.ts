@@ -12,7 +12,7 @@ import {
   type SubscribeParams,
   type UnsubscribeParams,
 } from "../src/ws/subscriptions";
-import { subscribeBooks } from "../src/ws";
+import { parseMessageIn, subscribeBooks } from "../src/ws";
 import type { OrderBookId } from "../src/shared";
 
 const id = (value: string) => value as OrderBookId;
@@ -132,5 +132,68 @@ describe("book message builders", () => {
     // (5, none) is sent in its normalized form (5, 1).
     assert.equal(wire.params["mantissa"], 1);
     assert.equal("n_sig_figs" in wire.params, false);
+  });
+});
+
+describe("book quote notional decoding", () => {
+  it("preserves exact values for full-precision and grouped bid/ask levels", () => {
+    const full = parseMessageIn(JSON.stringify({
+      type: "book_update",
+      version: 0.1,
+      data: {
+        orderbook_id: "ob1",
+        is_snapshot: true,
+        seq: 10,
+        bids: [{ side: "bid", price: "65000", size: "0.03", quote_notional: "1948.01" }],
+        asks: [{ side: "ask", price: "65001", size: "0.02", quote_notional: "1300.02" }],
+      },
+    }));
+    assert.equal(full.type, "book_update");
+    if (full.type !== "book_update") throw new Error("expected book_update");
+    assert.equal(full.data.bids[0]?.quote_notional, "1948.01");
+    assert.equal(full.data.asks[0]?.quote_notional, "1300.02");
+
+    const grouped = parseMessageIn(JSON.stringify({
+      type: "book_update",
+      version: 0.1,
+      data: {
+        orderbook_id: "ob1",
+        is_snapshot: false,
+        seq: 11,
+        n_sig_figs: 5,
+        mantissa: 2,
+        bids: [{ side: "bid", price: "100", size: "2", quote_notional: "199" }],
+        asks: [{ side: "ask", price: "101", size: "3", quote_notional: "304" }],
+      },
+    }));
+    assert.equal(grouped.type, "book_update");
+    if (grouped.type !== "book_update") throw new Error("expected book_update");
+    assert.equal(grouped.data.bids[0]?.quote_notional, "199");
+    assert.notEqual(grouped.data.bids[0]?.quote_notional, "200");
+    assert.equal(grouped.data.asks[0]?.quote_notional, "304");
+    assert.notEqual(grouped.data.asks[0]?.quote_notional, "303");
+  });
+
+  it("rejects malformed populated levels without changing empty-frame tolerance", () => {
+    assert.doesNotThrow(() => parseMessageIn(JSON.stringify({
+      type: "book_update",
+      version: 0.1,
+      data: { orderbook_id: "ob1", seq: 1 },
+    })));
+
+    for (const level of [
+      null,
+      { side: "bid", price: "1", size: "2" },
+      { side: "bid", price: "1", size: "2", quote_notional: 2 },
+    ]) {
+      assert.throws(
+        () => parseMessageIn(JSON.stringify({
+          type: "book_update",
+          version: 0.1,
+          data: { orderbook_id: "ob1", seq: 1, bids: [level], asks: [] },
+        })),
+        /Invalid book_update bids level/,
+      );
+    }
   });
 });

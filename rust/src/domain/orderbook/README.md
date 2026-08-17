@@ -87,7 +87,7 @@ Fetch the current orderbook depth (bids and asks at each price level).
 
 ### `BookAggregation`
 
-Shared aggregation value type (re-exported in the prelude): `n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs = 5`, `(5, None)` normalized to `(5, 1)`. Key helpers: `validate(n, m)`, `normalized()`, `from_frame(n, m)` (untagged ⇒ full precision), `is_full()`, `key_suffix()`. Bids bucket by flooring, asks by ceiling, sizes summed per bucket.
+Shared aggregation value type (re-exported in the prelude): `n_sig_figs` 2–5, `mantissa` 1/2/5 only with `n_sig_figs = 5`, `(5, None)` normalized to `(5, 1)`. Key helpers: `validate(n, m)`, `normalized()`, `from_frame(n, m)` (untagged ⇒ full precision), `is_full()`, `key_suffix()`. Bids bucket by flooring, asks by ceiling, base sizes are summed per bucket, and exact quote notional is summed independently from the underlying maker prices.
 
 ### `decimals`
 
@@ -132,6 +132,10 @@ let mut book = OrderbookState::new(OrderBookId::from("7BgBvyjr_EPjFWdd5"));
 ```
 
 One connection may hold multiple aggregation views of the same orderbook — key your `OrderbookState` instances by `(orderbook_id, aggregation)` using `OrderBook::aggregation()` on each incoming frame.
+
+`OrderbookState` retains price-to-base-size maps only. For quote liquidity and
+totals, read each decoded `OrderBook` level's exact `quote_notional`; grouped
+`price` is a bucket boundary and must not be multiplied by grouped size.
 
 ### Methods
 
@@ -243,7 +247,7 @@ async fn run_book_feed(client: &LightconeClient, orderbook_id: OrderBookId) {
 
 ## Wire Types
 
-Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse` (with required display `decimals`), `DecimalsResponse`, `OrderBook` (with optional `n_sig_figs`/`mantissa` aggregation tags and an `aggregation()` helper), `WsBookLevel`, and `WsTickerData`.
+Raw backend response types are available in `lightcone::domain::orderbook::wire`, including `OrderbookDepthResponse` (with required display `decimals`), `DecimalsResponse`, `OrderBook` (with optional `n_sig_figs`/`mantissa` aggregation tags and an `aggregation()` helper), `WsBookLevel` (with exact decimal `quote_notional`), and `WsTickerData`.
 
 ---
 

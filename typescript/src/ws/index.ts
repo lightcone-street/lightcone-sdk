@@ -332,11 +332,31 @@ export function parseMessageIn(input: string): MessageIn {
   }
   let message = parsed as MessageIn;
   if (message.type === "book_update") {
-    const seq = (message.data as unknown as { seq?: number | bigint }).seq;
+    const data = message.data as unknown as Record<string, unknown>;
+    const seq = data.seq;
     if ((typeof seq !== "number" && typeof seq !== "bigint") ||
         (typeof seq === "number" && (!Number.isSafeInteger(seq) || seq < 0)) ||
         (typeof seq === "bigint" && seq < 0n)) {
       throw new WsErrorClass("ProtocolError", "Invalid book_update seq");
+    }
+    // Validate only populated level arrays so existing empty/resync frame
+    // tolerance is unchanged while exact quote liquidity cannot be omitted.
+    for (const side of ["bids", "asks"] as const) {
+      const levels = data[side];
+      if (!Array.isArray(levels)) continue;
+      for (const level of levels) {
+        if (
+          typeof level !== "object" ||
+          level === null ||
+          Array.isArray(level) ||
+          typeof (level as Record<string, unknown>).quote_notional !== "string"
+        ) {
+          throw new WsErrorClass(
+            "ProtocolError",
+            `Invalid book_update ${side} level: missing or invalid quote_notional`,
+          );
+        }
+      }
     }
     message = {
       ...message,

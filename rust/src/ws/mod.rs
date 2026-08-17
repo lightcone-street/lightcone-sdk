@@ -348,6 +348,7 @@ impl From<u16> for ReadyState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rust_decimal::Decimal;
 
     #[test]
     fn test_ready_state_from_u16() {
@@ -430,6 +431,36 @@ mod tests {
             Kind::BookUpdate(book) => assert!(book.aggregation().is_full()),
             _ => panic!("expected Kind::BookUpdate"),
         }
+    }
+
+    #[test]
+    fn test_kind_book_update_decodes_exact_quote_notional() {
+        let full = r#"{"type":"book_update","data":{"orderbook_id":"abc","is_snapshot":true,"seq":10,"bids":[{"side":"bid","price":"65000","size":"0.03","quote_notional":"1948.01"}],"asks":[{"side":"ask","price":"65001","size":"0.02","quote_notional":"1300.02"}]},"version":0.1}"#;
+        let message: MessageIn = serde_json::from_str(full).unwrap();
+        let Kind::BookUpdate(full_book) = message.kind else {
+            panic!("expected Kind::BookUpdate");
+        };
+        assert_eq!(full_book.bids[0].quote_notional.to_string(), "1948.01");
+        assert_eq!(full_book.asks[0].quote_notional.to_string(), "1300.02");
+
+        let grouped = r#"{"type":"book_update","data":{"orderbook_id":"abc","is_snapshot":false,"seq":11,"n_sig_figs":5,"mantissa":2,"bids":[{"side":"bid","price":"100","size":"2","quote_notional":"199"}],"asks":[{"side":"ask","price":"101","size":"3","quote_notional":"304"}]},"version":0.1}"#;
+        let message: MessageIn = serde_json::from_str(grouped).unwrap();
+        let Kind::BookUpdate(grouped_book) = message.kind else {
+            panic!("expected Kind::BookUpdate");
+        };
+        assert_eq!(grouped_book.bids[0].quote_notional.to_string(), "199");
+        assert_ne!(grouped_book.bids[0].quote_notional, Decimal::from(200));
+        assert_eq!(grouped_book.asks[0].quote_notional.to_string(), "304");
+        assert_ne!(grouped_book.asks[0].quote_notional, Decimal::from(303));
+    }
+
+    #[test]
+    fn test_kind_book_update_requires_string_quote_notional() {
+        let missing = r#"{"type":"book_update","data":{"orderbook_id":"abc","seq":1,"bids":[{"side":"bid","price":"1","size":"2"}],"asks":[]},"version":0.1}"#;
+        assert!(serde_json::from_str::<MessageIn>(missing).is_err());
+
+        let numeric = r#"{"type":"book_update","data":{"orderbook_id":"abc","seq":1,"bids":[],"asks":[{"side":"ask","price":"1","size":"2","quote_notional":2}]},"version":0.1}"#;
+        assert!(serde_json::from_str::<MessageIn>(numeric).is_err());
     }
 
     #[test]
