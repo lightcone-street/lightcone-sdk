@@ -279,6 +279,83 @@ positions = await client.positions().positions_with_auth(
 )
 ```
 
+### External wallet SOL balances
+
+`deposit_token_balances()` returns a complete external-wallet snapshot. Native
+SOL is the required exact nine-decimal `native_sol_balance` string and remains
+separate from the mint-keyed SPL `balances` mapping. Use
+`WalletDepositBalancesState` to apply REST snapshots and nested
+`wallet_deposit_balances` WebSocket events, and to derive exact native plus
+canonical WSOL without floating-point arithmetic:
+
+The nested `wallet_deposit_balance_snapshot` replaces all stored SPL and native
+state even after a higher component slot. `wallet_deposit_balance_update`
+replaces one absolute SPL balance and removes explicit zero, while
+`wallet_native_sol_balance_update` replaces the absolute native value rather
+than applying a delta. Pre-baseline updates, wrong-wallet updates, and
+`wallet_deposit_balance_status` do not mutate state. `context_slot` records the
+latest accepted component observation rather than enforcing global monotonicity.
+
+```python
+import asyncio
+
+from lightcone_sdk import WalletDepositBalancesState, WsEventType
+from lightcone_sdk.ws.subscriptions import WalletDepositBalancesParams
+
+snapshot = await client.positions().deposit_token_balances()
+state = WalletDepositBalancesState()
+state.apply_rest_snapshot(wallet_address, snapshot)
+print(state.combined_sol_balance())
+
+ws = client.ws()
+params = WalletDepositBalancesParams(wallet_address=wallet_address)
+updated = asyncio.Event()
+
+def apply_wallet_event(event):
+    if (
+        event.type is WsEventType.MESSAGE
+        and event.message is not None
+        and event.message.type == "wallet_deposit_balances"
+    ):
+        state.apply_event(event.message.data)
+        updated.set()
+
+remove_listener = ws.on(apply_wallet_event)
+try:
+    await ws.connect()
+    await ws.subscribe(params)
+    await asyncio.wait_for(updated.wait(), timeout=10)
+finally:
+    remove_listener()
+    await ws.disconnect()
+```
+
+Authenticated sessions with a configured signing strategy can explicitly
+convert between native SOL and the canonical Tokenkeg WSOL account.
+`wrap_sol(amount, state)` accepts exact no-rounding input, enforces nine-decimal
+and Solana `u64` bounds, requires live matching credentials and a signing strategy
+that controls that wallet, creates the ATA idempotently, transfers the amount,
+syncs it, and returns a confirmed transaction signature. Preflight does not guess
+a fee or ATA-rent reserve, so the full cached native balance can still fail
+on-chain. `unwrap_wsol(state)` requires positive cached canonical WSOL and takes no
+amount: it returns a confirmed signature after closing the full account and
+returning all lamports, including rent. Neither helper mutates cached state. A
+confirmation error does not prove rollback; refresh REST or WebSocket authority
+before retrying.
+
+WebSocket clients are owned independently from `Auth`; logout does not clean them
+up. For each retained client, `clear_authed_subscriptions()` purges User/wallet
+reconnect tracking and queued authenticated messages. It does not stop an
+already-open server stream; send the matching unsubscribe or disconnect for live
+teardown.
+
+The `deposit_token_balances` example runs only with `LIGHTCONE_ENV=local` or
+`staging`. It uses the SDK-selected WebSocket endpoint to initialize and refresh
+state, wraps `0.1` SOL, then closes the full canonical WSOL account after observing
+its exact 0.1 SOL increase. Running it moves funds and closes any pre-existing
+canonical WSOL balance as well. If it fails after submission, inspect authoritative
+balances before retrying because funds may already have moved.
+
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
 
@@ -300,6 +377,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
+| [`deposit_token_balances`](examples/deposit_token_balances.py) | WebSocket-backed exact SOL balances, hardcoded 0.1 SOL wrap, authoritative refresh, and full canonical-WSOL close in non-production |
 | [`metrics_all`](examples/metrics_all.py) | Exercise every endpoint on `client.metrics()` - platform, markets, categories, orderbook, leaderboard, history |
 
 ### Placing Orders
@@ -333,7 +411,8 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 
 ## Error Handling
 
-All SDK operations raise `SdkError` or one of its subclasses:
+Transport, authentication, signing, and transaction operations raise `SdkError`
+or one of its subclasses:
 
 | Variant | When |
 |---------|------|
@@ -346,6 +425,11 @@ All SDK operations raise `SdkError` or one of its subclasses:
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
 | `SdkError` | Catch-all for other SDK failures |
+
+Strict wallet-balance REST and nested WebSocket decoders raise `TypeError` for
+malformed payloads. Exact state arithmetic can raise `ScalingError` or `ValueError`.
+`WsClient` logs and drops malformed inbound frames instead of emitting them as a
+normal message or `WsEventType.ERROR`.
 
 ### API Rejections
 

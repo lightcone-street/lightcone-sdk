@@ -194,15 +194,57 @@ may use one-sided-book or last-trade fallback.
 REST depth is a coherent projection that may briefly lag a mutation. Use its
 `revision` and `captured_at_ms` metadata, and expect revision gaps.
 
+```typescript
+ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
+```
+
 Order submission accepts decimal strings and uses exact `bigint` construction.
 `submit()` fetches and caches `/api/orderbooks/{id}/decimals` before invoking a
 signer. Direct `sign()`/`finalize()` calls require the returned `OrderbookRules`.
 Raw amounts, explicit salts, and derived prices are preflighted against the same
 signed-64-bit admission rules; no tick or size normalization is implicit.
 
-```typescript
-ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
-```
+### Wallet Balances and SOL Conversion
+
+`depositTokenBalances()` returns a required exact nine-decimal
+`native_sol_balance` alongside the separate mint-keyed SPL map. Initialize
+`WalletDepositBalancesState` with `applyRestSnapshot(wallet, snapshot)` and feed
+the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
+absolute native-SOL, and status events to `applyEvent()`. Complete snapshots
+replace state even after a higher component slot; status and wrong-wallet events
+do not mutate it, pre-baseline component updates are ignored, and explicit-zero
+SPL updates remove their mint. `contextSlot` records the latest accepted
+component observation rather than enforcing global monotonic ordering.
+`combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
+while retaining both stored values. REST response types are trusted rather than
+runtime-decoded; WebSocket frames are validated strictly, while malformed REST
+exact values fail when a state method scales them. The reducer owns its map
+container but retains balance objects by reference, so treat applied payloads as
+immutable.
+
+`client.positions().wrapSol(amount, state)` accepts exact no-rounding SOL input,
+enforces nine-decimal and Solana `u64` bounds, requires live matching credentials
+and a signing strategy that controls that wallet, uses maintained ATA/system/SPL
+builders, and returns a confirmed transaction signature. `unwrapWsol(state)`
+requires positive cached canonical WSOL and returns a confirmed signature after
+closing the full ATA; the wallet receives its full balance plus rent. Wrap
+preflight does not guess a fee or ATA-rent reserve, so the full cached native
+balance can still fail on-chain. Neither method mutates state. A confirmation
+error does not prove rollback; refresh REST or WebSocket authority before retrying.
+
+WebSocket clients are owned independently from `Auth`; logout does not clean them
+up. For each retained client, `clearAuthedSubscriptions()` purges User/wallet
+reconnect tracking and queued authenticated messages. It does not stop an
+already-open server stream; send the matching unsubscribe or disconnect the socket
+for live teardown.
+
+The [`deposit_token_balances`](examples/deposit_token_balances.ts) self-custody
+example runs only with `LIGHTCONE_ENV=local` or `staging`. It uses the
+SDK-selected WebSocket endpoint to initialize and refresh state, wraps `0.1`
+SOL, then closes the full canonical WSOL account after observing its exact 0.1
+SOL increase. Running it moves funds and closes any pre-existing canonical
+WSOL balance as well. If it fails after submission, inspect authoritative balances
+before retrying because funds may already have moved.
 
 ### Step 5: Cancel an Order
 

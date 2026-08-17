@@ -30,6 +30,10 @@ pub enum SubscribeParams {
     Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
     User { wallet_address: PubkeyStr },
+    /// Authenticated external-wallet stream with a complete initial snapshot,
+    /// absolute component updates, and recoverable status notifications.
+    #[serde(rename = "wallet_deposit_balances")]
+    WalletDepositBalances { wallet_address: PubkeyStr },
     #[serde(rename = "price_history")]
     PriceHistory {
         orderbook_id: OrderBookId,
@@ -75,6 +79,9 @@ pub enum UnsubscribeParams {
     Trades { orderbook_ids: Vec<OrderBookId> },
     #[serde(rename = "user")]
     User { wallet_address: PubkeyStr },
+    /// Remove the tracked stream whose wallet identity exactly matches this value.
+    #[serde(rename = "wallet_deposit_balances")]
+    WalletDepositBalances { wallet_address: PubkeyStr },
     #[serde(rename = "price_history")]
     PriceHistory {
         orderbook_id: OrderBookId,
@@ -123,6 +130,13 @@ impl Subscription for SubscribeParams {
             SubscribeParams::User { wallet_address } => UnsubscribeParams::User {
                 wallet_address: wallet_address.clone(),
             },
+            SubscribeParams::WalletDepositBalances { wallet_address } => {
+                // Wallet identity is preserved across conversion, matching, and
+                // replay keys so cleanup cannot affect another wallet's stream.
+                UnsubscribeParams::WalletDepositBalances {
+                    wallet_address: wallet_address.clone(),
+                }
+            }
             SubscribeParams::PriceHistory {
                 orderbook_id,
                 resolution,
@@ -190,6 +204,14 @@ impl Subscription for SubscribeParams {
                     wallet_address: sub_addr,
                 },
                 UnsubscribeParams::User {
+                    wallet_address: unsub_addr,
+                },
+            ) => sub_addr == unsub_addr,
+            (
+                SubscribeParams::WalletDepositBalances {
+                    wallet_address: sub_addr,
+                },
+                UnsubscribeParams::WalletDepositBalances {
                     wallet_address: unsub_addr,
                 },
             ) => sub_addr == unsub_addr,
@@ -271,6 +293,9 @@ impl Subscription for SubscribeParams {
             }
             SubscribeParams::User { wallet_address } => {
                 format!("user:{}", wallet_address)
+            }
+            SubscribeParams::WalletDepositBalances { wallet_address } => {
+                format!("wallet_deposit_balances:{}", wallet_address)
             }
             SubscribeParams::PriceHistory {
                 orderbook_id,
@@ -364,6 +389,21 @@ mod tests {
 
         assert_eq!(parsed["type"], "user");
         assert_eq!(parsed["wallet_address"], "wallet123");
+    }
+
+    #[test]
+    fn test_wallet_deposit_balances_subscription_roundtrip() {
+        let params = SubscribeParams::WalletDepositBalances {
+            wallet_address: PubkeyStr::new("wallet123"),
+        };
+        let json = serde_json::to_value(&params).unwrap();
+        assert_eq!(json["type"], "wallet_deposit_balances");
+        assert_eq!(json["wallet_address"], "wallet123");
+        assert_eq!(
+            params.subscription_key(),
+            "wallet_deposit_balances:wallet123"
+        );
+        assert!(params.matches_unsubscribe(&params.to_unsubscribe_params()));
     }
 
     #[test]

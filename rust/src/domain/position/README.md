@@ -108,7 +108,15 @@ Fetch positions for the authenticated user in a specific market.
 
 ### `positions_with_cookies` / `positions_for_market_with_cookies` / `deposit_token_balances_with_cookies`
 
-Same as the no-arg authed variants above, but accept an explicit `auth_token: &str`. For SSR / Dioxus server-function callers that need to forward the per-request cookie. See [the Authentication section](../../../README.md#authentication).
+Same as the no-arg authed variants above, but accept a raw `Cookie` header containing `privy-token` and/or `lightcone-token`. For SSR / Dioxus server-function callers that need to forward the per-request cookie without writing it into shared client state. See [the Authentication section](../../../README.md#authentication).
+
+### Wallet Deposit Balances and SOL Conversion
+
+`deposit_token_balances` returns a required exact nine-decimal `native_sol_balance` alongside the mint-keyed SPL `balances`. Initialize `WalletDepositBalancesState` either with `apply_rest_snapshot(wallet, snapshot)` or a complete WebSocket `Snapshot`, then apply typed events from the matching wallet channel. Complete snapshots replace state even when their lower cross-component slot trails a prior update; component events are absolute and only apply to initialized matching-wallet state.
+
+`WalletDepositBalancesState::combined_sol_balance()` returns exact native SOL plus the separately stored canonical WSOL balance. `Positions::wrap_sol(amount, state)` accepts exact no-rounding SOL input, creates the canonical Tokenkeg WSOL ATA idempotently, transfers, syncs, waits for confirmation, and returns the transaction signature. Preflight does not guess a fee or ATA-rent reserve, so wrapping the full cached native balance can still fail on-chain. `Positions::unwrap_wsol(state)` returns a confirmed transaction signature after closing that canonical ATA and crediting its full token balance plus account rent to the wallet. Both methods require live matching credentials, authoritative state, and a signing strategy that controls the wallet; neither mutates state optimistically. A confirmation error does not prove the transaction was rolled back, so refresh authoritative balances before retrying.
+
+The `deposit_token_balances` example runs only with `LIGHTCONE_ENV=local` or `staging`. It uses the SDK-selected WebSocket endpoint to initialize and refresh state, wraps `0.1` SOL, then closes the full canonical WSOL account after observing its exact 0.1 SOL increase. Running it moves funds and closes any pre-existing canonical WSOL balance as well. If it fails after submission, inspect authoritative balances before retrying because funds may already have moved.
 
 ### On-Chain Instruction & Transaction Builders
 

@@ -11,7 +11,8 @@ import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
  * backend rejects unknown/snake_case params). Each `(orderbook, aggregation)`
  * pair is a distinct subscription: one connection may hold multiple
  * aggregation views of the same orderbook, and unsubscribe must repeat the
- * same (normalized) aggregation to match.
+ * same (normalized) aggregation to match. The wallet-balance variant is an
+ * authenticated wallet identity whose tracked subscription replays on reconnect.
  */
 export type SubscribeParams =
   | {
@@ -22,6 +23,7 @@ export type SubscribeParams =
     }
   | { type: "trades"; orderbook_ids: OrderBookId[] }
   | { type: "user"; wallet_address: PubkeyStr }
+  | { type: "wallet_deposit_balances"; wallet_address: PubkeyStr }
   | {
       type: "price_history";
       orderbook_id: OrderBookId;
@@ -33,6 +35,7 @@ export type SubscribeParams =
   | { type: "deposit_price"; deposit_asset: string; resolution: Resolution }
   | { type: "deposit_asset_price"; deposit_asset: string };
 
+/** Wire unsubscribe identities; wallet streams must repeat the exact wallet. */
 export type UnsubscribeParams =
   | {
       type: "book_update";
@@ -42,6 +45,7 @@ export type UnsubscribeParams =
     }
   | { type: "trades"; orderbook_ids: OrderBookId[] }
   | { type: "user"; wallet_address: PubkeyStr }
+  | { type: "wallet_deposit_balances"; wallet_address: PubkeyStr }
   | { type: "price_history"; orderbook_id: OrderBookId; resolution: Resolution }
   | { type: "ticker"; orderbook_ids: OrderBookId[] }
   | { type: "market"; market_pubkey: PubkeyStr }
@@ -55,6 +59,14 @@ export interface Subscription {
   subscriptionKey(): string;
 }
 
+export function isAuthedSubscriptionParams(
+  params: SubscribeParams | UnsubscribeParams
+): boolean {
+  // Classification drives logout cleanup; it does not itself prove authentication.
+  return params.type === "user" || params.type === "wallet_deposit_balances";
+}
+
+/** Stable deduplication and reconnect-replay identity for one subscription. */
 export function subscriptionKey(params: SubscribeParams): string {
   switch (params.type) {
     case "book_update": {
@@ -69,6 +81,8 @@ export function subscriptionKey(params: SubscribeParams): string {
       return `trades:${idsKey(params.orderbook_ids)}`;
     case "user":
       return `user:${params.wallet_address}`;
+    case "wallet_deposit_balances":
+      return `wallet_deposit_balances:${params.wallet_address}`;
     case "price_history":
       return `price_history:${params.orderbook_id}:${params.resolution}`;
     case "ticker":
@@ -82,6 +96,7 @@ export function subscriptionKey(params: SubscribeParams): string {
   }
 }
 
+/** Match a wire unsubscribe against locally tracked replay state. */
 export function unsubscribeMatches(
   subscribe: SubscribeParams,
   unsubscribe: UnsubscribeParams
@@ -110,6 +125,8 @@ export function unsubscribeMatches(
     case "ticker":
       return idsKey(subscribe.orderbook_ids) === idsKey((unsubscribe as { orderbook_ids: OrderBookId[] }).orderbook_ids);
     case "user":
+      return subscribe.wallet_address === (unsubscribe as { wallet_address: PubkeyStr }).wallet_address;
+    case "wallet_deposit_balances":
       return subscribe.wallet_address === (unsubscribe as { wallet_address: PubkeyStr }).wallet_address;
     case "price_history":
       return (

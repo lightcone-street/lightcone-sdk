@@ -204,7 +204,12 @@ impl WsClient {
         self.connect().await.ok();
     }
 
-    /// Remove authenticated subscriptions (e.g. User channel) from tracking.
+    /// Purge authenticated user and wallet-balance replay state and queued messages.
+    ///
+    /// This non-blocking, best-effort command can be dropped if the background
+    /// channel is full or closed, and it does not send wire unsubscriptions on
+    /// an open socket. Unsubscribe or disconnect for definitive live teardown;
+    /// callers that require proof of cleanup should use disconnect.
     pub fn clear_authed_subscriptions(&self) {
         if let Some(tx) = &self.cmd_tx {
             let _ = tx.try_send(Command::ClearAuthedSubs);
@@ -420,14 +425,7 @@ async fn run_connected(
                         }
                     }
                     Some(Command::ClearAuthedSubs) => {
-                        let before = state.active_subscriptions.len();
-                        state.active_subscriptions.retain(|s| {
-                            !matches!(s, SubscribeParams::User { .. })
-                        });
-                        let removed = before - state.active_subscriptions.len();
-                        if removed > 0 {
-                            tracing::info!("Cleared {} authenticated subscription(s)", removed);
-                        }
+                        clear_authed_subscriptions(state);
                     }
                     Some(Command::Disconnect) => {
                         let _ = sink.send(Message::Close(Some(CloseFrame {
@@ -542,6 +540,26 @@ fn track_subscription(subs: &mut Vec<SubscribeParams>, msg: &MessageOut) {
     }
 }
 
+fn clear_authed_subscriptions(state: &mut TaskState) {
+    let before = state.active_subscriptions.len();
+    state.active_subscriptions.retain(|subscription| {
+        !matches!(
+            subscription,
+            SubscribeParams::User { .. } | SubscribeParams::WalletDepositBalances { .. }
+        )
+    });
+    // This is local bookkeeping only. Queued auth messages must not survive
+    // logout and flush after replay tracking is cleared; live transport teardown
+    // remains the caller's separate responsibility.
+    state
+        .pending_messages
+        .retain(|message| !message.is_authed_subscription());
+    let removed = before - state.active_subscriptions.len();
+    if removed > 0 {
+        tracing::info!("Cleared {} authenticated subscription(s)", removed);
+    }
+}
+
 async fn resubscribe_all(sink: &mut SplitSink<WsStream, Message>, subs: &[SubscribeParams]) {
     if subs.is_empty() {
         return;
@@ -579,9 +597,7 @@ fn drain_commands_to_pending(state: &mut TaskState) {
                 state.pending_messages.push(msg);
             }
             Command::ClearAuthedSubs => {
-                state
-                    .active_subscriptions
-                    .retain(|s| !matches!(s, SubscribeParams::User { .. }));
+                clear_authed_subscriptions(state);
             }
             Command::Disconnect => {
                 return;
@@ -673,6 +689,47 @@ mod tests {
         let mut subs = Vec::new();
         track_subscription(&mut subs, &MessageOut::Ping);
         assert_eq!(subs.len(), 0);
+    }
+
+    #[test]
+    fn test_clear_authed_subscriptions_removes_tracked_and_pending_messages() {
+        let (event_tx, _) = mpsc::channel(1);
+        let (_, cmd_rx) = mpsc::channel(1);
+        let mut state = TaskState {
+            config: WsConfig::default(),
+            auth_token: None,
+            event_tx,
+            cmd_rx,
+            active_subscriptions: vec![
+                SubscribeParams::User {
+                    wallet_address: "wallet-a".into(),
+                },
+                SubscribeParams::WalletDepositBalances {
+                    wallet_address: "wallet-a".into(),
+                },
+                SubscribeParams::Market {
+                    market_pubkey: "market-a".into(),
+                },
+            ],
+            pending_messages: vec![
+                MessageOut::subscribe_user("wallet-a".into()),
+                MessageOut::unsubscribe_wallet_deposit_balances("wallet-a".into()),
+                MessageOut::subscribe_market("market-a".into()),
+            ],
+            reconnect_attempts: 0,
+            ready_state: Arc::new(AtomicU16::new(ReadyState::Closed as u16)),
+        };
+
+        clear_authed_subscriptions(&mut state);
+
+        assert!(matches!(
+            state.active_subscriptions.as_slice(),
+            [SubscribeParams::Market { .. }]
+        ));
+        assert!(matches!(
+            state.pending_messages.as_slice(),
+            [MessageOut::Subscribe(SubscribeParams::Market { .. })]
+        ));
     }
 
     #[test]

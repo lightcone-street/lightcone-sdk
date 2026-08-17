@@ -139,6 +139,8 @@ from .ws import (
     unsubscribe_trades,
     subscribe_user,
     unsubscribe_user,
+    subscribe_wallet_deposit_balances,
+    unsubscribe_wallet_deposit_balances,
     subscribe_price_history,
     unsubscribe_price_history,
     subscribe_ticker,
@@ -160,6 +162,19 @@ from .ws.client import WsClient
 
 from .client import ConfirmedTransaction, LightconeClient, LightconeClientBuilder
 from .rpc import Rpc
+
+# External-wallet balance wire models, reducer state, and lifecycle results.
+from .domain.position import (
+    DepositTokenBalancesSnapshot,
+    WalletDepositBalanceSnapshot,
+    WalletDepositBalanceStatus,
+    WalletDepositBalanceStatusEvent,
+    WalletDepositBalancesApplyResult,
+    WalletDepositBalancesEvent,
+    WalletDepositBalancesState,
+    WalletDepositBalanceUpdate,
+    WalletNativeSolBalanceUpdate,
+)
 
 from .domain.market import (
     MarketResolutionKind,
@@ -409,6 +424,16 @@ __all__ = [
     "LightconeClientBuilder",
     "ConfirmedTransaction",
     "Rpc",
+    # External wallet balances
+    "DepositTokenBalancesSnapshot",
+    "WalletDepositBalanceSnapshot",
+    "WalletDepositBalanceStatus",
+    "WalletDepositBalanceStatusEvent",
+    "WalletDepositBalancesApplyResult",
+    "WalletDepositBalancesEvent",
+    "WalletDepositBalancesState",
+    "WalletDepositBalanceUpdate",
+    "WalletNativeSolBalanceUpdate",
     "MarketResolutionKind",
     "MarketResolutionPayout",
     "MarketResolutionResponse",
@@ -517,6 +542,8 @@ __all__ = [
     "unsubscribe_trades",
     "subscribe_user",
     "unsubscribe_user",
+    "subscribe_wallet_deposit_balances",
+    "unsubscribe_wallet_deposit_balances",
     "subscribe_price_history",
     "unsubscribe_price_history",
     "subscribe_ticker",

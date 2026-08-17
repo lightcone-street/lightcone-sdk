@@ -12,6 +12,7 @@ use crate::domain::market::wire::MarketEvent;
 use crate::domain::order::wire::{AuthUpdate, UserUpdate};
 use crate::domain::orderbook::aggregation::BookAggregation;
 use crate::domain::orderbook::wire::{OrderBook, WsTickerData};
+use crate::domain::position::WalletDepositBalancesEvent;
 use crate::domain::price_history::wire::{DepositAssetPriceEvent, DepositPrice, PriceHistory};
 use crate::domain::trade::wire::WsTrade;
 use crate::env::LightconeEnv;
@@ -55,6 +56,20 @@ impl std::fmt::Display for MessageOut {
 }
 
 impl MessageOut {
+    #[cfg(any(feature = "ws-native", feature = "ws-wasm"))]
+    pub(crate) fn is_authed_subscription(&self) -> bool {
+        // Logout cleanup removes queued subscribes and unsubscribes alike: either
+        // would carry stale session intent if flushed into a later connection.
+        matches!(
+            self,
+            MessageOut::Subscribe(
+                SubscribeParams::User { .. } | SubscribeParams::WalletDepositBalances { .. }
+            ) | MessageOut::Unsubscribe(
+                UnsubscribeParams::User { .. } | UnsubscribeParams::WalletDepositBalances { .. }
+            )
+        )
+    }
+
     pub fn ping() -> MessageOut {
         MessageOut::Ping
     }
@@ -111,6 +126,19 @@ impl MessageOut {
 
     pub fn unsubscribe_user(wallet_address: PubkeyStr) -> MessageOut {
         UnsubscribeParams::User { wallet_address }.into()
+    }
+
+    /// Subscribe to an authenticated wallet's complete balance snapshot and
+    /// later absolute SPL/native updates.
+    pub fn subscribe_wallet_deposit_balances(wallet_address: PubkeyStr) -> MessageOut {
+        SubscribeParams::WalletDepositBalances { wallet_address }.into()
+    }
+
+    /// Send a wire unsubscribe for the exact wallet used by the subscription.
+    ///
+    /// This does not replace local authenticated-subscription cleanup on logout.
+    pub fn unsubscribe_wallet_deposit_balances(wallet_address: PubkeyStr) -> MessageOut {
+        UnsubscribeParams::WalletDepositBalances { wallet_address }.into()
     }
 
     pub fn subscribe_price_history(
@@ -223,6 +251,9 @@ pub enum Kind {
     DepositPrice(DepositPrice),
     #[serde(rename = "deposit_asset_price")]
     DepositAssetPrice(DepositAssetPriceEvent),
+    #[serde(rename = "wallet_deposit_balances")]
+    /// Authenticated outer channel containing the nested wallet-balance event union.
+    WalletDepositBalances(WalletDepositBalancesEvent),
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -379,6 +410,104 @@ mod tests {
 
         assert_eq!(parsed["method"], "unsubscribe");
         assert_eq!(parsed["params"]["type"], "book_update");
+    }
+
+    #[test]
+    fn wallet_deposit_balances_decodes_outer_channel_and_nested_event() {
+        let native: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_native_sol_balance_update",
+                "wallet_address": "WalletA",
+                "context_slot": 123,
+                "native_sol_balance": "1.000000000"
+            }
+        }))
+        .unwrap();
+
+        assert!(matches!(
+            native.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::NativeSolBalanceUpdate { .. })
+        ));
+
+        let snapshot: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_deposit_balance_snapshot",
+                "wallet_address": "WalletA",
+                "context_slot": 124,
+                "balances": {},
+                "native_sol_balance": "0.000000000"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            snapshot.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::Snapshot { .. })
+        ));
+
+        let balance: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_deposit_balance_update",
+                "wallet_address": "WalletA",
+                "context_slot": 125,
+                "balance": {
+                    "mint": "MintA",
+                    "idle": "1.25",
+                    "symbol": "USDC",
+                    "name": "USD Coin"
+                }
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            balance.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::BalanceUpdate { .. })
+        ));
+
+        let status: MessageIn = serde_json::from_value(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_deposit_balance_status",
+                "wallet_address": "WalletA",
+                "status": "metadata_unavailable",
+                "code": "METADATA_UNAVAILABLE"
+            }
+        }))
+        .unwrap();
+        assert!(matches!(
+            status.kind,
+            Kind::WalletDepositBalances(WalletDepositBalancesEvent::Status { .. })
+        ));
+    }
+
+    #[test]
+    fn wallet_deposit_balances_rejects_unknown_nested_event() {
+        assert!(serde_json::from_value::<MessageIn>(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "unknown",
+                "wallet_address": "WalletA"
+            }
+        }))
+        .is_err());
+        assert!(serde_json::from_value::<MessageIn>(serde_json::json!({
+            "type": "wallet_deposit_balances",
+            "version": 0.1,
+            "data": {
+                "event_type": "wallet_native_sol_balance_update",
+                "wallet_address": "WalletA",
+                "context_slot": 123,
+                "native_sol_balance": 1
+            }
+        }))
+        .is_err());
     }
 
     #[test]

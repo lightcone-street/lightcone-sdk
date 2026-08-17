@@ -11,14 +11,20 @@ from lightcone_sdk.ws import (
     WsErrorData,
     parse_message_in,
     subscribe_books,
+    subscribe_wallet_deposit_balances,
     unsubscribe_books,
+    unsubscribe_wallet_deposit_balances,
 )
 from lightcone_sdk.ws.client import (
+    WsClient,
     _subscribe_params_to_message,
     _unsubscribe_params_to_message,
 )
 from lightcone_sdk.ws.subscriptions import (
     BookUpdateParams,
+    TickerParams,
+    UserParams,
+    WalletDepositBalancesParams,
     subscription_key,
     unsubscribe_matches,
 )
@@ -30,7 +36,9 @@ class TestBookAggregation:
         assert BookAggregation.validate(3) == BookAggregation(n_sig_figs=3)
         # (5, None) normalizes to (5, 1).
         assert BookAggregation.validate(5) == BookAggregation(n_sig_figs=5, mantissa=1)
-        assert BookAggregation.validate(5, 5) == BookAggregation(n_sig_figs=5, mantissa=5)
+        assert BookAggregation.validate(5, 5) == BookAggregation(
+            n_sig_figs=5, mantissa=5
+        )
 
         for invalid in [(1, None), (6, None), (4, 2), (None, 2), (5, 3), (5, 0)]:
             with pytest.raises(ValueError):
@@ -111,6 +119,35 @@ class TestWireMapping:
         assert ungrouped["params"]["nSigFigs"] == 3
         assert "mantissa" not in ungrouped["params"]
 
+    def test_wallet_balance_subscription_wire_and_identity(self):
+        params = WalletDepositBalancesParams(wallet_address="wallet-a")
+        assert subscription_key(params) == "wallet_deposit_balances:wallet-a"
+        assert _subscribe_params_to_message(params) == (
+            subscribe_wallet_deposit_balances("wallet-a")
+        )
+        assert _unsubscribe_params_to_message(params) == (
+            unsubscribe_wallet_deposit_balances("wallet-a")
+        )
+
+    @pytest.mark.asyncio
+    async def test_auth_cleanup_removes_active_and_queued_wallet_channels(self):
+        client = WsClient()
+        await client.subscribe(UserParams(wallet_address="wallet-a"))
+        await client.subscribe(WalletDepositBalancesParams(wallet_address="wallet-a"))
+        await client.subscribe(TickerParams(orderbook_ids=["book-a"]))
+
+        client.clear_authed_subscriptions()
+
+        assert client._active_subscriptions == [  # noqa: SLF001
+            TickerParams(orderbook_ids=["book-a"])
+        ]
+        assert client._pending_messages == [  # noqa: SLF001
+            {
+                "method": "subscribe",
+                "params": {"type": "ticker", "orderbook_ids": ["book-a"]},
+            }
+        ]
+
 
 class TestFrameTags:
     def test_frame_aggregation_from_tags(self):
@@ -129,7 +166,13 @@ class TestFrameTags:
 
         # Untagged frames (old backends / full precision) are full precision.
         untagged = WsOrderBook.from_dict(
-            {"orderbook_id": "ob1", "is_snapshot": True, "seq": 0, "bids": [], "asks": []}
+            {
+                "orderbook_id": "ob1",
+                "is_snapshot": True,
+                "seq": 0,
+                "bids": [],
+                "asks": [],
+            }
         )
         assert untagged.aggregation().is_full()
 

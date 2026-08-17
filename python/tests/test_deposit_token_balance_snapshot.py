@@ -8,6 +8,7 @@ def test_snapshot_parses_context_slot_and_nested_balances() -> None:
     snapshot = DepositTokenBalancesSnapshot.from_dict(
         {
             "context_slot": 1234,
+            "native_sol_balance": "1.250000000",
             "balances": {
                 "MintA": {
                     "mint": "MintA",
@@ -20,6 +21,7 @@ def test_snapshot_parses_context_slot_and_nested_balances() -> None:
     )
 
     assert snapshot.context_slot == 1234
+    assert snapshot.native_sol_balance == "1.250000000"
     assert snapshot.balances["MintA"].idle == "1.25"
 
 
@@ -30,7 +32,30 @@ def test_snapshot_rejects_malformed_balance_entries() -> None:
         DepositTokenBalancesSnapshot.from_dict(
             {
                 "context_slot": 1234,
+                "native_sol_balance": "0.000000000",
                 "balances": {"MintA": None},
+            }
+        )
+
+
+def test_snapshot_requires_balances_field() -> None:
+    with pytest.raises(TypeError, match="balances must be an object"):
+        DepositTokenBalancesSnapshot.from_dict(
+            {
+                "context_slot": 1234,
+                "native_sol_balance": "0.000000000",
+            }
+        )
+
+
+@pytest.mark.parametrize("native", [None, 1.0, "1", "1.0", "01.000000000"])
+def test_snapshot_requires_exact_native_sol_balance(native: object) -> None:
+    with pytest.raises(TypeError, match="native_sol_balance"):
+        DepositTokenBalancesSnapshot.from_dict(
+            {
+                "context_slot": 1234,
+                "native_sol_balance": native,
+                "balances": {},
             }
         )
 
@@ -43,7 +68,11 @@ class FakeHttp:
         self, path: str, *, params: dict[str, str] | None = None
     ) -> dict[str, object]:
         self.requests.append((path, params, None))
-        return {"context_slot": 1234, "balances": {}}
+        return {
+            "context_slot": 1234,
+            "native_sol_balance": "0.000000000",
+            "balances": {},
+        }
 
     async def get_with_cookies(
         self,
@@ -53,7 +82,11 @@ class FakeHttp:
         params: dict[str, str] | None = None,
     ) -> dict[str, object]:
         self.requests.append((path, params, cookie_header))
-        return {"context_slot": 1234, "balances": {}}
+        return {
+            "context_slot": 1234,
+            "native_sol_balance": "0.000000000",
+            "balances": {},
+        }
 
 
 class FakeClient:

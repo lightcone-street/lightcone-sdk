@@ -1,7 +1,27 @@
-import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import {
+  PublicKey,
+  SystemProgram,
+  Transaction,
+  type TransactionInstruction,
+} from "@solana/web3.js";
+import {
+  createAssociatedTokenAccountIdempotentInstruction,
+  createCloseAccountInstruction,
+  createSyncNativeInstruction,
+  getAssociatedTokenAddressSync,
+  NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
+import Decimal from "decimal.js";
+import { isAuthenticated } from "../../auth";
 import type { ClientContext } from "../../context";
-import { requireConnection } from "../../context";
+import {
+  requireConnection,
+  signAndSubmitTxConfirmed,
+} from "../../context";
+import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
+import { exactScaledInteger } from "../../shared";
 import {
   buildRedeemWinningsIx,
   buildWithdrawConditionalFromPositionIx,
@@ -31,6 +51,7 @@ import type {
   ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { DepositTokenBalancesSnapshot } from "./index";
+import type { WalletDepositBalancesState } from "./state";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
 import {
   DepositBuilder,
@@ -126,9 +147,12 @@ export class Positions {
   }
 
   /**
-   * Get a confirmed-slot snapshot of the authenticated user's deposit-token
-   * balances. When supplied, `minContextSlot` prevents an older cached
-   * snapshot from satisfying the request.
+   * Fetch a complete authenticated SPL and native-SOL balance snapshot.
+   *
+   * `minContextSlot` lower-bounds the cross-component snapshot. Native SOL is
+   * required canonical nine-decimal text and remains outside the SPL map. The
+   * generic HTTP layer trusts that shape at runtime; WebSocket frames are decoded
+   * strictly, while malformed REST exact values fail later when state scales them.
    */
   async depositTokenBalances(
     minContextSlot?: number
@@ -150,7 +174,8 @@ export class Positions {
    *
    * Intended for server-side cookie forwarding (SSR / server functions)
    * where the per-request browser cookie can't propagate to the shared
-   * client. In a browser context this is equivalent to
+   * client. The complete response has the same separate, exact native-SOL
+   * contract as {@link depositTokenBalances}. In a browser this is equivalent to
    * {@link depositTokenBalances} because the runtime is already attaching
    * the cookie via `credentials: "include"`.
    */
@@ -168,6 +193,124 @@ export class Positions {
       RetryPolicy.Idempotent,
       cookieHeader,
     );
+  }
+
+  /**
+   * Wrap exact SOL into the authenticated wallet's canonical Tokenkeg WSOL ATA.
+   *
+   * The amount must be positive, exactly representable at nine decimals, fit a
+   * Solana `u64`, and not exceed cached native SOL. Live credentials must match
+   * initialized state, and the configured signing strategy must control that
+   * wallet. The method builds create/transfer/sync instructions, confirms them,
+   * returns the transaction signature, and never mutates state. Fee and rent
+   * reserves remain chain-authoritative rather than guessed locally. A confirmation
+   * error does not prove rollback; refresh authoritative state before retrying.
+   */
+  async wrapSol(
+    amount: string | Decimal,
+    state: WalletDepositBalancesState
+  ): Promise<string> {
+    const wallet = this.conversionWallet(state);
+    const lamports = solLamports(amount);
+    if (lamports <= 0n) {
+      throw SdkError.validation("wrap amount must be greater than zero");
+    }
+    // Do not guess a fee or ATA-rent reserve from stale client state; an
+    // equal-balance wrap is valid preflight and the chain remains authoritative.
+    if (lamports > state.nativeSolLamports()) {
+      throw SdkError.validation(
+        "wrap amount exceeds cached native SOL balance"
+      );
+    }
+
+    const account = getAssociatedTokenAddressSync(
+      NATIVE_MINT,
+      wallet,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const transaction = new Transaction({ feePayer: wallet }).add(
+      createAssociatedTokenAccountIdempotentInstruction(
+        wallet,
+        account,
+        wallet,
+        NATIVE_MINT,
+        TOKEN_PROGRAM_ID
+      ),
+      SystemProgram.transfer({
+        fromPubkey: wallet,
+        toPubkey: account,
+        lamports,
+      }),
+      createSyncNativeInstruction(account, TOKEN_PROGRAM_ID)
+    );
+    return signAndSubmitTxConfirmed(this.client, transaction);
+  }
+
+  /**
+   * Fully unwrap the authenticated wallet's canonical Tokenkeg WSOL ATA.
+   *
+   * Live matching credentials, a signing strategy controlling that wallet, and
+   * positive cached canonical WSOL are required. CloseAccount credits all token
+   * lamports plus rent to the wallet; partial unwrap is unsupported. The method
+   * returns the confirmed transaction signature and leaves cached state unchanged.
+   * A confirmation error does not prove the account stayed open; refresh
+   * authoritative state before retrying.
+   */
+  async unwrapWsol(state: WalletDepositBalancesState): Promise<string> {
+    const wallet = this.conversionWallet(state);
+    if (!state.hasPositiveWsol()) {
+      throw SdkError.validation(
+        "canonical WSOL balance must be greater than zero"
+      );
+    }
+    const account = getAssociatedTokenAddressSync(
+      NATIVE_MINT,
+      wallet,
+      false,
+      TOKEN_PROGRAM_ID
+    );
+    const transaction = new Transaction({ feePayer: wallet }).add(
+      createCloseAccountInstruction(
+        account,
+        wallet,
+        wallet,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+    );
+    return signAndSubmitTxConfirmed(this.client, transaction);
+  }
+
+  private conversionWallet(state: WalletDepositBalancesState): PublicKey {
+    // Cached identity is a signing trust boundary: validate expiry, complete
+    // state initialization, and wallet equality before constructing a transaction.
+    const credentials = this.client.authCredentials;
+    if (!credentials) {
+      throw SdkError.validation("authenticated credentials are required");
+    }
+    if (!isAuthenticated(credentials)) {
+      throw SdkError.validation("authenticated credentials have expired");
+    }
+    if (
+      state.walletAddress === undefined ||
+      state.contextSlot === undefined ||
+      state.nativeSolBalance === undefined
+    ) {
+      throw SdkError.validation("wallet balance state is not initialized");
+    }
+    if (state.walletAddress !== credentials.wallet_address) {
+      throw SdkError.validation(
+        "authenticated wallet does not match wallet balance state"
+      );
+    }
+    try {
+      return new PublicKey(credentials.wallet_address);
+    } catch (error) {
+      throw SdkError.validation(
+        `authenticated wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   // ── On-chain transaction builders ────────────────────────────────────
@@ -373,4 +516,21 @@ export class Positions {
     }
     return deserializeProgramPosition(accountInfo.data as Buffer);
   }
+}
+
+function solLamports(amount: string | Decimal): bigint {
+  // Exact scaling rejects rounding, negative values, excess precision, and
+  // values beyond the unsigned amount accepted by Solana instructions.
+  let value: bigint;
+  try {
+    value = exactScaledInteger(amount, 9);
+  } catch (error) {
+    throw SdkError.validation(
+      `invalid SOL amount: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (value > 0xffff_ffff_ffff_ffffn) {
+    throw SdkError.validation("SOL amount exceeds the transaction u64 range");
+  }
+  return value;
 }

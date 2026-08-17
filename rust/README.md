@@ -335,6 +335,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
+| [`deposit_token_balances`](examples/deposit_token_balances.rs) | Authenticated WebSocket state, hardcoded 0.1 SOL wrap, authoritative refresh, and destructive full canonical-WSOL close in non-production |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
 
 ### Testnet

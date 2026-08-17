@@ -93,7 +93,8 @@ pub mod prelude {
     pub use crate::domain::position::{
         DepositAssetMetadata, DepositTokenBalance, DepositTokenBalancesSnapshot, Portfolio,
         Position, PositionOutcome, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
-        WalletHolding,
+        WalletDepositBalanceStatus, WalletDepositBalancesApplyResult, WalletDepositBalancesEvent,
+        WalletDepositBalancesState, WalletHolding,
     };
 
     // Domain types — trade, price history

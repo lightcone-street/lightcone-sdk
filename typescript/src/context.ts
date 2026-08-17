@@ -1,6 +1,7 @@
 import type { Connection, PublicKey } from "@solana/web3.js";
 import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
+import type { AuthCredentials } from "./auth";
 import type { DepositSource, OrderbookRules } from "./shared";
 import type { SigningStrategy } from "./shared/signing";
 import {
@@ -19,6 +20,8 @@ export interface ClientContext {
   readonly rpcFailoverState: RpcFailoverState;
   readonly depositSource: DepositSource;
   readonly signingStrategy?: SigningStrategy;
+  /** Optional cached identity for auth-bound operations; callers must check expiry. */
+  readonly authCredentials?: AuthCredentials;
   orderNonce?(): number | undefined;
   setOrderNonce?(nonce: number): void;
   readonly orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;

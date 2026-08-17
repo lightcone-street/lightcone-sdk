@@ -22,6 +22,7 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | Books | `SubscribeParams::Books { orderbook_ids, n_sig_figs, mantissa }` | `Kind::BookUpdate` | Top-20 orderbook snapshots (full replacement per frame, optional aggregation) |
 | Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Individual trade executions |
 | User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Order updates, balance changes, snapshots |
+| Wallet Deposit Balances | `SubscribeParams::WalletDepositBalances { wallet_address }` | `Kind::WalletDepositBalances` | Authenticated wallet-scoped SPL/native SOL replacement snapshots and absolute updates |
 | Price History | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` | OHLCV snapshots + updates |
 | Ticker | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` | Best bid/ask/mid prices |
 | Market | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` | Settlement, activation, pausing |
@@ -38,6 +39,8 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | `MessageOut::unsubscribe_trades(ids)` | Unsubscribe from trades |
 | `MessageOut::subscribe_user(wallet)` | Subscribe to user events (requires auth) |
 | `MessageOut::unsubscribe_user(wallet)` | Unsubscribe from user events |
+| `MessageOut::subscribe_wallet_deposit_balances(wallet)` | Subscribe to external-wallet SPL and native SOL balances |
+| `MessageOut::unsubscribe_wallet_deposit_balances(wallet)` | Unsubscribe from wallet balances |
 | `MessageOut::subscribe_price_history(id, resolution)` | Subscribe to price candles |
 | `MessageOut::unsubscribe_price_history(id, resolution)` | Unsubscribe from candles |
 | `MessageOut::subscribe_ticker(ids)` | Subscribe to ticker updates |
@@ -93,6 +96,7 @@ Discriminated union of all inbound message types:
 | `Kind::Ticker(WsTickerData)` | Best bid/ask/mid | `ticker` |
 | `Kind::Market(MarketEvent)` | Market lifecycle events | `market` |
 | `Kind::Auth(AuthUpdate)` | Authentication status | `auth` |
+| `Kind::WalletDepositBalances(WalletDepositBalancesEvent)` | Nested snapshot, absolute SPL update, absolute native SOL update, or status | `wallet_deposit_balances` |
 | `Kind::Pong(Pong)` | Pong response | -- |
 | `Kind::Error(WsError)` | Server-side error | -- |
 
@@ -112,6 +116,10 @@ The `User` channel delivers three event types:
 |---------|-------------|
 | `OrderEvent::Limit(OrderUpdate)` | Limit order placement, update, or cancellation |
 | `OrderEvent::Trigger(TriggerOrderUpdate)` | Trigger order status change |
+
+### `WalletDepositBalancesEvent`
+
+The authenticated outer `wallet_deposit_balances` channel is scoped to a wallet owned by the current user and carries a nested union tagged by `event_type`. `wallet_deposit_balance_snapshot` establishes or replaces the complete baseline; `wallet_deposit_balance_update` replaces one absolute mint balance; `wallet_native_sol_balance_update` replaces the exact native value; and status events report `reconnecting` or `metadata_unavailable` without mutation. Use `WalletDepositBalancesState` so pre-snapshot and wrong-wallet component updates cannot cross lifecycle boundaries.
 
 ## WsEvent
 
@@ -164,7 +172,7 @@ let mut ws = client.ws_native();
 | `is_connected` | `fn is_connected(&self) -> bool` | Connection status |
 | `ready_state` | `fn ready_state(&self) -> ReadyState` | Detailed connection state |
 | `restart_connection` | `async fn restart_connection(&mut self)` | Force a fresh connection |
-| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Remove User channel from tracking |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Best-effort non-blocking purge of User/wallet replay tracking and queued auth messages; disconnect for definitive teardown |
 | `events` | `fn events(&self) -> impl Stream<Item = WsEvent>` | Stream of events from the connection |
 
 ### Features
@@ -174,6 +182,10 @@ let mut ws = client.ws_native();
 - **Message queue** -- messages sent while disconnected are flushed on reconnect
 - **Ping/pong health check** -- detects stale connections
 - **Auth token injection** -- passes the session cookie in the WS upgrade request
+
+WebSocket clients are owned independently from `Auth`; logout does not clear or
+disconnect them. The caller must unsubscribe or disconnect each live client and
+clear replay state where it intends to retain the connection.
 
 ## WASM Client
 
@@ -204,6 +216,7 @@ All methods are static (the WASM client manages a single global connection):
 | `is_connected` | `fn is_connected() -> bool` | Connection status |
 | `ready_state` | `fn ready_state() -> ReadyState` | Detailed state |
 | `restart_connection` | `fn restart_connection()` | Force reconnect |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions()` | Purge User/wallet replay tracking and queued auth messages; does not unsubscribe the live socket |
 | `cleanup` | `fn cleanup()` | Tear down connection and clean up |
 
 ## Examples
