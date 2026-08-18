@@ -102,6 +102,8 @@ done
 should_skip() {
     local name="$1"
     case "$name" in
+        # This example wraps SOL and fully closes canonical WSOL; run it manually.
+        deposit_token_balances) return 0 ;;
         admin_*|faucet_claim|common) return 0 ;;
         *) return 1 ;;
     esac

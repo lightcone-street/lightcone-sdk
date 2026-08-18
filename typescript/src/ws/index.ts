@@ -12,6 +12,10 @@ import type {
   PriceHistory,
 } from "../domain/price_history";
 import type { WsTrade } from "../domain/trade";
+import type {
+  DepositTokenBalance,
+  WalletDepositBalancesEvent,
+} from "../domain/position";
 import { WsError as WsErrorClass } from "../error";
 import { LightconeEnv, wsUrl } from "../env";
 import type { OrderBookId, PubkeyStr, Resolution } from "../shared";
@@ -26,6 +30,7 @@ export type MessageOut =
   | { method: "unsubscribe"; params: import("./subscriptions").UnsubscribeParams }
   | { method: "ping" };
 
+/** Parsed inbound channel union; wallet balances contain a strict nested event union. */
 export type MessageIn =
   | { type: "book_update"; version: number; data: OrderBook }
   | { type: "pong"; version: number; data: Record<string, never> }
@@ -37,7 +42,12 @@ export type MessageIn =
   | { type: "ticker"; version: number; data: WsTickerData }
   | { type: "market"; version: number; data: MarketEvent }
   | { type: "deposit_price"; version: number; data: DepositPrice }
-  | { type: "deposit_asset_price"; version: number; data: DepositAssetPriceEvent };
+  | { type: "deposit_asset_price"; version: number; data: DepositAssetPriceEvent }
+  | {
+      type: "wallet_deposit_balances";
+      version: number;
+      data: WalletDepositBalancesEvent;
+    };
 
 export type Kind = MessageIn;
 
@@ -197,6 +207,39 @@ export function unsubscribeUser(walletAddress: PubkeyStr): MessageOut {
   };
 }
 
+/**
+ * Subscribe to a wallet owned by the authenticated user.
+ * The channel begins with a complete replacement snapshot and then emits
+ * absolute SPL/native updates plus non-mutating status events.
+ */
+export function subscribeWalletDepositBalances(
+  walletAddress: PubkeyStr
+): MessageOut {
+  return {
+    method: "subscribe",
+    params: {
+      type: "wallet_deposit_balances",
+      wallet_address: walletAddress,
+    },
+  };
+}
+
+/**
+ * Stop the authenticated wallet stream identified by this exact wallet address.
+ * This wire operation is separate from clearing local reconnect tracking.
+ */
+export function unsubscribeWalletDepositBalances(
+  walletAddress: PubkeyStr
+): MessageOut {
+  return {
+    method: "unsubscribe",
+    params: {
+      type: "wallet_deposit_balances",
+      wallet_address: walletAddress,
+    },
+  };
+}
+
 export function subscribePriceHistory(orderbookId: OrderBookId, resolution: Resolution): MessageOut {
   return {
     method: "subscribe",
@@ -313,8 +356,16 @@ const VALID_MESSAGE_TYPES = new Set([
   "market",
   "deposit_price",
   "deposit_asset_price",
+  "wallet_deposit_balances",
 ]);
 
+/**
+ * Parse and normalize one inbound frame.
+ *
+ * Wallet-balance payloads cross a runtime validation boundary here: malformed
+ * nested discriminators, exact values, or slots throw a protocol `WsError`
+ * instead of escaping behind TypeScript-only types.
+ */
 export function parseMessageIn(input: string): MessageIn {
   const parsed: unknown = parseJsonExact(input);
   if (typeof parsed !== "object" || parsed === null || !("type" in parsed)) {
@@ -369,5 +420,125 @@ export function parseMessageIn(input: string): MessageIn {
       data: normalizeUserUpdate(message.data as Parameters<typeof normalizeUserUpdate>[0]),
     };
   }
+  if (message.type === "wallet_deposit_balances") {
+    return {
+      ...message,
+      data: normalizeWalletDepositBalancesEvent(message.data),
+    };
+  }
   return message;
+}
+
+/** Validate the nested wallet event before exposing its discriminated union. */
+function normalizeWalletDepositBalancesEvent(
+  input: unknown
+): WalletDepositBalancesEvent {
+  const data = requireObject(input, "wallet_deposit_balances data");
+  const eventType = requireString(data, "event_type");
+  const walletAddress = requireString(data, "wallet_address") as PubkeyStr;
+
+  switch (eventType) {
+    case "wallet_deposit_balance_snapshot": {
+      const rawBalances = requireObject(data.balances, "balances");
+      const balances = {} as Record<PubkeyStr, DepositTokenBalance>;
+      for (const [mint, balance] of Object.entries(rawBalances)) {
+        balances[mint as PubkeyStr] = normalizeDepositTokenBalance(balance);
+      }
+      return {
+        event_type: eventType,
+        wallet_address: walletAddress,
+        context_slot: requireContextSlot(data),
+        balances,
+        native_sol_balance: requireNativeSolBalance(data),
+      };
+    }
+    case "wallet_deposit_balance_update":
+      return {
+        event_type: eventType,
+        wallet_address: walletAddress,
+        context_slot: requireContextSlot(data),
+        balance: normalizeDepositTokenBalance(data.balance),
+      };
+    case "wallet_native_sol_balance_update":
+      return {
+        event_type: eventType,
+        wallet_address: walletAddress,
+        context_slot: requireContextSlot(data),
+        native_sol_balance: requireNativeSolBalance(data),
+      };
+    case "wallet_deposit_balance_status": {
+      const status = requireString(data, "status");
+      if (status !== "reconnecting" && status !== "metadata_unavailable") {
+        throw protocolError(`Invalid wallet balance status: "${status}"`);
+      }
+      return {
+        event_type: eventType,
+        wallet_address: walletAddress,
+        status,
+        code: requireString(data, "code"),
+      };
+    }
+    default:
+      throw protocolError(`Invalid wallet balance event type: "${eventType}"`);
+  }
+}
+
+/** Preserve exact strings and nullable icons while rejecting incomplete balances. */
+function normalizeDepositTokenBalance(input: unknown): DepositTokenBalance {
+  const balance = requireObject(input, "deposit-token balance");
+  const normalized: DepositTokenBalance = {
+    mint: requireString(balance, "mint") as PubkeyStr,
+    idle: requireString(balance, "idle"),
+    symbol: requireString(balance, "symbol"),
+    name: requireString(balance, "name"),
+  };
+  for (const field of ["icon_url_low", "icon_url_medium", "icon_url_high"] as const) {
+    const value = balance[field];
+    if (value !== undefined) {
+      if (value !== null && typeof value !== "string") {
+        throw protocolError(`Invalid deposit-token balance ${field}`);
+      }
+      normalized[field] = value;
+    }
+  }
+  return normalized;
+}
+
+function requireObject(input: unknown, field: string): Record<string, unknown> {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    throw protocolError(`Invalid ${field}: expected object`);
+  }
+  return input as Record<string, unknown>;
+}
+
+function requireString(data: Record<string, unknown>, field: string): string {
+  const value = data[field];
+  if (typeof value !== "string") {
+    throw protocolError(`Invalid wallet balance ${field}: expected string`);
+  }
+  return value;
+}
+
+function requireNativeSolBalance(data: Record<string, unknown>): string {
+  // Canonical nine-place syntax maps directly to lamports without rounding or exponents.
+  const value = requireString(data, "native_sol_balance");
+  if (!/^(?:0|[1-9][0-9]*)\.[0-9]{9}$/.test(value)) {
+    throw protocolError(
+      "Invalid wallet balance native_sol_balance: expected exactly nine decimal places"
+    );
+  }
+  return value;
+}
+
+function requireContextSlot(data: Record<string, unknown>): number {
+  // Safe integers prevent precision loss when state compares JavaScript slots.
+  const value = data.context_slot;
+  if (!Number.isSafeInteger(value) || (value as number) < 0) {
+    throw protocolError("Invalid wallet balance context_slot");
+  }
+  return value as number;
+}
+
+function protocolError(message: string): WsErrorClass {
+  return new WsErrorClass("ProtocolError", message);
 }

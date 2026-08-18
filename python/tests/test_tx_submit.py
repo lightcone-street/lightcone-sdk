@@ -35,6 +35,15 @@ class _EchoSigner(ExternalSigner):
         return tx_bytes
 
 
+class _RecordingSigner(_EchoSigner):
+    def __init__(self) -> None:
+        self.transaction_calls = 0
+
+    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
+        self.transaction_calls += 1
+        return tx_bytes
+
+
 class _RehashSigner(ExternalSigner):
     """Simulates a wallet that replaces the blockhash before signing."""
 
@@ -84,10 +93,19 @@ def _wallet_client(signer: ExternalSigner) -> LightconeClient:
         assert body["method"] == "sendTransaction"
         return {"result": str(Signature.default())}
 
+    async def fake_confirm_signature_status(
+        signature: str, last_valid_block_height: int | None
+    ) -> None:
+        assert signature == str(Signature.default())
+        assert last_valid_block_height == LAST_VALID_BLOCK_HEIGHT
+
     client._rpc.get_latest_blockhash_with_height = (  # type: ignore[method-assign]
         fake_blockhash_with_height
     )
     client._rpc_call_with_failover = fake_rpc_call  # type: ignore[method-assign]
+    client._rpc.confirm_signature_status = (  # type: ignore[method-assign]
+        fake_confirm_signature_status
+    )
     return client
 
 
@@ -114,3 +132,20 @@ async def test_wallet_submit_drops_bound_when_signer_rehashes() -> None:
     # The signed bytes no longer carry the SDK's blockhash, so no expiry
     # bound can be trusted.
     assert bound is None
+
+
+@pytest.mark.asyncio
+async def test_confirmed_submit_uses_explicit_strategy_after_configuration_swap() -> (
+    None
+):
+    validated_signer = _RecordingSigner()
+    replacement_signer = _RecordingSigner()
+    client = _wallet_client(replacement_signer)
+
+    signature = await client._sign_and_submit_tx_confirmed_with_strategy(
+        _unsigned_tx(), SigningStrategy.wallet_adapter(validated_signer)
+    )
+
+    assert signature == str(Signature.default())
+    assert validated_signer.transaction_calls == 1
+    assert replacement_signer.transaction_calls == 0

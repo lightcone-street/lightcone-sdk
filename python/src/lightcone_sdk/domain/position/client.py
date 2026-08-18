@@ -6,8 +6,19 @@ from typing import TYPE_CHECKING, Optional
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
+from solders.system_program import TransferParams, transfer
 from solders.transaction import Transaction
+from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
+from spl.token.instructions import (
+    CloseAccountParams,
+    SyncNativeParams,
+    close_account,
+    create_idempotent_associated_token_account,
+    get_associated_token_address,
+    sync_native,
+)
 
+from ...error import SdkError
 from ...program.accounts import deserialize_position
 from ...program.instructions import (
     build_close_position_alt_instruction,
@@ -37,6 +48,7 @@ from ...program.types import (
     WithdrawFromPositionParams,
 )
 from ...rpc import require_connection
+from ...shared.scaling import ExactDecimal, ScalingError
 from . import DepositTokenBalancesSnapshot
 from .builders import (
     DepositBuilder,
@@ -50,10 +62,12 @@ from .builders import (
     WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 )
+from .state import WalletDepositBalancesState, sol_amount_to_lamports
 from .wire import MarketPositionsResponseWire, PositionsResponseWire
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
+    from ...shared.signing import SigningStrategy
 
 
 class Positions:
@@ -142,7 +156,11 @@ class Positions:
     async def deposit_token_balances(
         self, min_context_slot: Optional[int] = None
     ) -> DepositTokenBalancesSnapshot:
-        """Get balances and their confirmed Solana context slot."""
+        """Fetch a complete authenticated SPL and native-SOL snapshot.
+
+        ``min_context_slot`` lower-bounds the complete cross-component view.
+        Native SOL is canonical nine-decimal text outside the SPL map.
+        """
         params = (
             {"min_context_slot": str(min_context_slot)}
             if min_context_slot is not None
@@ -159,12 +177,13 @@ class Positions:
         min_context_slot: Optional[int],
         cookie_header: str,
     ) -> DepositTokenBalancesSnapshot:
-        """Same as :meth:`deposit_token_balances`, with an explicit per-call ``cookie_header``.
+        """Fetch the complete snapshot with an explicit per-call cookie.
 
         Intended for server-side cookie forwarding (SSR / server functions)
         where the per-request browser cookie can't propagate to the SDK's
         process-wide cookie store. The token is used only for this call and
-        never written back to the shared store.
+        never written back to the shared store. Snapshot and minimum-slot
+        semantics match :meth:`deposit_token_balances`.
         """
         params = (
             {"min_context_slot": str(min_context_slot)}
@@ -177,6 +196,128 @@ class Positions:
             params=params,
         )
         return DepositTokenBalancesSnapshot.from_dict(data)
+
+    async def wrap_sol(
+        self, amount: ExactDecimal, state: WalletDepositBalancesState
+    ) -> str:
+        """Wrap exact SOL into the authenticated wallet's canonical WSOL ATA.
+
+        The amount must be positive, exactly representable at nine decimals, fit
+        Solana's ``u64`` range, and not exceed cached native SOL. Live credentials
+        must match initialized state, and the configured signing strategy must
+        control that wallet. Maintained create/transfer/sync builders are submitted
+        through confirmation; the returned string is the transaction signature and
+        cached state is never mutated. A confirmation error does not prove rollback;
+        refresh authoritative state before retrying.
+        """
+        wallet, strategy = self._conversion_wallet(state)
+        try:
+            lamports = sol_amount_to_lamports(amount)
+            native_lamports = state.native_sol_lamports()
+        except (ScalingError, ValueError) as error:
+            raise SdkError(f"invalid SOL amount: {error}") from error
+        if lamports <= 0:
+            raise SdkError("wrap amount must be greater than zero")
+        # Do not guess a fee or ATA-rent reserve from stale client state; an
+        # equal-balance wrap is valid preflight and the chain remains authoritative.
+        if lamports > native_lamports:
+            raise SdkError("wrap amount exceeds cached native SOL balance")
+
+        account = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+        transaction = Transaction.new_with_payer(
+            [
+                create_idempotent_associated_token_account(
+                    wallet, wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
+                ),
+                transfer(
+                    TransferParams(
+                        from_pubkey=wallet,
+                        to_pubkey=account,
+                        lamports=lamports,
+                    )
+                ),
+                sync_native(
+                    SyncNativeParams(program_id=TOKEN_PROGRAM_ID, account=account)
+                ),
+            ],
+            wallet,
+        )
+        return await self._client._sign_and_submit_tx_confirmed_with_strategy(
+            transaction, strategy
+        )
+
+    async def unwrap_wsol(self, state: WalletDepositBalancesState) -> str:
+        """Fully unwrap the authenticated wallet's canonical Tokenkeg WSOL ATA.
+
+        Live matching credentials, a signing strategy controlling that wallet, and
+        positive cached WSOL are required. Closing credits the complete token balance
+        plus rent to the wallet; partial unwrap is unsupported. The method returns a
+        confirmed transaction signature and leaves cached state unchanged. A
+        confirmation error does not prove the account stayed open; refresh
+        authoritative state before retrying.
+        """
+        wallet, strategy = self._conversion_wallet(state)
+        try:
+            has_wsol = state.has_positive_wsol()
+        except ScalingError as error:
+            raise SdkError(f"invalid canonical WSOL balance: {error}") from error
+        if not has_wsol:
+            raise SdkError("canonical WSOL balance must be greater than zero")
+
+        account = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+        transaction = Transaction.new_with_payer(
+            [
+                close_account(
+                    CloseAccountParams(
+                        program_id=TOKEN_PROGRAM_ID,
+                        account=account,
+                        dest=wallet,
+                        owner=wallet,
+                    )
+                )
+            ],
+            wallet,
+        )
+        return await self._client._sign_and_submit_tx_confirmed_with_strategy(
+            transaction, strategy
+        )
+
+    def _conversion_wallet(
+        self, state: WalletDepositBalancesState
+    ) -> tuple[Pubkey, SigningStrategy]:
+        """Validate the cached identity/state signing boundary.
+
+        Matching proves which wallet may sign against the cached preflight; it
+        does not claim that the balance snapshot is still fresh on-chain.
+        """
+        credentials = self._client.auth().credentials()
+        if credentials is None:
+            raise SdkError("authenticated credentials are required")
+        if not credentials.is_authenticated():
+            raise SdkError("authenticated credentials have expired")
+        if (
+            state.wallet_address is None
+            or state.context_slot is None
+            or state.native_sol_balance is None
+        ):
+            raise SdkError("wallet balance state is not initialized")
+        if state.wallet_address != credentials.wallet_address:
+            raise SdkError("authenticated wallet does not match wallet balance state")
+        try:
+            wallet = Pubkey.from_string(credentials.wallet_address)
+        except ValueError as error:
+            raise SdkError(f"authenticated wallet is invalid: {error}") from error
+        strategy = self._client._require_signing_strategy()
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is None:
+            raise SdkError("signing strategy wallet identity is required")
+        try:
+            signing_wallet = Pubkey.from_string(signing_address)
+        except (TypeError, ValueError) as error:
+            raise SdkError(f"signing strategy wallet is invalid: {error}") from error
+        if signing_wallet != wallet:
+            raise SdkError("signing strategy does not control authenticated wallet")
+        return wallet, strategy
 
     # ── On-chain instruction builders ────────────────────────────────────
 
@@ -206,7 +347,9 @@ class Positions:
             program_id=self._client.program_id,
         )
 
-    def withdraw_from_position_ix(self, params: WithdrawFromPositionParams) -> Instruction:
+    def withdraw_from_position_ix(
+        self, params: WithdrawFromPositionParams
+    ) -> Instruction:
         """Compatibility wrapper for conditional-token position withdrawal."""
         return self.withdraw_conditional_from_position_ix(params)
 
@@ -315,7 +458,9 @@ class Positions:
         ix = self.withdraw_conditional_from_position_ix(params)
         return Transaction.new_with_payer([ix], params.user)
 
-    def withdraw_from_position_tx(self, params: WithdrawFromPositionParams) -> Transaction:
+    def withdraw_from_position_tx(
+        self, params: WithdrawFromPositionParams
+    ) -> Transaction:
         """Compatibility wrapper for conditional-token position withdrawal."""
         return self.withdraw_conditional_from_position_tx(params)
 

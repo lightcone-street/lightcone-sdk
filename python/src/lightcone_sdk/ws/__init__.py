@@ -22,7 +22,10 @@ if TYPE_CHECKING:
     from ..domain.order.wire import UserUpdate, AuthUpdate
     from ..domain.trade.wire import WsTrade
     from ..domain.market.wire import MarketEvent
+    from ..domain.position import WalletDepositBalancesEvent
 
+# Parsed payload union. Wallet balance frames contain a second discriminated
+# union validated by ``wallet_deposit_balances_event_from_dict``.
 MessageData = Union[
     "WsOrderBook",
     "UserUpdate",
@@ -39,6 +42,7 @@ MessageData = Union[
     "DepositPriceCandleUpdate",
     "DepositAssetPriceSnapshot",
     "DepositAssetPriceTick",
+    "WalletDepositBalancesEvent",
     dict,
 ]
 
@@ -63,10 +67,11 @@ def _book_params_dict(
     ``(5, None)`` is sent as ``(5, 1)``."""
     from ..domain.orderbook.aggregation import BookAggregation
 
-    aggregation = BookAggregation(
-        n_sig_figs=n_sig_figs, mantissa=mantissa
-    ).normalized()
-    params: dict[str, Any] = {"type": "book_update", "orderbook_ids": sorted(orderbook_ids)}
+    aggregation = BookAggregation(n_sig_figs=n_sig_figs, mantissa=mantissa).normalized()
+    params: dict[str, Any] = {
+        "type": "book_update",
+        "orderbook_ids": sorted(orderbook_ids),
+    }
     if aggregation.n_sig_figs is not None:
         params["nSigFigs"] = aggregation.n_sig_figs
     if aggregation.mantissa is not None:
@@ -131,6 +136,35 @@ def unsubscribe_user(wallet_address: str) -> dict[str, Any]:
     return {
         "method": "unsubscribe",
         "params": {"type": "user", "wallet_address": wallet_address},
+    }
+
+
+def subscribe_wallet_deposit_balances(wallet_address: str) -> dict[str, Any]:
+    """Subscribe to the authenticated user's wallet balance lifecycle.
+
+    The channel begins with a complete replacement snapshot and then carries
+    absolute SPL/native updates plus non-mutating status events.
+    """
+    return {
+        "method": "subscribe",
+        "params": {
+            "type": "wallet_deposit_balances",
+            "wallet_address": wallet_address,
+        },
+    }
+
+
+def unsubscribe_wallet_deposit_balances(wallet_address: str) -> dict[str, Any]:
+    """Stop the wallet stream identified by this exact wallet address.
+
+    This wire operation is distinct from clearing local reconnect tracking.
+    """
+    return {
+        "method": "unsubscribe",
+        "params": {
+            "type": "wallet_deposit_balances",
+            "wallet_address": wallet_address,
+        },
     }
 
 
@@ -258,11 +292,12 @@ class MessageInType(str, Enum):
     MARKET = "market"
     DEPOSIT_PRICE = "deposit_price"
     DEPOSIT_ASSET_PRICE = "deposit_asset_price"
+    WALLET_DEPOSIT_BALANCES = "wallet_deposit_balances"
 
 
 @dataclass
 class MessageIn:
-    """Parsed incoming WebSocket message."""
+    """Parsed incoming frame whose payload is normalized for known channels."""
 
     type: str
     data: Optional[MessageData] = None
@@ -275,6 +310,7 @@ class MessageIn:
 
     @staticmethod
     def from_dict(d: dict) -> "MessageIn":
+        """Dispatch known channel payloads through their runtime decoders."""
         message_type = d.get("type", "")
         return MessageIn(
             type=message_type,
@@ -284,12 +320,24 @@ class MessageIn:
 
 
 def parse_message_in(text: str) -> MessageIn:
-    """Parse a raw WebSocket text message."""
+    """Parse and normalize one raw frame.
+
+    Wallet-balance frames fail closed on malformed nested discriminators,
+    fields, exact values, or slots instead of escaping as untyped dictionaries.
+    """
     data = json.loads(text)
     return MessageIn.from_dict(data)
 
 
 def _parse_message_data(message_type: str, data: Any) -> Optional[MessageData]:
+    """Decode known payload contracts while retaining legacy passthrough channels."""
+    if message_type == MessageInType.WALLET_DEPOSIT_BALANCES.value:
+        if not isinstance(data, dict):
+            raise TypeError("wallet deposit balances data must be an object")
+        from ..domain.position import wallet_deposit_balances_event_from_dict
+
+        return wallet_deposit_balances_event_from_dict(data)
+
     if not isinstance(data, dict):
         return data
 
@@ -483,6 +531,8 @@ __all__ = [
     "unsubscribe_trades",
     "subscribe_user",
     "unsubscribe_user",
+    "subscribe_wallet_deposit_balances",
+    "unsubscribe_wallet_deposit_balances",
     "subscribe_price_history",
     "unsubscribe_price_history",
     "subscribe_ticker",

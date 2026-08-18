@@ -167,6 +167,13 @@ export type {
   DepositAssetMetadata,
   DepositTokenBalance,
   DepositTokenBalancesSnapshot,
+  WalletDepositBalanceSnapshot,
+  WalletDepositBalanceStatus,
+  WalletDepositBalanceStatusEvent,
+  WalletDepositBalancesApplyResult,
+  WalletDepositBalancesEvent,
+  WalletDepositBalanceUpdate,
+  WalletNativeSolBalanceUpdate,
 } from "./domain/position";
 
 export {
@@ -179,6 +186,8 @@ export {
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
+  WalletDepositBalancesState,
+  WRAPPED_SOL_MINT,
 } from "./domain/position";
 
 export type { Trade, WsTrade } from "./domain/trade";

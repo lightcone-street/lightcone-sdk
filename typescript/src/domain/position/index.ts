@@ -7,6 +7,7 @@ import type { UserMarketBalance, UserOutcomeBalance } from "../order/wire";
 
 export * from "./builders";
 export * from "./client";
+export * from "./state";
 export * from "./wire";
 
 export interface Portfolio {
@@ -77,20 +78,80 @@ export interface DepositAssetMetadata {
   decimals: number;
 }
 
+/** One exact SPL balance plus display metadata from a complete wallet snapshot. */
 export interface DepositTokenBalance {
   mint: PubkeyStr;
+  /** Exact mint-denominated idle amount; precision is defined by the mint. */
   idle: string;
   symbol: string;
   name: string;
-  icon_url_low?: string;
-  icon_url_medium?: string;
-  icon_url_high?: string;
+  /** Missing or null means metadata is currently unavailable. */
+  icon_url_low?: string | null;
+  /** Missing or null means metadata is currently unavailable. */
+  icon_url_medium?: string | null;
+  /** Missing or null means metadata is currently unavailable. */
+  icon_url_high?: string | null;
 }
 
+/** Complete REST snapshot with native SOL separate from the SPL mint map. */
 export interface DepositTokenBalancesSnapshot {
+  /** Non-negative safe-integer lower slot valid for both observed components. */
+  context_slot: number;
+  /** Complete SPL map; native SOL never appears under a synthetic mint. */
+  balances: Record<PubkeyStr, DepositTokenBalance>;
+  /** Canonical non-negative SOL text with exactly nine fractional digits. */
+  native_sol_balance: string;
+}
+
+/** Recoverable stream conditions that retain the last accepted balance state. */
+export type WalletDepositBalanceStatus = "reconnecting" | "metadata_unavailable";
+
+/** Complete wallet-scoped event that authoritatively replaces all state. */
+export interface WalletDepositBalanceSnapshot {
+  event_type: "wallet_deposit_balance_snapshot";
+  wallet_address: PubkeyStr;
+  /** Non-negative safe-integer lower slot; it may trail a component update. */
   context_slot: number;
   balances: Record<PubkeyStr, DepositTokenBalance>;
+  /** Exact non-negative native SOL with nine fractional digits. */
+  native_sol_balance: string;
 }
+
+/** Absolute single-mint replacement; zero is removed by the state reducer. */
+export interface WalletDepositBalanceUpdate {
+  event_type: "wallet_deposit_balance_update";
+  wallet_address: PubkeyStr;
+  /** Non-negative JavaScript safe-integer component observation slot. */
+  context_slot: number;
+  /** Complete current balance for the mint, never a delta. */
+  balance: DepositTokenBalance;
+}
+
+/** Absolute native SOL replacement, never a delta. */
+export interface WalletNativeSolBalanceUpdate {
+  event_type: "wallet_native_sol_balance_update";
+  wallet_address: PubkeyStr;
+  /** Non-negative JavaScript safe-integer component observation slot. */
+  context_slot: number;
+  /** Exact non-negative native SOL with nine fractional digits. */
+  native_sol_balance: string;
+}
+
+/** Informational wallet condition that does not advance slots or mutate balances. */
+export interface WalletDepositBalanceStatusEvent {
+  event_type: "wallet_deposit_balance_status";
+  wallet_address: PubkeyStr;
+  status: WalletDepositBalanceStatus;
+  /** Stable machine-readable backend reason for logging or UX. */
+  code: string;
+}
+
+/** Nested discriminated payload of the outer `wallet_deposit_balances` channel. */
+export type WalletDepositBalancesEvent =
+  | WalletDepositBalanceSnapshot
+  | WalletDepositBalanceUpdate
+  | WalletNativeSolBalanceUpdate
+  | WalletDepositBalanceStatusEvent;
 
 export function computedBase(
   balance: TokenBalance,

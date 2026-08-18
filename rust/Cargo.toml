@@ -26,6 +26,8 @@ sha3 = "0.10"
 # SPL (WASM-compatible)
 spl-token = { version = "9.0", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
+spl-token-interface = "2.0"
+spl-associated-token-account-interface = "2.0"
 
 # Serialization (WASM-compatible)
 serde = { version = "1.0", features = ["derive"] }

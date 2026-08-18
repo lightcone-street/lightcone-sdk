@@ -2,6 +2,7 @@
 
 pub mod builders;
 pub mod client;
+pub mod state;
 pub mod wire;
 
 use std::collections::{hash_map::Entry, HashMap};
@@ -11,6 +12,7 @@ pub use builders::{
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
     WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
+pub use state::{WalletDepositBalancesApplyResult, WalletDepositBalancesState};
 
 use crate::{
     prelude::{UserMarketBalance, UserOutcomeBalance},
@@ -18,7 +20,7 @@ use crate::{
 };
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 
 // ─── Portfolio ───────────────────────────────────────────────────────────────
 
@@ -151,23 +153,129 @@ pub struct DepositAssetMetadata {
     pub decimals: u16,
 }
 
-/// Combined balance + metadata for a deposit token.
+/// Exact mint-denominated balance plus optional display metadata for one SPL mint.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositTokenBalance {
+    /// SPL mint identifying this map entry.
     pub mint: PubkeyStr,
+    /// Exact token amount using the mint's own decimal precision.
     pub idle: Decimal,
+    /// Display symbol supplied by metadata.
     pub symbol: String,
+    /// Display name supplied by metadata.
     pub name: String,
+    /// Low-resolution icon, or `None` when metadata is unavailable.
     pub icon_url_low: Option<String>,
+    /// Medium-resolution icon, or `None` when metadata is unavailable.
     pub icon_url_medium: Option<String>,
+    /// High-resolution icon, or `None` when metadata is unavailable.
     pub icon_url_high: Option<String>,
 }
 
-/// Authenticated deposit-token balances observed at a confirmed Solana slot.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// Complete authenticated external-wallet balance snapshot.
+///
+/// Native SOL is required as canonical nine-decimal text and intentionally
+/// remains outside the mint-keyed SPL map. The type has no empty default because
+/// omitting either balance component would manufacture a partial snapshot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositTokenBalancesSnapshot {
+    /// Lower confirmed slot valid for both independently observed components.
     pub context_slot: u64,
+    /// Complete SPL balance map keyed by mint; it does not contain native SOL.
     pub balances: HashMap<PubkeyStr, DepositTokenBalance>,
+    /// Exact non-negative native SOL with exactly nine fractional digits.
+    #[serde(deserialize_with = "deserialize_native_sol_balance")]
+    pub native_sol_balance: String,
+}
+
+/// Recoverable availability states emitted by the wallet-balance stream.
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WalletDepositBalanceStatus {
+    /// The backend is restoring its wallet watcher and will publish a replacement.
+    Reconnecting,
+    /// Balances remain usable, but token metadata could not be refreshed.
+    MetadataUnavailable,
+}
+
+/// Nested payload carried by the authenticated `wallet_deposit_balances` channel.
+///
+/// [`WalletDepositBalancesState`] centralizes the replacement, wallet-matching,
+/// absolute-update, and non-mutating-status rules for these variants.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "event_type")]
+pub enum WalletDepositBalancesEvent {
+    /// Complete wallet baseline that replaces all prior SPL and native state.
+    #[serde(rename = "wallet_deposit_balance_snapshot")]
+    Snapshot {
+        /// External wallet observed by this stream.
+        wallet_address: PubkeyStr,
+        /// Lower slot valid across the snapshot's SPL and native components.
+        context_slot: u64,
+        /// Complete mint-keyed SPL map.
+        balances: HashMap<PubkeyStr, DepositTokenBalance>,
+        /// Exact non-negative native SOL with nine fractional digits.
+        #[serde(deserialize_with = "deserialize_native_sol_balance")]
+        native_sol_balance: String,
+    },
+    /// Absolute replacement for one SPL mint; zero removes it from app state.
+    #[serde(rename = "wallet_deposit_balance_update")]
+    BalanceUpdate {
+        /// Wallet whose initialized baseline may accept the update.
+        wallet_address: PubkeyStr,
+        /// Slot of this component observation, not a global stream sequence.
+        context_slot: u64,
+        /// Complete current balance for the affected mint, not a delta.
+        balance: DepositTokenBalance,
+    },
+    /// Absolute native SOL replacement, never a delta.
+    #[serde(rename = "wallet_native_sol_balance_update")]
+    NativeSolBalanceUpdate {
+        /// Wallet whose initialized baseline may accept the update.
+        wallet_address: PubkeyStr,
+        /// Slot of this native component observation.
+        context_slot: u64,
+        /// Exact non-negative native SOL with nine fractional digits.
+        #[serde(deserialize_with = "deserialize_native_sol_balance")]
+        native_sol_balance: String,
+    },
+    /// Wallet-scoped diagnostic that leaves balances and slots unchanged.
+    #[serde(rename = "wallet_deposit_balance_status")]
+    Status {
+        /// Wallet affected by the stream condition.
+        wallet_address: PubkeyStr,
+        /// Typed recoverable condition.
+        status: WalletDepositBalanceStatus,
+        /// Stable backend diagnostic code for logging or UX.
+        code: String,
+    },
+}
+
+/// Preserve the backend's canonical lamport representation as text.
+///
+/// General decimal syntax, exponents, signs, leading zeroes, and rounding are
+/// rejected so every accepted value maps directly to one exact lamport count.
+fn deserialize_native_sol_balance<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer)?;
+    let Some((whole, fraction)) = value.split_once('.') else {
+        return Err(serde::de::Error::custom(
+            "native_sol_balance must have exactly nine decimal places",
+        ));
+    };
+    if whole.is_empty()
+        || (whole.len() > 1 && whole.starts_with('0'))
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() != 9
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(serde::de::Error::custom(
+            "native_sol_balance must have exactly nine decimal places",
+        ));
+    }
+    Ok(value)
 }
 
 #[cfg(test)]
@@ -178,6 +286,7 @@ mod deposit_token_balance_tests {
     fn snapshot_deserializes_context_slot_and_balances() {
         let snapshot: DepositTokenBalancesSnapshot = serde_json::from_value(serde_json::json!({
             "context_slot": 1234,
+            "native_sol_balance": "1.234567890",
             "balances": {
                 "MintA": {
                     "mint": "MintA",
@@ -190,10 +299,48 @@ mod deposit_token_balance_tests {
         .unwrap();
 
         assert_eq!(snapshot.context_slot, 1234);
+        assert_eq!(snapshot.native_sol_balance, "1.234567890");
         assert_eq!(
             snapshot.balances[&PubkeyStr::from("MintA")].idle,
             Decimal::new(125, 2)
         );
+    }
+
+    #[test]
+    fn snapshot_requires_native_sol_balance() {
+        assert!(
+            serde_json::from_value::<DepositTokenBalancesSnapshot>(serde_json::json!({
+                "context_slot": 1234,
+                "balances": {}
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn snapshot_preserves_exact_zero_native_sol_balance() {
+        let snapshot: DepositTokenBalancesSnapshot = serde_json::from_value(serde_json::json!({
+            "context_slot": 1234,
+            "balances": {},
+            "native_sol_balance": "0.000000000"
+        }))
+        .unwrap();
+
+        assert_eq!(snapshot.native_sol_balance, "0.000000000");
+    }
+
+    #[test]
+    fn snapshot_requires_exact_nine_decimal_native_sol_balance() {
+        for native_sol_balance in ["1", "1.0", "01.000000000", "-1.000000000"] {
+            assert!(
+                serde_json::from_value::<DepositTokenBalancesSnapshot>(serde_json::json!({
+                    "context_slot": 1234,
+                    "balances": {},
+                    "native_sol_balance": native_sol_balance
+                }))
+                .is_err()
+            );
+        }
     }
 }
 

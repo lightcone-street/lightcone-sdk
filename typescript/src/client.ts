@@ -110,6 +110,16 @@ export class LightconeClient implements ClientContext {
     return this.signingStrategyValue;
   }
 
+  /**
+   * Cached authenticated identity shared by domain sub-clients.
+   *
+   * This is distinct from the HTTP cookie token and may be expired; fund-moving
+   * operations must re-check its lifetime and wallet before signing.
+   */
+  get authCredentials(): AuthCredentials | undefined {
+    return this.authStateStore.getCredentials();
+  }
+
   setSigningStrategy(strategy: SigningStrategy): void {
     this.signingStrategyValue = strategy;
   }
@@ -373,8 +383,11 @@ export class LightconeClientBuilder {
     return this;
   }
 
-  privyWalletId(walletId: string): LightconeClientBuilder {
-    this.signingStrategyValue = { type: "privy", walletId };
+  privyWalletId(
+    walletId: string,
+    walletAddress?: string
+  ): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "privy", walletId, walletAddress };
     return this;
   }
 
