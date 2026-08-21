@@ -219,7 +219,11 @@ export class LightconeClient implements ClientContext {
     return signAndSubmitTxConfirmedWithSlotFn(this, tx);
   }
 
-  /** Confirm a fee-prepared transaction without replacing its message. */
+  /**
+   * Sign, submit, and confirm a fee-prepared transaction without replacing its
+   * message. Privy and wallet-adapter message mutation are rejected. A confirmation
+   * timeout leaves the outcome unknown; inspect authoritative state before retrying.
+   */
   async signAndSubmitPreparedTxConfirmedWithSlot(
     tx: Transaction
   ): Promise<ConfirmedTransaction> {

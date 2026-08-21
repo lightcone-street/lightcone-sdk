@@ -259,7 +259,10 @@ impl ConditionalToken {
 }
 
 impl DepositAsset {
-    /// User-facing symbol, normalizing the canonical wrapped-SOL mint to `SOL`.
+    /// Return `SOL` for the canonical WSOL mint, or the API symbol for any other asset.
+    ///
+    /// This is presentation-only; it does not change the mint or the account
+    /// used by transaction planning.
     pub fn display_symbol(&self) -> &str {
         if self.deposit_asset.as_str() == crate::domain::position::WRAPPED_SOL_MINT_ADDRESS {
             "SOL"
@@ -854,7 +857,6 @@ mod tests {
     }
 
     #[test]
-    /// Normalizes only the canonical wrapped-SOL mint without trusting backend display text.
     fn deposit_asset_display_symbol_uses_the_user_facing_sol_identity() {
         let mut response = minimal_deposit_asset_response();
         response.deposit_asset = crate::domain::position::WRAPPED_SOL_MINT_ADDRESS.into();

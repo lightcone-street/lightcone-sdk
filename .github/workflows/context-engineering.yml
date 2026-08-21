@@ -1,0 +1,19 @@
+name: Context Engineering Adoption
+
+on:
+  pull_request:
+  push:
+    branches: [main, staging, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-adoption:
+    name: Validate Adoption
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Validate shared guidance compatibility
+        uses: lightcone-street/context-engineering/.github/actions/validate-adoption@v0.1.0

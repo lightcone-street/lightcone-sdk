@@ -1,5 +1,5 @@
 /**
- * Fund-moving local/staging example: plan and confirm a native-SOL withdrawal
+ * Fund-moving local/staging example: plan and confirm a native SOL withdrawal
  * without closing the persistent canonical WSOL account, then refresh a complete
  * wallet snapshot covering the confirmation slot.
  */

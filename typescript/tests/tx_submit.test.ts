@@ -1,4 +1,3 @@
-/** Prepared-message submission tests for the external-wallet security boundary. */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
@@ -19,10 +18,8 @@ import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
 import type { ExternalSigner } from "../src/shared/signing";
 
-/** Deterministic signature returned by the fake RPC transport. */
 const SIGNATURE = "prepared-signature";
 
-/** Build an unsigned prepared transfer carrying the supplied fee-estimated blockhash. */
 function preparedTransaction(blockhash: string): Transaction {
   const payer = Keypair.generate().publicKey;
   return new Transaction({ feePayer: payer, recentBlockhash: blockhash }).add(
@@ -34,7 +31,6 @@ function preparedTransaction(blockhash: string): Transaction {
   );
 }
 
-/** Build a client context that records the exact messages submitted to RPC. */
 function contextFor(
   signer: ExternalSigner,
   funding: {
@@ -68,12 +64,10 @@ function contextFor(
       if (funding.balanceError) throw funding.balanceError;
       return funding.balanceLamports ?? 5_000;
     },
-    /** Record the submitted message while allowing signatures to vary. */
     async sendRawTransaction(bytes: Uint8Array) {
       submittedMessages.push(Transaction.from(bytes).serializeMessage());
       return SIGNATURE;
     },
-    /** Return one deterministic confirmed processing slot. */
     async getSignatureStatuses() {
       return {
         context: { slot: 7 },
@@ -101,13 +95,10 @@ function contextFor(
   };
 }
 
-/** Wallet adapter that adds no mutation, isolating the prepared-message path. */
 const echoSigner: ExternalSigner = {
-  /** Echo login bytes; login signing is outside these tests. */
   async signMessage(message) {
     return message;
   },
-  /** Return transaction bytes unchanged to preserve the prepared message. */
   async signTransaction(transaction) {
     return transaction;
   },
@@ -489,14 +480,11 @@ describe("prepared transaction submission", () => {
     const transaction = preparedTransaction(
       Keypair.generate().publicKey.toBase58()
     );
-    /** Wallet adapter that preserves login bytes but replaces the transaction blockhash. */
     const rehashSigner: ExternalSigner = {
       walletAddress: transaction.feePayer!.toBase58(),
-      /** Echo login bytes; login signing is outside this mutation test. */
       async signMessage(message) {
         return message;
       },
-      /** Replace the prepared blockhash to exercise fail-before-submit validation. */
       async signTransaction(bytes) {
         const changed = Transaction.from(bytes);
         changed.recentBlockhash = Keypair.generate().publicKey.toBase58();

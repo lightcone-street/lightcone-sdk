@@ -150,7 +150,6 @@ def _wallet_client(
         return 5_000
 
     async def fake_send_raw_transaction(_tx_bytes: bytes) -> str:
-        """Return a signature without contacting RPC; message checks happen earlier."""
         return str(Signature.default())
 
     client._rpc.get_latest_blockhash_with_height = (  # type: ignore[method-assign]
@@ -225,7 +224,6 @@ async def test_confirmed_submit_uses_explicit_strategy_after_configuration_swap(
 
 @pytest.mark.asyncio
 async def test_prepared_submit_preserves_the_fee_estimated_message() -> None:
-    """Submit the exact fee-estimated message and expose its confirmed slot."""
     tx = _unsigned_tx()
     signer = _EchoSigner()
     signer.wallet_address = str(tx.message.account_keys[0])
@@ -637,7 +635,6 @@ async def test_sponsored_privy_bypasses_local_funding_evidence() -> None:
 
 @pytest.mark.asyncio
 async def test_prepared_submit_rejects_a_signer_blockhash_change() -> None:
-    """Reject a wallet mutation before any changed prepared bytes reach RPC."""
     tx = _unsigned_tx()
     signer = _RehashSigner()
     signer.wallet_address = str(tx.message.account_keys[0])
