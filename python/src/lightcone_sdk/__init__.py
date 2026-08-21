@@ -166,6 +166,14 @@ from .rpc import Rpc
 # External-wallet balance wire models, reducer state, and lifecycle results.
 from .domain.position import (
     DepositTokenBalancesSnapshot,
+    SolActionCosts,
+    SolActionKind,
+    SolActionPlan,
+    SolBalanceAvailability,
+    SolBalanceComponents,
+    SolComponentDelta,
+    SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
+    SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
     WalletDepositBalanceSnapshot,
     WalletDepositBalanceStatus,
     WalletDepositBalanceStatusEvent,
@@ -174,6 +182,7 @@ from .domain.position import (
     WalletDepositBalancesState,
     WalletDepositBalanceUpdate,
     WalletNativeSolBalanceUpdate,
+    native_withdraw_seed,
 )
 
 from .domain.market import (
@@ -426,6 +435,15 @@ __all__ = [
     "Rpc",
     # External wallet balances
     "DepositTokenBalancesSnapshot",
+    "SolActionCosts",
+    "SolActionKind",
+    "SolActionPlan",
+    "SolBalanceAvailability",
+    "SolBalanceComponents",
+    "SolComponentDelta",
+    "SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS",
+    "SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS",
+    "native_withdraw_seed",
     "WalletDepositBalanceSnapshot",
     "WalletDepositBalanceStatus",
     "WalletDepositBalanceStatusEvent",

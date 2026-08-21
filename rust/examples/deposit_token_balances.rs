@@ -1,38 +1,45 @@
-//! Fund-moving local/staging wallet-balance lifecycle example.
+//! Fund-moving local/staging native-SOL withdrawal example.
 //!
-//! The example authenticates, initializes state from the SDK-selected WebSocket
-//! endpoint, wraps `0.1` SOL, waits for authoritative state, and then closes the
-//! entire canonical WSOL account. The close also unwraps any pre-existing WSOL.
-//! A failure after transaction submission is not a rollback signal: inspect an
-//! authoritative balance before retrying because funds may already have moved.
+//! The example initializes exact native and canonical WSOL state, plans a native
+//! withdrawal without closing the canonical account, confirms with a slot, and
+//! refreshes a complete snapshot covering that slot before publishing new state.
 
 mod common;
 
-use common::{get_keypair, login, other, rest_client, ExampleResult};
+use common::{get_keypair, get_keypair_from_env, login, other, rest_client, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::{
     prelude::{
         PubkeyStr, SigningStrategy, WalletDepositBalancesApplyResult, WalletDepositBalancesState,
     },
-    shared::exact_scaled_integer,
     ws::{Kind, MessageOut, WsEvent},
 };
-use num_bigint::BigUint;
+use solana_pubkey::Pubkey;
+use solana_signer::Signer;
 use std::{env, sync::Arc, time::Duration};
 
-const WRAP_AMOUNT: &str = "0.1";
+/// Native SOL transferred per run, expressed in lamports (0.001 SOL).
+const WITHDRAW_AMOUNT_LAMPORTS: u64 = 1_000_000;
 
+/// Run the fund-moving lifecycle against the configured non-production wallets.
 #[tokio::main]
 async fn main() -> ExampleResult {
     require_non_production()?;
+    // SDK wallets form a stable funding cycle: Rust -> TypeScript -> Python -> Rust.
+    // Reusing the existing paths avoids both a recipient-specific setting and
+    // repeated faucet top-offs when this fund-moving example is run in CI.
+    let recipient: Pubkey = get_keypair_from_env("LIGHTCONE_WALLET_PATH_TS", None)?.pubkey();
     let client = rest_client()?;
     let keypair = Arc::new(get_keypair()?);
+    if recipient == keypair.pubkey() {
+        return Err(other("Rust and TypeScript SDK wallet paths must identify peers").into());
+    }
     let session = login(&client, keypair.as_ref(), false).await?;
     let wallet = session.user.trading_wallet(session.auth_method);
 
     let mut state = WalletDepositBalancesState::default();
 
-    // Register the wallet stream before any conversion. Component updates are
+    // Register the wallet stream before any action. Component updates are
     // ignored until its first complete snapshot establishes the state baseline.
     let mut ws = client.ws_native();
     ws.connect().await?;
@@ -71,30 +78,42 @@ async fn main() -> ExampleResult {
         .set_signing_strategy(SigningStrategy::Native(keypair.clone()))
         .await;
 
-    // Confirmation does not mutate cached state. Wait for the authoritative
-    // post-wrap observation before using that state to authorize full unwrap.
-    let expected_wsol_lamports =
-        canonical_wsol_lamports(&state).unwrap_or_default() + exact_scaled_integer(WRAP_AMOUNT, 9)?;
-    let signature = client.positions().wrap_sol(WRAP_AMOUNT, &state).await?;
-    println!("wrapped {WRAP_AMOUNT} SOL: {signature}");
-    wait_for_wallet_state(&ws, &mut state, "post-wrap WSOL update", move |state| {
-        canonical_wsol_lamports(state).as_ref() == Some(&expected_wsol_lamports)
-    })
-    .await?;
+    let plan = client
+        .positions()
+        .plan_native_sol_withdrawal(recipient, WITHDRAW_AMOUNT_LAMPORTS, &state, false)
+        .await?;
     println!(
-        "post-wrap native + canonical WSOL: {}",
-        state.combined_sol_balance()?
+        "spendable SOL lamports: {}",
+        plan.availability.spendable_lamports
+    );
+    println!(
+        "reserved SOL lamports: {}",
+        plan.availability.reserve_lamports
+    );
+    let confirmed = client
+        .sign_and_submit_prepared_tx_confirmed_with_slot(plan.transaction)
+        .await?;
+    println!(
+        "withdrew {WITHDRAW_AMOUNT_LAMPORTS} lamports to {recipient}: {} at slot {}",
+        confirmed.signature, confirmed.slot
     );
 
-    println!("closing the full canonical WSOL account; partial unwrap is not supported");
-    let signature = client.positions().unwrap_wsol(&state).await?;
-    println!("unwrapped full canonical WSOL account: {signature}");
-    wait_for_wallet_state(&ws, &mut state, "post-unwrap WSOL removal", move |state| {
-        !has_positive_wsol(state)
+    // Confirmation does not mutate cached state. First observe the wallet
+    // stream at or beyond the processing slot, then replace it with a complete
+    // slot-bounded REST snapshot before publishing post-transaction state.
+    wait_for_wallet_state(&ws, &mut state, "post-withdraw wallet update", |state| {
+        state
+            .context_slot
+            .is_some_and(|slot| slot >= confirmed.slot)
     })
     .await?;
+    let snapshot = client
+        .positions()
+        .deposit_token_balances(Some(confirmed.slot))
+        .await?;
+    state.apply_rest_snapshot(PubkeyStr::from(wallet), &snapshot);
     println!(
-        "post-unwrap native + canonical WSOL: {}",
+        "post-withdraw native + canonical WSOL: {}",
         state.combined_sol_balance()?
     );
 
@@ -111,8 +130,8 @@ async fn main() -> ExampleResult {
 
 /// Wait for an accepted state that satisfies one lifecycle condition.
 ///
-/// Conversion barriers compare exact canonical WSOL lamports. A native-only or
-/// unrelated positive update cannot release them, and equal/lower slots remain valid.
+/// The initial barrier accepts the first complete wallet baseline; the
+/// post-transaction barrier requires an observation covering its confirmed slot.
 async fn wait_for_wallet_state(
     ws: &lightcone::ws::native::WsClient,
     state: &mut WalletDepositBalancesState,
@@ -138,26 +157,14 @@ async fn wait_for_wallet_state(
     Ok(())
 }
 
-fn has_positive_wsol(state: &WalletDepositBalancesState) -> bool {
-    canonical_wsol_lamports(state).is_some_and(|idle| idle > BigUint::default())
-}
-
-fn canonical_wsol_lamports(state: &WalletDepositBalancesState) -> Option<BigUint> {
-    let mint = PubkeyStr::from(spl_token_interface::native_mint::id().to_string());
-    state
-        .balances
-        .get(&mint)
-        .and_then(|balance| exact_scaled_integer(&balance.idle.to_string(), 9).ok())
-}
-
+/// Fail closed before network or signing side effects outside built-in safe routes.
 fn require_non_production() -> ExampleResult {
-    // Missing configuration fails closed because this example moves funds and
-    // destructively closes the wallet's complete canonical WSOL account.
+    // Missing configuration fails closed because this example moves funds.
     let environment = env::var("LIGHTCONE_ENV")
         .unwrap_or_else(|_| "prod".into())
         .to_lowercase();
     if !matches!(environment.as_str(), "local" | "staging") {
-        return Err("SOL conversion examples are disabled in production".into());
+        return Err("SOL action examples are disabled in production".into());
     }
 
     // Overrides can repoint a safe environment label at production infrastructure.
@@ -166,7 +173,7 @@ fn require_non_production() -> ExampleResult {
         .find(|name| env::var_os(name).is_some());
     if let Some(name) = override_name {
         return Err(format!(
-            "SOL conversion examples require built-in local/staging configuration; unset {name}"
+            "SOL action examples require built-in local/staging configuration; unset {name}"
         )
         .into());
     }

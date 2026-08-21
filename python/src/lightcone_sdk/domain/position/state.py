@@ -6,7 +6,8 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 
-from ...shared.scaling import ExactDecimal, exact_scaled_integer
+from ...error import SdkError
+from ...shared.scaling import exact_scaled_integer
 from . import (
     DepositTokenBalance,
     DepositTokenBalancesSnapshot,
@@ -17,8 +18,121 @@ from . import (
     WalletNativeSolBalanceUpdate,
 )
 
-#: Canonical Tokenkeg WSOL mint used by aggregation and conversion preflight.
+#: Canonical WSOL mint under Solana's legacy SPL Token Program (Tokenkeg),
+#: deliberately pinned away from Token-2022 for one protocol ATA authority.
 WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112"
+
+#: Unsponsored native reserve floor in lamports when canonical ATA creation is required.
+SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS = 3_500_000
+#: Unsponsored native reserve floor in lamports when canonical WSOL already exists.
+SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS = 1_000_000
+#: Largest exact non-negative lamport value accepted by Solana u64 fields.
+MAX_SOLANA_LAMPORTS = 2**64 - 1
+
+
+@dataclass(frozen=True)
+class SolBalanceComponents:
+    """Exact lamport components behind the single displayed SOL asset."""
+
+    #: Lamports held by the Trading Wallet system account.
+    native_lamports: int
+    #: Token amount in the Trading Wallet's persistent canonical WSOL ATA.
+    canonical_wsol_lamports: int
+
+    @property
+    def displayed_lamports(self) -> int:
+        """Return native plus canonical WSOL without floating-point conversion."""
+        return self.native_lamports + self.canonical_wsol_lamports
+
+
+@dataclass(frozen=True)
+class SolActionCosts:
+    """Live chain costs and sponsorship inputs for one planned action."""
+
+    #: Live getFeeForMessage result, in lamports.
+    fee_lamports: int
+    #: Rent funded up front, even when a temporary account refunds it later.
+    upfront_rent_lamports: int
+    #: Whether this transaction creates the persistent canonical WSOL ATA.
+    creates_canonical_wsol_account: bool
+    #: Exact public sponsorship capability supplied by the caller.
+    sponsored: bool
+
+    @property
+    def reserve_lamports(self) -> int:
+        """Reserve live costs or the matching unsponsored safety floor."""
+        for label, value in (
+            ("transaction fee", self.fee_lamports),
+            ("upfront rent", self.upfront_rent_lamports),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > MAX_SOLANA_LAMPORTS
+            ):
+                raise SdkError(
+                    f"{label} must fit the non-negative u64 lamport range"
+                )
+        live_costs = self.fee_lamports + self.upfront_rent_lamports
+        if live_costs > MAX_SOLANA_LAMPORTS:
+            raise SdkError("combined transaction costs must fit u64 lamports")
+        if self.sponsored:
+            return 0
+        floor = (
+            SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS
+            if self.creates_canonical_wsol_account
+            else SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS
+        )
+        return max(live_costs, floor)
+
+
+@dataclass(frozen=True)
+class SolBalanceAvailability:
+    """Action-specific displayed, reserved, and spendable SOL values."""
+
+    #: Separately authoritative native and canonical WSOL balances.
+    components: SolBalanceComponents
+    #: Sum of both components in lamports, before reserve.
+    displayed_lamports: int
+    #: Native lamports withheld for live costs and the matching safety floor.
+    reserve_lamports: int
+    #: Displayed lamports available to this action after reserve.
+    spendable_lamports: int
+
+    @classmethod
+    def from_costs(
+        cls, components: SolBalanceComponents, costs: SolActionCosts
+    ) -> SolBalanceAvailability:
+        """Derive availability and require native SOL to fund the reserve."""
+        for label, value in (
+            ("native SOL", components.native_lamports),
+            ("canonical WSOL", components.canonical_wsol_lamports),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > MAX_SOLANA_LAMPORTS
+            ):
+                raise SdkError(
+                    f"{label} must fit the non-negative u64 lamport range"
+                )
+        reserve = costs.reserve_lamports
+        displayed = components.displayed_lamports
+        if displayed > MAX_SOLANA_LAMPORTS:
+            raise SdkError("displayed SOL exceeds the transaction u64 range")
+        if components.native_lamports < reserve:
+            raise SdkError(
+                "native SOL balance cannot fund the required "
+                f"{reserve} lamport transaction reserve"
+            )
+        return cls(
+            components=components,
+            displayed_lamports=displayed,
+            reserve_lamports=reserve,
+            spendable_lamports=displayed - reserve,
+        )
 
 
 class WalletDepositBalancesApplyResult(str, Enum):
@@ -44,9 +158,13 @@ class WalletDepositBalancesState:
     reference; treat payload entries as immutable after applying them.
     """
 
+    #: Wallet owning the current complete baseline, or None before initialization.
     wallet_address: str | None = None
+    #: Slot of the last accepted observation, not a globally monotonic version.
     context_slot: int | None = None
+    #: Sparse mint-keyed SPL balances; native SOL is never inserted here.
     balances: dict[str, DepositTokenBalance] = field(default_factory=dict)
+    #: Exact nine-decimal native SOL text, or None before initialization.
     native_sol_balance: str | None = None
 
     def apply_rest_snapshot(
@@ -114,16 +232,30 @@ class WalletDepositBalancesState:
         )
         return _format_lamports(native + wrapped_lamports)
 
+    def sol_components(self) -> SolBalanceComponents:
+        """Return exact native and canonical WSOL transaction components."""
+        try:
+            native_lamports = self.native_sol_lamports()
+            canonical_wsol_lamports = self.canonical_wsol_lamports()
+        except ValueError as error:
+            raise SdkError(f"invalid SOL balance component: {error}") from error
+        if (
+            native_lamports > MAX_SOLANA_LAMPORTS
+            or canonical_wsol_lamports > MAX_SOLANA_LAMPORTS
+        ):
+            raise SdkError("SOL component exceeds the transaction u64 range")
+        return SolBalanceComponents(native_lamports, canonical_wsol_lamports)
+
     def native_sol_lamports(self) -> int:
         """Scale cached native SOL exactly; transaction range is checked elsewhere."""
         if self.native_sol_balance is None:
             raise ValueError("wallet balance state is not initialized")
-        return exact_scaled_integer(self.native_sol_balance, 9)
+        return int(exact_scaled_integer(self.native_sol_balance, 9))
 
-    def has_positive_wsol(self) -> bool:
-        """Validate and test only the canonical WSOL idle amount."""
+    def canonical_wsol_lamports(self) -> int:
+        """Scale the canonical WSOL idle balance exactly to lamports."""
         wrapped = self.balances.get(WRAPPED_SOL_MINT)
-        return wrapped is not None and exact_scaled_integer(wrapped.idle, 9) > 0
+        return exact_scaled_integer(wrapped.idle, 9) if wrapped is not None else 0
 
     def _matches_initialized_wallet(self, wallet_address: str) -> bool:
         """Prevent component events from crossing wallet or baseline boundaries."""
@@ -149,18 +281,6 @@ class WalletDepositBalancesState:
         self.context_slot = context_slot
         self.balances = dict(balances)
         self.native_sol_balance = native_sol_balance
-
-
-def sol_amount_to_lamports(value: ExactDecimal) -> int:
-    """Scale exact SOL without rounding and enforce Solana's unsigned ``u64`` cap.
-
-    Floats, negatives, and excess precision are rejected by the exact scaler.
-    Positivity is an operation-level requirement enforced by ``wrap_sol``.
-    """
-    lamports = exact_scaled_integer(value, 9)
-    if lamports > 2**64 - 1:
-        raise ValueError("SOL amount exceeds the transaction u64 range")
-    return lamports
 
 
 def _format_lamports(value: int) -> str:

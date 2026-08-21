@@ -3,6 +3,7 @@ import type {
   PublicKey,
   SignatureStatus,
   SignatureStatusConfig,
+  Transaction,
 } from "@solana/web3.js";
 import type { ClientContext } from "./context";
 import { requireConnection, connectionWithFailover } from "./context";
@@ -40,6 +41,14 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 3;
  * declared — a single reading can come from a forward-skewed RPC node.
  */
 const EXPIRY_HEIGHT_SAMPLES = 2;
+
+/** Convert a JSON number only when it still represents exact lamports. */
+function rpcLamports(value: number, label: string): bigint {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw SdkError.validation(`${label} must be a non-negative safe integer`);
+  }
+  return BigInt(value);
+}
 
 /** True once the cluster has voted the transaction to `confirmed` or beyond. */
 function isTransactionConfirmed(status: SignatureStatus): boolean {
@@ -97,6 +106,47 @@ export class Rpc {
     return connectionWithFailover(this.client, (connection) =>
       connection.getBlockHeight("confirmed")
     );
+  }
+
+  /** Distinguish a missing account from an unavailable confirmed RPC read. */
+  async accountExists(address: PublicKey): Promise<boolean> {
+    const account = await connectionWithFailover(this.client, (connection) =>
+      connection.getAccountInfo(address, "confirmed")
+    );
+    return account !== null;
+  }
+
+  /** Return the current rent-exempt minimum in lamports for `dataLength` account bytes. */
+  async minimumBalanceForRentExemption(dataLength: number): Promise<bigint> {
+    const lamports = await connectionWithFailover(this.client, (connection) =>
+      connection.getMinimumBalanceForRentExemption(dataLength, "confirmed")
+    );
+    return rpcLamports(lamports, "rent-exempt minimum");
+  }
+
+  /** Attach a fresh blockhash and return the exact message's live fee in lamports. */
+  async prepareAndEstimateTransactionFee(transaction: Transaction): Promise<bigint> {
+    const { blockhash, lastValidBlockHeight } = await this.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    return this.estimatePreparedTransactionFee(transaction);
+  }
+
+  /**
+   * Return the prepared message's live fee in lamports without replacing its blockhash.
+   * A null RPC estimate fails closed rather than becoming a zero fee.
+   */
+  async estimatePreparedTransactionFee(transaction: Transaction): Promise<bigint> {
+    if (!transaction.recentBlockhash) {
+      throw SdkError.validation("prepared transaction is missing a recent blockhash");
+    }
+    const fee = await connectionWithFailover(this.client, (connection) =>
+      connection.getFeeForMessage(transaction.compileMessage(), "confirmed")
+    );
+    if (fee.value === null) {
+      throw SdkError.validation("transaction fee estimate is unavailable");
+    }
+    return rpcLamports(fee.value, "transaction fee estimate");
   }
 
   /**

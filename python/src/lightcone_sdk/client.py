@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from .auth import AuthCredentials
 from .auth.client import Auth
@@ -40,7 +41,9 @@ from .ws.client import WsClient
 class ConfirmedTransaction:
     """A confirmed transaction signature and its processing slot."""
 
+    #: Base58 transaction signature accepted by the cluster.
     signature: str
+    #: Slot whose confirmed status authorizes a freshness-bounded state refresh.
     slot: int
 
 
@@ -60,6 +63,20 @@ def _signed_blockhash_unchanged(signed_bytes: bytes, expected_blockhash: object)
         )
     except Exception:
         return False
+
+
+def _validate_prepared_signed_transaction(
+    signed_bytes: bytes, expected_message: bytes
+) -> None:
+    """Require an external signer to preserve every fee-estimated message byte."""
+    from solders.transaction import Transaction
+
+    try:
+        signed_message = bytes(Transaction.from_bytes(signed_bytes).message)
+    except Exception as error:
+        raise SdkError(f"signed transaction is invalid: {error}") from error
+    if signed_message != expected_message:
+        raise SdkError("wallet changed the fee-prepared transaction message")
 
 
 class LightconeClient:
@@ -310,6 +327,25 @@ class LightconeClient:
         )
         return ConfirmedTransaction(signature=signature, slot=status.slot)
 
+    async def sign_and_submit_prepared_tx_confirmed_with_slot(
+        self, tx: Transaction
+    ) -> ConfirmedTransaction:
+        """Confirm a fee-prepared transaction without replacing its message.
+
+        Native and wallet-adapter signatures remain inspectable, so every
+        fee-payer, account, instruction, and blockhash byte is preserved. Privy
+        is rejected because its backend-owned final message cannot be verified.
+        Confirmation has no expiry bound; callers must inspect the signature
+        before retrying an unknown outcome.
+        """
+        from solders.hash import Hash
+
+        if tx.message.recent_blockhash == Hash.default():
+            raise SdkError("prepared transaction is missing a recent blockhash")
+        signature = await self._sign_and_submit_prepared_tx_inner(tx)
+        status = await self.rpc().confirm_signature_status(signature, None)
+        return ConfirmedTransaction(signature=signature, slot=status.slot)
+
     async def _sign_and_submit_tx_confirmed_with_strategy(
         self, tx: object, strategy: SigningStrategy
     ) -> str:
@@ -341,7 +377,7 @@ class LightconeClient:
                 await self.rpc().get_latest_blockhash_with_height()
             )
             tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
-            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[arg-type]
+            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[call-overload]
             return signature, last_valid_block_height
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
@@ -353,7 +389,7 @@ class LightconeClient:
             # Set the fresh blockhash without signing (empty keypair list),
             # mirroring the Rust/TypeScript submit paths.
             tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            tx_bytes = bytes(tx)  # type: ignore[call-overload]
             signed_bytes = await signer.sign_transaction(tx_bytes)
             # External signers may re-blockhash before signing; only trust the
             # expiry bound when the signed bytes still carry the blockhash set
@@ -376,7 +412,7 @@ class LightconeClient:
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            tx_bytes = bytes(tx)  # type: ignore[call-overload]
             base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
             result = await self.privy().sign_and_send_tx(
                 strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
@@ -384,6 +420,38 @@ class LightconeClient:
             # The backend signs and submits server-side; the SDK never sees
             # the final wire bytes, so no expiry bound can be trusted.
             return result.hash, None
+
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+
+    async def _sign_and_submit_prepared_tx_inner(
+        self, tx: Transaction, strategy: SigningStrategy | None = None
+    ) -> str:
+        """Sign and submit without mutating the fee-estimated message."""
+        if strategy is None:
+            strategy = self._require_signing_strategy()
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            from solders.keypair import Keypair as _Keypair
+
+            keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
+            tx.sign([keypair], tx.message.recent_blockhash)
+            return await self.rpc().send_raw_transaction(bytes(tx))
+
+        if strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
+            tx_bytes = bytes(tx)
+            expected_message = bytes(tx.message)
+            try:
+                signed_bytes = await signer.sign_transaction(tx_bytes)
+            except Exception as error:
+                raise classify_signer_error(str(error)) from error
+            _validate_prepared_signed_transaction(signed_bytes, expected_message)
+            return await self.rpc().send_raw_transaction(signed_bytes)
+
+        if strategy.kind == SigningStrategyKind.PRIVY:
+            raise SdkError(
+                "prepared transaction submission cannot verify a Privy-signed message"
+            )
 
         raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 

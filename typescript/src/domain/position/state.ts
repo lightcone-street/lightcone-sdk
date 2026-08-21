@@ -1,4 +1,5 @@
 import Decimal from "decimal.js";
+import { SdkError } from "../../error";
 import { exactScaledInteger } from "../../shared";
 import type { PubkeyStr } from "../../shared";
 import type {
@@ -7,9 +8,103 @@ import type {
   WalletDepositBalancesEvent,
 } from "./index";
 
-/** Canonical Tokenkeg wrapped-SOL mint used by state and conversion preflight. */
+/**
+ * Canonical WSOL mint under Solana's legacy SPL Token Program (“Tokenkeg”).
+ * ATA derivation stays pinned to Tokenkeg rather than Token-2022 so state and
+ * transaction planning address the protocol's one canonical account.
+ */
 export const WRAPPED_SOL_MINT =
   "So11111111111111111111111111111111111111112" as PubkeyStr;
+
+/** Unsponsored native reserve floor, in lamports, when canonical ATA creation is required. */
+export const SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS = 3_500_000n;
+/** Unsponsored native reserve floor, in lamports, when canonical WSOL already exists. */
+export const SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS = 1_000_000n;
+/** Maximum exact non-negative lamport value representable by Solana's u64 fields. */
+const MAX_SOLANA_LAMPORTS = 0xffff_ffff_ffff_ffffn;
+
+/** Exact components behind the single displayed SOL asset. */
+export interface SolBalanceComponents {
+  /** Lamports held by the Trading Wallet system account. */
+  nativeLamports: bigint;
+  /** Token amount in the Trading Wallet's persistent canonical WSOL ATA. */
+  canonicalWsolLamports: bigint;
+}
+
+/** Live chain costs used to reserve transaction funding. */
+export interface SolActionCosts {
+  /** Live `getFeeForMessage` result, in lamports. */
+  feeLamports: bigint;
+  /** Rent funded up front, even when a temporary account refunds it later. */
+  upfrontRentLamports: bigint;
+  /** Whether this transaction must create the persistent canonical WSOL ATA. */
+  createsCanonicalWsolAccount: boolean;
+  /** Exact public sponsorship capability supplied by the caller. */
+  sponsored: boolean;
+}
+
+/** Action-specific displayed, reserved, and spendable SOL values. */
+export interface SolBalanceAvailability {
+  /** Separately authoritative native and canonical WSOL balances. */
+  components: SolBalanceComponents;
+  /** Sum of both components in lamports, before reserve. */
+  displayedLamports: bigint;
+  /** Native lamports withheld for live costs and the matching safety floor. */
+  reserveLamports: bigint;
+  /** Displayed lamports available to this action after reserve. */
+  spendableLamports: bigint;
+}
+
+/** Derive fail-closed action availability from complete components and live costs. */
+export function solBalanceAvailability(
+  components: SolBalanceComponents,
+  costs: SolActionCosts
+): SolBalanceAvailability {
+  for (const [label, value] of [
+    ["native SOL", components.nativeLamports],
+    ["canonical WSOL", components.canonicalWsolLamports],
+  ] as const) {
+    if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
+      throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
+    }
+  }
+  for (const [label, value] of [
+    ["transaction fee", costs.feeLamports],
+    ["upfront rent", costs.upfrontRentLamports],
+  ] as const) {
+    if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
+      throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
+    }
+  }
+  const displayedLamports =
+    components.nativeLamports + components.canonicalWsolLamports;
+  if (displayedLamports > MAX_SOLANA_LAMPORTS) {
+    throw SdkError.validation("displayed SOL exceeds the transaction u64 range");
+  }
+  const liveCosts = costs.feeLamports + costs.upfrontRentLamports;
+  if (liveCosts > MAX_SOLANA_LAMPORTS) {
+    throw SdkError.validation("combined transaction costs must fit u64 lamports");
+  }
+  const floor = costs.createsCanonicalWsolAccount
+    ? SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS
+    : SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS;
+  const reserveLamports = costs.sponsored
+    ? 0n
+    : liveCosts > floor
+      ? liveCosts
+      : floor;
+  if (components.nativeLamports < reserveLamports) {
+    throw SdkError.validation(
+      `native SOL balance cannot fund the required ${reserveLamports} lamport transaction reserve`
+    );
+  }
+  return {
+    components,
+    displayedLamports,
+    reserveLamports,
+    spendableLamports: displayedLamports - reserveLamports,
+  };
+}
 
 /** Whether an event was accepted by, or rejected by, its lifecycle guard. */
 export type WalletDepositBalancesApplyResult =
@@ -117,6 +212,27 @@ export class WalletDepositBalancesState {
     return formatLamports(native + wrappedLamports);
   }
 
+  /** Return exact native and canonical WSOL components for transaction planning. */
+  solComponents(): SolBalanceComponents {
+    let nativeLamports: bigint;
+    let canonicalWsolLamports: bigint;
+    try {
+      nativeLamports = this.nativeSolLamports();
+      canonicalWsolLamports = this.canonicalWsolLamports();
+    } catch (error) {
+      throw SdkError.validation(
+        `invalid SOL balance component: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (
+      nativeLamports > MAX_SOLANA_LAMPORTS ||
+      canonicalWsolLamports > MAX_SOLANA_LAMPORTS
+    ) {
+      throw SdkError.validation("SOL component exceeds the transaction u64 range");
+    }
+    return { nativeLamports, canonicalWsolLamports };
+  }
+
   /** Scale cached native SOL exactly to lamports; requires initialized state. */
   nativeSolLamports(): bigint {
     if (this.nativeSolBalance === undefined) {
@@ -125,10 +241,10 @@ export class WalletDepositBalancesState {
     return exactScaledInteger(this.nativeSolBalance, 9);
   }
 
-  /** Validate and test the canonical WSOL idle amount used by unwrap preflight. */
-  hasPositiveWsol(): boolean {
+  /** Scale the canonical WSOL idle balance exactly to lamports. */
+  canonicalWsolLamports(): bigint {
     const wrapped = this.balances.get(WRAPPED_SOL_MINT);
-    return wrapped !== undefined && exactScaledInteger(wrapped.idle, 9) > 0n;
+    return wrapped ? exactScaledInteger(wrapped.idle, 9) : 0n;
   }
 
   private matchesInitializedWallet(walletAddress: PubkeyStr): boolean {

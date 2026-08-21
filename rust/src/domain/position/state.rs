@@ -10,6 +10,7 @@ use std::collections::HashMap;
 
 use num_bigint::BigUint;
 use num_traits::{ToPrimitive, Zero};
+use rust_decimal::Decimal;
 
 use crate::{
     error::SdkError,
@@ -19,8 +20,105 @@ use crate::{
 use super::{DepositTokenBalance, DepositTokenBalancesSnapshot, WalletDepositBalancesEvent};
 
 const SOL_DECIMALS: u8 = 9;
-/// Canonical Tokenkeg native mint shared by state lookup and transaction construction.
-pub(crate) const WRAPPED_SOL_MINT_ADDRESS: &str = "So11111111111111111111111111111111111111112";
+/// Canonical WSOL mint under Solana's legacy SPL Token Program (“Tokenkeg”).
+///
+/// State lookup and ATA derivation are deliberately pinned to Tokenkeg rather
+/// than Token-2022 so every SDK addresses the protocol's one canonical account.
+pub const WRAPPED_SOL_MINT_ADDRESS: &str = "So11111111111111111111111111111111111111112";
+
+/// Unsponsored native reserve floor, in lamports, when canonical ATA creation is required.
+pub const SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS: u64 = 3_500_000;
+/// Unsponsored native reserve floor, in lamports, when canonical WSOL already exists.
+pub const SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS: u64 = 1_000_000;
+
+/// Exact transaction-range components behind the single user-facing SOL balance.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SolBalanceComponents {
+    /// Lamports held by the Trading Wallet's system account.
+    pub native_lamports: u64,
+    /// Token amount in the Trading Wallet's canonical WSOL ATA, in lamports.
+    pub canonical_wsol_lamports: u64,
+}
+
+impl SolBalanceComponents {
+    /// Native plus canonical WSOL in lamports, saturated to Solana's `u64` range.
+    pub fn lamports(self) -> u64 {
+        self.native_lamports
+            .saturating_add(self.canonical_wsol_lamports)
+    }
+
+    /// Native plus canonical WSOL as an exact nine-decimal SOL amount.
+    pub fn sol(self) -> Decimal {
+        Decimal::from_i128_with_scale(i128::from(self.lamports()), u32::from(SOL_DECIMALS))
+    }
+}
+
+/// Live chain costs and sponsorship inputs used to derive action availability.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SolActionCosts {
+    /// Fee returned by `getFeeForMessage`, in lamports.
+    pub fee_lamports: u64,
+    /// Rent that must be funded before the transaction can execute, even if refunded later.
+    pub upfront_rent_lamports: u64,
+    /// Whether this transaction creates the canonical WSOL ATA.
+    pub creates_canonical_wsol_account: bool,
+    /// Exact public sponsorship capability for the current build.
+    pub sponsored: bool,
+}
+
+impl SolActionCosts {
+    /// Reserve enough native SOL for live costs and the configured safety floor.
+    pub fn reserve_lamports(self) -> Result<u64, SdkError> {
+        let live_costs = self
+            .fee_lamports
+            .checked_add(self.upfront_rent_lamports)
+            .ok_or_else(|| SdkError::Validation("SOL transaction costs overflow u64".into()))?;
+        if self.sponsored {
+            return Ok(0);
+        }
+        let floor = if self.creates_canonical_wsol_account {
+            SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS
+        } else {
+            SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS
+        };
+        Ok(live_costs.max(floor))
+    }
+}
+
+/// Action-specific SOL totals after reserving native transaction funds.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SolBalanceAvailability {
+    /// Separately authoritative native and canonical WSOL balances.
+    pub components: SolBalanceComponents,
+    /// Sum of both components in lamports, before action reserve.
+    pub displayed_lamports: u64,
+    /// Native lamports withheld for live costs and the safety floor.
+    pub reserve_lamports: u64,
+    /// Displayed lamports available to the planned action after reserve.
+    pub spendable_lamports: u64,
+}
+
+impl SolBalanceAvailability {
+    /// Derive availability, failing when transaction costs overflow or native SOL cannot pay reserve.
+    pub fn from_costs(
+        components: SolBalanceComponents,
+        costs: SolActionCosts,
+    ) -> Result<Self, SdkError> {
+        let displayed_lamports = components.lamports();
+        let reserve_lamports = costs.reserve_lamports()?;
+        if components.native_lamports < reserve_lamports {
+            return Err(SdkError::Validation(format!(
+                "native SOL balance cannot fund the required {reserve_lamports} lamport transaction reserve"
+            )));
+        }
+        Ok(Self {
+            components,
+            displayed_lamports,
+            reserve_lamports,
+            spendable_lamports: displayed_lamports.saturating_sub(reserve_lamports),
+        })
+    }
+}
 
 /// Lifecycle disposition of a wallet-deposit balance event.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -148,6 +246,18 @@ impl WalletDepositBalancesState {
         Ok(format_lamports(&(native + wrapped)))
     }
 
+    /// Return the exact transaction-range native and canonical WSOL components.
+    ///
+    /// Display arithmetic may exceed `u64`, but a fund-moving plan cannot. This
+    /// boundary therefore rejects either component when it cannot enter a Solana
+    /// instruction without rounding or truncation.
+    pub fn sol_components(&self) -> Result<SolBalanceComponents, SdkError> {
+        Ok(SolBalanceComponents {
+            native_lamports: self.native_sol_lamports()?,
+            canonical_wsol_lamports: self.canonical_wsol_lamports()?,
+        })
+    }
+
     /// Scale cached native SOL exactly at the transaction's `u64` boundary.
     pub(crate) fn native_sol_lamports(&self) -> Result<u64, SdkError> {
         let value = self.native_sol_balance.as_deref().ok_or_else(|| {
@@ -156,14 +266,14 @@ impl WalletDepositBalancesState {
         scaled_u64(value)
     }
 
-    /// Validate and test the canonical WSOL idle balance used by unwrap preflight.
-    pub(crate) fn has_positive_wsol(&self) -> Result<bool, SdkError> {
+    /// Scale the canonical WSOL idle balance exactly to lamports.
+    pub fn canonical_wsol_lamports(&self) -> Result<u64, SdkError> {
         match self
             .balances
             .get(&PubkeyStr::from(WRAPPED_SOL_MINT_ADDRESS))
         {
-            Some(balance) => Ok(!exact_lamports(&balance.idle.to_string())?.is_zero()),
-            None => Ok(false),
+            Some(balance) => scaled_u64(&balance.idle.to_string()),
+            None => Ok(0),
         }
     }
 
@@ -186,11 +296,6 @@ impl WalletDepositBalancesState {
         self.balances = balances;
         self.native_sol_balance = Some(native_sol_balance);
     }
-}
-
-/// Parse a SOL amount without rounding and enforce Solana's transaction range.
-pub(crate) fn sol_amount_to_lamports(value: &str) -> Result<u64, SdkError> {
-    scaled_u64(value)
 }
 
 fn scaled_u64(value: &str) -> Result<u64, SdkError> {
@@ -371,9 +476,108 @@ mod tests {
     }
 
     #[test]
-    fn conversion_amount_scaling_rejects_precision_and_u64_overflow() {
-        assert_eq!(sol_amount_to_lamports("0.123456789").unwrap(), 123_456_789);
-        assert!(sol_amount_to_lamports("0.0000000001").is_err());
-        assert!(sol_amount_to_lamports("18446744073.709551616").is_err());
+    /// Exposes saturating lamports and exact decimal SOL without a fallible display conversion.
+    fn sol_balance_components_report_lamports_and_sol() {
+        let components = SolBalanceComponents {
+            native_lamports: 1_000_000_000,
+            canonical_wsol_lamports: 500_000_000,
+        };
+        assert_eq!(components.lamports(), 1_500_000_000);
+        assert_eq!(components.sol(), Decimal::new(15, 1));
+
+        assert_eq!(
+            SolBalanceComponents {
+                native_lamports: u64::MAX,
+                canonical_wsol_lamports: 1,
+            }
+            .lamports(),
+            u64::MAX
+        );
+    }
+
+    #[test]
+    /// Keeps display arithmetic broad while rejecting transaction-range overflow.
+    fn transaction_components_reject_u64_overflow() {
+        let mut state = WalletDepositBalancesState::default();
+        state.apply_rest_snapshot(
+            PubkeyStr::from("WalletA"),
+            &snapshot(1, "18446744073.709551616"),
+        );
+        assert!(state.sol_components().is_err());
+    }
+
+    #[test]
+    /// Uses live costs above a floor and only honors explicit sponsorship.
+    fn availability_uses_live_costs_or_the_matching_unsponsored_floor() {
+        let components = SolBalanceComponents {
+            native_lamports: 10_000_000,
+            canonical_wsol_lamports: 5_000_000,
+        };
+        let existing = SolBalanceAvailability::from_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: 5_000,
+                upfront_rent_lamports: 0,
+                creates_canonical_wsol_account: false,
+                sponsored: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(existing.reserve_lamports, 1_000_000);
+        assert_eq!(existing.spendable_lamports, 14_000_000);
+
+        let creates_account = SolBalanceAvailability::from_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: 1_000_000,
+                upfront_rent_lamports: 3_000_000,
+                creates_canonical_wsol_account: true,
+                sponsored: false,
+            },
+        )
+        .unwrap();
+        assert_eq!(creates_account.reserve_lamports, 4_000_000);
+
+        let sponsored = SolBalanceAvailability::from_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: 20_000_000,
+                upfront_rent_lamports: 20_000_000,
+                creates_canonical_wsol_account: true,
+                sponsored: true,
+            },
+        )
+        .unwrap();
+        assert_eq!(sponsored.reserve_lamports, 0);
+        assert_eq!(sponsored.spendable_lamports, 15_000_000);
+        assert!(SolBalanceAvailability::from_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: u64::MAX,
+                upfront_rent_lamports: 1,
+                creates_canonical_wsol_account: true,
+                sponsored: true,
+            },
+        )
+        .is_err());
+    }
+
+    #[test]
+    /// Requires the reserve in native SOL even when aggregate WSOL is sufficient.
+    fn availability_requires_native_reserve_even_when_wrapped_sol_is_sufficient() {
+        let error = SolBalanceAvailability::from_costs(
+            SolBalanceComponents {
+                native_lamports: 999_999,
+                canonical_wsol_lamports: 10_000_000,
+            },
+            SolActionCosts {
+                fee_lamports: 5_000,
+                upfront_rent_lamports: 0,
+                creates_canonical_wsol_account: false,
+                sponsored: false,
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("transaction reserve"));
     }
 }

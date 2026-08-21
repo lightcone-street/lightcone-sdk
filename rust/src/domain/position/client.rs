@@ -2,15 +2,20 @@
 
 use crate::auth::AuthCredentials;
 use crate::client::LightconeClient;
+use crate::domain::market::Market;
 use crate::domain::position::builders::{
-    DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
+    build_direct_native_withdraw_transaction, build_sol_merge_transaction,
+    build_sol_redeem_transaction, build_sol_split_transaction,
+    build_temporary_native_withdraw_transaction, native_withdraw_seed, temporary_wsol_account,
+    wrapped_sol_accounts, DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+    SolActionKind, SolActionPlan, SolComponentDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
+    WithdrawFromPositionBuilder, TOKEN_ACCOUNT_SPACE,
 };
 use crate::domain::position::wire::{MarketPositionsResponse, PositionsResponse};
 use crate::domain::position::{
-    state::{sol_amount_to_lamports, WRAPPED_SOL_MINT_ADDRESS},
-    DepositTokenBalancesSnapshot, WalletDepositBalancesState,
+    DepositTokenBalancesSnapshot, SolActionCosts, SolBalanceAvailability,
+    WalletDepositBalancesState,
 };
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
@@ -21,66 +26,14 @@ use crate::program::types::{
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
-use crate::shared::signing::SigningStrategy;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
-use std::str::FromStr;
 
 fn deposit_token_balances_query(min_context_slot: Option<u64>) -> Vec<(&'static str, String)> {
     min_context_slot
         .map(|slot| vec![("min_context_slot", slot.to_string())])
         .unwrap_or_default()
-}
-
-fn wrapped_sol_accounts(wallet: &Pubkey) -> Result<(Pubkey, Pubkey), SdkError> {
-    // State preflight and transaction construction deliberately share the
-    // canonical Tokenkeg mint so conversion cannot target another token account.
-    let mint = Pubkey::from_str(WRAPPED_SOL_MINT_ADDRESS)
-        .map_err(|error| SdkError::Validation(format!("invalid wrapped SOL mint: {error}")))?;
-    let token_program = spl_token_interface::id();
-    let account = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
-        wallet,
-        &mint,
-        &token_program,
-    );
-    Ok((mint, account))
-}
-
-fn build_wrap_sol_transaction(wallet: Pubkey, lamports: u64) -> Result<Transaction, SdkError> {
-    let token_program = spl_token_interface::id();
-    let (mint, account) = wrapped_sol_accounts(&wallet)?;
-    let create = spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent(
-        &wallet,
-        &wallet,
-        &mint,
-        &token_program,
-    );
-    let transfer = solana_system_interface::instruction::transfer(&wallet, &account, lamports);
-    let sync = spl_token_interface::instruction::sync_native(&token_program, &account)
-        .map_err(|error| SdkError::Other(format!("failed to build SyncNative: {error}")))?;
-    // Ordering is load-bearing: create or reuse the ATA, transfer exact
-    // lamports, then make the token program observe them through SyncNative.
-    Ok(Transaction::new_with_payer(
-        &[create, transfer, sync],
-        Some(&wallet),
-    ))
-}
-
-fn build_unwrap_wsol_transaction(wallet: Pubkey) -> Result<Transaction, SdkError> {
-    let token_program = spl_token_interface::id();
-    let (_, account) = wrapped_sol_accounts(&wallet)?;
-    // CloseAccount is the full-unwrap boundary: all token lamports plus account
-    // rent return to the wallet, so this transaction has no amount parameter.
-    let close = spl_token_interface::instruction::close_account(
-        &token_program,
-        &account,
-        &wallet,
-        &wallet,
-        &[],
-    )
-    .map_err(|error| SdkError::Other(format!("failed to build CloseAccount: {error}")))?;
-    Ok(Transaction::new_with_payer(&[close], Some(&wallet)))
 }
 
 fn validated_conversion_wallet(
@@ -262,91 +215,434 @@ impl<'a> Positions<'a> {
             .await
     }
 
-    /// Wrap exact SOL into the authenticated wallet's canonical Tokenkeg WSOL ATA.
+    /// Plan one atomic SOL-backed split using canonical WSOL before wrapping a shortfall.
     ///
-    /// The amount must be positive, exactly representable at nine decimals, fit
-    /// Solana's `u64` lamport range, and not exceed cached native SOL. Credentials
-    /// must be live and match an initialized state, and the configured signing
-    /// strategy must control that wallet. The transaction creates the ATA
-    /// idempotently, transfers, syncs, and returns its confirmed signature. Fee
-    /// and rent reserves are left to chain execution, and state is not mutated.
-    /// An error while confirming does not prove submission was rolled back;
-    /// refresh from REST or WebSocket authority before retrying.
-    pub async fn wrap_sol(
+    /// Amounts and costs are lamports. Account checks and live fee/rent reads
+    /// fail closed; `sponsored` is an explicit caller capability, not inferred.
+    pub async fn plan_sol_split(
         &self,
-        amount: &str,
+        market: &Market,
+        amount_lamports: u64,
         state: &WalletDepositBalancesState,
-    ) -> Result<String, SdkError> {
-        let (wallet, strategy) = self.conversion_wallet(state).await?;
-        let lamports = sol_amount_to_lamports(amount)?;
-        if lamports == 0 {
+        sponsored: bool,
+    ) -> Result<SolActionPlan, SdkError> {
+        if amount_lamports == 0 {
             return Err(SdkError::Validation(
-                "wrap amount must be greater than zero".into(),
+                "split amount must be greater than zero".into(),
             ));
         }
-        // Do not guess a fee or ATA-rent reserve from stale client state; an
-        // equal-balance wrap is valid preflight and the chain remains authoritative.
-        if lamports > state.native_sol_lamports()? {
+        let wallet = self.planning_wallet(state).await?;
+        let components = state.sol_components()?;
+        let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
+        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        if components.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
-                "wrap amount exceeds cached native SOL balance".into(),
+                "canonical WSOL balance is positive but its account is unavailable".into(),
             ));
         }
-
-        self.client
-            .sign_and_submit_tx_confirmed_with_strategy(
-                build_wrap_sol_transaction(wallet, lamports)?,
-                strategy,
-            )
-            .await
+        let shortfall = amount_lamports.saturating_sub(components.canonical_wsol_lamports);
+        let upfront_rent_lamports = if canonical_exists {
+            0
+        } else {
+            self.client
+                .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+                .await?
+        };
+        let mut transaction = build_sol_split_transaction(
+            &self.client.program_id,
+            wallet,
+            market,
+            amount_lamports,
+            shortfall,
+            !canonical_exists,
+        )?;
+        let fee_lamports = self
+            .client
+            .prepare_and_estimate_transaction_fee(&mut transaction)
+            .await?;
+        let costs = SolActionCosts {
+            fee_lamports,
+            upfront_rent_lamports,
+            creates_canonical_wsol_account: !canonical_exists,
+            sponsored,
+        };
+        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        if amount_lamports > availability.spendable_lamports {
+            return Err(SdkError::Validation(
+                "split amount exceeds spendable SOL after transaction reserve".into(),
+            ));
+        }
+        let required_native = shortfall
+            .checked_add(availability.reserve_lamports)
+            .ok_or_else(|| SdkError::Validation("split native requirement overflows u64".into()))?;
+        if required_native > components.native_lamports {
+            return Err(SdkError::Validation(
+                "native SOL cannot fund the wrap shortfall and transaction reserve".into(),
+            ));
+        }
+        let wallet_costs = if sponsored {
+            0
+        } else {
+            fee_lamports
+                .checked_add(upfront_rent_lamports)
+                .ok_or_else(|| SdkError::Validation("split costs overflow u64".into()))?
+        };
+        Ok(SolActionPlan {
+            kind: SolActionKind::Split,
+            transaction,
+            costs,
+            availability,
+            expected_delta: SolComponentDelta {
+                native_lamports: -i128::from(shortfall) - i128::from(wallet_costs),
+                canonical_wsol_lamports: i128::from(shortfall) - i128::from(amount_lamports),
+            },
+        })
     }
 
-    /// Fully unwrap the authenticated wallet's canonical Tokenkeg WSOL ATA.
+    /// Plan a complete-set merge that retains returned WSOL in the canonical ATA.
     ///
-    /// Matching live credentials, a signing strategy controlling that wallet,
-    /// and a positive cached canonical balance are required. Closing the account
-    /// credits its entire token balance plus rent to the wallet; partial unwrap is
-    /// intentionally unsupported. The returned string is the confirmed signature,
-    /// and cached state remains unchanged. A confirmation error does not prove the
-    /// account stayed open; refresh authoritative state before retrying.
-    pub async fn unwrap_wsol(
+    /// The returned unsigned transaction is fee-prepared and does not mutate
+    /// cached state; callers refresh authority after confirmed submission.
+    pub async fn plan_sol_merge(
         &self,
+        market: &Market,
+        amount_lamports: u64,
         state: &WalletDepositBalancesState,
-    ) -> Result<String, SdkError> {
-        let (wallet, strategy) = self.conversion_wallet(state).await?;
-        if !state.has_positive_wsol()? {
+        sponsored: bool,
+    ) -> Result<SolActionPlan, SdkError> {
+        if amount_lamports == 0 {
             return Err(SdkError::Validation(
-                "canonical WSOL balance must be greater than zero".into(),
+                "merge amount must be greater than zero".into(),
             ));
         }
-
-        self.client
-            .sign_and_submit_tx_confirmed_with_strategy(
-                build_unwrap_wsol_transaction(wallet)?,
-                strategy,
-            )
-            .await
+        let wallet = self.planning_wallet(state).await?;
+        let components = state.sol_components()?;
+        let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
+        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        if components.canonical_wsol_lamports > 0 && !canonical_exists {
+            return Err(SdkError::Validation(
+                "canonical WSOL balance is positive but its account is unavailable".into(),
+            ));
+        }
+        let upfront_rent_lamports = if canonical_exists {
+            0
+        } else {
+            self.client
+                .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+                .await?
+        };
+        let mut transaction = build_sol_merge_transaction(
+            &self.client.program_id,
+            wallet,
+            market,
+            amount_lamports,
+            !canonical_exists,
+        )?;
+        self.finish_receive_plan(
+            SolActionKind::Merge,
+            amount_lamports,
+            components,
+            sponsored,
+            !canonical_exists,
+            upfront_rent_lamports,
+            &mut transaction,
+        )
+        .await
     }
 
-    async fn conversion_wallet(
+    /// Plan a winning-token redemption that retains returned WSOL in the canonical ATA.
+    ///
+    /// `amount_lamports` is exact collateral scale and `outcome_index` remains
+    /// governed by the on-chain market instruction.
+    pub async fn plan_sol_redeem(
+        &self,
+        market: Pubkey,
+        amount_lamports: u64,
+        outcome_index: u8,
+        state: &WalletDepositBalancesState,
+        sponsored: bool,
+    ) -> Result<SolActionPlan, SdkError> {
+        if amount_lamports == 0 {
+            return Err(SdkError::Validation(
+                "redeem amount must be greater than zero".into(),
+            ));
+        }
+        let wallet = self.planning_wallet(state).await?;
+        let components = state.sol_components()?;
+        let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
+        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        if components.canonical_wsol_lamports > 0 && !canonical_exists {
+            return Err(SdkError::Validation(
+                "canonical WSOL balance is positive but its account is unavailable".into(),
+            ));
+        }
+        let upfront_rent_lamports = if canonical_exists {
+            0
+        } else {
+            self.client
+                .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+                .await?
+        };
+        let mut transaction = build_sol_redeem_transaction(
+            &self.client.program_id,
+            wallet,
+            market,
+            amount_lamports,
+            outcome_index,
+            !canonical_exists,
+        )?;
+        self.finish_receive_plan(
+            SolActionKind::Redeem,
+            amount_lamports,
+            components,
+            sponsored,
+            !canonical_exists,
+            upfront_rent_lamports,
+            &mut transaction,
+        )
+        .await
+    }
+
+    /// Plan an exact native-SOL withdrawal to an arbitrary Solana recipient.
+    ///
+    /// Native funds are sent directly when they cover both amount and reserve.
+    /// Otherwise only the required canonical WSOL is moved through a seeded,
+    /// short-lived Tokenkeg account; the persistent canonical ATA stays open.
+    /// Account presence, rent, and fees are live authority and any unavailable
+    /// read fails closed. Seed selection tries at most eight blockhash-scoped
+    /// candidates to bound RPC latency while making accidental exhaustion
+    /// negligible. The returned transaction's message is already prepared.
+    pub async fn plan_native_sol_withdrawal(
+        &self,
+        recipient: Pubkey,
+        amount_lamports: u64,
+        state: &WalletDepositBalancesState,
+        sponsored: bool,
+    ) -> Result<SolActionPlan, SdkError> {
+        if amount_lamports == 0 {
+            return Err(SdkError::Validation(
+                "withdraw amount must be greater than zero".into(),
+            ));
+        }
+        let wallet = self.planning_wallet(state).await?;
+        let components = state.sol_components()?;
+
+        let mut direct =
+            build_direct_native_withdraw_transaction(wallet, recipient, amount_lamports);
+        let direct_fee = self
+            .client
+            .prepare_and_estimate_transaction_fee(&mut direct)
+            .await?;
+        let direct_costs = SolActionCosts {
+            fee_lamports: direct_fee,
+            upfront_rent_lamports: 0,
+            creates_canonical_wsol_account: false,
+            sponsored,
+        };
+        let direct_availability = SolBalanceAvailability::from_costs(components, direct_costs)?;
+        if amount_lamports > direct_availability.spendable_lamports {
+            return Err(SdkError::Validation(
+                "withdraw amount exceeds spendable SOL after transaction reserve".into(),
+            ));
+        }
+        let direct_required = amount_lamports
+            .checked_add(direct_availability.reserve_lamports)
+            .ok_or_else(|| {
+                SdkError::Validation("withdraw native requirement overflows u64".into())
+            })?;
+        if components.native_lamports >= direct_required {
+            return Ok(SolActionPlan {
+                kind: SolActionKind::NativeWithdraw,
+                transaction: direct,
+                costs: direct_costs,
+                availability: direct_availability,
+                expected_delta: SolComponentDelta {
+                    native_lamports: -i128::from(amount_lamports)
+                        - i128::from(if sponsored { 0 } else { direct_fee }),
+                    canonical_wsol_lamports: 0,
+                },
+            });
+        }
+
+        let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
+        if !self.client.account_exists(&canonical_account).await? {
+            return Err(SdkError::Validation(
+                "canonical WSOL is required for this native withdrawal".into(),
+            ));
+        }
+        let temporary_rent = self
+            .client
+            .minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+            .await?;
+        let seed_blockhash = self.client.get_latest_blockhash().await?;
+        let mut selected = None;
+        // Bound account-existence RPCs; the blockhash and attempt byte make eight collisions remote.
+        for attempt in 0..=7 {
+            let seed = native_withdraw_seed(
+                &seed_blockhash,
+                &wallet,
+                &recipient,
+                amount_lamports,
+                attempt,
+            );
+            let account = temporary_wsol_account(&wallet, &seed)?;
+            if !self.client.account_exists(&account).await? {
+                selected = Some((seed, account));
+                break;
+            }
+        }
+        let (seed, temporary_account) = selected.ok_or_else(|| {
+            SdkError::Validation("temporary WSOL seed attempts are exhausted".into())
+        })?;
+
+        let mut transaction = build_temporary_native_withdraw_transaction(
+            wallet,
+            recipient,
+            amount_lamports,
+            1,
+            temporary_rent,
+            &seed,
+            temporary_account,
+        )?;
+        transaction.message.recent_blockhash = seed_blockhash;
+        let initial_fee = self
+            .client
+            .estimate_prepared_transaction_fee(&transaction)
+            .await?;
+        let initial_costs = SolActionCosts {
+            fee_lamports: initial_fee,
+            upfront_rent_lamports: temporary_rent,
+            creates_canonical_wsol_account: false,
+            sponsored,
+        };
+        let initial_availability = SolBalanceAvailability::from_costs(components, initial_costs)?;
+        let initial_needed = amount_lamports
+            .checked_add(initial_availability.reserve_lamports)
+            .and_then(|required| required.checked_sub(components.native_lamports))
+            .ok_or_else(|| {
+                SdkError::Validation("invalid temporary withdrawal requirement".into())
+            })?;
+
+        transaction = build_temporary_native_withdraw_transaction(
+            wallet,
+            recipient,
+            amount_lamports,
+            initial_needed,
+            temporary_rent,
+            &seed,
+            temporary_account,
+        )?;
+        transaction.message.recent_blockhash = seed_blockhash;
+        let final_fee = self
+            .client
+            .estimate_prepared_transaction_fee(&transaction)
+            .await?;
+        let costs = SolActionCosts {
+            fee_lamports: final_fee,
+            upfront_rent_lamports: temporary_rent,
+            creates_canonical_wsol_account: false,
+            sponsored,
+        };
+        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let canonical_transfer = amount_lamports
+            .checked_add(availability.reserve_lamports)
+            .and_then(|required| required.checked_sub(components.native_lamports))
+            .ok_or_else(|| {
+                SdkError::Validation("invalid temporary withdrawal requirement".into())
+            })?;
+        if canonical_transfer > components.canonical_wsol_lamports {
+            return Err(SdkError::Validation(
+                "canonical WSOL cannot fund the native withdrawal shortfall".into(),
+            ));
+        }
+        if canonical_transfer != initial_needed {
+            transaction = build_temporary_native_withdraw_transaction(
+                wallet,
+                recipient,
+                amount_lamports,
+                canonical_transfer,
+                temporary_rent,
+                &seed,
+                temporary_account,
+            )?;
+            transaction.message.recent_blockhash = seed_blockhash;
+            let stable_fee = self
+                .client
+                .estimate_prepared_transaction_fee(&transaction)
+                .await?;
+            if stable_fee != final_fee {
+                return Err(SdkError::Other(
+                    "transaction fee changed while rebuilding native withdrawal".into(),
+                ));
+            }
+        }
+        Ok(SolActionPlan {
+            kind: SolActionKind::NativeWithdraw,
+            transaction,
+            costs,
+            availability,
+            expected_delta: SolComponentDelta {
+                // Temporary account rent returns on close; only the converted
+                // amount and live fee change the wallet's native component.
+                native_lamports: i128::from(canonical_transfer)
+                    - i128::from(amount_lamports)
+                    - i128::from(if sponsored { 0 } else { final_fee }),
+                canonical_wsol_lamports: -i128::from(canonical_transfer),
+            },
+        })
+    }
+
+    /// Finish merge/redeem planning with live cost authority and component deltas.
+    async fn finish_receive_plan(
+        &self,
+        kind: SolActionKind,
+        amount_lamports: u64,
+        components: crate::domain::position::SolBalanceComponents,
+        sponsored: bool,
+        creates_canonical_wsol_account: bool,
+        upfront_rent_lamports: u64,
+        transaction: &mut Transaction,
+    ) -> Result<SolActionPlan, SdkError> {
+        let fee_lamports = self
+            .client
+            .prepare_and_estimate_transaction_fee(transaction)
+            .await?;
+        let costs = SolActionCosts {
+            fee_lamports,
+            upfront_rent_lamports,
+            creates_canonical_wsol_account,
+            sponsored,
+        };
+        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let wallet_costs = if sponsored {
+            0
+        } else {
+            fee_lamports
+                .checked_add(upfront_rent_lamports)
+                .ok_or_else(|| SdkError::Validation("SOL action costs overflow u64".into()))?
+        };
+        Ok(SolActionPlan {
+            kind,
+            transaction: transaction.clone(),
+            costs,
+            availability,
+            expected_delta: SolComponentDelta {
+                native_lamports: -i128::from(wallet_costs),
+                canonical_wsol_lamports: i128::from(amount_lamports),
+            },
+        })
+    }
+
+    /// Resolve the authenticated wallet only from fresh matching cached authority.
+    async fn planning_wallet(
         &self,
         state: &WalletDepositBalancesState,
-    ) -> Result<(Pubkey, SigningStrategy), SdkError> {
-        // Keep all conversion entry points behind the same credential/state
-        // identity check before constructing a wallet-authorized transaction.
+    ) -> Result<Pubkey, SdkError> {
+        // Cached identity is a transaction-planning trust boundary. Signing is
+        // checked again by the client's submission path after Web rebuilds the
+        // plan at its final account-operation boundary.
         let credentials = self.client.auth().credentials().await;
-        let wallet = validated_conversion_wallet(credentials.as_ref(), state)?;
-        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
-            SdkError::Validation("signing strategy is not set on the client".into())
-        })?;
-        let signing_wallet = strategy.wallet_address().ok_or_else(|| {
-            SdkError::Validation("signing strategy wallet identity is required".into())
-        })?;
-        if signing_wallet != wallet {
-            return Err(SdkError::Validation(
-                "signing strategy does not control authenticated wallet".into(),
-            ));
-        }
-        Ok((wallet, strategy))
+        validated_conversion_wallet(credentials.as_ref(), state)
     }
 
     // ── On-chain instruction builders ───────────────────────────────────
@@ -670,36 +966,23 @@ impl<'a> Positions<'a> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_unwrap_wsol_transaction, build_wrap_sol_transaction, deposit_token_balances_query,
-        validated_conversion_wallet, wrapped_sol_accounts, WRAPPED_SOL_MINT_ADDRESS,
-    };
+    use super::{deposit_token_balances_query, validated_conversion_wallet};
     use crate::{auth::AuthCredentials, domain::position::WalletDepositBalancesState};
     use chrono::{Duration, Utc};
     use solana_pubkey::Pubkey;
-    use solana_system_interface::instruction::SystemInstruction;
-    use spl_token_interface::instruction::TokenInstruction;
 
-    #[cfg(feature = "native-auth")]
+    #[cfg(feature = "native")]
     use {
-        crate::client::LightconeClient,
-        crate::domain::position::DepositTokenBalance,
-        crate::error::SdkError,
-        crate::shared::signing::{ExternalSigner, SigningStrategy},
-        crate::shared::PubkeyStr,
-        async_lock::RwLock,
+        crate::{
+            client::LightconeClient,
+            domain::market::{Market, Status},
+            domain::position::{builders, DepositTokenBalance, WRAPPED_SOL_MINT_ADDRESS},
+            shared::PubkeyStr,
+        },
         rust_decimal::Decimal,
-        solana_keypair::Keypair,
-        solana_signer::Signer,
-        solana_transaction::Transaction,
         std::{
-            collections::VecDeque,
-            future::Future,
-            pin::Pin,
-            sync::{
-                atomic::{AtomicUsize, Ordering},
-                Arc, Mutex, OnceLock,
-            },
+            collections::{HashMap, VecDeque},
+            sync::{Arc, Mutex},
         },
         tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
@@ -707,7 +990,8 @@ mod tests {
         },
     };
 
-    #[cfg(feature = "native-auth")]
+    #[cfg(feature = "native")]
+    /// Start a deterministic local JSON-RPC stub and retain received requests.
     async fn spawn_rpc_server(
         responses: Vec<serde_json::Value>,
     ) -> (String, Arc<Mutex<Vec<String>>>) {
@@ -727,159 +1011,91 @@ mod tests {
                 let Ok(bytes_read) = socket.read(&mut buffer).await else {
                     return;
                 };
-                let request = String::from_utf8_lossy(&buffer[..bytes_read]).into_owned();
-                server_requests.lock().unwrap().push(request);
+                server_requests
+                    .lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&buffer[..bytes_read]).into_owned());
                 let body = server_responses
                     .lock()
                     .unwrap()
                     .pop_front()
-                    .unwrap_or_else(|| {
-                        serde_json::json!({
-                            "jsonrpc": "2.0",
-                            "id": 1,
-                            "error": {"code": -32000, "message": "unexpected request"}
-                        })
-                    })
+                    .expect("unexpected RPC request")
                     .to_string();
                 let response = format!(
                     "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
                     body.len(),
                     body
                 );
-                let _ = socket.write_all(response.as_bytes()).await;
+                socket.write_all(response.as_bytes()).await.unwrap();
             }
         });
 
         (format!("http://{address}"), requests)
     }
 
-    #[cfg(feature = "native-auth")]
-    fn conversion_client(rpc_url: &str) -> (LightconeClient, WalletDepositBalancesState) {
-        let keypair = Keypair::new();
-        let wallet = keypair.pubkey();
-        let wallet_address = PubkeyStr::from(wallet.to_string());
-        let credentials = AuthCredentials {
-            user_id: "user-a".into(),
-            wallet_address: wallet_address.clone(),
-            expires_at: Utc::now() + Duration::minutes(1),
-        };
-        let client = LightconeClient::builder()
-            .auth(credentials)
-            .native_signer(keypair)
-            .rpc_url(rpc_url)
-            .build()
-            .unwrap();
-        let state = WalletDepositBalancesState {
-            wallet_address: Some(wallet_address),
-            context_slot: Some(1),
-            native_sol_balance: Some("2.000000000".into()),
-            ..Default::default()
-        };
-        (client, state)
-    }
-
-    #[cfg(feature = "native-auth")]
-    struct TestTransactionSigner {
-        keypair: Arc<Keypair>,
-        expose_identity: bool,
-        transaction_calls: Arc<AtomicUsize>,
-        strategy_swap: Option<(
-            Arc<OnceLock<Arc<RwLock<Option<SigningStrategy>>>>>,
-            SigningStrategy,
-        )>,
-    }
-
-    #[cfg(feature = "native-auth")]
-    impl ExternalSigner for TestTransactionSigner {
-        fn wallet_address(&self) -> Option<Pubkey> {
-            if let Some((target, replacement)) = &self.strategy_swap {
-                let mut configured = target
-                    .get()
-                    .expect("strategy swap target must be initialized")
-                    .try_write()
-                    .expect("conversion must release its strategy read lock");
-                *configured = Some(replacement.clone());
-            }
-            self.expose_identity.then(|| self.keypair.pubkey())
-        }
-
-        fn sign_message<'a>(
-            &'a self,
-            message: &'a [u8],
-        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
-            Box::pin(async move { Ok(message.to_vec()) })
-        }
-
-        fn sign_transaction<'a>(
-            &'a self,
-            tx_bytes: &'a [u8],
-        ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>> {
-            Box::pin(async move {
-                let mut transaction: Transaction =
-                    bincode::deserialize(tx_bytes).map_err(|error| error.to_string())?;
-                let blockhash = transaction.message.recent_blockhash;
-                transaction
-                    .try_sign(&[self.keypair.as_ref()], blockhash)
-                    .map_err(|error| error.to_string())?;
-                self.transaction_calls.fetch_add(1, Ordering::SeqCst);
-                bincode::serialize(&transaction).map_err(|error| error.to_string())
-            })
-        }
-    }
-
-    #[cfg(feature = "native-auth")]
-    fn external_conversion_client(
+    #[cfg(feature = "native")]
+    /// Build complete wallet authority against a deterministic RPC endpoint.
+    fn planning_client(
         rpc_url: &str,
-        expose_identity: bool,
-    ) -> (
-        LightconeClient,
-        WalletDepositBalancesState,
-        Arc<AtomicUsize>,
-    ) {
-        let keypair = Arc::new(Keypair::new());
-        let wallet_address = PubkeyStr::from(keypair.pubkey().to_string());
-        let credentials = AuthCredentials {
-            user_id: "user-a".into(),
-            wallet_address: wallet_address.clone(),
-            expires_at: Utc::now() + Duration::minutes(1),
-        };
-        let transaction_calls = Arc::new(AtomicUsize::new(0));
-        let signer = Arc::new(TestTransactionSigner {
-            keypair,
-            expose_identity,
-            transaction_calls: Arc::clone(&transaction_calls),
-            strategy_swap: None,
-        });
+        native_sol_balance: &str,
+    ) -> (LightconeClient, WalletDepositBalancesState, Pubkey) {
+        let wallet = Pubkey::new_unique();
+        let wallet_address = PubkeyStr::from(wallet.to_string());
         let client = LightconeClient::builder()
-            .auth(credentials)
-            .external_signer(signer)
+            .auth(AuthCredentials {
+                user_id: "user-a".into(),
+                wallet_address: wallet_address.clone(),
+                expires_at: Utc::now() + Duration::minutes(1),
+            })
             .rpc_url(rpc_url)
             .build()
             .unwrap();
         let state = WalletDepositBalancesState {
             wallet_address: Some(wallet_address),
             context_slot: Some(1),
-            native_sol_balance: Some("2.000000000".into()),
+            native_sol_balance: Some(native_sol_balance.into()),
             ..Default::default()
         };
-        (client, state, transaction_calls)
+        (client, state, wallet)
     }
 
-    #[cfg(feature = "native-auth")]
-    fn set_wsol_balance(state: &mut WalletDepositBalancesState, idle: &str) {
-        let mint = PubkeyStr::from(WRAPPED_SOL_MINT_ADDRESS);
-        state.balances.insert(
-            mint.clone(),
-            DepositTokenBalance {
-                mint,
-                idle: idle.parse::<Decimal>().unwrap(),
-                symbol: "WSOL".into(),
-                name: "Wrapped SOL".into(),
-                icon_url_low: None,
-                icon_url_medium: None,
-                icon_url_high: None,
-            },
-        );
+    #[cfg(feature = "native")]
+    /// Return the smallest active market shape accepted by split planning.
+    fn market() -> Market {
+        Market {
+            id: 1,
+            pubkey: PubkeyStr::from(Pubkey::new_unique().to_string()),
+            name: "Market".into(),
+            banner_image_url_low: None,
+            banner_image_url_medium: None,
+            banner_image_url_high: None,
+            icon_url_low: String::new(),
+            icon_url_medium: String::new(),
+            icon_url_high: String::new(),
+            featured_rank: None,
+            slug: "market".into(),
+            status: Status::Active,
+            maker_fee_bps: 0,
+            taker_fee_bps: 0,
+            created_at: Utc::now(),
+            activated_at: None,
+            settled_at: None,
+            resolution_by: None,
+            resolution: None,
+            description: None,
+            definition: "Test market".into(),
+            category: None,
+            subcategory: None,
+            tags: Vec::new(),
+            num_outcomes: 2,
+            deposit_assets: Vec::new(),
+            deposit_asset_pairs: Vec::new(),
+            conditional_tokens: Vec::new(),
+            outcomes: Vec::new(),
+            orderbook_pairs: Vec::new(),
+            orderbook_ids: Vec::new(),
+            token_metadata: HashMap::new(),
+        }
     }
 
     #[test]
@@ -888,69 +1104,6 @@ mod tests {
         assert_eq!(
             deposit_token_balances_query(Some(1234)),
             vec![("min_context_slot", "1234".to_string())]
-        );
-    }
-
-    #[test]
-    fn wrap_transaction_uses_maintained_create_transfer_sync_builders() {
-        let wallet = Pubkey::new_unique();
-        let (_, account) = wrapped_sol_accounts(&wallet).unwrap();
-        let transaction = build_wrap_sol_transaction(wallet, 123).unwrap();
-        let instructions = &transaction.message.instructions;
-
-        assert_eq!(instructions.len(), 3);
-        assert_eq!(transaction.message.account_keys[0], wallet);
-        assert_eq!(instructions[0].data, vec![1]);
-        assert_eq!(
-            transaction.message.account_keys[instructions[0].program_id_index as usize],
-            spl_associated_token_account_interface::program::id()
-        );
-        assert_eq!(
-            bincode::deserialize::<SystemInstruction>(&instructions[1].data).unwrap(),
-            SystemInstruction::Transfer { lamports: 123 }
-        );
-        assert_eq!(
-            transaction.message.account_keys[instructions[1].accounts[0] as usize],
-            wallet
-        );
-        assert_eq!(
-            transaction.message.account_keys[instructions[1].accounts[1] as usize],
-            account
-        );
-        assert!(matches!(
-            TokenInstruction::unpack(&instructions[2].data).unwrap(),
-            TokenInstruction::SyncNative
-        ));
-        assert_eq!(
-            transaction.message.account_keys[instructions[2].accounts[0] as usize],
-            account
-        );
-    }
-
-    #[test]
-    fn unwrap_transaction_closes_only_the_canonical_wsol_account() {
-        let wallet = Pubkey::new_unique();
-        let (_, account) = wrapped_sol_accounts(&wallet).unwrap();
-        let transaction = build_unwrap_wsol_transaction(wallet).unwrap();
-        let instructions = &transaction.message.instructions;
-
-        assert_eq!(instructions.len(), 1);
-        assert!(matches!(
-            TokenInstruction::unpack(&instructions[0].data).unwrap(),
-            TokenInstruction::CloseAccount
-        ));
-        assert_eq!(transaction.message.account_keys[0], wallet);
-        assert_eq!(
-            transaction.message.account_keys[instructions[0].accounts[0] as usize],
-            account
-        );
-        assert_eq!(
-            transaction.message.account_keys[instructions[0].accounts[1] as usize],
-            wallet
-        );
-        assert_eq!(
-            transaction.message.account_keys[instructions[0].accounts[2] as usize],
-            wallet
         );
     }
 
@@ -990,10 +1143,11 @@ mod tests {
         .is_err());
     }
 
-    #[cfg(feature = "native-auth")]
+    #[cfg(feature = "native")]
     #[tokio::test]
-    async fn wrap_uses_confirmed_submission_and_preserves_cached_state() {
-        let blockhash = solana_hash::Hash::default().to_string();
+    /// Uses the live direct fee in both availability and expected native delta.
+    async fn native_withdraw_plan_uses_live_fee_and_direct_component_delta() {
+        let blockhash = solana_hash::Hash::new_unique().to_string();
         let (rpc_url, requests) = spawn_rpc_server(vec![
             serde_json::json!({
                 "jsonrpc": "2.0",
@@ -1003,236 +1157,132 @@ mod tests {
                     "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
                 }
             }),
-            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
-                "result": {
-                    "context": {"slot": 42},
-                    "value": [{
-                        "slot": 42,
-                        "confirmations": 1,
-                        "err": null,
-                        "confirmationStatus": "confirmed",
-                        "status": {"Ok": null}
-                    }]
-                }
+                "result": {"context": {"slot": 1}, "value": 5000}
             }),
         ])
         .await;
-        let (client, state) = conversion_client(&rpc_url);
-        let before = state.clone();
+        let (client, state, _) = planning_client(&rpc_url, "1.000000000");
 
-        let signature = client.positions().wrap_sol("0.250000001", &state).await;
-
-        assert_eq!(signature.unwrap(), "confirmed-signature");
-        assert_eq!(state, before);
-        let requests = requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        assert!(requests[0].contains("getLatestBlockhash"));
-        assert!(requests[1].contains("sendTransaction"));
-        assert!(requests[2].contains("getSignatureStatuses"));
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn conversion_rejects_a_mismatched_native_signer_before_rpc() {
-        let (client, state) = conversion_client("http://127.0.0.1:1");
-        client
-            .set_signing_strategy(SigningStrategy::Native(Arc::new(Keypair::new())))
-            .await;
-
-        let error = client
+        let plan = client
             .positions()
-            .wrap_sol("0.1", &state)
+            .plan_native_sol_withdrawal(Pubkey::new_unique(), 500_000_000, &state, false)
             .await
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            SdkError::Validation(message)
-                if message == "signing strategy does not control authenticated wallet"
-        ));
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn conversion_rejects_an_external_signer_without_wallet_identity() {
-        let (client, state, transaction_calls) =
-            external_conversion_client("http://127.0.0.1:1", false);
-
-        let error = client
-            .positions()
-            .wrap_sol("0.1", &state)
-            .await
-            .unwrap_err();
-        assert!(matches!(
-            error,
-            SdkError::Validation(message)
-                if message == "signing strategy wallet identity is required"
-        ));
-        assert_eq!(transaction_calls.load(Ordering::SeqCst), 0);
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn conversion_accepts_an_external_signer_with_matching_wallet_identity() {
-        let blockhash = solana_hash::Hash::default().to_string();
-        let (rpc_url, _) = spawn_rpc_server(vec![
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "context": {"slot": 1},
-                    "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
-                }
-            }),
-            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "context": {"slot": 42},
-                    "value": [{
-                        "slot": 42,
-                        "confirmations": 1,
-                        "err": null,
-                        "confirmationStatus": "confirmed",
-                        "status": {"Ok": null}
-                    }]
-                }
-            }),
-        ])
-        .await;
-        let (client, state, transaction_calls) = external_conversion_client(&rpc_url, true);
-
-        assert_eq!(
-            client.positions().wrap_sol("0.1", &state).await.unwrap(),
-            "confirmed-signature"
-        );
-        assert_eq!(transaction_calls.load(Ordering::SeqCst), 1);
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn conversion_submission_uses_the_strategy_validated_before_a_swap() {
-        let blockhash = solana_hash::Hash::default().to_string();
-        let (rpc_url, _) = spawn_rpc_server(vec![
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "context": {"slot": 1},
-                    "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
-                }
-            }),
-            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "context": {"slot": 42},
-                    "value": [{
-                        "slot": 42,
-                        "confirmations": 1,
-                        "err": null,
-                        "confirmationStatus": "confirmed",
-                        "status": {"Ok": null}
-                    }]
-                }
-            }),
-        ])
-        .await;
-        let keypair = Arc::new(Keypair::new());
-        let wallet_address = PubkeyStr::from(keypair.pubkey().to_string());
-        let credentials = AuthCredentials {
-            user_id: "user-a".into(),
-            wallet_address: wallet_address.clone(),
-            expires_at: Utc::now() + Duration::minutes(1),
-        };
-        let transaction_calls = Arc::new(AtomicUsize::new(0));
-        let swap_target = Arc::new(OnceLock::new());
-        let signer = Arc::new(TestTransactionSigner {
-            keypair,
-            expose_identity: true,
-            transaction_calls: Arc::clone(&transaction_calls),
-            strategy_swap: Some((
-                Arc::clone(&swap_target),
-                SigningStrategy::Native(Arc::new(Keypair::new())),
-            )),
-        });
-        let client = LightconeClient::builder()
-            .auth(credentials)
-            .external_signer(signer)
-            .rpc_url(&rpc_url)
-            .build()
             .unwrap();
-        assert!(swap_target
-            .set(Arc::clone(&client.signing_strategy))
-            .is_ok());
-        let state = WalletDepositBalancesState {
-            wallet_address: Some(wallet_address),
-            context_slot: Some(1),
-            native_sol_balance: Some("2.000000000".into()),
-            ..Default::default()
-        };
 
-        assert_eq!(
-            client.positions().wrap_sol("0.1", &state).await.unwrap(),
-            "confirmed-signature"
-        );
-        assert_eq!(transaction_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(plan.kind, super::SolActionKind::NativeWithdraw);
+        assert_eq!(plan.transaction.message.instructions.len(), 1);
+        assert_eq!(plan.costs.fee_lamports, 5_000);
+        assert_eq!(plan.availability.reserve_lamports, 1_000_000);
+        assert_eq!(plan.expected_delta.native_lamports, -500_005_000);
+        assert_eq!(plan.expected_delta.canonical_wsol_lamports, 0);
+        let requests = requests.lock().unwrap();
+        assert!(requests[0].contains("getLatestBlockhash"));
+        assert!(requests[1].contains("getFeeForMessage"));
     }
 
-    #[cfg(feature = "native-auth")]
+    #[cfg(feature = "native")]
     #[tokio::test]
-    async fn unwrap_uses_confirmed_submission_and_preserves_cached_state() {
-        let blockhash = solana_hash::Hash::default().to_string();
+    /// Binds temporary derivation to the blockhash retained by the final plan.
+    async fn temporary_withdraw_seed_uses_the_planned_transaction_blockhash() {
+        let direct_blockhash = solana_hash::Hash::new_unique();
+        let planned_blockhash = solana_hash::Hash::new_unique();
+        let latest_blockhash = |blockhash: solana_hash::Hash| {
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {
+                    "context": {"slot": 1},
+                    "value": {
+                        "blockhash": blockhash.to_string(),
+                        "lastValidBlockHeight": 100
+                    }
+                }
+            })
+        };
+        let fee = || {
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"context": {"slot": 1}, "value": 5000}
+            })
+        };
+        let (rpc_url, requests) = spawn_rpc_server(vec![
+            latest_blockhash(direct_blockhash),
+            fee(),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"context": {"slot": 1}, "value": {}}
+            }),
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 2_039_280}),
+            latest_blockhash(planned_blockhash),
+            serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "result": {"context": {"slot": 1}, "value": null}
+            }),
+            fee(),
+            fee(),
+        ])
+        .await;
+        let (client, mut state, wallet) = planning_client(&rpc_url, "0.010000000");
+        let sol_mint = PubkeyStr::from(WRAPPED_SOL_MINT_ADDRESS);
+        state.balances.insert(
+            sol_mint.clone(),
+            DepositTokenBalance {
+                mint: sol_mint,
+                idle: Decimal::ONE,
+                symbol: "WSOL".into(),
+                name: "Wrapped SOL".into(),
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
+            },
+        );
+        let recipient = Pubkey::new_unique();
+
+        let plan = client
+            .positions()
+            .plan_native_sol_withdrawal(recipient, 500_000_000, &state, false)
+            .await
+            .unwrap();
+
+        assert_eq!(plan.transaction.message.recent_blockhash, planned_blockhash);
+        let seed = builders::native_withdraw_seed(
+            &plan.transaction.message.recent_blockhash,
+            &wallet,
+            &recipient,
+            500_000_000,
+            0,
+        );
+        let temporary = builders::temporary_wsol_account(&wallet, &seed).unwrap();
+        assert!(plan.transaction.message.account_keys.contains(&temporary));
+        assert_eq!(
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.contains("getLatestBlockhash"))
+                .count(),
+            2
+        );
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    /// Includes missing-ATA rent and creation in one atomic split plan.
+    async fn split_plan_creates_missing_canonical_account_and_reserves_rent() {
+        let blockhash = solana_hash::Hash::new_unique().to_string();
         let (rpc_url, requests) = spawn_rpc_server(vec![
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
-                "result": {
-                    "context": {"slot": 1},
-                    "value": {"blockhash": blockhash, "lastValidBlockHeight": 100}
-                }
+                "result": {"context": {"slot": 1}, "value": null}
             }),
-            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": "confirmed-signature"}),
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {
-                    "context": {"slot": 42},
-                    "value": [{
-                        "slot": 42,
-                        "confirmations": 1,
-                        "err": null,
-                        "confirmationStatus": "confirmed",
-                        "status": {"Ok": null}
-                    }]
-                }
-            }),
-        ])
-        .await;
-        let (client, mut state) = conversion_client(&rpc_url);
-        set_wsol_balance(&mut state, "0.500000000");
-        let before = state.clone();
-
-        let signature = client.positions().unwrap_wsol(&state).await;
-
-        assert_eq!(signature.unwrap(), "confirmed-signature");
-        assert_eq!(state, before);
-        let requests = requests.lock().unwrap();
-        assert_eq!(requests.len(), 3);
-        assert!(requests[0].contains("getLatestBlockhash"));
-        assert!(requests[1].contains("sendTransaction"));
-        assert!(requests[2].contains("getSignatureStatuses"));
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn wrap_propagates_submission_failure_without_mutating_state() {
-        let blockhash = solana_hash::Hash::default().to_string();
-        let (rpc_url, _) = spawn_rpc_server(vec![
+            serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 2_039_280}),
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1244,40 +1294,28 @@ mod tests {
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": 1,
-                "error": {"code": -32000, "message": "submission failed"}
+                "result": {"context": {"slot": 1}, "value": 5000}
             }),
         ])
         .await;
-        let (client, state) = conversion_client(&rpc_url);
-        let before = state.clone();
+        let (client, state, _) = planning_client(&rpc_url, "1.000000000");
 
-        let error = client
+        let plan = client
             .positions()
-            .wrap_sol("0.250000001", &state)
+            .plan_sol_split(&market(), 500_000_000, &state, false)
             .await
-            .unwrap_err();
+            .unwrap();
 
-        assert!(error.to_string().contains("submission failed"));
-        assert_eq!(state, before);
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn wrap_rejects_invalid_or_insufficient_amounts_before_rpc() {
-        let (client, state) = conversion_client("http://127.0.0.1:9");
-
-        for amount in ["0", "0.0000000001", "3.000000000", "18446744073.709551616"] {
-            assert!(client.positions().wrap_sol(amount, &state).await.is_err());
-        }
-    }
-
-    #[cfg(feature = "native-auth")]
-    #[tokio::test]
-    async fn unwrap_requires_positive_cached_wsol_before_rpc() {
-        let (client, mut state) = conversion_client("http://127.0.0.1:9");
-
-        assert!(client.positions().unwrap_wsol(&state).await.is_err());
-        set_wsol_balance(&mut state, "0.000000000");
-        assert!(client.positions().unwrap_wsol(&state).await.is_err());
+        assert_eq!(plan.kind, super::SolActionKind::Split);
+        assert_eq!(plan.transaction.message.instructions.len(), 4);
+        assert_eq!(plan.costs.upfront_rent_lamports, 2_039_280);
+        assert_eq!(plan.availability.reserve_lamports, 3_500_000);
+        assert_eq!(plan.expected_delta.native_lamports, -502_044_280);
+        assert_eq!(plan.expected_delta.canonical_wsol_lamports, 0);
+        let requests = requests.lock().unwrap();
+        assert!(requests[0].contains("getAccountInfo"));
+        assert!(requests[1].contains("getMinimumBalanceForRentExemption"));
+        assert!(requests[2].contains("getLatestBlockhash"));
+        assert!(requests[3].contains("getFeeForMessage"));
     }
 }

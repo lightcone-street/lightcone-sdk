@@ -175,6 +175,25 @@ export async function signAndSubmitTxConfirmedWithSlot(
   );
 }
 
+/**
+ * Sign and confirm a transaction whose exact message was already fee-estimated.
+ * The prepared blockhash is preserved and wallet adapters may add signatures
+ * but may not replace any message field.
+ */
+export async function signAndSubmitPreparedTxConfirmedWithSlot(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction
+): Promise<ConfirmedTransaction> {
+  if (!tx.recentBlockhash) {
+    throw SdkError.validation("prepared transaction is missing a recent blockhash");
+  }
+  const strategy = requireSigningStrategy(ctx);
+  const signature = await signAndSubmitPreparedTxInner(ctx, tx, strategy);
+  const { Rpc } = await import("./rpc");
+  const status = await new Rpc(ctx).confirmSignatureStatus(signature, null);
+  return { signature, slot: status.slot };
+}
+
 /** @internal Submit with a strategy already validated for an identity-bound operation. */
 export async function signAndSubmitTxConfirmedUsingStrategy(
   ctx: ClientContext,
@@ -276,6 +295,72 @@ async function signAndSubmitTxInner(
       // expiry detection.
       return { signature: result.hash, lastValidBlockHeight: null };
     }
+  }
+}
+
+/**
+ * Sign and submit without replacing the planner's prepared blockhash.
+ *
+ * Native and wallet-adapter signatures remain inspectable. Privy is excluded
+ * because its backend-owned final wire message cannot be verified by this SDK.
+ */
+async function signAndSubmitPreparedTxInner(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction,
+  strategy: SigningStrategy
+): Promise<string> {
+  const { isUserCancellation } = await import("./shared/signing");
+
+  switch (strategy.type) {
+    case "native":
+      tx.partialSign(strategy.keypair);
+      return connectionWithFailover(ctx, (connection) =>
+        connection.sendRawTransaction(tx.serialize())
+      );
+    case "walletAdapter": {
+      const expectedMessage = tx.serializeMessage();
+      const txBytes = tx.serialize({ requireAllSignatures: false });
+      const signedBytes = await strategy.signer
+        .signTransaction(txBytes)
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : String(error);
+          if (isUserCancellation(message)) throw SdkError.userCancelled();
+          throw SdkError.signing(message);
+        });
+      await assertPreparedSignedMessage(signedBytes, expectedMessage);
+      return connectionWithFailover(ctx, (connection) =>
+        connection.sendRawTransaction(signedBytes)
+      );
+    }
+    case "privy":
+      throw SdkError.validation(
+        "prepared transaction submission cannot verify a Privy-signed message"
+      );
+  }
+}
+
+/**
+ * Enforce the fee-preflight authority boundary after wallet-adapter signing.
+ * Signatures may change, but any account, instruction, fee payer, or blockhash
+ * change rejects the bytes before they reach RPC.
+ */
+async function assertPreparedSignedMessage(
+  signedBytes: Uint8Array,
+  expectedMessage: Uint8Array
+): Promise<void> {
+  const { Transaction } = await import("@solana/web3.js");
+  let signedMessage: Uint8Array;
+  try {
+    signedMessage = Transaction.from(signedBytes).serializeMessage();
+  } catch (error) {
+    throw SdkError.signing(
+      `signed transaction is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (!Buffer.from(signedMessage).equals(Buffer.from(expectedMessage))) {
+    throw SdkError.validation(
+      "wallet changed the fee-prepared transaction message"
+    );
   }
 }
 

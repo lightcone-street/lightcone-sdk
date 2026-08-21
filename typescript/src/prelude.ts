@@ -174,6 +174,12 @@ export type {
   WalletDepositBalancesEvent,
   WalletDepositBalanceUpdate,
   WalletNativeSolBalanceUpdate,
+  SolActionCosts,
+  SolActionKind,
+  SolActionPlan,
+  SolBalanceAvailability,
+  SolBalanceComponents,
+  SolComponentDelta,
 } from "./domain/position";
 
 export {
@@ -188,6 +194,10 @@ export {
   GlobalToMarketDepositBuilder,
   WalletDepositBalancesState,
   WRAPPED_SOL_MINT,
+  nativeWithdrawSeed,
+  solBalanceAvailability,
+  SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
+  SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
 } from "./domain/position";
 
 export type { Trade, WsTrade } from "./domain/trade";

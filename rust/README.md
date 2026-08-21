@@ -335,13 +335,26 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`trades`](examples/trades.rs) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
-| [`deposit_token_balances`](examples/deposit_token_balances.rs) | Authenticated WebSocket state, hardcoded 0.1 SOL wrap, authoritative refresh, and destructive full canonical-WSOL close in non-production |
+| [`deposit_token_balances`](examples/deposit_token_balances.rs) | Authenticated WebSocket state and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
 
 `deposit_token_balances` is manual-only and excluded from the aggregate example
 harness. Run it with `LIGHTCONE_ENV=local` or `staging` and all `SDK_API_URL`,
 `SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` overrides unset so its
-built-in non-production routing cannot be repointed at production.
+built-in non-production routing cannot be repointed at production. It sends to
+the TypeScript SDK wallet configured by `LIGHTCONE_WALLET_PATH_TS`, keeping CI
+funds inside the SDK wallet pool.
+
+SOL planners keep the canonical Tokenkeg WSOL account persistent: split wraps
+only a shortfall, merge and redeem retain proceeds there, and native withdrawal
+converts only the required shortfall through a temporary seeded account. The
+temporary account's create, initialize, WSOL transfer, close, and native transfer
+instructions are one Solana transaction, so an instruction failure rolls the
+entire conversion back atomically. No planner implicitly closes the canonical
+account; an explicit self-custody unwrap-all/close operation is outside the
+current contract. A submission or confirmation error still has an uncertain
+landed status, so inspect authoritative balances before retrying. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 ### Testnet
 

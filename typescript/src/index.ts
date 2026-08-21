@@ -31,6 +31,7 @@ export {
   signAndSubmitTx,
   signAndSubmitTxConfirmed,
   signAndSubmitTxConfirmedWithSlot,
+  signAndSubmitPreparedTxConfirmedWithSlot,
 } from "./context";
 
 // Convenience top-level type exports

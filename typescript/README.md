@@ -204,7 +204,7 @@ signer. Direct `sign()`/`finalize()` calls require the returned `OrderbookRules`
 Raw amounts, explicit salts, and derived prices are preflighted against the same
 signed-64-bit admission rules; no tick or size normalization is implicit.
 
-### Wallet Balances and SOL Conversion
+### Wallet Balances and SOL Action Planning
 
 `depositTokenBalances()` returns a required exact nine-decimal
 `native_sol_balance` alongside the separate mint-keyed SPL map. Initialize
@@ -223,18 +223,32 @@ exact values fail when a state method scales them. The reducer owns its map
 container but retains balance objects by reference, so treat applied payloads as
 immutable.
 
-`client.positions().wrapSol(amount, state)` accepts exact no-rounding SOL input,
-enforces nine-decimal and Solana `u64` bounds, requires live matching credentials
-and a signing strategy that controls that wallet, uses maintained ATA/system/SPL
-builders, and returns a confirmed transaction signature. `unwrapWsol(state)`
-requires positive cached canonical WSOL and returns a confirmed signature after
-closing the full ATA; the wallet receives its full balance plus rent. Wrap
-preflight does not guess a fee or ATA-rent reserve, so the full cached native
-balance can still fail on-chain. Neither method mutates state. A confirmation
-error does not prove rollback; refresh REST or WebSocket authority before retrying.
-Native signer identity is inspected directly. Wallet adapters must expose
-`ExternalSigner.walletAddress`; Privy callers pass the address as the second
-argument to `privyWalletId` when using these conversion helpers.
+`planSolSplit`, `planSolMerge`, `planSolRedeem`, and
+`planNativeSolWithdrawal` return unsigned action plans with live fee/rent costs,
+the action-specific reserve and spendable balance, and separate expected native
+and canonical WSOL deltas. Each planner requires complete matching-wallet state,
+checks the canonical account when needed, and fails closed when RPC estimates or
+native reserve are unavailable. Unsponsored actions reserve the greater of live
+costs and the applicable 0.001 SOL or 0.0035 SOL floor; sponsored plans reserve
+zero only when the caller passes the exact enabled capability.
+
+Split plans consume canonical WSOL first and wrap only a shortfall in the same
+transaction. Merge and redeem plans retain proceeds in the persistent canonical
+account. Native withdrawal transfers directly when possible; otherwise it moves
+only the shortfall through a bounded seeded temporary Tokenkeg account and closes
+that temporary account before sending the exact native amount to the recipient.
+The temporary account's create, initialize, WSOL transfer, close, and native
+transfer instructions share one Solana transaction, so an instruction failure
+rolls the entire conversion back atomically. No planner closes the canonical
+account implicitly; an explicit self-custody unwrap-all/close operation is
+outside the current contract. Rebuild immediately before signing,
+submit with `signAndSubmitPreparedTxConfirmedWithSlot` so the wallet cannot
+replace the fee-estimated message, and refresh a complete snapshot covering its
+slot before restoring action authority. Prepared submission is unavailable for
+Privy because its final signed bytes cannot be verified by the SDK. Atomic
+execution does not resolve uncertain submission or confirmation errors; inspect
+authoritative balances before retrying. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 WebSocket clients are owned independently from `Auth`; logout does not clean them
 up. For each retained client, `clearAuthedSubscriptions()` purges User/wallet
@@ -245,12 +259,11 @@ for live teardown.
 The [`deposit_token_balances`](examples/deposit_token_balances.ts) self-custody
 example is manual-only and runs with `LIGHTCONE_ENV=local` or `staging` only
 when `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all
-unset. It uses the SDK-selected WebSocket endpoint to initialize and refresh
-state, wraps `0.1` SOL, then closes the full canonical WSOL account after
-observing its exact 0.1 SOL increase. Running it moves funds and closes any
-pre-existing canonical WSOL balance as well. If it fails after submission,
-inspect authoritative balances before retrying because funds may already have
-moved.
+unset. It sends 0.001 SOL to the Python SDK wallet configured by
+`LIGHTCONE_WALLET_PATH_PYTHON` from the distinct sender configured by
+`LIGHTCONE_WALLET_PATH_TS`, confirms with a slot, and refreshes a complete
+snapshot at that slot. Running it moves funds. If it fails after submission,
+inspect authoritative balances before retrying because funds may already have moved.
 
 ### Step 5: Cancel an Order
 

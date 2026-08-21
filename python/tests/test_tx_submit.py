@@ -8,6 +8,8 @@ bytes still carry that blockhash.
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 from solders.hash import Hash
 from solders.keypair import Keypair
@@ -18,6 +20,7 @@ from solders.system_program import TransferParams, transfer
 from solders.transaction import Transaction
 
 from lightcone_sdk.client import LightconeClient
+from lightcone_sdk.error import SdkError
 from lightcone_sdk.http.client import LightconeHttp
 from lightcone_sdk.shared.signing import ExternalSigner, SigningStrategy
 
@@ -80,7 +83,10 @@ def _unsigned_tx() -> Transaction:
     return Transaction.new_unsigned(message)
 
 
-def _wallet_client(signer: ExternalSigner) -> LightconeClient:
+def _wallet_client(
+    signer: ExternalSigner, expected_bound: int | None = LAST_VALID_BLOCK_HEIGHT
+) -> LightconeClient:
+    """Build a wallet-adapter client with deterministic submit and confirmation edges."""
     client = LightconeClient(
         LightconeHttp("http://localhost:0"),
         signing_strategy=SigningStrategy.wallet_adapter(signer),
@@ -95,9 +101,14 @@ def _wallet_client(signer: ExternalSigner) -> LightconeClient:
 
     async def fake_confirm_signature_status(
         signature: str, last_valid_block_height: int | None
-    ) -> None:
+    ) -> SimpleNamespace:
         assert signature == str(Signature.default())
-        assert last_valid_block_height == LAST_VALID_BLOCK_HEIGHT
+        assert last_valid_block_height == expected_bound
+        return SimpleNamespace(slot=7)
+
+    async def fake_send_raw_transaction(_tx_bytes: bytes) -> str:
+        """Return a signature without contacting RPC; message checks happen earlier."""
+        return str(Signature.default())
 
     client._rpc.get_latest_blockhash_with_height = (  # type: ignore[method-assign]
         fake_blockhash_with_height
@@ -106,6 +117,7 @@ def _wallet_client(signer: ExternalSigner) -> LightconeClient:
     client._rpc.confirm_signature_status = (  # type: ignore[method-assign]
         fake_confirm_signature_status
     )
+    client._rpc.send_raw_transaction = fake_send_raw_transaction  # type: ignore[method-assign]
     return client
 
 
@@ -149,3 +161,28 @@ async def test_confirmed_submit_uses_explicit_strategy_after_configuration_swap(
     assert signature == str(Signature.default())
     assert validated_signer.transaction_calls == 1
     assert replacement_signer.transaction_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_prepared_submit_preserves_the_fee_estimated_message() -> None:
+    """Submit the exact fee-estimated message and expose its confirmed slot."""
+    client = _wallet_client(_EchoSigner(), expected_bound=None)
+    tx = _unsigned_tx()
+    expected_message = bytes(tx.message)
+    expected_blockhash = tx.message.recent_blockhash
+
+    confirmed = await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
+
+    assert bytes(tx.message) == expected_message
+    assert tx.message.recent_blockhash == expected_blockhash
+    assert confirmed.signature == str(Signature.default())
+    assert confirmed.slot == 7
+
+
+@pytest.mark.asyncio
+async def test_prepared_submit_rejects_a_signer_blockhash_change() -> None:
+    """Reject a wallet mutation before any changed prepared bytes reach RPC."""
+    client = _wallet_client(_RehashSigner(), expected_bound=None)
+
+    with pytest.raises(SdkError, match="changed the fee-prepared transaction message"):
+        await client.sign_and_submit_prepared_tx_confirmed_with_slot(_unsigned_tx())
