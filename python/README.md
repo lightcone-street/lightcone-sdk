@@ -340,6 +340,8 @@ state and fails closed when an account check, estimate, or native reserve is
 unavailable. Unsponsored actions reserve the greater of live costs and the
 applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is rejected until a
 concrete sponsor owns transaction fees and account rent.
+An occupied canonical address is accepted only when it decodes as the wallet's
+initialized, unfrozen Tokenkeg native-mint account.
 
 Split plans consume canonical WSOL first and wrap only a shortfall in the same
 transaction. Merge and redeem plans retain proceeds in the persistent canonical

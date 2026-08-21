@@ -257,7 +257,10 @@ impl<'a> Positions<'a> {
         let wallet = self.planning_wallet(state).await?;
         let components = state.sol_components()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
-        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        let canonical_exists = self
+            .client
+            .canonical_wsol_account_exists(&canonical_account, &wallet)
+            .await?;
         if components.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
@@ -342,7 +345,10 @@ impl<'a> Positions<'a> {
         let wallet = self.planning_wallet(state).await?;
         let components = state.sol_components()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
-        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        let canonical_exists = self
+            .client
+            .canonical_wsol_account_exists(&canonical_account, &wallet)
+            .await?;
         if components.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
@@ -398,7 +404,10 @@ impl<'a> Positions<'a> {
         let wallet = self.planning_wallet(state).await?;
         let components = state.sol_components()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
-        let canonical_exists = self.client.account_exists(&canonical_account).await?;
+        let canonical_exists = self
+            .client
+            .canonical_wsol_account_exists(&canonical_account, &wallet)
+            .await?;
         if components.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
@@ -494,7 +503,11 @@ impl<'a> Positions<'a> {
         }
 
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
-        if !self.client.account_exists(&canonical_account).await? {
+        if !self
+            .client
+            .canonical_wsol_account_exists(&canonical_account, &wallet)
+            .await?
+        {
             return Err(SdkError::Validation(
                 "canonical WSOL is required for this native withdrawal".into(),
             ));
@@ -1076,7 +1089,15 @@ mod tests {
         rpc_url: &str,
         native_sol_balance: &str,
     ) -> (LightconeClient, WalletDepositBalancesState, Pubkey) {
-        let keypair = Keypair::new();
+        planning_client_with_keypair(rpc_url, native_sol_balance, Keypair::new())
+    }
+
+    #[cfg(feature = "native")]
+    fn planning_client_with_keypair(
+        rpc_url: &str,
+        native_sol_balance: &str,
+        keypair: Keypair,
+    ) -> (LightconeClient, WalletDepositBalancesState, Pubkey) {
         let wallet = keypair.pubkey();
         let wallet_address = PubkeyStr::from(wallet.to_string());
         let client = LightconeClient::builder()
@@ -1096,6 +1117,32 @@ mod tests {
             ..Default::default()
         };
         (client, state, wallet)
+    }
+
+    #[cfg(feature = "native")]
+    fn canonical_account_response(wallet: Pubkey, program_owner: Pubkey) -> serde_json::Value {
+        let mut data = vec![0_u8; super::TOKEN_ACCOUNT_SPACE];
+        data[..32].copy_from_slice(spl_token_interface::native_mint::id().as_ref());
+        data[32..64].copy_from_slice(wallet.as_ref());
+        data[108] = 1;
+        data[109..113].copy_from_slice(&1_u32.to_le_bytes());
+        data[113..121].copy_from_slice(&2_039_280_u64.to_le_bytes());
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, data);
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "context": {"slot": 1},
+                "value": {
+                    "data": [encoded, "base64"],
+                    "executable": false,
+                    "lamports": 2_039_280,
+                    "owner": program_owner.to_string(),
+                    "rentEpoch": 0,
+                    "space": super::TOKEN_ACCOUNT_SPACE,
+                }
+            }
+        })
     }
 
     #[cfg(feature = "native")]
@@ -1226,6 +1273,8 @@ mod tests {
     #[tokio::test]
     /// Binds temporary derivation to the blockhash retained by the final plan.
     async fn temporary_withdraw_seed_uses_the_planned_transaction_blockhash() {
+        let keypair = Keypair::new();
+        let wallet = keypair.pubkey();
         let direct_blockhash = solana_hash::Hash::new_unique();
         let planned_blockhash = solana_hash::Hash::new_unique();
         let latest_blockhash = |blockhash: solana_hash::Hash| {
@@ -1251,11 +1300,7 @@ mod tests {
         let (rpc_url, requests) = spawn_rpc_server(vec![
             latest_blockhash(direct_blockhash),
             fee(),
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "result": {"context": {"slot": 1}, "value": {}}
-            }),
+            canonical_account_response(wallet, spl_token_interface::id()),
             serde_json::json!({"jsonrpc": "2.0", "id": 1, "result": 2_039_280}),
             latest_blockhash(planned_blockhash),
             serde_json::json!({
@@ -1267,7 +1312,8 @@ mod tests {
             fee(),
         ])
         .await;
-        let (client, mut state, wallet) = planning_client(&rpc_url, "0.010000000");
+        let (client, mut state, wallet) =
+            planning_client_with_keypair(&rpc_url, "0.010000000", keypair);
         let sol_mint = PubkeyStr::from(WRAPPED_SOL_MINT_ADDRESS);
         state.balances.insert(
             sol_mint.clone(),
@@ -1398,6 +1444,39 @@ mod tests {
         assert!(error
             .to_string()
             .contains("signing strategy does not control authenticated wallet"));
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sol_planners_reject_an_occupied_invalid_canonical_account() {
+        let keypair = Keypair::new();
+        let wallet = keypair.pubkey();
+        let (rpc_url, _) = spawn_rpc_server(vec![canonical_account_response(
+            wallet,
+            solana_sdk_ids::system_program::id(),
+        )])
+        .await;
+        let (client, mut state, _) = planning_client_with_keypair(&rpc_url, "1.000000000", keypair);
+        let mint = PubkeyStr::from(WRAPPED_SOL_MINT_ADDRESS);
+        state.balances.insert(
+            mint.clone(),
+            DepositTokenBalance {
+                mint,
+                idle: Decimal::ONE,
+                symbol: "WSOL".into(),
+                name: "Wrapped SOL".into(),
+                icon_url_low: None,
+                icon_url_medium: None,
+                icon_url_high: None,
+            },
+        );
+
+        let error = client
+            .positions()
+            .plan_sol_split(&market(), 1, &state, false)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("legacy Token Program"));
     }
 
     #[cfg(feature = "native")]

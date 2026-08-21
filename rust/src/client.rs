@@ -440,6 +440,71 @@ impl LightconeClient {
         Ok(!value.is_null())
     }
 
+    /// Validate the wallet's canonical legacy-token WSOL account when present.
+    pub async fn canonical_wsol_account_exists(
+        &self,
+        address: &Pubkey,
+        wallet: &Pubkey,
+    ) -> Result<bool, SdkError> {
+        use solana_program_pack::Pack;
+
+        let body = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "getAccountInfo",
+            "params": [
+                address.to_string(),
+                { "commitment": "confirmed", "encoding": "base64" }
+            ]
+        });
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+        let value = response
+            .get("result")
+            .and_then(|result| result.get("value"))
+            .ok_or_else(|| SdkError::Other("missing account value in RPC response".into()))?;
+        if value.is_null() {
+            return Ok(false);
+        }
+        let owner = value
+            .get("owner")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| SdkError::Validation("canonical WSOL account owner is missing".into()))?
+            .parse::<Pubkey>()
+            .map_err(|error| {
+                SdkError::Validation(format!("canonical WSOL account owner is invalid: {error}"))
+            })?;
+        if owner != spl_token_interface::id() {
+            return Err(SdkError::Validation(
+                "canonical WSOL account is not owned by the legacy Token Program".into(),
+            ));
+        }
+        let encoded = value
+            .pointer("/data/0")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| SdkError::Validation("canonical WSOL account data is missing".into()))?;
+        let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
+            .map_err(|error| {
+                SdkError::Validation(format!("canonical WSOL account data is invalid: {error}"))
+            })?;
+        let account = spl_token_interface::state::Account::unpack(&data).map_err(|error| {
+            SdkError::Validation(format!("canonical WSOL token account is invalid: {error}"))
+        })?;
+        if account.mint != spl_token_interface::native_mint::id()
+            || account.owner != *wallet
+            || account.state != spl_token_interface::state::AccountState::Initialized
+            || !account.is_native()
+        {
+            return Err(SdkError::Validation(
+                "canonical WSOL token account has incompatible mint, authority, or native state"
+                    .into(),
+            ));
+        }
+        Ok(true)
+    }
+
     /// Fetch the current rent-exempt minimum, in lamports, for `data_len` account bytes.
     pub async fn minimum_balance_for_rent_exemption(
         &self,

@@ -19,6 +19,7 @@ solana-transaction = { version = "3.0", features = ["serde", "bincode"] }
 solana-hash = "4.0"
 solana-sdk-ids = { version = "3.1", default-features = false }
 solana-system-interface = { version = "3.0", default-features = false, features = ["bincode"] }
+solana-program-pack = "3.0"
 
 # Crypto (WASM-compatible)
 sha3 = "0.10"

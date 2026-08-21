@@ -16,6 +16,8 @@ from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.transaction import Transaction
 from solders.transaction_status import TransactionConfirmationStatus
+from spl.token._layouts import ACCOUNT_LAYOUT
+from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
 
 from .error import (
     ConfirmationTimeout,
@@ -227,6 +229,44 @@ class Rpc:
             lambda conn: conn.get_account_info(address, Confirmed),
         )
         return response.value is not None
+
+    async def canonical_wsol_account_exists(
+        self, address: Pubkey, wallet: Pubkey
+    ) -> bool:
+        """Validate the wallet's canonical legacy-token WSOL account when present."""
+        from solana.rpc.commitment import Confirmed
+
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_account_info(address, Confirmed),
+        )
+        info = response.value
+        if info is None:
+            return False
+        if info.owner != TOKEN_PROGRAM_ID:
+            raise SdkError(
+                "canonical WSOL account is not owned by the legacy Token Program"
+            )
+        if len(info.data) != ACCOUNT_LAYOUT.sizeof():
+            raise SdkError("canonical WSOL token account has invalid data length")
+        try:
+            account = ACCOUNT_LAYOUT.parse(bytes(info.data))
+            mint = Pubkey.from_bytes(account.mint)
+            owner = Pubkey.from_bytes(account.owner)
+        except Exception as error:
+            raise SdkError(
+                f"canonical WSOL token account is invalid: {error}"
+            ) from error
+        if (
+            mint != WRAPPED_SOL_MINT
+            or owner != wallet
+            or account.state != 1
+            or account.is_native_option != 1
+        ):
+            raise SdkError(
+                "canonical WSOL token account has incompatible mint, authority, or native state"
+            )
+        return True
 
     async def minimum_balance_for_rent_exemption(self, data_len: int) -> int:
         """Return the rent-exempt minimum in lamports for ``data_len`` account bytes."""

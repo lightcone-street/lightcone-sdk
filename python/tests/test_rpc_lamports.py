@@ -3,10 +3,12 @@
 from types import SimpleNamespace
 
 import pytest
+from solders.account import Account
 from solders.hash import Hash
 from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
+from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
 
 from lightcone_sdk.error import SdkError
 from lightcone_sdk.rpc import Rpc
@@ -30,6 +32,12 @@ class _StubConnection:
         self, _message: Message, _commitment: object
     ) -> SimpleNamespace:
         """Model solana-py's fee response wrapper."""
+        return SimpleNamespace(value=self.value)
+
+    async def get_account_info(
+        self, _address: Pubkey, _commitment: object
+    ) -> SimpleNamespace:
+        """Model solana-py's account-info response wrapper."""
         return SimpleNamespace(value=self.value)
 
 
@@ -79,3 +87,29 @@ async def test_fee_estimate_rejects_non_u64_lamports(value: object) -> None:
     """Reject negative, inexact, boolean, and overflowing fee responses."""
     with pytest.raises(SdkError, match="non-negative u64"):
         await _rpc(value).estimate_prepared_transaction_fee(_prepared_transaction())
+
+
+def _canonical_account_data(wallet: Pubkey) -> bytes:
+    """Encode one initialized native-mint token account for ``wallet``."""
+    data = bytearray(165)
+    data[0:32] = bytes(WRAPPED_SOL_MINT)
+    data[32:64] = bytes(wallet)
+    data[108] = 1
+    data[109:113] = (1).to_bytes(4, "little")
+    data[113:121] = (2_039_280).to_bytes(8, "little")
+    return bytes(data)
+
+
+@pytest.mark.asyncio
+async def test_canonical_wsol_account_validation_accepts_only_tokenkeg_native_account() -> (
+    None
+):
+    """Validate program owner, token layout, native mint, and wallet authority."""
+    wallet = Pubkey.new_unique()
+    address = Pubkey.new_unique()
+    valid = Account(2_039_280, _canonical_account_data(wallet), TOKEN_PROGRAM_ID)
+    assert await _rpc(valid).canonical_wsol_account_exists(address, wallet)
+
+    invalid = Account(2_039_280, _canonical_account_data(wallet), Pubkey.default())
+    with pytest.raises(SdkError, match="legacy Token Program"):
+        await _rpc(invalid).canonical_wsol_account_exists(address, wallet)

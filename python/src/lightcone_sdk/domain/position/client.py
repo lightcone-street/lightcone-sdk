@@ -337,7 +337,7 @@ class Positions:
         components = state.sol_components()
         rpc = self._client.rpc()
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
-        canonical_exists = await rpc.account_exists(canonical)
+        canonical_exists = await rpc.canonical_wsol_account_exists(canonical, wallet)
         if components.canonical_wsol_lamports > 0 and not canonical_exists:
             raise SdkError(
                 "canonical WSOL balance is positive but its account is unavailable"
@@ -533,7 +533,7 @@ class Positions:
             )
 
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
-        if not await rpc.account_exists(canonical):
+        if not await rpc.canonical_wsol_account_exists(canonical, wallet):
             raise SdkError("canonical WSOL is required for this native withdrawal")
         temporary_rent = await rpc.minimum_balance_for_rent_exemption(
             TOKEN_ACCOUNT_SPACE
@@ -666,7 +666,7 @@ class Positions:
         """Read canonical-account existence and upfront rent for receive plans."""
         rpc = self._client.rpc()
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
-        exists = await rpc.account_exists(canonical)
+        exists = await rpc.canonical_wsol_account_exists(canonical, wallet)
         components = state.sol_components()
         if components.canonical_wsol_lamports > 0 and not exists:
             raise SdkError(

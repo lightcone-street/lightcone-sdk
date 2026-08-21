@@ -317,7 +317,7 @@ export class Positions {
     const components = state.solComponents();
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    const canonicalExists = await rpc.accountExists(canonical);
+    const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
     if (components.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
@@ -536,7 +536,7 @@ export class Positions {
     }
 
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    if (!(await rpc.accountExists(canonical))) {
+    if (!(await rpc.canonicalWsolAccountExists(canonical, wallet))) {
       throw SdkError.validation(
         "canonical WSOL is required for this native withdrawal"
       );
@@ -734,7 +734,7 @@ export class Positions {
   }> {
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    const canonicalExists = await rpc.accountExists(canonical);
+    const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
     const components = state.solComponents();
     if (components.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(

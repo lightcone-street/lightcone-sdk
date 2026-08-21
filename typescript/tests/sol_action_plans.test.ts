@@ -56,10 +56,23 @@ function stateFor(
   return state;
 }
 
+/** Encode one initialized native-mint token account for the fixture wallet. */
+function canonicalAccountData(wallet: PublicKey): Buffer {
+  const data = Buffer.alloc(165);
+  NATIVE_MINT.toBuffer().copy(data, 0);
+  wallet.toBuffer().copy(data, 32);
+  data[108] = 1;
+  data.writeUInt32LE(1, 109);
+  data.writeBigUInt64LE(2_039_280n, 113);
+  return data;
+}
+
 /** Deterministic chain authority exposed to one planner test. */
 interface PlanningHarnessOptions {
   /** Whether the persistent canonical Tokenkeg ATA exists. */
   canonicalExists?: boolean;
+  /** Return an occupied address that is not a valid canonical token account. */
+  invalidCanonicalAccount?: boolean;
   /** Number of deterministic temporary seeds reported as already occupied. */
   occupiedTemporaryAttempts?: number;
   /** Ordered live fee results; `null` models unavailable fee authority. */
@@ -103,7 +116,15 @@ function planningHarness(
       if (address.equals(canonical)) {
         return options.canonicalExists === false
           ? null
-          : { data: Buffer.alloc(165) };
+          : {
+              data: canonicalAccountData(wallet.publicKey),
+              executable: false,
+              lamports: 2_039_280,
+              owner: options.invalidCanonicalAccount
+                ? PublicKey.default
+                : TOKEN_PROGRAM_ID,
+              rentEpoch: 0,
+            };
       }
       if (occupiedTemporaryAttempts > 0) {
         occupiedTemporaryAttempts -= 1;
@@ -608,5 +629,20 @@ describe("SOL action plans", () => {
       /outcome index/i
     );
     assert.equal(harness.accountLookups.length, 0);
+  });
+
+  it("rejects an occupied invalid canonical account", async () => {
+    const wallet = Keypair.generate();
+    const harness = planningHarness(wallet, { invalidCanonicalAccount: true });
+
+    await assert.rejects(
+      harness.positions.planSolSplit(
+        market(),
+        1n,
+        stateFor(wallet.publicKey, "1.000000000", "1.000000000"),
+        false
+      ),
+      /canonical WSOL account is not a legacy Token Program account/
+    );
   });
 });

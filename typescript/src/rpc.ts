@@ -5,6 +5,12 @@ import type {
   SignatureStatusConfig,
   Transaction,
 } from "@solana/web3.js";
+import {
+  ACCOUNT_SIZE,
+  NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+  unpackAccount,
+} from "@solana/spl-token";
 import type { ClientContext } from "./context";
 import { requireConnection, connectionWithFailover } from "./context";
 import { SdkError } from "./error";
@@ -114,6 +120,43 @@ export class Rpc {
       connection.getAccountInfo(address, "confirmed")
     );
     return account !== null;
+  }
+
+  /** Validate the wallet's canonical legacy-token WSOL account when present. */
+  async canonicalWsolAccountExists(
+    address: PublicKey,
+    wallet: PublicKey
+  ): Promise<boolean> {
+    const info = await connectionWithFailover(this.client, (connection) =>
+      connection.getAccountInfo(address, "confirmed")
+    );
+    if (!info) return false;
+    if (!info.owner.equals(TOKEN_PROGRAM_ID) || info.data.length !== ACCOUNT_SIZE) {
+      throw SdkError.validation(
+        "canonical WSOL account is not a legacy Token Program account"
+      );
+    }
+
+    let account;
+    try {
+      account = unpackAccount(address, info, TOKEN_PROGRAM_ID);
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL token account is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (
+      !account.mint.equals(NATIVE_MINT) ||
+      !account.owner.equals(wallet) ||
+      !account.isInitialized ||
+      account.isFrozen ||
+      !account.isNative
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token account has incompatible mint, authority, or native state"
+      );
+    }
+    return true;
   }
 
   /** Return the current rent-exempt minimum in lamports for `dataLength` account bytes. */

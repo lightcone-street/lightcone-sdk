@@ -299,6 +299,7 @@ class FakeRpc:
         wallet: Pubkey,
         *,
         canonical_exists: bool = True,
+        invalid_canonical_account: bool = False,
         occupied_temporary_attempts: int = 0,
         fees: list[int | None] | None = None,
         rent_lamports: int = 2_039_280,
@@ -307,6 +308,7 @@ class FakeRpc:
         """Configure canonical presence, collision count, and ordered live values."""
         self.canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
         self.canonical_exists = canonical_exists
+        self.invalid_canonical_account = invalid_canonical_account
         self.occupied_temporary_attempts = occupied_temporary_attempts
         self.fees = list(fees or [5_000])
         self.rent_lamports = rent_lamports
@@ -323,6 +325,15 @@ class FakeRpc:
             self.occupied_temporary_attempts -= 1
             return True
         return False
+
+    async def canonical_wsol_account_exists(
+        self, address: Pubkey, _wallet: Pubkey
+    ) -> bool:
+        """Model authoritative canonical-account validation."""
+        exists = await self.account_exists(address)
+        if exists and self.invalid_canonical_account:
+            raise SdkError("canonical WSOL token account is invalid")
+        return exists
 
     async def minimum_balance_for_rent_exemption(self, _data_len: int) -> int:
         """Return the configured rent-exempt minimum in lamports."""
@@ -384,6 +395,7 @@ def planning_harness(
     wrapped: str = "0.500000000",
     credentials: AuthCredentials | None = None,
     canonical_exists: bool = True,
+    invalid_canonical_account: bool = False,
     occupied_temporary_attempts: int = 0,
     fees: list[int | None] | None = None,
     blockhashes: list[Hash] | None = None,
@@ -410,6 +422,7 @@ def planning_harness(
     rpc = FakeRpc(
         wallet,
         canonical_exists=canonical_exists,
+        invalid_canonical_account=invalid_canonical_account,
         occupied_temporary_attempts=occupied_temporary_attempts,
         fees=fees,
         blockhashes=blockhashes,
@@ -749,3 +762,12 @@ async def test_planners_reject_unsupported_sponsorship_and_invalid_redeem_outcom
     with pytest.raises(InvalidOutcomeIndexError):
         await positions.plan_sol_redeem(Pubkey.new_unique(), 1, 2, 2, state, False)
     assert rpc.account_lookups == []
+
+
+@pytest.mark.asyncio
+async def test_planner_rejects_an_occupied_invalid_canonical_account() -> None:
+    """Reject an occupied canonical address that is not a valid WSOL token account."""
+    positions, state, _rpc, _wallet = planning_harness(invalid_canonical_account=True)
+
+    with pytest.raises(SdkError, match="canonical WSOL token account is invalid"):
+        await positions.plan_sol_split(market(), 1, state, False)
