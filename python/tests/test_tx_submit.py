@@ -166,8 +166,10 @@ async def test_confirmed_submit_uses_explicit_strategy_after_configuration_swap(
 @pytest.mark.asyncio
 async def test_prepared_submit_preserves_the_fee_estimated_message() -> None:
     """Submit the exact fee-estimated message and expose its confirmed slot."""
-    client = _wallet_client(_EchoSigner(), expected_bound=None)
     tx = _unsigned_tx()
+    signer = _EchoSigner()
+    signer.wallet_address = str(tx.message.account_keys[0])
+    client = _wallet_client(signer, expected_bound=None)
     expected_message = bytes(tx.message)
     expected_blockhash = tx.message.recent_blockhash
 
@@ -182,7 +184,25 @@ async def test_prepared_submit_preserves_the_fee_estimated_message() -> None:
 @pytest.mark.asyncio
 async def test_prepared_submit_rejects_a_signer_blockhash_change() -> None:
     """Reject a wallet mutation before any changed prepared bytes reach RPC."""
-    client = _wallet_client(_RehashSigner(), expected_bound=None)
+    tx = _unsigned_tx()
+    signer = _RehashSigner()
+    signer.wallet_address = str(tx.message.account_keys[0])
+    client = _wallet_client(signer, expected_bound=None)
 
     with pytest.raises(SdkError, match="changed the fee-prepared transaction message"):
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(_unsigned_tx())
+        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
+
+
+@pytest.mark.asyncio
+async def test_prepared_submit_rejects_a_mismatched_signing_wallet() -> None:
+    """Reject the wrong wallet before invoking it or submitting bytes."""
+    tx = _unsigned_tx()
+    signer = _RecordingSigner()
+    signer.wallet_address = str(Pubkey.new_unique())
+    client = _wallet_client(signer, expected_bound=None)
+
+    with pytest.raises(
+        SdkError, match="does not control prepared transaction fee payer"
+    ):
+        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
+    assert signer.transaction_calls == 0

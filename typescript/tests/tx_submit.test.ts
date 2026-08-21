@@ -86,6 +86,7 @@ describe("prepared transaction submission", () => {
     const blockhash = Keypair.generate().publicKey.toBase58();
     const transaction = preparedTransaction(blockhash);
     const expectedMessage = transaction.serializeMessage();
+    echoSigner.walletAddress = transaction.feePayer!.toBase58();
     const { context, submittedMessages } = contextFor(echoSigner);
 
     const confirmed = await signAndSubmitPreparedTxConfirmedWithSlot(
@@ -104,6 +105,7 @@ describe("prepared transaction submission", () => {
     );
     /** Wallet adapter that preserves login bytes but replaces the transaction blockhash. */
     const rehashSigner: ExternalSigner = {
+      walletAddress: transaction.feePayer!.toBase58(),
       /** Echo login bytes; login signing is outside this mutation test. */
       async signMessage(message) {
         return message;
@@ -124,6 +126,31 @@ describe("prepared transaction submission", () => {
       () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
       /changed the fee-prepared transaction message/
     );
+    assert.equal(submittedMessages.length, 0);
+  });
+
+  it("rejects a mismatched signing wallet before signing or submission", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    let signingCalls = 0;
+    const signer: ExternalSigner = {
+      walletAddress: Keypair.generate().publicKey.toBase58(),
+      async signMessage(message) {
+        return message;
+      },
+      async signTransaction(bytes) {
+        signingCalls += 1;
+        return bytes;
+      },
+    };
+    const { context, submittedMessages } = contextFor(signer);
+
+    await assert.rejects(
+      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
+      /does not control prepared transaction fee payer/
+    );
+    assert.equal(signingCalls, 0);
     assert.equal(submittedMessages.length, 0);
   });
 });

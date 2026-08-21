@@ -20,6 +20,7 @@ import { isAuthenticated } from "../../auth";
 import type { ClientContext } from "../../context";
 import {
   requireConnection,
+  requireSigningStrategy,
 } from "../../context";
 import { SdkError } from "../../error";
 import { RetryPolicy } from "../../http";
@@ -40,6 +41,8 @@ import {
 import { Rpc } from "../../rpc";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
+import { validateOutcomeIndex, validateOutcomes } from "../../program/utils";
+import { signingStrategyWalletAddress } from "../../shared/signing";
 import type {
   Position as ProgramPosition,
   RedeemWinningsParams,
@@ -114,6 +117,12 @@ function assertSolActionAmount(amountLamports: bigint, action: string): void {
   }
   if (amountLamports > MAX_U64) {
     throw SdkError.validation(`${action} amount must fit u64`);
+  }
+}
+
+function assertUnsponsoredPlan(sponsored: boolean): void {
+  if (sponsored) {
+    throw SdkError.validation("sponsored SOL action planning is not supported");
   }
 }
 
@@ -294,7 +303,7 @@ export class Positions {
   /**
    * Plan one atomic split that consumes canonical WSOL before wrapping a shortfall.
    * Amounts and live costs are lamports; unavailable account, fee, or rent reads
-   * fail closed, and `sponsored` is an explicit caller capability.
+   * fail closed, and sponsored planning is rejected until a sponsor owns costs.
    */
   async planSolSplit(
     market: Market,
@@ -302,6 +311,7 @@ export class Positions {
     state: WalletDepositBalancesState,
     sponsored: boolean
   ): Promise<SolActionPlan> {
+    assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "split");
     const wallet = this.planningWallet(state);
     const components = state.solComponents();
@@ -392,6 +402,7 @@ export class Positions {
     state: WalletDepositBalancesState,
     sponsored: boolean
   ): Promise<SolActionPlan> {
+    assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "merge");
     const wallet = this.planningWallet(state);
     const transaction = new Transaction({ feePayer: wallet });
@@ -426,17 +437,21 @@ export class Positions {
 
   /**
    * Plan a redemption that leaves returned WSOL in the persistent canonical ATA.
-   * `amountLamports` is exact collateral scale; the market instruction remains
-   * authoritative for `outcomeIndex` validity.
+   * `amountLamports` is exact collateral scale; `outcomeIndex` is validated
+   * against the supplied authoritative `numOutcomes`.
    */
   async planSolRedeem(
     market: PublicKey,
     amountLamports: bigint,
     outcomeIndex: number,
+    numOutcomes: number,
     state: WalletDepositBalancesState,
     sponsored: boolean
   ): Promise<SolActionPlan> {
+    assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "redeem");
+    validateOutcomes(numOutcomes);
+    validateOutcomeIndex(outcomeIndex, numOutcomes);
     const wallet = this.planningWallet(state);
     const transaction = new Transaction({ feePayer: wallet });
     const { rpc, components, canonicalExists, upfrontRentLamports } =
@@ -483,6 +498,7 @@ export class Positions {
     state: WalletDepositBalancesState,
     sponsored: boolean
   ): Promise<SolActionPlan> {
+    assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "withdraw");
     const wallet = this.planningWallet(state);
     const components = state.solComponents();
@@ -572,8 +588,11 @@ export class Positions {
       sponsored,
     };
     const initialAvailability = solBalanceAvailability(components, initialCosts);
-    const initialTransfer =
-      amountLamports + initialAvailability.reserveLamports - components.nativeLamports;
+    const initialRequired = amountLamports + initialAvailability.reserveLamports;
+    if (initialRequired < components.nativeLamports) {
+      throw SdkError.validation("invalid temporary withdrawal requirement");
+    }
+    const initialTransfer = initialRequired - components.nativeLamports;
     transaction = this.buildTemporaryNativeWithdrawal(
       wallet,
       recipient,
@@ -593,8 +612,11 @@ export class Positions {
       sponsored,
     };
     const availability = solBalanceAvailability(components, costs);
-    const canonicalTransfer =
-      amountLamports + availability.reserveLamports - components.nativeLamports;
+    const finalRequired = amountLamports + availability.reserveLamports;
+    if (finalRequired < components.nativeLamports) {
+      throw SdkError.validation("invalid temporary withdrawal requirement");
+    }
+    const canonicalTransfer = finalRequired - components.nativeLamports;
     if (canonicalTransfer > components.canonicalWsolLamports) {
       throw SdkError.validation(
         "canonical WSOL cannot fund the native withdrawal shortfall"
@@ -661,6 +683,24 @@ export class Positions {
     } catch (error) {
       throw SdkError.validation(
         `authenticated wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    const strategy = requireSigningStrategy(this.client);
+    const signingAddress = signingStrategyWalletAddress(strategy);
+    if (!signingAddress) {
+      throw SdkError.validation("signing strategy wallet identity is required");
+    }
+    let signingWallet: PublicKey;
+    try {
+      signingWallet = new PublicKey(signingAddress);
+    } catch (error) {
+      throw SdkError.validation(
+        `signing strategy wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (!signingWallet.equals(wallet)) {
+      throw SdkError.validation(
+        "signing strategy does not control authenticated wallet"
       );
     }
     return wallet;

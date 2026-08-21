@@ -3,7 +3,10 @@ import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
 import type { AuthCredentials } from "./auth";
 import type { DepositSource, OrderbookRules } from "./shared";
-import type { SigningStrategy } from "./shared/signing";
+import {
+  signingStrategyWalletAddress,
+  type SigningStrategy,
+} from "./shared/signing";
 import {
   ActiveRpc,
   type RpcFailoverState,
@@ -188,6 +191,27 @@ export async function signAndSubmitPreparedTxConfirmedWithSlot(
     throw SdkError.validation("prepared transaction is missing a recent blockhash");
   }
   const strategy = requireSigningStrategy(ctx);
+  if (!tx.feePayer) {
+    throw SdkError.validation("prepared transaction is missing a fee payer");
+  }
+  const signingAddress = signingStrategyWalletAddress(strategy);
+  if (!signingAddress) {
+    throw SdkError.validation("signing strategy wallet identity is required");
+  }
+  let signingWallet: PublicKey;
+  try {
+    const { PublicKey } = await import("@solana/web3.js");
+    signingWallet = new PublicKey(signingAddress);
+  } catch (error) {
+    throw SdkError.validation(
+      `signing strategy wallet is invalid: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
+  if (!signingWallet.equals(tx.feePayer)) {
+    throw SdkError.validation(
+      "signing strategy does not control prepared transaction fee payer"
+    );
+  }
   const signature = await signAndSubmitPreparedTxInner(ctx, tx, strategy);
   const { Rpc } = await import("./rpc");
   const status = await new Rpc(ctx).confirmSignatureStatus(signature, null);

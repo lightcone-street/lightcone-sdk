@@ -70,6 +70,8 @@ interface PlanningHarnessOptions {
   expiresAt?: Date;
   /** Credential wallet override for stale/wrong-wallet tests. */
   credentialWallet?: PublicKey;
+  /** Signing wallet override for trust-boundary mismatch tests. */
+  signingWallet?: Keypair;
   /** Ordered blockhashes used to prove final seed/message binding. */
   blockhashValues?: string[];
 }
@@ -127,6 +129,7 @@ function planningHarness(
     primaryConnection: connection,
     rpcFailoverState: new RpcFailoverState(),
     depositSource: DepositSource.Global,
+    signingStrategy: { type: "native", keypair: options.signingWallet ?? wallet },
     authCredentials: {
       user_id: "user",
       wallet_address: (
@@ -354,6 +357,7 @@ describe("SOL action plans", () => {
               Keypair.generate().publicKey,
               250_000_000n,
               0,
+              2,
               state,
               false
             );
@@ -498,6 +502,20 @@ describe("SOL action plans", () => {
       /does not match wallet balance state/
     );
     assert.equal(mismatched.accountLookups.length, 0);
+
+    const wrongSigner = planningHarness(wallet, {
+      signingWallet: Keypair.generate(),
+    });
+    await assert.rejects(
+      wrongSigner.positions.planNativeSolWithdrawal(
+        Keypair.generate().publicKey,
+        1n,
+        stateFor(wallet.publicKey, "1.000000000", "0.000000000"),
+        false
+      ),
+      /signing strategy does not control authenticated wallet/
+    );
+    assert.equal(wrongSigner.accountLookups.length, 0);
   });
 
   it("fails closed on inexact or negative RPC lamport values", async () => {
@@ -532,6 +550,27 @@ describe("SOL action plans", () => {
     }
   });
 
+  it("rejects fee changes that would make a temporary transfer negative", async () => {
+    const wallet = Keypair.generate();
+    const state = stateFor(wallet.publicKey, "0.110000000", "0.500000000");
+
+    for (const feeValues of [
+      [20_000_000, 0],
+      [20_000_000, 15_000_000, 0],
+    ]) {
+      const harness = planningHarness(wallet, { feeValues });
+      await assert.rejects(
+        harness.positions.planNativeSolWithdrawal(
+          Keypair.generate().publicKey,
+          100_000_000n,
+          state,
+          false
+        ),
+        /invalid temporary withdrawal requirement/
+      );
+    }
+  });
+
   it("rejects SOL action amounts outside u64 before RPC", async () => {
     const wallet = Keypair.generate();
     const harness = planningHarness(wallet);
@@ -544,6 +583,29 @@ describe("SOL action plans", () => {
         false
       ),
       /fit u64/
+    );
+    assert.equal(harness.accountLookups.length, 0);
+  });
+
+  it("rejects unsupported sponsorship and invalid redeem outcomes before RPC", async () => {
+    const wallet = Keypair.generate();
+    const harness = planningHarness(wallet);
+    const state = stateFor(wallet.publicKey, "2.000000000", "0.500000000");
+
+    await assert.rejects(
+      harness.positions.planSolSplit(market(), 1n, state, true),
+      /sponsored SOL action planning is not supported/
+    );
+    await assert.rejects(
+      harness.positions.planSolRedeem(
+        Keypair.generate().publicKey,
+        1n,
+        2,
+        2,
+        state,
+        false
+      ),
+      /outcome index/i
     );
     assert.equal(harness.accountLookups.length, 0);
   });

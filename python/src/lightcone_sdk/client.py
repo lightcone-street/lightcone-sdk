@@ -342,7 +342,21 @@ class LightconeClient:
 
         if tx.message.recent_blockhash == Hash.default():
             raise SdkError("prepared transaction is missing a recent blockhash")
-        signature = await self._sign_and_submit_prepared_tx_inner(tx)
+        if not tx.message.account_keys:
+            raise SdkError("prepared transaction is missing a fee payer")
+        strategy = self._require_signing_strategy()
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is None:
+            raise SdkError("signing strategy wallet identity is required")
+        try:
+            signing_wallet = Pubkey.from_string(signing_address)
+        except (TypeError, ValueError) as error:
+            raise SdkError(f"signing strategy wallet is invalid: {error}") from error
+        if signing_wallet != tx.message.account_keys[0]:
+            raise SdkError(
+                "signing strategy does not control prepared transaction fee payer"
+            )
+        signature = await self._sign_and_submit_prepared_tx_inner(tx, strategy)
         status = await self.rpc().confirm_signature_status(signature, None)
         return ConfirmedTransaction(signature=signature, slot=status.slot)
 

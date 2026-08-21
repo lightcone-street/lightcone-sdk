@@ -76,6 +76,17 @@ pub enum SigningStrategy {
     WalletAdapter(Arc<dyn ExternalSigner>),
 }
 
+impl SigningStrategy {
+    /// Return the wallet identity this strategy can prove before signing.
+    pub fn wallet_address(&self) -> Option<Pubkey> {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(signer) => signer.wallet_address(),
+        }
+    }
+}
+
 /// Check if an external signer error indicates the user cancelled/rejected
 /// the wallet popup. Returns `SdkError::UserCancelled` if so, otherwise
 /// wraps in `SdkError::Signing`.

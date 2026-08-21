@@ -68,6 +68,7 @@ from ...program.types import (
     WithdrawFromGlobalParams,
     WithdrawFromPositionParams,
 )
+from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...rpc import require_connection
 from ..market import Market
 from . import DepositTokenBalancesSnapshot
@@ -110,6 +111,12 @@ def _require_sol_action_amount(amount_lamports: int, action: str) -> None:
         raise SdkError(f"{action} amount must be greater than zero")
     if amount_lamports > MAX_U64:
         raise SdkError(f"{action} amount must fit u64")
+
+
+def _require_unsponsored_plan(sponsored: bool) -> None:
+    """Reject sponsorship until a concrete sponsor owns fees and account rent."""
+    if sponsored:
+        raise SdkError("sponsored SOL action planning is not supported")
 
 
 @dataclass(frozen=True)
@@ -322,8 +329,9 @@ class Positions:
         """Plan one atomic split using canonical WSOL before wrapping a shortfall.
 
         Amounts and live costs are lamports. Account, fee, and rent reads fail
-        closed, and ``sponsored`` is an explicit caller capability.
+        closed, and sponsored planning is rejected until a sponsor owns costs.
         """
+        _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "split")
         wallet = self._planning_wallet(state)
         components = state.sol_components()
@@ -401,6 +409,7 @@ class Positions:
         The fee-prepared transaction does not mutate cached state; callers
         refresh authority after confirmed submission.
         """
+        _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "merge")
         wallet = self._planning_wallet(state)
         rpc, components, exists, rent = await self._receive_plan_context(wallet, state)
@@ -431,15 +440,19 @@ class Positions:
         market: Pubkey,
         amount_lamports: int,
         outcome_index: int,
+        num_outcomes: int,
         state: WalletDepositBalancesState,
         sponsored: bool,
     ) -> SolActionPlan:
         """Plan a redemption that retains returned WSOL in the canonical ATA.
 
-        ``amount_lamports`` is exact collateral scale; the market instruction
-        remains authoritative for ``outcome_index`` validity.
+        ``amount_lamports`` is exact collateral scale; ``outcome_index`` is
+        validated against the supplied authoritative ``num_outcomes``.
         """
+        _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "redeem")
+        validate_outcome_count(num_outcomes)
+        validate_outcome_index(outcome_index, num_outcomes)
         wallet = self._planning_wallet(state)
         rpc, components, exists, rent = await self._receive_plan_context(wallet, state)
         instructions = [] if exists else [self._create_canonical_wsol_account(wallet)]
@@ -479,6 +492,7 @@ class Positions:
         RPC latency while making accidental exhaustion negligible. The returned
         transaction is fee-prepared.
         """
+        _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "withdraw")
         wallet = self._planning_wallet(state)
         components = state.sol_components()
@@ -554,11 +568,10 @@ class Positions:
         initial_availability = SolBalanceAvailability.from_costs(
             components, initial_costs
         )
-        initial_transfer = (
-            amount_lamports
-            + initial_availability.reserve_lamports
-            - components.native_lamports
-        )
+        initial_required = amount_lamports + initial_availability.reserve_lamports
+        if initial_required < components.native_lamports:
+            raise SdkError("invalid temporary withdrawal requirement")
+        initial_transfer = initial_required - components.native_lamports
         transaction = self._build_temporary_native_withdrawal(
             wallet,
             recipient,
@@ -572,9 +585,10 @@ class Positions:
         final_fee = await rpc.estimate_prepared_transaction_fee(transaction)
         costs = SolActionCosts(final_fee, temporary_rent, False, sponsored)
         availability = SolBalanceAvailability.from_costs(components, costs)
-        canonical_transfer = (
-            amount_lamports + availability.reserve_lamports - components.native_lamports
-        )
+        final_required = amount_lamports + availability.reserve_lamports
+        if final_required < components.native_lamports:
+            raise SdkError("invalid temporary withdrawal requirement")
+        canonical_transfer = final_required - components.native_lamports
         if canonical_transfer > components.canonical_wsol_lamports:
             raise SdkError("canonical WSOL cannot fund the native withdrawal shortfall")
         if canonical_transfer != initial_transfer:
@@ -623,6 +637,16 @@ class Positions:
             wallet = Pubkey.from_string(credentials.wallet_address)
         except ValueError as error:
             raise SdkError(f"authenticated wallet is invalid: {error}") from error
+        strategy = self._client._require_signing_strategy()
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is None:
+            raise SdkError("signing strategy wallet identity is required")
+        try:
+            signing_wallet = Pubkey.from_string(signing_address)
+        except (TypeError, ValueError) as error:
+            raise SdkError(f"signing strategy wallet is invalid: {error}") from error
+        if signing_wallet != wallet:
+            raise SdkError("signing strategy does not control authenticated wallet")
         return wallet
 
     @staticmethod

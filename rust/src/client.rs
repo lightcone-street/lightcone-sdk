@@ -781,6 +781,17 @@ impl LightconeClient {
         let strategy = self.signing_strategy().await.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
+        let fee_payer = tx.message.account_keys.first().copied().ok_or_else(|| {
+            SdkError::Validation("prepared transaction is missing a fee payer".into())
+        })?;
+        let signing_wallet = strategy.wallet_address().ok_or_else(|| {
+            SdkError::Validation("signing strategy wallet identity is required".into())
+        })?;
+        if signing_wallet != fee_payer {
+            return Err(SdkError::Validation(
+                "signing strategy does not control prepared transaction fee payer".into(),
+            ));
+        }
         let signature = self.sign_and_submit_prepared_tx_inner(tx, strategy).await?;
         let status = self.confirm_signature_status(&signature, None).await?;
         Ok(ConfirmedTransaction {

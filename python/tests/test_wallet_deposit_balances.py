@@ -4,6 +4,7 @@ import time
 import pytest
 from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
+from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 from solders.system_program import decode_transfer
 from spl.token.constants import (
@@ -38,7 +39,8 @@ from lightcone_sdk.domain.position import (
 )
 from lightcone_sdk.domain.position.client import Positions, native_withdraw_seed
 from lightcone_sdk.error import SdkError
-from lightcone_sdk.program import get_associated_token_address
+from lightcone_sdk.program import InvalidOutcomeIndexError, get_associated_token_address
+from lightcone_sdk.shared.signing import SigningStrategy
 from lightcone_sdk.ws import parse_message_in
 
 WSOL_MINT = str(WRAPPED_SOL_MINT)
@@ -351,11 +353,17 @@ class FakeRpc:
 class FakePlanningClient:
     """Provide only the auth, program, and RPC surfaces consumed by planners."""
 
-    def __init__(self, credentials: AuthCredentials | None, rpc: FakeRpc) -> None:
+    def __init__(
+        self,
+        credentials: AuthCredentials | None,
+        rpc: FakeRpc,
+        strategy: SigningStrategy,
+    ) -> None:
         """Bind deterministic identity and chain authority to one client."""
         self.program_id = Pubkey.default()
         self._auth = FakeAuth(credentials)
         self._rpc = rpc
+        self._strategy = strategy
 
     def auth(self) -> FakeAuth:
         """Return the cached-identity facade."""
@@ -364,6 +372,10 @@ class FakePlanningClient:
     def rpc(self) -> FakeRpc:
         """Return deterministic chain authority."""
         return self._rpc
+
+    def _require_signing_strategy(self) -> SigningStrategy:
+        """Return the identity-bound signer used by planner preflight."""
+        return self._strategy
 
 
 def planning_harness(
@@ -375,9 +387,11 @@ def planning_harness(
     occupied_temporary_attempts: int = 0,
     fees: list[int | None] | None = None,
     blockhashes: list[Hash] | None = None,
+    signing_wallet_mismatch: bool = False,
 ) -> tuple[Positions, WalletDepositBalancesState, FakeRpc, Pubkey]:
     """Build complete wallet state and a deterministic planner dependency graph."""
-    wallet = Pubkey.new_unique()
+    keypair = Keypair()
+    wallet = keypair.pubkey()
     if credentials is None:
         credentials = AuthCredentials(
             user_id="user-a",
@@ -400,7 +414,10 @@ def planning_harness(
         fees=fees,
         blockhashes=blockhashes,
     )
-    client = FakePlanningClient(credentials, rpc)
+    signing_keypair = Keypair() if signing_wallet_mismatch else keypair
+    client = FakePlanningClient(
+        credentials, rpc, SigningStrategy.native(signing_keypair)
+    )
     return Positions(client), state, rpc, wallet  # type: ignore[arg-type]
 
 
@@ -559,7 +576,7 @@ async def test_merge_and_redeem_keep_proceeds_in_the_canonical_account() -> None
             plan = await positions.plan_sol_merge(market(), 250_000_000, state, False)
         else:
             plan = await positions.plan_sol_redeem(
-                Pubkey.new_unique(), 250_000_000, 0, state, False
+                Pubkey.new_unique(), 250_000_000, 0, 2, state, False
             )
 
         assert len(plan.transaction.message.instructions) == 2
@@ -619,7 +636,9 @@ async def test_native_withdrawal_closes_only_a_seeded_temporary_account() -> Non
         500_000_000,
         0,
     )
-    expected_temporary = Pubkey.create_with_seed(wallet, expected_seed, TOKEN_PROGRAM_ID)
+    expected_temporary = Pubkey.create_with_seed(
+        wallet, expected_seed, TOKEN_PROGRAM_ID
+    )
     create_instruction = compiled_instruction(plan.transaction, 0)
     assert create_instruction.accounts[1].pubkey == expected_temporary
     token_transfer = decode_token_transfer(compiled_instruction(plan.transaction, 2))
@@ -667,7 +686,25 @@ async def test_sol_action_plans_reject_amounts_outside_u64_before_rpc(
             Pubkey.new_unique(), amount, state, False
         )
     assert rpc.fee_calls == 0
+
     assert rpc.account_lookups == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "fees",
+    ([20_000_000, 0], [20_000_000, 15_000_000, 0]),
+)
+async def test_native_withdrawal_rejects_negative_temporary_transfer(
+    fees: list[int],
+) -> None:
+    """Reject fee changes that would make either transfer calculation negative."""
+    positions, state, _rpc, _wallet = planning_harness(native="0.110000000", fees=fees)
+
+    with pytest.raises(SdkError, match="invalid temporary withdrawal requirement"):
+        await positions.plan_native_sol_withdrawal(
+            Pubkey.new_unique(), 100_000_000, state, False
+        )
 
 
 @pytest.mark.asyncio
@@ -683,3 +720,32 @@ async def test_sol_action_plans_fail_closed_on_identity_and_fee_errors() -> None
     with pytest.raises(SdkError, match="fee estimate is unavailable"):
         await positions.plan_native_sol_withdrawal(Pubkey.new_unique(), 1, state, False)
     assert rpc.fee_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_sol_action_plans_reject_a_mismatched_signing_wallet_before_rpc() -> None:
+    """Reject a signer that cannot control the authenticated planning wallet."""
+    positions, state, rpc, _wallet = planning_harness(signing_wallet_mismatch=True)
+
+    with pytest.raises(
+        SdkError, match="signing strategy does not control authenticated wallet"
+    ):
+        await positions.plan_native_sol_withdrawal(Pubkey.new_unique(), 1, state, False)
+    assert rpc.fee_calls == 0
+    assert rpc.account_lookups == []
+
+
+@pytest.mark.asyncio
+async def test_planners_reject_unsupported_sponsorship_and_invalid_redeem_outcomes() -> (
+    None
+):
+    """Reject unsupported or invalid intent before touching chain authority."""
+    positions, state, rpc, _wallet = planning_harness()
+
+    with pytest.raises(
+        SdkError, match="sponsored SOL action planning is not supported"
+    ):
+        await positions.plan_sol_split(market(), 1, state, True)
+    with pytest.raises(InvalidOutcomeIndexError):
+        await positions.plan_sol_redeem(Pubkey.new_unique(), 1, 2, 2, state, False)
+    assert rpc.account_lookups == []

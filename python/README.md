@@ -338,8 +338,8 @@ costs, the action-specific reserve and spendable balance, and separate expected
 native and canonical WSOL deltas. Each planner requires complete matching-wallet
 state and fails closed when an account check, estimate, or native reserve is
 unavailable. Unsponsored actions reserve the greater of live costs and the
-applicable 0.001 SOL or 0.0035 SOL floor; sponsored plans reserve zero only when
-the caller passes the exact enabled capability.
+applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is rejected until a
+concrete sponsor owns transaction fees and account rent.
 
 Split plans consume canonical WSOL first and wrap only a shortfall in the same
 transaction. Merge and redeem plans retain proceeds in the persistent canonical

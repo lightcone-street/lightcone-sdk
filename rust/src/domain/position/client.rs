@@ -26,6 +26,7 @@ use crate::program::types::{
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
+use crate::shared::signing::SigningStrategy;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
@@ -67,6 +68,27 @@ fn validated_conversion_wallet(
         .wallet_address
         .to_pubkey()
         .map_err(SdkError::Validation)
+}
+
+fn validate_signing_wallet(strategy: &SigningStrategy, wallet: Pubkey) -> Result<(), SdkError> {
+    let signing_wallet = strategy.wallet_address().ok_or_else(|| {
+        SdkError::Validation("signing strategy wallet identity is required".into())
+    })?;
+    if signing_wallet != wallet {
+        return Err(SdkError::Validation(
+            "signing strategy does not control authenticated wallet".into(),
+        ));
+    }
+    Ok(())
+}
+
+fn require_unsponsored_plan(sponsored: bool) -> Result<(), SdkError> {
+    if sponsored {
+        return Err(SdkError::Validation(
+            "sponsored SOL action planning is not supported".into(),
+        ));
+    }
+    Ok(())
 }
 
 pub struct Positions<'a> {
@@ -218,7 +240,7 @@ impl<'a> Positions<'a> {
     /// Plan one atomic SOL-backed split using canonical WSOL before wrapping a shortfall.
     ///
     /// Amounts and costs are lamports. Account checks and live fee/rent reads
-    /// fail closed; `sponsored` is an explicit caller capability, not inferred.
+    /// fail closed; sponsored planning is rejected until a sponsor owns costs.
     pub async fn plan_sol_split(
         &self,
         market: &Market,
@@ -226,6 +248,7 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
+        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "split amount must be greater than zero".into(),
@@ -310,6 +333,7 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
+        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "merge amount must be greater than zero".into(),
@@ -359,14 +383,18 @@ impl<'a> Positions<'a> {
         market: Pubkey,
         amount_lamports: u64,
         outcome_index: u8,
+        num_outcomes: u8,
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
+        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "redeem amount must be greater than zero".into(),
             ));
         }
+        crate::program::utils::validate_outcome_count(num_outcomes)?;
+        crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
         let wallet = self.planning_wallet(state).await?;
         let components = state.sol_components()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
@@ -419,6 +447,7 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
         sponsored: bool,
     ) -> Result<SolActionPlan, SdkError> {
+        require_unsponsored_plan(sponsored)?;
         if amount_lamports == 0 {
             return Err(SdkError::Validation(
                 "withdraw amount must be greater than zero".into(),
@@ -642,7 +671,12 @@ impl<'a> Positions<'a> {
         // checked again by the client's submission path after Web rebuilds the
         // plan at its final account-operation boundary.
         let credentials = self.client.auth().credentials().await;
-        validated_conversion_wallet(credentials.as_ref(), state)
+        let wallet = validated_conversion_wallet(credentials.as_ref(), state)?;
+        let strategy = self.client.signing_strategy().await.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+        validate_signing_wallet(&strategy, wallet)?;
+        Ok(wallet)
     }
 
     // ── On-chain instruction builders ───────────────────────────────────
@@ -980,6 +1014,9 @@ mod tests {
             shared::PubkeyStr,
         },
         rust_decimal::Decimal,
+        solana_keypair::Keypair,
+        solana_signer::Signer,
+        solana_transaction::Transaction,
         std::{
             collections::{HashMap, VecDeque},
             sync::{Arc, Mutex},
@@ -1039,7 +1076,8 @@ mod tests {
         rpc_url: &str,
         native_sol_balance: &str,
     ) -> (LightconeClient, WalletDepositBalancesState, Pubkey) {
-        let wallet = Pubkey::new_unique();
+        let keypair = Keypair::new();
+        let wallet = keypair.pubkey();
         let wallet_address = PubkeyStr::from(wallet.to_string());
         let client = LightconeClient::builder()
             .auth(AuthCredentials {
@@ -1047,6 +1085,7 @@ mod tests {
                 wallet_address: wallet_address.clone(),
                 expires_at: Utc::now() + Duration::minutes(1),
             })
+            .native_signer(keypair)
             .rpc_url(rpc_url)
             .build()
             .unwrap();
@@ -1317,5 +1356,63 @@ mod tests {
         assert!(requests[1].contains("getMinimumBalanceForRentExemption"));
         assert!(requests[2].contains("getLatestBlockhash"));
         assert!(requests[3].contains("getFeeForMessage"));
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sol_planners_reject_unsupported_sponsorship_and_invalid_redeem_outcomes() {
+        let (client, state, _) = planning_client("http://127.0.0.1:1", "1.000000000");
+
+        let sponsored = client
+            .positions()
+            .plan_native_sol_withdrawal(Pubkey::new_unique(), 1, &state, true)
+            .await
+            .unwrap_err();
+        assert!(sponsored
+            .to_string()
+            .contains("sponsored SOL action planning is not supported"));
+
+        let invalid_outcome = client
+            .positions()
+            .plan_sol_redeem(Pubkey::new_unique(), 1, 2, 2, &state, false)
+            .await
+            .unwrap_err();
+        assert!(invalid_outcome.to_string().contains("outcome index"));
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sol_planners_reject_a_mismatched_signing_wallet_before_rpc() {
+        let (client, state, _) = planning_client("http://127.0.0.1:1", "1.000000000");
+        client
+            .set_signing_strategy(crate::shared::signing::SigningStrategy::Native(Arc::new(
+                Keypair::new(),
+            )))
+            .await;
+
+        let error = client
+            .positions()
+            .plan_native_sol_withdrawal(Pubkey::new_unique(), 1, &state, false)
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("signing strategy does not control authenticated wallet"));
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn prepared_submission_rejects_a_mismatched_signing_wallet_before_rpc() {
+        let (client, _, _) = planning_client("http://127.0.0.1:1", "1.000000000");
+        let mut transaction = Transaction::new_with_payer(&[], Some(&Pubkey::new_unique()));
+        transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+        let error = client
+            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+            .await
+            .unwrap_err();
+        assert!(error
+            .to_string()
+            .contains("does not control prepared transaction fee payer"));
     }
 }
