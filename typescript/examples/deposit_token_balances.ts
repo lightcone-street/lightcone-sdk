@@ -1,24 +1,29 @@
 /**
- * Fund-moving local/staging example: wrap 0.1 SOL, wait for authoritative
- * wallet state, then close the entire canonical WSOL account, including any
- * pre-existing balance. A failure after submission does not prove rollback;
- * inspect authoritative balances before retrying because funds may have moved.
+ * Fund-moving local/staging example: plan and confirm a native-SOL withdrawal
+ * without closing the persistent canonical WSOL account, then refresh a complete
+ * wallet snapshot covering the confirmation slot.
  */
 import { tradingWallet } from "../src/auth";
 import {
   asPubkeyStr,
-  shared,
-  WRAPPED_SOL_MINT,
   WalletDepositBalancesState,
 } from "../src";
 import { restClient, getKeypair, login, runExample } from "./common";
 
-const WRAP_AMOUNT = "0.1";
+/** Native SOL transferred per run, in lamports (0.001 SOL). */
+const WITHDRAW_AMOUNT_LAMPORTS = 1_000_000n;
 
+/** Run the fund-moving lifecycle against configured non-production SDK wallets. */
 async function main() {
   requireNonProduction();
+  // SDK wallets form a stable funding cycle: Rust -> TypeScript -> Python -> Rust.
+  // The existing peer path avoids a recipient-specific setting and repeated top-offs.
+  const recipient = getKeypair("LIGHTCONE_WALLET_PATH_PYTHON").publicKey;
   const client = restClient();
-  const keypair = getKeypair();
+  const keypair = getKeypair("LIGHTCONE_WALLET_PATH_TS");
+  if (recipient.equals(keypair.publicKey)) {
+    throw new Error("TypeScript and Python SDK wallet paths must identify peers");
+  }
   const session = await login(client, keypair);
   const wallet = tradingWallet(session.user, session.auth_method);
 
@@ -62,32 +67,36 @@ async function main() {
     }
 
     client.setSigningStrategy({ type: "native", keypair });
-    // Confirmation does not mutate state. Wait for authoritative WS changes
-    // before using the refreshed cache to authorize the next conversion.
-    const expectedWsolLamports =
-      canonicalWsolLamports(state) + shared.exactScaledInteger(WRAP_AMOUNT, 9);
-    const wrapSignature = await client.positions().wrapSol(WRAP_AMOUNT, state);
-    console.log(`wrapped ${WRAP_AMOUNT} SOL:`, wrapSignature);
-    await waitForState(
-      () => canonicalWsolLamports(state) === expectedWsolLamports,
-      "post-wrap WSOL update"
+    const plan = await client.positions().planNativeSolWithdrawal(
+      recipient,
+      WITHDRAW_AMOUNT_LAMPORTS,
+      state,
+      false
+    );
+    console.log("spendable SOL lamports:", plan.availability.spendableLamports);
+    console.log("reserved SOL lamports:", plan.availability.reserveLamports);
+    const confirmed = await client.signAndSubmitPreparedTxConfirmedWithSlot(
+      plan.transaction
     );
     console.log(
-      "post-wrap native + canonical WSOL:",
-      state.combinedSolBalance()
+      `withdrew ${WITHDRAW_AMOUNT_LAMPORTS} lamports to ${recipient.toBase58()}:`,
+      confirmed
     );
 
-    console.log(
-      "closing the full canonical WSOL account; partial unwrap is not supported"
-    );
-    const unwrapSignature = await client.positions().unwrapWsol(state);
-    console.log("unwrapped full canonical WSOL account:", unwrapSignature);
+    // Confirmation does not mutate cached state. Observe the wallet stream at
+    // or beyond the processing slot, then replace it with a complete slot-bounded
+    // REST snapshot before publishing post-transaction state.
     await waitForState(
-      () => canonicalWsolLamports(state) === 0n,
-      "post-unwrap WSOL removal"
+      () =>
+        state.contextSlot !== undefined && state.contextSlot >= confirmed.slot,
+      "post-withdraw wallet update"
     );
+    const snapshot = await client
+      .positions()
+      .depositTokenBalances(confirmed.slot);
+    state.applyRestSnapshot(walletAddress, snapshot);
     console.log(
-      "post-unwrap native + canonical WSOL:",
+      "post-withdraw native + canonical WSOL:",
       state.combinedSolBalance()
     );
 
@@ -107,8 +116,6 @@ async function waitForState(
   predicate: () => boolean,
   description: string
 ): Promise<void> {
-  // Conversion predicates compare exact canonical WSOL lamports, so native-only
-  // or unrelated positive updates cannot release the barrier.
   const deadline = Date.now() + 10_000;
   while (!predicate()) {
     if (Date.now() >= deadline) {
@@ -118,15 +125,11 @@ async function waitForState(
   }
 }
 
-function canonicalWsolLamports(state: WalletDepositBalancesState): bigint {
-  const balance = state.balances.get(WRAPPED_SOL_MINT);
-  return balance ? shared.exactScaledInteger(balance.idle, 9) : 0n;
-}
-
+/** Reject production or endpoint overrides before any fund-moving side effect. */
 function requireNonProduction(): void {
   const environment = process.env.LIGHTCONE_ENV?.toLowerCase() ?? "prod";
   if (environment !== "local" && environment !== "staging") {
-    throw new Error("SOL conversion examples are disabled in production");
+    throw new Error("SOL action examples are disabled in production");
   }
 
   // Overrides can repoint a safe environment label at production infrastructure.
@@ -138,7 +141,7 @@ function requireNonProduction(): void {
   ].find((name) => process.env[name] !== undefined);
   if (overrideName) {
     throw new Error(
-      `SOL conversion examples require built-in local/staging configuration; unset ${overrideName}`
+      `SOL action examples require built-in local/staging configuration; unset ${overrideName}`
     );
   }
 }

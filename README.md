@@ -20,6 +20,18 @@ All three SDKs expose the same interface and capabilities.
 - **On-chain operations** - Mint/merge complete sets, increment nonce, PDA derivations
 - **Authentication** - Session-based ED25519 signed message flow
 
+## SOL Account Lifecycle
+
+All three SDKs model native SOL and canonical Tokenkeg WSOL separately while
+presenting their sum as one SOL balance. Split wraps only a shortfall; merge and
+redeem retain proceeds in the persistent canonical account; native withdrawal
+uses native SOL directly or converts only its shortfall through a temporary
+seeded account. The conversion instructions share one Solana transaction, so an
+instruction failure rolls the entire conversion back atomically. No planner
+closes the canonical account implicitly, and an explicit self-custody
+unwrap-all/close operation is outside the current SDK contract. See the
+[persistent canonical WSOL ADR](docs/adr/0001-persistent-canonical-wsol.md).
+
 ## Development Setup
 
 ### Prerequisites
@@ -76,7 +88,9 @@ The fund-moving `deposit_token_balances` example is intentionally excluded from
 `scripts/run-examples.sh`. Run it manually with `LIGHTCONE_ENV=local` or
 `staging` and all `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and
 `SDK_PROGRAM_ID` overrides unset; it refuses overrides so built-in
-non-production routing cannot be repointed at production infrastructure.
+non-production routing cannot be repointed at production infrastructure. It
+uses the three existing wallet paths as a funding cycle (`Rust -> TypeScript ->
+Python -> Rust`) rather than requiring a separate withdrawal recipient.
 
 Add these to your shell profile (`.bashrc` / `.zshrc`):
 

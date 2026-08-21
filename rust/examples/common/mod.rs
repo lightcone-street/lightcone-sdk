@@ -55,7 +55,17 @@ pub fn rest_client() -> ExampleResult<LightconeClient> {
 }
 
 pub fn get_keypair() -> ExampleResult<Keypair> {
-    let raw = env::var("LIGHTCONE_WALLET_PATH").unwrap_or_else(|_| DEFAULT_WALLET_PATH.to_string());
+    get_keypair_from_env("LIGHTCONE_WALLET_PATH", Some(DEFAULT_WALLET_PATH))
+}
+
+/// Load the keypair named by an existing example wallet-path variable.
+///
+/// `default` is reserved for the invoking SDK's normal wallet. Peer-wallet
+/// lookups pass `None` so a missing path fails before any fund-moving action.
+pub fn get_keypair_from_env(variable: &str, default: Option<&str>) -> ExampleResult<Keypair> {
+    let raw = env::var(variable)
+        .or_else(|_| default.map(str::to_owned).ok_or(env::VarError::NotPresent))
+        .map_err(|_| other(format!("{variable} is required")))?;
     let path = if let Some(rest) = raw.strip_prefix("~/") {
         let home = env::var("HOME").map_err(|_| other("HOME not set"))?;
         std::path::PathBuf::from(home).join(rest)

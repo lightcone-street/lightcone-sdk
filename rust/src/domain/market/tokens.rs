@@ -259,6 +259,15 @@ impl ConditionalToken {
 }
 
 impl DepositAsset {
+    /// User-facing symbol, normalizing the canonical wrapped-SOL mint to `SOL`.
+    pub fn display_symbol(&self) -> &str {
+        if self.deposit_asset.as_str() == crate::domain::position::WRAPPED_SOL_MINT_ADDRESS {
+            "SOL"
+        } else {
+            &self.symbol
+        }
+    }
+
     pub fn is_usd_stable_coin(&self) -> bool {
         is_usd_stablecoin(&self.deposit_asset)
     }
@@ -842,5 +851,18 @@ mod tests {
             trait_object.icon_url_high(),
             "https://example.com/usdc_high.png"
         );
+    }
+
+    #[test]
+    /// Normalizes only the canonical wrapped-SOL mint without trusting backend display text.
+    fn deposit_asset_display_symbol_uses_the_user_facing_sol_identity() {
+        let mut response = minimal_deposit_asset_response();
+        response.deposit_asset = crate::domain::position::WRAPPED_SOL_MINT_ADDRESS.into();
+        response.symbol = Some("WSOL".into());
+        let mut asset = ValidatedTokens::try_from(response).unwrap().token;
+        assert_eq!(asset.display_symbol(), "SOL");
+
+        asset.deposit_asset = PubkeyStr::from("other-mint");
+        assert_eq!(asset.display_symbol(), "WSOL");
     }
 }

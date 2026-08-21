@@ -1,9 +1,8 @@
-"""Wrap 0.1 SOL, observe authority, then fully close canonical WSOL.
+"""Plan and confirm a native-SOL withdrawal without closing canonical WSOL.
 
-This fund-moving example is intentionally restricted to local and staging. A
-pre-existing canonical WSOL balance is also closed; partial unwrap is unsupported.
-A failure after submission does not prove rollback; inspect authoritative balances
-before retrying because funds may already have moved.
+This fund-moving example is intentionally restricted to local and staging. It
+refreshes a complete wallet snapshot covering the confirmation slot before
+publishing the post-action balance.
 """
 
 import asyncio
@@ -11,19 +10,25 @@ import os
 
 from common import get_keypair, login, rest_client
 
-from lightcone_sdk.domain.position import WRAPPED_SOL_MINT, WalletDepositBalancesState
-from lightcone_sdk.shared.scaling import exact_scaled_integer
+from lightcone_sdk.domain.position import WalletDepositBalancesState
 from lightcone_sdk.shared.signing import SigningStrategy
 from lightcone_sdk.ws import WsEventType
 from lightcone_sdk.ws.subscriptions import WalletDepositBalancesParams
 
-WRAP_AMOUNT = "0.1"
+#: Native SOL transferred per run, in lamports (0.001 SOL).
+WITHDRAW_AMOUNT_LAMPORTS = 1_000_000
 
 
 async def main():
+    """Run the fund-moving lifecycle against configured non-production wallets."""
     require_non_production()
+    # SDK wallets form a stable funding cycle: Rust -> TypeScript -> Python -> Rust.
+    # The existing peer path avoids a recipient-specific setting and repeated top-offs.
+    recipient = get_keypair("LIGHTCONE_WALLET_PATH").pubkey()
     client = rest_client()
-    keypair = get_keypair()
+    keypair = get_keypair("LIGHTCONE_WALLET_PATH_PYTHON")
+    if recipient == keypair.pubkey():
+        raise RuntimeError("Python and Rust SDK wallet paths must identify peers")
     session = await login(client, keypair)
     wallet = session.user.trading_wallet(session.auth_method)
 
@@ -64,33 +69,36 @@ async def main():
             print(f"  {balance.symbol:>8}  {balance.mint:<42}  idle={balance.idle}")
 
         client.set_signing_strategy(SigningStrategy.native(keypair))
-        # Confirmation does not mutate state. Wait for authoritative WS changes
-        # before using the refreshed cache to authorize the next conversion.
-        expected_wsol_lamports = canonical_wsol_lamports(state) + exact_scaled_integer(
-            WRAP_AMOUNT, 9
+        plan = await client.positions().plan_native_sol_withdrawal(
+            recipient,
+            WITHDRAW_AMOUNT_LAMPORTS,
+            state,
+            False,
         )
-        state_changed.clear()
-        wrap_signature = await client.positions().wrap_sol(WRAP_AMOUNT, state)
-        print(f"wrapped {WRAP_AMOUNT} SOL: {wrap_signature}")
-        await wait_for_state(
-            state_changed,
-            lambda: canonical_wsol_lamports(state) == expected_wsol_lamports,
-            "post-wrap WSOL update",
+        print(f"spendable SOL lamports: {plan.availability.spendable_lamports}")
+        print(f"reserved SOL lamports: {plan.availability.reserve_lamports}")
+        confirmed = await client.sign_and_submit_prepared_tx_confirmed_with_slot(
+            plan.transaction
         )
-        print(f"post-wrap native + canonical WSOL: {state.combined_sol_balance()}")
-
         print(
-            "closing the full canonical WSOL account; partial unwrap is not supported"
+            f"withdrew {WITHDRAW_AMOUNT_LAMPORTS} lamports to {recipient}: "
+            f"{confirmed.signature} at slot {confirmed.slot}"
         )
-        state_changed.clear()
-        unwrap_signature = await client.positions().unwrap_wsol(state)
-        print(f"unwrapped full canonical WSOL account: {unwrap_signature}")
+        # Confirmation does not mutate cached state. Observe the wallet stream at
+        # or beyond the processing slot, then replace it with a complete slot-bounded
+        # REST snapshot before publishing post-transaction state.
         await wait_for_state(
             state_changed,
-            lambda: canonical_wsol_lamports(state) == 0,
-            "post-unwrap WSOL removal",
+            lambda: state.context_slot is not None
+            and state.context_slot >= confirmed.slot,
+            "post-withdraw wallet update",
         )
-        print(f"post-unwrap native + canonical WSOL: {state.combined_sol_balance()}")
+        snapshot = await client.positions().deposit_token_balances(confirmed.slot)
+        state.apply_rest_snapshot(wallet, snapshot)
+        print(
+            "post-withdraw native + canonical WSOL: "
+            f"{state.combined_sol_balance()}"
+        )
 
         await ws.unsubscribe(params)
     finally:
@@ -105,8 +113,8 @@ async def main():
 async def wait_for_state(state_changed, predicate, description: str) -> None:
     """Wait boundedly for reducer state, avoiding lost event wake-ups.
 
-    Conversion predicates compare exact canonical WSOL lamports, so native-only
-    or unrelated positive updates cannot release the barrier.
+    The initial barrier accepts the first complete wallet baseline; the
+    post-transaction barrier requires an observation covering its confirmed slot.
     """
     deadline = asyncio.get_running_loop().time() + 10
     while not predicate():
@@ -122,16 +130,10 @@ async def wait_for_state(state_changed, predicate, description: str) -> None:
             raise TimeoutError(f"timed out waiting for {description}") from error
 
 
-def canonical_wsol_lamports(state: WalletDepositBalancesState) -> int:
-    """Return exact cached canonical WSOL lamports, treating absence as zero."""
-    balance = state.balances.get(WRAPPED_SOL_MINT)
-    return exact_scaled_integer(balance.idle, 9) if balance is not None else 0
-
-
 def require_non_production() -> None:
     """Refuse production before login, subscription, or transaction side effects."""
     if os.environ.get("LIGHTCONE_ENV", "prod").lower() not in {"local", "staging"}:
-        raise RuntimeError("SOL conversion examples are disabled in production")
+        raise RuntimeError("SOL action examples are disabled in production")
 
     # Overrides can repoint a safe environment label at production infrastructure.
     override_name = next(
@@ -144,7 +146,7 @@ def require_non_production() -> None:
     )
     if override_name is not None:
         raise RuntimeError(
-            "SOL conversion examples require built-in local/staging configuration; "
+            "SOL action examples require built-in local/staging configuration; "
             f"unset {override_name}"
         )
 

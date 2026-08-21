@@ -332,20 +332,34 @@ finally:
     await ws.disconnect()
 ```
 
-Authenticated sessions with a configured signing strategy can explicitly
-convert between native SOL and the canonical Tokenkeg WSOL account.
-`wrap_sol(amount, state)` accepts exact no-rounding input, enforces nine-decimal
-and Solana `u64` bounds, requires live matching credentials and a signing strategy
-that controls that wallet, creates the ATA idempotently, transfers the amount,
-syncs it, and returns a confirmed transaction signature. Preflight does not guess
-a fee or ATA-rent reserve, so the full cached native balance can still fail
-on-chain. `unwrap_wsol(state)` requires positive cached canonical WSOL and takes no
-amount: it returns a confirmed signature after closing the full account and
-returning all lamports, including rent. Neither helper mutates cached state. A
-confirmation error does not prove rollback; refresh REST or WebSocket authority
-before retrying. Native signer identity is inspected directly. Wallet adapters
-must expose `ExternalSigner.wallet_address`; Privy callers pass the address as the
-second argument to `privy_wallet_id` when using these conversion helpers.
+`plan_sol_split`, `plan_sol_merge`, `plan_sol_redeem`, and
+`plan_native_sol_withdrawal` return unsigned action plans with live fee/rent
+costs, the action-specific reserve and spendable balance, and separate expected
+native and canonical WSOL deltas. Each planner requires complete matching-wallet
+state and fails closed when an account check, estimate, or native reserve is
+unavailable. Unsponsored actions reserve the greater of live costs and the
+applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is rejected until a
+concrete sponsor owns transaction fees and account rent.
+An occupied canonical address is accepted only when it decodes as the wallet's
+initialized, unfrozen Tokenkeg native-mint account.
+
+Split plans consume canonical WSOL first and wrap only a shortfall in the same
+transaction. Merge and redeem plans retain proceeds in the persistent canonical
+account. Native withdrawal transfers directly when possible; otherwise it moves
+only the shortfall through a bounded seeded temporary Tokenkeg account and closes
+that temporary account before sending the exact native amount to the recipient.
+The temporary account's create, initialize, WSOL transfer, close, and native
+transfer instructions share one Solana transaction, so an instruction failure
+rolls the entire conversion back atomically. No planner closes the canonical
+account implicitly; an explicit self-custody unwrap-all/close operation is
+outside the current contract. Rebuild immediately before signing,
+submit with `sign_and_submit_prepared_tx_confirmed_with_slot` so the wallet
+cannot replace the fee-estimated message, and refresh a complete snapshot
+covering its slot before restoring action authority. Prepared submission is
+unavailable for Privy because its final signed bytes cannot be verified by the
+SDK. Atomic execution does not resolve uncertain submission or confirmation
+errors; inspect authoritative balances before retrying. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 WebSocket clients are owned independently from `Auth`; logout does not clean them
 up. For each retained client, `clear_authed_subscriptions()` purges User/wallet
@@ -355,12 +369,12 @@ teardown.
 
 The `deposit_token_balances` example is manual-only and runs with
 `LIGHTCONE_ENV=local` or `staging` only when `SDK_API_URL`, `SDK_WS_URL`,
-`SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all unset. It uses the SDK-selected
-WebSocket endpoint to initialize and refresh state, wraps `0.1` SOL, then closes
-the full canonical WSOL account after observing its exact 0.1 SOL increase.
-Running it moves funds and closes any pre-existing canonical WSOL balance as
-well. If it fails after submission, inspect authoritative balances before
-retrying because funds may already have moved.
+`SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all unset. It sends 0.001 SOL to the Rust
+SDK wallet configured by `LIGHTCONE_WALLET_PATH` from the distinct sender
+configured by `LIGHTCONE_WALLET_PATH_PYTHON`, confirms with a slot, and refreshes
+a complete snapshot at that slot. Running it moves funds. If it fails after
+submission, inspect authoritative balances before retrying because funds may
+already have moved.
 
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
@@ -383,7 +397,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | [`trades`](examples/trades.py) | Recent trade history with cursor-based pagination (per-orderbook and market-wide) |
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
-| [`deposit_token_balances`](examples/deposit_token_balances.py) | WebSocket-backed exact SOL balances, hardcoded 0.1 SOL wrap, authoritative refresh, and full canonical-WSOL close in non-production |
+| [`deposit_token_balances`](examples/deposit_token_balances.py) | WebSocket-backed exact SOL balances and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
 | [`metrics_all`](examples/metrics_all.py) | Exercise every endpoint on `client.metrics()` - platform, markets, categories, orderbook, leaderboard, history |
 
 ### Placing Orders

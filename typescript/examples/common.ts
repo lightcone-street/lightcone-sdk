@@ -37,12 +37,21 @@ export function rpcClient(): LightconeClient {
 }
 
 /**
- * Load a keypair from disk.
- * Defaults to `~/.config/solana/id.json`. Set `LIGHTCONE_WALLET_PATH`
- * to override.
+ * Load an SDK or peer keypair from an existing wallet-path variable.
+ *
+ * With no argument, the TypeScript-specific path wins, then the generic path,
+ * then `~/.config/solana/id.json`. Passing a variable name is fail-closed and
+ * is used by fund-moving examples to address a configured peer wallet.
  */
-export function getKeypair(): Keypair {
-  const walletFile = process.env.LIGHTCONE_WALLET_PATH ?? DEFAULT_WALLET_PATH;
+export function getKeypair(pathVariable?: string): Keypair {
+  const walletFile = pathVariable
+    ? process.env[pathVariable]
+    : process.env.LIGHTCONE_WALLET_PATH_TS ??
+      process.env.LIGHTCONE_WALLET_PATH ??
+      DEFAULT_WALLET_PATH;
+  if (!walletFile) {
+    throw new Error(`${pathVariable} is required`);
+  }
   const resolved = walletFile.startsWith("~")
     ? path.join(os.homedir(), walletFile.slice(1))
     : walletFile;

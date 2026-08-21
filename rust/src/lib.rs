@@ -92,9 +92,11 @@ pub mod prelude {
     // Domain types — position (includes portfolio + token balances)
     pub use crate::domain::position::{
         DepositAssetMetadata, DepositTokenBalance, DepositTokenBalancesSnapshot, Portfolio,
-        Position, PositionOutcome, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
-        WalletDepositBalanceStatus, WalletDepositBalancesApplyResult, WalletDepositBalancesEvent,
-        WalletDepositBalancesState, WalletHolding,
+        Position, PositionOutcome, SolActionCosts, SolActionKind, SolActionPlan,
+        SolBalanceAvailability, SolBalanceComponents, SolComponentDelta, TokenBalance,
+        TokenBalanceComputedBase, TokenBalanceTokenType, WalletDepositBalanceStatus,
+        WalletDepositBalancesApplyResult, WalletDepositBalancesEvent, WalletDepositBalancesState,
+        WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
     };
 
     // Domain types — trade, price history

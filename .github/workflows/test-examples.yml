@@ -73,10 +73,15 @@ jobs:
       - name: Write wallet keypair
         env:
           CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
-        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          CI_PEER_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_TS }}
+        run: |
+          echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          echo "$CI_PEER_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet-peer.json"
 
-      - name: Set wallet path
-        run: echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+      - name: Set wallet paths
+        run: |
+          echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+          echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet-peer.json" >> "$GITHUB_ENV"
 
       - name: Install cargo-cooldown
         run: cargo install --locked --version 0.2.0 cargo-cooldown
@@ -129,10 +134,15 @@ jobs:
       - name: Write wallet keypair
         env:
           CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_TS }}
-        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          CI_PEER_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_PYTHON }}
+        run: |
+          echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          echo "$CI_PEER_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet-peer.json"
 
-      - name: Set wallet path
-        run: echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+      - name: Set wallet paths
+        run: |
+          echo "LIGHTCONE_WALLET_PATH_TS=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+          echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet-peer.json" >> "$GITHUB_ENV"
 
       - name: Point at dev + wait for backend version match
         uses: ./.github/actions/wait-for-dev
@@ -178,10 +188,15 @@ jobs:
       - name: Write wallet keypair
         env:
           CI_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR_PYTHON }}
-        run: echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          CI_PEER_WALLET_KEYPAIR: ${{ secrets.CI_WALLET_KEYPAIR }}
+        run: |
+          echo "$CI_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet.json"
+          echo "$CI_PEER_WALLET_KEYPAIR" > "$RUNNER_TEMP/ci-wallet-peer.json"
 
-      - name: Set wallet path
-        run: echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+      - name: Set wallet paths
+        run: |
+          echo "LIGHTCONE_WALLET_PATH_PYTHON=$RUNNER_TEMP/ci-wallet.json" >> "$GITHUB_ENV"
+          echo "LIGHTCONE_WALLET_PATH=$RUNNER_TEMP/ci-wallet-peer.json" >> "$GITHUB_ENV"
 
       - name: Point at dev + wait for backend version match
         uses: ./.github/actions/wait-for-dev

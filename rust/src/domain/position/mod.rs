@@ -10,9 +10,13 @@ use std::collections::{hash_map::Entry, HashMap};
 pub use builders::{
     DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+    SolActionKind, SolActionPlan, SolComponentDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
+    WithdrawFromPositionBuilder,
 };
-pub use state::{WalletDepositBalancesApplyResult, WalletDepositBalancesState};
+pub use state::{
+    SolActionCosts, SolBalanceAvailability, SolBalanceComponents, WalletDepositBalancesApplyResult,
+    WalletDepositBalancesState, WRAPPED_SOL_MINT_ADDRESS,
+};
 
 use crate::{
     prelude::{UserMarketBalance, UserOutcomeBalance},

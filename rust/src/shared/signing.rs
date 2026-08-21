@@ -10,8 +10,6 @@ use std::sync::Arc;
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
 use solana_pubkey::Pubkey;
-#[cfg(feature = "native-auth")]
-use solana_signer::Signer;
 
 /// Trait for external wallet signers (browser wallet adapters).
 ///
@@ -79,10 +77,11 @@ pub enum SigningStrategy {
 }
 
 impl SigningStrategy {
-    pub(crate) fn wallet_address(&self) -> Option<Pubkey> {
+    /// Return the wallet identity this strategy can prove before signing.
+    pub fn wallet_address(&self) -> Option<Pubkey> {
         match self {
             #[cfg(feature = "native-auth")]
-            Self::Native(keypair) => Some(keypair.pubkey()),
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
             Self::WalletAdapter(signer) => signer.wallet_address(),
         }
     }

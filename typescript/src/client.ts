@@ -5,6 +5,7 @@ import {
   signAndSubmitTx as signAndSubmitTxFn,
   signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
   signAndSubmitTxConfirmedWithSlot as signAndSubmitTxConfirmedWithSlotFn,
+  signAndSubmitPreparedTxConfirmedWithSlot as signAndSubmitPreparedTxConfirmedWithSlotFn,
 } from "./context";
 import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
@@ -202,6 +203,13 @@ export class LightconeClient implements ClientContext {
     tx: Transaction
   ): Promise<ConfirmedTransaction> {
     return signAndSubmitTxConfirmedWithSlotFn(this, tx);
+  }
+
+  /** Confirm a fee-prepared transaction without replacing its message. */
+  async signAndSubmitPreparedTxConfirmedWithSlot(
+    tx: Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitPreparedTxConfirmedWithSlotFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {

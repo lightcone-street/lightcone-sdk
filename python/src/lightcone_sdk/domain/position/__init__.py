@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Union
+from typing import Optional
 
 from ..order import UserMarketBalance, UserOutcomeBalance
 
@@ -26,7 +26,7 @@ class ConditionalTokenType:
     outcome_index: int = 0
 
 
-TokenBalanceTokenType = Union[DepositAssetType, ConditionalTokenType]
+TokenBalanceTokenType = DepositAssetType | ConditionalTokenType
 
 
 @dataclass
@@ -55,7 +55,7 @@ class Position:
     event_img_src: str = ""
     outcomes: list[PositionOutcome] = field(default_factory=list)
     total_value: str = "0"
-    created_at: Optional[str] = None
+    created_at: str | None = None
 
 
 @dataclass
@@ -77,7 +77,7 @@ class DepositAssetMetadata:
     icon_url_low: str = ""
     icon_url_medium: str = ""
     icon_url_high: str = ""
-    description: Optional[str] = None
+    description: str | None = None
     decimals: int = 0
 
 
@@ -315,7 +315,7 @@ class ConditionalBalanceDelta:
     """An incremental change to a user's balance for one conditional token."""
 
     market_pubkey: str = ""
-    orderbook_id: Optional[str] = None
+    orderbook_id: str | None = None
     outcome_index: int = 0
     conditional_token: str = ""
     idle: str = "0"
@@ -366,7 +366,8 @@ class UserMarketBalanceIndex:
     def __init__(self) -> None:
         self._inner: dict[str, DepositAssetBalanceIndex] = {}
 
-    def get(self, market_pubkey: str) -> Optional[DepositAssetBalanceIndex]:
+    def get(self, market_pubkey: str) -> DepositAssetBalanceIndex | None:
+        """Return one market's nested balance index without creating an entry."""
         return self._inner.get(market_pubkey)
 
     def insert(
@@ -435,16 +436,25 @@ from .builders import (  # noqa: E402
     WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 )
+from .client import (  # noqa: E402
+    SolActionKind,
+    SolActionPlan,
+    SolComponentDelta,
+    native_withdraw_seed,
+)
 from .state import (  # noqa: E402
+    SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
+    SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
     WRAPPED_SOL_MINT,
+    SolActionCosts,
+    SolBalanceAvailability,
+    SolBalanceComponents,
     WalletDepositBalancesApplyResult,
     WalletDepositBalancesState,
 )
-from .wire import (  # noqa: E402
-    GlobalDeposit,
-    MarketPositionsResponseWire as MarketPositionsResponse,
-    PositionsResponseWire as PositionsResponse,
-)
+from .wire import GlobalDeposit  # noqa: E402
+from .wire import MarketPositionsResponseWire as MarketPositionsResponse  # noqa: E402
+from .wire import PositionsResponseWire as PositionsResponse  # noqa: E402
 
 __all__ = [
     "DepositBuilder",
@@ -457,6 +467,15 @@ __all__ = [
     "WithdrawBuilder",
     "WithdrawFromGlobalBuilder",
     "WithdrawFromPositionBuilder",
+    "SolActionKind",
+    "SolActionPlan",
+    "SolComponentDelta",
+    "native_withdraw_seed",
+    "SolActionCosts",
+    "SolBalanceAvailability",
+    "SolBalanceComponents",
+    "SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS",
+    "SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS",
     "DepositAssetType",
     "ConditionalTokenType",
     "TokenBalanceTokenType",
