@@ -1,4 +1,11 @@
-"""Positions sub-client — portfolio, position queries, PDA helpers, ix/tx builders, and on-chain ops."""
+"""Position queries and fee-prepared position operations.
+
+Explicit WSOL conversion follows this lifecycle: complete matching wallet state
+and native keypair -> live account and cost reads -> signer, account, reserve,
+and amount guards -> fee-prepared plan -> unchanged prepared submission ->
+complete snapshot covering the confirmed slot. An uncertain submission returns
+control to the caller, which refreshes authoritative state before planning again.
+"""
 
 from __future__ import annotations
 
@@ -70,6 +77,7 @@ from ...program.types import (
 )
 from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...rpc import require_connection
+from ...shared.signing import require_native_conversion_strategy
 from ..market import Market
 from . import DepositTokenBalancesSnapshot
 from .builders import (
@@ -130,7 +138,7 @@ class SolComponentDelta:
 
 
 class SolActionKind(str, Enum):
-    """SOL-aware operation represented by an action plan."""
+    """Identify the SOL-aware operation represented by an action plan."""
 
     #: Mint a complete conditional-token set, wrapping only a WSOL shortfall.
     SPLIT = "split"
@@ -140,6 +148,10 @@ class SolActionKind(str, Enum):
     REDEEM = "redeem"
     #: Deliver exact native lamports, converting canonical WSOL only if needed.
     NATIVE_WITHDRAW = "native_withdraw"
+    #: Represent an exact native-lamport wrap into the canonical WSOL account.
+    WRAP = "wrap"
+    #: Represent closure of the complete canonical WSOL account to the Trading Wallet.
+    UNWRAP_ALL = "unwrap_all"
 
 
 @dataclass(frozen=True)
@@ -192,7 +204,15 @@ def native_withdraw_seed(
 
 
 class Positions:
-    """Position operations sub-client."""
+    """Plan position operations and explicit canonical WSOL conversions.
+
+    Conversion planning reads live canonical-account and transaction-cost facts.
+    It returns fee-prepared transactions without submitting them or mutating
+    ``WalletDepositBalancesState``. Callers submit the unchanged transaction and
+    retain its component projection until a complete snapshot covers the
+    confirmed slot. An uncertain outcome requires authoritative refresh before
+    another plan.
+    """
 
     def __init__(self, client: LightconeClient):
         """Bind position operations to one client's auth, RPC, and program authority."""
@@ -318,6 +338,181 @@ class Positions:
             params=params,
         )
         return DepositTokenBalancesSnapshot.from_dict(data)
+
+    async def plan_wrap_sol(
+        self,
+        amount_lamports: int,
+        state: WalletDepositBalancesState,
+    ) -> SolActionPlan:
+        """Return a fee-prepared plan for an exact canonical WSOL wrap.
+
+        The authenticated Trading Wallet must have a local native keypair and
+        complete balance state. Live canonical account data must match that state.
+        An existing account must have account lamports equal to its token amount
+        plus native reserve. Otherwise a later ``SyncNative`` instruction would
+        recalculate the WSOL token amount from account lamports and wrap donated
+        excess beyond ``amount_lamports``. The returned transaction contains
+        strict Tokenkeg ATA creation only when the account is absent. It then
+        contains the exact transfer and ``SyncNative``. Availability uses the
+        ordinary reserve floor. Amounts, fees, rent, and deltas are integer lamports.
+
+        Callers rebuild immediately before prepared submission. They retain the
+        returned component projection until a complete snapshot covers the
+        confirmed slot. An uncertain outcome requires authoritative refresh before
+        another plan and does not authorize automatic resubmission.
+        """
+        _require_sol_action_amount(amount_lamports, "wrap")
+        wallet = self._conversion_planning_wallet(state)
+        components = state.sol_components()
+        rpc = self._client.rpc()
+        canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+        canonical_info = await rpc.canonical_wsol_account_info(canonical, wallet)
+        if canonical_info is None:
+            if components.canonical_wsol_lamports > 0:
+                raise SdkError(
+                    "canonical WSOL balance is positive but its account is unavailable"
+                )
+            rent = await rpc.minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
+        else:
+            if (
+                canonical_info.token_amount_lamports
+                != components.canonical_wsol_lamports
+            ):
+                raise SdkError(
+                    "live canonical WSOL amount does not match wallet balance state"
+                )
+            accounted_lamports = (
+                canonical_info.token_amount_lamports
+                + canonical_info.native_reserve_lamports
+            )
+            if canonical_info.account_lamports != accounted_lamports:
+                raise SdkError(
+                    "canonical WSOL account has unsynchronized excess lamports"
+                )
+            if (
+                canonical_info.token_amount_lamports + amount_lamports > MAX_U64
+                or canonical_info.account_lamports + amount_lamports > MAX_U64
+            ):
+                raise SdkError(
+                    "wrap would exceed canonical WSOL token or account u64 range"
+                )
+            rent = 0
+
+        instructions: list[Instruction] = []
+        if canonical_info is None:
+            instructions.append(self._create_new_canonical_wsol_account(wallet))
+        instructions.extend(
+            [
+                system_transfer(
+                    TransferParams(
+                        from_pubkey=wallet,
+                        to_pubkey=canonical,
+                        lamports=amount_lamports,
+                    )
+                ),
+                sync_native(
+                    SyncNativeParams(program_id=TOKEN_PROGRAM_ID, account=canonical)
+                ),
+            ]
+        )
+        transaction = Transaction.new_with_payer(instructions, wallet)
+        fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
+        costs = SolActionCosts(
+            fee_lamports=fee,
+            upfront_rent_lamports=rent,
+            creates_canonical_wsol_account=canonical_info is None,
+            sponsored=False,
+        )
+        availability = SolBalanceAvailability.from_costs(components, costs)
+        required_native = amount_lamports + availability.reserve_lamports
+        if required_native > MAX_U64:
+            raise SdkError("wrap amount and transaction reserve exceed u64 lamports")
+        if required_native > components.native_lamports:
+            raise SdkError(
+                "native SOL cannot fund the wrap amount and transaction reserve"
+            )
+        return SolActionPlan(
+            kind=SolActionKind.WRAP,
+            transaction=transaction,
+            costs=costs,
+            availability=availability,
+            expected_delta=SolComponentDelta(
+                native_lamports=-amount_lamports - fee - rent,
+                canonical_wsol_lamports=amount_lamports,
+            ),
+        )
+
+    async def plan_unwrap_wsol_all(
+        self,
+        state: WalletDepositBalancesState,
+    ) -> SolActionPlan:
+        """Return a fee-prepared plan for closing the complete canonical WSOL account.
+
+        The Trading Wallet must have a local native keypair. Canonical WSOL in the
+        complete balance state must be positive and equal the live token amount.
+        The returned transaction contains one ``CloseAccount`` instruction whose
+        authority, destination, and fee payer are that wallet. If submitted
+        successfully, the instruction transfers the complete account balance,
+        including rent and donated lamports. The returned costs contain only the
+        fresh fee. Availability requires native SOL to fund that fee without
+        relying on the later account transfer.
+
+        Callers rebuild immediately before prepared submission. They retain the
+        returned component projection until a complete snapshot covers the
+        confirmed slot. Signing, submission, or confirmation uncertainty requires
+        authoritative refresh and does not authorize automatic resubmission.
+        """
+        wallet = self._conversion_planning_wallet(state)
+        components = state.sol_components()
+        if components.canonical_wsol_lamports == 0:
+            raise SdkError("canonical WSOL balance must be greater than zero to unwrap")
+
+        rpc = self._client.rpc()
+        canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+        canonical_info = await rpc.canonical_wsol_account_info(canonical, wallet)
+        if canonical_info is None:
+            raise SdkError("canonical WSOL account is unavailable for unwrap-all")
+        if canonical_info.token_amount_lamports != components.canonical_wsol_lamports:
+            raise SdkError(
+                "live canonical WSOL amount does not match wallet balance state"
+            )
+
+        transaction = Transaction.new_with_payer(
+            [
+                close_account(
+                    CloseAccountParams(
+                        program_id=TOKEN_PROGRAM_ID,
+                        account=canonical,
+                        dest=wallet,
+                        owner=wallet,
+                    )
+                )
+            ],
+            wallet,
+        )
+        fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
+        costs = SolActionCosts(
+            fee_lamports=fee,
+            upfront_rent_lamports=0,
+            creates_canonical_wsol_account=False,
+            sponsored=False,
+        )
+        availability = SolBalanceAvailability.from_unwrap_all_costs(components, costs)
+        projected_native = (
+            components.native_lamports - fee + canonical_info.account_lamports
+        )
+        if projected_native > MAX_U64:
+            raise SdkError("unwrap-all projected native SOL exceeds u64 lamports")
+        return SolActionPlan(
+            kind=SolActionKind.UNWRAP_ALL,
+            transaction=transaction,
+            costs=costs,
+            availability=availability,
+            expected_delta=SolComponentDelta(
+                native_lamports=canonical_info.account_lamports - fee,
+                canonical_wsol_lamports=-components.canonical_wsol_lamports,
+            ),
+        )
 
     async def plan_sol_split(
         self,
@@ -649,6 +844,16 @@ class Positions:
             raise SdkError("signing strategy does not control authenticated wallet")
         return wallet
 
+    def _conversion_planning_wallet(self, state: WalletDepositBalancesState) -> Pubkey:
+        """Return the Trading Wallet after state and native-keypair validation.
+
+        ``_planning_wallet`` validates complete state and wallet identity. The
+        additional strategy guard rejects wallet-adapter and Privy strategies
+        before conversion RPC reads. Ordinary planners do not call this method.
+        """
+        require_native_conversion_strategy(self._client._require_signing_strategy())
+        return self._planning_wallet(state)
+
     @staticmethod
     def _create_canonical_wsol_account(wallet: Pubkey) -> Instruction:
         """Build idempotent creation of the persistent Tokenkeg WSOL ATA.
@@ -659,6 +864,20 @@ class Positions:
         return create_idempotent_associated_token_account(
             wallet, wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
         )
+
+    @staticmethod
+    def _create_new_canonical_wsol_account(wallet: Pubkey) -> Instruction:
+        """Return strict ATA creation for an account observed missing during planning.
+
+        The idempotent helper supplies the canonical six account metas; replacing
+        its discriminator with the strict empty-data opcode changes the instruction
+        to non-idempotent creation. If the ATA appears before execution, the
+        transaction fails instead of using account state absent from the plan.
+        """
+        template = create_idempotent_associated_token_account(
+            wallet, wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
+        )
+        return Instruction(template.program_id, b"", template.accounts)
 
     async def _receive_plan_context(
         self, wallet: Pubkey, state: WalletDepositBalancesState

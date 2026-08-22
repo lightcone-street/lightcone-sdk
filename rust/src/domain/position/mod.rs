@@ -14,8 +14,8 @@ pub use builders::{
     WithdrawFromPositionBuilder,
 };
 pub use state::{
-    SolActionCosts, SolBalanceAvailability, SolBalanceComponents, WalletDepositBalancesApplyResult,
-    WalletDepositBalancesState, WRAPPED_SOL_MINT_ADDRESS,
+    CanonicalWsolAccountInfo, SolActionCosts, SolBalanceAvailability, SolBalanceComponents,
+    WalletDepositBalancesApplyResult, WalletDepositBalancesState, WRAPPED_SOL_MINT_ADDRESS,
 };
 
 use crate::{

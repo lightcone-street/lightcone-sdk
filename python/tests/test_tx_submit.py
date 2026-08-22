@@ -118,6 +118,9 @@ def _wallet_client(
         fake_confirm_signature_status
     )
     client._rpc.send_raw_transaction = fake_send_raw_transaction  # type: ignore[method-assign]
+    client._rpc.send_raw_transaction_once = (  # type: ignore[method-assign]
+        fake_send_raw_transaction
+    )
     return client
 
 
@@ -206,3 +209,36 @@ async def test_prepared_submit_rejects_a_mismatched_signing_wallet() -> None:
     ):
         await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
     assert signer.transaction_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_prepared_submission_transport_failure_is_sent_once() -> None:
+    """Do not retry or fail over signed bytes after an uncertain RPC response."""
+
+    class FailingConnection:
+        def __init__(self, message: str) -> None:
+            self.message = message
+            self.attempts = 0
+
+        async def send_raw_transaction(self, _tx_bytes: bytes, *, opts: object) -> None:
+            self.attempts += 1
+            raise ConnectionError(self.message)
+
+    keypair = Keypair()
+    transaction = Transaction.new_unsigned(
+        Message.new_with_blockhash([], keypair.pubkey(), Hash.new_unique())
+    )
+    primary = FailingConnection("network response was lost")
+    backup = FailingConnection("backup must not receive prepared bytes")
+    client = LightconeClient(
+        LightconeHttp("http://localhost:0"),
+        connection=primary,
+        backup_connection=backup,
+        signing_strategy=SigningStrategy.native(keypair),
+    )
+
+    with pytest.raises(ConnectionError, match="network response was lost"):
+        await client.sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+
+    assert primary.attempts == 1
+    assert backup.attempts == 0

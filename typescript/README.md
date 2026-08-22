@@ -242,8 +242,36 @@ that temporary account before sending the exact native amount to the recipient.
 The temporary account's create, initialize, WSOL transfer, close, and native
 transfer instructions share one Solana transaction, so an instruction failure
 rolls the entire conversion back atomically. No planner closes the canonical
-account implicitly; an explicit self-custody unwrap-all/close operation is
-outside the current contract. Rebuild immediately before signing,
+account implicitly.
+
+Native-keypair self-custody users can explicitly call `planWrapSol` with a
+positive exact `bigint` lamport amount or call no-amount `planUnwrapWsolAll`.
+These standalone planners require the authenticated Trading Wallet's local
+native signing strategy; wallet-adapter and Privy strategies are rejected before
+RPC planning. Wrap creates or reuses only that wallet's canonical Tokenkeg ATA,
+transfers the exact amount, and runs `SyncNative`, the Token Program instruction
+that recalculates the WSOL token amount from account lamports. Wrap retains the
+ordinary 0.0035 SOL account-creation or 0.001 SOL existing-account reserve floor
+above lower live costs. Live decoded canonical amounts must match the authoritative
+wallet state. Wrap also requires an existing account's full lamports to equal
+its decoded token amount plus native rent reserve; unsynchronized direct
+donations reject before `SyncNative` can make the projected canonical delta
+inexact. Unwrap-all still accepts such excess and returns it on close.
+
+Unwrap-all accepts no partial amount and closes the entire positive canonical
+account back to the same wallet. Its `SolActionCosts` fields contain the fresh fee, zero
+upfront rent, no account creation, and no sponsorship. Availability reserves
+only that fee rather than the ordinary persistent-account floor;
+`unwrapAllSolBalanceAvailability(components, costs)` validates that complete
+cost tuple before deriving fee-only fields. The
+native delta credits every live account lamport, including refunded rent or
+direct donations, minus the fee and removes the full canonical token amount.
+Closing a pre-existing account returns all of its WSOL and means a future WSOL
+action may need to fund account rent again. Ordinary split, merge, redeem,
+claim, order, and native-withdraw paths never call these conversion planners or
+close canonical WSOL.
+
+For either explicit conversion, rebuild immediately before signing,
 submit with `signAndSubmitPreparedTxConfirmedWithSlot` so the wallet cannot
 replace the fee-estimated message, and refresh a complete snapshot covering its
 slot before restoring action authority. Prepared submission is unavailable for
@@ -266,6 +294,19 @@ unset. It sends 0.001 SOL to the Python SDK wallet configured by
 `LIGHTCONE_WALLET_PATH_TS`, confirms with a slot, and refreshes a complete
 snapshot at that slot. Running it moves funds. If it fails after submission,
 inspect authoritative balances before retrying because funds may already have moved.
+
+The separate [`wsol_conversion`](examples/wsol_conversion.ts) example runs with
+the TypeScript wallet in local aggregate runs and is included when the globally
+gated stateful example workflow is enabled for staging CI; that workflow
+currently disables all stateful CI jobs. Local runs may use a paid RPC while
+retaining built-in API, WebSocket, and program identity; an enabled staging-CI
+run may supply its managed endpoints. Direct staging runs remain override-free.
+It permits a pre-existing canonical balance, wraps exactly 0.001 SOL, prints the
+exact wallet, costs, full-account return, and future-rent warning, then unwraps
+the complete canonical account without pausing. It retains each frozen
+projection until a complete REST snapshot covers the confirmed slot. Any
+planning, signing, submission, or uncertain-confirmation failure exits without
+automatic retry.
 
 ### Step 5: Cancel an Order
 
@@ -421,6 +462,16 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | [`read_onchain`](examples/read_onchain.ts) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+
+### Manual Fund-Moving Operations
+
+These examples refuse production and endpoint overrides and are intentionally
+excluded from routine example runs.
+
+| Example | Description |
+|---------|-------------|
+| [`deposit_token_balances`](examples/deposit_token_balances.ts) | Confirm an exact native withdrawal without closing canonical WSOL, then refresh complete state past the confirmed slot |
+| [`wsol_conversion`](examples/wsol_conversion.ts) | Wrap an exact native amount, warn, close and unwrap the complete canonical account, and hold frozen projections through covering refreshes |
 
 ### WebSocket Streaming
 

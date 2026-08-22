@@ -6,7 +6,12 @@ from solders.hash import Hash
 from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solders.system_program import decode_transfer
+from solders.system_program import (
+    ID as SYSTEM_PROGRAM_ID,
+)
+from solders.system_program import (
+    decode_transfer,
+)
 from spl.token.constants import (
     ASSOCIATED_TOKEN_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
@@ -40,7 +45,12 @@ from lightcone_sdk.domain.position import (
 from lightcone_sdk.domain.position.client import Positions, native_withdraw_seed
 from lightcone_sdk.error import SdkError
 from lightcone_sdk.program import InvalidOutcomeIndexError, get_associated_token_address
-from lightcone_sdk.shared.signing import SigningStrategy
+from lightcone_sdk.rpc import CanonicalWsolAccountInfo
+from lightcone_sdk.shared.signing import (
+    ExternalSigner,
+    SigningStrategy,
+    SigningStrategyKind,
+)
 from lightcone_sdk.ws import parse_message_in
 
 WSOL_MINT = str(WRAPPED_SOL_MINT)
@@ -304,6 +314,9 @@ class FakeRpc:
         fees: list[int | None] | None = None,
         rent_lamports: int = 2_039_280,
         blockhashes: list[Hash] | None = None,
+        canonical_token_amount_lamports: int = 500_000_000,
+        canonical_account_lamports: int = 502_039_280,
+        canonical_native_reserve_lamports: int = 2_039_280,
     ) -> None:
         """Configure canonical presence, collision count, and ordered live values."""
         self.canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
@@ -313,6 +326,9 @@ class FakeRpc:
         self.fees = list(fees or [5_000])
         self.rent_lamports = rent_lamports
         self.blockhashes = list(blockhashes or [Hash.default()])
+        self.canonical_token_amount_lamports = canonical_token_amount_lamports
+        self.canonical_account_lamports = canonical_account_lamports
+        self.canonical_native_reserve_lamports = canonical_native_reserve_lamports
         self.account_lookups: list[Pubkey] = []
         self.fee_calls = 0
 
@@ -329,11 +345,23 @@ class FakeRpc:
     async def canonical_wsol_account_exists(
         self, address: Pubkey, _wallet: Pubkey
     ) -> bool:
-        """Model authoritative canonical-account validation."""
+        """Preserve ordinary planners' boolean compatibility surface."""
+        return await self.canonical_wsol_account_info(address, _wallet) is not None
+
+    async def canonical_wsol_account_info(
+        self, address: Pubkey, _wallet: Pubkey
+    ) -> CanonicalWsolAccountInfo | None:
+        """Model exact canonical validation and close-return facts."""
         exists = await self.account_exists(address)
         if exists and self.invalid_canonical_account:
             raise SdkError("canonical WSOL token account is invalid")
-        return exists
+        if not exists:
+            return None
+        return CanonicalWsolAccountInfo(
+            account_lamports=self.canonical_account_lamports,
+            token_amount_lamports=self.canonical_token_amount_lamports,
+            native_reserve_lamports=self.canonical_native_reserve_lamports,
+        )
 
     async def minimum_balance_for_rent_exemption(self, _data_len: int) -> int:
         """Return the configured rent-exempt minimum in lamports."""
@@ -389,6 +417,22 @@ class FakePlanningClient:
         return self._strategy
 
 
+class FakeExternalSigner(ExternalSigner):
+    """Identity-only external signer used to prove conversion rejection order."""
+
+    def __init__(self, wallet: Pubkey) -> None:
+        """Expose the wallet without allowing any signer call."""
+        self.wallet_address = str(wallet)
+
+    async def sign_message(self, _message: bytes) -> bytes:
+        """Fail if a planner unexpectedly reaches signing."""
+        raise AssertionError("planner must not sign messages")
+
+    async def sign_transaction(self, _tx_bytes: bytes) -> bytes:
+        """Fail if a planner unexpectedly reaches signing."""
+        raise AssertionError("planner must not sign transactions")
+
+
 def planning_harness(
     *,
     native: str = "2.000000000",
@@ -400,6 +444,11 @@ def planning_harness(
     fees: list[int | None] | None = None,
     blockhashes: list[Hash] | None = None,
     signing_wallet_mismatch: bool = False,
+    signing_kind: SigningStrategyKind = SigningStrategyKind.NATIVE,
+    canonical_token_amount_lamports: int | None = None,
+    canonical_account_lamports: int | None = None,
+    canonical_native_reserve_lamports: int = 2_039_280,
+    credential_expires_at: int | None = None,
 ) -> tuple[Positions, WalletDepositBalancesState, FakeRpc, Pubkey]:
     """Build complete wallet state and a deterministic planner dependency graph."""
     keypair = Keypair()
@@ -408,7 +457,11 @@ def planning_harness(
         credentials = AuthCredentials(
             user_id="user-a",
             wallet_address=str(wallet),
-            expires_at=int(time.time()) + 60,
+            expires_at=(
+                int(time.time()) + 60
+                if credential_expires_at is None
+                else credential_expires_at
+            ),
         )
     state = WalletDepositBalancesState()
     state.apply_rest_snapshot(
@@ -419,6 +472,16 @@ def planning_harness(
             balances={WSOL_MINT: balance(WSOL_MINT, wrapped)},
         ),
     )
+    live_token_amount = (
+        state.canonical_wsol_lamports()
+        if canonical_token_amount_lamports is None
+        else canonical_token_amount_lamports
+    )
+    live_account_lamports = (
+        live_token_amount + 2_039_280
+        if canonical_account_lamports is None
+        else canonical_account_lamports
+    )
     rpc = FakeRpc(
         wallet,
         canonical_exists=canonical_exists,
@@ -426,11 +489,18 @@ def planning_harness(
         occupied_temporary_attempts=occupied_temporary_attempts,
         fees=fees,
         blockhashes=blockhashes,
+        canonical_token_amount_lamports=live_token_amount,
+        canonical_account_lamports=live_account_lamports,
+        canonical_native_reserve_lamports=canonical_native_reserve_lamports,
     )
     signing_keypair = Keypair() if signing_wallet_mismatch else keypair
-    client = FakePlanningClient(
-        credentials, rpc, SigningStrategy.native(signing_keypair)
-    )
+    if signing_kind is SigningStrategyKind.NATIVE:
+        strategy = SigningStrategy.native(signing_keypair)
+    elif signing_kind is SigningStrategyKind.WALLET_ADAPTER:
+        strategy = SigningStrategy.wallet_adapter(FakeExternalSigner(wallet))
+    else:
+        strategy = SigningStrategy.privy("wallet-id", str(wallet))
+    client = FakePlanningClient(credentials, rpc, strategy)
     return Positions(client), state, rpc, wallet  # type: ignore[arg-type]
 
 
@@ -446,14 +516,30 @@ def market() -> Market:
 
 
 def compiled_instruction(transaction, index: int) -> Instruction:
-    """Expand one compiled instruction so SPL/system decoders can inspect it."""
+    """Expand one compiled instruction with its effective message privileges."""
     message = transaction.message
     compiled = message.instructions[index]
     keys = message.account_keys
+    header = message.header
+    writable_signed = (
+        header.num_required_signatures - header.num_readonly_signed_accounts
+    )
+    writable_unsigned_end = len(keys) - header.num_readonly_unsigned_accounts
+
+    def account_meta(account_index: int) -> AccountMeta:
+        """Recover signer/writable flags after message-wide privilege promotion."""
+        is_signer = message.is_signer(account_index)
+        is_writable = (
+            account_index < writable_signed
+            if is_signer
+            else account_index < writable_unsigned_end
+        )
+        return AccountMeta(keys[account_index], is_signer, is_writable)
+
     return Instruction(
         keys[compiled.program_id_index],
         bytes(compiled.data),
-        [AccountMeta(keys[i], False, True) for i in bytes(compiled.accounts)],
+        [account_meta(i) for i in bytes(compiled.accounts)],
     )
 
 
@@ -521,6 +607,55 @@ def test_sol_action_availability_rejects_invalid_components(
         )
 
 
+def test_unwrap_all_availability_reserves_only_the_exact_live_fee() -> None:
+    """Preserve components after validating the complete unwrap cost tuple."""
+    components = SolBalanceComponents(5_000, 500_000_000)
+    costs = SolActionCosts(5_000, 0, False, False)
+    availability = SolBalanceAvailability.from_unwrap_all_costs(components, costs)
+
+    assert availability.components is components
+    assert availability.displayed_lamports == 500_005_000
+    assert availability.reserve_lamports == 5_000
+    assert availability.spendable_lamports == 500_000_000
+
+
+def test_unwrap_all_availability_fails_closed_on_fee_and_display_errors() -> None:
+    """Require native fee funding and checked common-u64 displayed arithmetic."""
+    with pytest.raises(SdkError, match="unwrap-all transaction fee"):
+        SolBalanceAvailability.from_unwrap_all_costs(
+            SolBalanceComponents(4_999, 500_000_000),
+            SolActionCosts(5_000, 0, False, False),
+        )
+    with pytest.raises(SdkError, match="displayed SOL exceeds"):
+        SolBalanceAvailability.from_unwrap_all_costs(
+            SolBalanceComponents(2**64 - 1, 1),
+            SolActionCosts(0, 0, False, False),
+        )
+    with pytest.raises(SdkError, match="non-negative u64"):
+        SolBalanceAvailability.from_unwrap_all_costs(
+            SolBalanceComponents(5_000, 0),
+            SolActionCosts(True, 0, False, False),
+        )
+
+
+@pytest.mark.parametrize(
+    ("costs", "message"),
+    [
+        (SolActionCosts(5_000, 1, False, False), "zero upfront rent"),
+        (SolActionCosts(5_000, 0, True, False), "must not create"),
+        (SolActionCosts(5_000, 0, False, True), "must be unsponsored"),
+    ],
+)
+def test_unwrap_all_availability_rejects_non_close_cost_tuples(
+    costs: SolActionCosts, message: str
+) -> None:
+    """Reject rent, account creation, or sponsorship before fee-only math."""
+    with pytest.raises(SdkError, match=message):
+        SolBalanceAvailability.from_unwrap_all_costs(
+            SolBalanceComponents(10_000, 500_000_000), costs
+        )
+
+
 def test_temporary_native_withdraw_seed_and_address_match_other_sdks() -> None:
     """Pin byte-exact seed and legacy-token address derivation across SDKs."""
     wallet = Pubkey(bytes([1]) * 32)
@@ -533,6 +668,323 @@ def test_temporary_native_withdraw_seed_and_address_match_other_sdks() -> None:
         str(Pubkey.create_with_seed(wallet, seed, TOKEN_PROGRAM_ID))
         == "71S4MLz9scZhY8BomAjfTkVn6HhFo8yFU7G6tSLto5g6"
     )
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_reuses_canonical_account_with_exact_instruction_and_costs() -> (
+    None
+):
+    """Transfer and sync an exact amount after matching live canonical state."""
+    positions, state, _rpc, wallet = planning_harness(fees=[7_500])
+    plan = await positions.plan_wrap_sol(250_000_000, state)
+    canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+
+    assert plan.kind is SolActionKind.WRAP
+    assert len(plan.transaction.message.instructions) == 2
+    transfer_params = decode_transfer(compiled_instruction(plan.transaction, 0))
+    assert transfer_params["from_pubkey"] == wallet
+    assert transfer_params["to_pubkey"] == canonical
+    assert transfer_params["lamports"] == 250_000_000
+    sync = compiled_instruction(plan.transaction, 1)
+    assert decode_sync_native(sync).program_id == TOKEN_PROGRAM_ID
+    assert sync.accounts[0].pubkey == canonical
+    assert plan.costs == SolActionCosts(7_500, 0, False, False)
+    assert plan.availability.reserve_lamports == 1_000_000
+    assert plan.expected_delta.native_lamports == -250_007_500
+    assert plan.expected_delta.canonical_wsol_lamports == 250_000_000
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_strictly_creates_missing_account_before_transfer_and_sync() -> (
+    None
+):
+    """Create the wallet's exact Tokenkeg ATA and include live rent in delta."""
+    positions, state, _rpc, wallet = planning_harness(
+        native="1.000000000",
+        wrapped="0.000000000",
+        canonical_exists=False,
+        fees=[5_000],
+    )
+    plan = await positions.plan_wrap_sol(500_000_000, state)
+    canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+
+    assert len(plan.transaction.message.instructions) == 3
+    create = compiled_instruction(plan.transaction, 0)
+    assert create.program_id == ASSOCIATED_TOKEN_PROGRAM_ID
+    assert create.data == b""
+    assert [
+        (meta.pubkey, meta.is_signer, meta.is_writable) for meta in create.accounts
+    ] == [
+        (wallet, True, True),
+        (canonical, False, True),
+        (wallet, True, True),
+        (WRAPPED_SOL_MINT, False, False),
+        (SYSTEM_PROGRAM_ID, False, False),
+        (TOKEN_PROGRAM_ID, False, False),
+    ]
+    transfer_params = decode_transfer(compiled_instruction(plan.transaction, 1))
+    assert transfer_params["to_pubkey"] == canonical
+    assert transfer_params["lamports"] == 500_000_000
+    assert compiled_instruction(plan.transaction, 2).accounts[0].pubkey == canonical
+    assert plan.costs == SolActionCosts(5_000, 2_039_280, True, False)
+    assert plan.availability.reserve_lamports == 3_500_000
+    assert plan.expected_delta.native_lamports == -502_044_280
+    assert plan.expected_delta.canonical_wsol_lamports == 500_000_000
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_uses_live_cost_above_the_ordinary_floor() -> None:
+    """Reserve an exact high fee rather than truncating it to the configured floor."""
+    positions, state, _rpc, _wallet = planning_harness(fees=[2_000_000])
+    plan = await positions.plan_wrap_sol(1, state)
+
+    assert plan.costs.fee_lamports == 2_000_000
+    assert plan.availability.reserve_lamports == 2_000_000
+    assert plan.expected_delta.native_lamports == -2_000_001
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("amount", [-1, 0, 1.5, True, 2**64])
+async def test_wrap_sol_rejects_invalid_amounts_before_rpc(amount: object) -> None:
+    """Reject non-integer, non-positive, and overflowing exact wrap amounts."""
+    positions, state, rpc, _wallet = planning_harness()
+    with pytest.raises(SdkError, match="integer|greater than zero|fit u64"):
+        await positions.plan_wrap_sol(amount, state)  # type: ignore[arg-type]
+    assert rpc.account_lookups == []
+    assert rpc.fee_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_requires_native_amount_plus_reserve() -> None:
+    """Do not let existing WSOL mask insufficient native conversion funding."""
+    positions, state, _rpc, _wallet = planning_harness(
+        native="0.250000000", wrapped="1.000000000"
+    )
+    with pytest.raises(SdkError, match="wrap amount and transaction reserve"):
+        await positions.plan_wrap_sol(250_000_000, state)
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_rejects_amount_plus_reserve_u64_overflow() -> None:
+    """Reject an otherwise valid amount when amount plus reserve exceeds u64."""
+    positions, state, _rpc, _wallet = planning_harness(
+        native="18446744073.709551615",
+        wrapped="0.000000000",
+        canonical_exists=False,
+        canonical_token_amount_lamports=0,
+    )
+    with pytest.raises(SdkError, match="exceed u64"):
+        await positions.plan_wrap_sol(2**64 - 1, state)
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_rejects_missing_invalid_and_stale_canonical_state() -> None:
+    """Fail closed instead of wrapping against absent, invalid, or stale authority."""
+    positions, state, _rpc, _wallet = planning_harness(canonical_exists=False)
+    with pytest.raises(SdkError, match="positive but its account is unavailable"):
+        await positions.plan_wrap_sol(1, state)
+
+    positions, state, _rpc, _wallet = planning_harness(invalid_canonical_account=True)
+    with pytest.raises(SdkError, match="canonical WSOL token account is invalid"):
+        await positions.plan_wrap_sol(1, state)
+
+    positions, state, _rpc, _wallet = planning_harness(
+        canonical_token_amount_lamports=499_999_999
+    )
+    with pytest.raises(SdkError, match="does not match wallet balance state"):
+        await positions.plan_wrap_sol(1, state)
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_rejects_unsynchronized_donated_lamports_before_fee() -> None:
+    """Prevent SyncNative from silently increasing canonical WSOL beyond intent."""
+    positions, state, rpc, wallet = planning_harness(
+        canonical_account_lamports=503_039_280,
+    )
+
+    with pytest.raises(SdkError, match="unsynchronized excess lamports"):
+        await positions.plan_wrap_sol(1, state)
+
+    assert rpc.account_lookups == [
+        get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+    ]
+    assert rpc.fee_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_wrap_sol_rejects_existing_canonical_u64_overflow_before_fee() -> None:
+    """Reject a transfer that would overflow the synchronized token account."""
+    token_lamports = 9_000_000_000_000_000
+    positions, state, rpc, _wallet = planning_harness(
+        native="18446744073.709551615",
+        wrapped="9000000.000000000",
+        canonical_token_amount_lamports=token_lamports,
+        canonical_account_lamports=token_lamports + 2_039_280,
+    )
+
+    with pytest.raises(SdkError, match="canonical WSOL token or account u64 range"):
+        await positions.plan_wrap_sol(2**64 - token_lamports, state)
+
+    assert rpc.fee_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_unwrap_all_accepts_unsynchronized_donation_and_credits_it() -> None:
+    """Close returns token amount, rent, and donated excess to the same wallet."""
+    positions, state, _rpc, wallet = planning_harness(
+        native="0.000005000",
+        canonical_account_lamports=503_039_280,
+        fees=[5_000],
+    )
+    plan = await positions.plan_unwrap_wsol_all(state)
+    canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
+
+    assert plan.kind is SolActionKind.UNWRAP_ALL
+    assert len(plan.transaction.message.instructions) == 1
+    close_instruction = compiled_instruction(plan.transaction, 0)
+    close = decode_close_account(close_instruction)
+    assert close.account == canonical
+    assert close.dest == wallet
+    assert close.owner == wallet
+    assert [
+        (meta.pubkey, meta.is_signer, meta.is_writable)
+        for meta in close_instruction.accounts
+    ] == [
+        (canonical, False, True),
+        (wallet, True, True),
+        (wallet, True, True),
+    ]
+    assert plan.costs == SolActionCosts(5_000, 0, False, False)
+    assert plan.availability.components == SolBalanceComponents(5_000, 500_000_000)
+    assert plan.availability.displayed_lamports == 500_005_000
+    assert plan.availability.reserve_lamports == 5_000
+    assert plan.availability.spendable_lamports == 500_000_000
+    assert plan.expected_delta.native_lamports == 503_034_280
+    assert plan.expected_delta.canonical_wsol_lamports == -500_000_000
+
+
+@pytest.mark.asyncio
+async def test_unwrap_all_uses_exact_high_fee_without_the_ordinary_floor() -> None:
+    """Interpret the factual zero-rent cost tuple through fee-only availability."""
+    positions, state, _rpc, _wallet = planning_harness(
+        native="0.002000000", fees=[2_000_000]
+    )
+    plan = await positions.plan_unwrap_wsol_all(state)
+
+    assert plan.costs == SolActionCosts(2_000_000, 0, False, False)
+    assert plan.availability.reserve_lamports == 2_000_000
+    assert plan.expected_delta.native_lamports == 500_039_280
+
+
+@pytest.mark.asyncio
+async def test_unwrap_all_rejects_zero_missing_mismatched_and_invalid_accounts() -> (
+    None
+):
+    """Require positive complete state and one matching valid live account."""
+    positions, state, rpc, _wallet = planning_harness(
+        wrapped="0.000000000",
+        canonical_token_amount_lamports=0,
+    )
+    with pytest.raises(SdkError, match="greater than zero"):
+        await positions.plan_unwrap_wsol_all(state)
+    assert rpc.account_lookups == []
+
+    positions, state, _rpc, _wallet = planning_harness(canonical_exists=False)
+    with pytest.raises(SdkError, match="unavailable for unwrap-all"):
+        await positions.plan_unwrap_wsol_all(state)
+
+    positions, state, _rpc, _wallet = planning_harness(
+        canonical_token_amount_lamports=500_000_001
+    )
+    with pytest.raises(SdkError, match="does not match wallet balance state"):
+        await positions.plan_unwrap_wsol_all(state)
+
+    positions, state, _rpc, _wallet = planning_harness(invalid_canonical_account=True)
+    with pytest.raises(SdkError, match="canonical WSOL token account is invalid"):
+        await positions.plan_unwrap_wsol_all(state)
+
+
+@pytest.mark.asyncio
+async def test_unwrap_all_requires_native_fee_and_checked_destination_balance() -> None:
+    """Reject insufficient fee funds and a close return that would overflow native."""
+    positions, state, _rpc, _wallet = planning_harness(
+        native="0.000004999", fees=[5_000]
+    )
+    with pytest.raises(SdkError, match="unwrap-all transaction fee"):
+        await positions.plan_unwrap_wsol_all(state)
+
+    positions, state, _rpc, _wallet = planning_harness(
+        native="18446744073.709551614",
+        wrapped="0.000000001",
+        fees=[0],
+        canonical_token_amount_lamports=1,
+        canonical_account_lamports=2_039_281,
+    )
+    with pytest.raises(SdkError, match="projected native SOL exceeds"):
+        await positions.plan_unwrap_wsol_all(state)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "signing_kind", [SigningStrategyKind.WALLET_ADAPTER, SigningStrategyKind.PRIVY]
+)
+async def test_conversion_planners_reject_non_native_signers_before_rpc(
+    signing_kind: SigningStrategyKind,
+) -> None:
+    """Keep explicit conversion native-only without tightening ordinary plans."""
+    for action in ("wrap", "unwrap"):
+        positions, state, rpc, _wallet = planning_harness(signing_kind=signing_kind)
+        with pytest.raises(SdkError, match="native signing strategy"):
+            if action == "wrap":
+                await positions.plan_wrap_sol(1, state)
+            else:
+                await positions.plan_unwrap_wsol_all(state)
+        assert rpc.account_lookups == []
+        assert rpc.fee_calls == 0
+
+    positions, state, rpc, _wallet = planning_harness(signing_kind=signing_kind)
+    ordinary = await positions.plan_native_sol_withdrawal(
+        Pubkey.new_unique(), 1, state, False
+    )
+    assert ordinary.kind is SolActionKind.NATIVE_WITHDRAW
+    assert rpc.fee_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_conversion_planners_reject_expired_and_wrong_native_wallets_before_rpc() -> (
+    None
+):
+    """Reuse complete authenticated identity checks after native admission."""
+    positions, state, rpc, _wallet = planning_harness(
+        credential_expires_at=int(time.time()) - 1
+    )
+    with pytest.raises(SdkError, match="credentials have expired"):
+        await positions.plan_wrap_sol(1, state)
+    assert rpc.account_lookups == []
+
+    positions, state, rpc, _wallet = planning_harness(signing_wallet_mismatch=True)
+    with pytest.raises(SdkError, match="does not control authenticated wallet"):
+        await positions.plan_unwrap_wsol_all(state)
+    assert rpc.account_lookups == []
+
+    positions, state, rpc, _wallet = planning_harness()
+    state.wallet_address = str(Pubkey.new_unique())
+    with pytest.raises(SdkError, match="does not match wallet balance state"):
+        await positions.plan_wrap_sol(1, state)
+    assert rpc.account_lookups == []
+
+
+@pytest.mark.asyncio
+async def test_conversion_planners_fail_closed_when_live_fee_is_unavailable() -> None:
+    """Never synthesize a zero fee for either prepared conversion message."""
+    for action in ("wrap", "unwrap"):
+        positions, state, rpc, _wallet = planning_harness(fees=[None])
+        with pytest.raises(SdkError, match="fee estimate is unavailable"):
+            if action == "wrap":
+                await positions.plan_wrap_sol(1, state)
+            else:
+                await positions.plan_unwrap_wsol_all(state)
+        assert rpc.fee_calls == 1
 
 
 @pytest.mark.asyncio
@@ -670,6 +1122,88 @@ async def test_native_withdrawal_closes_only_a_seeded_temporary_account() -> Non
     assert plan.availability.reserve_lamports == 2_044_280
     assert plan.expected_delta.native_lamports == -7_960_720
     assert plan.expected_delta.canonical_wsol_lamports == -492_044_280
+
+
+@pytest.mark.asyncio
+async def test_every_ordinary_plan_scans_all_instructions_without_canonical_close() -> (
+    None
+):
+    """Inspect every ordinary instruction, including split's final market call."""
+    ordinary_plans = []
+
+    positions, state, _rpc, wallet = planning_harness(
+        native="1.500000000", wrapped="0.200000000"
+    )
+    split = await positions.plan_sol_split(market(), 500_000_000, state, False)
+    ordinary_plans.append(("split", split, wallet))
+
+    positions, state, _rpc, wallet = planning_harness()
+    ordinary_plans.append(
+        (
+            "merge",
+            await positions.plan_sol_merge(market(), 250_000_000, state, False),
+            wallet,
+        )
+    )
+
+    positions, state, _rpc, wallet = planning_harness()
+    ordinary_plans.append(
+        (
+            "redeem",
+            await positions.plan_sol_redeem(
+                Pubkey.new_unique(), 250_000_000, 0, 2, state, False
+            ),
+            wallet,
+        )
+    )
+
+    positions, state, _rpc, wallet = planning_harness()
+    ordinary_plans.append(
+        (
+            "native-direct",
+            await positions.plan_native_sol_withdrawal(
+                Pubkey.new_unique(), 500_000_000, state, False
+            ),
+            wallet,
+        )
+    )
+
+    positions, state, _rpc, wallet = planning_harness(
+        native="0.010000000",
+        wrapped="1.000000000",
+        blockhashes=[Hash.new_unique(), Hash.new_unique(), Hash.new_unique()],
+    )
+    ordinary_plans.append(
+        (
+            "native-temporary",
+            await positions.plan_native_sol_withdrawal(
+                Pubkey.new_unique(), 500_000_000, state, False
+            ),
+            wallet,
+        )
+    )
+
+    split_final = compiled_instruction(
+        split.transaction, len(split.transaction.message.instructions) - 1
+    )
+    assert split_final.program_id == Pubkey.default()
+    assert split_final.data != bytes([9])
+
+    scanned = 0
+    for name, plan, plan_wallet in ordinary_plans:
+        canonical = get_associated_token_address(plan_wallet, WRAPPED_SOL_MINT)
+        for index in range(len(plan.transaction.message.instructions)):
+            instruction = compiled_instruction(plan.transaction, index)
+            scanned += 1
+            if (
+                instruction.program_id == TOKEN_PROGRAM_ID
+                and instruction.data == bytes([9])
+            ):
+                assert instruction.accounts[0].pubkey != canonical, name
+    assert scanned == sum(
+        len(plan.transaction.message.instructions)
+        for _name, plan, _wallet in ordinary_plans
+    )
 
 
 @pytest.mark.asyncio

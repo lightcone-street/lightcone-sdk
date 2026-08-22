@@ -85,6 +85,18 @@ impl SigningStrategy {
             Self::WalletAdapter(signer) => signer.wallet_address(),
         }
     }
+
+    /// Return the local-keypair wallet accepted by wrap and unwrap-all planners.
+    ///
+    /// A wallet-adapter strategy returns `None` even when it exposes a matching
+    /// wallet identity. Ordinary planners continue to accept that strategy.
+    #[cfg(feature = "native-auth")]
+    pub(crate) fn native_conversion_wallet(&self) -> Option<Pubkey> {
+        match self {
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(_) => None,
+        }
+    }
 }
 
 /// Check if an external signer error indicates the user cancelled/rejected

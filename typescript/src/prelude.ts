@@ -24,6 +24,7 @@ export {
 } from "./client";
 
 export { Rpc } from "./rpc";
+export type { CanonicalWsolAccountInfo } from "./rpc";
 export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
@@ -196,6 +197,7 @@ export {
   WRAPPED_SOL_MINT,
   nativeWithdrawSeed,
   solBalanceAvailability,
+  unwrapAllSolBalanceAvailability,
   SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
   SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
 } from "./domain/position";
@@ -260,7 +262,9 @@ export type {
 
 export {
   isUserCancellation,
+  requireNativeSigningStrategy,
   type ExternalSigner,
+  type NativeSigningStrategy,
   type SigningStrategy,
 } from "./shared/signing";
 

@@ -6,7 +6,10 @@ import type {
   Transaction,
 } from "@solana/web3.js";
 import {
+  AccountLayout,
+  AccountState,
   ACCOUNT_SIZE,
+  getAssociatedTokenAddressSync,
   NATIVE_MINT,
   TOKEN_PROGRAM_ID,
   unpackAccount,
@@ -48,12 +51,30 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 3;
  */
 const EXPIRY_HEIGHT_SAMPLES = 2;
 
+/** Largest lamport value that fits Solana's unsigned 64-bit account fields. */
+const MAX_SOLANA_LAMPORTS = 0xffff_ffff_ffff_ffffn;
+
 /** Convert a JSON number only when it still represents exact lamports. */
 function rpcLamports(value: number, label: string): bigint {
   if (!Number.isSafeInteger(value) || value < 0) {
     throw SdkError.validation(`${label} must be a non-negative safe integer`);
   }
   return BigInt(value);
+}
+
+/**
+ * Stores exact live facts for a validated canonical Tokenkeg WSOL account.
+ *
+ * `canonicalWsolAccountInfo` returns all fields from one confirmed account read.
+ * Direct structural construction does not perform that validation.
+ */
+export interface CanonicalWsolAccountInfo {
+  /** Full account lamports, including native amount, rent, and direct donations. */
+  accountLamports: bigint;
+  /** Decoded SPL native-token amount in lamports. */
+  tokenAmountLamports: bigint;
+  /** Decoded native-account rent reserve in lamports. */
+  nativeReserveLamports: bigint;
 }
 
 /** True once the cluster has voted the transaction to `confirmed` or beyond. */
@@ -122,18 +143,65 @@ export class Rpc {
     return account !== null;
   }
 
-  /** Validate the wallet's canonical legacy-token WSOL account when present. */
-  async canonicalWsolAccountExists(
+  /**
+   * Return exact confirmed facts for a wallet's canonical WSOL account.
+   *
+   * `address` must equal the supplied wallet's Tokenkeg native-mint ATA. Missing
+   * accounts return `null`. A present account must have the legacy Token Program
+   * owner, native mint, wallet authority, initialized state, native reserve, and
+   * no foreign close authority. Token amount plus native reserve must fit Solana's
+   * unsigned 64-bit range and cannot exceed the account balance. Unsafe JSON-number
+   * account lamports return an error instead of being rounded.
+   */
+  async canonicalWsolAccountInfo(
     address: PublicKey,
     wallet: PublicKey
-  ): Promise<boolean> {
+  ): Promise<CanonicalWsolAccountInfo | null> {
+    let canonicalAddress: PublicKey;
+    try {
+      canonicalAddress = getAssociatedTokenAddressSync(
+        NATIVE_MINT,
+        wallet,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL address derivation failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (!address.equals(canonicalAddress)) {
+      throw SdkError.validation(
+        "canonical WSOL address does not match the Trading Wallet Tokenkeg ATA"
+      );
+    }
     const info = await connectionWithFailover(this.client, (connection) =>
       connection.getAccountInfo(address, "confirmed")
     );
-    if (!info) return false;
+    if (!info) return null;
     if (!info.owner.equals(TOKEN_PROGRAM_ID) || info.data.length !== ACCOUNT_SIZE) {
       throw SdkError.validation(
         "canonical WSOL account is not a legacy Token Program account"
+      );
+    }
+
+    let rawAccount;
+    try {
+      rawAccount = AccountLayout.decode(info.data);
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL token account is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (
+      rawAccount.state !== AccountState.Initialized ||
+      (rawAccount.delegateOption !== 0 && rawAccount.delegateOption !== 1) ||
+      rawAccount.isNativeOption !== 1 ||
+      (rawAccount.closeAuthorityOption !== 0 &&
+        rawAccount.closeAuthorityOption !== 1)
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token account has incompatible state or option tags"
       );
     }
 
@@ -150,13 +218,46 @@ export class Rpc {
       !account.owner.equals(wallet) ||
       !account.isInitialized ||
       account.isFrozen ||
-      !account.isNative
+      !account.isNative ||
+      account.rentExemptReserve === null ||
+      (account.closeAuthority !== null &&
+        !account.closeAuthority.equals(wallet))
     ) {
       throw SdkError.validation(
         "canonical WSOL token account has incompatible mint, authority, or native state"
       );
     }
-    return true;
+    const accountLamports = rpcLamports(
+      info.lamports,
+      "canonical WSOL account lamports"
+    );
+    const accountedLamports = account.amount + account.rentExemptReserve;
+    if (
+      accountedLamports > MAX_SOLANA_LAMPORTS ||
+      accountedLamports > accountLamports
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token amount and native reserve exceed account lamports"
+      );
+    }
+    return {
+      accountLamports,
+      tokenAmountLamports: account.amount,
+      nativeReserveLamports: account.rentExemptReserve,
+    };
+  }
+
+  /**
+   * Return whether the validated canonical WSOL account is present.
+   *
+   * This compatibility method delegates all address, owner, state, authority, and
+   * lamport checks to `canonicalWsolAccountInfo`.
+   */
+  async canonicalWsolAccountExists(
+    address: PublicKey,
+    wallet: PublicKey
+  ): Promise<boolean> {
+    return (await this.canonicalWsolAccountInfo(address, wallet)) !== null;
   }
 
   /** Return the current rent-exempt minimum in lamports for `dataLength` account bytes. */

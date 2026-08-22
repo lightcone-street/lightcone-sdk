@@ -336,6 +336,7 @@ All examples are runnable with `cargo run --example <name> --features native`. E
 | [`price_history`](examples/price_history.rs) | Historical candlestick data (OHLCV) at various resolutions |
 | [`positions`](examples/positions.rs) | User positions across all markets and per-market |
 | [`deposit_token_balances`](examples/deposit_token_balances.rs) | Authenticated WebSocket state and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
+| [`wsol_conversion`](examples/wsol_conversion.rs) | Native-keypair exact wrap followed by canonical WSOL unwrap-all in non-production |
 | [`metrics_all`](examples/metrics_all.rs) | Exercise the `client.metrics()` endpoints — platform, markets, categories, orderbook, deposit-token history, open-interest history, unique-trader history, leaderboard, history |
 
 `deposit_token_balances` is manual-only and excluded from the aggregate example
@@ -345,15 +346,41 @@ built-in non-production routing cannot be repointed at production. It sends to
 the TypeScript SDK wallet configured by `LIGHTCONE_WALLET_PATH_TS`, keeping CI
 funds inside the SDK wallet pool.
 
+`wsol_conversion` runs automatically with the Rust wallet in local aggregate
+runs and is included when the globally gated stateful example workflow is
+enabled for staging CI; that workflow currently disables all stateful CI jobs.
+The local runner preserves an optional paid RPC while clearing API, WebSocket,
+and program overrides; an enabled staging-CI run may use its managed endpoints.
+Direct local runs permit only the RPC override, direct staging runs remain
+override-free, and all paths reject production and program-ID overrides.
+The example requires the authenticated
+Trading Wallet to be the configured native keypair. It wraps exactly 0.001 SOL,
+refreshes a complete slot-covering snapshot, then rebuilds and submits
+`plan_unwrap_wsol_all` without an interactive pause. Unwrap-all closes the
+canonical account and returns its full lamport balance, including rent and any
+excess. A later ordinary action may recreate it and require rent again. The
+example never retries an uncertain submission or confirmation result.
+
 SOL planners keep the canonical Tokenkeg WSOL account persistent: split wraps
 only a shortfall, merge and redeem retain proceeds there, and native withdrawal
 converts only the required shortfall through a temporary seeded account. The
 temporary account's create, initialize, WSOL transfer, close, and native transfer
 instructions are one Solana transaction, so an instruction failure rolls the
-entire conversion back atomically. No planner implicitly closes the canonical
-account; an explicit self-custody unwrap-all/close operation is outside the
-current contract. A submission or confirmation error still has an uncertain
-landed status, so inspect authoritative balances before retrying. See the
+entire conversion back atomically. These ordinary planners never close the
+canonical account. Native-keypair consumers may explicitly call
+`plan_wrap_sol(amount_lamports, state)` or no-amount
+`plan_unwrap_wsol_all(state)`. Both compare live canonical token amount with the
+complete wallet snapshot and return only prepared plans. Exact inspection exposes
+full account, decoded token-amount, and decoded native-reserve lamports. Wrap
+rejects unsynchronized donated excess because `SyncNative`, the Token Program
+instruction that recalculates the WSOL token amount from account lamports, would
+wrap it in addition to the requested amount. Otherwise wrap uses reserve floors and
+includes actual fee/new-account rent in its delta. Unwrap-all accepts excess,
+uses native fee-only availability, checks the final native `u64` balance, and
+returns the account's complete live lamports, so its delta includes rent and any
+donation while its `SolActionCosts` remain unsponsored with zero upfront rent and
+no account creation. A submission or confirmation error still has an uncertain landed
+status, so refresh authoritative balances before any retry. See the
 [persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 ### Testnet

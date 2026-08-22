@@ -31,6 +31,25 @@ pub const SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS: u64 = 3_500_000;
 /// Unsponsored native reserve floor, in lamports, when canonical WSOL already exists.
 pub const SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS: u64 = 1_000_000;
 
+/// Stores exact live facts for the Trading Wallet's canonical Tokenkeg WSOL account.
+///
+/// All fields are integer lamports from one confirmed `getAccountInfo` response.
+/// `account_lamports` includes the native reserve and any unsynchronized donated
+/// lamports. `token_amount_lamports` and `native_reserve_lamports` come from the
+/// decoded SPL token state. Direct construction performs no validation. The RPC
+/// inspection method validates the canonical address, legacy Token Program owner,
+/// native mint, wallet and close authorities, initialized state, native reserve,
+/// and account-lamport consistency before returning this value.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct CanonicalWsolAccountInfo {
+    /// All lamports held by the token account, including its rent reserve.
+    pub account_lamports: u64,
+    /// Spendable WSOL recorded in the token account's amount field.
+    pub token_amount_lamports: u64,
+    /// Rent-exempt reserve recorded by the native token account.
+    pub native_reserve_lamports: u64,
+}
+
 /// Exact transaction-range components behind the single user-facing SOL balance.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct SolBalanceComponents {
@@ -92,19 +111,22 @@ pub struct SolBalanceAvailability {
     pub components: SolBalanceComponents,
     /// Sum of both components in lamports, before action reserve.
     pub displayed_lamports: u64,
-    /// Native lamports withheld for live costs and the safety floor.
+    /// Action-specific native lamports withheld; ordinary actions include a safety floor.
     pub reserve_lamports: u64,
     /// Displayed lamports available to the planned action after reserve.
     pub spendable_lamports: u64,
 }
 
 impl SolBalanceAvailability {
-    /// Derive availability, failing when transaction costs overflow or native SOL cannot pay reserve.
+    /// Derive ordinary availability, failing on component/cost overflow or insufficient native reserve.
     pub fn from_costs(
         components: SolBalanceComponents,
         costs: SolActionCosts,
     ) -> Result<Self, SdkError> {
-        let displayed_lamports = components.lamports();
+        let displayed_lamports = components
+            .native_lamports
+            .checked_add(components.canonical_wsol_lamports)
+            .ok_or_else(|| SdkError::Validation("SOL balance components overflow u64".into()))?;
         let reserve_lamports = costs.reserve_lamports()?;
         if components.native_lamports < reserve_lamports {
             return Err(SdkError::Validation(format!(
@@ -116,6 +138,51 @@ impl SolBalanceAvailability {
             displayed_lamports,
             reserve_lamports,
             spendable_lamports: displayed_lamports.saturating_sub(reserve_lamports),
+        })
+    }
+
+    /// Return unwrap-all availability with the live fee as its entire reserve.
+    ///
+    /// This method rejects `SolActionCosts` that include sponsorship, account
+    /// creation, or upfront rent. It checks the component sum and fee subtraction.
+    /// Native SOL must fund the fee without relying on lamports that a later
+    /// `CloseAccount` instruction may transfer. The ordinary safety floor does not
+    /// apply because unwrap-all removes the persistent canonical account.
+    pub fn from_unwrap_all_costs(
+        components: SolBalanceComponents,
+        costs: SolActionCosts,
+    ) -> Result<Self, SdkError> {
+        if costs.upfront_rent_lamports != 0
+            || costs.creates_canonical_wsol_account
+            || costs.sponsored
+        {
+            return Err(SdkError::Validation(
+                "unwrap-all costs must be unsponsored with no upfront rent or account creation"
+                    .into(),
+            ));
+        }
+        if components.native_lamports < costs.fee_lamports {
+            return Err(SdkError::Validation(format!(
+                "native SOL balance cannot fund the required {} lamport unwrap-all fee",
+                costs.fee_lamports
+            )));
+        }
+        let displayed_lamports = components
+            .native_lamports
+            .checked_add(components.canonical_wsol_lamports)
+            .ok_or_else(|| {
+                SdkError::Validation("unwrap-all displayed SOL balance overflows u64".into())
+            })?;
+        let spendable_lamports = displayed_lamports
+            .checked_sub(costs.fee_lamports)
+            .ok_or_else(|| {
+                SdkError::Validation("unwrap-all fee exceeds displayed SOL balance".into())
+            })?;
+        Ok(Self {
+            components,
+            displayed_lamports,
+            reserve_lamports: costs.fee_lamports,
+            spendable_lamports,
         })
     }
 }
@@ -579,5 +646,95 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.to_string().contains("transaction reserve"));
+    }
+
+    #[test]
+    fn ordinary_availability_rejects_component_overflow_without_changing_display_saturation() {
+        let components = SolBalanceComponents {
+            native_lamports: u64::MAX,
+            canonical_wsol_lamports: 1,
+        };
+        assert_eq!(components.lamports(), u64::MAX);
+
+        let error = SolBalanceAvailability::from_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: 0,
+                upfront_rent_lamports: 0,
+                creates_canonical_wsol_account: false,
+                sponsored: true,
+            },
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("components overflow u64"));
+    }
+
+    #[test]
+    fn unwrap_all_availability_uses_fee_only_and_preserves_exact_components(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let components = SolBalanceComponents {
+            native_lamports: 10_000,
+            canonical_wsol_lamports: 2_000_000,
+        };
+        let availability = SolBalanceAvailability::from_unwrap_all_costs(
+            components,
+            SolActionCosts {
+                fee_lamports: 5_000,
+                upfront_rent_lamports: 0,
+                creates_canonical_wsol_account: false,
+                sponsored: false,
+            },
+        )?;
+
+        assert_eq!(availability.components, components);
+        assert_eq!(availability.displayed_lamports, 2_010_000);
+        assert_eq!(availability.reserve_lamports, 5_000);
+        assert_eq!(availability.spendable_lamports, 2_005_000);
+        Ok(())
+    }
+
+    #[test]
+    fn unwrap_all_availability_rejects_fee_shortfall_overflow_and_ordinary_costs() {
+        let costs = SolActionCosts {
+            fee_lamports: 5_000,
+            upfront_rent_lamports: 0,
+            creates_canonical_wsol_account: false,
+            sponsored: false,
+        };
+        let fee_error = SolBalanceAvailability::from_unwrap_all_costs(
+            SolBalanceComponents {
+                native_lamports: 4_999,
+                canonical_wsol_lamports: 10_000,
+            },
+            costs,
+        )
+        .unwrap_err();
+        assert!(fee_error.to_string().contains("unwrap-all fee"));
+
+        let overflow = SolBalanceAvailability::from_unwrap_all_costs(
+            SolBalanceComponents {
+                native_lamports: u64::MAX,
+                canonical_wsol_lamports: 1,
+            },
+            SolActionCosts {
+                fee_lamports: 0,
+                ..costs
+            },
+        )
+        .unwrap_err();
+        assert!(overflow.to_string().contains("overflows u64"));
+
+        let ordinary_costs = SolBalanceAvailability::from_unwrap_all_costs(
+            SolBalanceComponents {
+                native_lamports: 10_000,
+                canonical_wsol_lamports: 1,
+            },
+            SolActionCosts {
+                upfront_rent_lamports: 1,
+                ..costs
+            },
+        )
+        .unwrap_err();
+        assert!(ordinary_costs.to_string().contains("no upfront rent"));
     }
 }

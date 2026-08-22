@@ -161,7 +161,7 @@ from .ws.client import WsClient
 # ============================================================================
 
 from .client import ConfirmedTransaction, LightconeClient, LightconeClientBuilder
-from .rpc import Rpc
+from .rpc import CanonicalWsolAccountInfo, Rpc
 
 # External-wallet balance wire models, reducer state, and lifecycle results.
 from .domain.position import (
@@ -432,6 +432,7 @@ __all__ = [
     "LightconeClient",
     "LightconeClientBuilder",
     "ConfirmedTransaction",
+    "CanonicalWsolAccountInfo",
     "Rpc",
     # External wallet balances
     "DepositTokenBalancesSnapshot",

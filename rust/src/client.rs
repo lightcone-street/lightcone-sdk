@@ -15,6 +15,7 @@ use crate::domain::notification::client::Notifications;
 use crate::domain::order::client::Orders;
 use crate::domain::orderbook::client::Orderbooks;
 use crate::domain::position::client::Positions;
+use crate::domain::position::CanonicalWsolAccountInfo;
 use crate::domain::price_history::client::PriceHistoryClient;
 use crate::domain::referral::client::Referrals;
 use crate::domain::trade::client::Trades;
@@ -345,6 +346,31 @@ impl LightconeClient {
         .map_err(SdkError::Http)
     }
 
+    /// Send one JSON-RPC request to the active endpoint and return its response.
+    ///
+    /// Scheduled primary recovery runs before endpoint selection. The request is
+    /// not retried and does not switch endpoints. Signed-transaction callers use
+    /// this path because a transport failure can occur after RPC acceptance.
+    async fn rpc_call_once<T: serde::de::DeserializeOwned>(
+        &self,
+        body: &serde_json::Value,
+    ) -> Result<T, SdkError> {
+        let primary = self.primary_rpc_url.as_deref();
+        let backup = self.backup_rpc_url.as_deref();
+        let active = {
+            let mut state = self.rpc_failover_state.write().await;
+            state.maybe_recover_to_primary();
+            state.active()
+        };
+        let url = match active {
+            ActiveRpc::Primary => primary.or(backup),
+            ActiveRpc::Backup => backup.or(primary),
+        }
+        .ok_or_else(|| SdkError::Validation("rpc_url is not configured on the client".into()))?;
+
+        self.http.raw_post(url, body).await.map_err(SdkError::Http)
+    }
+
     /// Fetch the latest blockhash via JSON-RPC POST.
     ///
     /// Works on all platforms (native + WASM). Uses the active RPC URL,
@@ -440,13 +466,34 @@ impl LightconeClient {
         Ok(!value.is_null())
     }
 
-    /// Validate the wallet's canonical legacy-token WSOL account when present.
-    pub async fn canonical_wsol_account_exists(
+    /// Return exact confirmed facts for the Trading Wallet's canonical WSOL account.
+    ///
+    /// `address` must equal the supplied Trading Wallet's Tokenkeg native-mint
+    /// ATA. Missing accounts return `None`. A present account must have the legacy
+    /// Token Program owner, native mint, Trading Wallet authority, initialized
+    /// state, native reserve, and no foreign close authority. The decoded token
+    /// amount plus native reserve must fit `u64` and cannot exceed the RPC account
+    /// balance. All three returned fields come from the same `getAccountInfo`
+    /// response. Malformed, incompatible, or unavailable responses return an
+    /// error instead of being treated as absence.
+    pub async fn canonical_wsol_account_info(
         &self,
         address: &Pubkey,
         wallet: &Pubkey,
-    ) -> Result<bool, SdkError> {
+    ) -> Result<Option<CanonicalWsolAccountInfo>, SdkError> {
         use solana_program_pack::Pack;
+
+        let expected_address = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+            wallet,
+            &spl_token_interface::native_mint::id(),
+            &spl_token_interface::id(),
+        );
+        if *address != expected_address {
+            return Err(SdkError::Validation(
+                "canonical WSOL address is not the Trading Wallet's Tokenkeg native-mint ATA"
+                    .into(),
+            ));
+        }
 
         let body = serde_json::json!({
             "id": 1,
@@ -466,8 +513,16 @@ impl LightconeClient {
             .and_then(|result| result.get("value"))
             .ok_or_else(|| SdkError::Other("missing account value in RPC response".into()))?;
         if value.is_null() {
-            return Ok(false);
+            return Ok(None);
         }
+        let account_lamports = value
+            .get("lamports")
+            .and_then(serde_json::Value::as_u64)
+            .ok_or_else(|| {
+                SdkError::Validation(
+                    "canonical WSOL account lamports are missing or invalid".into(),
+                )
+            })?;
         let owner = value
             .get("owner")
             .and_then(serde_json::Value::as_str)
@@ -485,6 +540,17 @@ impl LightconeClient {
             .pointer("/data/0")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| SdkError::Validation("canonical WSOL account data is missing".into()))?;
+        let encoding = value
+            .pointer("/data/1")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                SdkError::Validation("canonical WSOL account data encoding is missing".into())
+            })?;
+        if encoding != "base64" {
+            return Err(SdkError::Validation(
+                "canonical WSOL account data is not base64 encoded".into(),
+            ));
+        }
         let data = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, encoded)
             .map_err(|error| {
                 SdkError::Validation(format!("canonical WSOL account data is invalid: {error}"))
@@ -495,14 +561,53 @@ impl LightconeClient {
         if account.mint != spl_token_interface::native_mint::id()
             || account.owner != *wallet
             || account.state != spl_token_interface::state::AccountState::Initialized
-            || !account.is_native()
         {
             return Err(SdkError::Validation(
                 "canonical WSOL token account has incompatible mint, authority, or native state"
                     .into(),
             ));
         }
-        Ok(true)
+        let native_reserve = account.is_native.ok_or_else(|| {
+            SdkError::Validation(
+                "canonical WSOL token account has incompatible mint, authority, or native state"
+                    .into(),
+            )
+        })?;
+        if account.close_authority.is_some() && !account.close_authority.contains(wallet) {
+            return Err(SdkError::Validation(
+                "canonical WSOL close authority does not match Trading Wallet".into(),
+            ));
+        }
+        let accounted_lamports = account.amount.checked_add(native_reserve).ok_or_else(|| {
+            SdkError::Validation(
+                "canonical WSOL token amount plus native reserve overflows u64".into(),
+            )
+        })?;
+        if accounted_lamports > account_lamports {
+            return Err(SdkError::Validation(
+                "canonical WSOL accounted lamports exceed RPC account lamports".into(),
+            ));
+        }
+        Ok(Some(CanonicalWsolAccountInfo {
+            account_lamports,
+            token_amount_lamports: account.amount,
+            native_reserve_lamports: native_reserve,
+        }))
+    }
+
+    /// Return whether the wallet's valid canonical Tokenkeg WSOL account exists.
+    ///
+    /// This compatibility surface delegates to exact inspection so callers keep
+    /// the shipped boolean API while sharing all ownership and token-state checks.
+    pub async fn canonical_wsol_account_exists(
+        &self,
+        address: &Pubkey,
+        wallet: &Pubkey,
+    ) -> Result<bool, SdkError> {
+        Ok(self
+            .canonical_wsol_account_info(address, wallet)
+            .await?
+            .is_some())
     }
 
     /// Fetch the current rent-exempt minimum, in lamports, for `data_len` account bytes.
@@ -827,11 +932,11 @@ impl LightconeClient {
         })
     }
 
-    /// Sign and confirm a transaction whose exact message was already used for
-    /// fee estimation.
+    /// Sign, submit once, and confirm a transaction whose message was fee-estimated.
     ///
-    /// Unlike the generic submission path, this preserves the prepared recent
-    /// blockhash and rejects an external signer that changes any message field.
+    /// This method preserves the prepared recent blockhash. It rejects an external
+    /// signer that changes any message field. It sends the signed bytes once to
+    /// the active RPC because a transport failure may occur after acceptance.
     /// Confirmation uses the bounded poll cap without a block-height expiry
     /// claim because the planner retained no `lastValidBlockHeight` metadata.
     pub async fn sign_and_submit_prepared_tx_confirmed_with_slot(
@@ -919,11 +1024,12 @@ impl LightconeClient {
         }
     }
 
-    /// Sign and submit a prepared message without fetching or replacing its blockhash.
+    /// Sign and submit a prepared message without replacing its blockhash.
     ///
-    /// Native signing preserves the message by construction. Wallet-adapter
-    /// bytes are re-decoded and compared before submission; Privy is excluded
-    /// because its final wire message is outside the SDK's inspection boundary.
+    /// Native signing preserves the message by construction. Wallet-adapter bytes
+    /// are decoded and compared with the prepared message before submission.
+    /// Privy is excluded because the SDK cannot inspect its final wire message.
+    /// Both admitted strategies send signed bytes once through the active RPC.
     async fn sign_and_submit_prepared_tx_inner(
         &self,
         tx: solana_transaction::Transaction,
@@ -936,7 +1042,7 @@ impl LightconeClient {
                 let blockhash = tx.message.recent_blockhash;
                 tx.try_sign(&[keypair.as_ref()], blockhash)
                     .map_err(|error| SdkError::Signing(error.to_string()))?;
-                self.send_transaction_rpc(&tx).await
+                self.send_transaction_rpc_once(&tx).await
             }
             SigningStrategy::WalletAdapter(signer) => {
                 let tx_bytes = bincode::serialize(&tx).map_err(|error| {
@@ -951,7 +1057,7 @@ impl LightconeClient {
                     &base64::engine::general_purpose::STANDARD,
                     &signed_bytes,
                 );
-                self.send_raw_transaction_rpc(&base64_tx).await
+                self.send_raw_transaction_rpc_once(&base64_tx).await
             }
         }
     }
@@ -967,6 +1073,22 @@ impl LightconeClient {
         let base64_tx =
             base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
         self.send_raw_transaction_rpc(&base64_tx).await
+    }
+
+    /// Serialize and submit a signed transaction once on the active RPC endpoint.
+    ///
+    /// This method does not retry or fail over because the first endpoint may
+    /// have accepted the transaction before returning a transport error.
+    #[cfg(feature = "native-auth")]
+    async fn send_transaction_rpc_once(
+        &self,
+        tx: &solana_transaction::Transaction,
+    ) -> Result<String, SdkError> {
+        let tx_bytes = bincode::serialize(tx)
+            .map_err(|error| SdkError::Other(format!("tx serialization failed: {error}")))?;
+        let base64_tx =
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &tx_bytes);
+        self.send_raw_transaction_rpc_once(&base64_tx).await
     }
 
     /// Submit a base64-encoded signed transaction via JSON-RPC `sendTransaction`.
@@ -985,6 +1107,36 @@ impl LightconeClient {
         });
 
         let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
+
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+
+        response["result"]
+            .as_str()
+            .map(|s| s.to_string())
+            .ok_or_else(|| SdkError::Other("no signature in sendTransaction response".into()))
+    }
+
+    /// Submit signed bytes once on the active RPC endpoint and return its signature.
+    ///
+    /// The request does not retry or fail over because a transport error does not
+    /// prove that the active endpoint rejected the transaction.
+    async fn send_raw_transaction_rpc_once(&self, base64_tx: &str) -> Result<String, SdkError> {
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "sendTransaction",
+            "params": [
+                base64_tx,
+                {
+                    "encoding": "base64",
+                    "preflightCommitment": "confirmed"
+                }
+            ]
+        });
+
+        let response: serde_json::Value = self.rpc_call_once(&body).await?;
 
         if let Some(error) = response.get("error") {
             return Err(SdkError::Other(format!("RPC error: {error}")));
@@ -1233,6 +1385,50 @@ impl LightconeClientBuilder {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "native")]
+    use {
+        solana_keypair::Keypair,
+        solana_signer::Signer,
+        std::sync::{
+            atomic::{AtomicUsize, Ordering},
+            Arc,
+        },
+        tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        },
+    };
+
+    #[cfg(feature = "native")]
+    async fn spawn_failing_rpc_server() -> Result<(String, Arc<AtomicUsize>), std::io::Error> {
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let server_attempts = Arc::clone(&attempts);
+
+        tokio::spawn(async move {
+            loop {
+                let Ok((mut socket, _)) = listener.accept().await else {
+                    return;
+                };
+                let attempts = Arc::clone(&server_attempts);
+                tokio::spawn(async move {
+                    let mut request = [0_u8; 4096];
+                    let _ = socket.read(&mut request).await;
+                    attempts.fetch_add(1, Ordering::SeqCst);
+                    let body = r#"{"error":"unavailable"}"#;
+                    let response = format!(
+                        "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = socket.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+
+        Ok((format!("http://{address}"), attempts))
+    }
+
     #[test]
     fn transaction_status_parses_full_envelope() {
         let value = serde_json::json!({
@@ -1284,6 +1480,31 @@ mod tests {
         let statuses: Vec<Option<TransactionStatus>> = serde_json::from_value(value).unwrap();
         assert!(statuses[0].is_none());
         assert!(statuses[1].as_ref().unwrap().is_confirmed());
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn prepared_submission_transport_failure_is_sent_once(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (primary_rpc_url, primary_attempts) = spawn_failing_rpc_server().await?;
+        let (backup_rpc_url, backup_attempts) = spawn_failing_rpc_server().await?;
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url(&primary_rpc_url)
+            .backup_rpc_url(&backup_rpc_url)
+            .native_signer(keypair)
+            .build()?;
+        let mut transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+        assert!(client
+            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+            .await
+            .is_err());
+        assert_eq!(primary_attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(backup_attempts.load(Ordering::SeqCst), 0);
+        Ok(())
     }
 
     #[test]
