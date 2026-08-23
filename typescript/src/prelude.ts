@@ -232,16 +232,30 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
+  EmailAccountData,
   GoogleAccountData,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  LinkedIdentityType,
   MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
+  RegisterPrivyRequest,
   SessionResponse,
   User,
   UserIdentity,
   UserPrivyData,
   XAccountData,
 } from "./auth";
-export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
+export {
+  avatarUrl,
+  classifyRegisterPrivyConflict,
+  displayName,
+  identityText,
+  tradingWallet,
+  userPrivy,
+  userXAccount,
+} from "./auth";
 
 export {
   LimitOrderEnvelope,

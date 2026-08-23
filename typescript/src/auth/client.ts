@@ -7,8 +7,47 @@ import type {
   LoginRequest,
   MaxSlippagePreferenceBody,
   NonceResponse,
+  LinkedIdentityType,
+  RegisterPrivyRequest,
   SessionResponse,
 } from "./index";
+
+/** Bounded ownership conflicts safe for client recovery guidance. */
+export type RegisterPrivyConflict =
+  | {
+      code: "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT";
+      existingMethod?: LinkedIdentityType;
+    }
+  | { code: "IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS" }
+  | {
+      code: "WALLET_OWNED_BY_ANOTHER_ACCOUNT";
+      existingMethod?: LinkedIdentityType;
+    };
+
+/** Classify only stable register-or-sync ownership rejection codes. */
+export function classifyRegisterPrivyConflict(
+  error: unknown,
+): RegisterPrivyConflict | undefined {
+  if (!(error instanceof SdkError) || error.variant !== "ApiRejected")
+    return undefined;
+  const details = error.apiRejectedDetails;
+  switch (details?.errorCode) {
+    case "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT":
+      return {
+        code: details.errorCode,
+        existingMethod: details.existingMethod,
+      };
+    case "IDENTITIES_OWNED_BY_MULTIPLE_ACCOUNTS":
+      return { code: details.errorCode };
+    case "WALLET_OWNED_BY_ANOTHER_ACCOUNT":
+      return {
+        code: details.errorCode,
+        existingMethod: details.existingMethod,
+      };
+    default:
+      return undefined;
+  }
+}
 
 interface AuthState {
   getCredentials(): AuthCredentials | undefined;
@@ -26,7 +65,10 @@ export class Auth {
 
   async getNonce(): Promise<string> {
     const url = `${this.client.http.baseUrl()}/api/auth/nonce`;
-    const response = await this.client.http.get<NonceResponse>(url, RetryPolicy.None);
+    const response = await this.client.http.get<NonceResponse>(
+      url,
+      RetryPolicy.None,
+    );
     return response.nonce;
   }
 
@@ -34,7 +76,7 @@ export class Auth {
     message: string,
     signatureBs58: string,
     pubkeyBytes: Uint8Array,
-    useEmbeddedWallet?: boolean
+    useEmbeddedWallet?: boolean,
   ): Promise<SessionResponse> {
     const url = `${this.client.http.baseUrl()}/api/auth/login_or_register_with_message`;
     const body: LoginRequest = {
@@ -64,7 +106,10 @@ export class Auth {
 
     let session: SessionResponse;
     try {
-      session = await this.client.http.get<SessionResponse>(url, RetryPolicy.Idempotent);
+      session = await this.client.http.get<SessionResponse>(
+        url,
+        RetryPolicy.Idempotent,
+      );
       normalizeSessionMaxSlippagePreference(session);
     } catch (error) {
       this.client.authState.setCredentials(undefined);
@@ -113,11 +158,33 @@ export class Auth {
 
   async disconnectX(): Promise<void> {
     const url = `${this.client.http.baseUrl()}/api/auth/disconnect_x`;
-    await this.client.http.post<{ success: boolean }, Record<string, never>>(url, {}, RetryPolicy.None);
+    await this.client.http.post<{ success: boolean }, Record<string, never>>(
+      url,
+      {},
+      RetryPolicy.None,
+    );
+  }
+
+  /** Create or synchronize a Privy Account and install the resulting session. */
+  async registerPrivy(request: RegisterPrivyRequest): Promise<SessionResponse> {
+    const url = `${this.client.http.baseUrl()}/api/auth/register-privy`;
+    const session = await this.client.http.post<
+      SessionResponse,
+      RegisterPrivyRequest
+    >(
+      url,
+      request,
+      RetryPolicy.Idempotent,
+    );
+    normalizeSessionMaxSlippagePreference(session);
+    this.client.authState.setCredentials(credentialsFromSession(session));
+    return session;
   }
 
   /** Persist an account-wide max-slippage preference strictly below 10%. */
-  async updateMaxSlippagePreference(maxSlippagePreference: string): Promise<string> {
+  async updateMaxSlippagePreference(
+    maxSlippagePreference: string,
+  ): Promise<string> {
     const url = `${this.client.http.baseUrl()}/api/auth/max_slippage_preference`;
     const response = await this.client.http.post<
       MaxSlippagePreferenceBody,
@@ -125,11 +192,17 @@ export class Auth {
     >(
       url,
       { max_slippage_preference: maxSlippagePreference },
-      RetryPolicy.Idempotent
+      RetryPolicy.Idempotent,
     );
-    const preference = decodeMaxSlippagePreference(response, false, "update response");
+    const preference = decodeMaxSlippagePreference(
+      response,
+      false,
+      "update response",
+    );
     if (preference === null) {
-      throw SdkError.serde("Max-slippage update response must contain a decimal string");
+      throw SdkError.serde(
+        "Max-slippage update response must contain a decimal string",
+      );
     }
     return preference;
   }
@@ -156,7 +229,7 @@ function normalizeSessionMaxSlippagePreference(session: SessionResponse): void {
     session?.user,
     true,
     "session user",
-    true
+    true,
   );
   session.user.max_slippage_preference = preference;
 }
@@ -166,19 +239,24 @@ function decodeMaxSlippagePreference(
   payload: unknown,
   allowNull: boolean,
   context: string,
-  allowMissing = false
+  allowMissing = false,
 ): string | null {
   if (typeof payload !== "object" || payload === null) {
     throw SdkError.serde(`Max-slippage ${context} is malformed`);
   }
-  if (!Object.prototype.hasOwnProperty.call(payload, "max_slippage_preference")) {
+  if (
+    !Object.prototype.hasOwnProperty.call(payload, "max_slippage_preference")
+  ) {
     if (allowMissing) {
       return null;
     }
-    throw SdkError.serde(`Max-slippage ${context} is missing max_slippage_preference`);
+    throw SdkError.serde(
+      `Max-slippage ${context} is missing max_slippage_preference`,
+    );
   }
 
-  const preference = (payload as Record<string, unknown>).max_slippage_preference;
+  const preference = (payload as Record<string, unknown>)
+    .max_slippage_preference;
   if (typeof preference === "string") {
     return preference;
   }
@@ -186,7 +264,7 @@ function decodeMaxSlippagePreference(
     return null;
   }
   throw SdkError.serde(
-    `Max-slippage ${context} must contain ${allowNull ? "a string or null" : "a string"}`
+    `Max-slippage ${context} must contain ${allowNull ? "a string or null" : "a string"}`,
   );
 }
 
@@ -197,7 +275,9 @@ function decodeMaxSlippagePreference(
 function credentialsFromSession(session: SessionResponse): AuthCredentials {
   return {
     user_id: session.user.user_id,
-    wallet_address: asPubkeyStr(tradingWallet(session.user, session.auth_method)),
+    wallet_address: asPubkeyStr(
+      tradingWallet(session.user, session.auth_method),
+    ),
     expires_at: parseExpiry(session.expires_at),
   };
 }

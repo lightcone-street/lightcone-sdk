@@ -5,19 +5,26 @@ from types import SimpleNamespace
 import pytest
 
 from lightcone_sdk.auth import (
+    EmailAccountData,
+    EmailIdentity,
+    EmailLinkedIdentity,
     GoogleAccountData,
     GoogleIdentity,
+    LinkedIdentitySelector,
     PrivyEmbeddedWallet,
+    RegisterPrivyRequest,
     User,
     UserIdentity,
     UserPrivyData,
     WalletIdentity,
     XAccountData,
     XIdentity,
+    classify_register_privy_conflict,
 )
 from lightcone_sdk.auth.client import Auth, _user_from_dict
-from lightcone_sdk.error import DeserializationError
+from lightcone_sdk.error import ApiRejected, DeserializationError
 from lightcone_sdk.http.retry import RetryPolicy
+from lightcone_sdk.shared import ApiRejectedDetails
 
 
 def privy(address: str) -> UserPrivyData:
@@ -83,6 +90,111 @@ def test_wallet_display_name_uses_the_session_trading_wallet():
     assert wallet.wallet_display_name("lightcone") == "1111...1111"
     assert wallet.wallet_display_name("privy") == "Toke...Q5DA"
     assert wallet_no_privy.wallet_display_name("privy") == "1111...1111"
+
+
+def test_email_identity_and_linked_method_shape():
+    """Prove Email primary and connected identities retain the canonical address."""
+    email = user(
+        EmailIdentity(
+            account=EmailAccountData(email="verified@example.com"),
+            privy=privy("FRGkJho6fY7XivWsEBjousTaZBT6eUBkkrDyCN4nWcPR"),
+        )
+    )
+    email.linked_identities = [
+        EmailLinkedIdentity(account=EmailAccountData(email="verified@example.com"))
+    ]
+    assert email.display_name() == "verified@example.com"
+    assert (
+        email.trading_wallet("privy") == "FRGkJho6fY7XivWsEBjousTaZBT6eUBkkrDyCN4nWcPR"
+    )
+
+
+def test_email_display_name_is_limited_to_twenty_characters():
+    """Prove long Email labels retain recognizable address ends within the UI cap."""
+    email = user(
+        EmailIdentity(
+            account=EmailAccountData(email="lightconewebtesting@gmail.com"),
+            privy=privy("FRGkJho6fY7XivWsEBjousTaZBT6eUBkkrDyCN4nWcPR"),
+        )
+    )
+
+    assert email.display_name() == "lightcon...gmail.com"
+    assert len(email.display_name()) == 20
+
+
+@pytest.mark.asyncio
+async def test_register_privy_returns_session_and_installs_refreshed_credentials():
+    """Prove replay-safe registration returns and installs renewed session credentials."""
+    calls: list[tuple[str, dict, RetryPolicy]] = []
+    response = {
+        "user": {
+            "user_id": "user:test",
+            "identity": {
+                "type": "email",
+                "account": {"email": "verified@example.com"},
+                "privy": {
+                    "id": "did:privy:test",
+                    "wallet": {
+                        "privy_id": "wallet:test",
+                        "chain": "solana",
+                        "address": "11111111111111111111111111111111",
+                    },
+                },
+            },
+            "max_slippage_preference": None,
+        },
+        "expires_at": 2_000_000_000,
+        "auth_method": "privy",
+        "is_beta": False,
+    }
+
+    class Http:
+        async def post(
+            self, path: str, body: dict, *, retry_policy: RetryPolicy
+        ) -> dict:
+            """Capture the replay policy and request body at the HTTP boundary."""
+            calls.append((path, body, retry_policy))
+            return response
+
+    request = RegisterPrivyRequest(
+        attempted_identity=LinkedIdentitySelector(
+            type="email", email="verified@example.com"
+        )
+    )
+    auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
+    session = await auth.register_privy(request)
+
+    assert session.user.user_id == "user:test"
+    assert auth.credentials() is not None
+    assert auth.credentials().wallet_address == "11111111111111111111111111111111"
+    assert calls == [
+        (
+            "/api/auth/register-privy",
+            {
+                "attempted_identity": {
+                    "type": "email",
+                    "email": "verified@example.com",
+                }
+            },
+            RetryPolicy.IDEMPOTENT,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        {"type": "email"},
+        {"type": "email", "email": "verified@example.com", "username": "wrong"},
+        {"type": "google", "email": ""},
+        {"type": "x", "email": "wrong@example.com"},
+        {"type": "wallet", "address": "wallet-only"},
+    ],
+)
+def test_linked_identity_selector_rejects_invalid_variant_fields(selector):
+    """Prove mixed, incomplete, and blank selectors fail before network use."""
+    with pytest.raises(ValueError):
+        LinkedIdentitySelector(**selector)
 
 
 def test_user_parser_accepts_omitted_or_nullable_string_max_slippage_preference():
@@ -154,3 +266,29 @@ async def test_update_max_slippage_preference_rejects_non_string_response():
     auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
     with pytest.raises(DeserializationError):
         await auth.update_max_slippage_preference("5.50")
+
+
+def test_register_privy_conflicts_require_exact_codes_and_typed_methods():
+    """Prove recovery guidance accepts only bounded registration conflict codes."""
+    conflict = ApiRejected(
+        ApiRejectedDetails(
+            reason="Identity belongs to another account",
+            error_code="IDENTITY_OWNED_BY_ANOTHER_ACCOUNT",
+            existing_method="google",
+            http_status=409,
+        )
+    )
+    classified = classify_register_privy_conflict(conflict)
+    assert classified is not None
+    assert classified.code == "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT"
+    assert classified.existing_method == "google"
+
+    unrelated = ApiRejected(
+        ApiRejectedDetails(
+            reason="Conflict",
+            error_code="RESOURCE_CONFLICT",
+            existing_method="email",
+            http_status=409,
+        )
+    )
+    assert classify_register_privy_conflict(unrelated) is None

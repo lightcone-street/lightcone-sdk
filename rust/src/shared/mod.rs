@@ -13,7 +13,7 @@ pub mod scaling;
 pub mod serde_util;
 pub mod signing;
 
-pub use api_response::{ApiRejectedDetails, ApiResponse};
+pub use api_response::{ApiRejectedDetails, ApiResponse, LinkedIdentityType};
 pub use exact_decimal::ExactDecimal;
 pub use price::{format_decimal, parse_decimal};
 pub use rejection::RejectionCode;

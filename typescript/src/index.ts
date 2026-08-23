@@ -39,9 +39,15 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
+  EmailAccountData,
   GoogleAccountData,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  LinkedIdentityType,
   MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
+  RegisterPrivyRequest,
   SessionResponse,
   User,
   UserIdentity,
@@ -50,6 +56,7 @@ export type {
 } from "./auth";
 export {
   avatarUrl,
+  classifyRegisterPrivyConflict,
   displayName,
   identityText,
   tradingWallet,
