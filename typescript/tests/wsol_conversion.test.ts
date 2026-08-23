@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  refreshCoveringSlot,
   requireNonProduction,
   submitPreparedOnce,
   validateCoveringSnapshotSlot,
 } from "../examples/wsol_conversion";
+import { asPubkeyStr, WalletDepositBalancesState } from "../src";
 
 /** Every endpoint override that can redirect a nominally safe environment. */
 const ENDPOINT_OVERRIDES = [
@@ -123,5 +125,33 @@ describe("WSOL conversion example safety", () => {
       () => validateCoveringSnapshotSlot(9, 10),
       /below confirmed slot 10/
     );
+  });
+
+  it("restores a covering REST snapshot without a stream event", async () => {
+    const state = new WalletDepositBalancesState();
+    const wallet = asPubkeyStr("11111111111111111111111111111111");
+    const requestedSlots: number[] = [];
+
+    await refreshCoveringSlot(state, wallet, 10, async (minimumSlot) => {
+      requestedSlots.push(minimumSlot);
+      return {
+        context_slot: 11,
+        balances: {},
+        native_sol_balance: "1.000000000",
+      };
+    });
+
+    assert.deepEqual(requestedSlots, [10]);
+    assert.equal(state.contextSlot, 11);
+    await assert.rejects(
+      refreshCoveringSlot(state, wallet, 12, async () => ({
+        context_slot: 9,
+        balances: {},
+        native_sol_balance: "2.000000000",
+      })),
+      /below confirmed slot 12/,
+    );
+    assert.equal(state.contextSlot, 11);
+    assert.equal(state.solComponents().nativeLamports, 1_000_000_000n);
   });
 });

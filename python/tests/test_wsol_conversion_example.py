@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+
 from lightcone_sdk import SolBalanceComponents, SolComponentDelta
+from lightcone_sdk.domain.position import (
+    DepositTokenBalancesSnapshot,
+    WalletDepositBalancesState,
+)
 
 
 def _example_namespace(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
@@ -135,6 +140,45 @@ def test_wsol_conversion_example_requires_covering_snapshot(
     validate(11, 10)
     with pytest.raises(RuntimeError, match="did not cover"):
         validate(9, 10)
+
+
+@pytest.mark.asyncio
+async def test_wsol_conversion_example_refreshes_rest_without_stream_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Request and install authoritative state without a WebSocket barrier."""
+    refresh = cast(
+        Callable[..., Awaitable[None]],
+        _example_namespace(monkeypatch)["refresh_covering"],
+    )
+    state = WalletDepositBalancesState()
+    requested_slots: list[int] = []
+
+    async def covering_snapshot(minimum_slot: int) -> DepositTokenBalancesSnapshot:
+        requested_slots.append(minimum_slot)
+        return DepositTokenBalancesSnapshot(11, "1.000000000")
+
+    await refresh(
+        covering_snapshot,
+        state,
+        "11111111111111111111111111111111",
+        10,
+    )
+    assert requested_slots == [10]
+    assert state.context_slot == 11
+
+    async def stale_snapshot(_minimum_slot: int) -> DepositTokenBalancesSnapshot:
+        return DepositTokenBalancesSnapshot(9, "2.000000000")
+
+    with pytest.raises(RuntimeError, match="did not cover"):
+        await refresh(
+            stale_snapshot,
+            state,
+            "11111111111111111111111111111111",
+            12,
+        )
+    assert state.context_slot == 11
+    assert state.sol_components().native_lamports == 1_000_000_000
 
 
 def test_wsol_conversion_example_rejects_negative_projection(

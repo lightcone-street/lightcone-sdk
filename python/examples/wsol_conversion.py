@@ -15,6 +15,7 @@ from solders.transaction import Transaction
 
 from lightcone_sdk.client import ConfirmedTransaction
 from lightcone_sdk.domain.position import (
+    DepositTokenBalancesSnapshot,
     SolBalanceComponents,
     SolComponentDelta,
     WalletDepositBalancesState,
@@ -101,12 +102,10 @@ async def main() -> None:
         )
         print(f"frozen wrap projection: {frozen_wrap}")
         await refresh_covering(
-            client,
+            client.positions().deposit_token_balances,
             state,
-            state_changed,
             wallet,
             wrap_confirmed.slot,
-            "post-wrap wallet update",
         )
         print(f"covered post-wrap balance: {state.combined_sol_balance()}")
 
@@ -139,12 +138,10 @@ async def main() -> None:
         )
         print(f"frozen unwrap projection: {frozen_unwrap}")
         await refresh_covering(
-            client,
+            client.positions().deposit_token_balances,
             state,
-            state_changed,
             wallet,
             unwrap_confirmed.slot,
-            "post-unwrap wallet update",
         )
         print(f"covered post-unwrap balance: {state.combined_sol_balance()}")
     finally:
@@ -177,20 +174,13 @@ async def submit_prepared_once(
 
 
 async def refresh_covering(
-    client,
+    fetch_snapshot: Callable[[int], Awaitable[DepositTokenBalancesSnapshot]],
     state: WalletDepositBalancesState,
-    state_changed: asyncio.Event,
     wallet: str,
     confirmed_slot: int,
-    description: str,
 ) -> None:
-    """Wait for slot evidence, then install one complete covering REST snapshot."""
-    await wait_for_state(
-        state_changed,
-        lambda: state.context_slot is not None and state.context_slot >= confirmed_slot,
-        description,
-    )
-    snapshot = await client.positions().deposit_token_balances(confirmed_slot)
+    """Install a complete covering REST snapshot without gating on the stream."""
+    snapshot = await fetch_snapshot(confirmed_slot)
     validate_covering_snapshot_slot(snapshot.context_slot, confirmed_slot)
     state.apply_rest_snapshot(wallet, snapshot)
 

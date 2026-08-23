@@ -13,8 +13,8 @@ use common::{get_keypair, login, other, rest_client, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::{
     prelude::{
-        PubkeyStr, SigningStrategy, SolBalanceComponents, SolComponentDelta,
-        WalletDepositBalancesApplyResult, WalletDepositBalancesState,
+        DepositTokenBalancesSnapshot, PubkeyStr, SigningStrategy, SolBalanceComponents,
+        SolComponentDelta, WalletDepositBalancesApplyResult, WalletDepositBalancesState,
     },
     ws::{Kind, MessageOut, WsEvent},
 };
@@ -99,15 +99,7 @@ async fn main() -> ExampleResult {
         "frozen wrap projection: native={} canonical={}",
         wrap_projection.native_lamports, wrap_projection.canonical_wsol_lamports
     );
-    refresh_covering_state(
-        &client,
-        &ws,
-        &mut state,
-        wallet,
-        wrap_confirmation.slot,
-        "wrap",
-    )
-    .await?;
+    refresh_covering_state(&client, &mut state, wallet, wrap_confirmation.slot).await?;
     print_balance("post-wrap covering snapshot", &state)?;
 
     // Build once against the covering state, display that exact plan, then submit
@@ -144,15 +136,7 @@ async fn main() -> ExampleResult {
         "frozen unwrap projection: native={} canonical={}",
         unwrap_projection.native_lamports, unwrap_projection.canonical_wsol_lamports
     );
-    refresh_covering_state(
-        &client,
-        &ws,
-        &mut state,
-        wallet,
-        unwrap_confirmation.slot,
-        "unwrap-all",
-    )
-    .await?;
+    refresh_covering_state(&client, &mut state, wallet, unwrap_confirmation.slot).await?;
     print_balance("post-unwrap covering snapshot", &state)?;
 
     ws.send(MessageOut::unsubscribe_wallet_deposit_balances(
@@ -226,25 +210,34 @@ where
     submit(transaction).await
 }
 
-/// Replace stream observations with REST state, rejecting snapshots below the confirmed slot.
+/// Replace stream observations with authoritative REST state covering the confirmed slot.
 async fn refresh_covering_state(
     client: &lightcone::prelude::LightconeClient,
-    ws: &lightcone::ws::native::WsClient,
     state: &mut WalletDepositBalancesState,
     wallet: Pubkey,
     confirmed_slot: u64,
-    action: &str,
 ) -> ExampleResult {
-    wait_for_wallet_state(ws, state, action, |state| {
-        state
-            .context_slot
-            .is_some_and(|slot| slot >= confirmed_slot)
+    refresh_covering_state_with(state, wallet, confirmed_slot, |minimum_slot| async move {
+        Ok(client
+            .positions()
+            .deposit_token_balances(Some(minimum_slot))
+            .await?)
     })
-    .await?;
-    let snapshot = client
-        .positions()
-        .deposit_token_balances(Some(confirmed_slot))
-        .await?;
+    .await
+}
+
+/// Fetch and install complete REST state without waiting for a stream event.
+async fn refresh_covering_state_with<Fetch, FetchFuture>(
+    state: &mut WalletDepositBalancesState,
+    wallet: Pubkey,
+    confirmed_slot: u64,
+    fetch_snapshot: Fetch,
+) -> ExampleResult
+where
+    Fetch: FnOnce(u64) -> FetchFuture,
+    FetchFuture: Future<Output = ExampleResult<DepositTokenBalancesSnapshot>>,
+{
+    let snapshot = fetch_snapshot(confirmed_slot).await?;
     validate_covering_snapshot_slot(snapshot.context_slot, confirmed_slot)?;
     state.apply_rest_snapshot(PubkeyStr::from(wallet.to_string()), &snapshot);
     Ok(())
@@ -384,6 +377,42 @@ mod tests {
         validate_covering_snapshot_slot(11, 10)?;
         let error = validate_covering_snapshot_slot(9, 10).unwrap_err();
         assert!(error.to_string().contains("does not cover confirmed slot"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn covering_refresh_does_not_wait_for_stream() -> ExampleResult {
+        let mut state = WalletDepositBalancesState::default();
+        let wallet = Pubkey::new_unique();
+        let mut requested_slot = None;
+
+        refresh_covering_state_with(&mut state, wallet, 10, |minimum_slot| {
+            requested_slot = Some(minimum_slot);
+            std::future::ready(Ok(DepositTokenBalancesSnapshot {
+                context_slot: 11,
+                balances: std::collections::HashMap::new(),
+                native_sol_balance: "1.000000000".to_string(),
+            }))
+        })
+        .await?;
+
+        assert_eq!(requested_slot, Some(10));
+        assert_eq!(state.context_slot, Some(11));
+        let stale_result = refresh_covering_state_with(&mut state, wallet, 12, |_| {
+            std::future::ready(Ok(DepositTokenBalancesSnapshot {
+                context_slot: 9,
+                balances: std::collections::HashMap::new(),
+                native_sol_balance: "2.000000000".to_string(),
+            }))
+        })
+        .await;
+        let error = match stale_result {
+            Ok(()) => return Err(other("under-covering REST snapshot was accepted").into()),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("does not cover confirmed slot"));
+        assert_eq!(state.context_slot, Some(11));
+        assert_eq!(state.sol_components()?.native_lamports, 1_000_000_000);
         Ok(())
     }
 

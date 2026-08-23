@@ -9,7 +9,7 @@
 import { tradingWallet } from "../src/auth";
 import {
   asPubkeyStr,
-  type LightconeClient,
+  type DepositTokenBalancesSnapshot,
   type SolActionPlan,
   type SolBalanceComponents,
   WalletDepositBalancesState,
@@ -19,8 +19,8 @@ import { getKeypair, login, restClient, runExample } from "./common";
 /** Exact native amount converted to canonical WSOL per run (0.001 SOL). */
 const WRAP_AMOUNT_LAMPORTS = 1_000_000n;
 
-/** Maximum wait for a wallet component event covering a confirmed slot. */
-const COVERING_UPDATE_TIMEOUT_MS = 10_000;
+/** Maximum wait for the initial complete wallet balance snapshot. */
+const INITIAL_SNAPSHOT_TIMEOUT_MS = 10_000;
 
 /** Run the guarded wrap, full-account close, and covering-refresh lifecycle. */
 async function main(): Promise<void> {
@@ -91,7 +91,12 @@ async function main(): Promise<void> {
     console.log("frozen post-wrap projection:", frozenWrapProjection);
 
     // No further action is authorized until a complete snapshot covers this slot.
-    await refreshCoveringSlot(client, state, walletAddress, wrapped.slot);
+    await refreshCoveringSlot(
+      state,
+      walletAddress,
+      wrapped.slot,
+      (slot) => client.positions().depositTokenBalances(slot),
+    );
     console.log("authoritative post-wrap components:", state.solComponents());
 
     // There is deliberately no prompt or pause: rebuild against refreshed state,
@@ -121,7 +126,12 @@ async function main(): Promise<void> {
 
     // Retain the final projection and deny another action until REST supplies a
     // complete cross-component snapshot at or beyond the processing slot.
-    await refreshCoveringSlot(client, state, walletAddress, unwrapped.slot);
+    await refreshCoveringSlot(
+      state,
+      walletAddress,
+      unwrapped.slot,
+      (slot) => client.positions().depositTokenBalances(slot),
+    );
     console.log("authoritative final components:", state.solComponents());
 
     ws.unsubscribe({
@@ -159,21 +169,14 @@ export async function submitPreparedOnce<TTransaction, TConfirmation>(
   return submit(transaction);
 }
 
-/**
- * Wait for a component observation, then replace it with one covering snapshot.
- * Throws when REST returns a snapshot below the transaction's confirmed slot.
- */
-async function refreshCoveringSlot(
-  client: LightconeClient,
+/** Replace component observations with one authoritative covering REST snapshot. */
+export async function refreshCoveringSlot(
   state: WalletDepositBalancesState,
   walletAddress: ReturnType<typeof asPubkeyStr>,
   confirmedSlot: number,
+  fetchSnapshot: (minimumSlot: number) => Promise<DepositTokenBalancesSnapshot>,
 ): Promise<void> {
-  await waitForState(
-    () => state.contextSlot !== undefined && state.contextSlot >= confirmedSlot,
-    `wallet update covering slot ${confirmedSlot}`,
-  );
-  const snapshot = await client.positions().depositTokenBalances(confirmedSlot);
+  const snapshot = await fetchSnapshot(confirmedSlot);
   validateCoveringSnapshotSlot(snapshot.context_slot, confirmedSlot);
   state.applyRestSnapshot(walletAddress, snapshot);
 }
@@ -198,7 +201,7 @@ async function waitForState(
   predicate: () => boolean,
   description: string,
 ): Promise<void> {
-  const deadline = Date.now() + COVERING_UPDATE_TIMEOUT_MS;
+  const deadline = Date.now() + INITIAL_SNAPSHOT_TIMEOUT_MS;
   while (!predicate()) {
     if (Date.now() >= deadline) {
       throw new Error(`timed out waiting for ${description}`);
