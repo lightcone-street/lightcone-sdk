@@ -420,6 +420,7 @@ The backend reports rejections (insufficient balance, expired order, validation 
 | `error_code` | `Option<String>` | API-level error code (e.g. `"NOT_FOUND"`, `"INVALID_ARGUMENT"`) |
 | `error_log_id` | `Option<String>` | Backend support correlation ID (`LCERR_*`) |
 | `request_id` | `Option<String>` | SDK-generated `x-request-id` for cross-service tracing |
+| `existing_method` | `Option<String>` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `Display` formats all present fields as a multi-line report. Use `.to_string()` for logging or clipboard.
 

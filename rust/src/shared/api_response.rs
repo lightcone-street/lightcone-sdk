@@ -22,8 +22,59 @@
 //! ```
 
 use super::rejection::RejectionCode;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use std::fmt;
+
+/// Public authentication method included in bounded identity-conflict errors.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LinkedIdentityType {
+    Email,
+    Google,
+    X,
+    Wallet,
+}
+
+impl LinkedIdentityType {
+    /// Returns the stable lowercase wire value for this public login method.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Email => "email",
+            Self::Google => "google",
+            Self::X => "x",
+            Self::Wallet => "wallet",
+        }
+    }
+
+    /// Keeps known public methods while tolerating future backend variants.
+    fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "email" => Some(Self::Email),
+            "google" => Some(Self::Google),
+            "x" => Some(Self::X),
+            "wallet" => Some(Self::Wallet),
+            _ => None,
+        }
+    }
+}
+
+/// Deserializes optional method guidance without rejecting the enclosing error
+/// when a newer backend introduces an unknown public method.
+fn deserialize_linked_identity_type<'de, D>(
+    deserializer: D,
+) -> Result<Option<LinkedIdentityType>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.as_deref().and_then(LinkedIdentityType::from_wire))
+}
+
+impl fmt::Display for LinkedIdentityType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// Generic API response wrapper. All backend endpoints return this shape.
 ///
@@ -68,6 +119,14 @@ pub struct ApiRejectedDetails {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_code: Option<String>,
 
+    /// Public authentication method for a bounded identity-ownership conflict.
+    #[serde(
+        default,
+        deserialize_with = "deserialize_linked_identity_type",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub existing_method: Option<LinkedIdentityType>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_log_id: Option<String>,
 
@@ -103,6 +162,9 @@ impl fmt::Display for ApiRejectedDetails {
         }
         if let Some(code) = &self.error_code {
             write!(f, "\nError Code: {}", code)?;
+        }
+        if let Some(method) = &self.existing_method {
+            write!(f, "\nExisting Method: {}", method)?;
         }
         if let Some(id) = &self.error_log_id {
             write!(f, "\nError Log ID: {}", id)?;
@@ -150,6 +212,7 @@ mod tests {
                 );
                 assert_eq!(error_details.error_log_id, Some("LCERR_abc123".to_string()));
                 assert_eq!(error_details.error_code, None);
+                assert_eq!(error_details.existing_method, None);
             }
             ApiResponse::Success { .. } => panic!("expected error"),
         }
@@ -171,7 +234,32 @@ mod tests {
             } => {
                 assert_eq!(error_details.reason, "Market not found");
                 assert_eq!(error_details.error_code, Some("NOT_FOUND".to_string()));
+                assert_eq!(error_details.existing_method, None);
                 assert_eq!(error_details.rejection_code, None);
+            }
+            ApiResponse::Success { .. } => panic!("expected error"),
+        }
+    }
+
+    #[test]
+    fn unknown_existing_method_does_not_hide_the_rejection() {
+        let json = r#"{
+            "status": "error",
+            "error_details": {
+                "reason": "Identity belongs to another account",
+                "error_code": "IDENTITY_OWNED_BY_ANOTHER_ACCOUNT",
+                "existing_method": "future_provider"
+            }
+        }"#;
+
+        let resp: ApiResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
+        match resp {
+            ApiResponse::Rejected { details } => {
+                assert_eq!(
+                    details.error_code.as_deref(),
+                    Some("IDENTITY_OWNED_BY_ANOTHER_ACCOUNT")
+                );
+                assert_eq!(details.existing_method, None);
             }
             ApiResponse::Success { .. } => panic!("expected error"),
         }
@@ -183,6 +271,7 @@ mod tests {
             reason: "Not enough funds".to_string(),
             rejection_code: Some(RejectionCode::InsufficientBalance),
             error_code: None,
+            existing_method: None,
             error_log_id: Some("LCERR_abc".to_string()),
             request_id: Some("req-123".to_string()),
             http_status: None,
@@ -200,6 +289,7 @@ mod tests {
             reason: "Something broke".to_string(),
             rejection_code: None,
             error_code: None,
+            existing_method: None,
             error_log_id: None,
             request_id: None,
             http_status: None,

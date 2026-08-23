@@ -3,7 +3,8 @@
 use chrono::{DateTime, TimeZone, Utc};
 
 use crate::auth::{
-    AuthCredentials, LoginRequest, MaxSlippagePreferenceBody, NonceResponse, SessionResponse,
+    AuthCredentials, LoginRequest, MaxSlippagePreferenceBody, NonceResponse, RegisterPrivyRequest,
+    SessionResponse,
 };
 use crate::client::LightconeClient;
 use crate::error::SdkError;
@@ -166,15 +167,13 @@ impl<'a> Auth<'a> {
         }
     }
 
-    /// Register a Privy-authenticated user in the backend DB.
-    /// Called after Privy login when `is_new_user: true`.
-    /// Idempotent — safe to call multiple times.
-    pub async fn register_privy(&self) -> Result<(), SdkError> {
+    /// Create or synchronize a Privy Account after interactive authentication.
+    pub async fn register_privy(&self, request: &RegisterPrivyRequest) -> Result<(), SdkError> {
         let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
         let _: serde_json::Value = self
             .client
             .http
-            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post(&url, request, RetryPolicy::None)
             .await?;
         Ok(())
     }

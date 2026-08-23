@@ -2,28 +2,36 @@
 
 from __future__ import annotations
 
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 import base58
 from nacl.signing import SigningKey
 from solders.keypair import Keypair
 
+from ..error import DeserializationError, _require, is_unauthorized
+from ..http.retry import RetryPolicy
 from . import (
     AuthCredentials,
+    EmailAccountData,
+    EmailIdentity,
+    EmailLinkedIdentity,
     GoogleAccountData,
     GoogleIdentity,
+    GoogleLinkedIdentity,
+    LinkedIdentity,
     PrivyEmbeddedWallet,
+    RegisterPrivyRequest,
     SessionResponse,
     User,
     UserIdentity,
     UserPrivyData,
     WalletIdentity,
+    WalletLinkedIdentity,
     XAccountData,
     XIdentity,
+    XLinkedIdentity,
     generate_signin_message,
 )
-from ..error import DeserializationError, _require, is_unauthorized
-from ..http.retry import RetryPolicy
 
 if TYPE_CHECKING:
     from ..client import LightconeClient
@@ -62,7 +70,9 @@ class Auth:
         Returns:
             The nonce string
         """
-        data = await self._client._http.get("/api/auth/nonce", retry_policy=RetryPolicy.NONE)
+        data = await self._client._http.get(
+            "/api/auth/nonce", retry_policy=RetryPolicy.NONE
+        )
         return data.get("nonce", "")
 
     async def login_with_message(
@@ -124,9 +134,7 @@ class Auth:
         message, signature_b58, pubkey_bytes = sign_login_message(keypair, nonce)
 
         # Step 3: Login
-        return await self.login_with_message(
-            message, signature_b58, pubkey_bytes
-        )
+        return await self.login_with_message(message, signature_b58, pubkey_bytes)
 
     async def check_session(self) -> SessionResponse:
         """Validate the current session and return the session envelope.
@@ -170,7 +178,8 @@ class Auth:
             # Credential-management endpoint: opts out of the transport's 401
             # restore-and-replay — a 401 here means "already logged out".
             await self._client._http.post(
-                "/api/auth/logout", {},
+                "/api/auth/logout",
+                {},
                 retry_policy=RetryPolicy.NONE,
                 allow_credential_restore=False,
             )
@@ -187,7 +196,16 @@ class Auth:
     async def disconnect_x(self) -> None:
         """Disconnect the user's linked X (Twitter) account."""
         await self._client._http.post(
-            "/api/auth/disconnect_x", {},
+            "/api/auth/disconnect_x",
+            {},
+            retry_policy=RetryPolicy.NONE,
+        )
+
+    async def register_privy(self, request: RegisterPrivyRequest) -> None:
+        """Create or synchronize a Privy Account after interactive authentication."""
+        await self._client._http.post(
+            "/api/auth/register-privy",
+            request.to_dict(),
             retry_policy=RetryPolicy.NONE,
         )
 
@@ -248,8 +266,22 @@ def _google_account_from_dict(d: dict) -> GoogleAccountData:
     )
 
 
+def _email_account_from_dict(d: dict) -> EmailAccountData:
+    """Decode the canonical address carried by an Email Identity."""
+    return EmailAccountData(email=str(_require(d, "email", "email account")))
+
+
 def _identity_from_dict(d: dict) -> UserIdentity:
     identity_type = _require(d, "type", "identity")
+    if identity_type == "email":
+        account = _require(d, "account", "email identity")
+        privy = _require(d, "privy", "email identity")
+        if not isinstance(account, dict) or not isinstance(privy, dict):
+            raise DeserializationError("email identity has malformed account/privy")
+        return EmailIdentity(
+            account=_email_account_from_dict(account),
+            privy=_privy_from_dict(privy),
+        )
     if identity_type == "google":
         account = _require(d, "account", "google identity")
         privy = _require(d, "privy", "google identity")
@@ -279,6 +311,32 @@ def _identity_from_dict(d: dict) -> UserIdentity:
     raise DeserializationError(f"unknown identity type: {identity_type!r}")
 
 
+def _linked_identity_from_dict(d: dict) -> LinkedIdentity:
+    """Decode one lightweight Connected Login Identity from a profile."""
+    identity_type = _require(d, "type", "linked identity")
+    if identity_type == "email":
+        account = _require(d, "account", "linked email identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked email identity has malformed account")
+        return EmailLinkedIdentity(account=_email_account_from_dict(account))
+    if identity_type == "google":
+        account = _require(d, "account", "linked google identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked google identity has malformed account")
+        return GoogleLinkedIdentity(account=_google_account_from_dict(account))
+    if identity_type == "x":
+        account = _require(d, "account", "linked x identity")
+        if not isinstance(account, dict):
+            raise DeserializationError("linked x identity has malformed account")
+        return XLinkedIdentity(account=_x_account_from_dict(account))
+    if identity_type == "wallet":
+        return WalletLinkedIdentity(
+            address=str(_require(d, "address", "linked wallet identity")),
+            chain=_require(d, "chain", "linked wallet identity"),  # type: ignore[arg-type]
+        )
+    raise DeserializationError(f"unknown linked identity type: {identity_type!r}")
+
+
 def _user_from_dict(d: dict) -> User:
     """Parse a User from the session envelope's `user` object."""
     identity_dict = _require(d, "identity", "user")
@@ -289,6 +347,15 @@ def _user_from_dict(d: dict) -> User:
     connected_x_dict = d.get("connected_x")
     if isinstance(connected_x_dict, dict):
         connected_x = _x_account_from_dict(connected_x_dict)
+
+    linked_identities_dict = d.get("linked_identities", [])
+    if not isinstance(linked_identities_dict, list) or not all(
+        isinstance(identity, dict) for identity in linked_identities_dict
+    ):
+        raise DeserializationError("user has malformed linked_identities")
+    linked_identities = [
+        _linked_identity_from_dict(identity) for identity in linked_identities_dict
+    ]
 
     # Older backend versions omit this newly added field. Normalize that rollout
     # state to unset while retaining strict validation when the key is present.
@@ -302,6 +369,7 @@ def _user_from_dict(d: dict) -> User:
         user_id=str(_require(d, "user_id", "user")),
         identity=_identity_from_dict(identity_dict),
         max_slippage_preference=max_slippage_preference,
+        linked_identities=linked_identities,
         connected_x=connected_x,
     )
 

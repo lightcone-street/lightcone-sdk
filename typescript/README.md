@@ -308,6 +308,8 @@ const withdrawIx = client.positions().withdraw()
 
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
 
+Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
+
 Use `walletDisplayName(session.user, session.auth_method)` to show a shortened
 label for the wallet the session trades with, regardless of login identity.
 
@@ -459,6 +461,7 @@ When the backend rejects a request (insufficient balance, expired order, etc.), 
 | `errorCode` | `string \| undefined` | API-level error code (for example `"NOT_FOUND"` or `"INVALID_ARGUMENT"`) |
 | `errorLogId` | `string \| undefined` | Backend support correlation ID (`LCERR_*`) |
 | `requestId` | `string \| undefined` | SDK-generated `x-request-id` for cross-service tracing |
+| `existingMethod` | `string \| undefined` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `ApiRejectedDetails.toString()` formats all present fields as a multi-line report for logs or support tickets.
 
