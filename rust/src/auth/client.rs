@@ -167,15 +167,20 @@ impl<'a> Auth<'a> {
         }
     }
 
-    /// Create or synchronize a Privy Account after interactive authentication.
-    pub async fn register_privy(&self, request: &RegisterPrivyRequest) -> Result<(), SdkError> {
+    /// Create or synchronize a Privy Account and install the resulting session.
+    pub async fn register_privy(
+        &self,
+        request: &RegisterPrivyRequest,
+    ) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
-        let _: serde_json::Value = self
+        let session: SessionResponse = self
             .client
             .http
-            .post(&url, request, RetryPolicy::None)
+            .post(&url, request, RetryPolicy::Idempotent)
             .await?;
-        Ok(())
+        let credentials = credentials_from_session(&session);
+        *self.client.auth_credentials.write().await = Some(credentials);
+        Ok(session)
     }
 
     /// Disconnect the user's linked X (Twitter) account.
@@ -374,5 +379,35 @@ mod tests {
         assert_eq!(persisted, Decimal::new(550, 2));
         assert!(request.starts_with("POST /api/auth/max_slippage_preference "));
         assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
+    }
+
+    #[tokio::test]
+    async fn register_privy_returns_session_and_installs_refreshed_credentials() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"user":{"user_id":"user:test","identity":{"type":"email","account":{"email":"verified@example.com"},"privy":{"id":"did:privy:test","wallet":{"privy_id":"wallet:test","chain":"solana","address":"11111111111111111111111111111111"}}},"max_slippage_preference":null},"expires_at":2000000000,"auth_method":"privy","is_beta":false}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+        let registration = crate::auth::RegisterPrivyRequest {
+            attempted_identity: crate::auth::LinkedIdentitySelector::Email {
+                email: "verified@example.com".to_string(),
+            },
+        };
+
+        let session = client.auth().register_privy(&registration).await.unwrap();
+        let request = request.await.unwrap();
+        let credentials = client.auth().credentials().await.unwrap();
+
+        assert_eq!(session.user.user_id, "user:test");
+        assert_eq!(credentials.user_id, "user:test");
+        assert_eq!(
+            credentials.wallet_address.as_str(),
+            "11111111111111111111111111111111"
+        );
+        assert!(request.starts_with("POST /api/auth/register-privy "));
+        assert!(request.contains("verified@example.com"));
     }
 }

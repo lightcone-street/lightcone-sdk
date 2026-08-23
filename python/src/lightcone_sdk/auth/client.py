@@ -201,13 +201,16 @@ class Auth:
             retry_policy=RetryPolicy.NONE,
         )
 
-    async def register_privy(self, request: RegisterPrivyRequest) -> None:
-        """Create or synchronize a Privy Account after interactive authentication."""
-        await self._client._http.post(
+    async def register_privy(self, request: RegisterPrivyRequest) -> SessionResponse:
+        """Create or synchronize a Privy Account and install its session."""
+        data = await self._client._http.post(
             "/api/auth/register-privy",
             request.to_dict(),
-            retry_policy=RetryPolicy.NONE,
+            retry_policy=RetryPolicy.IDEMPOTENT,
         )
+        session = _session_from_dict(data)
+        self._credentials = _credentials_from_session(session)
+        return session
 
     async def update_max_slippage_preference(self, max_slippage_preference: str) -> str:
         """Persist an account-wide max-slippage preference strictly below 10%."""

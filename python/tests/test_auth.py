@@ -121,22 +121,48 @@ def test_email_display_name_is_limited_to_twenty_characters():
 
 
 @pytest.mark.asyncio
-async def test_register_privy_posts_attempted_selector():
+async def test_register_privy_returns_session_and_installs_refreshed_credentials():
     calls: list[tuple[str, dict, RetryPolicy]] = []
+    response = {
+        "user": {
+            "user_id": "user:test",
+            "identity": {
+                "type": "email",
+                "account": {"email": "verified@example.com"},
+                "privy": {
+                    "id": "did:privy:test",
+                    "wallet": {
+                        "privy_id": "wallet:test",
+                        "chain": "solana",
+                        "address": "11111111111111111111111111111111",
+                    },
+                },
+            },
+            "max_slippage_preference": None,
+        },
+        "expires_at": 2_000_000_000,
+        "auth_method": "privy",
+        "is_beta": False,
+    }
 
     class Http:
         async def post(
             self, path: str, body: dict, *, retry_policy: RetryPolicy
         ) -> dict:
             calls.append((path, body, retry_policy))
-            return {}
+            return response
 
     request = RegisterPrivyRequest(
         attempted_identity=LinkedIdentitySelector(
             type="email", email="verified@example.com"
         )
     )
-    await Auth(SimpleNamespace(_http=Http())).register_privy(request)  # type: ignore[arg-type]
+    auth = Auth(SimpleNamespace(_http=Http()))  # type: ignore[arg-type]
+    session = await auth.register_privy(request)
+
+    assert session.user.user_id == "user:test"
+    assert auth.credentials() is not None
+    assert auth.credentials().wallet_address == "11111111111111111111111111111111"
     assert calls == [
         (
             "/api/auth/register-privy",
@@ -146,7 +172,7 @@ async def test_register_privy_posts_attempted_selector():
                     "email": "verified@example.com",
                 }
             },
-            RetryPolicy.NONE,
+            RetryPolicy.IDEMPOTENT,
         )
     ]
 

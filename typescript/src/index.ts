@@ -46,6 +46,7 @@ export type {
   LinkedIdentityType,
   MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
   RegisterPrivyRequest,
   SessionResponse,
   User,
@@ -55,6 +56,7 @@ export type {
 } from "./auth";
 export {
   avatarUrl,
+  classifyRegisterPrivyConflict,
   displayName,
   identityText,
   tradingWallet,

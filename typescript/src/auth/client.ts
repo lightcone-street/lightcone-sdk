@@ -165,14 +165,20 @@ export class Auth {
     );
   }
 
-  /** Create or synchronize a Privy Account after interactive authentication. */
-  async registerPrivy(request: RegisterPrivyRequest): Promise<void> {
+  /** Create or synchronize a Privy Account and install the resulting session. */
+  async registerPrivy(request: RegisterPrivyRequest): Promise<SessionResponse> {
     const url = `${this.client.http.baseUrl()}/api/auth/register-privy`;
-    await this.client.http.post<Record<string, never>, RegisterPrivyRequest>(
+    const session = await this.client.http.post<
+      SessionResponse,
+      RegisterPrivyRequest
+    >(
       url,
       request,
-      RetryPolicy.None,
+      RetryPolicy.Idempotent,
     );
+    normalizeSessionMaxSlippagePreference(session);
+    this.client.authState.setCredentials(credentialsFromSession(session));
+    return session;
   }
 
   /** Persist an account-wide max-slippage preference strictly below 10%. */

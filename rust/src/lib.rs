@@ -141,10 +141,10 @@ pub mod prelude {
 
     // Auth + User types
     pub use crate::auth::{
-        AuthCredentials, AuthMethod, ChainType, EmailAccountData, GoogleAccountData,
-        LinkedIdentity, LinkedIdentitySelector, LinkedIdentityType, MaxSlippagePreferenceBody,
-        PrivyEmbeddedWallet, RegisterPrivyRequest, SessionResponse, User, UserIdentity,
-        UserPrivyData, XAccountData,
+        classify_register_privy_conflict, AuthCredentials, AuthMethod, ChainType, EmailAccountData,
+        GoogleAccountData, LinkedIdentity, LinkedIdentitySelector, LinkedIdentityType,
+        MaxSlippagePreferenceBody, PrivyEmbeddedWallet, RegisterPrivyConflict,
+        RegisterPrivyRequest, SessionResponse, User, UserIdentity, UserPrivyData, XAccountData,
     };
 
     // Program — order envelopes, trait, payload

@@ -52,12 +52,16 @@ function session(maxSlippagePreference: string | null): SessionResponse {
   };
 }
 
-function authWithHttp(http: LightconeHttp): Auth {
+function authWithHttp(
+  http: LightconeHttp,
+  setCredentials: (credentials: import("../src/auth").AuthCredentials | undefined) => void =
+    () => {},
+): Auth {
   return new Auth({
     http,
     authState: {
       getCredentials: () => undefined,
-      setCredentials: () => {},
+      setCredentials,
       clearCaches: async () => {},
     },
   });
@@ -138,24 +142,37 @@ describe("email auth contract", () => {
     assert.equal([...displayName(email)].length, 20);
   });
 
-  it("posts the attempted identity selector", async () => {
+  it("returns the synchronized session and installs refreshed credentials", async () => {
     const calls: unknown[][] = [];
+    const registeredSession = session("5.50");
+    registeredSession.auth_method = AuthMethod.Privy;
     const http = {
       baseUrl: () => "https://api.example.test",
       post: async (...args: unknown[]) => {
         calls.push(args);
-        return {};
+        return registeredSession;
       },
     } as unknown as LightconeHttp;
     const request: RegisterPrivyRequest = {
       attempted_identity: { type: "email", email: "verified@example.com" },
     };
-    await authWithHttp(http).registerPrivy(request);
+    let credentials: import("../src/auth").AuthCredentials | undefined;
+
+    const result = await authWithHttp(http, (value) => {
+      credentials = value;
+    }).registerPrivy(request);
+
+    assert.deepEqual(result, registeredSession);
+    assert.equal(credentials?.user_id, registeredSession.user.user_id);
+    assert.equal(
+      credentials?.wallet_address,
+      "11111111111111111111111111111111",
+    );
     assert.deepEqual(calls, [
       [
         "https://api.example.test/api/auth/register-privy",
         request,
-        RetryPolicy.None,
+        RetryPolicy.Idempotent,
       ],
     ]);
   });

@@ -239,6 +239,7 @@ export type {
   LinkedIdentityType,
   MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
   RegisterPrivyRequest,
   SessionResponse,
   User,
@@ -246,7 +247,15 @@ export type {
   UserPrivyData,
   XAccountData,
 } from "./auth";
-export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
+export {
+  avatarUrl,
+  classifyRegisterPrivyConflict,
+  displayName,
+  identityText,
+  tradingWallet,
+  userPrivy,
+  userXAccount,
+} from "./auth";
 
 export {
   LimitOrderEnvelope,
