@@ -52,10 +52,12 @@ function session(maxSlippagePreference: string | null): SessionResponse {
   };
 }
 
+/** Builds an Auth client whose credential sink can expose session installation to tests. */
 function authWithHttp(
   http: LightconeHttp,
-  setCredentials: (credentials: import("../src/auth").AuthCredentials | undefined) => void =
-    () => {},
+  setCredentials: (
+    credentials: import("../src/auth").AuthCredentials | undefined,
+  ) => void = () => {},
 ): Auth {
   return new Auth({
     http,

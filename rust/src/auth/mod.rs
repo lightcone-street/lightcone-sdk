@@ -483,6 +483,7 @@ mod tests {
         );
     }
 
+    /// Proves Email primary and connected identity wire shapes round-trip together.
     #[test]
     fn email_identity_and_linked_methods_round_trip() {
         let email = user(UserIdentity::Email {
@@ -516,6 +517,7 @@ mod tests {
         assert_eq!(decoded.identity.text(), "Email");
     }
 
+    /// Proves long Email labels retain recognizable address ends within the UI cap.
     #[test]
     fn email_display_name_is_limited_to_twenty_characters() {
         let email = user(UserIdentity::Email {
@@ -529,6 +531,7 @@ mod tests {
         assert_eq!(email.display_name().chars().count(), 20);
     }
 
+    /// Proves register-or-sync sends the attempted method as an explicit tagged selector.
     #[test]
     fn register_privy_request_uses_tagged_selector() {
         let request = RegisterPrivyRequest {
@@ -547,6 +550,7 @@ mod tests {
         );
     }
 
+    /// Proves recovery guidance accepts only bounded registration conflict codes.
     #[test]
     fn register_privy_conflicts_require_exact_codes_and_typed_methods() {
         let error = crate::error::SdkError::ApiRejected(crate::shared::ApiRejectedDetails {

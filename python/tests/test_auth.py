@@ -93,6 +93,7 @@ def test_wallet_display_name_uses_the_session_trading_wallet():
 
 
 def test_email_identity_and_linked_method_shape():
+    """Prove Email primary and connected identities retain the canonical address."""
     email = user(
         EmailIdentity(
             account=EmailAccountData(email="verified@example.com"),
@@ -109,6 +110,7 @@ def test_email_identity_and_linked_method_shape():
 
 
 def test_email_display_name_is_limited_to_twenty_characters():
+    """Prove long Email labels retain recognizable address ends within the UI cap."""
     email = user(
         EmailIdentity(
             account=EmailAccountData(email="lightconewebtesting@gmail.com"),
@@ -122,6 +124,7 @@ def test_email_display_name_is_limited_to_twenty_characters():
 
 @pytest.mark.asyncio
 async def test_register_privy_returns_session_and_installs_refreshed_credentials():
+    """Prove replay-safe registration returns and installs renewed session credentials."""
     calls: list[tuple[str, dict, RetryPolicy]] = []
     response = {
         "user": {
@@ -149,6 +152,7 @@ async def test_register_privy_returns_session_and_installs_refreshed_credentials
         async def post(
             self, path: str, body: dict, *, retry_policy: RetryPolicy
         ) -> dict:
+            """Capture the replay policy and request body at the HTTP boundary."""
             calls.append((path, body, retry_policy))
             return response
 
@@ -188,6 +192,7 @@ async def test_register_privy_returns_session_and_installs_refreshed_credentials
     ],
 )
 def test_linked_identity_selector_rejects_invalid_variant_fields(selector):
+    """Prove mixed, incomplete, and blank selectors fail before network use."""
     with pytest.raises(ValueError):
         LinkedIdentitySelector(**selector)
 
@@ -264,6 +269,7 @@ async def test_update_max_slippage_preference_rejects_non_string_response():
 
 
 def test_register_privy_conflicts_require_exact_codes_and_typed_methods():
+    """Prove recovery guidance accepts only bounded registration conflict codes."""
     conflict = ApiRejected(
         ApiRejectedDetails(
             reason="Identity belongs to another account",

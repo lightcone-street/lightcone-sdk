@@ -110,6 +110,7 @@ class WalletIdentity:
     type: Literal["wallet"] = "wallet"
 
 
+# Stable Primary Login Identity variants returned in every Account profile.
 UserIdentity = Union[EmailIdentity, GoogleIdentity, XIdentity, WalletIdentity]
 
 

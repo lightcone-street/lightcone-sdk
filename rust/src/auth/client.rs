@@ -381,6 +381,7 @@ mod tests {
         assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
     }
 
+    /// Verifies Privy registration returns and installs the backend-refreshed session.
     #[tokio::test]
     async fn register_privy_returns_session_and_installs_refreshed_credentials() {
         let (base_url, request) = spawn_capturing_response_server(

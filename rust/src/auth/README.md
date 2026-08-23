@@ -196,10 +196,13 @@ Same as `check_session`, but forwards the supplied raw `Cookie` header for this 
 ### `register_privy`
 
 ```rust
-async fn register_privy(&self, request: &RegisterPrivyRequest) -> Result<(), SdkError>
+async fn register_privy(
+    &self,
+    request: &RegisterPrivyRequest,
+) -> Result<SessionResponse, SdkError>
 ```
 
-Create or synchronize a Lightcone Account after every interactive Privy authentication. `attempted_identity` is an explicitly tagged `Email`, `Google`, `X`, or `Wallet` selector; the backend validates it against Privy's verified methods and uses it as primary only when creating a new Account.
+Create or synchronize a Lightcone Account after every interactive Privy authentication. `attempted_identity` is an explicitly tagged `Email`, `Google`, `X`, or `Wallet` selector; the backend validates it against Privy's verified methods and uses it as primary only when creating a new Account. Returns the synchronized session and installs its credentials on the client.
 
 ### `logout`
 

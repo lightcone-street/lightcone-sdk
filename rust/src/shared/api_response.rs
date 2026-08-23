@@ -71,6 +71,7 @@ where
 }
 
 impl fmt::Display for LinkedIdentityType {
+    /// Emits the stable public method tag used in bounded error guidance.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_str())
     }
@@ -241,6 +242,7 @@ mod tests {
         }
     }
 
+    /// Proves a future method tag cannot hide the surrounding backend rejection.
     #[test]
     fn unknown_existing_method_does_not_hide_the_rejection() {
         let json = r#"{
