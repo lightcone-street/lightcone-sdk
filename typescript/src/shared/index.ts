@@ -61,6 +61,8 @@ export {
 
 export {
   isUserCancellation,
+  requireNativeSigningStrategy,
   type ExternalSigner,
+  type NativeSigningStrategy,
   type SigningStrategy,
 } from "./signing";

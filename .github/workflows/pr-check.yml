@@ -18,6 +18,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test example runner environment boundary
+        working-directory: .
+        run: ./scripts/run-examples.test.sh
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 

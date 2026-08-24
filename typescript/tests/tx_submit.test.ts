@@ -153,4 +153,42 @@ describe("prepared transaction submission", () => {
     assert.equal(signingCalls, 0);
     assert.equal(submittedMessages.length, 0);
   });
+
+  it("does not retry or fail over an uncertain prepared submission", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: transaction.feePayer!.toBase58(),
+    };
+    let primaryAttempts = 0;
+    let backupAttempts = 0;
+    const primaryConnection = {
+      async sendRawTransaction() {
+        primaryAttempts += 1;
+        throw new TypeError("network response was lost");
+      },
+    } as unknown as Connection;
+    const backupConnection = {
+      async sendRawTransaction() {
+        backupAttempts += 1;
+        throw new TypeError("backup must not receive prepared bytes");
+      },
+    } as unknown as Connection;
+    const context = {
+      primaryConnection,
+      backupConnection,
+      rpcFailoverState: new RpcFailoverState(),
+      signingStrategy: { type: "walletAdapter", signer },
+      depositSource: DepositSource.Global,
+    } as unknown as ClientContext;
+
+    await assert.rejects(
+      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
+      /network response was lost/
+    );
+    assert.equal(primaryAttempts, 1);
+    assert.equal(backupAttempts, 0);
+  });
 });

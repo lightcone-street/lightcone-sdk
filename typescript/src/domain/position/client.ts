@@ -5,6 +5,7 @@ import {
   type TransactionInstruction,
 } from "@solana/web3.js";
 import {
+  createAssociatedTokenAccountInstruction,
   createAssociatedTokenAccountIdempotentInstruction,
   createInitializeAccount3Instruction,
   createTransferInstruction,
@@ -42,7 +43,10 @@ import { Rpc } from "../../rpc";
 import { getPositionPda } from "../../program/pda";
 import { deserializePosition as deserializeProgramPosition } from "../../program/accounts";
 import { validateOutcomeIndex, validateOutcomes } from "../../program/utils";
-import { signingStrategyWalletAddress } from "../../shared/signing";
+import {
+  requireNativeSigningStrategy,
+  signingStrategyWalletAddress,
+} from "../../shared/signing";
 import type {
   Position as ProgramPosition,
   RedeemWinningsParams,
@@ -61,6 +65,7 @@ import type { Market } from "../market";
 import type { DepositTokenBalancesSnapshot } from "./index";
 import {
   solBalanceAvailability,
+  unwrapAllSolBalanceAvailability,
   type SolActionCosts,
   type SolBalanceAvailability,
   type SolBalanceComponents,
@@ -85,8 +90,20 @@ const TOKEN_ACCOUNT_SPACE = 165;
 /** Largest exact lamport amount accepted by Solana transaction instructions. */
 const MAX_U64 = 0xffff_ffff_ffff_ffffn;
 
-/** SOL-aware operation represented by an action plan. */
-export type SolActionKind = "split" | "merge" | "redeem" | "nativeWithdraw";
+/**
+ * Identifies the SOL-aware operation represented by an action plan.
+ *
+ * `wrap` and `unwrapAll` identify explicit native-keypair conversion plans.
+ * Ordinary plan kinds do not call those planners or include canonical-account
+ * closure.
+ */
+export type SolActionKind =
+  | "split"
+  | "merge"
+  | "redeem"
+  | "nativeWithdraw"
+  | "wrap"
+  | "unwrapAll";
 
 /** Expected changes to the separately authoritative SOL components. */
 export interface SolComponentDelta {
@@ -110,8 +127,11 @@ export interface SolActionPlan {
   expectedDelta: SolComponentDelta;
 }
 
-/** Reject non-positive or non-u64 lamport amounts before any RPC side effect. */
+/** Reject non-bigint, non-positive, or non-u64 lamports before any RPC side effect. */
 function assertSolActionAmount(amountLamports: bigint, action: string): void {
+  if (typeof amountLamports !== "bigint") {
+    throw SdkError.validation(`${action} amount must be exact bigint lamports`);
+  }
   if (amountLamports <= 0n) {
     throw SdkError.validation(`${action} amount must be greater than zero`);
   }
@@ -171,6 +191,15 @@ export function nativeWithdrawSeed(
   ).join("");
 }
 
+/**
+ * Plans position operations and explicit canonical WSOL conversions.
+ *
+ * Explicit conversion state flows as follows: complete matching wallet state and
+ * native keypair -> live account and cost reads -> signer, account, reserve, and
+ * amount guards -> fee-prepared plan -> unchanged prepared submission -> complete
+ * snapshot covering the confirmed slot. An uncertain submission returns control
+ * to the caller, which refreshes authoritative state before planning again.
+ */
 export class Positions {
   constructor(private readonly client: ClientContext) {}
 
@@ -298,6 +327,177 @@ export class Positions {
       RetryPolicy.Idempotent,
       cookieHeader,
     );
+  }
+
+  /**
+   * Return a fee-prepared plan for an exact canonical WSOL wrap.
+   *
+   * The authenticated Trading Wallet must have a local native keypair and complete
+   * balance state. Live canonical account data must match that state. An existing
+   * account must have account lamports equal to its token amount plus native
+   * reserve. Otherwise a later `SyncNative` instruction would recalculate the WSOL
+   * token amount from account lamports and wrap donated excess beyond
+   * `amountLamports`. The returned transaction contains strict Tokenkeg ATA
+   * creation only when the account is absent. It then contains the exact transfer
+   * and `SyncNative`. Availability uses the ordinary reserve floor.
+   *
+   * Callers rebuild immediately before prepared submission. They retain the
+   * returned component projection until a complete snapshot covers the confirmed
+   * slot. An uncertain outcome requires authoritative refresh before another plan.
+   */
+  async planWrapSol(
+    amountLamports: bigint,
+    state: WalletDepositBalancesState
+  ): Promise<SolActionPlan> {
+    assertSolActionAmount(amountLamports, "wrap");
+    const wallet = this.conversionPlanningWallet(state);
+    const components = state.solComponents();
+    const rpc = new Rpc(this.client);
+    const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
+    const account = await rpc.canonicalWsolAccountInfo(canonical, wallet);
+    if (!account && components.canonicalWsolLamports > 0n) {
+      throw SdkError.validation(
+        "canonical WSOL balance is positive but its account is unavailable"
+      );
+    }
+    if (
+      account &&
+      account.tokenAmountLamports !== components.canonicalWsolLamports
+    ) {
+      throw SdkError.validation(
+        "live canonical WSOL amount does not match wallet balance state"
+      );
+    }
+    if (
+      account &&
+      account.accountLamports !==
+        account.tokenAmountLamports + account.nativeReserveLamports
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL account has unsynchronized native lamports"
+      );
+    }
+    if (
+      account &&
+      (account.tokenAmountLamports + amountLamports > MAX_U64 ||
+        account.accountLamports + amountLamports > MAX_U64)
+    ) {
+      throw SdkError.validation(
+        "wrap would exceed canonical WSOL token or account u64 range"
+      );
+    }
+    const createsCanonicalWsolAccount = account === null;
+    const upfrontRentLamports = createsCanonicalWsolAccount
+      ? await rpc.minimumBalanceForRentExemption(TOKEN_ACCOUNT_SPACE)
+      : 0n;
+    const transaction = this.buildWrapSolTransaction(
+      wallet,
+      amountLamports,
+      createsCanonicalWsolAccount
+    );
+    const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
+    const costs: SolActionCosts = {
+      feeLamports,
+      upfrontRentLamports,
+      createsCanonicalWsolAccount,
+      sponsored: false,
+    };
+    const availability = solBalanceAvailability(components, costs);
+    const requiredNativeLamports =
+      amountLamports + availability.reserveLamports;
+    if (requiredNativeLamports > MAX_U64) {
+      throw SdkError.validation(
+        "wrap amount and transaction reserve exceed u64 lamports"
+      );
+    }
+    if (components.nativeLamports < requiredNativeLamports) {
+      throw SdkError.validation(
+        "native SOL cannot fund the wrap amount and transaction reserve"
+      );
+    }
+    return {
+      kind: "wrap",
+      transaction,
+      costs,
+      availability,
+      expectedDelta: {
+        nativeLamports:
+          -amountLamports - feeLamports - upfrontRentLamports,
+        canonicalWsolLamports: amountLamports,
+      },
+    };
+  }
+
+  /**
+   * Return a fee-prepared plan for closing the complete canonical WSOL account.
+   *
+   * The Trading Wallet must have a local native keypair. Canonical WSOL in the
+   * complete balance state must be positive and equal the live token amount. The
+   * returned transaction contains one `CloseAccount` instruction whose authority,
+   * destination, and fee payer are that wallet. If submitted successfully, the
+   * instruction transfers the complete account balance, including rent and donated
+   * lamports. The returned costs contain only the fresh fee. Availability requires
+   * native SOL to fund that fee without relying on the later account transfer.
+   *
+   * Callers rebuild immediately before prepared submission. They retain the
+   * returned component projection until a complete snapshot covers the confirmed
+   * slot. Signing, submission, or confirmation uncertainty requires authoritative
+   * refresh and does not authorize automatic resubmission.
+   */
+  async planUnwrapWsolAll(
+    state: WalletDepositBalancesState
+  ): Promise<SolActionPlan> {
+    const wallet = this.conversionPlanningWallet(state);
+    const components = state.solComponents();
+    if (components.canonicalWsolLamports === 0n) {
+      throw SdkError.validation(
+        "unwrap-all requires a positive canonical WSOL balance"
+      );
+    }
+    const rpc = new Rpc(this.client);
+    const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
+    const account = await rpc.canonicalWsolAccountInfo(canonical, wallet);
+    if (!account) {
+      throw SdkError.validation(
+        "canonical WSOL account is required for unwrap-all"
+      );
+    }
+    if (account.tokenAmountLamports !== components.canonicalWsolLamports) {
+      throw SdkError.validation(
+        "live canonical WSOL amount does not match wallet balance state"
+      );
+    }
+    const transaction = this.buildUnwrapWsolAllTransaction(wallet);
+    const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
+    const costs: SolActionCosts = {
+      feeLamports,
+      upfrontRentLamports: 0n,
+      createsCanonicalWsolAccount: false,
+      sponsored: false,
+    };
+    // Unwrap-all removes the persistent account, so its availability validates
+    // SolActionCosts and reserves the fee without the ordinary account floor.
+    const availability = unwrapAllSolBalanceAvailability(
+      components,
+      costs
+    );
+    const projectedNativeLamports =
+      components.nativeLamports + account.accountLamports - feeLamports;
+    if (projectedNativeLamports > MAX_U64) {
+      throw SdkError.validation(
+        "unwrap-all projected native SOL exceeds the transaction u64 range"
+      );
+    }
+    return {
+      kind: "unwrapAll",
+      transaction,
+      costs,
+      availability,
+      expectedDelta: {
+        nativeLamports: account.accountLamports - feeLamports,
+        canonicalWsolLamports: -components.canonicalWsolLamports,
+      },
+    };
   }
 
   /**
@@ -704,6 +904,75 @@ export class Positions {
       );
     }
     return wallet;
+  }
+
+  /**
+   * Return the authenticated Trading Wallet after native-keypair validation.
+   *
+   * Complete wallet state and identity are validated by `planningWallet`. This
+   * additional guard rejects wallet-adapter and Privy strategies before conversion
+   * RPC reads. Ordinary planners do not call this method.
+   */
+  private conversionPlanningWallet(
+    state: WalletDepositBalancesState
+  ): PublicKey {
+    requireNativeSigningStrategy(requireSigningStrategy(this.client));
+    return this.planningWallet(state);
+  }
+
+  /**
+   * Return an unsigned wrap transaction with exact instruction ordering.
+   *
+   * When planning observed no canonical ATA, the first instruction is strict ATA
+   * creation. A concurrently created ATA therefore makes execution fail instead of
+   * using account state that was absent from the plan. The transfer and `SyncNative`
+   * instructions follow. Fee preparation later attaches the live blockhash.
+   */
+  private buildWrapSolTransaction(
+    wallet: PublicKey,
+    amountLamports: bigint,
+    createsCanonicalWsolAccount: boolean
+  ): Transaction {
+    const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
+    const transaction = new Transaction({ feePayer: wallet });
+    if (createsCanonicalWsolAccount) {
+      transaction.add(
+        createAssociatedTokenAccountInstruction(
+          wallet,
+          canonical,
+          wallet,
+          NATIVE_MINT,
+          TOKEN_PROGRAM_ID
+        )
+      );
+    }
+    return transaction.add(
+      SystemProgram.transfer({
+        fromPubkey: wallet,
+        toPubkey: canonical,
+        lamports: amountLamports,
+      }),
+      createSyncNativeInstruction(canonical, TOKEN_PROGRAM_ID)
+    );
+  }
+
+  /**
+   * Return an unsigned transaction containing one canonical `CloseAccount`.
+   *
+   * The Trading Wallet is the fee payer, close authority, and destination. A later
+   * successful submission transfers the complete account balance to that wallet.
+   */
+  private buildUnwrapWsolAllTransaction(wallet: PublicKey): Transaction {
+    const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
+    return new Transaction({ feePayer: wallet }).add(
+      createCloseAccountInstruction(
+        canonical,
+        wallet,
+        wallet,
+        [],
+        TOKEN_PROGRAM_ID
+      )
+    );
   }
 
   /**

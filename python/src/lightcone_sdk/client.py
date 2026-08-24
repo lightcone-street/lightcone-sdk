@@ -330,12 +330,13 @@ class LightconeClient:
     async def sign_and_submit_prepared_tx_confirmed_with_slot(
         self, tx: Transaction
     ) -> ConfirmedTransaction:
-        """Confirm a fee-prepared transaction without replacing its message.
+        """Sign, submit once, and confirm a fee-prepared transaction.
 
-        Native and wallet-adapter signatures remain inspectable, so every
-        fee-payer, account, instruction, and blockhash byte is preserved. Privy
-        is rejected because its backend-owned final message cannot be verified.
-        Confirmation has no expiry bound; callers must inspect the signature
+        Native signing preserves the prepared message. Wallet-adapter bytes are
+        compared with that message before submission. Privy is rejected because
+        the SDK cannot inspect its final wire message. Signed bytes are sent once
+        to the active RPC because a transport failure may occur after acceptance.
+        Confirmation has no expiry bound. Callers inspect authoritative state
         before retrying an unknown outcome.
         """
         from solders.hash import Hash
@@ -426,6 +427,7 @@ class LightconeClient:
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
+
             tx_bytes = bytes(tx)  # type: ignore[call-overload]
             base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
             result = await self.privy().sign_and_send_tx(
@@ -440,7 +442,12 @@ class LightconeClient:
     async def _sign_and_submit_prepared_tx_inner(
         self, tx: Transaction, strategy: SigningStrategy | None = None
     ) -> str:
-        """Sign and submit without mutating the fee-estimated message."""
+        """Sign and submit once without changing the fee-estimated message.
+
+        Native signing preserves the message by construction. Wallet-adapter
+        bytes are compared with the prepared message before one active-RPC send.
+        Privy is rejected because the SDK cannot inspect its final wire message.
+        """
         if strategy is None:
             strategy = self._require_signing_strategy()
 
@@ -449,7 +456,7 @@ class LightconeClient:
 
             keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
             tx.sign([keypair], tx.message.recent_blockhash)
-            return await self.rpc().send_raw_transaction(bytes(tx))
+            return await self.rpc().send_raw_transaction_once(bytes(tx))
 
         if strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
@@ -460,7 +467,7 @@ class LightconeClient:
             except Exception as error:
                 raise classify_signer_error(str(error)) from error
             _validate_prepared_signed_transaction(signed_bytes, expected_message)
-            return await self.rpc().send_raw_transaction(signed_bytes)
+            return await self.rpc().send_raw_transaction_once(signed_bytes)
 
         if strategy.kind == SigningStrategyKind.PRIVY:
             raise SdkError(
@@ -697,12 +704,14 @@ class LightconeClientBuilder:
         if connection is None and self._primary_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
+
             connection = AsyncClient(self._primary_rpc_url, commitment=Confirmed)
 
         backup_connection = None
         if self._backup_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
+
             backup_connection = AsyncClient(self._backup_rpc_url, commitment=Confirmed)
 
         return LightconeClient(

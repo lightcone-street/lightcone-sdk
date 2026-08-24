@@ -23,6 +23,7 @@ export * as ws from "./ws";
 // Layer 5: High-level client
 export { LightconeClient, LightconeClientBuilder } from "./client";
 export { Rpc } from "./rpc";
+export type { CanonicalWsolAccountInfo } from "./rpc";
 export type { ClientContext, ConfirmedTransaction } from "./context";
 export {
   requireConnection,

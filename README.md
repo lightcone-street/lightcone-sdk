@@ -27,10 +27,17 @@ presenting their sum as one SOL balance. Split wraps only a shortfall; merge and
 redeem retain proceeds in the persistent canonical account; native withdrawal
 uses native SOL directly or converts only its shortfall through a temporary
 seeded account. The conversion instructions share one Solana transaction, so an
-instruction failure rolls the entire conversion back atomically. No planner
-closes the canonical account implicitly, and an explicit self-custody
-unwrap-all/close operation is outside the current SDK contract. See the
-[persistent canonical WSOL ADR](docs/adr/0001-persistent-canonical-wsol.md).
+instruction failure rolls the entire conversion back atomically. Ordinary
+planners never close the canonical account implicitly. Native-keypair users can
+instead plan an exact standalone wrap or an explicit no-amount unwrap-all that
+returns the account's complete lamports, including rent, to the same Trading
+Wallet. The per-language `wsol_conversion` examples rebuild before
+signing, submit prepared transactions with confirmed slots, retain each frozen
+projection until a complete snapshot covers that slot, and warn that a later SOL
+action may recreate the closed account and pay rent. An uncertain submission or
+confirmation is never retried automatically; inspect authoritative balances
+before planning another action. See the [persistent canonical WSOL
+ADR](docs/adr/0001-persistent-canonical-wsol.md).
 
 ## Development Setup
 
@@ -79,20 +86,29 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
-| `SDK_RPC_URL` | Yes | Solana RPC URL. Use a private RPC (e.g. [Helius](https://www.helius.dev/) devnet) to avoid 429 rate-limit errors from the public `api.devnet.solana.com` |
+| `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |
 | `LIGHTCONE_WALLET_PATH_PYTHON` | Yes | Path to Solana keypair JSON for Python examples |
 
-The fund-moving `deposit_token_balances` example is intentionally excluded from
-`scripts/run-examples.sh`. Run it manually with `LIGHTCONE_ENV=local` or
-`staging` and all `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and
-`SDK_PROGRAM_ID` overrides unset; it refuses overrides so built-in
-non-production routing cannot be repointed at production infrastructure. It
-uses the three existing wallet paths as a funding cycle (`Rust -> TypeScript ->
-Python -> Rust`) rather than requiring a separate withdrawal recipient.
+The fund-moving `deposit_token_balances` example remains excluded from
+`scripts/run-examples.sh`; run it manually with `LIGHTCONE_ENV=local` or
+`staging` and all endpoint/program overrides unset. It uses the three existing
+wallet paths as a funding cycle (`Rust -> TypeScript -> Python -> Rust`).
 
-Add these to your shell profile (`.bashrc` / `.zshrc`):
+`wsol_conversion` runs automatically for every SDK in the local aggregate suite
+and is included when the stateful example workflow is enabled for staging CI.
+That workflow's global `backend-ready` gate currently disables all stateful CI
+jobs. Each language uses its own wallet, wraps a small exact amount, warns that it
+will close the complete canonical WSOL account, and unwraps all without a prompt.
+The local runner preserves an optional paid RPC while clearing API, WebSocket,
+and program overrides so application and program identity remain built in. An
+enabled staging-CI run may supply its managed endpoints, but a program-ID
+override still fails.
+Production skips the example, and the example itself refuses production.
+
+For the routine automatic example suite, add these to your shell profile
+(`.bashrc` / `.zshrc`):
 
 ```bash
 export LIGHTCONE_ENV=local
@@ -101,6 +117,12 @@ export LIGHTCONE_WALLET_PATH=~/.config/solana/lightcone-sdk-rs.json
 export LIGHTCONE_WALLET_PATH_TS=~/.config/solana/lightcone-sdk-ts.json
 export LIGHTCONE_WALLET_PATH_PYTHON=~/.config/solana/lightcone-sdk-py.json
 ```
+
+Before directly running `deposit_token_balances`, use a clean shell or run `unset
+SDK_API_URL SDK_WS_URL SDK_RPC_URL SDK_PROGRAM_ID`. Direct local
+`wsol_conversion` runs may retain `SDK_RPC_URL` but must unset `SDK_API_URL`,
+`SDK_WS_URL`, and `SDK_PROGRAM_ID`; the aggregate local runner performs that
+three-variable cleanup in its subprocess.
 
 ### Wallet Setup
 

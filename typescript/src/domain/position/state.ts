@@ -31,7 +31,13 @@ export interface SolBalanceComponents {
   canonicalWsolLamports: bigint;
 }
 
-/** Live chain costs used to reserve transaction funding. */
+/**
+ * Stores live chain costs used to derive transaction funding requirements.
+ *
+ * {@link solBalanceAvailability} applies ordinary safety floors.
+ * {@link unwrapAllSolBalanceAvailability} rejects account creation, upfront rent,
+ * and sponsorship, then uses only `feeLamports` as the unwrap-all reserve.
+ */
 export interface SolActionCosts {
   /** Live `getFeeForMessage` result, in lamports. */
   feeLamports: bigint;
@@ -49,7 +55,7 @@ export interface SolBalanceAvailability {
   components: SolBalanceComponents;
   /** Sum of both components in lamports, before reserve. */
   displayedLamports: bigint;
-  /** Native lamports withheld for live costs and the matching safety floor. */
+  /** Native lamports withheld for live costs and any action-specific safety floor. */
   reserveLamports: bigint;
   /** Displayed lamports available to this action after reserve. */
   spendableLamports: bigint;
@@ -103,6 +109,63 @@ export function solBalanceAvailability(
     displayedLamports,
     reserveLamports,
     spendableLamports: displayedLamports - reserveLamports,
+  };
+}
+
+/**
+ * Return unwrap-all availability with the live fee as its entire reserve.
+ *
+ * This function rejects costs that include sponsorship, account creation, or
+ * upfront rent. It rejects malformed or out-of-range components and costs. It
+ * rejects a displayed-balance sum outside Solana's unsigned 64-bit range. Native
+ * SOL must fund the fee without relying on lamports that a later `CloseAccount`
+ * instruction may transfer. The ordinary persistent-account floor does not apply
+ * because unwrap-all removes that account.
+ */
+export function unwrapAllSolBalanceAvailability(
+  components: SolBalanceComponents,
+  costs: SolActionCosts
+): SolBalanceAvailability {
+  for (const [label, value] of [
+    ["native SOL", components.nativeLamports],
+    ["canonical WSOL", components.canonicalWsolLamports],
+  ] as const) {
+    if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
+      throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
+    }
+  }
+  for (const [label, value] of [
+    ["transaction fee", costs.feeLamports],
+    ["upfront rent", costs.upfrontRentLamports],
+  ] as const) {
+    if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
+      throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
+    }
+  }
+  if (
+    costs.upfrontRentLamports !== 0n ||
+    costs.createsCanonicalWsolAccount ||
+    costs.sponsored
+  ) {
+    throw SdkError.validation(
+      "unwrap-all costs must be unsponsored with no upfront rent or account creation"
+    );
+  }
+  const displayedLamports =
+    components.nativeLamports + components.canonicalWsolLamports;
+  if (displayedLamports > MAX_SOLANA_LAMPORTS) {
+    throw SdkError.validation("displayed SOL exceeds the transaction u64 range");
+  }
+  if (components.nativeLamports < costs.feeLamports) {
+    throw SdkError.validation(
+      `native SOL balance cannot fund the required ${costs.feeLamports} lamport unwrap-all fee`
+    );
+  }
+  return {
+    components,
+    displayedLamports,
+    reserveLamports: costs.feeLamports,
+    spendableLamports: displayedLamports - costs.feeLamports,
   };
 }
 

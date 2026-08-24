@@ -179,9 +179,11 @@ export async function signAndSubmitTxConfirmedWithSlot(
 }
 
 /**
- * Sign and confirm a transaction whose exact message was already fee-estimated.
- * The prepared blockhash is preserved and wallet adapters may add signatures
- * but may not replace any message field.
+ * Sign, submit once, and confirm a transaction whose message was fee-estimated.
+ *
+ * This function preserves the prepared blockhash. A wallet adapter may add
+ * signatures but may not replace any message field. Signed bytes are sent once to
+ * the active RPC because a transport failure may occur after acceptance.
  */
 export async function signAndSubmitPreparedTxConfirmedWithSlot(
   ctx: ClientContext,
@@ -323,10 +325,12 @@ async function signAndSubmitTxInner(
 }
 
 /**
- * Sign and submit without replacing the planner's prepared blockhash.
+ * Sign and submit once without replacing the planner's prepared blockhash.
  *
- * Native and wallet-adapter signatures remain inspectable. Privy is excluded
- * because its backend-owned final wire message cannot be verified by this SDK.
+ * Native signing preserves the message by construction. Wallet-adapter bytes are
+ * compared with the prepared message before submission. Privy is excluded because
+ * this SDK cannot inspect its final wire message. Both admitted strategies use the
+ * active connection directly, without retry or failover.
  */
 async function signAndSubmitPreparedTxInner(
   ctx: ClientContext,
@@ -338,9 +342,7 @@ async function signAndSubmitPreparedTxInner(
   switch (strategy.type) {
     case "native":
       tx.partialSign(strategy.keypair);
-      return connectionWithFailover(ctx, (connection) =>
-        connection.sendRawTransaction(tx.serialize())
-      );
+      return requireConnection(ctx).sendRawTransaction(tx.serialize());
     case "walletAdapter": {
       const expectedMessage = tx.serializeMessage();
       const txBytes = tx.serialize({ requireAllSignatures: false });
@@ -352,9 +354,7 @@ async function signAndSubmitPreparedTxInner(
           throw SdkError.signing(message);
         });
       await assertPreparedSignedMessage(signedBytes, expectedMessage);
-      return connectionWithFailover(ctx, (connection) =>
-        connection.sendRawTransaction(signedBytes)
-      );
+      return requireConnection(ctx).sendRawTransaction(signedBytes);
     }
     case "privy":
       throw SdkError.validation(

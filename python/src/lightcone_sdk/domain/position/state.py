@@ -47,7 +47,13 @@ class SolBalanceComponents:
 
 @dataclass(frozen=True)
 class SolActionCosts:
-    """Live chain costs and sponsorship inputs for one planned action."""
+    """Store live chain costs used to derive transaction funding requirements.
+
+    ``reserve_lamports`` applies the ordinary action safety floor.
+    :meth:`SolBalanceAvailability.from_unwrap_all_costs` instead rejects account
+    creation, upfront rent, and sponsorship before using only ``fee_lamports`` as
+    the unwrap-all reserve.
+    """
 
     #: Live getFeeForMessage result, in lamports.
     fee_lamports: int
@@ -95,7 +101,7 @@ class SolBalanceAvailability:
     components: SolBalanceComponents
     #: Sum of both components in lamports, before reserve.
     displayed_lamports: int
-    #: Native lamports withheld for live costs and the matching safety floor.
+    #: Native lamports withheld for an ordinary safety floor or exact unwrap fee.
     reserve_lamports: int
     #: Displayed lamports available to this action after reserve.
     spendable_lamports: int
@@ -132,6 +138,57 @@ class SolBalanceAvailability:
             displayed_lamports=displayed,
             reserve_lamports=reserve,
             spendable_lamports=displayed - reserve,
+        )
+
+    @classmethod
+    def from_unwrap_all_costs(
+        cls, components: SolBalanceComponents, costs: SolActionCosts
+    ) -> SolBalanceAvailability:
+        """Return unwrap-all availability with the live fee as its entire reserve.
+
+        This method rejects costs that include sponsorship, account creation, or
+        upfront rent. It rejects components and fees outside Solana's unsigned
+        64-bit lamport range. It rejects an overflowing displayed-balance sum.
+        Native SOL must fund the fee without relying on lamports that a later
+        ``CloseAccount`` instruction may transfer. The ordinary persistent-account
+        floor does not apply because unwrap-all removes that account.
+        """
+        if (
+            isinstance(costs.upfront_rent_lamports, bool)
+            or not isinstance(costs.upfront_rent_lamports, int)
+            or costs.upfront_rent_lamports != 0
+        ):
+            raise SdkError("unwrap-all costs require zero upfront rent")
+        if costs.creates_canonical_wsol_account is not False:
+            raise SdkError("unwrap-all costs must not create canonical WSOL")
+        if costs.sponsored is not False:
+            raise SdkError("unwrap-all costs must be unsponsored")
+        fee_lamports = costs.fee_lamports
+        for label, value in (
+            ("native SOL", components.native_lamports),
+            ("canonical WSOL", components.canonical_wsol_lamports),
+            ("transaction fee", fee_lamports),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > MAX_SOLANA_LAMPORTS
+            ):
+                raise SdkError(f"{label} must fit the non-negative u64 lamport range")
+        displayed = components.displayed_lamports
+        if displayed > MAX_SOLANA_LAMPORTS:
+            raise SdkError("displayed SOL exceeds the transaction u64 range")
+        if components.native_lamports < fee_lamports:
+            raise SdkError(
+                "native SOL balance cannot fund the required "
+                f"{fee_lamports} lamport unwrap-all transaction fee"
+            )
+        return cls(
+            components=components,
+            displayed_lamports=displayed,
+            reserve_lamports=fee_lamports,
+            spendable_lamports=displayed - fee_lamports,
         )
 
 

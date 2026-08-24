@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
 from solders.hash import Hash
@@ -18,6 +19,7 @@ from solders.transaction import Transaction
 from solders.transaction_status import TransactionConfirmationStatus
 from spl.token._layouts import ACCOUNT_LAYOUT
 from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
+from spl.token.instructions import get_associated_token_address
 
 from .error import (
     ConfirmationTimeout,
@@ -44,6 +46,23 @@ from .rpc_failover import (
 
 #: Largest exact non-negative lamport value accepted by Solana u64 fields.
 _MAX_SOLANA_LAMPORTS = 2**64 - 1
+
+
+@dataclass(frozen=True)
+class CanonicalWsolAccountInfo:
+    """Store exact live facts for a validated canonical Tokenkeg WSOL account.
+
+    ``canonical_wsol_account_info`` returns all fields from one confirmed account
+    read. ``account_lamports`` includes native-token rent and donated lamports.
+    ``token_amount_lamports`` is the decoded SPL token amount.
+    ``native_reserve_lamports`` is the decoded native-account rent reserve. All
+    fields are integer lamports in Solana's unsigned 64-bit range. Direct
+    dataclass construction does not perform RPC validation.
+    """
+
+    account_lamports: int
+    token_amount_lamports: int
+    native_reserve_lamports: int
 
 
 def _rpc_lamports(value: object, label: str) -> int:
@@ -233,16 +252,40 @@ class Rpc:
     async def canonical_wsol_account_exists(
         self, address: Pubkey, wallet: Pubkey
     ) -> bool:
-        """Validate the wallet's canonical legacy-token WSOL account when present."""
+        """Return whether the validated canonical WSOL account is present.
+
+        This compatibility method delegates address, owner, state, authority,
+        and lamport checks to :meth:`canonical_wsol_account_info`.
+        """
+        return await self.canonical_wsol_account_info(address, wallet) is not None
+
+    async def canonical_wsol_account_info(
+        self, address: Pubkey, wallet: Pubkey
+    ) -> CanonicalWsolAccountInfo | None:
+        """Return exact confirmed facts for the wallet's canonical WSOL account.
+
+        Missing accounts return ``None``. Present accounts must be initialized,
+        unfrozen legacy Token Program native-mint accounts controlled by
+        ``wallet`` at its exact Tokenkeg native-mint ATA. Invalid derivation,
+        ownership, layout, native reserve, close authority, or integer lamport
+        data fails closed rather than looking absent.
+        """
         from solana.rpc.commitment import Confirmed
 
+        canonical = get_associated_token_address(
+            wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
+        )
+        if address != canonical:
+            raise SdkError(
+                "canonical WSOL address is not the wallet's Tokenkeg native-mint ATA"
+            )
         response = await _connection_with_failover(
             self._client,
             lambda conn: conn.get_account_info(address, Confirmed),
         )
         info = response.value
         if info is None:
-            return False
+            return None
         if info.owner != TOKEN_PROGRAM_ID:
             raise SdkError(
                 "canonical WSOL account is not owned by the legacy Token Program"
@@ -253,6 +296,11 @@ class Rpc:
             account = ACCOUNT_LAYOUT.parse(bytes(info.data))
             mint = Pubkey.from_bytes(account.mint)
             owner = Pubkey.from_bytes(account.owner)
+            close_authority = (
+                Pubkey.from_bytes(account.close_authority)
+                if account.close_authority_option == 1
+                else None
+            )
         except Exception as error:
             raise SdkError(
                 f"canonical WSOL token account is invalid: {error}"
@@ -261,12 +309,36 @@ class Rpc:
             mint != WRAPPED_SOL_MINT
             or owner != wallet
             or account.state != 1
+            or account.delegate_option not in (0, 1)
             or account.is_native_option != 1
+            or account.close_authority_option not in (0, 1)
+            or (close_authority is not None and close_authority != wallet)
         ):
             raise SdkError(
                 "canonical WSOL token account has incompatible mint, authority, or native state"
             )
-        return True
+        account_lamports = _rpc_lamports(
+            info.lamports, "canonical WSOL account balance"
+        )
+        token_amount_lamports = _rpc_lamports(
+            account.amount, "canonical WSOL token amount"
+        )
+        native_reserve_lamports = _rpc_lamports(
+            account.is_native, "canonical WSOL native reserve"
+        )
+        accounted_lamports = token_amount_lamports + native_reserve_lamports
+        if (
+            accounted_lamports > _MAX_SOLANA_LAMPORTS
+            or accounted_lamports > account_lamports
+        ):
+            raise SdkError(
+                "canonical WSOL token amount and native reserve exceed account lamports"
+            )
+        return CanonicalWsolAccountInfo(
+            account_lamports=account_lamports,
+            token_amount_lamports=token_amount_lamports,
+            native_reserve_lamports=native_reserve_lamports,
+        )
 
     async def minimum_balance_for_rent_exemption(self, data_len: int) -> int:
         """Return the rent-exempt minimum in lamports for ``data_len`` account bytes."""
@@ -327,6 +399,24 @@ class Rpc:
                     skip_confirmation=True,
                     preflight_commitment=Confirmed,
                 ),
+            ),
+        )
+        return str(response.value)  # type: ignore[attr-defined]
+
+    async def send_raw_transaction_once(self, tx_bytes: bytes) -> str:
+        """Submit signed bytes once on the active RPC and return the signature.
+
+        This method does not retry or fail over because a transport error does not
+        prove that the active endpoint rejected the transaction.
+        """
+        from solana.rpc.commitment import Confirmed
+        from solana.rpc.types import TxOpts
+
+        response = await require_connection(self._client).send_raw_transaction(
+            tx_bytes,
+            opts=TxOpts(
+                skip_confirmation=True,
+                preflight_commitment=Confirmed,
             ),
         )
         return str(response.value)  # type: ignore[attr-defined]
@@ -488,4 +578,4 @@ class Rpc:
         return Transaction.new_unsigned(message)
 
 
-__all__ = ["Rpc", "require_connection"]
+__all__ = ["CanonicalWsolAccountInfo", "Rpc", "require_connection"]

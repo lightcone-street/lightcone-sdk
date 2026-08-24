@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Optional
 
-from ..error import SigningError, UserCancelled
+from ..error import SdkError, SigningError, UserCancelled
 
 
 class ExternalSigner(ABC):
@@ -113,6 +113,21 @@ class SigningStrategy:
         return self.wallet_address
 
 
+def require_native_conversion_strategy(
+    strategy: SigningStrategy,
+) -> SigningStrategy:
+    """Return the native strategy required by wrap and unwrap-all planning.
+
+    A wallet-adapter or Privy strategy raises ``SdkError``. Conversion planners
+    call this guard before RPC reads. They then bind the keypair address to the
+    authenticated Trading Wallet. Ordinary planners do not call this helper and
+    retain their existing signing-strategy support.
+    """
+    if strategy.kind is not SigningStrategyKind.NATIVE:
+        raise SdkError("WSOL conversion planning requires a native signing strategy")
+    return strategy
+
+
 # ── Rejection detection ──────────────────────────────────────────────────────
 
 _CANCELLATION_KEYWORDS = (
@@ -144,4 +159,5 @@ __all__ = [
     "SigningStrategy",
     "SigningStrategyKind",
     "classify_signer_error",
+    "require_native_conversion_strategy",
 ]

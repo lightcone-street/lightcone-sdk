@@ -184,6 +184,11 @@ name = "with_cookies"
 required-features = ["native"]
 
 [[example]]
+name = "wsol_conversion"
+required-features = ["native"]
+test = true
+
+[[example]]
 name = "ws_book_and_trades"
 required-features = ["native"]
 

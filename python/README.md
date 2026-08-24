@@ -335,32 +335,70 @@ finally:
 ```
 
 `plan_sol_split`, `plan_sol_merge`, `plan_sol_redeem`, and
-`plan_native_sol_withdrawal` return unsigned action plans with live fee/rent
-costs, the action-specific reserve and spendable balance, and separate expected
-native and canonical WSOL deltas. Each planner requires complete matching-wallet
-state and fails closed when an account check, estimate, or native reserve is
-unavailable. Unsponsored actions reserve the greater of live costs and the
-applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is rejected until a
-concrete sponsor owns transaction fees and account rent.
-An occupied canonical address is accepted only when it decodes as the wallet's
-initialized, unfrozen Tokenkeg native-mint account.
+`plan_native_sol_withdrawal` return unsigned ordinary-action plans with live
+fee/rent costs, the action-specific reserve and spendable balance, and separate
+expected native and canonical WSOL deltas. Each planner requires complete
+matching-wallet state and fails closed when an account check, estimate, or native
+reserve is unavailable. Unsponsored ordinary actions reserve the greater of live
+costs and the applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is
+rejected until a concrete sponsor owns transaction fees and account rent.
 
-Split plans consume canonical WSOL first and wrap only a shortfall in the same
-transaction. Merge and redeem plans retain proceeds in the persistent canonical
-account. Native withdrawal transfers directly when possible; otherwise it moves
-only the shortfall through a bounded seeded temporary Tokenkeg account and closes
-that temporary account before sending the exact native amount to the recipient.
-The temporary account's create, initialize, WSOL transfer, close, and native
-transfer instructions share one Solana transaction, so an instruction failure
-rolls the entire conversion back atomically. No planner closes the canonical
-account implicitly; an explicit self-custody unwrap-all/close operation is
-outside the current contract. Rebuild immediately before signing,
-submit with `sign_and_submit_prepared_tx_confirmed_with_slot` so the wallet
-cannot replace the fee-estimated message, and refresh a complete snapshot
-covering its slot before restoring action authority. Prepared submission is
-unavailable for Privy because its final signed bytes cannot be verified by the
-SDK. Atomic execution does not resolve uncertain submission or confirmation
-errors; inspect authoritative balances before retrying. See the
+An occupied canonical address is accepted only when it decodes as the wallet's
+initialized, unfrozen Tokenkeg native-mint account. The public
+`canonical_wsol_account_exists` boolean remains available; use
+`canonical_wsol_account_info` when exact live facts are required. Its
+`CanonicalWsolAccountInfo` reports the full account balance, decoded token
+amount, and decoded native-account rent reserve as integer lamports after
+validating wallet and close authority. The full account balance can exceed token
+amount plus reserve when native lamports were donated without `SyncNative`, the
+Token Program instruction that recalculates the WSOL token amount from account
+lamports.
+
+Ordinary split plans consume canonical WSOL first and wrap only a shortfall in
+the same transaction. Merge and redeem retain proceeds in the persistent
+canonical account. Native withdrawal transfers directly when possible;
+otherwise it moves only the shortfall through a bounded seeded temporary
+Tokenkeg account and closes that temporary account before sending the exact
+native amount to the recipient. No ordinary planner closes the canonical
+account.
+
+Native-keypair clients have two explicit self-custody conversion planners.
+`plan_wrap_sol(amount_lamports, state)` wraps one positive exact amount by
+creating the canonical ATA when missing, transferring native lamports, and
+running `SyncNative`; normal reserve floors apply, and its delta includes only
+the amount, live fee, and any new-account rent. For an existing account, planning
+requires full account lamports to equal decoded token amount plus native reserve.
+Unsynchronized donated lamports are rejected before transaction construction or
+fee estimation because `SyncNative` would otherwise add them to the token amount
+and make the exact delta false.
+`plan_unwrap_wsol_all(state)` accepts no amount and closes the complete canonical
+account to and under the same Trading Wallet. Positive authoritative WSOL must
+match the live token amount exactly. Unlike exact wrap, unwrap-all accepts
+unsynchronized excess because close returns it directly without changing the
+token amount. Its `SolActionCosts` fields are always the live fee, zero upfront rent, no
+account creation, and no sponsorship. Availability is the unchanged
+native/canonical component pair with displayed SOL checked in the common
+unsigned 64-bit range, reserve equal to the fee only, and spendable equal to
+displayed minus fee after native SOL proves it can pay that fee. The native delta
+is the complete account balance minus fee; the canonical delta removes the full
+token amount. Wallet-adapter and Privy strategies are rejected only for these
+explicit conversion planners, not for ordinary actions.
+
+`SolBalanceAvailability.from_unwrap_all_costs(components, costs)` is the
+conversion-specific fee-only constructor. It accepts the complete factual cost
+tuple and rejects any nonzero upfront rent, canonical-account creation, or
+sponsorship before deriving the exact fee reserve; ordinary availability keeps
+using `from_costs` and its configured reserve floors.
+
+Rebuild every plan immediately before signing, submit with
+`sign_and_submit_prepared_tx_confirmed_with_slot` so the fee-estimated message is
+preserved, hold its component projection frozen, and refresh a complete snapshot
+covering the confirmed slot before restoring action authority. After unwrap-all,
+that refresh is mandatory before another attempt because the canonical account
+no longer exists. Prepared submission is unavailable for Privy because its final
+signed bytes cannot be verified by the SDK. Atomic execution does not resolve an
+uncertain submission or confirmation error; inspect the signature and
+authoritative balances rather than retrying automatically. See the
 [persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
 
 WebSocket clients are owned independently from `Auth`; logout does not clean them
@@ -377,6 +415,18 @@ configured by `LIGHTCONE_WALLET_PATH_PYTHON`, confirms with a slot, and refreshe
 a complete snapshot at that slot. Running it moves funds. If it fails after
 submission, inspect authoritative balances before retrying because funds may
 already have moved.
+
+The `wsol_conversion` example runs with `LIGHTCONE_WALLET_PATH_PYTHON`'s native
+Trading Wallet in local aggregate runs and is included when the globally gated
+stateful example workflow is enabled for staging CI; that workflow currently
+disables all stateful CI jobs. Local runs may use a paid RPC while retaining
+built-in API, WebSocket, and program identity; an enabled staging-CI run may
+supply its managed endpoints. Direct staging runs remain override-free. The
+example previews then rebuilds an exact 0.001 SOL wrap, publishes only a complete
+snapshot covering its confirmed slot, warns that unwrap-all closes and returns
+the full canonical account (including rent or extra lamports), rebuilds and
+submits the close without pausing, and publishes only the final covering
+snapshot. It never retries an uncertain transaction automatically.
 
 ## Examples
 All examples are runnable with `python examples/<name>.py`. Examples default to the production environment and read the wallet keypair from `~/.config/solana/id.json`. Set `LIGHTCONE_ENV=local|staging|prod` or `LIGHTCONE_WALLET_PATH=/path/to/keypair.json` to override.
@@ -400,6 +450,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | [`price_history`](examples/price_history.py) | Historical price history line data at various resolutions |
 | [`positions`](examples/positions.py) | User positions across all markets and per-market |
 | [`deposit_token_balances`](examples/deposit_token_balances.py) | WebSocket-backed exact SOL balances and slot-confirmed 0.001 SOL native withdrawal without closing canonical WSOL in non-production |
+| [`wsol_conversion`](examples/wsol_conversion.py) | Local-aggregate and eligible staging-CI exact native wrap followed by warned, slot-confirmed canonical WSOL unwrap-all using one native Trading Wallet |
 | [`metrics_all`](examples/metrics_all.py) | Exercise every endpoint on `client.metrics()` - platform, markets, categories, orderbook, leaderboard, history |
 
 ### Placing Orders
