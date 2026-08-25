@@ -107,9 +107,7 @@ async def test_canonical_wsol_account_validation_accepts_only_tokenkeg_native_ac
 ):
     """Return exact lamports while preserving delegated boolean presence."""
     wallet = Pubkey.new_unique()
-    address = get_associated_token_address(
-        wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
-    )
+    address = get_associated_token_address(wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID)
     # The extra 1_000_000 lamports are a valid unsynchronized donation. Exact
     # inspection exposes it without pretending it is part of the token amount.
     valid = Account(503_039_280, _canonical_account_data(wallet), TOKEN_PROGRAM_ID)
@@ -133,9 +131,7 @@ async def test_canonical_wsol_account_validation_accepts_only_tokenkeg_native_ac
 async def test_canonical_wsol_account_info_distinguishes_missing_from_invalid() -> None:
     """Return None only for absence; reject every occupied incompatible shape."""
     wallet = Pubkey.new_unique()
-    address = get_associated_token_address(
-        wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
-    )
+    address = get_associated_token_address(wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID)
     assert await _rpc(None).canonical_wsol_account_info(address, wallet) is None
     assert not await _rpc(None).canonical_wsol_account_exists(address, wallet)
 
