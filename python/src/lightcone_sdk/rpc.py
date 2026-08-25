@@ -352,6 +352,16 @@ class Rpc:
         )
         return _rpc_lamports(response.value, "rent-exempt minimum")
 
+    async def balance_lamports(self, fee_payer: Pubkey) -> int:
+        """Return the confirmed Native SOL Balance for ``fee_payer``, in lamports."""
+        from solana.rpc.commitment import Confirmed
+
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_balance(fee_payer, Confirmed),
+        )
+        return _rpc_lamports(response.value, "fee-payer balance")
+
     async def prepare_and_estimate_transaction_fee(
         self, transaction: Transaction
     ) -> int:

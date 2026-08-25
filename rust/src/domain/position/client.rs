@@ -1270,6 +1270,7 @@ mod tests {
             client::LightconeClient,
             domain::market::{Market, Status},
             domain::position::{builders, DepositTokenBalance, WRAPPED_SOL_MINT_ADDRESS},
+            error::SdkError,
             shared::PubkeyStr,
         },
         rust_decimal::Decimal,
@@ -2469,7 +2470,13 @@ mod tests {
             .plan_unwrap_wsol_all(&state)
             .await
             .unwrap_err();
-        assert!(insufficient.to_string().contains("unwrap-all fee"));
+        assert!(matches!(
+            insufficient,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
     }
 
     #[cfg(feature = "native")]

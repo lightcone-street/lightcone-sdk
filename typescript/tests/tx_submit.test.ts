@@ -9,9 +9,12 @@ import {
 } from "@solana/web3.js";
 
 import {
+  signAndSubmitTx,
   signAndSubmitPreparedTxConfirmedWithSlot,
   type ClientContext,
 } from "../src/context";
+import { LightconeClient } from "../src/client";
+import { SdkError } from "../src/error";
 import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
 import type { ExternalSigner } from "../src/shared/signing";
@@ -32,12 +35,39 @@ function preparedTransaction(blockhash: string): Transaction {
 }
 
 /** Build a client context that records the exact messages submitted to RPC. */
-function contextFor(signer: ExternalSigner): {
+function contextFor(
+  signer: ExternalSigner,
+  funding: {
+    feeLamports?: number;
+    balanceLamports?: number;
+    feeError?: Error;
+    balanceError?: Error;
+    sponsored?: boolean;
+  } = {}
+): {
   context: ClientContext;
   submittedMessages: Uint8Array[];
+  fundingCalls: { fee: number; balance: number };
 } {
   const submittedMessages: Uint8Array[] = [];
+  const fundingCalls = { fee: 0, balance: 0 };
   const connection = {
+    async getLatestBlockhash() {
+      return {
+        blockhash: Keypair.generate().publicKey.toBase58(),
+        lastValidBlockHeight: 100,
+      };
+    },
+    async getFeeForMessage() {
+      fundingCalls.fee += 1;
+      if (funding.feeError) throw funding.feeError;
+      return { context: { slot: 1 }, value: funding.feeLamports ?? 5_000 };
+    },
+    async getBalance() {
+      fundingCalls.balance += 1;
+      if (funding.balanceError) throw funding.balanceError;
+      return funding.balanceLamports ?? 5_000;
+    },
     /** Record the submitted message while allowing signatures to vary. */
     async sendRawTransaction(bytes: Uint8Array) {
       submittedMessages.push(Transaction.from(bytes).serializeMessage());
@@ -63,9 +93,11 @@ function contextFor(signer: ExternalSigner): {
       primaryConnection: connection,
       rpcFailoverState: new RpcFailoverState(),
       signingStrategy: { type: "walletAdapter", signer },
+      transactionSponsorshipEnabled: funding.sponsored ?? false,
       depositSource: DepositSource.Global,
     } as unknown as ClientContext,
     submittedMessages,
+    fundingCalls,
   };
 }
 
@@ -82,6 +114,18 @@ const echoSigner: ExternalSigner = {
 };
 
 describe("prepared transaction submission", () => {
+  it("exposes default-false capability and clone-by-value semantics", () => {
+    const client = LightconeClient.builder().build();
+    assert.equal(client.transactionSponsorshipEnabled, false);
+
+    client.setTransactionSponsorshipEnabled(true);
+    const clone = client.clone();
+    client.setTransactionSponsorshipEnabled(false);
+
+    assert.equal(client.transactionSponsorshipEnabled, false);
+    assert.equal(clone.transactionSponsorshipEnabled, true);
+  });
+
   it("submits the exact fee-estimated message", async () => {
     const blockhash = Keypair.generate().publicKey.toBase58();
     const transaction = preparedTransaction(blockhash);
@@ -97,6 +141,197 @@ describe("prepared transaction submission", () => {
     assert.deepEqual(submittedMessages, [expectedMessage]);
     assert.equal(transaction.recentBlockhash, blockhash);
     assert.deepEqual(confirmed, { signature: SIGNATURE, slot: 7 });
+  });
+
+  it("returns the typed fee error before external signing or submission", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    let signingCalls = 0;
+    const signer: ExternalSigner = {
+      walletAddress: transaction.feePayer!.toBase58(),
+      async signMessage(message) {
+        return message;
+      },
+      async signTransaction(bytes) {
+        signingCalls += 1;
+        return bytes;
+      },
+    };
+    const { context, submittedMessages } = contextFor(signer, {
+      feeLamports: 5_000,
+      balanceLamports: 4_999,
+    });
+
+    await assert.rejects(
+      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
+      (error: unknown) => {
+        assert.ok(error instanceof SdkError);
+        assert.equal(error.variant, "InsufficientSolForTransactionFees");
+        assert.equal(error.availableLamports, 4_999n);
+        assert.equal(error.requiredLamports, 5_000n);
+        assert.equal(
+          error.message,
+          "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
+        );
+        return true;
+      }
+    );
+    assert.equal(signingCalls, 0);
+    assert.equal(submittedMessages.length, 0);
+  });
+
+  it("applies the same typed funding guard to ordinary submission", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    transaction.recentBlockhash = undefined;
+    let signingCalls = 0;
+    const signer: ExternalSigner = {
+      walletAddress: transaction.feePayer!.toBase58(),
+      async signMessage(message) {
+        return message;
+      },
+      async signTransaction(bytes) {
+        signingCalls += 1;
+        return bytes;
+      },
+    };
+    const { context, submittedMessages } = contextFor(signer, {
+      feeLamports: 5_000,
+      balanceLamports: 4_999,
+    });
+
+    await assert.rejects(
+      () => signAndSubmitTx(context, transaction),
+      (error: unknown) =>
+        error instanceof SdkError &&
+        error.variant === "InsufficientSolForTransactionFees"
+    );
+    assert.equal(signingCalls, 0);
+    assert.equal(submittedMessages.length, 0);
+  });
+
+  it("keeps the sponsorship value captured before blockhash lookup", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    transaction.recentBlockhash = undefined;
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: transaction.feePayer!.toBase58(),
+    };
+    const { context, submittedMessages } = contextFor(signer, {
+      feeLamports: 5_000,
+      balanceLamports: 4_999,
+    });
+    let releaseBlockhash!: () => void;
+    const blockhashReleased = new Promise<void>((resolve) => {
+      releaseBlockhash = resolve;
+    });
+    let markBlockhashStarted!: () => void;
+    const blockhashStarted = new Promise<void>((resolve) => {
+      markBlockhashStarted = resolve;
+    });
+    const connection = context.primaryConnection as Connection;
+    connection.getLatestBlockhash = async () => {
+      markBlockhashStarted();
+      await blockhashReleased;
+      return {
+        blockhash: Keypair.generate().publicKey.toBase58(),
+        lastValidBlockHeight: 100,
+      };
+    };
+
+    const submission = signAndSubmitTx(context, transaction);
+    await blockhashStarted;
+    (
+      context as ClientContext & { transactionSponsorshipEnabled: boolean }
+    ).transactionSponsorshipEnabled = true;
+    releaseBlockhash();
+
+    await assert.rejects(
+      submission,
+      (error: unknown) =>
+        error instanceof SdkError &&
+        error.variant === "InsufficientSolForTransactionFees"
+    );
+    assert.equal(submittedMessages.length, 0);
+  });
+
+  it("preserves submission when either generic funding observation fails", async () => {
+    for (const funding of [
+      { feeError: new Error("fee unavailable") },
+      { balanceError: new Error("balance unavailable") },
+    ]) {
+      const transaction = preparedTransaction(
+        Keypair.generate().publicKey.toBase58()
+      );
+      const signer: ExternalSigner = {
+        ...echoSigner,
+        walletAddress: transaction.feePayer!.toBase58(),
+      };
+      const { context, submittedMessages } = contextFor(signer, funding);
+
+      await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
+
+      assert.equal(submittedMessages.length, 1);
+    }
+  });
+
+  it("continues when the fee-payer balance is strictly above the exact fee", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: transaction.feePayer!.toBase58(),
+    };
+    const { context, submittedMessages } = contextFor(signer, {
+      feeLamports: 5_000,
+      balanceLamports: 5_001,
+    });
+
+    await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
+
+    assert.equal(submittedMessages.length, 1);
+  });
+
+  it("bypasses funding RPC only for sponsored external submission", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: transaction.feePayer!.toBase58(),
+    };
+    const { context, fundingCalls } = contextFor(signer, { sponsored: true });
+
+    await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
+
+    assert.deepEqual(fundingCalls, { fee: 0, balance: 0 });
+  });
+
+  it("rejects sponsored local-keypair submission before signing", async () => {
+    const keypair = Keypair.generate();
+    const transaction = new Transaction({ feePayer: keypair.publicKey }).add(
+      SystemProgram.transfer({
+        fromPubkey: keypair.publicKey,
+        toPubkey: Keypair.generate().publicKey,
+        lamports: 1,
+      })
+    );
+    const { context } = contextFor(echoSigner, { sponsored: true });
+    const nativeContext = {
+      ...context,
+      signingStrategy: { type: "native", keypair },
+    } as ClientContext;
+
+    await assert.rejects(
+      () => signAndSubmitTx(nativeContext, transaction),
+      /transaction sponsorship is not supported with local-keypair signing/
+    );
+    assert.equal(transaction.signatures.length, 0);
   });
 
   it("rejects a wallet that replaces the prepared blockhash", async () => {
@@ -181,6 +416,7 @@ describe("prepared transaction submission", () => {
       backupConnection,
       rpcFailoverState: new RpcFailoverState(),
       signingStrategy: { type: "walletAdapter", signer },
+      transactionSponsorshipEnabled: false,
       depositSource: DepositSource.Global,
     } as unknown as ClientContext;
 

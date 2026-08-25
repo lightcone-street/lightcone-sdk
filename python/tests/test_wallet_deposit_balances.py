@@ -43,7 +43,7 @@ from lightcone_sdk.domain.position import (
     WalletNativeSolBalanceUpdate,
 )
 from lightcone_sdk.domain.position.client import Positions, native_withdraw_seed
-from lightcone_sdk.error import SdkError
+from lightcone_sdk.error import InsufficientSolForTransactionFees, SdkError
 from lightcone_sdk.program import InvalidOutcomeIndexError, get_associated_token_address
 from lightcone_sdk.rpc import CanonicalWsolAccountInfo
 from lightcone_sdk.shared.signing import (
@@ -561,11 +561,13 @@ def test_sol_action_availability_uses_live_costs_and_reserve_floors() -> None:
     )
     assert sponsored.reserve_lamports == 0
 
-    with pytest.raises(SdkError, match="transaction reserve"):
+    with pytest.raises(InsufficientSolForTransactionFees) as raised:
         SolBalanceAvailability.from_costs(
             SolBalanceComponents(999_999, 10_000_000),
             SolActionCosts(5_000, 0, False, False),
         )
+    assert raised.value.available_lamports == 999_999
+    assert raised.value.required_lamports == 1_000_000
 
 
 @pytest.mark.parametrize(
@@ -621,11 +623,13 @@ def test_unwrap_all_availability_reserves_only_the_exact_live_fee() -> None:
 
 def test_unwrap_all_availability_fails_closed_on_fee_and_display_errors() -> None:
     """Require native fee funding and checked common-u64 displayed arithmetic."""
-    with pytest.raises(SdkError, match="unwrap-all transaction fee"):
+    with pytest.raises(InsufficientSolForTransactionFees) as raised:
         SolBalanceAvailability.from_unwrap_all_costs(
             SolBalanceComponents(4_999, 500_000_000),
             SolActionCosts(5_000, 0, False, False),
         )
+    assert raised.value.available_lamports == 4_999
+    assert raised.value.required_lamports == 5_000
     with pytest.raises(SdkError, match="displayed SOL exceeds"):
         SolBalanceAvailability.from_unwrap_all_costs(
             SolBalanceComponents(2**64 - 1, 1),
@@ -910,8 +914,10 @@ async def test_unwrap_all_requires_native_fee_and_checked_destination_balance() 
     positions, state, _rpc, _wallet = planning_harness(
         native="0.000004999", fees=[5_000]
     )
-    with pytest.raises(SdkError, match="unwrap-all transaction fee"):
+    with pytest.raises(InsufficientSolForTransactionFees) as raised:
         await positions.plan_unwrap_wsol_all(state)
+    assert raised.value.available_lamports == 4_999
+    assert raised.value.required_lamports == 5_000
 
     positions, state, _rpc, _wallet = planning_harness(
         native="18446744073.709551614",

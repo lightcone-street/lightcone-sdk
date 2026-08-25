@@ -21,6 +21,10 @@ interface ClientContext {
 export class Privy {
   constructor(private readonly client: ClientContext) {}
 
+  /**
+   * Forward caller-prepared transaction bytes to the Privy signing backend.
+   * This raw API does not run the shared SDK fee-funding preflight.
+   */
   async signAndSendTx(walletId: string, base64Tx: string): Promise<SignAndSendTxResponse> {
     const url = `${this.client.http.baseUrl()}/api/privy/sign_and_send_tx`;
     const body: SignAndSendTxRequest = {

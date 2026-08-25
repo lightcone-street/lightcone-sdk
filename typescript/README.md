@@ -17,6 +17,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
@@ -24,6 +25,24 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 ```bash
 npm install @lightconexyz/lightcone-sdk
 ```
+
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall is an `SdkError` with variant
+`InsufficientSolForTransactionFees`, bigint `availableLamports` and
+`requiredLamports` fields, and the canonical deposit-SOL message. Fee or balance
+lookup failure continues through the existing submission path; planner-owned SOL
+actions retain fail-closed live fee, rent, and reserve checks.
+
+`LightconeClient.builder().transactionSponsorship(true)` and
+`client.setTransactionSponsorshipEnabled(true)` are trusted application assertions
+for wallet-adapter and Privy signing. The default is false, each transaction
+captures its signer and capability before asynchronous RPC work, `clone()` copies
+the current value, and local-keypair submission rejects an enabled capability. Raw
+`Privy.signAndSendTx` forwarding and off-chain order-message signing are outside
+this contract.
 
 ## Quick Start
 

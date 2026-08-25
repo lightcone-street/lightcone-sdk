@@ -77,6 +77,15 @@ pub enum SigningStrategy {
 }
 
 impl SigningStrategy {
+    /// Return whether this strategy signs with a local keypair that cannot use sponsorship.
+    pub(crate) fn is_local_keypair(&self) -> bool {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(_) => true,
+            Self::WalletAdapter(_) => false,
+        }
+    }
+
     /// Return the wallet identity this strategy can prove before signing.
     pub fn wallet_address(&self) -> Option<Pubkey> {
         match self {

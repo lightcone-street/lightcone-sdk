@@ -23,6 +23,8 @@ export interface ClientContext {
   readonly rpcFailoverState: RpcFailoverState;
   readonly depositSource: DepositSource;
   readonly signingStrategy?: SigningStrategy;
+  /** Trusted application assertion that an external sponsor pays fees; omission is false. */
+  readonly transactionSponsorshipEnabled?: boolean;
   /** Optional cached identity for auth-bound operations; callers must check expiry. */
   readonly authCredentials?: AuthCredentials;
   orderNonce?(): number | undefined;
@@ -117,6 +119,65 @@ export function requireSigningStrategy(ctx: ClientContext): SigningStrategy {
   return ctx.signingStrategy;
 }
 
+/** Capture one signer and sponsorship assertion before transaction work can yield. */
+function requireTransactionSigningContext(ctx: ClientContext): {
+  strategy: SigningStrategy;
+  sponsorshipEnabled: boolean;
+} {
+  return {
+    strategy: requireSigningStrategy(ctx),
+    sponsorshipEnabled: ctx.transactionSponsorshipEnabled ?? false,
+  };
+}
+
+/**
+ * Reject proven fee shortfalls before signing while preserving submission on unknown evidence.
+ *
+ * The transaction's prepared message supplies the exact fee and declared fee
+ * payer. Fee or balance lookup failure is deliberately best-effort; planner-owned
+ * SOL admission remains fail-closed before reaching this shared boundary. The
+ * signer and sponsorship value were captured together before RPC work.
+ */
+async function preflightTransactionFeeFunding(
+  ctx: ClientContext,
+  tx: import("@solana/web3.js").Transaction,
+  strategy: SigningStrategy,
+  sponsorshipEnabled: boolean
+): Promise<void> {
+  if (!tx.feePayer) {
+    throw SdkError.validation("transaction is missing a declared fee payer");
+  }
+  if (sponsorshipEnabled) {
+    if (strategy.type === "native") {
+      throw SdkError.validation(
+        "transaction sponsorship is not supported with local-keypair signing"
+      );
+    }
+    return;
+  }
+
+  const { Rpc } = await import("./rpc");
+  const rpc = new Rpc(ctx);
+  let requiredLamports: bigint;
+  try {
+    requiredLamports = await rpc.estimatePreparedTransactionFee(tx);
+  } catch {
+    return;
+  }
+  let availableLamports: bigint;
+  try {
+    availableLamports = await rpc.balanceLamports(tx.feePayer);
+  } catch {
+    return;
+  }
+  if (availableLamports < requiredLamports) {
+    throw SdkError.insufficientSolForTransactionFees(
+      availableLamports,
+      requiredLamports
+    );
+  }
+}
+
 /**
  * Sign and submit a transaction using the client's signing strategy.
  *
@@ -124,13 +185,15 @@ export function requireSigningStrategy(ctx: ClientContext): SigningStrategy {
  * accepts the transaction — inclusion is not awaited. When follow-up work
  * depends on this transaction's on-chain effects, use
  * {@link signAndSubmitTxConfirmed} instead.
+ * Unsponsored submission checks exact fee funding before signing when both
+ * required RPC observations are available.
  */
 export async function signAndSubmitTx(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<string> {
-  const strategy = requireSigningStrategy(ctx);
-  const { signature } = await signAndSubmitTxInner(ctx, tx, strategy);
+  const { strategy, sponsorshipEnabled } = requireTransactionSigningContext(ctx);
+  const { signature } = await signAndSubmitTxInner(ctx, tx, strategy, sponsorshipEnabled);
   return signature;
 }
 
@@ -171,10 +234,12 @@ export async function signAndSubmitTxConfirmedWithSlot(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction
 ): Promise<ConfirmedTransaction> {
+  const { strategy, sponsorshipEnabled } = requireTransactionSigningContext(ctx);
   return signAndSubmitTxConfirmedWithSlotUsingStrategy(
     ctx,
     tx,
-    requireSigningStrategy(ctx)
+    strategy,
+    sponsorshipEnabled
   );
 }
 
@@ -184,6 +249,8 @@ export async function signAndSubmitTxConfirmedWithSlot(
  * This function preserves the prepared blockhash. A wallet adapter may add
  * signatures but may not replace any message field. Signed bytes are sent once to
  * the active RPC because a transport failure may occur after acceptance.
+ * The unchanged message receives the same best-effort fee-funding preflight as an
+ * ordinary transaction before the signer runs.
  */
 export async function signAndSubmitPreparedTxConfirmedWithSlot(
   ctx: ClientContext,
@@ -192,7 +259,7 @@ export async function signAndSubmitPreparedTxConfirmedWithSlot(
   if (!tx.recentBlockhash) {
     throw SdkError.validation("prepared transaction is missing a recent blockhash");
   }
-  const strategy = requireSigningStrategy(ctx);
+  const { strategy, sponsorshipEnabled } = requireTransactionSigningContext(ctx);
   if (!tx.feePayer) {
     throw SdkError.validation("prepared transaction is missing a fee payer");
   }
@@ -214,6 +281,7 @@ export async function signAndSubmitPreparedTxConfirmedWithSlot(
       "signing strategy does not control prepared transaction fee payer"
     );
   }
+  await preflightTransactionFeeFunding(ctx, tx, strategy, sponsorshipEnabled);
   const signature = await signAndSubmitPreparedTxInner(ctx, tx, strategy);
   const { Rpc } = await import("./rpc");
   const status = await new Rpc(ctx).confirmSignatureStatus(signature, null);
@@ -226,10 +294,12 @@ export async function signAndSubmitTxConfirmedUsingStrategy(
   tx: import("@solana/web3.js").Transaction,
   strategy: SigningStrategy
 ): Promise<string> {
+  const sponsorshipEnabled = ctx.transactionSponsorshipEnabled ?? false;
   const confirmed = await signAndSubmitTxConfirmedWithSlotUsingStrategy(
     ctx,
     tx,
-    strategy
+    strategy,
+    sponsorshipEnabled
   );
   return confirmed.signature;
 }
@@ -237,14 +307,16 @@ export async function signAndSubmitTxConfirmedUsingStrategy(
 async function signAndSubmitTxConfirmedWithSlotUsingStrategy(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction,
-  strategy: SigningStrategy
+  strategy: SigningStrategy,
+  sponsorshipEnabled: boolean
 ): Promise<ConfirmedTransaction> {
   const { Rpc } = await import("./rpc");
 
   const { signature, lastValidBlockHeight } = await signAndSubmitTxInner(
     ctx,
     tx,
-    strategy
+    strategy,
+    sponsorshipEnabled
   );
   const status = await new Rpc(ctx).confirmSignatureStatus(
     signature,
@@ -254,15 +326,18 @@ async function signAndSubmitTxConfirmedWithSlotUsingStrategy(
 }
 
 /**
- * Shared submit path: sign, send, and return the signature together with the
- * `lastValidBlockHeight` of the blockhash the submitted wire bytes are known
- * to carry — `null` when that cannot be proven (external signer replaced the
- * blockhash, or the bytes were never visible to the SDK).
+ * Prepare funding evidence, sign, send, and return the signature and expiry bound.
+ *
+ * The fresh blockhash feeds best-effort fee preflight before any signer runs.
+ * `lastValidBlockHeight` is `null` when the submitted wire bytes cannot be proven
+ * to retain that blockhash because an external signer replaced it or the final
+ * bytes were never visible to the SDK.
  */
 async function signAndSubmitTxInner(
   ctx: ClientContext,
   tx: import("@solana/web3.js").Transaction,
-  strategy: SigningStrategy
+  strategy: SigningStrategy,
+  sponsorshipEnabled: boolean
 ): Promise<{ signature: string; lastValidBlockHeight: number | null }> {
   const { isUserCancellation } = await import("./shared/signing");
   const { SdkError } = await import("./error");
@@ -276,6 +351,7 @@ async function signAndSubmitTxInner(
   );
   tx.recentBlockhash = blockhash;
   tx.lastValidBlockHeight = lastValidBlockHeight;
+  await preflightTransactionFeeFunding(ctx, tx, strategy, sponsorshipEnabled);
 
   switch (strategy.type) {
     case "native": {
