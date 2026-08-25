@@ -2,15 +2,16 @@
 
 RPC failover state flow: The trigger is an operation on the active connection. The
 handoff retries the same endpoint before trying the configured alternate. The guard
-allows failover only for infrastructure errors. The result either returns from a
-working endpoint or preserves the retry failure. Recovery restores the primary
-after its cooldown.
+allows failover only for infrastructure errors. The result returns from a working
+endpoint, propagates a configured alternate's failure, or preserves the retry
+failure when no alternate exists. Recovery restores the primary after its cooldown.
 
 Confirmation state flow: The trigger is a submitted signature entering polling.
 The handoff sends status and block-height reads through RPC failover. Confirmation,
 on-chain failure, consecutive-error, and repeated-expiry guards choose the result.
-Recovery keeps uncertain outcomes polling until the cap raises
-``ConfirmationTimeout`` and checks ledger history before reporting safe expiry.
+Recovery resets expiry evidence after gaps or live sightings and checks ledger
+history before reporting safe expiry. Three consecutive signature-status poll
+failures or the poll cap raise ``ConfirmationTimeout``.
 """
 
 from __future__ import annotations
