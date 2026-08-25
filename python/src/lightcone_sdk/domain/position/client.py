@@ -810,7 +810,11 @@ class Positions:
         )
 
     def _planning_wallet(self, state: WalletDepositBalancesState) -> Pubkey:
-        """Validate the cached identity boundary before planning a transaction."""
+        """Resolve an unexpired wallet from matching initialized balance state.
+
+        This requires the configured signing strategy to control the authenticated
+        wallet. It does not prove balance freshness.
+        """
         credentials = self._client.auth().credentials()
         if credentials is None:
             raise SdkError("authenticated credentials are required")

@@ -21,6 +21,35 @@ Rust, TypeScript, and Python expose equivalent `SolBalanceBreakdown`, cost, avai
 
 Every planner requires initialized matching-wallet state and live RPC results. It returns an unsigned transaction, exact costs and availability, and a `SolBalanceDelta` with separate expected native and canonical balance changes. Callers rebuild the plan at their final account-operation boundary, submit through the slot-bearing confirmed API, freeze one projection from the final plan, and restore authority only from a complete snapshot covering the confirmation slot.
 
+All action amounts, costs, reserves, and component deltas are lamports. Planning
+rejects zero or out-of-range action amounts, incomplete or wrong-wallet state,
+unavailable RPC authority, inconsistent canonical-account state, insufficient funds,
+and sponsored requests until a concrete sponsor owns transaction fees and account
+rent. Shared cost and availability values model sponsored accounting, but action
+planners do not accept it and the SDK does not verify or arrange sponsorship.
+
+## Action Flow
+
+```text
+plan -> sign the prepared message -> submit -> confirm -> refresh complete state
+```
+
+1. The caller builds a plan from initialized matching-wallet state and live RPC
+   values. Planning returns an unsigned, fee-prepared transaction and does not
+   mutate cached state.
+2. The caller submits the final plan through the slot-bearing prepared-transaction
+   API. Signing may add signatures but may not replace the fee payer, accounts,
+   instructions, or blockhash used for fee estimation.
+3. The SDK submits and polls to confirmed commitment. Python and TypeScript reject
+   Privy prepared submission because they cannot inspect its backend-signed message.
+4. The caller uses the confirmed slot to fetch a complete snapshot before restoring
+   action authority.
+
+Invalid signed bytes or a changed prepared message fail before RPC submission. An
+on-chain failure is terminal. Prepared confirmation does not claim block-height
+expiry, so a timeout leaves the result unknown; inspect the signature or authoritative
+balances before retrying.
+
 ## Instruction Ownership
 
 The SDK owns canonical mint/account derivation and instruction order.

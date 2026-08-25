@@ -669,13 +669,18 @@ impl<'a> Positions<'a> {
 
     /// Plan an exact native-SOL withdrawal to an arbitrary Solana recipient.
     ///
-    /// Native funds are sent directly when they cover both amount and reserve.
-    /// Otherwise only the required canonical WSOL is moved through a seeded,
-    /// short-lived Tokenkeg account; the persistent canonical ATA stays open.
-    /// Account presence, rent, and fees are live authority and any unavailable
-    /// read fails closed. Seed selection tries at most eight blockhash-scoped
-    /// candidates to bound RPC latency while making accidental exhaustion
-    /// negligible. The returned transaction's message is already prepared.
+    /// `amount_lamports` is an exact positive `u64`. Native SOL is transferred
+    /// directly when it covers the amount and reserve. Otherwise the plan moves
+    /// only the shortfall from persistent canonical WSOL through a temporary
+    /// Tokenkeg account, closes that temporary account, and then transfers the
+    /// requested native lamports. The canonical WSOL account remains open.
+    ///
+    /// Account presence, rent, and message fees are live RPC authority. Temporary
+    /// account selection checks at most eight blockhash-scoped seeds. Missing RPC
+    /// values, exhausted seeds, a changing rebuilt fee, invalid or mismatched state,
+    /// and insufficient native or canonical funds return an error before submission.
+    /// Sponsored planning is rejected until a concrete sponsor owns transaction
+    /// fees and account rent; the SDK does not verify or arrange sponsorship.
     pub async fn plan_native_sol_withdrawal(
         &self,
         recipient: Pubkey,
@@ -902,7 +907,10 @@ impl<'a> Positions<'a> {
         })
     }
 
-    /// Resolve the authenticated wallet only from fresh matching cached authority.
+    /// Resolve an unexpired authenticated wallet from matching initialized state.
+    ///
+    /// This requires the configured signing strategy to control the authenticated
+    /// wallet. It does not prove balance freshness.
     async fn planning_wallet(
         &self,
         state: &WalletDepositBalancesState,
