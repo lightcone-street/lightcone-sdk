@@ -1,4 +1,17 @@
-"""Read Solana state, prepare exact transaction fees, and confirm submissions."""
+"""Read Solana state, prepare exact transaction fees, and confirm submissions.
+
+RPC failover state flow: The trigger is an operation on the active connection. The
+handoff retries the same endpoint before trying the configured alternate. The guard
+allows failover only for infrastructure errors. The result either returns from a
+working endpoint or preserves the retry failure. Recovery restores the primary
+after its cooldown.
+
+Confirmation state flow: The trigger is a submitted signature entering polling.
+The handoff sends status and block-height reads through RPC failover. Confirmation,
+on-chain failure, consecutive-error, and repeated-expiry guards choose the result.
+Recovery keeps uncertain outcomes polling until the cap raises
+``ConfirmationTimeout`` and checks ledger history before reporting safe expiry.
+"""
 
 from __future__ import annotations
 
