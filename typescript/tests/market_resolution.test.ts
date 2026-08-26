@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   MarketResolutionKind,
+  OutcomeValidationError,
   hasSingleWinningOutcome,
   isMarketResolved,
   marketFromWire,
@@ -126,6 +127,46 @@ function marketResponse(
 }
 
 describe("market metadata", () => {
+  it("keeps outcomes valid when artwork is absent, null, or blank", () => {
+    const response = marketResponse();
+    response.outcomes[0] = {
+      index: 0,
+      name: "Yes",
+      icon_url_low: null,
+      icon_url_medium: null,
+      icon_url_high: null,
+    };
+    response.outcomes[1] = {
+      index: 1,
+      name: "No",
+      icon_url_low: " ",
+      icon_url_medium: "https://example.com/no.png",
+      icon_url_high: "",
+    };
+
+    const market = marketFromWire(response);
+    assert.deepEqual(market.outcomes[0], {
+      index: 0,
+      name: "Yes",
+      nameLong: undefined,
+      iconUrlLow: undefined,
+      iconUrlMedium: undefined,
+      iconUrlHigh: undefined,
+    });
+    assert.equal(market.outcomes[1]?.iconUrlLow, "https://example.com/no.png");
+    assert.equal(market.outcomes[1]?.iconUrlMedium, "https://example.com/no.png");
+    assert.equal(market.outcomes[1]?.iconUrlHigh, "https://example.com/no.png");
+
+    const preserved = marketFromWire(marketResponse()).outcomes[0];
+    assert.equal(preserved?.iconUrlLow, "https://example.com/yes-low.png");
+    assert.equal(preserved?.iconUrlMedium, "https://example.com/yes-low.png");
+    assert.equal(preserved?.iconUrlHigh, "https://example.com/yes-low.png");
+
+    const retainedError = new OutcomeValidationError("Yes", ["legacy"]);
+    assert.equal(retainedError.name, "OutcomeValidationError");
+    assert.deepEqual(retainedError.details, ["legacy"]);
+  });
+
   it("converts markets without description, banners, subcategory, or tags", () => {
     const response = marketResponse();
     delete response.description;

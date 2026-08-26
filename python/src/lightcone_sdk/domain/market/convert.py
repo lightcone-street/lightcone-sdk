@@ -37,6 +37,11 @@ def _resolve_icon_urls(
     )
 
 
+def _non_blank_outcome_icon(value: str | None) -> str | None:
+    """Treat blank outcome artwork as absent without rewriting non-blank URLs."""
+    return value if value and value.strip() else None
+
+
 def _parse_status(s: str | None) -> Status:
     if s is None:
         return Status.PENDING
@@ -102,7 +107,7 @@ def validation_errors_from_wire(wire: MarketWire) -> list[str]:
 
 
 def market_from_wire(wire: MarketWire) -> Market:
-    """Convert a MarketWire to a Market domain type."""
+    """Convert a market while keeping outcome artwork all-present or all-absent."""
     definition = wire.definition
     if not isinstance(definition, str) or not definition:
         identifier = wire.market_pubkey or str(wire.market_id)
@@ -122,15 +127,17 @@ def market_from_wire(wire: MarketWire) -> Market:
     outcomes = []
     for o in wire.outcomes:
         outcome_icons = _resolve_icon_urls(
-            o.icon_url_low, o.icon_url_medium, o.icon_url_high
+            _non_blank_outcome_icon(o.icon_url_low),
+            _non_blank_outcome_icon(o.icon_url_medium),
+            _non_blank_outcome_icon(o.icon_url_high),
         )
         outcomes.append(
             Outcome(
                 index=o.index,
                 name=o.name,
-                icon_url_low=outcome_icons[0] if outcome_icons else "",
-                icon_url_medium=outcome_icons[1] if outcome_icons else "",
-                icon_url_high=outcome_icons[2] if outcome_icons else "",
+                icon_url_low=outcome_icons[0] if outcome_icons else None,
+                icon_url_medium=outcome_icons[1] if outcome_icons else None,
+                icon_url_high=outcome_icons[2] if outcome_icons else None,
             )
         )
 

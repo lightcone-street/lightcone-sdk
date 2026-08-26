@@ -108,12 +108,14 @@ class MarketResolutionResponse:
 
 @dataclass
 class Outcome:
+    """Display metadata whose quality artwork is either cross-filled or wholly absent."""
+
     index: int
     name: str
     name_long: str = ""
-    icon_url_low: str = ""
-    icon_url_medium: str = ""
-    icon_url_high: str = ""
+    icon_url_low: Optional[str] = None
+    icon_url_medium: Optional[str] = None
+    icon_url_high: Optional[str] = None
 
 
 @dataclass
