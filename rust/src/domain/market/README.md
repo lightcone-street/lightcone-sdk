@@ -86,9 +86,11 @@ An individual outcome within a market.
 |-------|------|-------------|
 | `index` | `i16` | Outcome index (0-based) |
 | `name` | `String` | Outcome name (e.g., "Yes", "No") |
-| `icon_url_low` | `String` | Outcome-specific icon (low quality) |
-| `icon_url_medium` | `String` | Outcome-specific icon (medium quality) |
-| `icon_url_high` | `String` | Outcome-specific icon (high quality) |
+| `icon_url_low` | `Option<String>` | Optional outcome-specific icon (low quality) |
+| `icon_url_medium` | `Option<String>` | Optional outcome-specific icon (medium quality) |
+| `icon_url_high` | `Option<String>` | Optional outcome-specific icon (high quality) |
+
+Missing, empty, and whitespace-only outcome icon values are absent. When any quality is present, it cross-fills missing qualities; otherwise all three fields are `None` and the outcome remains valid.
 
 ### `ConditionalToken`
 
