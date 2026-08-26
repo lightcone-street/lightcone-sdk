@@ -9,6 +9,7 @@ import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
+from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
@@ -24,17 +25,17 @@ from .domain.position.client import Positions
 from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
+from .env import LightconeEnv
+from .error import InsufficientSolForTransactionFees, SdkError
 from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
 from .http.credential_restorer import CredentialRestorer
-from .env import LightconeEnv
 from .privy.client import Privy
 from .rpc import Rpc
-from .error import InsufficientSolForTransactionFees, SdkError
 from .rpc_failover import (
+    FAST_RETRY_DELAY_SECS,
     ActiveRpc,
     RpcFailoverState,
     is_infrastructure_error,
-    FAST_RETRY_DELAY_SECS,
 )
 from .shared.signing import (
     ExternalSigner,
@@ -43,7 +44,7 @@ from .shared.signing import (
     classify_signer_error,
 )
 from .shared.types import DepositSource
-from .ws import WsConfig, WS_DEFAULT_CONFIG
+from .ws import WS_DEFAULT_CONFIG, WsConfig
 from .ws.client import WsClient
 
 
@@ -57,24 +58,27 @@ class ConfirmedTransaction:
     slot: int
 
 
-def _signed_blockhash_unchanged(
-    signed_bytes: bytes, expected_blockhash: object
+def _validate_ordinary_signed_transaction(
+    signed_bytes: bytes, expected_message: Message, expected_blockhash: object
 ) -> bool:
-    """True when the signed wire bytes still carry ``expected_blockhash``.
+    """Allow an external signer to replace only the ordinary transaction blockhash.
 
-    External signers may re-blockhash a transaction before signing; a bound
-    derived from the original blockhash must then not be used for expiry
-    detection.
+    Fee payer, accounts, and instructions are the authority used by fee preflight.
+    A replacement blockhash remains allowed, but its original expiry bound is discarded.
     """
     from solders.transaction import Transaction
 
     try:
-        return (
-            Transaction.from_bytes(signed_bytes).message.recent_blockhash
-            == expected_blockhash
-        )
-    except Exception:
-        return False
+        signed_message = Transaction.from_bytes(signed_bytes).message
+    except Exception as error:
+        raise SdkError(f"signed transaction is invalid: {error}") from error
+    if (
+        signed_message.header != expected_message.header
+        or signed_message.account_keys != expected_message.account_keys
+        or signed_message.instructions != expected_message.instructions
+    ):
+        raise SdkError("wallet changed the transaction message beyond recent blockhash")
+    return signed_message.recent_blockhash == expected_blockhash
 
 
 def _validate_prepared_signed_transaction(
@@ -89,6 +93,22 @@ def _validate_prepared_signed_transaction(
         raise SdkError(f"signed transaction is invalid: {error}") from error
     if signed_message != expected_message:
         raise SdkError("wallet changed the fee-prepared transaction message")
+
+
+def _snapshot_transaction(tx: object) -> Transaction:
+    """Own the transaction message before asynchronous submission work begins."""
+    try:
+        return Transaction.from_bytes(bytes(tx))  # type: ignore[call-overload]
+    except Exception as error:
+        raise SdkError(f"transaction serialization failed: {error}") from error
+
+
+def _copy_signatures_if_message_unchanged(
+    signed: Transaction, caller_tx: object
+) -> None:
+    """Publish local signatures only when the caller still holds the submitted message."""
+    if bytes(caller_tx.message) == bytes(signed.message):  # type: ignore[attr-defined]
+        caller_tx.signatures = list(signed.signatures)  # type: ignore[attr-defined]
 
 
 class LightconeClient:
@@ -302,6 +322,32 @@ class LightconeClient:
         """Capture one signer and sponsorship assertion before async transaction work."""
         return self._require_signing_strategy(), self._transaction_sponsorship_enabled
 
+    def _validate_transaction_fee_funding_context(
+        self,
+        tx: Transaction,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Reject invalid payer and sponsorship combinations before async work.
+
+        Unsponsored known signers must control the payer being classified. Sponsored
+        external flows may use a different payer, while native sponsorship is rejected
+        before blockhash RPC or caller-transaction mutation.
+        """
+        if not tx.message.account_keys:
+            raise SdkError("transaction is missing a declared fee payer")
+        if sponsorship_enabled:
+            if strategy.kind == SigningStrategyKind.NATIVE:
+                raise SdkError(
+                    "transaction sponsorship is not supported with local-keypair signing"
+                )
+            return
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is not None and signing_address != str(
+            tx.message.account_keys[0]
+        ):
+            raise SdkError("signing strategy does not control transaction fee payer")
+
     async def _preflight_transaction_fee_funding(
         self,
         tx: Transaction,
@@ -315,23 +361,19 @@ class LightconeClient:
         SOL admission remains fail-closed before reaching this shared boundary. The
         signer and sponsorship value were captured together before RPC work.
         """
-        if not tx.message.account_keys:
-            raise SdkError("transaction is missing a declared fee payer")
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled
+        )
         if sponsorship_enabled:
-            if strategy.kind == SigningStrategyKind.NATIVE:
-                raise SdkError(
-                    "transaction sponsorship is not supported with local-keypair signing"
-                )
             return
+        fee_payer = tx.message.account_keys[0]
 
         try:
             required_lamports = await self.rpc().estimate_prepared_transaction_fee(tx)
         except Exception:
             return
         try:
-            available_lamports = await self.rpc().balance_lamports(
-                tx.message.account_keys[0]
-            )
+            available_lamports = await self.rpc().balance_lamports(fee_payer)
         except Exception:
             return
         if available_lamports < required_lamports:
@@ -410,7 +452,9 @@ class LightconeClient:
         the SDK cannot inspect its final wire message. Signed bytes are sent once
         to the active RPC because a transport failure may occur after acceptance.
         The unchanged message receives best-effort fee-funding preflight before
-        the signer runs unless sponsorship is enabled.
+        the signer runs unless sponsorship is enabled. A sponsored external
+        signer may differ from the declared fee payer. The transaction is copied
+        before the first await so later caller mutation cannot change fee authority.
         Confirmation has no expiry bound. Callers inspect authoritative state
         before retrying an unknown outcome.
         """
@@ -421,19 +465,17 @@ class LightconeClient:
         if not tx.message.account_keys:
             raise SdkError("prepared transaction is missing a fee payer")
         strategy, sponsorship_enabled = self._require_transaction_signing_context()
-        signing_address = strategy.controlled_wallet_address()
-        if signing_address is None:
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled
+        )
+        if not sponsorship_enabled and strategy.controlled_wallet_address() is None:
             raise SdkError("signing strategy wallet identity is required")
-        try:
-            signing_wallet = Pubkey.from_string(signing_address)
-        except (TypeError, ValueError) as error:
-            raise SdkError(f"signing strategy wallet is invalid: {error}") from error
-        if signing_wallet != tx.message.account_keys[0]:
-            raise SdkError(
-                "signing strategy does not control prepared transaction fee payer"
-            )
+        caller_tx = tx
+        tx = _snapshot_transaction(tx)
         await self._preflight_transaction_fee_funding(tx, strategy, sponsorship_enabled)
-        signature = await self._sign_and_submit_prepared_tx_inner(tx, strategy)
+        signature = await self._sign_and_submit_prepared_tx_inner(
+            tx, strategy, caller_tx
+        )
         status = await self.rpc().confirm_signature_status(signature, None)
         return ConfirmedTransaction(signature=signature, slot=status.slot)
 
@@ -459,14 +501,21 @@ class LightconeClient:
         the expiry bound. Native and WalletAdapter require a fresh blockhash before
         best-effort fee preflight. Unsponsored Privy uses a fresh blockhash only
         when that observation succeeds and still treats the backend as final-wire
-        authority. ``last_valid_block_height`` is ``None`` when retention of the
-        observed blockhash cannot be proven.
+        authority. Submission uses a pre-await copy and writes the fresh blockhash
+        to the caller transaction. Local signatures follow only if its message matches.
+        ``last_valid_block_height`` is ``None`` when retention of the observed
+        blockhash cannot be proven.
         """
         if strategy is None:
             strategy, sponsorship_enabled = self._require_transaction_signing_context()
         elif sponsorship_enabled is None:
             sponsorship_enabled = self._transaction_sponsorship_enabled
         assert sponsorship_enabled is not None
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+        )
+        caller_tx = tx
+        tx = _snapshot_transaction(tx)
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             from solders.keypair import Keypair as _Keypair
@@ -476,10 +525,12 @@ class LightconeClient:
                 await self.rpc().get_latest_blockhash_with_height()
             )
             tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+            caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
             await self._preflight_transaction_fee_funding(
                 tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
             )
             tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
+            _copy_signatures_if_message_unchanged(tx, caller_tx)
             signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[call-overload]
             return signature, last_valid_block_height
 
@@ -493,16 +544,15 @@ class LightconeClient:
             # Set the fresh blockhash without signing (empty keypair list),
             # mirroring the Rust/TypeScript submit paths.
             tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+            caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
             await self._preflight_transaction_fee_funding(
                 tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
             )
+            expected_message = tx.message  # type: ignore[attr-defined]
             tx_bytes = bytes(tx)  # type: ignore[call-overload]
             signed_bytes = await signer.sign_transaction(tx_bytes)
-            # External signers may re-blockhash before signing; only trust the
-            # expiry bound when the signed bytes still carry the blockhash set
-            # above.
-            signed_blockhash_unchanged = _signed_blockhash_unchanged(
-                signed_bytes, blockhash
+            signed_blockhash_unchanged = _validate_ordinary_signed_transaction(
+                signed_bytes, expected_message, blockhash
             )
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
             # Submit via RPC with failover
@@ -532,6 +582,7 @@ class LightconeClient:
                         await self.rpc().get_latest_blockhash_with_height()
                     )
                     tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+                    caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
                 except Exception:
                     # The Privy backend remains authoritative when fee evidence
                     # cannot be prepared locally; preserve the prior forwarding path.
@@ -558,13 +609,18 @@ class LightconeClient:
         raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
     async def _sign_and_submit_prepared_tx_inner(
-        self, tx: Transaction, strategy: SigningStrategy | None = None
+        self,
+        tx: Transaction,
+        strategy: SigningStrategy | None = None,
+        caller_tx: object | None = None,
     ) -> str:
         """Sign and submit once without changing the fee-estimated message.
 
         Native signing preserves the message by construction. Wallet-adapter
         bytes are compared with the prepared message before one active-RPC send.
-        Privy is rejected because the SDK cannot inspect its final wire message.
+        A native signature is published to an unchanged caller message before that
+        send so an uncertain outcome remains reconcilable. Privy is rejected because
+        the SDK cannot inspect its final wire message.
         """
         if strategy is None:
             strategy = self._require_signing_strategy()
@@ -574,6 +630,8 @@ class LightconeClient:
 
             keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
             tx.sign([keypair], tx.message.recent_blockhash)
+            if caller_tx is not None:
+                _copy_signatures_if_message_unchanged(tx, caller_tx)
             return await self.rpc().send_raw_transaction_once(bytes(tx))
 
         if strategy.kind == SigningStrategyKind.WALLET_ADAPTER:

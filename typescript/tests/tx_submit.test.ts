@@ -297,19 +297,59 @@ describe("prepared transaction submission", () => {
     assert.equal(submittedMessages.length, 1);
   });
 
-  it("bypasses funding RPC only for sponsored external submission", async () => {
+  it("allows a sponsored external signer to differ from the prepared fee payer", async () => {
     const transaction = preparedTransaction(
       Keypair.generate().publicKey.toBase58()
     );
     const signer: ExternalSigner = {
       ...echoSigner,
-      walletAddress: transaction.feePayer!.toBase58(),
+      walletAddress: Keypair.generate().publicKey.toBase58(),
     };
-    const { context, fundingCalls } = contextFor(signer, { sponsored: true });
+    const { context, fundingCalls, submittedMessages } = contextFor(signer, {
+      sponsored: true,
+    });
 
     await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
 
     assert.deepEqual(fundingCalls, { fee: 0, balance: 0 });
+    assert.equal(submittedMessages.length, 1);
+  });
+
+  it("submits the prepared snapshot when the caller mutates after invocation", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    const expectedMessage = transaction.serializeMessage();
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: Keypair.generate().publicKey.toBase58(),
+    };
+    const { context, submittedMessages } = contextFor(signer, { sponsored: true });
+
+    const submission = signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
+    transaction.feePayer = Keypair.generate().publicKey;
+    transaction.instructions[0].data = Buffer.from([255]);
+    await submission;
+
+    assert.deepEqual(submittedMessages, [expectedMessage]);
+  });
+
+  it("rejects sponsored prepared local signing before payer validation", async () => {
+    const keypair = Keypair.generate();
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    const { context } = contextFor(echoSigner, { sponsored: true });
+    const nativeContext = {
+      ...context,
+      signingStrategy: { type: "native", keypair },
+    } as ClientContext;
+
+    await assert.rejects(
+      () => signAndSubmitPreparedTxConfirmedWithSlot(nativeContext, transaction),
+      /transaction sponsorship is not supported with local-keypair signing/
+    );
+    assert.equal(transaction.signatures.length, 0);
   });
 
   it("rejects sponsored local-keypair submission before signing", async () => {
@@ -326,12 +366,123 @@ describe("prepared transaction submission", () => {
       ...context,
       signingStrategy: { type: "native", keypair },
     } as ClientContext;
+    let blockhashCalls = 0;
+    (nativeContext.primaryConnection as Connection).getLatestBlockhash = async () => {
+      blockhashCalls += 1;
+      throw new Error("blockhash lookup must not run");
+    };
 
     await assert.rejects(
       () => signAndSubmitTx(nativeContext, transaction),
       /transaction sponsorship is not supported with local-keypair signing/
     );
+    assert.equal(blockhashCalls, 0);
+    assert.equal(transaction.recentBlockhash, undefined);
     assert.equal(transaction.signatures.length, 0);
+  });
+
+  it("rejects a known ordinary signer mismatch before funding RPC", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    transaction.recentBlockhash = undefined;
+    let signingCalls = 0;
+    const signer: ExternalSigner = {
+      walletAddress: Keypair.generate().publicKey.toBase58(),
+      async signMessage(message) {
+        return message;
+      },
+      async signTransaction(bytes) {
+        signingCalls += 1;
+        return bytes;
+      },
+    };
+    const { context, fundingCalls, submittedMessages } = contextFor(signer);
+    let blockhashCalls = 0;
+    (context.primaryConnection as Connection).getLatestBlockhash = async () => {
+      blockhashCalls += 1;
+      throw new Error("blockhash lookup must not run");
+    };
+
+    await assert.rejects(
+      () => signAndSubmitTx(context, transaction),
+      /does not control transaction fee payer/
+    );
+
+    assert.equal(blockhashCalls, 0);
+    assert.deepEqual(fundingCalls, { fee: 0, balance: 0 });
+    assert.equal(signingCalls, 0);
+    assert.equal(submittedMessages.length, 0);
+  });
+
+  it("submits the ordinary snapshot when the caller mutates during fee RPC", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    transaction.recentBlockhash = undefined;
+    const originalPayer = transaction.feePayer!;
+    const signer: ExternalSigner = {
+      ...echoSigner,
+      walletAddress: originalPayer.toBase58(),
+    };
+    const { context, submittedMessages } = contextFor(signer);
+    let feeStartedResolve!: () => void;
+    const feeStarted = new Promise<void>((resolve) => {
+      feeStartedResolve = resolve;
+    });
+    let releaseFeeResolve!: () => void;
+    const releaseFee = new Promise<void>((resolve) => {
+      releaseFeeResolve = resolve;
+    });
+    let expectedMessage: Uint8Array | undefined;
+    (context.primaryConnection as Connection).getFeeForMessage = async (message) => {
+      expectedMessage = message.serialize();
+      feeStartedResolve();
+      await releaseFee;
+      return { context: { slot: 1 }, value: 5_000 };
+    };
+    (context.primaryConnection as Connection).getBalance = async (feePayer) => {
+      assert.equal(feePayer.toBase58(), originalPayer.toBase58());
+      return 5_000;
+    };
+
+    const submission = signAndSubmitTx(context, transaction);
+    await feeStarted;
+    transaction.feePayer = Keypair.generate().publicKey;
+    transaction.instructions[0].data = Buffer.from([255]);
+    releaseFeeResolve();
+    await submission;
+
+    assert.ok(expectedMessage);
+    assert.deepEqual(submittedMessages, [expectedMessage]);
+  });
+
+  it("rejects ordinary wallet mutation beyond a replacement blockhash", async () => {
+    const transaction = preparedTransaction(
+      Keypair.generate().publicKey.toBase58()
+    );
+    transaction.recentBlockhash = undefined;
+    const signer: ExternalSigner = {
+      walletAddress: transaction.feePayer!.toBase58(),
+      async signMessage(message) {
+        return message;
+      },
+      async signTransaction(bytes) {
+        const changed = Transaction.from(bytes);
+        changed.feePayer = Keypair.generate().publicKey;
+        return changed.serialize({
+          requireAllSignatures: false,
+          verifySignatures: false,
+        });
+      },
+    };
+    const { context, submittedMessages } = contextFor(signer);
+
+    await assert.rejects(
+      () => signAndSubmitTx(context, transaction),
+      /changed the transaction message beyond recent blockhash/
+    );
+    assert.equal(submittedMessages.length, 0);
   });
 
   it("rejects a wallet that replaces the prepared blockhash", async () => {
@@ -383,7 +534,7 @@ describe("prepared transaction submission", () => {
 
     await assert.rejects(
       () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
-      /does not control prepared transaction fee payer/
+      /does not control transaction fee payer/
     );
     assert.equal(signingCalls, 0);
     assert.equal(submittedMessages.length, 0);
@@ -426,5 +577,38 @@ describe("prepared transaction submission", () => {
     );
     assert.equal(primaryAttempts, 1);
     assert.equal(backupAttempts, 0);
+  });
+
+  it("publishes the native signature before an uncertain prepared send", async () => {
+    const keypair = Keypair.generate();
+    const transaction = new Transaction({
+      feePayer: keypair.publicKey,
+      recentBlockhash: Keypair.generate().publicKey.toBase58(),
+    }).add(
+      SystemProgram.transfer({
+        fromPubkey: keypair.publicKey,
+        toPubkey: Keypair.generate().publicKey,
+        lamports: 1,
+      })
+    );
+    const { context } = contextFor(echoSigner);
+    const nativeContext = {
+      ...context,
+      signingStrategy: { type: "native", keypair },
+    } as ClientContext;
+    let submittedSignature: Buffer | null = null;
+    (nativeContext.primaryConnection as Connection).sendRawTransaction = async (
+      bytes
+    ) => {
+      submittedSignature = Transaction.from(bytes).signatures[0].signature;
+      throw new TypeError("network response was lost");
+    };
+
+    await assert.rejects(
+      () => signAndSubmitPreparedTxConfirmedWithSlot(nativeContext, transaction),
+      /network response was lost/
+    );
+    assert.ok(submittedSignature);
+    assert.deepEqual(transaction.signatures[0].signature, submittedSignature);
   });
 });

@@ -2565,8 +2565,11 @@ mod tests {
             .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
             .await
             .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("does not control prepared transaction fee payer"));
+        assert!(
+            error
+                .to_string()
+                .contains("does not control transaction fee payer"),
+            "unexpected error: {error}"
+        );
     }
 }
