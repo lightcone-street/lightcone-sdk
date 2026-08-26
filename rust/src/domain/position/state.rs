@@ -118,7 +118,7 @@ pub struct SolBalanceAvailability {
 }
 
 impl SolBalanceAvailability {
-    /// Derive ordinary availability, failing on component/cost overflow or insufficient native reserve.
+    /// Derive ordinary availability and report an insufficient native reserve as the typed fee error.
     pub fn from_costs(
         components: SolBalanceComponents,
         costs: SolActionCosts,
@@ -129,9 +129,10 @@ impl SolBalanceAvailability {
             .ok_or_else(|| SdkError::Validation("SOL balance components overflow u64".into()))?;
         let reserve_lamports = costs.reserve_lamports()?;
         if components.native_lamports < reserve_lamports {
-            return Err(SdkError::Validation(format!(
-                "native SOL balance cannot fund the required {reserve_lamports} lamport transaction reserve"
-            )));
+            return Err(SdkError::InsufficientSolForTransactionFees {
+                available_lamports: components.native_lamports,
+                required_lamports: reserve_lamports,
+            });
         }
         Ok(Self {
             components,
@@ -147,7 +148,8 @@ impl SolBalanceAvailability {
     /// creation, or upfront rent. It checks the component sum and fee subtraction.
     /// Native SOL must fund the fee without relying on lamports that a later
     /// `CloseAccount` instruction may transfer. The ordinary safety floor does not
-    /// apply because unwrap-all removes the persistent canonical account.
+    /// apply because unwrap-all removes the persistent canonical account. An
+    /// insufficient native fee balance returns the typed transaction-fee error.
     pub fn from_unwrap_all_costs(
         components: SolBalanceComponents,
         costs: SolActionCosts,
@@ -162,10 +164,10 @@ impl SolBalanceAvailability {
             ));
         }
         if components.native_lamports < costs.fee_lamports {
-            return Err(SdkError::Validation(format!(
-                "native SOL balance cannot fund the required {} lamport unwrap-all fee",
-                costs.fee_lamports
-            )));
+            return Err(SdkError::InsufficientSolForTransactionFees {
+                available_lamports: components.native_lamports,
+                required_lamports: costs.fee_lamports,
+            });
         }
         let displayed_lamports = components
             .native_lamports
@@ -645,7 +647,13 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(error.to_string().contains("transaction reserve"));
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 999_999,
+                required_lamports: 1_000_000,
+            }
+        ));
     }
 
     #[test]
@@ -709,7 +717,13 @@ mod tests {
             costs,
         )
         .unwrap_err();
-        assert!(fee_error.to_string().contains("unwrap-all fee"));
+        assert!(matches!(
+            fee_error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
 
         let overflow = SolBalanceAvailability::from_unwrap_all_costs(
             SolBalanceComponents {

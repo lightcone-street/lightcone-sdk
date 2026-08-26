@@ -15,6 +15,7 @@ Python SDK for the Lightcone impact market protocol on Solana.
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
@@ -22,6 +23,25 @@ Python SDK for the Lightcone impact market protocol on Solana.
 ```bash
 pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
 ```
+
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall raises `InsufficientSolForTransactionFees` with integer
+`available_lamports` and `required_lamports` fields and the canonical deposit-SOL
+message. Fee or balance lookup failure continues through the existing submission
+path; planner-owned SOL actions retain fail-closed live fee, rent, and reserve
+checks.
+
+`LightconeClientBuilder().transaction_sponsorship(True)` and
+`client.set_transaction_sponsorship_enabled(True)` are trusted application
+assertions for wallet-adapter and Privy signing. The default is false, each
+transaction captures its signer and capability before asynchronous RPC work, and
+local-keypair submission rejects an enabled capability. Unsponsored shared Privy
+submission best-effort installs blockhash evidence for the fee check; lookup
+failure preserves backend forwarding. Raw `Privy.sign_and_send_tx` forwarding and
+off-chain order-message signing are outside this contract.
 
 
 ## Quick Start

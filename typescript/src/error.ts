@@ -144,6 +144,7 @@ export type SdkErrorVariant =
   | "Ws"
   | "Auth"
   | "Validation"
+  | "InsufficientSolForTransactionFees"
   | "Serde"
   | "MissingMarketContext"
   | "Signing"
@@ -161,13 +162,19 @@ export class SdkError extends Error {
   readonly apiRejectedDetails?: ApiRejectedDetails;
   /** Transaction signature, set on the transaction-confirmation variants. */
   readonly signature?: string;
+  /** Confirmed Native SOL Balance in the declared fee payer, in lamports. */
+  readonly availableLamports?: bigint;
+  /** Exact transaction fee or planner-owned reserve required, in lamports. */
+  readonly requiredLamports?: bigint;
 
   constructor(
     variant: SdkErrorVariant,
     message: string,
     causeError?: Error,
     apiRejectedDetails?: ApiRejectedDetails,
-    signature?: string
+    signature?: string,
+    availableLamports?: bigint,
+    requiredLamports?: bigint
   ) {
     super(message);
     this.name = "SdkError";
@@ -175,6 +182,8 @@ export class SdkError extends Error {
     this.causeError = causeError;
     this.apiRejectedDetails = apiRejectedDetails;
     this.signature = signature;
+    this.availableLamports = availableLamports;
+    this.requiredLamports = requiredLamports;
   }
 
   static from(error: unknown): SdkError {
@@ -212,6 +221,27 @@ export class SdkError extends Error {
 
   static validation(message: string): SdkError {
     return new SdkError("Validation", message);
+  }
+
+  /** Return the typed contract for a proven transaction-fee funding shortfall. */
+  static insufficientSolForTransactionFees(
+    availableLamports: bigint,
+    requiredLamports: bigint
+  ): SdkError {
+    if (availableLamports < 0n || requiredLamports < 0n) {
+      return SdkError.validation(
+        "transaction fee funding values must be non-negative lamports"
+      );
+    }
+    return new SdkError(
+      "InsufficientSolForTransactionFees",
+      "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again.",
+      undefined,
+      undefined,
+      undefined,
+      availableLamports,
+      requiredLamports
+    );
   }
 
   static serde(message: string): SdkError {

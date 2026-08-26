@@ -60,6 +60,15 @@ pub use crate::domain::referral::client::Referrals as ReferralsClient;
 pub use crate::domain::trade::client::Trades as TradesClient;
 pub use crate::rpc::Rpc as RpcClient;
 
+/// The signer and sponsorship assertion captured together before asynchronous submission work.
+///
+/// One lock prevents an in-flight transaction from combining a signer from one
+/// application flow with the Transaction Sponsorship Capability from another.
+struct TransactionSigningContext {
+    strategy: Option<SigningStrategy>,
+    sponsorship_enabled: bool,
+}
+
 /// The primary entry point for the Lightcone SDK.
 ///
 /// Provides nested sub-client accessors for each domain:
@@ -76,9 +85,11 @@ pub struct LightconeClient {
     /// Default deposit source for orders, deposits, and withdrawals.
     /// Per-call overrides take priority over this setting.
     pub(crate) deposit_source: Arc<RwLock<DepositSource>>,
-    /// Signing strategy for orders, cancels, and transactions.
-    /// `None` means signing must be done manually (power-user mode).
-    pub(crate) signing_strategy: Arc<RwLock<Option<SigningStrategy>>>,
+    /// Mutable signer and trusted application assertion used by transaction submission.
+    ///
+    /// The capability defaults to false. Cloned clients share this context so each
+    /// submission can capture a consistent signer/capability pair before yielding.
+    transaction_signing_context: Arc<RwLock<TransactionSigningContext>>,
     /// Cached order nonce. When the user provides a nonce via `.nonce()` on an
     /// envelope, it is stored here. Subsequent orders that omit `.nonce()` will
     /// use this cached value, falling back to 0 if nothing has been cached.
@@ -258,21 +269,74 @@ impl LightconeClient {
 
     // ── Signing strategy ────────────────────────────────────────────────
 
+    /// Capture one consistent signer and sponsorship assertion before async work.
+    async fn transaction_signing_snapshot(&self) -> (Option<SigningStrategy>, bool) {
+        let context = self.transaction_signing_context.read().await;
+        (context.strategy.clone(), context.sponsorship_enabled)
+    }
+
     /// Get the current signing strategy, if set.
     pub async fn signing_strategy(&self) -> Option<SigningStrategy> {
-        self.signing_strategy.read().await.clone()
+        self.transaction_signing_context
+            .read()
+            .await
+            .strategy
+            .clone()
     }
 
     /// Set the signing strategy at runtime.
     ///
     /// Common use: set during login when the wallet type is known.
     pub async fn set_signing_strategy(&self, strategy: SigningStrategy) {
-        *self.signing_strategy.write().await = Some(strategy);
+        self.transaction_signing_context.write().await.strategy = Some(strategy);
     }
 
     /// Clear the signing strategy (e.g. on logout).
     pub async fn clear_signing_strategy(&self) {
-        *self.signing_strategy.write().await = None;
+        self.transaction_signing_context.write().await.strategy = None;
+    }
+
+    /// Return whether the active application flow asserts transaction fee sponsorship.
+    pub async fn transaction_sponsorship_enabled(&self) -> bool {
+        self.transaction_signing_context
+            .read()
+            .await
+            .sponsorship_enabled
+    }
+
+    /// Replace the client-wide Transaction Sponsorship Capability at runtime.
+    ///
+    /// Enabling this capability is a trusted application assertion for external
+    /// signing. Shared submission rejects it when the active strategy is a local
+    /// keypair because the SDK cannot provide sponsorship for that path.
+    pub async fn set_transaction_sponsorship_enabled(&self, enabled: bool) {
+        self.transaction_signing_context
+            .write()
+            .await
+            .sponsorship_enabled = enabled;
+    }
+
+    /// Atomically replace the signer and Transaction Sponsorship Capability.
+    ///
+    /// Applications use this at account-session boundaries so a submission sees
+    /// either the old context or the new context, never a cross-session pair.
+    pub async fn set_transaction_signing_context(
+        &self,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) {
+        *self.transaction_signing_context.write().await = TransactionSigningContext {
+            strategy: Some(strategy),
+            sponsorship_enabled,
+        };
+    }
+
+    /// Atomically remove the signer and disable transaction sponsorship.
+    pub async fn clear_transaction_signing_context(&self) {
+        *self.transaction_signing_context.write().await = TransactionSigningContext {
+            strategy: None,
+            sponsorship_enabled: false,
+        };
     }
 
     /// Register the credential restorer consulted when a request fails with
@@ -673,6 +737,94 @@ impl LightconeClient {
             .ok_or_else(|| SdkError::Other("transaction fee estimate is unavailable".into()))
     }
 
+    /// Return the confirmed Native SOL Balance for `fee_payer`, in lamports.
+    pub async fn get_balance_lamports(&self, fee_payer: &Pubkey) -> Result<u64, SdkError> {
+        let body = serde_json::json!({
+            "id": 1,
+            "jsonrpc": "2.0",
+            "method": "getBalance",
+            "params": [fee_payer.to_string(), { "commitment": "confirmed" }]
+        });
+        let response: serde_json::Value = self.rpc_call_with_failover(&body).await?;
+        if let Some(error) = response.get("error") {
+            return Err(SdkError::Other(format!("RPC error: {error}")));
+        }
+        response["result"]["value"]
+            .as_u64()
+            .ok_or_else(|| SdkError::Other("fee-payer balance is unavailable".into()))
+    }
+
+    /// Reject proven fee shortfalls before signing while preserving submission on unknown evidence.
+    ///
+    /// The prepared message supplies the exact fee and declared fee payer. Fee
+    /// or balance lookup failure is deliberately best-effort and returns `Ok`;
+    /// planner-owned SOL admission remains fail-closed before reaching this path.
+    /// The signer and sponsorship value were captured together before RPC work.
+    async fn preflight_transaction_fee_funding(
+        &self,
+        transaction: &solana_transaction::Transaction,
+        strategy: &SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> Result<(), SdkError> {
+        self.validate_transaction_fee_funding_context(transaction, strategy, sponsorship_enabled)?;
+        let fee_payer = transaction.message.account_keys.first().ok_or_else(|| {
+            SdkError::Validation("transaction is missing a declared fee payer".into())
+        })?;
+
+        if sponsorship_enabled {
+            return Ok(());
+        }
+
+        let required_lamports = match self.estimate_prepared_transaction_fee(transaction).await {
+            Ok(required_lamports) => required_lamports,
+            Err(_) => return Ok(()),
+        };
+        let available_lamports = match self.get_balance_lamports(fee_payer).await {
+            Ok(available_lamports) => available_lamports,
+            Err(_) => return Ok(()),
+        };
+        if available_lamports < required_lamports {
+            return Err(SdkError::InsufficientSolForTransactionFees {
+                available_lamports,
+                required_lamports,
+            });
+        }
+        Ok(())
+    }
+
+    /// Reject invalid payer and sponsorship combinations before submission can yield.
+    ///
+    /// Unsponsored known signers must control the payer being classified. Sponsored
+    /// external flows may use a different payer, while native sponsorship is rejected
+    /// before blockhash RPC or caller-transaction mutation.
+    fn validate_transaction_fee_funding_context(
+        &self,
+        transaction: &solana_transaction::Transaction,
+        strategy: &SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> Result<(), SdkError> {
+        let fee_payer = transaction.message.account_keys.first().ok_or_else(|| {
+            SdkError::Validation("transaction is missing a declared fee payer".into())
+        })?;
+        if sponsorship_enabled {
+            if strategy.is_local_keypair() {
+                return Err(SdkError::Validation(
+                    "transaction sponsorship is not supported with local-keypair signing".into(),
+                ));
+            }
+            return Ok(());
+        }
+        if strategy
+            .wallet_address()
+            .is_some_and(|signing_wallet| signing_wallet != *fee_payer)
+        {
+            return Err(SdkError::Validation(
+                "signing strategy does not control transaction fee payer".into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Fetch the statuses of recently submitted transactions via JSON-RPC POST.
     ///
     /// Returns one entry per signature, in order; `None` means the cluster has
@@ -870,6 +1022,9 @@ impl LightconeClient {
     /// Sign and submit a transaction using the client's signing strategy.
     ///
     /// Fetches a recent blockhash automatically. The caller does not need to set it.
+    /// Before signing an unsponsored transaction, a best-effort preflight returns
+    /// [`SdkError::InsufficientSolForTransactionFees`] only when the exact fee and
+    /// confirmed fee-payer balance prove a shortfall; unavailable evidence proceeds.
     /// Returns as soon as the RPC accepts the transaction — inclusion is not
     /// awaited. When follow-up work depends on this transaction's on-chain
     /// effects, use [`Self::sign_and_submit_tx_confirmed`] instead.
@@ -881,11 +1036,13 @@ impl LightconeClient {
         &self,
         tx: solana_transaction::Transaction,
     ) -> Result<String, SdkError> {
-        let strategy = self.signing_strategy().await.ok_or_else(|| {
+        let (strategy, sponsorship_enabled) = self.transaction_signing_snapshot().await;
+        let strategy = strategy.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
-        let (signature, _last_valid_block_height) =
-            self.sign_and_submit_tx_inner(tx, strategy).await?;
+        let (signature, _last_valid_block_height) = self
+            .sign_and_submit_tx_inner(tx, strategy, sponsorship_enabled)
+            .await?;
         Ok(signature)
     }
 
@@ -918,11 +1075,13 @@ impl LightconeClient {
         &self,
         tx: solana_transaction::Transaction,
     ) -> Result<ConfirmedTransaction, SdkError> {
-        let strategy = self.signing_strategy().await.ok_or_else(|| {
+        let (strategy, sponsorship_enabled) = self.transaction_signing_snapshot().await;
+        let strategy = strategy.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
-        let (signature, last_valid_block_height) =
-            self.sign_and_submit_tx_inner(tx, strategy).await?;
+        let (signature, last_valid_block_height) = self
+            .sign_and_submit_tx_inner(tx, strategy, sponsorship_enabled)
+            .await?;
         let status = self
             .confirm_signature_status(&signature, last_valid_block_height)
             .await?;
@@ -937,6 +1096,9 @@ impl LightconeClient {
     /// This method preserves the prepared recent blockhash. It rejects an external
     /// signer that changes any message field. It sends the signed bytes once to
     /// the active RPC because a transport failure may occur after acceptance.
+    /// Before signing, the same best-effort fee-funding preflight used by ordinary
+    /// submission checks this unchanged message unless sponsorship is enabled.
+    /// A sponsored external signer may differ from the declared fee payer.
     /// Confirmation uses the bounded poll cap without a block-height expiry
     /// claim because the planner retained no `lastValidBlockHeight` metadata.
     pub async fn sign_and_submit_prepared_tx_confirmed_with_slot(
@@ -948,20 +1110,18 @@ impl LightconeClient {
                 "prepared transaction is missing a recent blockhash".into(),
             ));
         }
-        let strategy = self.signing_strategy().await.ok_or_else(|| {
+        let (strategy, sponsorship_enabled) = self.transaction_signing_snapshot().await;
+        let strategy = strategy.ok_or_else(|| {
             SdkError::Validation("signing strategy is not set on the client".into())
         })?;
-        let fee_payer = tx.message.account_keys.first().copied().ok_or_else(|| {
-            SdkError::Validation("prepared transaction is missing a fee payer".into())
-        })?;
-        let signing_wallet = strategy.wallet_address().ok_or_else(|| {
-            SdkError::Validation("signing strategy wallet identity is required".into())
-        })?;
-        if signing_wallet != fee_payer {
+        self.validate_transaction_fee_funding_context(&tx, &strategy, sponsorship_enabled)?;
+        if !sponsorship_enabled && strategy.wallet_address().is_none() {
             return Err(SdkError::Validation(
-                "signing strategy does not control prepared transaction fee payer".into(),
+                "signing strategy wallet identity is required".into(),
             ));
         }
+        self.preflight_transaction_fee_funding(&tx, &strategy, sponsorship_enabled)
+            .await?;
         let signature = self.sign_and_submit_prepared_tx_inner(tx, strategy).await?;
         let status = self.confirm_signature_status(&signature, None).await?;
         Ok(ConfirmedTransaction {
@@ -970,17 +1130,23 @@ impl LightconeClient {
         })
     }
 
-    /// Shared submit path: sign, send, and return the signature together with
-    /// the `lastValidBlockHeight` of the blockhash the submitted wire bytes
-    /// are known to carry — `None` when that cannot be proven (an external
-    /// signer replaced the blockhash, or the bytes could not be inspected).
+    /// Prepare funding evidence, sign, send, and return the signature and expiry bound.
+    ///
+    /// The fresh blockhash feeds best-effort fee preflight before any signer runs.
+    /// `lastValidBlockHeight` is `None` when the submitted wire bytes cannot be
+    /// proven to retain that blockhash because an external signer replaced it or
+    /// the final bytes could not be inspected.
     async fn sign_and_submit_tx_inner(
         &self,
         mut tx: solana_transaction::Transaction,
         strategy: SigningStrategy,
+        sponsorship_enabled: bool,
     ) -> Result<(String, Option<u64>), SdkError> {
+        self.validate_transaction_fee_funding_context(&tx, &strategy, sponsorship_enabled)?;
         let (blockhash, last_valid_block_height) = self.get_latest_blockhash_with_height().await?;
         tx.message.recent_blockhash = blockhash;
+        self.preflight_transaction_fee_funding(&tx, &strategy, sponsorship_enabled)
+            .await?;
 
         match strategy {
             #[cfg(feature = "native-auth")]
@@ -998,13 +1164,8 @@ impl LightconeClient {
                     .sign_transaction(&tx_bytes)
                     .await
                     .map_err(crate::shared::signing::classify_signer_error)?;
-                // External signers may re-blockhash before signing; only trust
-                // the expiry bound when the signed bytes still carry the
-                // blockhash fetched above.
                 let signed_blockhash_unchanged =
-                    bincode::deserialize::<solana_transaction::Transaction>(&signed_bytes)
-                        .map(|signed_tx| signed_tx.message.recent_blockhash == blockhash)
-                        .unwrap_or(false);
+                    validate_ordinary_signed_transaction(&tx, &signed_bytes)?;
                 if !signed_blockhash_unchanged {
                     tracing::warn!(
                         "Signer changed the transaction blockhash; confirming without an expiry bound"
@@ -1167,6 +1328,26 @@ fn validate_prepared_signed_transaction(
     Ok(())
 }
 
+/// Allow an external signer to replace only an ordinary transaction's blockhash.
+///
+/// Fee payer, accounts, and instructions are the authority used by fee preflight.
+/// A replacement blockhash remains allowed, but its original expiry bound is discarded.
+fn validate_ordinary_signed_transaction(
+    expected: &solana_transaction::Transaction,
+    signed_bytes: &[u8],
+) -> Result<bool, SdkError> {
+    let mut signed = bincode::deserialize::<solana_transaction::Transaction>(signed_bytes)
+        .map_err(|error| SdkError::Signing(format!("signed transaction is invalid: {error}")))?;
+    let blockhash_unchanged = signed.message.recent_blockhash == expected.message.recent_blockhash;
+    signed.message.recent_blockhash = expected.message.recent_blockhash;
+    if signed.message != expected.message {
+        return Err(SdkError::Validation(
+            "wallet changed the transaction message beyond recent blockhash".into(),
+        ));
+    }
+    Ok(blockhash_unchanged)
+}
+
 // ── Transaction confirmation ─────────────────────────────────────────────────
 
 /// Interval between polls while awaiting transaction confirmation.
@@ -1215,6 +1396,10 @@ impl TransactionStatus {
     }
 }
 
+/// Clone client resources while sharing the mutable transaction-signing context.
+///
+/// Runtime signer or sponsorship updates through either clone are immediately visible
+/// to the other, while each submission keeps the pair it captured before yielding.
 impl Clone for LightconeClient {
     fn clone(&self) -> Self {
         Self {
@@ -1225,7 +1410,7 @@ impl Clone for LightconeClient {
             deposit_source: self.deposit_source.clone(),
             order_nonce: self.order_nonce.clone(),
             orderbook_rules: self.orderbook_rules.clone(),
-            signing_strategy: self.signing_strategy.clone(),
+            transaction_signing_context: self.transaction_signing_context.clone(),
             primary_rpc_url: self.primary_rpc_url.clone(),
             backup_rpc_url: self.backup_rpc_url.clone(),
             rpc_failover_state: self.rpc_failover_state.clone(),
@@ -1258,6 +1443,7 @@ pub struct LightconeClientBuilder {
     program_id: Pubkey,
     deposit_source: DepositSource,
     signing_strategy: Option<SigningStrategy>,
+    transaction_sponsorship_enabled: bool,
     primary_rpc_url: Option<String>,
     backup_rpc_url: Option<String>,
 }
@@ -1272,6 +1458,7 @@ impl Default for LightconeClientBuilder {
             program_id: environment.program_id(),
             deposit_source: DepositSource::Global,
             signing_strategy: None,
+            transaction_sponsorship_enabled: false,
             primary_rpc_url: Some(environment.rpc_url().to_string()),
             backup_rpc_url: None,
         }
@@ -1337,6 +1524,15 @@ impl LightconeClientBuilder {
         self
     }
 
+    /// Set the initial client-wide Transaction Sponsorship Capability.
+    ///
+    /// The default is false. A true value is a trusted application assertion
+    /// for external signing and is rejected if a local keypair submits a transaction.
+    pub fn transaction_sponsorship(mut self, enabled: bool) -> Self {
+        self.transaction_sponsorship_enabled = enabled;
+        self
+    }
+
     /// Set the primary Solana RPC URL for blockhash fetching, transaction
     /// submission, and on-chain reads (when `solana-rpc` feature is enabled).
     pub fn rpc_url(mut self, url: &str) -> Self {
@@ -1365,7 +1561,10 @@ impl LightconeClientBuilder {
             deposit_source: Arc::new(RwLock::new(self.deposit_source)),
             order_nonce: Arc::new(RwLock::new(None)),
             orderbook_rules: Arc::new(RwLock::new(HashMap::new())),
-            signing_strategy: Arc::new(RwLock::new(self.signing_strategy)),
+            transaction_signing_context: Arc::new(RwLock::new(TransactionSigningContext {
+                strategy: self.signing_strategy,
+                sponsorship_enabled: self.transaction_sponsorship_enabled,
+            })),
             #[cfg(feature = "solana-rpc")]
             primary_solana_rpc_client: self.primary_rpc_url.as_ref().map(|url| {
                 SolanaRpcClient::new_with_commitment(url.clone(), CommitmentConfig::confirmed())
@@ -1396,15 +1595,51 @@ mod tests {
         tokio::{
             io::{AsyncReadExt, AsyncWriteExt},
             net::TcpListener,
+            sync::Notify,
         },
     };
 
     #[cfg(feature = "native")]
-    async fn spawn_failing_rpc_server() -> Result<(String, Arc<AtomicUsize>), std::io::Error> {
+    struct RecordingExternalSigner {
+        wallet: Pubkey,
+        transaction_calls: Arc<AtomicUsize>,
+    }
+
+    #[cfg(feature = "native")]
+    impl ExternalSigner for RecordingExternalSigner {
+        fn wallet_address(&self) -> Option<Pubkey> {
+            Some(self.wallet)
+        }
+
+        fn sign_message<'a>(
+            &'a self,
+            message: &'a [u8],
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>> + 'a>>
+        {
+            Box::pin(async move { Ok(message.to_vec()) })
+        }
+
+        fn sign_transaction<'a>(
+            &'a self,
+            tx_bytes: &'a [u8],
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<Vec<u8>, String>> + 'a>>
+        {
+            self.transaction_calls.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async move { Ok(tx_bytes.to_vec()) })
+        }
+    }
+
+    #[cfg(feature = "native")]
+    async fn spawn_rpc_server(
+        fee_lamports: Option<u64>,
+        balance_lamports: Option<u64>,
+        blockhash_gate: Option<(Arc<Notify>, Arc<Notify>)>,
+    ) -> Result<(String, Arc<AtomicUsize>), std::io::Error> {
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let attempts = Arc::new(AtomicUsize::new(0));
         let server_attempts = Arc::clone(&attempts);
+        let latest_blockhash = solana_hash::Hash::new_unique().to_string();
 
         tokio::spawn(async move {
             loop {
@@ -1412,13 +1647,58 @@ mod tests {
                     return;
                 };
                 let attempts = Arc::clone(&server_attempts);
+                let latest_blockhash = latest_blockhash.clone();
+                let blockhash_gate = blockhash_gate.clone();
                 tokio::spawn(async move {
                     let mut request = [0_u8; 4096];
                     let _ = socket.read(&mut request).await;
                     attempts.fetch_add(1, Ordering::SeqCst);
-                    let body = r#"{"error":"unavailable"}"#;
+                    let request = String::from_utf8_lossy(&request);
+                    let (status, body) = if request.contains("getLatestBlockhash") {
+                        if let Some((started, release)) = blockhash_gate {
+                            started.notify_one();
+                            release.notified().await;
+                        }
+                        (
+                            "200 OK",
+                            format!(
+                                r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":1}},"value":{{"blockhash":"{latest_blockhash}","lastValidBlockHeight":100}}}}}}"#
+                            ),
+                        )
+                    } else if request.contains("getFeeForMessage") {
+                        match fee_lamports {
+                            Some(fee_lamports) => (
+                                "200 OK",
+                                format!(
+                                    r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":1}},"value":{fee_lamports}}}}}"#
+                                ),
+                            ),
+                            None => (
+                                "503 Service Unavailable",
+                                r#"{"error":"fee unavailable"}"#.to_string(),
+                            ),
+                        }
+                    } else if request.contains("getBalance") {
+                        match balance_lamports {
+                            Some(balance_lamports) => (
+                                "200 OK",
+                                format!(
+                                    r#"{{"jsonrpc":"2.0","id":1,"result":{{"context":{{"slot":1}},"value":{balance_lamports}}}}}"#
+                                ),
+                            ),
+                            None => (
+                                "503 Service Unavailable",
+                                r#"{"error":"balance unavailable"}"#.to_string(),
+                            ),
+                        }
+                    } else {
+                        (
+                            "503 Service Unavailable",
+                            r#"{"error":"unavailable"}"#.to_string(),
+                        )
+                    };
                     let response = format!(
-                        "HTTP/1.1 503 Service Unavailable\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
+                        "HTTP/1.1 {status}\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
                         body.len()
                     );
                     let _ = socket.write_all(response.as_bytes()).await;
@@ -1427,6 +1707,14 @@ mod tests {
         });
 
         Ok((format!("http://{address}"), attempts))
+    }
+
+    #[cfg(feature = "native")]
+    async fn spawn_failing_rpc_server(
+        fee_lamports: Option<u64>,
+        balance_lamports: Option<u64>,
+    ) -> Result<(String, Arc<AtomicUsize>), std::io::Error> {
+        spawn_rpc_server(fee_lamports, balance_lamports, None).await
     }
 
     #[test]
@@ -1482,12 +1770,251 @@ mod tests {
         assert!(statuses[1].as_ref().unwrap().is_confirmed());
     }
 
+    #[tokio::test]
+    async fn transaction_sponsorship_defaults_false_and_is_shared_by_clones(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let client = LightconeClient::builder().build()?;
+        assert!(!client.transaction_sponsorship_enabled().await);
+
+        let clone = client.clone();
+        clone.set_transaction_sponsorship_enabled(true).await;
+
+        assert!(client.transaction_sponsorship_enabled().await);
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn prepared_submission_returns_typed_fee_error_before_signing(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (rpc_url, attempts) = spawn_failing_rpc_server(Some(5_000), Some(4_999)).await?;
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url(&rpc_url)
+            .native_signer(keypair)
+            .build()?;
+        let mut transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+        let error = client
+            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+            .await
+            .unwrap_err();
+
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn ordinary_submission_routes_through_the_typed_funding_guard(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (rpc_url, attempts) = spawn_failing_rpc_server(Some(5_000), Some(4_999)).await?;
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url(&rpc_url)
+            .native_signer(keypair)
+            .build()?;
+        let transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+
+        let error = client.sign_and_submit_tx(transaction).await.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sponsored_local_keypair_submission_is_rejected_before_rpc(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let keypair = Keypair::new();
+        let payer = Pubkey::new_unique();
+        let client = LightconeClient::builder()
+            .native_signer(keypair)
+            .transaction_sponsorship(true)
+            .build()?;
+        let mut transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+        let error = client
+            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Validation error: transaction sponsorship is not supported with local-keypair signing"
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn sponsored_prepared_external_signer_may_differ_from_fee_payer(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (rpc_url, attempts) = spawn_failing_rpc_server(Some(5_000), Some(5_000)).await?;
+        let transaction_calls = Arc::new(AtomicUsize::new(0));
+        let signer = RecordingExternalSigner {
+            wallet: Pubkey::new_unique(),
+            transaction_calls: Arc::clone(&transaction_calls),
+        };
+        let client = LightconeClient::builder()
+            .rpc_url(&rpc_url)
+            .external_signer(Arc::new(signer))
+            .transaction_sponsorship(true)
+            .build()?;
+        let payer = Pubkey::new_unique();
+        let mut transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+        let error = client
+            .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            transaction_calls.load(Ordering::SeqCst),
+            1,
+            "unexpected error before signing: {error}"
+        );
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            1,
+            "unexpected error before submission: {error}"
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn ordinary_submission_rejects_invalid_signing_context_before_rpc(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url("http://127.0.0.1:1")
+            .native_signer(keypair)
+            .transaction_sponsorship(true)
+            .build()?;
+        let transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+
+        let error = client.sign_and_submit_tx(transaction).await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Validation error: transaction sponsorship is not supported with local-keypair signing"
+        );
+
+        let keypair = Keypair::new();
+        let client = LightconeClient::builder()
+            .rpc_url("http://127.0.0.1:1")
+            .native_signer(keypair)
+            .build()?;
+        let wrong_payer = Pubkey::new_unique();
+        let transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&wrong_payer));
+        let error = client.sign_and_submit_tx(transaction).await.unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Validation error: signing strategy does not control transaction fee payer"
+        );
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn generic_preflight_continues_when_funded_or_evidence_is_unavailable(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        for (fee_lamports, balance_lamports) in [
+            (Some(5_000), Some(5_000)),
+            (Some(5_000), Some(5_001)),
+            (None, Some(5_000)),
+            (Some(5_000), None),
+        ] {
+            let (rpc_url, _attempts) =
+                spawn_failing_rpc_server(fee_lamports, balance_lamports).await?;
+            let keypair = Keypair::new();
+            let payer = keypair.pubkey();
+            let client = LightconeClient::builder()
+                .rpc_url(&rpc_url)
+                .native_signer(keypair)
+                .build()?;
+            let strategy = client.signing_strategy().await.unwrap();
+            let mut transaction =
+                solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+            transaction.message.recent_blockhash = solana_hash::Hash::new_unique();
+
+            client
+                .preflight_transaction_fee_funding(&transaction, &strategy, false)
+                .await?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn submission_preflight_keeps_its_captured_sponsorship_value(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let blockhash_started = Arc::new(Notify::new());
+        let release_blockhash = Arc::new(Notify::new());
+        let (rpc_url, attempts) = spawn_rpc_server(
+            Some(5_000),
+            Some(4_999),
+            Some((
+                Arc::clone(&blockhash_started),
+                Arc::clone(&release_blockhash),
+            )),
+        )
+        .await?;
+        let keypair = Keypair::new();
+        let payer = keypair.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url(&rpc_url)
+            .native_signer(keypair)
+            .build()?;
+        let transaction = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        let submission_client = client.clone();
+        let submission = submission_client.sign_and_submit_tx(transaction);
+        let change_sponsorship = async {
+            blockhash_started.notified().await;
+            client.set_transaction_sponsorship_enabled(true).await;
+            release_blockhash.notify_one();
+        };
+        let (result, ()) = tokio::join!(submission, change_sponsorship);
+        let error = result.unwrap_err();
+
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        Ok(())
+    }
+
     #[cfg(feature = "native")]
     #[tokio::test]
     async fn prepared_submission_transport_failure_is_sent_once(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let (primary_rpc_url, primary_attempts) = spawn_failing_rpc_server().await?;
-        let (backup_rpc_url, backup_attempts) = spawn_failing_rpc_server().await?;
+        let (primary_rpc_url, primary_attempts) =
+            spawn_failing_rpc_server(Some(5_000), Some(5_000)).await?;
+        let (backup_rpc_url, backup_attempts) =
+            spawn_failing_rpc_server(Some(5_000), Some(5_000)).await?;
         let keypair = Keypair::new();
         let payer = keypair.pubkey();
         let client = LightconeClient::builder()
@@ -1502,7 +2029,7 @@ mod tests {
             .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
             .await
             .is_err());
-        assert_eq!(primary_attempts.load(Ordering::SeqCst), 1);
+        assert_eq!(primary_attempts.load(Ordering::SeqCst), 3);
         assert_eq!(backup_attempts.load(Ordering::SeqCst), 0);
         Ok(())
     }
@@ -1521,6 +2048,34 @@ mod tests {
         let changed = bincode::serialize(&changed).unwrap();
         assert!(matches!(
             validate_prepared_signed_transaction(&prepared, &changed),
+            Err(SdkError::Validation(_))
+        ));
+    }
+
+    #[test]
+    fn ordinary_submission_allows_only_a_signer_blockhash_change() {
+        let payer = Pubkey::new_unique();
+        let mut expected = solana_transaction::Transaction::new_with_payer(&[], Some(&payer));
+        expected.message.recent_blockhash = solana_hash::Hash::new_unique();
+        let unchanged = bincode::serialize(&expected).unwrap();
+        assert_eq!(
+            validate_ordinary_signed_transaction(&expected, &unchanged).unwrap(),
+            true
+        );
+
+        let mut rehashed = expected.clone();
+        rehashed.message.recent_blockhash = solana_hash::Hash::new_unique();
+        let rehashed = bincode::serialize(&rehashed).unwrap();
+        assert_eq!(
+            validate_ordinary_signed_transaction(&expected, &rehashed).unwrap(),
+            false
+        );
+
+        let mut changed = expected.clone();
+        changed.message.account_keys[0] = Pubkey::new_unique();
+        let changed = bincode::serialize(&changed).unwrap();
+        assert!(matches!(
+            validate_ordinary_signed_transaction(&expected, &changed),
             Err(SdkError::Validation(_))
         ));
     }

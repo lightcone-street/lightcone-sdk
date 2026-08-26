@@ -61,7 +61,7 @@ export interface SolBalanceAvailability {
   spendableLamports: bigint;
 }
 
-/** Derive fail-closed action availability from complete components and live costs. */
+/** Derive fail-closed availability and type an insufficient native reserve as fee funding. */
 export function solBalanceAvailability(
   components: SolBalanceComponents,
   costs: SolActionCosts
@@ -100,8 +100,9 @@ export function solBalanceAvailability(
       ? liveCosts
       : floor;
   if (components.nativeLamports < reserveLamports) {
-    throw SdkError.validation(
-      `native SOL balance cannot fund the required ${reserveLamports} lamport transaction reserve`
+    throw SdkError.insufficientSolForTransactionFees(
+      components.nativeLamports,
+      reserveLamports
     );
   }
   return {
@@ -120,7 +121,8 @@ export function solBalanceAvailability(
  * rejects a displayed-balance sum outside Solana's unsigned 64-bit range. Native
  * SOL must fund the fee without relying on lamports that a later `CloseAccount`
  * instruction may transfer. The ordinary persistent-account floor does not apply
- * because unwrap-all removes that account.
+ * because unwrap-all removes that account. An insufficient native fee balance
+ * returns the typed transaction-fee error.
  */
 export function unwrapAllSolBalanceAvailability(
   components: SolBalanceComponents,
@@ -157,8 +159,9 @@ export function unwrapAllSolBalanceAvailability(
     throw SdkError.validation("displayed SOL exceeds the transaction u64 range");
   }
   if (components.nativeLamports < costs.feeLamports) {
-    throw SdkError.validation(
-      `native SOL balance cannot fund the required ${costs.feeLamports} lamport unwrap-all fee`
+    throw SdkError.insufficientSolForTransactionFees(
+      components.nativeLamports,
+      costs.feeLamports
     );
   }
   return {

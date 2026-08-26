@@ -21,6 +21,7 @@ import {
 import type { ClientContext } from "../src/context";
 import {
   Rpc,
+  SdkError,
   unwrapAllSolBalanceAvailability,
   type CanonicalWsolAccountInfo,
 } from "../src";
@@ -423,16 +424,24 @@ describe("SOL action plans", () => {
     );
     assert.equal(available.reserveLamports, 1_000_000n);
     assert.equal(available.spendableLamports, 14_000_000n);
-    assert.throws(() =>
-      solBalanceAvailability(
-        { nativeLamports: 999_999n, canonicalWsolLamports: 10_000_000n },
-        {
-          feeLamports: 5_000n,
-          upfrontRentLamports: 0n,
-          createsCanonicalWsolAccount: false,
-          sponsored: false,
-        }
-      )
+    assert.throws(
+      () =>
+        solBalanceAvailability(
+          { nativeLamports: 999_999n, canonicalWsolLamports: 10_000_000n },
+          {
+            feeLamports: 5_000n,
+            upfrontRentLamports: 0n,
+            createsCanonicalWsolAccount: false,
+            sponsored: false,
+          }
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof SdkError);
+        assert.equal(error.variant, "InsufficientSolForTransactionFees");
+        assert.equal(error.availableLamports, 999_999n);
+        assert.equal(error.requiredLamports, 1_000_000n);
+        return true;
+      }
     );
   });
 
@@ -537,14 +546,19 @@ describe("SOL action plans", () => {
       reserveLamports: 5_000n,
       spendableLamports: 500_000_000n,
     });
-    assert.throws(
-      () =>
-        unwrapAllSolBalanceAvailability(components, {
-          ...costs,
-          feeLamports: 5_001n,
-        }),
-      /cannot fund the required 5001 lamport unwrap-all fee/
-    );
+    let error: unknown;
+    try {
+      unwrapAllSolBalanceAvailability(components, {
+        ...costs,
+        feeLamports: 5_001n,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+    assert.ok(error instanceof SdkError);
+    assert.equal(error.variant, "InsufficientSolForTransactionFees");
+    assert.equal(error.availableLamports, 5_000n);
+    assert.equal(error.requiredLamports, 5_001n);
     assert.throws(
       () =>
         unwrapAllSolBalanceAvailability(
@@ -1028,7 +1042,13 @@ describe("SOL action plans", () => {
       insufficient.positions.planUnwrapWsolAll(
         stateFor(wallet.publicKey, "0.000004999", "0.000000001")
       ),
-      /cannot fund the required 5000 lamport unwrap-all fee/
+      (error: unknown) => {
+        assert.ok(error instanceof SdkError);
+        assert.equal(error.variant, "InsufficientSolForTransactionFees");
+        assert.equal(error.availableLamports, 4_999n);
+        assert.equal(error.requiredLamports, 5_000n);
+        return true;
+      }
     );
 
     for (const fee of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {

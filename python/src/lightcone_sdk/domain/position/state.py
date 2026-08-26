@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from enum import Enum
 
-from ...error import SdkError
+from ...error import InsufficientSolForTransactionFees, SdkError
 from ...shared.scaling import exact_scaled_integer
 from . import (
     DepositTokenBalance,
@@ -110,7 +110,7 @@ class SolBalanceAvailability:
     def from_costs(
         cls, components: SolBalanceComponents, costs: SolActionCosts
     ) -> SolBalanceAvailability:
-        """Derive availability and require native SOL to fund the reserve."""
+        """Derive availability and type insufficient native reserve as fee funding."""
         for label, value in (
             ("native SOL", components.native_lamports),
             ("canonical WSOL", components.canonical_wsol_lamports),
@@ -129,10 +129,7 @@ class SolBalanceAvailability:
         if displayed > MAX_SOLANA_LAMPORTS:
             raise SdkError("displayed SOL exceeds the transaction u64 range")
         if components.native_lamports < reserve:
-            raise SdkError(
-                "native SOL balance cannot fund the required "
-                f"{reserve} lamport transaction reserve"
-            )
+            raise InsufficientSolForTransactionFees(components.native_lamports, reserve)
         return cls(
             components=components,
             displayed_lamports=displayed,
@@ -151,7 +148,8 @@ class SolBalanceAvailability:
         64-bit lamport range. It rejects an overflowing displayed-balance sum.
         Native SOL must fund the fee without relying on lamports that a later
         ``CloseAccount`` instruction may transfer. The ordinary persistent-account
-        floor does not apply because unwrap-all removes that account.
+        floor does not apply because unwrap-all removes that account. An insufficient
+        native fee balance raises the typed transaction-fee error.
         """
         if (
             isinstance(costs.upfront_rent_lamports, bool)
@@ -180,9 +178,8 @@ class SolBalanceAvailability:
         if displayed > MAX_SOLANA_LAMPORTS:
             raise SdkError("displayed SOL exceeds the transaction u64 range")
         if components.native_lamports < fee_lamports:
-            raise SdkError(
-                "native SOL balance cannot fund the required "
-                f"{fee_lamports} lamport unwrap-all transaction fee"
+            raise InsufficientSolForTransactionFees(
+                components.native_lamports, fee_lamports
             )
         return cls(
             components=components,

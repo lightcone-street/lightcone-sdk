@@ -18,6 +18,15 @@ pub enum SdkError {
     #[error("Validation error: {0}")]
     Validation(String),
 
+    /// The declared fee payer cannot cover the required network fee or planner reserve.
+    #[error("Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again.")]
+    InsufficientSolForTransactionFees {
+        /// Confirmed Native SOL Balance in the declared fee payer, in lamports.
+        available_lamports: u64,
+        /// Exact transaction fee or planner-owned reserve required, in lamports.
+        required_lamports: u64,
+    },
+
     #[error("Serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 
@@ -152,4 +161,29 @@ pub enum AuthError {
 
     #[error("Token expired")]
     TokenExpired,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn insufficient_transaction_fee_error_exposes_exact_contract() {
+        let error = SdkError::InsufficientSolForTransactionFees {
+            available_lamports: 4_999,
+            required_lamports: 5_000,
+        };
+
+        assert_eq!(
+            error.to_string(),
+            "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
+        );
+        assert!(matches!(
+            error,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
+    }
 }
