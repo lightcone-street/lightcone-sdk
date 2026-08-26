@@ -43,6 +43,7 @@ from .shared import (
 
 from .error import (
     SdkError,
+    InsufficientSolForTransactionFees,
     ApiRejected,
     DeserializationError,
     MissingMarketContext,
@@ -447,6 +448,7 @@ __all__ = [
     "ConfirmedTransaction",
     "CanonicalWsolAccountInfo",
     "Rpc",
+    "InsufficientSolForTransactionFees",
     # External wallet balances
     "DepositTokenBalancesSnapshot",
     "SolActionCosts",

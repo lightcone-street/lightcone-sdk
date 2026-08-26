@@ -17,6 +17,7 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 - [Examples](#examples)
 - [Authentication](#authentication)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
@@ -42,6 +43,24 @@ lightcone = { version = "0.7.0", features = ["wasm"] }
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
 | **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
+
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall returns
+`SdkError::InsufficientSolForTransactionFees { available_lamports,
+required_lamports }` with the canonical deposit-SOL message. Fee or balance
+lookup failure continues through the existing submission path; planner-owned SOL
+actions retain fail-closed live fee, rent, and reserve checks.
+
+`LightconeClientBuilder::transaction_sponsorship(true)` and
+`LightconeClient::set_transaction_sponsorship_enabled(true)` are trusted
+application assertions for external signing. The default is false, cloned clients
+share one runtime signer/capability context, and each transaction captures that
+pair before asynchronous RPC work. Local-keypair transaction submission rejects
+an enabled capability. Raw caller-prepared forwarding and off-chain order message
+signing are outside this contract.
 
 ## Quick Start
 

@@ -31,7 +31,10 @@ class Privy:
         wallet_id: str,
         base64_tx: str,
     ) -> SignAndSendTxResponse:
-        """Sign and send a Solana transaction via the user's Privy embedded wallet."""
+        """Forward caller-prepared bytes to the Privy signing backend.
+
+        This raw API does not run the shared SDK fee-funding preflight.
+        """
         data = await self._client._http.post(
             "/api/privy/sign_and_send_tx",
             {"wallet_id": wallet_id, "base64_tx": base64_tx},

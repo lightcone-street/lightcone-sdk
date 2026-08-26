@@ -39,6 +39,26 @@ confirmation is never retried automatically; inspect authoritative balances
 before planning another action. See the [persistent canonical WSOL
 ADR](docs/adr/0001-persistent-canonical-wsol.md).
 
+## Transaction Fee Funding
+
+Every ordinary and prepared on-chain transaction submitted through a shared SDK
+submission API performs a best-effort pre-signing check of its exact message fee
+and declared fee-payer Native SOL Balance. A proven shortfall returns the typed
+`InsufficientSolForTransactionFees` contract with available and required lamports
+and the message `Insufficient SOL for transaction fees. Deposit SOL to your wallet
+and try again.` Fee or balance lookup failure preserves the existing submission;
+SOL action planners keep their stricter live fee, rent, and reserve requirements.
+
+Transaction Sponsorship Capability is a client-wide trusted application assertion
+that defaults to false. It bypasses the generic check for external and Privy
+signing, while local-keypair submission rejects it with `transaction sponsorship
+is not supported with local-keypair signing`. The SDK does not infer sponsorship
+from a wallet provider. TypeScript `Privy.signAndSendTx`, Python
+`Privy.sign_and_send_tx`, and other raw pre-serialized forwarding methods remain
+outside this shared boundary. Unsponsored Python Privy shared submission obtains
+best-effort blockhash evidence for fee estimation; lookup failure preserves its
+existing backend-forwarding path. See [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md).
+
 ## Development Setup
 
 ### Prerequisites

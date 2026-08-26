@@ -268,6 +268,14 @@ export class Rpc {
     return rpcLamports(lamports, "rent-exempt minimum");
   }
 
+  /** Return the confirmed Native SOL Balance for `feePayer`, in lamports. */
+  async balanceLamports(feePayer: PublicKey): Promise<bigint> {
+    const balance = await connectionWithFailover(this.client, (connection) =>
+      connection.getBalance(feePayer, "confirmed")
+    );
+    return rpcLamports(balance, "fee-payer balance");
+  }
+
   /** Attach a fresh blockhash and return the exact message's live fee in lamports. */
   async prepareAndEstimateTransactionFee(transaction: Transaction): Promise<bigint> {
     const { blockhash, lastValidBlockHeight } = await this.getLatestBlockhash();

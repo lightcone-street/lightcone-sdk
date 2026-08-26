@@ -1270,6 +1270,7 @@ mod tests {
             client::LightconeClient,
             domain::market::{Market, Status},
             domain::position::{builders, DepositTokenBalance, WRAPPED_SOL_MINT_ADDRESS},
+            error::SdkError,
             shared::PubkeyStr,
         },
         rust_decimal::Decimal,
@@ -2469,7 +2470,13 @@ mod tests {
             .plan_unwrap_wsol_all(&state)
             .await
             .unwrap_err();
-        assert!(insufficient.to_string().contains("unwrap-all fee"));
+        assert!(matches!(
+            insufficient,
+            SdkError::InsufficientSolForTransactionFees {
+                available_lamports: 4_999,
+                required_lamports: 5_000,
+            }
+        ));
     }
 
     #[cfg(feature = "native")]
@@ -2558,8 +2565,11 @@ mod tests {
             .sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
             .await
             .unwrap_err();
-        assert!(error
-            .to_string()
-            .contains("does not control prepared transaction fee payer"));
+        assert!(
+            error
+                .to_string()
+                .contains("does not control transaction fee payer"),
+            "unexpected error: {error}"
+        );
     }
 }
