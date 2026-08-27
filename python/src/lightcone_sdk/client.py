@@ -9,7 +9,9 @@ import asyncio
 from dataclasses import dataclass
 from typing import Optional
 
+from solders.message import Message
 from solders.pubkey import Pubkey
+from solders.transaction import Transaction
 
 from .auth import AuthCredentials
 from .auth.client import Auth
@@ -23,16 +25,26 @@ from .domain.position.client import Positions
 from .domain.price_history.client import PriceHistoryClient
 from .domain.referral.client import Referrals
 from .domain.trade.client import Trades
+from .env import LightconeEnv
+from .error import InsufficientSolForTransactionFees, SdkError
 from .http.client import DEFAULT_TIMEOUT_SECS, LightconeHttp
 from .http.credential_restorer import CredentialRestorer
-from .env import LightconeEnv
 from .privy.client import Privy
 from .rpc import Rpc
-from .error import SdkError
-from .rpc_failover import ActiveRpc, RpcFailoverState, is_infrastructure_error, FAST_RETRY_DELAY_SECS
-from .shared.signing import ExternalSigner, SigningStrategy, SigningStrategyKind, classify_signer_error
+from .rpc_failover import (
+    FAST_RETRY_DELAY_SECS,
+    ActiveRpc,
+    RpcFailoverState,
+    is_infrastructure_error,
+)
+from .shared.signing import (
+    ExternalSigner,
+    SigningStrategy,
+    SigningStrategyKind,
+    classify_signer_error,
+)
 from .shared.types import DepositSource
-from .ws import WsConfig, WS_DEFAULT_CONFIG
+from .ws import WS_DEFAULT_CONFIG, WsConfig
 from .ws.client import WsClient
 
 
@@ -40,26 +52,63 @@ from .ws.client import WsClient
 class ConfirmedTransaction:
     """A confirmed transaction signature and its processing slot."""
 
+    #: Base58 transaction signature accepted by the cluster.
     signature: str
+    #: Slot whose confirmed status authorizes a freshness-bounded state refresh.
     slot: int
 
 
-def _signed_blockhash_unchanged(signed_bytes: bytes, expected_blockhash: object) -> bool:
-    """True when the signed wire bytes still carry ``expected_blockhash``.
+def _validate_ordinary_signed_transaction(
+    signed_bytes: bytes, expected_message: Message, expected_blockhash: object
+) -> bool:
+    """Allow an external signer to replace only the ordinary transaction blockhash.
 
-    External signers may re-blockhash a transaction before signing; a bound
-    derived from the original blockhash must then not be used for expiry
-    detection.
+    Fee payer, accounts, and instructions are the authority used by fee preflight.
+    A replacement blockhash remains allowed, but its original expiry bound is discarded.
     """
     from solders.transaction import Transaction
 
     try:
-        return (
-            Transaction.from_bytes(signed_bytes).message.recent_blockhash
-            == expected_blockhash
-        )
-    except Exception:
-        return False
+        signed_message = Transaction.from_bytes(signed_bytes).message
+    except Exception as error:
+        raise SdkError(f"signed transaction is invalid: {error}") from error
+    if (
+        signed_message.header != expected_message.header
+        or signed_message.account_keys != expected_message.account_keys
+        or signed_message.instructions != expected_message.instructions
+    ):
+        raise SdkError("wallet changed the transaction message beyond recent blockhash")
+    return signed_message.recent_blockhash == expected_blockhash
+
+
+def _validate_prepared_signed_transaction(
+    signed_bytes: bytes, expected_message: bytes
+) -> None:
+    """Require an external signer to preserve every fee-estimated message byte."""
+    from solders.transaction import Transaction
+
+    try:
+        signed_message = bytes(Transaction.from_bytes(signed_bytes).message)
+    except Exception as error:
+        raise SdkError(f"signed transaction is invalid: {error}") from error
+    if signed_message != expected_message:
+        raise SdkError("wallet changed the fee-prepared transaction message")
+
+
+def _snapshot_transaction(tx: object) -> Transaction:
+    """Own the transaction message before asynchronous submission work begins."""
+    try:
+        return Transaction.from_bytes(bytes(tx))  # type: ignore[call-overload]
+    except Exception as error:
+        raise SdkError(f"transaction serialization failed: {error}") from error
+
+
+def _copy_signatures_if_message_unchanged(
+    signed: Transaction, caller_tx: object
+) -> None:
+    """Publish local signatures only when the caller still holds the submitted message."""
+    if bytes(caller_tx.message) == bytes(signed.message):  # type: ignore[attr-defined]
+        caller_tx.signatures = list(signed.signatures)  # type: ignore[attr-defined]
 
 
 class LightconeClient:
@@ -83,6 +132,7 @@ class LightconeClient:
         signing_strategy: Optional[SigningStrategy] = None,
         primary_rpc_url: Optional[str] = None,
         backup_rpc_url: Optional[str] = None,
+        transaction_sponsorship_enabled: bool = False,
     ):
         self._http = http
         self._ws_config = ws_config or WS_DEFAULT_CONFIG
@@ -92,6 +142,7 @@ class LightconeClient:
         self._rpc_failover_state = RpcFailoverState()
         self._deposit_source: DepositSource = deposit_source
         self._signing_strategy: Optional[SigningStrategy] = signing_strategy
+        self._transaction_sponsorship_enabled = transaction_sponsorship_enabled
         self._primary_rpc_url: Optional[str] = primary_rpc_url
         self._backup_rpc_url: Optional[str] = backup_rpc_url
         self._order_nonce: Optional[int] = None
@@ -167,6 +218,20 @@ class LightconeClient:
     def clear_signing_strategy(self) -> None:
         """Clear the signing strategy (e.g. on logout)."""
         self._signing_strategy = None
+
+    @property
+    def transaction_sponsorship_enabled(self) -> bool:
+        """Return the trusted assertion that an external sponsor pays fees."""
+        return self._transaction_sponsorship_enabled
+
+    @transaction_sponsorship_enabled.setter
+    def transaction_sponsorship_enabled(self, enabled: bool) -> None:
+        """Replace the client-wide Transaction Sponsorship Capability."""
+        self._transaction_sponsorship_enabled = enabled
+
+    def set_transaction_sponsorship_enabled(self, enabled: bool) -> None:
+        """Replace the capability used by subsequent shared submissions."""
+        self._transaction_sponsorship_enabled = enabled
 
     # ── Nonce cache ───────────────────────────────────────────────────
 
@@ -253,6 +318,69 @@ class LightconeClient:
             raise SdkError("signing strategy is not set on the client")
         return self._signing_strategy
 
+    def _require_transaction_signing_context(self) -> tuple[SigningStrategy, bool]:
+        """Capture one signer and sponsorship assertion before async transaction work."""
+        return self._require_signing_strategy(), self._transaction_sponsorship_enabled
+
+    def _validate_transaction_fee_funding_context(
+        self,
+        tx: Transaction,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Reject invalid payer and sponsorship combinations before async work.
+
+        Unsponsored known signers must control the payer being classified. Sponsored
+        external flows may use a different payer, while native sponsorship is rejected
+        before blockhash RPC or caller-transaction mutation.
+        """
+        if not tx.message.account_keys:
+            raise SdkError("transaction is missing a declared fee payer")
+        if sponsorship_enabled:
+            if strategy.kind == SigningStrategyKind.NATIVE:
+                raise SdkError(
+                    "transaction sponsorship is not supported with local-keypair signing"
+                )
+            return
+        signing_address = strategy.controlled_wallet_address()
+        if signing_address is not None and signing_address != str(
+            tx.message.account_keys[0]
+        ):
+            raise SdkError("signing strategy does not control transaction fee payer")
+
+    async def _preflight_transaction_fee_funding(
+        self,
+        tx: Transaction,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Reject proven fee shortfalls before signing and continue on unknown evidence.
+
+        The transaction's prepared message supplies the exact fee and declared fee
+        payer. Fee or balance lookup failure is deliberately best-effort; planner-owned
+        SOL admission remains fail-closed before reaching this shared boundary. The
+        signer and sponsorship value were captured together before RPC work.
+        """
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled
+        )
+        if sponsorship_enabled:
+            return
+        fee_payer = tx.message.account_keys[0]
+
+        try:
+            required_lamports = await self.rpc().estimate_prepared_transaction_fee(tx)
+        except Exception:
+            return
+        try:
+            available_lamports = await self.rpc().balance_lamports(fee_payer)
+        except Exception:
+            return
+        if available_lamports < required_lamports:
+            raise InsufficientSolForTransactionFees(
+                available_lamports, required_lamports
+            )
+
     async def sign_and_submit_tx(self, tx: object) -> str:
         """Sign and submit a transaction using the client's signing strategy.
 
@@ -261,6 +389,10 @@ class LightconeClient:
         transaction — inclusion is not awaited. When follow-up work depends on
         this transaction's on-chain effects, use
         ``sign_and_submit_tx_confirmed`` instead.
+
+        Unsponsored submission checks exact fee funding before signing when both
+        required RPC observations are available. Privy obtains its blockhash only
+        as best-effort fee evidence; the backend remains final-wire authority.
 
         - **Native**: signs locally with keypair, submits via RPC
         - **WalletAdapter**: signs via external signer, submits via RPC
@@ -310,51 +442,131 @@ class LightconeClient:
         )
         return ConfirmedTransaction(signature=signature, slot=status.slot)
 
-    async def _sign_and_submit_tx_inner(self, tx: object) -> tuple[str, Optional[int]]:
+    async def sign_and_submit_prepared_tx_confirmed_with_slot(
+        self, tx: Transaction
+    ) -> ConfirmedTransaction:
+        """Sign, submit once, and confirm a fee-prepared transaction.
+
+        Native signing preserves the prepared message. Wallet-adapter bytes are
+        compared with that message before submission. Privy is rejected because
+        the SDK cannot inspect its final wire message. Signed bytes are sent once
+        to the active RPC because a transport failure may occur after acceptance.
+        The unchanged message receives best-effort fee-funding preflight before
+        the signer runs unless sponsorship is enabled. A sponsored external
+        signer may differ from the declared fee payer. The transaction is copied
+        before the first await so later caller mutation cannot change fee authority.
+        Confirmation has no expiry bound. Callers inspect authoritative state
+        before retrying an unknown outcome.
+        """
+        from solders.hash import Hash
+
+        if tx.message.recent_blockhash == Hash.default():
+            raise SdkError("prepared transaction is missing a recent blockhash")
+        if not tx.message.account_keys:
+            raise SdkError("prepared transaction is missing a fee payer")
+        strategy, sponsorship_enabled = self._require_transaction_signing_context()
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled
+        )
+        if not sponsorship_enabled and strategy.controlled_wallet_address() is None:
+            raise SdkError("signing strategy wallet identity is required")
+        caller_tx = tx
+        tx = _snapshot_transaction(tx)
+        await self._preflight_transaction_fee_funding(tx, strategy, sponsorship_enabled)
+        signature = await self._sign_and_submit_prepared_tx_inner(
+            tx, strategy, caller_tx
+        )
+        status = await self.rpc().confirm_signature_status(signature, None)
+        return ConfirmedTransaction(signature=signature, slot=status.slot)
+
+    async def _sign_and_submit_tx_confirmed_with_strategy(
+        self, tx: object, strategy: SigningStrategy
+    ) -> str:
+        """Confirm a transaction with a strategy already validated by its caller."""
+        signature, last_valid_block_height = await self._sign_and_submit_tx_inner(
+            tx, strategy
+        )
+        await self.rpc().confirm_signature_status(signature, last_valid_block_height)
+        return signature
+
+    async def _sign_and_submit_tx_inner(
+        self,
+        tx: object,
+        strategy: Optional[SigningStrategy] = None,
+        sponsorship_enabled: bool | None = None,
+    ) -> tuple[str, Optional[int]]:
         """Shared submit path.
 
-        Signs, sends, and returns the signature plus the
-        ``last_valid_block_height`` of the blockhash the submitted wire bytes
-        are known to carry — ``None`` when that cannot be proven (an external
-        signer replaced the blockhash, or the bytes were never visible to the
-        SDK).
+        Prepares funding evidence, signs, sends, and returns the signature plus
+        the expiry bound. Native and WalletAdapter require a fresh blockhash before
+        best-effort fee preflight. Unsponsored Privy uses a fresh blockhash only
+        when that observation succeeds and still treats the backend as final-wire
+        authority. Submission uses a pre-await copy and writes the fresh blockhash
+        to the caller transaction. Local signatures follow only if its message matches.
+        ``last_valid_block_height`` is ``None`` when retention of the observed
+        blockhash cannot be proven.
         """
-        strategy = self._require_signing_strategy()
+        if strategy is None:
+            strategy, sponsorship_enabled = self._require_transaction_signing_context()
+        elif sponsorship_enabled is None:
+            sponsorship_enabled = self._transaction_sponsorship_enabled
+        assert sponsorship_enabled is not None
+        self._validate_transaction_fee_funding_context(
+            tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+        )
+        caller_tx = tx
+        tx = _snapshot_transaction(tx)
 
         if strategy.kind == SigningStrategyKind.NATIVE:
             from solders.keypair import Keypair as _Keypair
+
             keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
             blockhash, last_valid_block_height = (
                 await self.rpc().get_latest_blockhash_with_height()
             )
+            tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+            caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+            await self._preflight_transaction_fee_funding(
+                tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+            )
             tx.sign([keypair], blockhash)  # type: ignore[attr-defined]
-            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[arg-type]
+            _copy_signatures_if_message_unchanged(tx, caller_tx)
+            signature = await self.rpc().send_raw_transaction(bytes(tx))  # type: ignore[call-overload]
             return signature, last_valid_block_height
 
         elif strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
             signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
             import base64 as _b64
+
             blockhash, last_valid_block_height = (
                 await self.rpc().get_latest_blockhash_with_height()
             )
             # Set the fresh blockhash without signing (empty keypair list),
             # mirroring the Rust/TypeScript submit paths.
             tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+            caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+            await self._preflight_transaction_fee_funding(
+                tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+            )
+            expected_message = tx.message  # type: ignore[attr-defined]
+            tx_bytes = bytes(tx)  # type: ignore[call-overload]
             signed_bytes = await signer.sign_transaction(tx_bytes)
-            # External signers may re-blockhash before signing; only trust the
-            # expiry bound when the signed bytes still carry the blockhash set
-            # above.
-            signed_blockhash_unchanged = _signed_blockhash_unchanged(
-                signed_bytes, blockhash
+            signed_blockhash_unchanged = _validate_ordinary_signed_transaction(
+                signed_bytes, expected_message, blockhash
             )
             base64_tx = _b64.b64encode(signed_bytes).decode("ascii")
             # Submit via RPC with failover
-            data = await self._rpc_call_with_failover({
-                "jsonrpc": "2.0", "id": 1,
-                "method": "sendTransaction",
-                "params": [base64_tx, {"encoding": "base64", "preflightCommitment": "confirmed"}],
-            })
+            data = await self._rpc_call_with_failover(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 1,
+                    "method": "sendTransaction",
+                    "params": [
+                        base64_tx,
+                        {"encoding": "base64", "preflightCommitment": "confirmed"},
+                    ],
+                }
+            )
             if "error" in data:
                 raise SdkError(f"RPC error: {data['error']}")
             return data["result"], (
@@ -363,14 +575,80 @@ class LightconeClient:
 
         elif strategy.kind == SigningStrategyKind.PRIVY:
             import base64 as _b64
-            tx_bytes = bytes(tx)  # type: ignore[arg-type]
+
+            if not sponsorship_enabled:
+                try:
+                    blockhash, _last_valid_block_height = (
+                        await self.rpc().get_latest_blockhash_with_height()
+                    )
+                    tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+                    caller_tx.partial_sign([], blockhash)  # type: ignore[attr-defined]
+                except Exception:
+                    # The Privy backend remains authoritative when fee evidence
+                    # cannot be prepared locally; preserve the prior forwarding path.
+                    pass
+                else:
+                    await self._preflight_transaction_fee_funding(
+                        tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+                    )
+            else:
+                await self._preflight_transaction_fee_funding(
+                    tx, strategy, sponsorship_enabled  # type: ignore[arg-type]
+                )
+
+            tx_bytes = bytes(tx)  # type: ignore[call-overload]
             base64_tx = _b64.b64encode(tx_bytes).decode("ascii")
             result = await self.privy().sign_and_send_tx(
-                strategy.wallet_id, base64_tx,  # type: ignore[arg-type]
+                strategy.wallet_id,  # type: ignore[arg-type]
+                base64_tx,
             )
             # The backend signs and submits server-side; the SDK never sees
             # the final wire bytes, so no expiry bound can be trusted.
             return result.hash, None
+
+        raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
+
+    async def _sign_and_submit_prepared_tx_inner(
+        self,
+        tx: Transaction,
+        strategy: SigningStrategy | None = None,
+        caller_tx: object | None = None,
+    ) -> str:
+        """Sign and submit once without changing the fee-estimated message.
+
+        Native signing preserves the message by construction. Wallet-adapter
+        bytes are compared with the prepared message before one active-RPC send.
+        A native signature is published to an unchanged caller message before that
+        send so an uncertain outcome remains reconcilable. Privy is rejected because
+        the SDK cannot inspect its final wire message.
+        """
+        if strategy is None:
+            strategy = self._require_signing_strategy()
+
+        if strategy.kind == SigningStrategyKind.NATIVE:
+            from solders.keypair import Keypair as _Keypair
+
+            keypair: _Keypair = strategy.keypair  # type: ignore[assignment]
+            tx.sign([keypair], tx.message.recent_blockhash)
+            if caller_tx is not None:
+                _copy_signatures_if_message_unchanged(tx, caller_tx)
+            return await self.rpc().send_raw_transaction_once(bytes(tx))
+
+        if strategy.kind == SigningStrategyKind.WALLET_ADAPTER:
+            signer: ExternalSigner = strategy.signer  # type: ignore[assignment]
+            tx_bytes = bytes(tx)
+            expected_message = bytes(tx.message)
+            try:
+                signed_bytes = await signer.sign_transaction(tx_bytes)
+            except Exception as error:
+                raise classify_signer_error(str(error)) from error
+            _validate_prepared_signed_transaction(signed_bytes, expected_message)
+            return await self.rpc().send_raw_transaction_once(signed_bytes)
+
+        if strategy.kind == SigningStrategyKind.PRIVY:
+            raise SdkError(
+                "prepared transaction submission cannot verify a Privy-signed message"
+            )
 
         raise SdkError(f"Unsupported signing strategy: {strategy.kind}")
 
@@ -499,6 +777,7 @@ class LightconeClientBuilder:
         self._program_id: Optional[Pubkey] = environment.program_id
         self._deposit_source: DepositSource = DepositSource.GLOBAL
         self._signing_strategy: Optional[SigningStrategy] = None
+        self._transaction_sponsorship_enabled = False
         self._primary_rpc_url: Optional[str] = environment.rpc_url
         self._backup_rpc_url: Optional[str] = None
         self._connection: Optional[object] = None
@@ -559,9 +838,19 @@ class LightconeClientBuilder:
         self._signing_strategy = SigningStrategy.wallet_adapter(signer)
         return self
 
-    def privy_wallet_id(self, wallet_id: str) -> "LightconeClientBuilder":
+    def privy_wallet_id(
+        self, wallet_id: str, wallet_address: Optional[str] = None
+    ) -> "LightconeClientBuilder":
         """Set a Privy embedded wallet ID for signing."""
-        self._signing_strategy = SigningStrategy.privy(wallet_id)
+        self._signing_strategy = SigningStrategy.privy(wallet_id, wallet_address)
+        return self
+
+    def transaction_sponsorship(self, enabled: bool) -> LightconeClientBuilder:
+        """Set the initial trusted Transaction Sponsorship Capability.
+
+        The capability defaults to false.
+        """
+        self._transaction_sponsorship_enabled = enabled
         return self
 
     def rpc_url(self, url: str) -> "LightconeClientBuilder":
@@ -600,12 +889,14 @@ class LightconeClientBuilder:
         if connection is None and self._primary_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
+
             connection = AsyncClient(self._primary_rpc_url, commitment=Confirmed)
 
         backup_connection = None
         if self._backup_rpc_url is not None:
             from solana.rpc.async_api import AsyncClient
             from solana.rpc.commitment import Confirmed
+
             backup_connection = AsyncClient(self._backup_rpc_url, commitment=Confirmed)
 
         return LightconeClient(
@@ -617,6 +908,7 @@ class LightconeClientBuilder:
             backup_connection=backup_connection,
             deposit_source=self._deposit_source,
             signing_strategy=self._signing_strategy,
+            transaction_sponsorship_enabled=self._transaction_sponsorship_enabled,
             primary_rpc_url=self._primary_rpc_url,
             backup_rpc_url=self._backup_rpc_url,
         )

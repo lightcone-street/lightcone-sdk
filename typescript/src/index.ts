@@ -23,6 +23,7 @@ export * as ws from "./ws";
 // Layer 5: High-level client
 export { LightconeClient, LightconeClientBuilder } from "./client";
 export { Rpc } from "./rpc";
+export type { CanonicalWsolAccountInfo } from "./rpc";
 export type { ClientContext, ConfirmedTransaction } from "./context";
 export {
   requireConnection,
@@ -31,6 +32,7 @@ export {
   signAndSubmitTx,
   signAndSubmitTxConfirmed,
   signAndSubmitTxConfirmedWithSlot,
+  signAndSubmitPreparedTxConfirmedWithSlot,
 } from "./context";
 
 // Convenience top-level type exports
@@ -38,8 +40,15 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
+  EmailAccountData,
   GoogleAccountData,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  LinkedIdentityType,
+  MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
+  RegisterPrivyRequest,
   SessionResponse,
   User,
   UserIdentity,
@@ -48,6 +57,7 @@ export type {
 } from "./auth";
 export {
   avatarUrl,
+  classifyRegisterPrivyConflict,
   displayName,
   identityText,
   tradingWallet,

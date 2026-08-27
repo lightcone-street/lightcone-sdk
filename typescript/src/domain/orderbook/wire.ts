@@ -136,6 +136,11 @@ export interface WsBookLevel {
   side: Side;
   price: string;
   size: string;
+  /**
+   * Exact quote-token amount represented by the underlying maker orders.
+   * For grouped books this is independent of the displayed bucket price.
+   */
+  quote_notional: string;
 }
 
 /**

@@ -245,16 +245,34 @@ impl WsClient {
         })
     }
 
-    /// Remove only authenticated subscriptions (e.g. User channel) from tracking.
+    /// Purge authenticated user and wallet-balance replay state and queued messages.
+    ///
+    /// Cleanup is best-effort when browser callback state is already borrowed.
+    /// It does not send wire unsubscriptions or close the active socket, so callers
+    /// must unsubscribe or stop the connection to end current server delivery.
     pub fn clear_authed_subscriptions() {
         ACTIVE_SUBSCRIPTIONS.with(|subs| {
             if let Ok(mut subs_ref) = subs.try_borrow_mut() {
                 let initial_len = subs_ref.len();
-                subs_ref.retain(|sub| !matches!(sub, SubscribeParams::User { .. }));
+                subs_ref.retain(|sub| {
+                    !matches!(
+                        sub,
+                        SubscribeParams::User { .. }
+                            | SubscribeParams::WalletDepositBalances { .. }
+                    )
+                });
                 let removed = initial_len - subs_ref.len();
                 if removed > 0 {
                     tracing::info!("Cleared {} authenticated subscription(s)", removed);
                 }
+            }
+        });
+        // This is local bookkeeping only. Queued auth messages must not survive
+        // logout and flush after replay tracking is cleared; live socket teardown
+        // remains the caller's separate responsibility.
+        PENDING_MESSAGES.with(|pending| {
+            if let Ok(mut queue) = pending.try_borrow_mut() {
+                queue.retain(|message| !message.is_authed_subscription());
             }
         });
     }

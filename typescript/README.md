@@ -17,6 +17,7 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 - [Environment Configuration](#environment-configuration)
 - [Examples](#examples)
 - [Error Handling](#error-handling)
+- [Transaction Fee Funding](#transaction-fee-funding)
 - [Retry Strategy](#retry-strategy)
 
 ## Installation
@@ -24,6 +25,24 @@ TypeScript SDK for the Lightcone impact market protocol on Solana.
 ```bash
 npm install @lightconexyz/lightcone-sdk
 ```
+
+## Transaction Fee Funding
+
+Shared on-chain submission checks the exact prepared message fee and declared
+fee-payer Native SOL Balance before signing when both RPC facts are available.
+A proven shortfall is an `SdkError` with variant
+`InsufficientSolForTransactionFees`, bigint `availableLamports` and
+`requiredLamports` fields, and the canonical deposit-SOL message. Fee or balance
+lookup failure continues through the existing submission path; planner-owned SOL
+actions retain fail-closed live fee, rent, and reserve checks.
+
+`LightconeClient.builder().transactionSponsorship(true)` and
+`client.setTransactionSponsorshipEnabled(true)` are trusted application assertions
+for wallet-adapter and Privy signing. The default is false, each transaction
+captures its signer and capability before asynchronous RPC work, `clone()` copies
+the current value, and local-keypair submission rejects an enabled capability. Raw
+`Privy.signAndSendTx` forwarding and off-chain order-message signing are outside
+this contract.
 
 ## Quick Start
 
@@ -184,10 +203,19 @@ reconnect/resubscribe; `resync: true` requires unsubscribe/resubscribe with the
 same aggregation. Each `(orderbook, aggregation)` pair needs its own state.
 Truncation flags are preserved and mean that side is not exhaustive. See
 [`examples/ws_book_and_trades.ts`](examples/ws_book_and_trades.ts).
+Each decoded bid and ask level includes exact decimal-string `quote_notional`.
+For grouped books, `price` is a display bucket boundary, so quote liquidity
+and totals must use `quote_notional` rather than `price * size`. The
+price-to-base-size `OrderbookState` maps do not retain quote notional; read it
+from the decoded `OrderBook` levels.
 Ticker consumers should use the supplied `mid`; it is engine-authoritative and
 may use one-sided-book or last-trade fallback.
 REST depth is a coherent projection that may briefly lag a mutation. Use its
 `revision` and `captured_at_ms` metadata, and expect revision gaps.
+
+```typescript
+ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
+```
 
 Order submission accepts decimal strings and uses exact `bigint` construction.
 `submit()` fetches and caches `/api/orderbooks/{id}/decimals` before invoking a
@@ -195,9 +223,109 @@ signer. Direct `sign()`/`finalize()` calls require the returned `OrderbookRules`
 Raw amounts, explicit salts, and derived prices are preflighted against the same
 signed-64-bit admission rules; no tick or size normalization is implicit.
 
-```typescript
-ws.subscribe({ type: "book_update", orderbook_ids: [orderbook.orderbookId], nSigFigs: 5, mantissa: 2 });
-```
+### Wallet Balances and SOL Action Planning
+
+`depositTokenBalances()` returns a required exact nine-decimal
+`native_sol_balance` alongside the separate mint-keyed SPL map. Initialize
+`WalletDepositBalancesState` with `applyRestSnapshot(wallet, snapshot)` and feed
+the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
+absolute native-SOL, and status events to `applyEvent()`. Complete snapshots
+replace state even after a higher component slot; status and wrong-wallet events
+do not mutate it, pre-baseline component updates are ignored, and explicit-zero
+SPL updates remove their mint. Matching SPL updates with invalid or negative
+idle balances return `rejected` without mutation. `contextSlot` records the latest accepted
+component observation rather than enforcing global monotonic ordering.
+`combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
+while retaining both stored values. REST response types are trusted rather than
+runtime-decoded; WebSocket frames are validated strictly, while malformed REST
+exact values fail when a state method scales them. The reducer owns its map
+container but retains balance objects by reference, so treat applied payloads as
+immutable.
+
+`planSolSplit`, `planSolMerge`, `planSolRedeem`, and
+`planNativeSolWithdrawal` return unsigned action plans with live fee/rent costs,
+the action-specific reserve and spendable balance, and separate expected native
+and canonical WSOL deltas. Each planner requires complete matching-wallet state,
+checks the canonical account when needed, and fails closed when RPC estimates or
+native reserve are unavailable. Unsponsored actions reserve the greater of live
+costs and the applicable 0.001 SOL or 0.0035 SOL floor. Sponsored planning is
+rejected until a concrete sponsor owns transaction fees and account rent.
+An occupied canonical address is accepted only when it decodes as the wallet's
+initialized, unfrozen Tokenkeg native-mint account.
+
+Split plans consume canonical WSOL first and wrap only a shortfall in the same
+transaction. Merge and redeem plans retain proceeds in the persistent canonical
+account. Native withdrawal transfers directly when possible; otherwise it moves
+only the shortfall through a bounded seeded temporary Tokenkeg account and closes
+that temporary account before sending the exact native amount to the recipient.
+The temporary account's create, initialize, WSOL transfer, close, and native
+transfer instructions share one Solana transaction, so an instruction failure
+rolls the entire conversion back atomically. No planner closes the canonical
+account implicitly.
+
+Native-keypair self-custody users can explicitly call `planWrapSol` with a
+positive exact `bigint` lamport amount or call no-amount `planUnwrapWsolAll`.
+These standalone planners require the authenticated Trading Wallet's local
+native signing strategy; wallet-adapter and Privy strategies are rejected before
+RPC planning. Wrap creates or reuses only that wallet's canonical Tokenkeg ATA,
+transfers the exact amount, and runs `SyncNative`, the Token Program instruction
+that recalculates the WSOL token amount from account lamports. Wrap retains the
+ordinary 0.0035 SOL account-creation or 0.001 SOL existing-account reserve floor
+above lower live costs. Live decoded canonical amounts must match the authoritative
+wallet state. Wrap also requires an existing account's full lamports to equal
+its decoded token amount plus native rent reserve; unsynchronized direct
+donations reject before `SyncNative` can make the projected canonical delta
+inexact. Unwrap-all still accepts such excess and returns it on close.
+
+Unwrap-all accepts no partial amount and closes the entire positive canonical
+account back to the same wallet. Its `SolActionCosts` fields contain the fresh fee, zero
+upfront rent, no account creation, and no sponsorship. Availability reserves
+only that fee rather than the ordinary persistent-account floor;
+`unwrapAllSolBalanceAvailability(components, costs)` validates that complete
+cost tuple before deriving fee-only fields. The
+native delta credits every live account lamport, including refunded rent or
+direct donations, minus the fee and removes the full canonical token amount.
+Closing a pre-existing account returns all of its WSOL and means a future WSOL
+action may need to fund account rent again. Ordinary split, merge, redeem,
+claim, order, and native-withdraw paths never call these conversion planners or
+close canonical WSOL.
+
+For either explicit conversion, rebuild immediately before signing,
+submit with `signAndSubmitPreparedTxConfirmedWithSlot` so the wallet cannot
+replace the fee-estimated message, and refresh a complete snapshot covering its
+slot before restoring action authority. Prepared submission is unavailable for
+Privy because its final signed bytes cannot be verified by the SDK. Atomic
+execution does not resolve uncertain submission or confirmation errors; inspect
+authoritative balances before retrying. See the
+[persistent canonical WSOL ADR](../docs/adr/0001-persistent-canonical-wsol.md).
+
+WebSocket clients are owned independently from `Auth`; logout does not clean them
+up. For each retained client, `clearAuthedSubscriptions()` purges User/wallet
+reconnect tracking and queued authenticated messages. It does not stop an
+already-open server stream; send the matching unsubscribe or disconnect the socket
+for live teardown.
+
+The [`deposit_token_balances`](examples/deposit_token_balances.ts) self-custody
+example is manual-only and runs with `LIGHTCONE_ENV=local` or `staging` only
+when `SDK_API_URL`, `SDK_WS_URL`, `SDK_RPC_URL`, and `SDK_PROGRAM_ID` are all
+unset. It sends 0.001 SOL to the Python SDK wallet configured by
+`LIGHTCONE_WALLET_PATH_PYTHON` from the distinct sender configured by
+`LIGHTCONE_WALLET_PATH_TS`, confirms with a slot, and refreshes a complete
+snapshot at that slot. Running it moves funds. If it fails after submission,
+inspect authoritative balances before retrying because funds may already have moved.
+
+The separate [`wsol_conversion`](examples/wsol_conversion.ts) example runs with
+the TypeScript wallet in local aggregate runs and is included when the globally
+gated stateful example workflow is enabled for staging CI; that workflow
+currently disables all stateful CI jobs. Local runs may use a paid RPC while
+retaining built-in API, WebSocket, and program identity; an enabled staging-CI
+run may supply its managed endpoints. Direct staging runs remain override-free.
+It permits a pre-existing canonical balance, wraps exactly 0.001 SOL, prints the
+exact wallet, costs, full-account return, and future-rent warning, then unwraps
+the complete canonical account without pausing. It retains each frozen
+projection until a complete REST snapshot covers the confirmed slot. Any
+planning, signing, submission, or uncertain-confirmation failure exits without
+automatic retry.
 
 ### Step 5: Cancel an Order
 
@@ -240,8 +368,16 @@ const withdrawIx = client.positions().withdraw()
 
 Authentication is only required for user-specific endpoints. Authentication is session-based using ED25519 signed messages. The flow is: request a nonce, sign it with your wallet, and exchange it for a session cookie.
 
+Privy hosts can also authenticate with passwordless Email, Google, X, or Wallet. After every interactive success, call `client.auth().registerPrivy({ attempted_identity })`. The backend validates the exact selector against Privy's verified methods, creates or synchronizes the Account, and changes the Primary Login Identity only for a new Account. `session.user.identity` is that stable primary; `session.user.linked_identities` contains every connected method with primary first.
+
 Use `walletDisplayName(session.user, session.auth_method)` to show a shortened
 label for the wallet the session trades with, regardless of login identity.
+
+`session.user.max_slippage_preference` is an exact decimal string strictly below
+`10`, or `null` until one is stored. Persist a value greater than zero and less
+than 10 using `client.auth().updateMaxSlippagePreference(value)`; the method
+returns the canonical exact decimal string. Values at or above 10% remain valid
+order protection but are not remembered through this API.
 
 ### Cookie handling
 
@@ -348,6 +484,16 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 
+### Manual Fund-Moving Operations
+
+These examples refuse production and endpoint overrides and are intentionally
+excluded from routine example runs.
+
+| Example | Description |
+|---------|-------------|
+| [`deposit_token_balances`](examples/deposit_token_balances.ts) | Confirm an exact native withdrawal without closing canonical WSOL, then refresh complete state past the confirmed slot |
+| [`wsol_conversion`](examples/wsol_conversion.ts) | Wrap an exact native amount, warn, close and unwrap the complete canonical account, and hold frozen projections through covering refreshes |
+
 ### WebSocket Streaming
 
 | Example | Description |
@@ -385,6 +531,7 @@ When the backend rejects a request (insufficient balance, expired order, etc.), 
 | `errorCode` | `string \| undefined` | API-level error code (for example `"NOT_FOUND"` or `"INVALID_ARGUMENT"`) |
 | `errorLogId` | `string \| undefined` | Backend support correlation ID (`LCERR_*`) |
 | `requestId` | `string \| undefined` | SDK-generated `x-request-id` for cross-service tracing |
+| `existingMethod` | `string \| undefined` | Primary method of the conflicting Account when identity ownership has one deterministic owner |
 
 `ApiRejectedDetails.toString()` formats all present fields as a multi-line report for logs or support tickets.
 

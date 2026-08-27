@@ -5,6 +5,7 @@
 
 use crate::client::LightconeClient;
 use crate::domain::market::Market;
+use crate::domain::position::state::{SolActionCosts, SolBalanceAvailability};
 use crate::error::SdkError;
 use crate::program::instructions;
 use crate::program::types::{
@@ -13,9 +14,361 @@ use crate::program::types::{
     RedeemWinningsParams, WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams,
 };
 use crate::shared::DepositSource;
+use sha2::{Digest, Sha256};
+use solana_hash::Hash;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use solana_transaction::Transaction;
+use std::str::FromStr;
+
+use super::state::WRAPPED_SOL_MINT_ADDRESS;
+
+/// Byte allocation for accounts owned by Solana's legacy SPL Token Program.
+///
+/// “Tokenkeg” names that legacy program (`TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA`).
+/// Canonical native-mint WSOL accounts intentionally use it, not Token-2022,
+/// because Solana's canonical native mint and established ATA convention are
+/// pinned to the legacy program across the protocol and all three SDKs.
+pub(crate) const TOKEN_ACCOUNT_SPACE: usize = 165;
+
+/// SOL-aware operation represented by an SDK action plan.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum SolActionKind {
+    /// Mint a complete conditional-token set, wrapping only a WSOL shortfall.
+    Split,
+    /// Burn a complete set and retain returned collateral as canonical WSOL.
+    Merge,
+    /// Redeem winning tokens and retain returned collateral as canonical WSOL.
+    Redeem,
+    /// Deliver exact native lamports, converting canonical WSOL only if needed.
+    NativeWithdraw,
+    /// Represent an exact native-lamport wrap into the canonical WSOL account.
+    #[cfg(feature = "native-auth")]
+    Wrap,
+    /// Represent closure of the complete canonical WSOL account to the Trading Wallet.
+    #[cfg(feature = "native-auth")]
+    UnwrapAll,
+}
+
+/// Expected change to the separately authoritative SOL components.
+///
+/// Values include the estimated transaction fee and net rent movement so Web
+/// can freeze one post-confirmation projection without merging component state.
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct SolComponentDelta {
+    /// Expected system-account change in lamports, including unsponsored costs.
+    pub native_lamports: i128,
+    /// Expected canonical legacy-token WSOL ATA change in lamports.
+    pub canonical_wsol_lamports: i128,
+}
+
+/// Unsigned transaction plus the exact preflight facts used to authorize it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolActionPlan {
+    /// Operation whose balance semantics produced this plan.
+    pub kind: SolActionKind,
+    /// Unsigned, fee-prepared transaction whose exact message must be preserved.
+    pub transaction: Transaction,
+    /// Live fee/rent observations and sponsorship capability used at preflight.
+    pub costs: SolActionCosts,
+    /// Authoritative component totals after reserving action-specific native SOL.
+    pub availability: SolBalanceAvailability,
+    /// Projection kept component-wise so callers do not erase state authority.
+    pub expected_delta: SolComponentDelta,
+}
+
+/// Derive the canonical native mint and the wallet's persistent Tokenkeg ATA.
+///
+/// Tokenkeg is Solana's legacy SPL Token Program. The program ID is part of ATA
+/// derivation, so this helper pins canonical WSOL to Tokenkeg rather than
+/// Token-2022; changing it would address a different account and split protocol
+/// authority across incompatible token programs.
+pub(crate) fn wrapped_sol_accounts(wallet: &Pubkey) -> Result<(Pubkey, Pubkey), SdkError> {
+    let mint = Pubkey::from_str(WRAPPED_SOL_MINT_ADDRESS)
+        .map_err(|error| SdkError::Validation(format!("invalid wrapped SOL mint: {error}")))?;
+    let token_program = spl_token_interface::id();
+    let account = spl_associated_token_account_interface::address::get_associated_token_address_with_program_id(
+        wallet,
+        &mint,
+        &token_program,
+    );
+    Ok((mint, account))
+}
+
+/// Build idempotent creation of the persistent legacy-token WSOL ATA.
+fn create_idempotent_canonical_wsol_account(wallet: &Pubkey, mint: &Pubkey) -> Instruction {
+    spl_associated_token_account_interface::instruction::create_associated_token_account_idempotent(
+        wallet,
+        wallet,
+        mint,
+        &spl_token_interface::id(),
+    )
+}
+
+/// Return strict ATA creation for a canonical account observed missing during planning.
+///
+/// If the account appears before execution, this instruction fails instead of
+/// accepting account state that was absent from the plan.
+#[cfg(feature = "native-auth")]
+fn create_new_canonical_wsol_account(wallet: &Pubkey, mint: &Pubkey) -> Instruction {
+    spl_associated_token_account_interface::instruction::create_associated_token_account(
+        wallet,
+        wallet,
+        mint,
+        &spl_token_interface::id(),
+    )
+}
+
+/// Return an unsigned transaction for an exact native-to-canonical WSOL wrap.
+///
+/// When planning observed a missing canonical Tokenkeg ATA, the first instruction
+/// is strict ATA creation. A concurrently created ATA therefore makes execution
+/// fail instead of using account state that was absent from the plan. The next
+/// instructions transfer `amount_lamports` from the Trading Wallet and run
+/// `SyncNative`. The planner later attaches the blockhash used for fee estimation.
+#[cfg(feature = "native-auth")]
+pub(crate) fn build_wrap_sol_transaction(
+    wallet: Pubkey,
+    amount_lamports: u64,
+    create_canonical_account: bool,
+) -> Result<Transaction, SdkError> {
+    let token_program = spl_token_interface::id();
+    let (mint, account) = wrapped_sol_accounts(&wallet)?;
+    let mut instructions = Vec::with_capacity(if create_canonical_account { 3 } else { 2 });
+    if create_canonical_account {
+        instructions.push(create_new_canonical_wsol_account(&wallet, &mint));
+    }
+    instructions.push(solana_system_interface::instruction::transfer(
+        &wallet,
+        &account,
+        amount_lamports,
+    ));
+    instructions.push(
+        spl_token_interface::instruction::sync_native(&token_program, &account)
+            .map_err(|error| SdkError::Other(format!("failed to build SyncNative: {error}")))?,
+    );
+    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+}
+
+/// Return an unsigned transaction containing one canonical `CloseAccount` instruction.
+///
+/// If submitted successfully, `CloseAccount` transfers every account lamport,
+/// including rent and donated excess, to the same Trading Wallet that authorizes
+/// the close. Ordinary split, merge, redeem, and native-withdrawal builders never
+/// call this builder.
+#[cfg(feature = "native-auth")]
+pub(crate) fn build_unwrap_wsol_all_transaction(wallet: Pubkey) -> Result<Transaction, SdkError> {
+    let token_program = spl_token_interface::id();
+    let (_, account) = wrapped_sol_accounts(&wallet)?;
+    let close = spl_token_interface::instruction::close_account(
+        &token_program,
+        &account,
+        &wallet,
+        &wallet,
+        &[],
+    )
+    .map_err(|error| SdkError::Other(format!("failed to close canonical WSOL account: {error}")))?;
+    Ok(Transaction::new_with_payer(&[close], Some(&wallet)))
+}
+
+/// Build one atomic wrap-shortfall and market split transaction.
+pub(crate) fn build_sol_split_transaction(
+    program_id: &Pubkey,
+    wallet: Pubkey,
+    market: &Market,
+    amount: u64,
+    shortfall: u64,
+    create_canonical_account: bool,
+) -> Result<Transaction, SdkError> {
+    let token_program = spl_token_interface::id();
+    let (mint, account) = wrapped_sol_accounts(&wallet)?;
+    let mut instructions = Vec::with_capacity(4);
+    if create_canonical_account {
+        instructions.push(create_idempotent_canonical_wsol_account(&wallet, &mint));
+    }
+    if shortfall > 0 {
+        instructions.push(solana_system_interface::instruction::transfer(
+            &wallet, &account, shortfall,
+        ));
+        instructions.push(
+            spl_token_interface::instruction::sync_native(&token_program, &account)
+                .map_err(|error| SdkError::Other(format!("failed to build SyncNative: {error}")))?,
+        );
+    }
+    instructions.push(instructions::build_deposit_ix(
+        &BuildDepositParams {
+            user: wallet,
+            market: market.pubkey.to_pubkey().map_err(SdkError::Validation)?,
+            deposit_mint: mint,
+            amount,
+        },
+        market.num_outcomes,
+        program_id,
+    ));
+    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+}
+
+/// Build a merge that creates the canonical ATA when needed and never closes it.
+pub(crate) fn build_sol_merge_transaction(
+    program_id: &Pubkey,
+    wallet: Pubkey,
+    market: &Market,
+    amount: u64,
+    create_canonical_account: bool,
+) -> Result<Transaction, SdkError> {
+    let (mint, _) = wrapped_sol_accounts(&wallet)?;
+    let mut instructions = Vec::with_capacity(2);
+    if create_canonical_account {
+        instructions.push(create_idempotent_canonical_wsol_account(&wallet, &mint));
+    }
+    instructions.push(instructions::build_merge_ix(
+        &BuildMergeParams {
+            user: wallet,
+            market: market.pubkey.to_pubkey().map_err(SdkError::Validation)?,
+            deposit_mint: mint,
+            amount,
+        },
+        market.num_outcomes,
+        program_id,
+    ));
+    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+}
+
+/// Build a winnings redemption that leaves resulting WSOL in the canonical ATA.
+pub(crate) fn build_sol_redeem_transaction(
+    program_id: &Pubkey,
+    wallet: Pubkey,
+    market: Pubkey,
+    amount: u64,
+    outcome_index: u8,
+    create_canonical_account: bool,
+) -> Result<Transaction, SdkError> {
+    let (mint, _) = wrapped_sol_accounts(&wallet)?;
+    let mut instructions = Vec::with_capacity(2);
+    if create_canonical_account {
+        instructions.push(create_idempotent_canonical_wsol_account(&wallet, &mint));
+    }
+    instructions.push(instructions::build_redeem_winnings_ix(
+        &RedeemWinningsParams {
+            user: wallet,
+            market,
+            deposit_mint: mint,
+            amount,
+        },
+        outcome_index,
+        program_id,
+    ));
+    Ok(Transaction::new_with_payer(&instructions, Some(&wallet)))
+}
+
+/// Build the direct path when native lamports already cover amount and reserve.
+pub(crate) fn build_direct_native_withdraw_transaction(
+    wallet: Pubkey,
+    recipient: Pubkey,
+    amount: u64,
+) -> Transaction {
+    Transaction::new_with_payer(
+        &[solana_system_interface::instruction::transfer(
+            &wallet, &recipient, amount,
+        )],
+        Some(&wallet),
+    )
+}
+
+/// Return a byte-exact, domain-separated temporary-account seed.
+///
+/// The SHA-256 preimage is the ASCII domain `lightcone:wsol-withdraw:v1`, one
+/// zero byte, raw 32-byte blockhash, wallet, and recipient keys, the amount as
+/// eight-byte unsigned big-endian lamports, then the one-byte attempt. This
+/// exact order is shared by all three SDKs. The first 16 digest bytes become 32
+/// lowercase hexadecimal ASCII characters to satisfy Solana's seed limit.
+pub fn native_withdraw_seed(
+    recent_blockhash: &Hash,
+    wallet: &Pubkey,
+    recipient: &Pubkey,
+    amount_lamports: u64,
+    attempt: u8,
+) -> String {
+    let mut preimage = Vec::with_capacity(24 + 1 + 32 + 32 + 32 + 8 + 1);
+    preimage.extend_from_slice(b"lightcone:wsol-withdraw:v1");
+    preimage.push(0);
+    preimage.extend_from_slice(recent_blockhash.as_ref());
+    preimage.extend_from_slice(wallet.as_ref());
+    preimage.extend_from_slice(recipient.as_ref());
+    preimage.extend_from_slice(&amount_lamports.to_be_bytes());
+    preimage.push(attempt);
+    let digest = Sha256::digest(preimage);
+    hex::encode(&digest[..16])
+}
+
+/// Derive the legacy-token temporary WSOL account for a validated seed.
+pub(crate) fn temporary_wsol_account(wallet: &Pubkey, seed: &str) -> Result<Pubkey, SdkError> {
+    Pubkey::create_with_seed(wallet, seed, &spl_token_interface::id())
+        .map_err(|error| SdkError::Validation(format!("invalid temporary WSOL seed: {error}")))
+}
+
+/// Build the only supported WSOL-to-native conversion path.
+///
+/// The temporary Tokenkeg account is created, initialized, funded from the
+/// canonical ATA, and closed back to the Trading Wallet before the exact native
+/// recipient transfer. All five instructions execute in one Solana transaction,
+/// so any instruction failure rolls back the temporary account and both transfers.
+/// The canonical account is never closed.
+pub(crate) fn build_temporary_native_withdraw_transaction(
+    wallet: Pubkey,
+    recipient: Pubkey,
+    amount: u64,
+    canonical_transfer: u64,
+    temporary_rent: u64,
+    seed: &str,
+    temporary_account: Pubkey,
+) -> Result<Transaction, SdkError> {
+    let token_program = spl_token_interface::id();
+    let (mint, canonical_account) = wrapped_sol_accounts(&wallet)?;
+    let create = solana_system_interface::instruction::create_account_with_seed(
+        &wallet,
+        &temporary_account,
+        &wallet,
+        seed,
+        temporary_rent,
+        TOKEN_ACCOUNT_SPACE as u64,
+        &token_program,
+    );
+    let initialize = spl_token_interface::instruction::initialize_account3(
+        &token_program,
+        &temporary_account,
+        &mint,
+        &wallet,
+    )
+    .map_err(|error| {
+        SdkError::Other(format!(
+            "failed to initialize temporary WSOL account: {error}"
+        ))
+    })?;
+    let transfer_wrapped = spl_token_interface::instruction::transfer(
+        &token_program,
+        &canonical_account,
+        &temporary_account,
+        &wallet,
+        &[],
+        canonical_transfer,
+    )
+    .map_err(|error| SdkError::Other(format!("failed to transfer canonical WSOL: {error}")))?;
+    let close = spl_token_interface::instruction::close_account(
+        &token_program,
+        &temporary_account,
+        &wallet,
+        &wallet,
+        &[],
+    )
+    .map_err(|error| SdkError::Other(format!("failed to close temporary WSOL account: {error}")))?;
+    let transfer_native =
+        solana_system_interface::instruction::transfer(&wallet, &recipient, amount);
+    Ok(Transaction::new_with_payer(
+        &[create, initialize, transfer_wrapped, close, transfer_native],
+        Some(&wallet),
+    ))
+}
 
 // ─── DepositBuilder ─────────────────────────────────────────────────────────
 
@@ -1342,5 +1695,275 @@ impl<'a> GlobalToMarketDepositBuilder<'a> {
         let client = self.client;
         let transaction = self.build_tx()?;
         client.sign_and_submit_tx(transaction).await
+    }
+}
+
+#[cfg(test)]
+mod sol_action_tests {
+    //! Cross-SDK canonical and temporary WSOL instruction invariants.
+
+    use super::*;
+    use solana_system_interface::instruction::SystemInstruction;
+    use spl_token_interface::instruction::TokenInstruction;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn market() -> Market {
+        use crate::{domain::market::Status, shared::PubkeyStr};
+
+        Market {
+            id: 1,
+            pubkey: PubkeyStr::from(Pubkey::new_unique().to_string()),
+            name: "Market".into(),
+            banner_image_url_low: None,
+            banner_image_url_medium: None,
+            banner_image_url_high: None,
+            icon_url_low: String::new(),
+            icon_url_medium: String::new(),
+            icon_url_high: String::new(),
+            featured_rank: None,
+            slug: "market".into(),
+            status: Status::Active,
+            maker_fee_bps: 0,
+            taker_fee_bps: 0,
+            created_at: chrono::Utc::now(),
+            activated_at: None,
+            settled_at: None,
+            resolution_by: None,
+            resolution: None,
+            description: None,
+            definition: "Test market".into(),
+            category: None,
+            subcategory: None,
+            tags: Vec::new(),
+            num_outcomes: 2,
+            deposit_assets: Vec::new(),
+            deposit_asset_pairs: Vec::new(),
+            conditional_tokens: Vec::new(),
+            outcomes: Vec::new(),
+            orderbook_pairs: Vec::new(),
+            orderbook_ids: Vec::new(),
+            token_metadata: std::collections::HashMap::new(),
+        }
+    }
+
+    fn account_key(transaction: &Transaction, instruction: usize, account: usize) -> Pubkey {
+        transaction.message.account_keys
+            [transaction.message.instructions[instruction].accounts[account] as usize]
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn exact_wrap_uses_strict_creation_before_transfer_and_sync() -> TestResult {
+        let wallet = Pubkey::new_unique();
+        let (mint, canonical) = wrapped_sol_accounts(&wallet)?;
+        let create = create_idempotent_canonical_wsol_account(&wallet, &mint);
+        let expected_create_accounts = [
+            (wallet, true, true),
+            (canonical, false, true),
+            (wallet, false, false),
+            (mint, false, false),
+            (solana_sdk_ids::system_program::id(), false, false),
+            (spl_token_interface::id(), false, false),
+        ];
+        assert_eq!(
+            create.program_id,
+            spl_associated_token_account_interface::program::id()
+        );
+        assert_eq!(create.data, [1]); // Ordinary builders retain idempotent creation.
+        assert_eq!(create.accounts.len(), expected_create_accounts.len());
+        for (meta, (pubkey, is_signer, is_writable)) in
+            create.accounts.iter().zip(expected_create_accounts)
+        {
+            assert_eq!(meta.pubkey, pubkey);
+            assert_eq!(
+                meta.is_signer, is_signer,
+                "unexpected signer flag for {pubkey}"
+            );
+            assert_eq!(
+                meta.is_writable, is_writable,
+                "unexpected writable flag for {pubkey}"
+            );
+        }
+
+        let strict_create = create_new_canonical_wsol_account(&wallet, &mint);
+        assert_eq!(strict_create.program_id, create.program_id);
+        assert_eq!(strict_create.accounts, create.accounts);
+        assert_eq!(strict_create.data, [0]);
+
+        let transaction = build_wrap_sol_transaction(wallet, 42, true)?;
+        let instructions = &transaction.message.instructions;
+
+        assert_eq!(instructions.len(), 3);
+        // Exact wrap must abort if the planned-missing ATA appears before execution.
+        assert_eq!(instructions[0].data, [0]);
+        assert_eq!(account_key(&transaction, 0, 0), wallet);
+        assert_eq!(account_key(&transaction, 0, 1), canonical);
+        assert_eq!(account_key(&transaction, 0, 3), mint);
+        assert_eq!(
+            bincode::deserialize::<SystemInstruction>(&instructions[1].data)?,
+            SystemInstruction::Transfer { lamports: 42 }
+        );
+        assert_eq!(account_key(&transaction, 1, 0), wallet);
+        assert_eq!(account_key(&transaction, 1, 1), canonical);
+        assert!(matches!(
+            TokenInstruction::unpack(&instructions[2].data)?,
+            TokenInstruction::SyncNative
+        ));
+        assert_eq!(account_key(&transaction, 2, 0), canonical);
+
+        let reused = build_wrap_sol_transaction(wallet, 7, false)?;
+        assert_eq!(reused.message.instructions.len(), 2);
+        assert_eq!(
+            bincode::deserialize::<SystemInstruction>(&reused.message.instructions[0].data)?,
+            SystemInstruction::Transfer { lamports: 7 }
+        );
+        assert!(matches!(
+            TokenInstruction::unpack(&reused.message.instructions[1].data)?,
+            TokenInstruction::SyncNative
+        ));
+        Ok(())
+    }
+
+    #[test]
+    #[cfg(feature = "native-auth")]
+    fn unwrap_all_closes_canonical_to_and_by_the_same_trading_wallet() -> TestResult {
+        let wallet = Pubkey::new_unique();
+        let (_, canonical) = wrapped_sol_accounts(&wallet)?;
+        let transaction = build_unwrap_wsol_all_transaction(wallet)?;
+        let instruction = &transaction.message.instructions[0];
+
+        assert_eq!(transaction.message.instructions.len(), 1);
+        assert!(matches!(
+            TokenInstruction::unpack(&instruction.data)?,
+            TokenInstruction::CloseAccount
+        ));
+        assert_eq!(account_key(&transaction, 0, 0), canonical);
+        assert_eq!(account_key(&transaction, 0, 1), wallet);
+        assert_eq!(account_key(&transaction, 0, 2), wallet);
+        assert!(transaction
+            .message
+            .is_signer(instruction.accounts[2] as usize));
+        Ok(())
+    }
+
+    #[test]
+    fn ordinary_sol_builders_never_close_the_canonical_account() -> TestResult {
+        let wallet = Pubkey::new_unique();
+        let recipient = Pubkey::new_unique();
+        let program_id = Pubkey::new_unique();
+        let (_, canonical) = wrapped_sol_accounts(&wallet)?;
+        let seed = "0123456789abcdef0123456789abcdef";
+        let temporary = temporary_wsol_account(&wallet, seed)?;
+        let transactions = [
+            build_sol_split_transaction(&program_id, wallet, &market(), 10, 10, true)?,
+            build_sol_merge_transaction(&program_id, wallet, &market(), 10, true)?,
+            build_sol_redeem_transaction(&program_id, wallet, Pubkey::new_unique(), 10, 0, true)?,
+            build_direct_native_withdraw_transaction(wallet, recipient, 10),
+            build_temporary_native_withdraw_transaction(
+                wallet, recipient, 10, 5, 2_039_280, seed, temporary,
+            )?,
+        ];
+
+        for transaction in transactions {
+            for instruction in &transaction.message.instructions {
+                if transaction.message.account_keys[instruction.program_id_index as usize]
+                    == spl_token_interface::id()
+                    && matches!(
+                        TokenInstruction::unpack(&instruction.data),
+                        Ok(TokenInstruction::CloseAccount)
+                    )
+                {
+                    assert_ne!(
+                        transaction.message.account_keys[instruction.accounts[0] as usize],
+                        canonical
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    /// Pins the shared preimage encoding and lowercase 32-byte seed text.
+    fn native_withdraw_seed_is_byte_exact_and_lowercase_hex() {
+        let blockhash = Hash::default();
+        let wallet = Pubkey::new_from_array([1; 32]);
+        let recipient = Pubkey::new_from_array([2; 32]);
+
+        let seed = native_withdraw_seed(&blockhash, &wallet, &recipient, 0x0102_0304_0506_0708, 7);
+
+        assert_eq!(seed, "4dce744c636478f024df5aefd987f933");
+        assert_eq!(seed.len(), 32);
+        assert_eq!(
+            temporary_wsol_account(&wallet, &seed).unwrap().to_string(),
+            "71S4MLz9scZhY8BomAjfTkVn6HhFo8yFU7G6tSLto5g6"
+        );
+    }
+
+    #[test]
+    /// Proves the atomic conversion orders all instructions and closes only the temporary account.
+    fn temporary_withdraw_closes_only_the_seeded_account_before_native_transfer() {
+        let wallet = Pubkey::new_unique();
+        let recipient = Pubkey::new_unique();
+        let seed = "0123456789abcdef0123456789abcdef";
+        let temporary = temporary_wsol_account(&wallet, seed).unwrap();
+        let (_, canonical) = wrapped_sol_accounts(&wallet).unwrap();
+        let transaction = build_temporary_native_withdraw_transaction(
+            wallet, recipient, 50, 25, 2_039_280, seed, temporary,
+        )
+        .unwrap();
+        let instructions = &transaction.message.instructions;
+        assert_eq!(instructions.len(), 5);
+
+        let create: SystemInstruction = bincode::deserialize(&instructions[0].data).unwrap();
+        let SystemInstruction::CreateAccountWithSeed {
+            seed: created_seed,
+            lamports,
+            space,
+            ..
+        } = create
+        else {
+            panic!("expected CreateAccountWithSeed");
+        };
+        assert_eq!(created_seed, seed);
+        assert_eq!(lamports, 2_039_280);
+        assert_eq!(space, TOKEN_ACCOUNT_SPACE as u64);
+        assert!(matches!(
+            TokenInstruction::unpack(&instructions[1].data).unwrap(),
+            TokenInstruction::InitializeAccount3 { owner } if owner == wallet
+        ));
+        assert!(matches!(
+            TokenInstruction::unpack(&instructions[2].data).unwrap(),
+            TokenInstruction::Transfer { amount: 25 }
+        ));
+        assert_eq!(
+            transaction.message.account_keys[instructions[2].accounts[0] as usize],
+            canonical
+        );
+        assert_eq!(
+            transaction.message.account_keys[instructions[2].accounts[1] as usize],
+            temporary
+        );
+        assert!(matches!(
+            TokenInstruction::unpack(&instructions[3].data).unwrap(),
+            TokenInstruction::CloseAccount
+        ));
+        assert_eq!(
+            transaction.message.account_keys[instructions[3].accounts[0] as usize],
+            temporary
+        );
+        assert_ne!(
+            transaction.message.account_keys[instructions[3].accounts[0] as usize],
+            canonical
+        );
+        assert_eq!(
+            bincode::deserialize::<SystemInstruction>(&instructions[4].data).unwrap(),
+            SystemInstruction::Transfer { lamports: 50 }
+        );
+        assert_eq!(
+            transaction.message.account_keys[instructions[4].accounts[1] as usize],
+            recipient
+        );
     }
 }

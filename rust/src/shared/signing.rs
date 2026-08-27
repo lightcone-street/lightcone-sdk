@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 #[cfg(feature = "native-auth")]
 use solana_keypair::Keypair;
+use solana_pubkey::Pubkey;
 
 /// Trait for external wallet signers (browser wallet adapters).
 ///
@@ -41,6 +42,12 @@ use solana_keypair::Keypair;
 /// }
 /// ```
 pub trait ExternalSigner: Send + Sync {
+    /// Return the wallet controlled by this signer when it can be verified
+    /// before signing an identity-bound transaction.
+    fn wallet_address(&self) -> Option<Pubkey> {
+        None
+    }
+
     /// Sign a message and return the raw signature bytes.
     fn sign_message<'a>(
         &'a self,
@@ -67,6 +74,38 @@ pub enum SigningStrategy {
     /// External wallet adapter (browser).
     /// Delegates signing to the provided `ExternalSigner` implementation.
     WalletAdapter(Arc<dyn ExternalSigner>),
+}
+
+impl SigningStrategy {
+    /// Return whether this strategy signs with a local keypair that cannot use sponsorship.
+    pub(crate) fn is_local_keypair(&self) -> bool {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(_) => true,
+            Self::WalletAdapter(_) => false,
+        }
+    }
+
+    /// Return the wallet identity this strategy can prove before signing.
+    pub fn wallet_address(&self) -> Option<Pubkey> {
+        match self {
+            #[cfg(feature = "native-auth")]
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(signer) => signer.wallet_address(),
+        }
+    }
+
+    /// Return the local-keypair wallet accepted by wrap and unwrap-all planners.
+    ///
+    /// A wallet-adapter strategy returns `None` even when it exposes a matching
+    /// wallet identity. Ordinary planners continue to accept that strategy.
+    #[cfg(feature = "native-auth")]
+    pub(crate) fn native_conversion_wallet(&self) -> Option<Pubkey> {
+        match self {
+            Self::Native(keypair) => Some(solana_signer::Signer::pubkey(keypair.as_ref())),
+            Self::WalletAdapter(_) => None,
+        }
+    }
 }
 
 /// Check if an external signer error indicates the user cancelled/rejected

@@ -11,6 +11,7 @@ import { DepositSource } from "../src/shared";
 const snapshot: DepositTokenBalancesSnapshot = {
   context_slot: 1234,
   balances: {},
+  native_sol_balance: "0.000000000",
 };
 
 describe("Positions.depositTokenBalances", () => {

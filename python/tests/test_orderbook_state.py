@@ -1,7 +1,9 @@
 """Tests for generation-gated snapshot-only orderbook state."""
 
-from lightcone_sdk.domain.orderbook.state import OrderbookState
+from decimal import Decimal
+
 from lightcone_sdk.domain.orderbook.aggregation import BookAggregation
+from lightcone_sdk.domain.orderbook.state import OrderbookState
 from lightcone_sdk.domain.orderbook.wire import WsBookLevel, WsOrderBook
 
 
@@ -18,8 +20,24 @@ def make_book(
         is_snapshot=is_snapshot,
         seq=seq,
         resync=resync,
-        bids=[WsBookLevel(side=0, price=price, size=size) for price, size in bids or []],
-        asks=[WsBookLevel(side=1, price=price, size=size) for price, size in asks or []],
+        bids=[
+            WsBookLevel(
+                side=0,
+                price=price,
+                size=size,
+                quote_notional=str(Decimal(price) * Decimal(size)),
+            )
+            for price, size in bids or []
+        ],
+        asks=[
+            WsBookLevel(
+                side=1,
+                price=price,
+                size=size,
+                quote_notional=str(Decimal(price) * Decimal(size)),
+            )
+            for price, size in asks or []
+        ],
     )
 
 

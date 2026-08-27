@@ -149,6 +149,31 @@ def test_optional_metadata_fields_do_not_fail_validation() -> None:
     assert market.tags == []
 
 
+def test_outcome_artwork_is_optional_and_cross_fills_non_blank_quality() -> None:
+    payload = market_payload()
+    payload["outcomes"][0] = {"index": 0, "name": "Yes"}
+    payload["outcomes"][1] = {
+        "index": 1,
+        "name": "No",
+        "icon_url_low": " ",
+        "icon_url_medium": "https://example.com/no.png",
+        "icon_url_high": "",
+    }
+
+    market = market_from_wire(MarketWire.from_dict(payload))
+    assert market.outcomes[0].icon_url_low is None
+    assert market.outcomes[0].icon_url_medium is None
+    assert market.outcomes[0].icon_url_high is None
+    assert market.outcomes[1].icon_url_low == "https://example.com/no.png"
+    assert market.outcomes[1].icon_url_medium == "https://example.com/no.png"
+    assert market.outcomes[1].icon_url_high == "https://example.com/no.png"
+
+    preserved = market_from_wire(MarketWire.from_dict(market_payload())).outcomes[0]
+    assert preserved.icon_url_low == "https://example.com/yes-low.png"
+    assert preserved.icon_url_medium == "https://example.com/yes-low.png"
+    assert preserved.icon_url_high == "https://example.com/yes-low.png"
+
+
 def test_optional_metadata_fields_pass_through_when_present() -> None:
     payload = market_payload()
     payload["subcategory"] = "Bitcoin"

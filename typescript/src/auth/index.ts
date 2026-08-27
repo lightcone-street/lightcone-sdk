@@ -57,6 +57,33 @@ export interface GoogleAccountData {
   avatar_url?: string;
 }
 
+/** Canonical address for a passwordless Email login identity. */
+export interface EmailAccountData {
+  email: string;
+}
+
+/** Public login-method names exposed in profiles and bounded conflicts. */
+export type LinkedIdentityType = "email" | "google" | "x" | "wallet";
+
+/** Connected Login Identity without repeated Account-level Privy wallet data. */
+export type LinkedIdentity =
+  | { type: "email"; account: EmailAccountData }
+  | { type: "google"; account: GoogleAccountData }
+  | { type: "x"; account: XAccountData }
+  | { type: "wallet"; address: string; chain: ChainType };
+
+/** Verified method and canonical identifier that initiated Privy authentication. */
+export type LinkedIdentitySelector =
+  | { type: "email"; email: string }
+  | { type: "google"; email: string }
+  | { type: "x"; username: string }
+  | { type: "wallet"; address: string; chain: ChainType };
+
+/** Register-or-sync request naming the verified attempted identity. */
+export interface RegisterPrivyRequest {
+  attempted_identity: LinkedIdentitySelector;
+}
+
 /**
  * The login identity — how the user authenticates. `type` narrows the variant.
  *
@@ -66,14 +93,24 @@ export interface GoogleAccountData {
  * self-custody.
  */
 export type UserIdentity =
+  | { type: "email"; account: EmailAccountData; privy: UserPrivyData }
   | { type: "google"; account: GoogleAccountData; privy: UserPrivyData }
   | { type: "x"; account: XAccountData; privy: UserPrivyData }
-  | { type: "wallet"; address: string; chain: ChainType; privy?: UserPrivyData };
+  | {
+      type: "wallet";
+      address: string;
+      chain: ChainType;
+      privy?: UserPrivyData;
+    };
 
 /** Full user profile — the `user` object of {@link SessionResponse}. */
 export interface User {
   user_id: string;
   identity: UserIdentity;
+  /** Every verified login identity connected to the Account, primary first. */
+  linked_identities?: LinkedIdentity[];
+  /** Remembered account-wide percentage below 10%; null until one is stored. */
+  max_slippage_preference: string | null;
   /** X account connected by a non-X-identity user; absent when identity is X. */
   connected_x?: XAccountData;
 }
@@ -90,9 +127,18 @@ export interface SessionResponse {
   is_beta: boolean;
 }
 
-/** Human-readable login-method label ("Google" / "X" / "Solana"). */
-export function identityText(identity: UserIdentity): "Google" | "X" | "Solana" {
+/** Exact decimal-string body used to update and return max slippage. */
+export interface MaxSlippagePreferenceBody {
+  max_slippage_preference: string;
+}
+
+/** Human-readable login-method label ("Email" / "Google" / "X" / "Solana"). */
+export function identityText(
+  identity: UserIdentity,
+): "Email" | "Google" | "X" | "Solana" {
   switch (identity.type) {
+    case "email":
+      return "Email";
     case "google":
       return "Google";
     case "x":
@@ -109,6 +155,7 @@ export function identityText(identity: UserIdentity): "Google" | "X" | "Solana" 
 /** Privy account data, regardless of identity type. */
 export function userPrivy(user: User): UserPrivyData | undefined {
   switch (user.identity.type) {
+    case "email":
     case "google":
     case "x":
       return user.identity.privy;
@@ -133,6 +180,7 @@ export function userXAccount(user: User): XAccountData | undefined {
  */
 export function tradingWallet(user: User, authMethod: AuthMethod): string {
   switch (user.identity.type) {
+    case "email":
     case "google":
     case "x":
       return user.identity.privy.wallet.address;
@@ -148,17 +196,36 @@ export function walletDisplayName(user: User, authMethod: AuthMethod): string {
   return shorten(tradingWallet(user, authMethod), 8);
 }
 
+/** Keeps Email labels compact while preserving the recognizable address ends. */
+function emailDisplayName(email: string): string {
+  const maxChars = 20;
+  const chars = [...email];
+  if (chars.length <= maxChars) {
+    return email;
+  }
+
+  const visibleChars = maxChars - 3;
+  const prefixChars = Math.floor(visibleChars / 2);
+  return `${chars.slice(0, prefixChars).join("")}...${chars
+    .slice(-(visibleChars - prefixChars))
+    .join("")}`;
+}
+
 /**
- * Best display name for the user. Google: `name`, falling back to the email;
- * X: `display_name`, falling back to the username; wallet identities show the
- * shortened address (`FRGk...WcPR`).
+ * Best display name for the user. Email addresses are limited to 20 characters;
+ * Google uses `name` with an email fallback; X uses `display_name` with a
+ * username fallback; wallet identities show the shortened address (`FRGk...WcPR`).
  */
 export function displayName(user: User): string {
   switch (user.identity.type) {
+    case "email":
+      return emailDisplayName(user.identity.account.email);
     case "google":
       return user.identity.account.name ?? user.identity.account.email;
     case "x":
-      return user.identity.account.display_name ?? user.identity.account.username;
+      return (
+        user.identity.account.display_name ?? user.identity.account.username
+      );
     case "wallet":
       return shorten(user.identity.address, 8);
   }
@@ -167,6 +234,8 @@ export function displayName(user: User): string {
 /** Avatar URL from the login identity's OAuth provider, if any. */
 export function avatarUrl(user: User): string | undefined {
   switch (user.identity.type) {
+    case "email":
+      return undefined;
     case "google":
     case "x":
       return user.identity.account.avatar_url;

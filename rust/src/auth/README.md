@@ -60,32 +60,41 @@ the durable user profile plus session-scoped facts. There is no
 | Field | Type | Description |
 |-------|------|-------------|
 | `user_id` | `String` | User ID |
-| `identity` | `UserIdentity` | The login identity (tagged union) |
+| `identity` | `UserIdentity` | Stable Primary Login Identity (tagged union) |
+| `linked_identities` | `Vec<LinkedIdentity>` | Every connected verified method, primary first |
+| `max_slippage_preference` | `Option<Decimal>` | Remembered account-wide percentage strictly below 10%; `None` until one is stored |
 | `connected_x` | `Option<XAccountData>` | X account connected by a non-X-identity user; `None` when identity is X |
 
 **Methods:**
 - `privy()` — Privy account data regardless of identity type
 - `x_account()` — the X account, whether login identity or connected account
-- `trading_wallet(auth_method)` — the wallet this session operates as. Google/X identities always trade via their Privy embedded wallet; wallet identities trade via the embedded wallet on Privy (SIWS) sessions and via the sign-in wallet on Lightcone sessions
+- `trading_wallet(auth_method)` — the wallet this session operates as. Email/Google/X identities always trade via their Privy embedded wallet; wallet identities trade via the embedded wallet on Privy (SIWS) sessions and via the sign-in wallet on Lightcone sessions
 - `wallet_display_name(auth_method)` — shortened display label for the session's trading wallet (`FRGk...WcPR`)
-- `display_name()` — Google: `name` → email fallback; X: `display_name` → username fallback; wallet: shortened address (`FRGk...WcPR`)
+- `display_name()` — Email: address; Google: `name` → email fallback; X: `display_name` → username fallback; wallet: shortened address (`FRGk...WcPR`)
 - `avatar_url()` — avatar from the login identity's OAuth provider
 
 ### `UserIdentity`
 
 How the user authenticates. Serializes as a tagged union on `type`
-(`"google"` / `"x"` / `"wallet"`). Privy data lives on the variant because
-Google/X login only exists via Privy (always present), while wallet users opt
+(`"email"` / `"google"` / `"x"` / `"wallet"`). Privy data lives on the variant because
+Email/Google/X login only exists via Privy (always present), while wallet users opt
 in (SIWS) or stay self-custody (`None`).
 
 | Variant | Fields |
 |---------|--------|
+| `Email` | `account: EmailAccountData`, `privy: UserPrivyData` |
 | `Google` | `account: GoogleAccountData`, `privy: UserPrivyData` |
 | `X` | `account: XAccountData`, `privy: UserPrivyData` |
 | `Wallet` | `address: String`, `chain: ChainType`, `privy: Option<UserPrivyData>` |
 
 **Methods:**
-- `text()` — human-readable label: `"Google"` / `"X"` / `"Solana"`
+- `text()` — human-readable label: `"Email"` / `"Google"` / `"X"` / `"Solana"`
+
+### `EmailAccountData`
+
+| Field | Type |
+|-------|------|
+| `email` | `String` |
 
 ### `GoogleAccountData`
 
@@ -184,6 +193,17 @@ async fn check_session_with_cookies(
 
 Same as `check_session`, but forwards the supplied raw `Cookie` header for this call and does **not** mutate the shared credentials (safe under concurrent SSR). Returns the parsed credentials alongside the envelope.
 
+### `register_privy`
+
+```rust
+async fn register_privy(
+    &self,
+    request: &RegisterPrivyRequest,
+) -> Result<SessionResponse, SdkError>
+```
+
+Create or synchronize a Lightcone Account after every interactive Privy authentication. `attempted_identity` is an explicitly tagged `Email`, `Google`, `X`, or `Wallet` selector; the backend validates it against Privy's verified methods and uses it as primary only when creating a new Account. Returns the synchronized session and installs its credentials on the client.
+
 ### `logout`
 
 ```rust
@@ -223,6 +243,21 @@ async fn disconnect_x(&self) -> Result<(), SdkError>
 ```
 
 Disconnect the user's linked X (Twitter) account.
+
+### `update_max_slippage_preference`
+
+```rust
+async fn update_max_slippage_preference(
+    &self,
+    max_slippage_preference: Decimal,
+) -> Result<Decimal, SdkError>
+```
+
+Persist the authenticated user's account-wide percentage preference. The
+backend accepts exact decimals strictly greater than zero and less than 10, and
+returns the canonical exact decimal value. Session user profiles return `None`
+until the first below-default preference is stored. Values at or above 10% may
+still be used as order protection, but are not remembered through this API.
 
 ## Native Login Flow
 

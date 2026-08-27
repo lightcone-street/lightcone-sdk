@@ -70,6 +70,11 @@ price = parse_decimal("0.542500")  # Returns 0.5425
 formatted = format_decimal(0.5425, precision=6)  # Returns "0.542500"
 ```
 
+`Side.apply_impact_protection(worst_fill_price, protection_percent)` accepts
+any finite protection greater than zero. There is no policy maximum; Ask
+protection at or above 100% returns a zero boundary. Non-positive or non-finite
+values return `None`.
+
 ## For Program-Specific Code
 
 All program-specific code has been moved to the `program` module:

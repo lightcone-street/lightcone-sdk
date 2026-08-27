@@ -20,13 +20,22 @@ from . import (
     parse_message_in,
     ping as make_ping,
 )
-from .subscriptions import SubscribeParams, UserParams, subscription_key
+from .subscriptions import (
+    SubscribeParams,
+    UserParams,
+    WalletDepositBalancesParams,
+    subscription_key,
+)
 
 logger = logging.getLogger(__name__)
 
 
 class WsClient:
-    """Async WebSocket client with reconnection and subscription tracking."""
+    """Async WebSocket client with queued sends and reconnect replay.
+
+    Subscription parameters are local replay state, not proof that the server
+    accepted a channel. Authenticated replay entries must be purged on logout.
+    """
 
     def __init__(self, config: Optional[WsConfig] = None):
         self._config = config or WS_DEFAULT_CONFIG
@@ -163,11 +172,24 @@ class WsClient:
         await self.connect()
 
     def clear_authed_subscriptions(self) -> None:
-        """Remove authenticated subscriptions (e.g. User channel) from tracking."""
+        """Purge authenticated replay entries and queued messages.
+
+        Public subscriptions remain. This method does not send unsubscriptions
+        on an open socket, so callers must also unsubscribe or disconnect for
+        immediate server-side teardown.
+        """
         before = len(self._active_subscriptions)
         self._active_subscriptions = [
-            s for s in self._active_subscriptions
-            if not isinstance(s, UserParams)
+            s
+            for s in self._active_subscriptions
+            if not isinstance(s, (UserParams, WalletDepositBalancesParams))
+        ]
+        # Queued auth messages must not survive logout and flush into a later
+        # connection after active replay tracking has already been cleared.
+        self._pending_messages = [
+            message
+            for message in self._pending_messages
+            if not _is_authed_subscription_message(message)
         ]
         removed = before - len(self._active_subscriptions)
         if removed > 0:
@@ -183,7 +205,10 @@ class WsClient:
     async def subscribe(self, params: SubscribeParams) -> None:
         """Subscribe to a channel. Tracks subscription for reconnection."""
         # Track using SubscribeParams-based dedup
-        if not any(subscription_key(s) == subscription_key(params) for s in self._active_subscriptions):
+        if not any(
+            subscription_key(s) == subscription_key(params)
+            for s in self._active_subscriptions
+        ):
             self._active_subscriptions.append(params)
 
         message = _subscribe_params_to_message(params)
@@ -193,8 +218,7 @@ class WsClient:
         """Unsubscribe from a channel."""
         key = subscription_key(params)
         self._active_subscriptions = [
-            s for s in self._active_subscriptions
-            if subscription_key(s) != key
+            s for s in self._active_subscriptions if subscription_key(s) != key
         ]
         message = _unsubscribe_params_to_message(params)
         await self.send(message)
@@ -227,15 +251,21 @@ class WsClient:
                             self._reconnect_attempts = 0
                         self._emit(WsEvent(type=WsEventType.MESSAGE, message=parsed))
                     except Exception as e:
+                        # Malformed frames are isolated: never emit them as a
+                        # normal message and keep receiving later valid frames.
                         logger.warning(f"Message parse error: {e}")
                 elif msg.type == aiohttp.WSMsgType.ERROR:
-                    self._emit(WsEvent(
-                        type=WsEventType.ERROR,
-                        error=str(self._ws.exception()),
-                    ))
+                    self._emit(
+                        WsEvent(
+                            type=WsEventType.ERROR,
+                            error=str(self._ws.exception()),
+                        )
+                    )
                 elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
                     close_code = self._ws.close_code
-                    close_reason = str(self._ws.close_code) if self._ws.close_code else ""
+                    close_reason = (
+                        str(self._ws.close_code) if self._ws.close_code else ""
+                    )
                     break
         except asyncio.CancelledError:
             return
@@ -248,11 +278,13 @@ class WsClient:
         self._cancel_task("_ping_task")
         self._cancel_task("_pong_timeout_task")
 
-        self._emit(WsEvent(
-            type=WsEventType.DISCONNECTED,
-            code=close_code,
-            reason=close_reason,
-        ))
+        self._emit(
+            WsEvent(
+                type=WsEventType.DISCONNECTED,
+                code=close_code,
+                reason=close_reason,
+            )
+        )
 
         if self._should_reconnect:
             rate_limited = close_code == 1008
@@ -282,10 +314,12 @@ class WsClient:
                 logger.warning(
                     f"Pong timeout — no response within {self._config.pong_timeout_ms}ms"
                 )
-                self._emit(WsEvent(
-                    type=WsEventType.DISCONNECTED,
-                    reason="Pong timeout",
-                ))
+                self._emit(
+                    WsEvent(
+                        type=WsEventType.DISCONNECTED,
+                        reason="Pong timeout",
+                    )
+                )
                 # Force close and reconnect
                 self._cancel_task("_ping_task")
                 self._cancel_task("_receive_task")
@@ -307,7 +341,7 @@ class WsClient:
             self._state = ReadyState.CONNECTING
 
             exp = min(self._reconnect_attempts - 1, 10)
-            base = self._config.base_reconnect_delay_ms * (2 ** exp)
+            base = self._config.base_reconnect_delay_ms * (2**exp)
 
             if rate_limited:
                 jitter_max = 1000
@@ -370,6 +404,15 @@ def _unsubscribe_params_to_message(params: SubscribeParams) -> dict:
     # Remove fields not needed for unsubscribe
     wire.pop("include_ohlcv", None)
     return {"method": "unsubscribe", "params": wire}
+
+
+def _is_authed_subscription_message(message: dict) -> bool:
+    """Classify queued messages that may not cross a logout boundary."""
+    params = message.get("params")
+    return isinstance(params, dict) and params.get("type") in {
+        "user",
+        "wallet_deposit_balances",
+    }
 
 
 __all__ = ["WsClient"]

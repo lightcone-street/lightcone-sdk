@@ -44,13 +44,22 @@ def client() -> LightconeClient:
 rest_client = client
 
 
-def get_keypair() -> Keypair:
-    """Load a keypair from disk.
+def get_keypair(path_variable: str | None = None) -> Keypair:
+    """Load an SDK or peer keypair from an existing wallet-path variable.
 
-    Defaults to ``~/.config/solana/id.json``. Set ``LIGHTCONE_WALLET_PATH``
-    to override.
+    With no argument, the Python-specific path wins, then the generic path,
+    then ``~/.config/solana/id.json``. An explicit variable is required to be
+    present, which keeps fund-moving peer selection fail-closed.
     """
-    raw = os.environ.get("LIGHTCONE_WALLET_PATH", DEFAULT_WALLET_PATH)
+    if path_variable is not None:
+        raw = os.environ.get(path_variable)
+        if raw is None:
+            raise RuntimeError(f"{path_variable} is required")
+    else:
+        raw = os.environ.get(
+            "LIGHTCONE_WALLET_PATH_PYTHON",
+            os.environ.get("LIGHTCONE_WALLET_PATH", DEFAULT_WALLET_PATH),
+        )
     path = Path(raw).expanduser()
     with path.open() as f:
         secret = json.load(f)

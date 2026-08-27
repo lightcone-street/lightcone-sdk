@@ -37,7 +37,17 @@ class TradesParams:
 
 @dataclass
 class UserParams:
+    """Authenticated user stream keyed by the exact wallet identity."""
+
     type: str = "user"
+    wallet_address: str = ""
+
+
+@dataclass
+class WalletDepositBalancesParams:
+    """Authenticated wallet balance stream tracked for reconnect replay."""
+
+    type: str = "wallet_deposit_balances"
     wallet_address: str = ""
 
 
@@ -80,10 +90,12 @@ class DepositAssetPriceParams:
     deposit_asset: str = ""
 
 
+# Closed set of locally tracked subscription identities.
 SubscribeParams = Union[
     BookUpdateParams,
     TradesParams,
     UserParams,
+    WalletDepositBalancesParams,
     PriceHistoryParams,
     TickerParams,
     MarketParams,
@@ -91,7 +103,8 @@ SubscribeParams = Union[
     DepositAssetPriceParams,
 ]
 
-UnsubscribeParams = SubscribeParams  # Same shapes for unsubscribe
+# Wire unsubscribe identities deliberately reuse the corresponding subscribe shape.
+UnsubscribeParams = SubscribeParams
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +113,7 @@ UnsubscribeParams = SubscribeParams  # Same shapes for unsubscribe
 
 
 def subscription_key(params: SubscribeParams) -> str:
-    """Generate a unique key for a subscription for deduplication."""
+    """Return the stable deduplication and reconnect-replay identity."""
     if isinstance(params, BookUpdateParams):
         ids = ",".join(sorted(params.orderbook_ids))
         aggregation = BookAggregation.from_frame(params.n_sig_figs, params.mantissa)
@@ -115,6 +128,8 @@ def subscription_key(params: SubscribeParams) -> str:
         return f"trades:{ids}"
     elif isinstance(params, UserParams):
         return f"user:{params.wallet_address}"
+    elif isinstance(params, WalletDepositBalancesParams):
+        return f"wallet_deposit_balances:{params.wallet_address}"
     elif isinstance(params, PriceHistoryParams):
         return f"price_history:{params.orderbook_id}:{params.resolution}"
     elif isinstance(params, TickerParams):
@@ -130,7 +145,7 @@ def subscription_key(params: SubscribeParams) -> str:
 
 
 def unsubscribe_matches(sub: SubscribeParams, unsub: UnsubscribeParams) -> bool:
-    """Check if an unsubscribe matches a subscribe."""
+    """Check whether a wire unsubscribe removes this tracked replay identity."""
     if type(sub) != type(unsub):
         return False
     return subscription_key(sub) == subscription_key(unsub)
@@ -140,6 +155,7 @@ __all__ = [
     "BookUpdateParams",
     "TradesParams",
     "UserParams",
+    "WalletDepositBalancesParams",
     "PriceHistoryParams",
     "TickerParams",
     "MarketParams",

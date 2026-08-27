@@ -6,7 +6,9 @@ Mirrors rust/src/rpc.rs.
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Callable, Optional, TypeVar
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from solders.hash import Hash
 from solders.instruction import Instruction
@@ -15,6 +17,9 @@ from solders.pubkey import Pubkey
 from solders.signature import Signature
 from solders.transaction import Transaction
 from solders.transaction_status import TransactionConfirmationStatus
+from spl.token._layouts import ACCOUNT_LAYOUT
+from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
+from spl.token.instructions import get_associated_token_address
 
 from .error import (
     ConfirmationTimeout,
@@ -26,7 +31,6 @@ from .program.accounts import (
     deserialize_exchange,
     deserialize_global_deposit_token,
 )
-from .env import PROGRAM_ID
 from .program.errors import AccountNotFoundError
 from .program.pda import (
     get_exchange_pda,
@@ -35,10 +39,43 @@ from .program.pda import (
 )
 from .program.types import Exchange, GlobalDepositToken
 from .rpc_failover import (
+    FAST_RETRY_DELAY_SECS,
     ActiveRpc,
     is_infrastructure_error,
-    FAST_RETRY_DELAY_SECS,
 )
+
+#: Largest exact non-negative lamport value accepted by Solana u64 fields.
+_MAX_SOLANA_LAMPORTS = 2**64 - 1
+
+
+@dataclass(frozen=True)
+class CanonicalWsolAccountInfo:
+    """Store exact live facts for a validated canonical Tokenkeg WSOL account.
+
+    ``canonical_wsol_account_info`` returns all fields from one confirmed account
+    read. ``account_lamports`` includes native-token rent and donated lamports.
+    ``token_amount_lamports`` is the decoded SPL token amount.
+    ``native_reserve_lamports`` is the decoded native-account rent reserve. All
+    fields are integer lamports in Solana's unsigned 64-bit range. Direct
+    dataclass construction does not perform RPC validation.
+    """
+
+    account_lamports: int
+    token_amount_lamports: int
+    native_reserve_lamports: int
+
+
+def _rpc_lamports(value: object, label: str) -> int:
+    """Accept only exact non-negative u64 lamports from an RPC response."""
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, int)
+        or value < 0
+        or value > _MAX_SOLANA_LAMPORTS
+    ):
+        raise SdkError(f"{label} must fit the non-negative u64 lamport range")
+    return value
+
 
 if TYPE_CHECKING:
     from solana.rpc.async_api import AsyncClient
@@ -74,29 +111,27 @@ def _is_transaction_confirmed(status: TransactionStatus) -> bool:
     )
 
 
-def require_connection(client: "LightconeClient") -> "AsyncClient":
+def require_connection(client: LightconeClient) -> AsyncClient:
     """Resolve the currently-active Solana RPC client, or raise if not configured."""
     conn = client.connection
     if conn is None:
-        raise SdkError(
-            "Solana RPC not configured — use .rpc_url() on the builder"
-        )
-    return conn
+        raise SdkError("Solana RPC not configured — use .rpc_url() on the builder")
+    return cast("AsyncClient", conn)
 
 
 def _resolve_connection_for(
-    client: "LightconeClient", target: ActiveRpc
-) -> Optional["AsyncClient"]:
+    client: LightconeClient, target: ActiveRpc
+) -> AsyncClient | None:
     """Resolve the connection for a specific endpoint."""
     if target == ActiveRpc.PRIMARY:
-        return client._primary_connection
-    return client._backup_connection
+        return cast("AsyncClient | None", client._primary_connection)
+    return cast("AsyncClient | None", client._backup_connection)
 
 
 async def _connection_with_failover(
-    client: "LightconeClient",
-    operation: Callable[["AsyncClient"], object],
-) -> object:
+    client: LightconeClient,
+    operation: Callable[[AsyncClient], Awaitable[T]],
+) -> T:
     """Execute an RPC operation with fast retry + failover.
 
     Same flow as Rust's ``solana_rpc_with_failover``.
@@ -109,29 +144,29 @@ async def _connection_with_failover(
 
     # First attempt.
     try:
-        return await operation(active_conn)  # type: ignore[misc]
+        return await operation(active_conn)
     except Exception as first_error:
         if not is_infrastructure_error(first_error):
             raise
 
     # Fast retry on same connection.
     await asyncio.sleep(FAST_RETRY_DELAY_SECS)
+    retry_failure: Exception
     try:
-        return await operation(active_conn)  # type: ignore[misc]
-    except Exception as retry_error:
-        if not is_infrastructure_error(retry_error):
+        return await operation(active_conn)
+    except Exception as error:
+        retry_failure = error
+        if not is_infrastructure_error(error):
             raise
 
     # Flip and try the other connection.
     other_target = (
-        ActiveRpc.BACKUP
-        if original_active == ActiveRpc.PRIMARY
-        else ActiveRpc.PRIMARY
+        ActiveRpc.BACKUP if original_active == ActiveRpc.PRIMARY else ActiveRpc.PRIMARY
     )
     other_conn = _resolve_connection_for(client, other_target)
     if other_conn is not None:
         try:
-            result = await operation(other_conn)  # type: ignore[misc]
+            result = await operation(other_conn)
             if other_target == ActiveRpc.PRIMARY:
                 state.flip_to_primary()
             else:
@@ -140,13 +175,13 @@ async def _connection_with_failover(
         except Exception:
             raise
 
-    raise retry_error  # type: ignore[name-defined]  # noqa: F821
+    raise retry_failure
 
 
 class Rpc:
     """RPC sub-client — PDA helpers, account fetchers, and blockhash access."""
 
-    def __init__(self, client: "LightconeClient") -> None:
+    def __init__(self, client: LightconeClient) -> None:
         self._client = client
 
     # ── PDA helpers (sync, always available) ─────────────────────────────
@@ -170,9 +205,10 @@ class Rpc:
 
     async def get_latest_blockhash(self) -> Hash:
         """Get the latest blockhash for transaction building."""
-        blockhash, _last_valid_block_height = (
-            await self.get_latest_blockhash_with_height()
-        )
+        (
+            blockhash,
+            _last_valid_block_height,
+        ) = await self.get_latest_blockhash_with_height()
         return blockhash
 
     async def get_latest_blockhash_with_height(self) -> tuple[Hash, int]:
@@ -201,7 +237,158 @@ class Rpc:
             self._client,
             lambda conn: conn.get_block_height(Confirmed),
         )
-        return response.value  # type: ignore[union-attr]
+        return int(response.value)
+
+    async def account_exists(self, address: Pubkey) -> bool:
+        """Distinguish a missing account from an unavailable confirmed RPC read."""
+        from solana.rpc.commitment import Confirmed
+
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_account_info(address, Confirmed),
+        )
+        return response.value is not None
+
+    async def canonical_wsol_account_exists(
+        self, address: Pubkey, wallet: Pubkey
+    ) -> bool:
+        """Return whether the validated canonical WSOL account is present.
+
+        This compatibility method delegates address, owner, state, authority,
+        and lamport checks to :meth:`canonical_wsol_account_info`.
+        """
+        return await self.canonical_wsol_account_info(address, wallet) is not None
+
+    async def canonical_wsol_account_info(
+        self, address: Pubkey, wallet: Pubkey
+    ) -> CanonicalWsolAccountInfo | None:
+        """Return exact confirmed facts for the wallet's canonical WSOL account.
+
+        Missing accounts return ``None``. Present accounts must be initialized,
+        unfrozen legacy Token Program native-mint accounts controlled by
+        ``wallet`` at its exact Tokenkeg native-mint ATA. Invalid derivation,
+        ownership, layout, native reserve, close authority, or integer lamport
+        data fails closed rather than looking absent.
+        """
+        from solana.rpc.commitment import Confirmed
+
+        canonical = get_associated_token_address(
+            wallet, WRAPPED_SOL_MINT, TOKEN_PROGRAM_ID
+        )
+        if address != canonical:
+            raise SdkError(
+                "canonical WSOL address is not the wallet's Tokenkeg native-mint ATA"
+            )
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_account_info(address, Confirmed),
+        )
+        info = response.value
+        if info is None:
+            return None
+        if info.owner != TOKEN_PROGRAM_ID:
+            raise SdkError(
+                "canonical WSOL account is not owned by the legacy Token Program"
+            )
+        if len(info.data) != ACCOUNT_LAYOUT.sizeof():
+            raise SdkError("canonical WSOL token account has invalid data length")
+        try:
+            account = ACCOUNT_LAYOUT.parse(bytes(info.data))
+            mint = Pubkey.from_bytes(account.mint)
+            owner = Pubkey.from_bytes(account.owner)
+            close_authority = (
+                Pubkey.from_bytes(account.close_authority)
+                if account.close_authority_option == 1
+                else None
+            )
+        except Exception as error:
+            raise SdkError(
+                f"canonical WSOL token account is invalid: {error}"
+            ) from error
+        if (
+            mint != WRAPPED_SOL_MINT
+            or owner != wallet
+            or account.state != 1
+            or account.delegate_option not in (0, 1)
+            or account.is_native_option != 1
+            or account.close_authority_option not in (0, 1)
+            or (close_authority is not None and close_authority != wallet)
+        ):
+            raise SdkError(
+                "canonical WSOL token account has incompatible mint, authority, or native state"
+            )
+        account_lamports = _rpc_lamports(
+            info.lamports, "canonical WSOL account balance"
+        )
+        token_amount_lamports = _rpc_lamports(
+            account.amount, "canonical WSOL token amount"
+        )
+        native_reserve_lamports = _rpc_lamports(
+            account.is_native, "canonical WSOL native reserve"
+        )
+        accounted_lamports = token_amount_lamports + native_reserve_lamports
+        if (
+            accounted_lamports > _MAX_SOLANA_LAMPORTS
+            or accounted_lamports > account_lamports
+        ):
+            raise SdkError(
+                "canonical WSOL token amount and native reserve exceed account lamports"
+            )
+        return CanonicalWsolAccountInfo(
+            account_lamports=account_lamports,
+            token_amount_lamports=token_amount_lamports,
+            native_reserve_lamports=native_reserve_lamports,
+        )
+
+    async def minimum_balance_for_rent_exemption(self, data_len: int) -> int:
+        """Return the rent-exempt minimum in lamports for ``data_len`` account bytes."""
+        from solana.rpc.commitment import Confirmed
+
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_minimum_balance_for_rent_exemption(
+                data_len, Confirmed
+            ),
+        )
+        return _rpc_lamports(response.value, "rent-exempt minimum")
+
+    async def balance_lamports(self, fee_payer: Pubkey) -> int:
+        """Return the confirmed Native SOL Balance for ``fee_payer``, in lamports."""
+        from solana.rpc.commitment import Confirmed
+
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_balance(fee_payer, Confirmed),
+        )
+        return _rpc_lamports(response.value, "fee-payer balance")
+
+    async def prepare_and_estimate_transaction_fee(
+        self, transaction: Transaction
+    ) -> int:
+        """Attach a fresh blockhash and return the exact message's fee in lamports."""
+        blockhash = await self.get_latest_blockhash()
+        transaction.partial_sign([], blockhash)
+        return await self.estimate_prepared_transaction_fee(transaction)
+
+    async def estimate_prepared_transaction_fee(self, transaction: Transaction) -> int:
+        """Return the prepared message's live fee in lamports.
+
+        The prepared blockhash is preserved, and an unavailable RPC estimate
+        fails closed rather than becoming a zero fee.
+        """
+        from solana.rpc.commitment import Confirmed
+        from solders.hash import Hash
+
+        if transaction.message.recent_blockhash == Hash.default():
+            raise SdkError("prepared transaction is missing a recent blockhash")
+        response = await _connection_with_failover(
+            self._client,
+            lambda conn: conn.get_fee_for_message(transaction.message, Confirmed),
+        )
+        fee = response.value
+        if fee is None:
+            raise SdkError("transaction fee estimate is unavailable")
+        return _rpc_lamports(fee, "transaction fee estimate")
 
     async def send_raw_transaction(self, tx_bytes: bytes) -> str:
         """Submit a signed transaction, returning its signature.
@@ -226,11 +413,29 @@ class Rpc:
         )
         return str(response.value)  # type: ignore[attr-defined]
 
+    async def send_raw_transaction_once(self, tx_bytes: bytes) -> str:
+        """Submit signed bytes once on the active RPC and return the signature.
+
+        This method does not retry or fail over because a transport error does not
+        prove that the active endpoint rejected the transaction.
+        """
+        from solana.rpc.commitment import Confirmed
+        from solana.rpc.types import TxOpts
+
+        response = await require_connection(self._client).send_raw_transaction(
+            tx_bytes,
+            opts=TxOpts(
+                skip_confirmation=True,
+                preflight_commitment=Confirmed,
+            ),
+        )
+        return str(response.value)  # type: ignore[attr-defined]
+
     async def get_signature_statuses(
         self,
         signatures: list[str],
         search_transaction_history: bool = False,
-    ) -> list[Optional[TransactionStatus]]:
+    ) -> list[TransactionStatus | None]:
         """Get the statuses of recently submitted transactions.
 
         Returns one entry per signature, in order; ``None`` means the cluster
@@ -244,10 +449,11 @@ class Rpc:
                 parsed, search_transaction_history=search_transaction_history
             ),
         )
-        return response.value  # type: ignore[union-attr]
+        statuses: list[TransactionStatus | None] = response.value
+        return statuses
 
     async def confirm_signature(
-        self, signature: str, last_valid_block_height: Optional[int]
+        self, signature: str, last_valid_block_height: int | None
     ) -> None:
         """Wait until ``signature`` reaches confirmed commitment, or raise.
 
@@ -271,14 +477,14 @@ class Rpc:
         await self.confirm_signature_status(signature, last_valid_block_height)
 
     async def confirm_signature_status(
-        self, signature: str, last_valid_block_height: Optional[int]
+        self, signature: str, last_valid_block_height: int | None
     ) -> TransactionStatus:
         """Same as :meth:`confirm_signature`, returning the confirmed status."""
         consecutive_failures = 0
         over_bound_samples = 0
 
         for _ in range(_MAX_CONFIRMATION_POLLS):
-            statuses: Optional[list[Optional[TransactionStatus]]] = None
+            statuses: list[TransactionStatus | None] | None = None
             try:
                 statuses = await self.get_signature_statuses([signature])
                 consecutive_failures = 0
@@ -327,7 +533,7 @@ class Rpc:
                         # Search ledger history before declaring expiry — the
                         # recent-status cache can evict landed transactions,
                         # and TransactionExpired promises resubmit safety.
-                        history: Optional[list[Optional[TransactionStatus]]]
+                        history: list[TransactionStatus | None] | None
                         try:
                             history = await self.get_signature_statuses(
                                 [signature], search_transaction_history=True
@@ -341,9 +547,7 @@ class Rpc:
                                 raise TransactionExpired(signature)
                             if _is_transaction_confirmed(landed):
                                 if landed.err is not None:
-                                    raise TransactionFailed(
-                                        signature, str(landed.err)
-                                    )
+                                    raise TransactionFailed(signature, str(landed.err))
                                 return landed
                             # Landed but below confirmed — keep waiting and
                             # restart expiry evidence.
@@ -384,4 +588,4 @@ class Rpc:
         return Transaction.new_unsigned(message)
 
 
-__all__ = ["Rpc", "require_connection"]
+__all__ = ["CanonicalWsolAccountInfo", "Rpc", "require_connection"]

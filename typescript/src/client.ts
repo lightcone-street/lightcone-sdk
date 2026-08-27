@@ -5,6 +5,7 @@ import {
   signAndSubmitTx as signAndSubmitTxFn,
   signAndSubmitTxConfirmed as signAndSubmitTxConfirmedFn,
   signAndSubmitTxConfirmedWithSlot as signAndSubmitTxConfirmedWithSlotFn,
+  signAndSubmitPreparedTxConfirmedWithSlot as signAndSubmitPreparedTxConfirmedWithSlotFn,
 } from "./context";
 import type { ConfirmedTransaction } from "./context";
 import type { FaucetRequest, FaucetResponse } from "./domain/faucet";
@@ -54,6 +55,7 @@ export class LightconeClient implements ClientContext {
   readonly rpcFailoverState: RpcFailoverState;
   private depositSourceValue: DepositSource;
   private signingStrategyValue?: SigningStrategy;
+  private transactionSponsorshipEnabledValue: boolean;
   private orderNonceValue: number | undefined;
   private readonly wsConfigValue: WsConfig;
   private readonly authStateStore: AuthState;
@@ -73,6 +75,7 @@ export class LightconeClient implements ClientContext {
     rpcFailoverState?: RpcFailoverState;
     depositSource?: DepositSource;
     signingStrategy?: SigningStrategy;
+    transactionSponsorshipEnabled?: boolean;
     orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
@@ -86,6 +89,8 @@ export class LightconeClient implements ClientContext {
       params.rpcFailoverState ?? new RpcFailoverState();
     this.depositSourceValue = params.depositSource ?? DepositSource.Global;
     this.signingStrategyValue = params.signingStrategy;
+    this.transactionSponsorshipEnabledValue =
+      params.transactionSponsorshipEnabled ?? false;
     this.orderNonceValue = params.orderNonce;
     this.wsConfigValue = params.wsConfig;
     this.authStateStore =
@@ -110,12 +115,32 @@ export class LightconeClient implements ClientContext {
     return this.signingStrategyValue;
   }
 
+  /**
+   * Cached authenticated identity shared by domain sub-clients.
+   *
+   * This is distinct from the HTTP cookie token and may be expired; fund-moving
+   * operations must re-check its lifetime and wallet before signing.
+   */
+  get authCredentials(): AuthCredentials | undefined {
+    return this.authStateStore.getCredentials();
+  }
+
   setSigningStrategy(strategy: SigningStrategy): void {
     this.signingStrategyValue = strategy;
   }
 
   clearSigningStrategy(): void {
     this.signingStrategyValue = undefined;
+  }
+
+  /** Return the client-wide trusted assertion that an external sponsor pays fees. */
+  get transactionSponsorshipEnabled(): boolean {
+    return this.transactionSponsorshipEnabledValue;
+  }
+
+  /** Replace the Transaction Sponsorship Capability for subsequent submissions. */
+  setTransactionSponsorshipEnabled(enabled: boolean): void {
+    this.transactionSponsorshipEnabledValue = enabled;
   }
 
   // ── Nonce cache ──────────────────────────────────────────────────────
@@ -192,6 +217,13 @@ export class LightconeClient implements ClientContext {
     tx: Transaction
   ): Promise<ConfirmedTransaction> {
     return signAndSubmitTxConfirmedWithSlotFn(this, tx);
+  }
+
+  /** Confirm a fee-prepared transaction without replacing its message. */
+  async signAndSubmitPreparedTxConfirmedWithSlot(
+    tx: Transaction
+  ): Promise<ConfirmedTransaction> {
+    return signAndSubmitPreparedTxConfirmedWithSlotFn(this, tx);
   }
 
   static builder(): LightconeClientBuilder {
@@ -280,6 +312,10 @@ export class LightconeClient implements ClientContext {
     return new WsClient(this.wsConfigValue, this.http.authTokenRef());
   }
 
+  /**
+   * Return a client whose Transaction Sponsorship Capability starts at this value.
+   * Later runtime changes remain local to each clone, matching other mutable settings.
+   */
   clone(): LightconeClient {
     return new LightconeClient({
       http: this.http,
@@ -294,6 +330,7 @@ export class LightconeClient implements ClientContext {
       rpcFailoverState: this.rpcFailoverState,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
+      transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
       orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
       orderbookRulesCache: this.orderbookRulesCache,
@@ -308,6 +345,7 @@ export class LightconeClientBuilder {
   private programIdValue: PublicKey = envProgramId(LightconeEnv.Prod);
   private depositSourceValue: DepositSource = DepositSource.Global;
   private signingStrategyValue?: SigningStrategy;
+  private transactionSponsorshipEnabledValue = false;
   private primaryRpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
   private backupRpcUrlValue?: string;
 
@@ -373,8 +411,17 @@ export class LightconeClientBuilder {
     return this;
   }
 
-  privyWalletId(walletId: string): LightconeClientBuilder {
-    this.signingStrategyValue = { type: "privy", walletId };
+  privyWalletId(
+    walletId: string,
+    walletAddress?: string
+  ): LightconeClientBuilder {
+    this.signingStrategyValue = { type: "privy", walletId, walletAddress };
+    return this;
+  }
+
+  /** Set the initial trusted Transaction Sponsorship Capability; defaults to false. */
+  transactionSponsorship(enabled: boolean): LightconeClientBuilder {
+    this.transactionSponsorshipEnabledValue = enabled;
     return this;
   }
 
@@ -403,6 +450,7 @@ export class LightconeClientBuilder {
       programId: this.programIdValue,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
+      transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
       primaryConnection: this.primaryRpcUrlValue
         ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed" })
         : undefined,

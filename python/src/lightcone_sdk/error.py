@@ -12,6 +12,33 @@ class SdkError(Exception):
     pass
 
 
+class InsufficientSolForTransactionFees(SdkError):
+    """Report a proven Native SOL shortfall for a fee payer or planner reserve.
+
+    ``available_lamports`` is the confirmed Native SOL Balance in the declared
+    fee payer. ``required_lamports`` is the exact message fee or planner-owned
+    transaction reserve. Both values use Solana's non-negative u64 lamport range.
+    """
+
+    def __init__(self, available_lamports: int, required_lamports: int):
+        for label, value in (
+            ("available_lamports", available_lamports),
+            ("required_lamports", required_lamports),
+        ):
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, int)
+                or value < 0
+                or value > 2**64 - 1
+            ):
+                raise ValueError(f"{label} must fit the non-negative u64 lamport range")
+        super().__init__(
+            "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
+        )
+        self.available_lamports = available_lamports
+        self.required_lamports = required_lamports
+
+
 class ApiRejected(SdkError):
     """Raised when the backend rejects a request with structured details."""
 

@@ -20,6 +20,45 @@ All three SDKs expose the same interface and capabilities.
 - **On-chain operations** - Mint/merge complete sets, increment nonce, PDA derivations
 - **Authentication** - Session-based ED25519 signed message flow
 
+## SOL Account Lifecycle
+
+All three SDKs model native SOL and canonical Tokenkeg WSOL separately while
+presenting their sum as one SOL balance. Split wraps only a shortfall; merge and
+redeem retain proceeds in the persistent canonical account; native withdrawal
+uses native SOL directly or converts only its shortfall through a temporary
+seeded account. The conversion instructions share one Solana transaction, so an
+instruction failure rolls the entire conversion back atomically. Ordinary
+planners never close the canonical account implicitly. Native-keypair users can
+instead plan an exact standalone wrap or an explicit no-amount unwrap-all that
+returns the account's complete lamports, including rent, to the same Trading
+Wallet. The per-language `wsol_conversion` examples rebuild before
+signing, submit prepared transactions with confirmed slots, retain each frozen
+projection until a complete snapshot covers that slot, and warn that a later SOL
+action may recreate the closed account and pay rent. An uncertain submission or
+confirmation is never retried automatically; inspect authoritative balances
+before planning another action. See the [persistent canonical WSOL
+ADR](docs/adr/0001-persistent-canonical-wsol.md).
+
+## Transaction Fee Funding
+
+Every ordinary and prepared on-chain transaction submitted through a shared SDK
+submission API performs a best-effort pre-signing check of its exact message fee
+and declared fee-payer Native SOL Balance. A proven shortfall returns the typed
+`InsufficientSolForTransactionFees` contract with available and required lamports
+and the message `Insufficient SOL for transaction fees. Deposit SOL to your wallet
+and try again.` Fee or balance lookup failure preserves the existing submission;
+SOL action planners keep their stricter live fee, rent, and reserve requirements.
+
+Transaction Sponsorship Capability is a client-wide trusted application assertion
+that defaults to false. It bypasses the generic check for external and Privy
+signing, while local-keypair submission rejects it with `transaction sponsorship
+is not supported with local-keypair signing`. The SDK does not infer sponsorship
+from a wallet provider. TypeScript `Privy.signAndSendTx`, Python
+`Privy.sign_and_send_tx`, and other raw pre-serialized forwarding methods remain
+outside this shared boundary. Unsponsored Python Privy shared submission obtains
+best-effort blockhash evidence for fee estimation; lookup failure preserves its
+existing backend-forwarding path. See [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md).
+
 ## Development Setup
 
 ### Prerequisites
@@ -67,12 +106,29 @@ For Caddy + mkcert TLS setup and running the full local stack, refer to the [web
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `LIGHTCONE_ENV` | Yes | Target environment: `local`, `staging`, or `prod` |
-| `SDK_RPC_URL` | Yes | Solana RPC URL. Use a private RPC (e.g. [Helius](https://www.helius.dev/) devnet) to avoid 429 rate-limit errors from the public `api.devnet.solana.com` |
+| `SDK_RPC_URL` | Optional | Solana RPC URL. Use a private devnet RPC (e.g. [Helius](https://www.helius.dev/)) to avoid 429 rate-limit errors from the public `api.devnet.solana.com`. Local `wsol_conversion` runs and eligible staging-CI runs may retain it; other fund-moving examples document stricter guards. |
 | `LIGHTCONE_WALLET_PATH` | Yes | Path to Solana keypair JSON for Rust examples |
 | `LIGHTCONE_WALLET_PATH_TS` | Yes | Path to Solana keypair JSON for TypeScript examples |
 | `LIGHTCONE_WALLET_PATH_PYTHON` | Yes | Path to Solana keypair JSON for Python examples |
 
-Add these to your shell profile (`.bashrc` / `.zshrc`):
+The fund-moving `deposit_token_balances` example remains excluded from
+`scripts/run-examples.sh`; run it manually with `LIGHTCONE_ENV=local` or
+`staging` and all endpoint/program overrides unset. It uses the three existing
+wallet paths as a funding cycle (`Rust -> TypeScript -> Python -> Rust`).
+
+`wsol_conversion` runs automatically for every SDK in the local aggregate suite
+and is included when the stateful example workflow is enabled for staging CI.
+That workflow's global `backend-ready` gate currently disables all stateful CI
+jobs. Each language uses its own wallet, wraps a small exact amount, warns that it
+will close the complete canonical WSOL account, and unwraps all without a prompt.
+The local runner preserves an optional paid RPC while clearing API, WebSocket,
+and program overrides so application and program identity remain built in. An
+enabled staging-CI run may supply its managed endpoints, but a program-ID
+override still fails.
+Production skips the example, and the example itself refuses production.
+
+For the routine automatic example suite, add these to your shell profile
+(`.bashrc` / `.zshrc`):
 
 ```bash
 export LIGHTCONE_ENV=local
@@ -81,6 +137,12 @@ export LIGHTCONE_WALLET_PATH=~/.config/solana/lightcone-sdk-rs.json
 export LIGHTCONE_WALLET_PATH_TS=~/.config/solana/lightcone-sdk-ts.json
 export LIGHTCONE_WALLET_PATH_PYTHON=~/.config/solana/lightcone-sdk-py.json
 ```
+
+Before directly running `deposit_token_balances`, use a clean shell or run `unset
+SDK_API_URL SDK_WS_URL SDK_RPC_URL SDK_PROGRAM_ID`. Direct local
+`wsol_conversion` runs may retain `SDK_RPC_URL` but must unset `SDK_API_URL`,
+`SDK_WS_URL`, and `SDK_PROGRAM_ID`; the aggregate local runner performs that
+three-variable cleanup in its subprocess.
 
 ### Wallet Setup
 

@@ -3,7 +3,17 @@ import type {
   PublicKey,
   SignatureStatus,
   SignatureStatusConfig,
+  Transaction,
 } from "@solana/web3.js";
+import {
+  AccountLayout,
+  AccountState,
+  ACCOUNT_SIZE,
+  getAssociatedTokenAddressSync,
+  NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+  unpackAccount,
+} from "@solana/spl-token";
 import type { ClientContext } from "./context";
 import { requireConnection, connectionWithFailover } from "./context";
 import { SdkError } from "./error";
@@ -40,6 +50,32 @@ const MAX_CONSECUTIVE_POLL_FAILURES = 3;
  * declared — a single reading can come from a forward-skewed RPC node.
  */
 const EXPIRY_HEIGHT_SAMPLES = 2;
+
+/** Largest lamport value that fits Solana's unsigned 64-bit account fields. */
+const MAX_SOLANA_LAMPORTS = 0xffff_ffff_ffff_ffffn;
+
+/** Convert a JSON number only when it still represents exact lamports. */
+function rpcLamports(value: number, label: string): bigint {
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw SdkError.validation(`${label} must be a non-negative safe integer`);
+  }
+  return BigInt(value);
+}
+
+/**
+ * Stores exact live facts for a validated canonical Tokenkeg WSOL account.
+ *
+ * `canonicalWsolAccountInfo` returns all fields from one confirmed account read.
+ * Direct structural construction does not perform that validation.
+ */
+export interface CanonicalWsolAccountInfo {
+  /** Full account lamports, including native amount, rent, and direct donations. */
+  accountLamports: bigint;
+  /** Decoded SPL native-token amount in lamports. */
+  tokenAmountLamports: bigint;
+  /** Decoded native-account rent reserve in lamports. */
+  nativeReserveLamports: bigint;
+}
 
 /** True once the cluster has voted the transaction to `confirmed` or beyond. */
 function isTransactionConfirmed(status: SignatureStatus): boolean {
@@ -97,6 +133,172 @@ export class Rpc {
     return connectionWithFailover(this.client, (connection) =>
       connection.getBlockHeight("confirmed")
     );
+  }
+
+  /** Distinguish a missing account from an unavailable confirmed RPC read. */
+  async accountExists(address: PublicKey): Promise<boolean> {
+    const account = await connectionWithFailover(this.client, (connection) =>
+      connection.getAccountInfo(address, "confirmed")
+    );
+    return account !== null;
+  }
+
+  /**
+   * Return exact confirmed facts for a wallet's canonical WSOL account.
+   *
+   * `address` must equal the supplied wallet's Tokenkeg native-mint ATA. Missing
+   * accounts return `null`. A present account must have the legacy Token Program
+   * owner, native mint, wallet authority, initialized state, native reserve, and
+   * no foreign close authority. Token amount plus native reserve must fit Solana's
+   * unsigned 64-bit range and cannot exceed the account balance. Unsafe JSON-number
+   * account lamports return an error instead of being rounded.
+   */
+  async canonicalWsolAccountInfo(
+    address: PublicKey,
+    wallet: PublicKey
+  ): Promise<CanonicalWsolAccountInfo | null> {
+    let canonicalAddress: PublicKey;
+    try {
+      canonicalAddress = getAssociatedTokenAddressSync(
+        NATIVE_MINT,
+        wallet,
+        false,
+        TOKEN_PROGRAM_ID
+      );
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL address derivation failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (!address.equals(canonicalAddress)) {
+      throw SdkError.validation(
+        "canonical WSOL address does not match the Trading Wallet Tokenkeg ATA"
+      );
+    }
+    const info = await connectionWithFailover(this.client, (connection) =>
+      connection.getAccountInfo(address, "confirmed")
+    );
+    if (!info) return null;
+    if (!info.owner.equals(TOKEN_PROGRAM_ID) || info.data.length !== ACCOUNT_SIZE) {
+      throw SdkError.validation(
+        "canonical WSOL account is not a legacy Token Program account"
+      );
+    }
+
+    let rawAccount;
+    try {
+      rawAccount = AccountLayout.decode(info.data);
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL token account is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (
+      rawAccount.state !== AccountState.Initialized ||
+      (rawAccount.delegateOption !== 0 && rawAccount.delegateOption !== 1) ||
+      rawAccount.isNativeOption !== 1 ||
+      (rawAccount.closeAuthorityOption !== 0 &&
+        rawAccount.closeAuthorityOption !== 1)
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token account has incompatible state or option tags"
+      );
+    }
+
+    let account;
+    try {
+      account = unpackAccount(address, info, TOKEN_PROGRAM_ID);
+    } catch (error) {
+      throw SdkError.validation(
+        `canonical WSOL token account is invalid: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+    if (
+      !account.mint.equals(NATIVE_MINT) ||
+      !account.owner.equals(wallet) ||
+      !account.isInitialized ||
+      account.isFrozen ||
+      !account.isNative ||
+      account.rentExemptReserve === null ||
+      (account.closeAuthority !== null &&
+        !account.closeAuthority.equals(wallet))
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token account has incompatible mint, authority, or native state"
+      );
+    }
+    const accountLamports = rpcLamports(
+      info.lamports,
+      "canonical WSOL account lamports"
+    );
+    const accountedLamports = account.amount + account.rentExemptReserve;
+    if (
+      accountedLamports > MAX_SOLANA_LAMPORTS ||
+      accountedLamports > accountLamports
+    ) {
+      throw SdkError.validation(
+        "canonical WSOL token amount and native reserve exceed account lamports"
+      );
+    }
+    return {
+      accountLamports,
+      tokenAmountLamports: account.amount,
+      nativeReserveLamports: account.rentExemptReserve,
+    };
+  }
+
+  /**
+   * Return whether the validated canonical WSOL account is present.
+   *
+   * This compatibility method delegates all address, owner, state, authority, and
+   * lamport checks to `canonicalWsolAccountInfo`.
+   */
+  async canonicalWsolAccountExists(
+    address: PublicKey,
+    wallet: PublicKey
+  ): Promise<boolean> {
+    return (await this.canonicalWsolAccountInfo(address, wallet)) !== null;
+  }
+
+  /** Return the current rent-exempt minimum in lamports for `dataLength` account bytes. */
+  async minimumBalanceForRentExemption(dataLength: number): Promise<bigint> {
+    const lamports = await connectionWithFailover(this.client, (connection) =>
+      connection.getMinimumBalanceForRentExemption(dataLength, "confirmed")
+    );
+    return rpcLamports(lamports, "rent-exempt minimum");
+  }
+
+  /** Return the confirmed Native SOL Balance for `feePayer`, in lamports. */
+  async balanceLamports(feePayer: PublicKey): Promise<bigint> {
+    const balance = await connectionWithFailover(this.client, (connection) =>
+      connection.getBalance(feePayer, "confirmed")
+    );
+    return rpcLamports(balance, "fee-payer balance");
+  }
+
+  /** Attach a fresh blockhash and return the exact message's live fee in lamports. */
+  async prepareAndEstimateTransactionFee(transaction: Transaction): Promise<bigint> {
+    const { blockhash, lastValidBlockHeight } = await this.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.lastValidBlockHeight = lastValidBlockHeight;
+    return this.estimatePreparedTransactionFee(transaction);
+  }
+
+  /**
+   * Return the prepared message's live fee in lamports without replacing its blockhash.
+   * A null RPC estimate fails closed rather than becoming a zero fee.
+   */
+  async estimatePreparedTransactionFee(transaction: Transaction): Promise<bigint> {
+    if (!transaction.recentBlockhash) {
+      throw SdkError.validation("prepared transaction is missing a recent blockhash");
+    }
+    const fee = await connectionWithFailover(this.client, (connection) =>
+      connection.getFeeForMessage(transaction.compileMessage(), "confirmed")
+    );
+    if (fee.value === null) {
+      throw SdkError.validation("transaction fee estimate is unavailable");
+    }
+    return rpcLamports(fee.value, "transaction fee estimate");
   }
 
   /**

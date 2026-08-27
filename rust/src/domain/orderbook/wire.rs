@@ -139,6 +139,9 @@ pub struct WsBookLevel {
     pub side: Side,
     pub price: Decimal,
     pub size: Decimal,
+    /// Exact quote-token amount represented by the underlying maker orders.
+    /// For grouped books this is independent of the displayed bucket price.
+    pub quote_notional: Decimal,
 }
 
 /// WS ticker data.

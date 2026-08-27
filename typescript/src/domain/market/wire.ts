@@ -5,9 +5,9 @@ export interface OutcomeResponse {
   index: number;
   name: string;
   name_long?: string;
-  icon_url_low?: string;
-  icon_url_medium?: string;
-  icon_url_high?: string;
+  icon_url_low?: string | null;
+  icon_url_medium?: string | null;
+  icon_url_high?: string | null;
 }
 
 export interface ConditionalTokenResponse {

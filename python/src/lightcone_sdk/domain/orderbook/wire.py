@@ -180,17 +180,27 @@ class OrderbooksResponse:
 
 @dataclass
 class WsBookLevel:
-    """WebSocket book level with side."""
+    """WebSocket book level with exact quote-token liquidity."""
     side: int
     price: str
     size: str
+    #: Exact quote amount at underlying maker prices, not grouped price * size.
+    quote_notional: str
 
     @staticmethod
     def from_dict(d: dict) -> "WsBookLevel":
+        quote_notional = _require(d, "quote_notional", "WsBookLevel")
+        if not isinstance(quote_notional, str):
+            from ...error import DeserializationError
+
+            raise DeserializationError(
+                "WsBookLevel quote_notional must be a decimal string"
+            )
         return WsBookLevel(
             side=d.get("side", 0),
             price=str(d.get("price", "0")),
             size=str(d.get("size", "0")),
+            quote_notional=quote_notional,
         )
 
 

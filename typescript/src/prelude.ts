@@ -24,6 +24,7 @@ export {
 } from "./client";
 
 export { Rpc } from "./rpc";
+export type { CanonicalWsolAccountInfo } from "./rpc";
 export type { ClientContext } from "./context";
 
 export { Auth } from "./auth";
@@ -167,6 +168,19 @@ export type {
   DepositAssetMetadata,
   DepositTokenBalance,
   DepositTokenBalancesSnapshot,
+  WalletDepositBalanceSnapshot,
+  WalletDepositBalanceStatus,
+  WalletDepositBalanceStatusEvent,
+  WalletDepositBalancesApplyResult,
+  WalletDepositBalancesEvent,
+  WalletDepositBalanceUpdate,
+  WalletNativeSolBalanceUpdate,
+  SolActionCosts,
+  SolActionKind,
+  SolActionPlan,
+  SolBalanceAvailability,
+  SolBalanceComponents,
+  SolComponentDelta,
 } from "./domain/position";
 
 export {
@@ -179,6 +193,13 @@ export {
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
+  WalletDepositBalancesState,
+  WRAPPED_SOL_MINT,
+  nativeWithdrawSeed,
+  solBalanceAvailability,
+  unwrapAllSolBalanceAvailability,
+  SOL_RESERVE_WITH_ACCOUNT_CREATION_LAMPORTS,
+  SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS,
 } from "./domain/position";
 
 export type { Trade, WsTrade } from "./domain/trade";
@@ -213,15 +234,30 @@ export type {
   AuthCredentials,
   AuthMethod,
   ChainType,
+  EmailAccountData,
   GoogleAccountData,
+  LinkedIdentity,
+  LinkedIdentitySelector,
+  LinkedIdentityType,
+  MaxSlippagePreferenceBody,
   PrivyEmbeddedWallet,
+  RegisterPrivyConflict,
+  RegisterPrivyRequest,
   SessionResponse,
   User,
   UserIdentity,
   UserPrivyData,
   XAccountData,
 } from "./auth";
-export { avatarUrl, displayName, identityText, tradingWallet, userPrivy, userXAccount } from "./auth";
+export {
+  avatarUrl,
+  classifyRegisterPrivyConflict,
+  displayName,
+  identityText,
+  tradingWallet,
+  userPrivy,
+  userXAccount,
+} from "./auth";
 
 export {
   LimitOrderEnvelope,
@@ -240,7 +276,9 @@ export type {
 
 export {
   isUserCancellation,
+  requireNativeSigningStrategy,
   type ExternalSigner,
+  type NativeSigningStrategy,
   type SigningStrategy,
 } from "./shared/signing";
 

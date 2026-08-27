@@ -22,6 +22,7 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | Books | `SubscribeParams::Books { orderbook_ids, n_sig_figs, mantissa }` | `Kind::BookUpdate` | Top-20 orderbook snapshots (full replacement per frame, optional aggregation) |
 | Trades | `SubscribeParams::Trades { orderbook_ids }` | `Kind::Trade` | Individual trade executions |
 | User | `SubscribeParams::User { wallet_address }` | `Kind::User` | Order updates, balance changes, snapshots |
+| Wallet Deposit Balances | `SubscribeParams::WalletDepositBalances { wallet_address }` | `Kind::WalletDepositBalances` | Authenticated wallet-scoped SPL/native SOL replacement snapshots and absolute updates |
 | Price History | `SubscribeParams::PriceHistory { orderbook_id, resolution }` | `Kind::PriceHistory` | OHLCV snapshots + updates |
 | Ticker | `SubscribeParams::Ticker { orderbook_ids }` | `Kind::Ticker` | Best bid/ask/mid prices |
 | Market | `SubscribeParams::Market { market_pubkey }` | `Kind::Market` | Settlement, activation, pausing |
@@ -38,6 +39,8 @@ Real-time data feeds for orderbooks, trades, user events, price history, ticker,
 | `MessageOut::unsubscribe_trades(ids)` | Unsubscribe from trades |
 | `MessageOut::subscribe_user(wallet)` | Subscribe to user events (requires auth) |
 | `MessageOut::unsubscribe_user(wallet)` | Unsubscribe from user events |
+| `MessageOut::subscribe_wallet_deposit_balances(wallet)` | Subscribe to external-wallet SPL and native SOL balances |
+| `MessageOut::unsubscribe_wallet_deposit_balances(wallet)` | Unsubscribe from wallet balances |
 | `MessageOut::subscribe_price_history(id, resolution)` | Subscribe to price candles |
 | `MessageOut::unsubscribe_price_history(id, resolution)` | Unsubscribe from candles |
 | `MessageOut::subscribe_ticker(ids)` | Subscribe to ticker updates |
@@ -61,6 +64,12 @@ let msg = MessageOut::Subscribe(SubscribeParams::Books {
 Book subscriptions accept an optional Hyperliquid-style aggregation: `n_sig_figs` (2, 3, 4, or 5) and `mantissa` (1, 2, or 5 — only valid with `n_sig_figs = 5`). `(5, None)` normalizes to `(5, 1)`. Omit both for the full-precision book. Bids bucket by flooring, asks by ceiling. Validate combinations with `BookAggregation::validate` before sending — the server rejects invalid ones with `INVALID_ORDERBOOK_SUBSCRIPTION`. On the wire the field is spelled camelCase `nSigFigs` and omitted when absent (the SDK handles this via serde renames).
 
 Every incoming `book_update` frame is tagged with its (normalized) aggregation as `n_sig_figs`/`mantissa`, omitted for full precision — `OrderBook::aggregation()` returns the view's `BookAggregation`. Each `(orderbook, aggregation)` pair is a **distinct subscription**: one connection may hold multiple aggregation views of the same orderbook simultaneously (key your `OrderbookState` instances by `(orderbook_id, aggregation)`), each counts against the per-connection subscription limit, and unsubscribe must repeat the same aggregation to match. Book-scoped error frames (`ENGINE_UNAVAILABLE` — subscribe rolled back, retry; `SUBSCRIPTION_LIMIT_REACHED`; `INVALID_ORDERBOOK_SUBSCRIPTION`) carry `orderbook_id` plus the same tag fields (`WsError::aggregation()`) so retries can target the exact subscription.
+
+Each bid and ask level carries exact decimal `quote_notional`. Grouped `price`
+is a side-safe bucket boundary, while `quote_notional` independently sums the
+underlying maker orders. Use that field for quote liquidity and totals, never
+grouped `price * size`. `OrderbookState` retains price and base size only, so
+quote notional remains on the decoded `OrderBook` levels.
 
 The stream is **snapshot-only**: every accepted frame replaces the full top-20
 view. `seq` is the real engine revision. Within one subscription generation,
@@ -87,6 +96,7 @@ Discriminated union of all inbound message types:
 | `Kind::Ticker(WsTickerData)` | Best bid/ask/mid | `ticker` |
 | `Kind::Market(MarketEvent)` | Market lifecycle events | `market` |
 | `Kind::Auth(AuthUpdate)` | Authentication status | `auth` |
+| `Kind::WalletDepositBalances(WalletDepositBalancesEvent)` | Nested snapshot, absolute SPL update, absolute native SOL update, or status | `wallet_deposit_balances` |
 | `Kind::Pong(Pong)` | Pong response | -- |
 | `Kind::Error(WsError)` | Server-side error | -- |
 
@@ -106,6 +116,10 @@ The `User` channel delivers three event types:
 |---------|-------------|
 | `OrderEvent::Limit(OrderUpdate)` | Limit order placement, update, or cancellation |
 | `OrderEvent::Trigger(TriggerOrderUpdate)` | Trigger order status change |
+
+### `WalletDepositBalancesEvent`
+
+The authenticated outer `wallet_deposit_balances` channel is scoped to a wallet owned by the current user and carries a nested union tagged by `event_type`. `wallet_deposit_balance_snapshot` establishes or replaces the complete baseline; `wallet_deposit_balance_update` replaces one absolute mint balance; `wallet_native_sol_balance_update` replaces the exact native value; and status events report `reconnecting` or `metadata_unavailable` without mutation. Use `WalletDepositBalancesState` so pre-snapshot and wrong-wallet component updates cannot cross lifecycle boundaries.
 
 ## WsEvent
 
@@ -158,7 +172,7 @@ let mut ws = client.ws_native();
 | `is_connected` | `fn is_connected(&self) -> bool` | Connection status |
 | `ready_state` | `fn ready_state(&self) -> ReadyState` | Detailed connection state |
 | `restart_connection` | `async fn restart_connection(&mut self)` | Force a fresh connection |
-| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Remove User channel from tracking |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions(&self)` | Best-effort non-blocking purge of User/wallet replay tracking and queued auth messages; disconnect for definitive teardown |
 | `events` | `fn events(&self) -> impl Stream<Item = WsEvent>` | Stream of events from the connection |
 
 ### Features
@@ -168,6 +182,10 @@ let mut ws = client.ws_native();
 - **Message queue** -- messages sent while disconnected are flushed on reconnect
 - **Ping/pong health check** -- detects stale connections
 - **Auth token injection** -- passes the session cookie in the WS upgrade request
+
+WebSocket clients are owned independently from `Auth`; logout does not clear or
+disconnect them. The caller must unsubscribe or disconnect each live client and
+clear replay state where it intends to retain the connection.
 
 ## WASM Client
 
@@ -198,6 +216,7 @@ All methods are static (the WASM client manages a single global connection):
 | `is_connected` | `fn is_connected() -> bool` | Connection status |
 | `ready_state` | `fn ready_state() -> ReadyState` | Detailed state |
 | `restart_connection` | `fn restart_connection()` | Force reconnect |
+| `clear_authed_subscriptions` | `fn clear_authed_subscriptions()` | Purge User/wallet replay tracking and queued auth messages; does not unsubscribe the live socket |
 | `cleanup` | `fn cleanup()` | Tear down connection and clean up |
 
 ## Examples

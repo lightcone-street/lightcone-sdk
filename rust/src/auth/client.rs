@@ -2,11 +2,15 @@
 
 use chrono::{DateTime, TimeZone, Utc};
 
-use crate::auth::{AuthCredentials, LoginRequest, NonceResponse, SessionResponse};
+use crate::auth::{
+    AuthCredentials, LoginRequest, MaxSlippagePreferenceBody, NonceResponse, RegisterPrivyRequest,
+    SessionResponse,
+};
 use crate::client::LightconeClient;
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::shared::PubkeyStr;
+use rust_decimal::Decimal;
 
 /// Sub-client for authentication operations.
 pub struct Auth<'a> {
@@ -163,17 +167,20 @@ impl<'a> Auth<'a> {
         }
     }
 
-    /// Register a Privy-authenticated user in the backend DB.
-    /// Called after Privy login when `is_new_user: true`.
-    /// Idempotent — safe to call multiple times.
-    pub async fn register_privy(&self) -> Result<(), SdkError> {
+    /// Create or synchronize a Privy Account and install the resulting session.
+    pub async fn register_privy(
+        &self,
+        request: &RegisterPrivyRequest,
+    ) -> Result<SessionResponse, SdkError> {
         let url = format!("{}/api/auth/register-privy", self.client.http.base_url());
-        let _: serde_json::Value = self
+        let session: SessionResponse = self
             .client
             .http
-            .post(&url, &serde_json::json!({}), RetryPolicy::None)
+            .post(&url, request, RetryPolicy::Idempotent)
             .await?;
-        Ok(())
+        let credentials = credentials_from_session(&session);
+        *self.client.auth_credentials.write().await = Some(credentials);
+        Ok(session)
     }
 
     /// Disconnect the user's linked X (Twitter) account.
@@ -185,6 +192,29 @@ impl<'a> Auth<'a> {
             .post(&url, &serde_json::json!({}), RetryPolicy::None)
             .await?;
         Ok(())
+    }
+
+    /// Persist an account-wide max-slippage preference strictly below 10%.
+    pub async fn update_max_slippage_preference(
+        &self,
+        max_slippage_preference: Decimal,
+    ) -> Result<Decimal, SdkError> {
+        let url = format!(
+            "{}/api/auth/max_slippage_preference",
+            self.client.http.base_url()
+        );
+        let response: MaxSlippagePreferenceBody = self
+            .client
+            .http
+            .post(
+                &url,
+                &MaxSlippagePreferenceBody {
+                    max_slippage_preference,
+                },
+                RetryPolicy::Idempotent,
+            )
+            .await?;
+        Ok(response.max_slippage_preference)
     }
 
     /// Get the URL for linking an X (Twitter) account via OAuth.
@@ -230,8 +260,10 @@ fn parse_expires_at(timestamp: i64) -> DateTime<Utc> {
 #[cfg(test)]
 mod tests {
     use crate::client::LightconeClient;
+    use rust_decimal::Decimal;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
+    use tokio::sync::oneshot;
 
     // Minimal single-response server: the http-layer harness lives in a
     // private test module, and logout only needs one canned reply.
@@ -273,6 +305,28 @@ mod tests {
         client
     }
 
+    async fn spawn_capturing_response_server(
+        body: &'static str,
+    ) -> (String, oneshot::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (request_tx, request_rx) = oneshot::channel();
+        tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 4096];
+            let read = socket.read(&mut buffer).await.unwrap();
+            let request = String::from_utf8_lossy(&buffer[..read]).into_owned();
+            let _ = request_tx.send(request);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            socket.write_all(response.as_bytes()).await.unwrap();
+        });
+        (format!("http://{}", addr), request_rx)
+    }
+
     #[tokio::test]
     async fn logout_failure_propagates_after_clearing_local_state() {
         // The app's logout teardown gate reads this result to decide whether
@@ -302,5 +356,59 @@ mod tests {
 
         assert!(result.is_ok());
         assert!(client.auth_token().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn update_max_slippage_preference_uses_exact_contract() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"max_slippage_preference":"5.50"}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+
+        let persisted = client
+            .auth()
+            .update_max_slippage_preference(Decimal::new(550, 2))
+            .await
+            .unwrap();
+        let request = request.await.unwrap();
+
+        assert_eq!(persisted, Decimal::new(550, 2));
+        assert!(request.starts_with("POST /api/auth/max_slippage_preference "));
+        assert!(request.contains(r#"{"max_slippage_preference":"5.50"}"#));
+    }
+
+    /// Verifies Privy registration returns and installs the backend-refreshed session.
+    #[tokio::test]
+    async fn register_privy_returns_session_and_installs_refreshed_credentials() {
+        let (base_url, request) = spawn_capturing_response_server(
+            r#"{"status":"success","body":{"user":{"user_id":"user:test","identity":{"type":"email","account":{"email":"verified@example.com"},"privy":{"id":"did:privy:test","wallet":{"privy_id":"wallet:test","chain":"solana","address":"11111111111111111111111111111111"}}},"max_slippage_preference":null},"expires_at":2000000000,"auth_method":"privy","is_beta":false}}"#,
+        )
+        .await;
+        let client = LightconeClient::builder()
+            .base_url(&base_url)
+            .build()
+            .unwrap();
+        let registration = crate::auth::RegisterPrivyRequest {
+            attempted_identity: crate::auth::LinkedIdentitySelector::Email {
+                email: "verified@example.com".to_string(),
+            },
+        };
+
+        let session = client.auth().register_privy(&registration).await.unwrap();
+        let request = request.await.unwrap();
+        let credentials = client.auth().credentials().await.unwrap();
+
+        assert_eq!(session.user.user_id, "user:test");
+        assert_eq!(credentials.user_id, "user:test");
+        assert_eq!(
+            credentials.wallet_address.as_str(),
+            "11111111111111111111111111111111"
+        );
+        assert!(request.starts_with("POST /api/auth/register-privy "));
+        assert!(request.contains("verified@example.com"));
     }
 }

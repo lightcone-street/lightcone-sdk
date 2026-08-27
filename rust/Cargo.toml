@@ -19,13 +19,17 @@ solana-transaction = { version = "3.0", features = ["serde", "bincode"] }
 solana-hash = "4.0"
 solana-sdk-ids = { version = "3.1", default-features = false }
 solana-system-interface = { version = "3.0", default-features = false, features = ["bincode"] }
+solana-program-pack = "3.0"
 
 # Crypto (WASM-compatible)
 sha3 = "0.10"
+sha2 = "0.10"
 
 # SPL (WASM-compatible)
 spl-token = { version = "9.0", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "8.0", features = ["no-entrypoint"] }
+spl-token-interface = "2.0"
+spl-associated-token-account-interface = "2.0"
 
 # Serialization (WASM-compatible)
 serde = { version = "1.0", features = ["derive"] }
@@ -178,6 +182,11 @@ required-features = ["native", "trigger_orders"]
 [[example]]
 name = "with_cookies"
 required-features = ["native"]
+
+[[example]]
+name = "wsol_conversion"
+required-features = ["native"]
+test = true
 
 [[example]]
 name = "ws_book_and_trades"
