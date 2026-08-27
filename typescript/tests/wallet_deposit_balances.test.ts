@@ -183,6 +183,107 @@ describe("WalletDepositBalancesState", () => {
     assert.equal(state.balances.get(WRAPPED_SOL_MINT)?.idle, "0.500000000");
   });
 
+  it("optionally ignores complete snapshots below a minimum slot", () => {
+    const state = new WalletDepositBalancesState();
+    state.applyRestSnapshot(wallet, {
+      context_slot: 200,
+      balances: {},
+      native_sol_balance: "1.000000000",
+    });
+
+    assert.deepEqual(
+      state.applyRestSnapshot(
+        wallet,
+        {
+          context_slot: 99,
+          balances: {},
+          native_sol_balance: "2.000000000",
+        },
+        100
+      ),
+      { kind: "ignored" }
+    );
+    assert.equal(state.contextSlot, 200);
+    assert.deepEqual(
+      state.applyEvent(
+        {
+          event_type: "wallet_deposit_balance_snapshot",
+          wallet_address: wallet,
+          context_slot: 99,
+          balances: {},
+          native_sol_balance: "2.000000000",
+        },
+        100
+      ),
+      { kind: "ignored" }
+    );
+    assert.equal(state.contextSlot, 200);
+
+    assert.deepEqual(
+      state.applyRestSnapshot(
+        wallet,
+        {
+          context_slot: 100,
+          balances: {},
+          native_sol_balance: "3.000000000",
+        },
+        100
+      ),
+      { kind: "applied" }
+    );
+    assert.equal(state.contextSlot, 100);
+    assert.equal(state.nativeSolBalance, "3.000000000");
+
+    assert.deepEqual(
+      state.applyEvent(
+        {
+          event_type: "wallet_deposit_balance_snapshot",
+          wallet_address: wallet,
+          context_slot: 100,
+          balances: {},
+          native_sol_balance: "4.000000000",
+        },
+        100
+      ),
+      { kind: "applied" }
+    );
+    assert.equal(state.nativeSolBalance, "4.000000000");
+  });
+
+  it("does not apply the snapshot floor to components or no-floor calls", () => {
+    const state = new WalletDepositBalancesState();
+    state.applyRestSnapshot(wallet, {
+      context_slot: 100,
+      balances: {},
+      native_sol_balance: "1.000000000",
+    });
+
+    assert.deepEqual(
+      state.applyEvent(
+        {
+          event_type: "wallet_native_sol_balance_update",
+          wallet_address: wallet,
+          context_slot: 50,
+          native_sol_balance: "2.000000000",
+        },
+        100
+      ),
+      { kind: "applied" }
+    );
+    assert.deepEqual(
+      state.applyEvent({
+        event_type: "wallet_deposit_balance_snapshot",
+        wallet_address: wallet,
+        context_slot: 25,
+        balances: {},
+        native_sol_balance: "3.000000000",
+      }),
+      { kind: "applied" }
+    );
+    assert.equal(state.contextSlot, 25);
+    assert.equal(state.nativeSolBalance, "3.000000000");
+  });
+
   it("uses absolute component updates and ignores mismatched/status events", () => {
     const state = new WalletDepositBalancesState();
     state.applyRestSnapshot(wallet, {

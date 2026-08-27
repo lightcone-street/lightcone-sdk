@@ -285,6 +285,13 @@ let positions = client
     .await?;
 ```
 
+`WalletDepositBalancesState` keeps its existing unconditional complete-snapshot
+replacement methods. Confirmation-aware consumers may instead use
+`apply_rest_snapshot_with_minimum_snapshot_slot` or
+`apply_event_with_minimum_snapshot_slot`; a complete snapshot below the optional
+floor is ignored without mutation, while equal slots and component/status events
+keep their existing behavior.
+
 On WASM these methods are equivalent to their non-`_with_cookies` counterparts because the browser is already attaching the cookie via credentials mode.
 
 If you maintain a non-Rust SDK (TypeScript, Python) and need to support an SSR consumer, mirror the same pattern: the wire contract is unchanged — only the per-call `Cookie: lightcone-token=<token>` header attachment differs.
@@ -435,7 +442,7 @@ status, so refresh authoritative balances before any retry. See the
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.rs) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.rs) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.rs) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 

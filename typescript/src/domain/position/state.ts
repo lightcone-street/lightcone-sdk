@@ -200,14 +200,23 @@ export class WalletDepositBalancesState {
 
   /**
    * Initialize or wholesale-replace state from a complete REST snapshot.
-   * The caller supplies the wallet omitted by REST; prior slots are not compared.
+   * The caller supplies the wallet omitted by REST. When `minimumSnapshotSlot`
+   * is present, a lower complete snapshot is ignored without mutation; otherwise
+   * prior slots are not compared.
    * Unlike WebSocket parsing, this TypeScript REST boundary performs no runtime
    * shape validation. Malformed exact values fail when a derived method scales them.
    */
   applyRestSnapshot(
     walletAddress: PubkeyStr,
-    snapshot: DepositTokenBalancesSnapshot
+    snapshot: DepositTokenBalancesSnapshot,
+    minimumSnapshotSlot?: number
   ): WalletDepositBalancesApplyResult {
+    if (
+      minimumSnapshotSlot !== undefined &&
+      snapshot.context_slot < minimumSnapshotSlot
+    ) {
+      return { kind: "ignored" };
+    }
     this.replace(
       walletAddress,
       snapshot.context_slot,
@@ -220,13 +229,23 @@ export class WalletDepositBalancesState {
   /**
    * Apply the wallet event state machine.
    *
-   * Complete snapshots always replace state. Matching component events replace
-   * one absolute value, zero SPL removes its mint, and status, pre-initialization,
-   * or wrong-wallet events return `ignored` without mutation.
+   * Complete snapshots replace state unless they are below an optional minimum
+   * snapshot slot. The floor never applies to component or status events.
+   * Matching component events replace one absolute value, zero SPL removes its
+   * mint, and status, pre-initialization, or wrong-wallet events return `ignored`.
    */
-  applyEvent(event: WalletDepositBalancesEvent): WalletDepositBalancesApplyResult {
+  applyEvent(
+    event: WalletDepositBalancesEvent,
+    minimumSnapshotSlot?: number
+  ): WalletDepositBalancesApplyResult {
     switch (event.event_type) {
       case "wallet_deposit_balance_snapshot":
+        if (
+          minimumSnapshotSlot !== undefined &&
+          event.context_slot < minimumSnapshotSlot
+        ) {
+          return { kind: "ignored" };
+        }
         // Complete snapshots are authoritative even when their lower
         // cross-component slot trails a previously observed update.
         this.replace(

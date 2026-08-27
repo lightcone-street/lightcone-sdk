@@ -229,10 +229,13 @@ signed-64-bit admission rules; no tick or size normalization is implicit.
 `native_sol_balance` alongside the separate mint-keyed SPL map. Initialize
 `WalletDepositBalancesState` with `applyRestSnapshot(wallet, snapshot)` and feed
 the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
-absolute native-SOL, and status events to `applyEvent()`. Complete snapshots
-replace state even after a higher component slot; status and wrong-wallet events
-do not mutate it, pre-baseline component updates are ignored, and explicit-zero
-SPL updates remove their mint. Matching SPL updates with invalid or negative
+absolute native-SOL, and status events to `applyEvent()`. Both methods accept an
+optional minimum snapshot slot; only a complete snapshot below that floor is
+ignored without mutation, while an equal slot and every component/status event
+keep their existing behavior. Without a floor, complete snapshots replace state
+even after a higher component slot. Status and wrong-wallet events do not mutate
+it, pre-baseline component updates are ignored, and explicit-zero SPL updates
+remove their mint. Matching SPL updates with invalid or negative
 idle balances return `rejected` without mutation. `contextSlot` records the latest accepted
 component observation rather than enforcing global monotonic ordering.
 `combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
@@ -500,7 +503,7 @@ excluded from routine example runs.
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.ts) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.ts) | Best bid/ask ticker + price history candles with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.ts) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.ts) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 
