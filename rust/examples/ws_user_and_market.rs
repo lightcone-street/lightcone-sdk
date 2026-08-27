@@ -3,7 +3,6 @@ mod common;
 use common::{get_keypair, login, market, other, rest_client, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::prelude::*;
-use solana_signer::Signer;
 use tokio::time::{timeout_at, Duration, Instant};
 
 #[tokio::main]
@@ -11,55 +10,76 @@ async fn main() -> ExampleResult {
     let client = rest_client()?;
     let keypair = get_keypair()?;
     let market = market(&client).await?;
-    login(&client, &keypair, false).await?;
+    let session = login(&client, &keypair, false).await?;
+    let wallet = PubkeyStr::from(session.user.trading_wallet(session.auth_method).to_owned());
+    let market_pubkey = market.pubkey.clone();
+    let mut balances = WalletDepositBalancesState::default();
 
     let mut ws = client.ws_native();
     ws.connect().await?;
-    ws.subscribe(SubscribeParams::User {
-        wallet_address: keypair.pubkey().into(),
-    })?;
-    ws.subscribe(SubscribeParams::Market {
-        market_pubkey: market.pubkey.clone(),
-    })?;
-
-    let mut saw_auth = false;
-    let mut saw_user = false;
-    let mut saw_market = false;
-
-    {
+    let observed = {
         let events = ws.events();
         tokio::pin!(events);
 
+        ws.subscribe(SubscribeParams::User {
+            wallet_address: wallet.clone(),
+        })?;
+        ws.subscribe(SubscribeParams::Market {
+            market_pubkey: market_pubkey.clone(),
+        })?;
+        ws.subscribe(SubscribeParams::WalletDepositBalances {
+            wallet_address: wallet.clone(),
+        })?;
+
         let deadline = Instant::now() + Duration::from_secs(30);
-        while !(saw_auth && saw_user) {
+        let result = loop {
             let Ok(Some(event)) = timeout_at(deadline, events.next()).await else {
-                println!("no more websocket data (timeout or stream ended)");
-                break;
+                break Err(other(
+                    "timed out waiting for a complete wallet balance snapshot",
+                ));
             };
 
             match event {
-                WsEvent::Message(Kind::Auth(update)) => {
-                    println!("auth: {:?}", update);
-                    saw_auth = true;
+                WsEvent::Message(Kind::WalletDepositBalances(update)) => {
+                    let complete = matches!(update, WalletDepositBalancesEvent::Snapshot { .. });
+                    if balances.apply_event(&update) == WalletDepositBalancesApplyResult::Applied
+                        && complete
+                    {
+                        break Ok(());
+                    }
                 }
-                WsEvent::Message(Kind::User(update)) => {
-                    println!("user: {:?}", update);
-                    saw_user = true;
+                WsEvent::Message(Kind::Error(error)) => {
+                    break Err(other(format!("WebSocket error: {}", error.error)));
                 }
-                WsEvent::Message(Kind::Market(event)) => {
-                    println!("market: {:?}", event);
-                    saw_market = true;
+                WsEvent::Error(error) => {
+                    break Err(other(format!("WebSocket transport error: {error}")));
                 }
-                WsEvent::Error(err) => eprintln!("ws error: {err}"),
+                WsEvent::MaxReconnectReached => {
+                    break Err(other("WebSocket reconnect attempts exhausted"));
+                }
                 _ => {}
             }
-        }
-    }
+        };
+        result
+    };
 
+    ws.unsubscribe(UnsubscribeParams::User {
+        wallet_address: wallet.clone(),
+    })?;
+    ws.unsubscribe(UnsubscribeParams::Market { market_pubkey })?;
+    ws.unsubscribe(UnsubscribeParams::WalletDepositBalances {
+        wallet_address: wallet.clone(),
+    })?;
     ws.disconnect().await?;
-    if !saw_auth && !saw_user {
-        return Err(other("received no websocket events — connection may be broken").into());
-    }
-    println!("market event received: {saw_market}");
+    observed?;
+
+    println!(
+        "wallet={} slot={} count={}",
+        wallet,
+        balances
+            .context_slot
+            .ok_or_else(|| other("complete snapshot did not establish a slot"))?,
+        balances.balances.len()
+    );
     Ok(())
 }
