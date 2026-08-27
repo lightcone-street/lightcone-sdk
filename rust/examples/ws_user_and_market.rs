@@ -17,61 +17,82 @@ async fn main() -> ExampleResult {
 
     let mut ws = client.ws_native();
     ws.connect().await?;
-    let observed = {
+    let observed: ExampleResult = {
         let events = ws.events();
         tokio::pin!(events);
 
-        ws.subscribe(SubscribeParams::User {
-            wallet_address: wallet.clone(),
-        })?;
-        ws.subscribe(SubscribeParams::Market {
-            market_pubkey: market_pubkey.clone(),
-        })?;
-        ws.subscribe(SubscribeParams::WalletDepositBalances {
-            wallet_address: wallet.clone(),
-        })?;
+        let subscriptions: ExampleResult = (|| {
+            ws.subscribe(SubscribeParams::User {
+                wallet_address: wallet.clone(),
+            })?;
+            ws.subscribe(SubscribeParams::Market {
+                market_pubkey: market_pubkey.clone(),
+            })?;
+            ws.subscribe(SubscribeParams::WalletDepositBalances {
+                wallet_address: wallet.clone(),
+            })?;
+            Ok(())
+        })();
 
-        let deadline = Instant::now() + Duration::from_secs(30);
-        let result = loop {
-            let Ok(Some(event)) = timeout_at(deadline, events.next()).await else {
-                break Err(other(
-                    "timed out waiting for a complete wallet balance snapshot",
-                ));
-            };
+        match subscriptions {
+            Err(error) => Err(error),
+            Ok(()) => {
+                let deadline = Instant::now() + Duration::from_secs(30);
+                loop {
+                    let Ok(Some(event)) = timeout_at(deadline, events.next()).await else {
+                        break Err(other(
+                            "timed out waiting for a complete wallet balance snapshot",
+                        )
+                        .into());
+                    };
 
-            match event {
-                WsEvent::Message(Kind::WalletDepositBalances(update)) => {
-                    let complete = matches!(update, WalletDepositBalancesEvent::Snapshot { .. });
-                    if balances.apply_event(&update) == WalletDepositBalancesApplyResult::Applied
-                        && complete
-                    {
-                        break Ok(());
+                    match event {
+                        WsEvent::Message(Kind::WalletDepositBalances(update)) => {
+                            let complete =
+                                matches!(update, WalletDepositBalancesEvent::Snapshot { .. });
+                            if balances.apply_event(&update)
+                                == WalletDepositBalancesApplyResult::Applied
+                                && complete
+                            {
+                                break Ok(());
+                            }
+                        }
+                        WsEvent::Message(Kind::Error(error)) => {
+                            break Err(other(format!("WebSocket error: {}", error.error)).into());
+                        }
+                        WsEvent::Error(error) => {
+                            break Err(other(format!("WebSocket transport error: {error}")).into());
+                        }
+                        WsEvent::MaxReconnectReached => {
+                            break Err(other("WebSocket reconnect attempts exhausted").into());
+                        }
+                        _ => {}
                     }
                 }
-                WsEvent::Message(Kind::Error(error)) => {
-                    break Err(other(format!("WebSocket error: {}", error.error)));
-                }
-                WsEvent::Error(error) => {
-                    break Err(other(format!("WebSocket transport error: {error}")));
-                }
-                WsEvent::MaxReconnectReached => {
-                    break Err(other("WebSocket reconnect attempts exhausted"));
-                }
-                _ => {}
             }
-        };
-        result
+        }
     };
 
-    ws.unsubscribe(UnsubscribeParams::User {
-        wallet_address: wallet.clone(),
-    })?;
-    ws.unsubscribe(UnsubscribeParams::Market { market_pubkey })?;
-    ws.unsubscribe(UnsubscribeParams::WalletDepositBalances {
-        wallet_address: wallet.clone(),
-    })?;
-    ws.disconnect().await?;
+    let mut unsubscribe_error = None;
+    for params in [
+        UnsubscribeParams::User {
+            wallet_address: wallet.clone(),
+        },
+        UnsubscribeParams::Market { market_pubkey },
+        UnsubscribeParams::WalletDepositBalances {
+            wallet_address: wallet.clone(),
+        },
+    ] {
+        if let Err(error) = ws.unsubscribe(params) {
+            unsubscribe_error.get_or_insert(error);
+        }
+    }
+    let disconnected = ws.disconnect().await;
     observed?;
+    if let Some(error) = unsubscribe_error {
+        return Err(error.into());
+    }
+    disconnected?;
 
     println!(
         "wallet={} slot={} count={}",
