@@ -20,7 +20,7 @@ use gloo_timers::callback::Timeout;
 use gloo_timers::future::IntervalStream;
 use tracing;
 use wasm_bindgen::prelude::*;
-use web_sys::{CloseEvent, ErrorEvent, MessageEvent, WebSocket};
+use web_sys::{CloseEvent, MessageEvent, WebSocket};
 
 use crate::ws::subscriptions::Subscription;
 use crate::ws::{
@@ -379,18 +379,22 @@ impl WsClient {
         ws.set_onmessage(Some(onmessage.as_ref().unchecked_ref()));
         onmessage.forget();
 
-        let onerror = Closure::<dyn FnMut(_)>::new(move |e: ErrorEvent| {
-            let error = e.error();
-            let message = e.message();
+        let onerror = Closure::<dyn FnMut(_)>::new(move |event: JsValue| {
+            let error = js_sys::Reflect::get(&event, &JsValue::from_str("error"))
+                .unwrap_or(JsValue::UNDEFINED);
+            let message = js_sys::Reflect::get(&event, &JsValue::from_str("message"))
+                .ok()
+                .and_then(|value| value.as_string())
+                .unwrap_or_default();
             // Browser transport errors are followed by onclose, which owns
             // lifecycle details and reconnect behavior. Keep diagnostic payloads
             // actionable while treating an empty browser event as a breadcrumb.
-            if has_websocket_error_diagnostics(error.is_undefined(), error.is_null(), &message) {
-                let diagnostic = if error.is_undefined() || error.is_null() {
-                    message
-                } else {
-                    extract_js_error(&error)
-                };
+            let error = if error.is_undefined() || error.is_null() {
+                None
+            } else {
+                Some(extract_js_error(&error))
+            };
+            if let Some(diagnostic) = websocket_error_diagnostic(error, &message) {
                 tracing::error!("WebSocket error: {}", diagnostic);
             } else {
                 tracing::debug!(
@@ -750,12 +754,24 @@ impl WsClient {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/// Returns whether a browser `ErrorEvent` exposes diagnostic error data or message text.
+/// Combines the diagnostic fields exposed by a browser WebSocket error event.
 ///
-/// A nullish error value with a blank message is routine transport lifecycle noise;
-/// the subsequent close event supplies its context at debug severity.
-fn has_websocket_error_diagnostics(is_undefined: bool, is_null: bool, message: &str) -> bool {
-    (!is_undefined && !is_null) || !message.trim().is_empty()
+/// Browsers may deliver a generic `Event` without either property. A missing error
+/// value and blank message is routine transport lifecycle noise; the subsequent
+/// close event supplies its context at debug severity.
+fn websocket_error_diagnostic(error: Option<String>, message: &str) -> Option<String> {
+    let message = message.trim();
+    match (error, message) {
+        (None, "") => None,
+        (None, message) => Some(message.to_string()),
+        (Some(error), "") => Some(error),
+        (Some(error), message)
+            if error == message || error.ends_with(&format!(": {}", message)) =>
+        {
+            Some(error)
+        }
+        (Some(error), message) => Some(format!("{}; {}", error, message)),
+    }
 }
 
 fn extract_js_error(err: &JsValue) -> String {
@@ -828,14 +844,34 @@ mod tests {
     }
 
     #[test]
-    fn websocket_error_diagnostics_accept_error_values_or_message_text() {
-        assert!(!has_websocket_error_diagnostics(true, false, ""));
-        assert!(!has_websocket_error_diagnostics(false, true, " \t"));
-        assert!(has_websocket_error_diagnostics(false, false, ""));
-        assert!(has_websocket_error_diagnostics(
-            true,
-            false,
-            "connection refused"
-        ));
+    fn websocket_error_diagnostic_preserves_available_fields() {
+        assert_eq!(websocket_error_diagnostic(None, ""), None);
+        assert_eq!(websocket_error_diagnostic(None, " \t"), None);
+        assert_eq!(
+            websocket_error_diagnostic(None, "connection refused"),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(Some("connection refused".to_string()), ""),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(Some("Error".to_string()), "connection refused"),
+            Some("Error; connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(
+                Some("connection refused".to_string()),
+                "connection refused"
+            ),
+            Some("connection refused".to_string())
+        );
+        assert_eq!(
+            websocket_error_diagnostic(
+                Some("Error: connection refused".to_string()),
+                "connection refused"
+            ),
+            Some("Error: connection refused".to_string())
+        );
     }
 }
