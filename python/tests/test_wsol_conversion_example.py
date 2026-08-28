@@ -7,7 +7,7 @@ from typing import cast
 
 import pytest
 
-from lightcone_sdk import SolBalanceComponents, SolComponentDelta
+from lightcone_sdk import SolBalanceBreakdown, SolBalanceDelta
 from lightcone_sdk.domain.position import (
     DepositTokenBalancesSnapshot,
     WalletDepositBalancesState,
@@ -178,7 +178,7 @@ async def test_wsol_conversion_example_refreshes_rest_without_stream_event(
             12,
         )
     assert state.context_slot == 11
-    assert state.sol_components().native_lamports == 1_000_000_000
+    assert state.sol_balance_breakdown().native_lamports == 1_000_000_000
 
 
 def test_wsol_conversion_example_rejects_negative_projection(
@@ -186,9 +186,9 @@ def test_wsol_conversion_example_rejects_negative_projection(
 ) -> None:
     """Keep the frozen example projection inside unsigned Solana balance units."""
     project = cast(
-        Callable[[SolBalanceComponents, SolComponentDelta], SolBalanceComponents],
-        _example_namespace(monkeypatch)["project_components"],
+        Callable[[SolBalanceBreakdown, SolBalanceDelta], SolBalanceBreakdown],
+        _example_namespace(monkeypatch)["project_breakdown"],
     )
 
     with pytest.raises(ValueError, match="negative frozen SOL projection"):
-        project(SolBalanceComponents(1, 0), SolComponentDelta(-2, 0))
+        project(SolBalanceBreakdown(1, 0), SolBalanceDelta(-2, 0))

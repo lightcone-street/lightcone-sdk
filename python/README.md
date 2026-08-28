@@ -312,14 +312,14 @@ canonical WSOL without floating-point arithmetic:
 
 The reducer methods accept an optional `minimum_snapshot_slot`; only a complete
 REST or stream snapshot below that floor is ignored without mutation. Equal-slot
-snapshots and all component/status events keep their existing behavior. Without
+snapshots and all individual balance/status events keep their existing behavior. Without
 a floor, the nested `wallet_deposit_balance_snapshot` replaces all stored SPL and
-native state even after a higher component slot. `wallet_deposit_balance_update`
+native state even after a higher individual balance slot. `wallet_deposit_balance_update`
 replaces one absolute SPL balance and removes explicit zero, while
 `wallet_native_sol_balance_update` replaces the absolute native value rather
 than applying a delta. Pre-baseline updates, wrong-wallet updates, and
 `wallet_deposit_balance_status` do not mutate state. `context_slot` records the
-latest accepted component observation rather than enforcing global monotonicity.
+latest accepted balance observation rather than enforcing global monotonicity.
 Matching SPL updates with invalid or negative idle balances return `REJECTED`
 without changing balances or the context slot.
 
@@ -400,14 +400,14 @@ match the live token amount exactly. Unlike exact wrap, unwrap-all accepts
 unsynchronized excess because close returns it directly without changing the
 token amount. Its `SolActionCosts` fields are always the live fee, zero upfront rent, no
 account creation, and no sponsorship. Availability is the unchanged
-native/canonical component pair with displayed SOL checked in the common
+native/canonical balance breakdown with displayed SOL checked in the common
 unsigned 64-bit range, reserve equal to the fee only, and spendable equal to
 displayed minus fee after native SOL proves it can pay that fee. The native delta
 is the complete account balance minus fee; the canonical delta removes the full
 token amount. Wallet-adapter and Privy strategies are rejected only for these
 explicit conversion planners, not for ordinary actions.
 
-`SolBalanceAvailability.from_unwrap_all_costs(components, costs)` is the
+`SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)` is the
 conversion-specific fee-only constructor. It accepts the complete factual cost
 tuple and rejects any nonzero upfront rent, canonical-account creation, or
 sponsorship before deriving the exact fee reserve; ordinary availability keeps
@@ -415,7 +415,7 @@ using `from_costs` and its configured reserve floors.
 
 Rebuild every plan immediately before signing, submit with
 `sign_and_submit_prepared_tx_confirmed_with_slot` so the fee-estimated message is
-preserved, hold its component projection frozen, and refresh a complete snapshot
+preserved, hold its balance projection frozen, and refresh a complete snapshot
 covering the confirmed slot before restoring action authority. After unwrap-all,
 that refresh is mandatory before another attempt because the canonical account
 no longer exists. Prepared submission is unavailable for Privy because its final

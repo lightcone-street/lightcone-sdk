@@ -13,8 +13,8 @@ use common::{get_keypair, login, other, rest_client, ExampleResult};
 use futures_util::StreamExt;
 use lightcone::{
     prelude::{
-        DepositTokenBalancesSnapshot, PubkeyStr, SigningStrategy, SolBalanceComponents,
-        SolComponentDelta, WalletDepositBalancesApplyResult, WalletDepositBalancesState,
+        DepositTokenBalancesSnapshot, PubkeyStr, SigningStrategy, SolBalanceBreakdown,
+        SolBalanceDelta, WalletDepositBalancesApplyResult, WalletDepositBalancesState,
     },
     ws::{Kind, MessageOut, WsEvent},
 };
@@ -86,7 +86,7 @@ async fn main() -> ExampleResult {
         wrap_plan.costs.upfront_rent_lamports
     );
     let wrap_projection =
-        projected_components(wrap_plan.availability.components, wrap_plan.expected_delta)?;
+        projected_breakdown(wrap_plan.availability.breakdown, wrap_plan.expected_delta)?;
     let wrap_confirmation = submit_prepared_once(wrap_plan.transaction, |transaction| {
         client.sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
     })
@@ -120,8 +120,8 @@ async fn main() -> ExampleResult {
 
     // There is intentionally no prompt or delay between final rebuild and
     // submission. An error exits; this example never retries a destructive close.
-    let unwrap_projection = projected_components(
-        unwrap_plan.availability.components,
+    let unwrap_projection = projected_breakdown(
+        unwrap_plan.availability.breakdown,
         unwrap_plan.expected_delta,
     )?;
     let unwrap_confirmation = submit_prepared_once(unwrap_plan.transaction, |transaction| {
@@ -162,24 +162,24 @@ fn print_balance(label: &str, state: &WalletDepositBalancesState) -> ExampleResu
     Ok(())
 }
 
-/// Apply a signed component delta, erroring on `i128` overflow or a result outside `u64`.
-fn projected_components(
-    components: SolBalanceComponents,
-    delta: SolComponentDelta,
-) -> ExampleResult<SolBalanceComponents> {
-    /// Apply one signed delta while preserving the component's `u64` boundary.
+/// Apply a signed balance delta, erroring on `i128` overflow or a result outside `u64`.
+fn projected_breakdown(
+    breakdown: SolBalanceBreakdown,
+    delta: SolBalanceDelta,
+) -> ExampleResult<SolBalanceBreakdown> {
+    /// Apply one signed delta while preserving the balance's `u64` boundary.
     fn apply(value: u64, delta: i128) -> ExampleResult<u64> {
         let projected = i128::from(value)
             .checked_add(delta)
-            .ok_or_else(|| other("projected SOL component overflowed i128"))?;
+            .ok_or_else(|| other("projected SOL balance overflowed i128"))?;
         Ok(u64::try_from(projected)
-            .map_err(|_| other("projected SOL component left the u64 range"))?)
+            .map_err(|_| other("projected SOL balance left the u64 range"))?)
     }
 
-    Ok(SolBalanceComponents {
-        native_lamports: apply(components.native_lamports, delta.native_lamports)?,
+    Ok(SolBalanceBreakdown {
+        native_lamports: apply(breakdown.native_lamports, delta.native_lamports)?,
         canonical_wsol_lamports: apply(
-            components.canonical_wsol_lamports,
+            breakdown.canonical_wsol_lamports,
             delta.canonical_wsol_lamports,
         )?,
     })
@@ -187,7 +187,7 @@ fn projected_components(
 
 /// Recover the preview's full account return, erroring on signed or `u64` overflow.
 fn unwrap_account_return_lamports(
-    expected_delta: SolComponentDelta,
+    expected_delta: SolBalanceDelta,
     fee_lamports: u64,
 ) -> ExampleResult<u64> {
     let account_lamports = expected_delta
@@ -412,7 +412,10 @@ mod tests {
         };
         assert!(error.to_string().contains("does not cover confirmed slot"));
         assert_eq!(state.context_slot, Some(11));
-        assert_eq!(state.sol_components()?.native_lamports, 1_000_000_000);
+        assert_eq!(
+            state.sol_balance_breakdown()?.native_lamports,
+            1_000_000_000
+        );
         Ok(())
     }
 
@@ -433,7 +436,7 @@ mod tests {
     #[test]
     fn unwrap_warning_return_uses_preview_delta_and_fee() -> ExampleResult {
         let returned = unwrap_account_return_lamports(
-            SolComponentDelta {
+            SolBalanceDelta {
                 native_lamports: 2_034_280,
                 canonical_wsol_lamports: -1,
             },

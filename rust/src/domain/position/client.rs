@@ -16,7 +16,7 @@ use crate::domain::position::builders::{
     build_temporary_native_withdraw_transaction, native_withdraw_seed, temporary_wsol_account,
     wrapped_sol_accounts, DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    SolActionKind, SolActionPlan, SolComponentDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
+    SolActionKind, SolActionPlan, SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder, TOKEN_ACCOUNT_SPACE,
 };
 #[cfg(feature = "native-auth")]
@@ -227,7 +227,7 @@ impl<'a> Positions<'a> {
 
     /// Fetch a complete authenticated SPL and native-SOL balance snapshot.
     ///
-    /// `min_context_slot` lower-bounds the complete cross-component snapshot.
+    /// `min_context_slot` lower-bounds the complete shared balance snapshot.
     /// Native SOL is required canonical nine-decimal text and remains separate
     /// from `balances`; apply the result through [`WalletDepositBalancesState`]
     /// when combining it with WebSocket updates.
@@ -285,7 +285,7 @@ impl<'a> Positions<'a> {
     /// live fee, and newly funded account rent.
     ///
     /// Callers rebuild immediately before signing and submit through the prepared
-    /// transaction API. Callers retain the returned component projection until a
+    /// transaction API. Callers retain the returned balance projection until a
     /// complete snapshot covers the confirmed slot. A submission or confirmation
     /// error is uncertain, so callers refresh authoritative state before retrying.
     #[cfg(feature = "native-auth")]
@@ -300,7 +300,7 @@ impl<'a> Positions<'a> {
             ));
         }
         let wallet = self.native_conversion_planning_wallet(state).await?;
-        let components = state.sol_components()?;
+        let breakdown = state.sol_balance_breakdown()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
         let account_info = self
             .client
@@ -308,7 +308,7 @@ impl<'a> Positions<'a> {
             .await?;
         match account_info {
             Some(info) => {
-                if info.token_amount_lamports != components.canonical_wsol_lamports {
+                if info.token_amount_lamports != breakdown.canonical_wsol_lamports {
                     return Err(SdkError::Validation(
                         "live canonical WSOL amount does not match wallet balance state".into(),
                     ));
@@ -337,7 +337,7 @@ impl<'a> Positions<'a> {
                     ));
                 }
             }
-            None if components.canonical_wsol_lamports > 0 => {
+            None if breakdown.canonical_wsol_lamports > 0 => {
                 return Err(SdkError::Validation(
                     "canonical WSOL balance is positive but its account is unavailable".into(),
                 ));
@@ -364,11 +364,11 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account,
             sponsored: false,
         };
-        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let availability = SolBalanceAvailability::from_costs(breakdown, costs)?;
         let required_native = amount_lamports
             .checked_add(availability.reserve_lamports)
             .ok_or_else(|| SdkError::Validation("wrap native requirement overflows u64".into()))?;
-        if components.native_lamports < required_native {
+        if breakdown.native_lamports < required_native {
             return Err(SdkError::Validation(
                 "native SOL cannot fund the wrap amount and transaction reserve".into(),
             ));
@@ -381,7 +381,7 @@ impl<'a> Positions<'a> {
             transaction,
             costs,
             availability,
-            expected_delta: SolComponentDelta {
+            expected_delta: SolBalanceDelta {
                 native_lamports: -i128::from(amount_lamports) - i128::from(wallet_costs),
                 canonical_wsol_lamports: i128::from(amount_lamports),
             },
@@ -401,7 +401,7 @@ impl<'a> Positions<'a> {
     /// must already be available in native SOL.
     ///
     /// Callers rebuild immediately before prepared submission. They retain the
-    /// returned component projection until a complete snapshot covers the
+    /// returned balance projection until a complete snapshot covers the
     /// confirmed slot. An uncertain outcome requires authoritative refresh before
     /// another plan; it does not authorize automatic resubmission.
     #[cfg(feature = "native-auth")]
@@ -410,8 +410,8 @@ impl<'a> Positions<'a> {
         state: &WalletDepositBalancesState,
     ) -> Result<SolActionPlan, SdkError> {
         let wallet = self.native_conversion_planning_wallet(state).await?;
-        let components = state.sol_components()?;
-        if components.canonical_wsol_lamports == 0 {
+        let breakdown = state.sol_balance_breakdown()?;
+        if breakdown.canonical_wsol_lamports == 0 {
             return Err(SdkError::Validation(
                 "canonical WSOL balance must be greater than zero for unwrap-all".into(),
             ));
@@ -424,7 +424,7 @@ impl<'a> Positions<'a> {
             .ok_or_else(|| {
                 SdkError::Validation("canonical WSOL account is required for unwrap-all".into())
             })?;
-        if account_info.token_amount_lamports != components.canonical_wsol_lamports {
+        if account_info.token_amount_lamports != breakdown.canonical_wsol_lamports {
             return Err(SdkError::Validation(
                 "live canonical WSOL amount does not match wallet balance state".into(),
             ));
@@ -441,8 +441,8 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account: false,
             sponsored: false,
         };
-        let availability = SolBalanceAvailability::from_unwrap_all_costs(components, costs)?;
-        components
+        let availability = SolBalanceAvailability::from_unwrap_all_costs(breakdown, costs)?;
+        breakdown
             .native_lamports
             .checked_sub(fee_lamports)
             .and_then(|native_after_fee| {
@@ -456,7 +456,7 @@ impl<'a> Positions<'a> {
             transaction,
             costs,
             availability,
-            expected_delta: SolComponentDelta {
+            expected_delta: SolBalanceDelta {
                 native_lamports: i128::from(account_info.account_lamports)
                     - i128::from(fee_lamports),
                 canonical_wsol_lamports: -i128::from(account_info.token_amount_lamports),
@@ -482,18 +482,18 @@ impl<'a> Positions<'a> {
             ));
         }
         let wallet = self.planning_wallet(state).await?;
-        let components = state.sol_components()?;
+        let breakdown = state.sol_balance_breakdown()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
         let canonical_exists = self
             .client
             .canonical_wsol_account_exists(&canonical_account, &wallet)
             .await?;
-        if components.canonical_wsol_lamports > 0 && !canonical_exists {
+        if breakdown.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
             ));
         }
-        let shortfall = amount_lamports.saturating_sub(components.canonical_wsol_lamports);
+        let shortfall = amount_lamports.saturating_sub(breakdown.canonical_wsol_lamports);
         let upfront_rent_lamports = if canonical_exists {
             0
         } else {
@@ -519,7 +519,7 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account: !canonical_exists,
             sponsored,
         };
-        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let availability = SolBalanceAvailability::from_costs(breakdown, costs)?;
         if amount_lamports > availability.spendable_lamports {
             return Err(SdkError::Validation(
                 "split amount exceeds spendable SOL after transaction reserve".into(),
@@ -528,7 +528,7 @@ impl<'a> Positions<'a> {
         let required_native = shortfall
             .checked_add(availability.reserve_lamports)
             .ok_or_else(|| SdkError::Validation("split native requirement overflows u64".into()))?;
-        if required_native > components.native_lamports {
+        if required_native > breakdown.native_lamports {
             return Err(SdkError::Validation(
                 "native SOL cannot fund the wrap shortfall and transaction reserve".into(),
             ));
@@ -545,7 +545,7 @@ impl<'a> Positions<'a> {
             transaction,
             costs,
             availability,
-            expected_delta: SolComponentDelta {
+            expected_delta: SolBalanceDelta {
                 native_lamports: -i128::from(shortfall) - i128::from(wallet_costs),
                 canonical_wsol_lamports: i128::from(shortfall) - i128::from(amount_lamports),
             },
@@ -570,13 +570,13 @@ impl<'a> Positions<'a> {
             ));
         }
         let wallet = self.planning_wallet(state).await?;
-        let components = state.sol_components()?;
+        let breakdown = state.sol_balance_breakdown()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
         let canonical_exists = self
             .client
             .canonical_wsol_account_exists(&canonical_account, &wallet)
             .await?;
-        if components.canonical_wsol_lamports > 0 && !canonical_exists {
+        if breakdown.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
             ));
@@ -598,7 +598,7 @@ impl<'a> Positions<'a> {
         self.finish_receive_plan(
             SolActionKind::Merge,
             amount_lamports,
-            components,
+            breakdown,
             sponsored,
             !canonical_exists,
             upfront_rent_lamports,
@@ -629,13 +629,13 @@ impl<'a> Positions<'a> {
         crate::program::utils::validate_outcome_count(num_outcomes)?;
         crate::program::utils::validate_outcome_index(outcome_index, num_outcomes)?;
         let wallet = self.planning_wallet(state).await?;
-        let components = state.sol_components()?;
+        let breakdown = state.sol_balance_breakdown()?;
         let (_, canonical_account) = wrapped_sol_accounts(&wallet)?;
         let canonical_exists = self
             .client
             .canonical_wsol_account_exists(&canonical_account, &wallet)
             .await?;
-        if components.canonical_wsol_lamports > 0 && !canonical_exists {
+        if breakdown.canonical_wsol_lamports > 0 && !canonical_exists {
             return Err(SdkError::Validation(
                 "canonical WSOL balance is positive but its account is unavailable".into(),
             ));
@@ -658,7 +658,7 @@ impl<'a> Positions<'a> {
         self.finish_receive_plan(
             SolActionKind::Redeem,
             amount_lamports,
-            components,
+            breakdown,
             sponsored,
             !canonical_exists,
             upfront_rent_lamports,
@@ -690,7 +690,7 @@ impl<'a> Positions<'a> {
             ));
         }
         let wallet = self.planning_wallet(state).await?;
-        let components = state.sol_components()?;
+        let breakdown = state.sol_balance_breakdown()?;
 
         let mut direct =
             build_direct_native_withdraw_transaction(wallet, recipient, amount_lamports);
@@ -704,7 +704,7 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account: false,
             sponsored,
         };
-        let direct_availability = SolBalanceAvailability::from_costs(components, direct_costs)?;
+        let direct_availability = SolBalanceAvailability::from_costs(breakdown, direct_costs)?;
         if amount_lamports > direct_availability.spendable_lamports {
             return Err(SdkError::Validation(
                 "withdraw amount exceeds spendable SOL after transaction reserve".into(),
@@ -715,13 +715,13 @@ impl<'a> Positions<'a> {
             .ok_or_else(|| {
                 SdkError::Validation("withdraw native requirement overflows u64".into())
             })?;
-        if components.native_lamports >= direct_required {
+        if breakdown.native_lamports >= direct_required {
             return Ok(SolActionPlan {
                 kind: SolActionKind::NativeWithdraw,
                 transaction: direct,
                 costs: direct_costs,
                 availability: direct_availability,
-                expected_delta: SolComponentDelta {
+                expected_delta: SolBalanceDelta {
                     native_lamports: -i128::from(amount_lamports)
                         - i128::from(if sponsored { 0 } else { direct_fee }),
                     canonical_wsol_lamports: 0,
@@ -784,10 +784,10 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account: false,
             sponsored,
         };
-        let initial_availability = SolBalanceAvailability::from_costs(components, initial_costs)?;
+        let initial_availability = SolBalanceAvailability::from_costs(breakdown, initial_costs)?;
         let initial_needed = amount_lamports
             .checked_add(initial_availability.reserve_lamports)
-            .and_then(|required| required.checked_sub(components.native_lamports))
+            .and_then(|required| required.checked_sub(breakdown.native_lamports))
             .ok_or_else(|| {
                 SdkError::Validation("invalid temporary withdrawal requirement".into())
             })?;
@@ -812,14 +812,14 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account: false,
             sponsored,
         };
-        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let availability = SolBalanceAvailability::from_costs(breakdown, costs)?;
         let canonical_transfer = amount_lamports
             .checked_add(availability.reserve_lamports)
-            .and_then(|required| required.checked_sub(components.native_lamports))
+            .and_then(|required| required.checked_sub(breakdown.native_lamports))
             .ok_or_else(|| {
                 SdkError::Validation("invalid temporary withdrawal requirement".into())
             })?;
-        if canonical_transfer > components.canonical_wsol_lamports {
+        if canonical_transfer > breakdown.canonical_wsol_lamports {
             return Err(SdkError::Validation(
                 "canonical WSOL cannot fund the native withdrawal shortfall".into(),
             ));
@@ -850,9 +850,9 @@ impl<'a> Positions<'a> {
             transaction,
             costs,
             availability,
-            expected_delta: SolComponentDelta {
+            expected_delta: SolBalanceDelta {
                 // Temporary account rent returns on close; only the converted
-                // amount and live fee change the wallet's native component.
+                // amount and live fee change the wallet's native balance.
                 native_lamports: i128::from(canonical_transfer)
                     - i128::from(amount_lamports)
                     - i128::from(if sponsored { 0 } else { final_fee }),
@@ -861,12 +861,12 @@ impl<'a> Positions<'a> {
         })
     }
 
-    /// Finish merge/redeem planning with live cost authority and component deltas.
+    /// Finish merge/redeem planning with live cost authority and separate balance deltas.
     async fn finish_receive_plan(
         &self,
         kind: SolActionKind,
         amount_lamports: u64,
-        components: crate::domain::position::SolBalanceComponents,
+        breakdown: crate::domain::position::SolBalanceBreakdown,
         sponsored: bool,
         creates_canonical_wsol_account: bool,
         upfront_rent_lamports: u64,
@@ -882,7 +882,7 @@ impl<'a> Positions<'a> {
             creates_canonical_wsol_account,
             sponsored,
         };
-        let availability = SolBalanceAvailability::from_costs(components, costs)?;
+        let availability = SolBalanceAvailability::from_costs(breakdown, costs)?;
         let wallet_costs = if sponsored {
             0
         } else {
@@ -895,7 +895,7 @@ impl<'a> Positions<'a> {
             transaction: transaction.clone(),
             costs,
             availability,
-            expected_delta: SolComponentDelta {
+            expected_delta: SolBalanceDelta {
                 native_lamports: -i128::from(wallet_costs),
                 canonical_wsol_lamports: i128::from(amount_lamports),
             },
@@ -1631,7 +1631,7 @@ mod tests {
     #[cfg(feature = "native")]
     #[tokio::test]
     /// Uses the live direct fee in both availability and expected native delta.
-    async fn native_withdraw_plan_uses_live_fee_and_direct_component_delta() {
+    async fn native_withdraw_plan_uses_live_fee_and_direct_balance_delta() {
         let blockhash = solana_hash::Hash::new_unique().to_string();
         let (rpc_url, requests) = spawn_rpc_server(vec![
             serde_json::json!({
@@ -2173,9 +2173,9 @@ mod tests {
                 sponsored: false,
             }
         );
-        assert_eq!(plan.availability.components.native_lamports, 10_000);
+        assert_eq!(plan.availability.breakdown.native_lamports, 10_000);
         assert_eq!(
-            plan.availability.components.canonical_wsol_lamports,
+            plan.availability.breakdown.canonical_wsol_lamports,
             50_000_000
         );
         assert_eq!(plan.availability.displayed_lamports, 50_010_000);

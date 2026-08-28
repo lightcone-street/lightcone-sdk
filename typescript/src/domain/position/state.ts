@@ -23,8 +23,8 @@ export const SOL_RESERVE_WITH_EXISTING_ACCOUNT_LAMPORTS = 1_000_000n;
 /** Maximum exact non-negative lamport value representable by Solana's u64 fields. */
 const MAX_SOLANA_LAMPORTS = 0xffff_ffff_ffff_ffffn;
 
-/** Exact components behind the single displayed SOL asset. */
-export interface SolBalanceComponents {
+/** Exact native and canonical WSOL breakdown behind the displayed SOL asset. */
+export interface SolBalanceBreakdown {
   /** Lamports held by the Trading Wallet system account. */
   nativeLamports: bigint;
   /** Token amount in the Trading Wallet's persistent canonical WSOL ATA. */
@@ -52,8 +52,8 @@ export interface SolActionCosts {
 /** Action-specific displayed, reserved, and spendable SOL values. */
 export interface SolBalanceAvailability {
   /** Separately authoritative native and canonical WSOL balances. */
-  components: SolBalanceComponents;
-  /** Sum of both components in lamports, before reserve. */
+  breakdown: SolBalanceBreakdown;
+  /** Sum of both balances in lamports, before reserve. */
   displayedLamports: bigint;
   /** Native lamports withheld for live costs and any action-specific safety floor. */
   reserveLamports: bigint;
@@ -63,12 +63,12 @@ export interface SolBalanceAvailability {
 
 /** Derive fail-closed availability and type an insufficient native reserve as fee funding. */
 export function solBalanceAvailability(
-  components: SolBalanceComponents,
+  breakdown: SolBalanceBreakdown,
   costs: SolActionCosts
 ): SolBalanceAvailability {
   for (const [label, value] of [
-    ["native SOL", components.nativeLamports],
-    ["canonical WSOL", components.canonicalWsolLamports],
+    ["native SOL", breakdown.nativeLamports],
+    ["canonical WSOL", breakdown.canonicalWsolLamports],
   ] as const) {
     if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
       throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
@@ -83,7 +83,7 @@ export function solBalanceAvailability(
     }
   }
   const displayedLamports =
-    components.nativeLamports + components.canonicalWsolLamports;
+    breakdown.nativeLamports + breakdown.canonicalWsolLamports;
   if (displayedLamports > MAX_SOLANA_LAMPORTS) {
     throw SdkError.validation("displayed SOL exceeds the transaction u64 range");
   }
@@ -99,14 +99,14 @@ export function solBalanceAvailability(
     : liveCosts > floor
       ? liveCosts
       : floor;
-  if (components.nativeLamports < reserveLamports) {
+  if (breakdown.nativeLamports < reserveLamports) {
     throw SdkError.insufficientSolForTransactionFees(
-      components.nativeLamports,
+      breakdown.nativeLamports,
       reserveLamports
     );
   }
   return {
-    components,
+    breakdown,
     displayedLamports,
     reserveLamports,
     spendableLamports: displayedLamports - reserveLamports,
@@ -117,7 +117,7 @@ export function solBalanceAvailability(
  * Return unwrap-all availability with the live fee as its entire reserve.
  *
  * This function rejects costs that include sponsorship, account creation, or
- * upfront rent. It rejects malformed or out-of-range components and costs. It
+ * upfront rent. It rejects malformed or out-of-range balances and costs. It
  * rejects a displayed-balance sum outside Solana's unsigned 64-bit range. Native
  * SOL must fund the fee without relying on lamports that a later `CloseAccount`
  * instruction may transfer. The ordinary persistent-account floor does not apply
@@ -125,12 +125,12 @@ export function solBalanceAvailability(
  * returns the typed transaction-fee error.
  */
 export function unwrapAllSolBalanceAvailability(
-  components: SolBalanceComponents,
+  breakdown: SolBalanceBreakdown,
   costs: SolActionCosts
 ): SolBalanceAvailability {
   for (const [label, value] of [
-    ["native SOL", components.nativeLamports],
-    ["canonical WSOL", components.canonicalWsolLamports],
+    ["native SOL", breakdown.nativeLamports],
+    ["canonical WSOL", breakdown.canonicalWsolLamports],
   ] as const) {
     if (typeof value !== "bigint" || value < 0n || value > MAX_SOLANA_LAMPORTS) {
       throw SdkError.validation(`${label} must fit the non-negative u64 lamport range`);
@@ -154,18 +154,18 @@ export function unwrapAllSolBalanceAvailability(
     );
   }
   const displayedLamports =
-    components.nativeLamports + components.canonicalWsolLamports;
+    breakdown.nativeLamports + breakdown.canonicalWsolLamports;
   if (displayedLamports > MAX_SOLANA_LAMPORTS) {
     throw SdkError.validation("displayed SOL exceeds the transaction u64 range");
   }
-  if (components.nativeLamports < costs.feeLamports) {
+  if (breakdown.nativeLamports < costs.feeLamports) {
     throw SdkError.insufficientSolForTransactionFees(
-      components.nativeLamports,
+      breakdown.nativeLamports,
       costs.feeLamports
     );
   }
   return {
-    components,
+    breakdown,
     displayedLamports,
     reserveLamports: costs.feeLamports,
     spendableLamports: displayedLamports - costs.feeLamports,
@@ -182,9 +182,9 @@ export type WalletDepositBalancesApplyResult =
  * Mutable application-owned wallet balance state.
  *
  * The default instance is uninitialized. A complete REST or WebSocket snapshot
- * establishes its wallet baseline; later component events must match that wallet
+ * establishes its wallet baseline; later balance events must match that wallet
  * and carry absolute values. Native SOL never enters the sparse SPL mint map, and
- * complete cross-component snapshots may replace `contextSlot` with a lower slot.
+ * complete snapshots may replace `contextSlot` with a lower slot.
  * Map containers are copied, but mutable balance objects are retained by reference;
  * treat payload entries as immutable after applying them.
  */
@@ -230,8 +230,8 @@ export class WalletDepositBalancesState {
    * Apply the wallet event state machine.
    *
    * Complete snapshots replace state unless they are below an optional minimum
-   * snapshot slot. The floor never applies to component or status events.
-   * Matching component events replace one absolute value, zero SPL removes its
+   * snapshot slot. The floor never applies to incremental balance or status events.
+   * Matching balance events replace one absolute value, zero SPL removes its
    * mint, and status, pre-initialization, or wrong-wallet events return `ignored`.
    */
   applyEvent(
@@ -247,7 +247,7 @@ export class WalletDepositBalancesState {
           return { kind: "ignored" };
         }
         // Complete snapshots are authoritative even when their lower
-        // cross-component slot trails a previously observed update.
+        // snapshot slot trails a previously observed update.
         this.replace(
           event.wallet_address,
           event.context_slot,
@@ -297,8 +297,8 @@ export class WalletDepositBalancesState {
     return formatLamports(native + wrappedLamports);
   }
 
-  /** Return exact native and canonical WSOL components for transaction planning. */
-  solComponents(): SolBalanceComponents {
+  /** Return the exact native and canonical WSOL breakdown for transaction planning. */
+  solBalanceBreakdown(): SolBalanceBreakdown {
     let nativeLamports: bigint;
     let canonicalWsolLamports: bigint;
     try {
@@ -306,14 +306,14 @@ export class WalletDepositBalancesState {
       canonicalWsolLamports = this.canonicalWsolLamports();
     } catch (error) {
       throw SdkError.validation(
-        `invalid SOL balance component: ${error instanceof Error ? error.message : String(error)}`
+        `invalid SOL balance: ${error instanceof Error ? error.message : String(error)}`
       );
     }
     if (
       nativeLamports > MAX_SOLANA_LAMPORTS ||
       canonicalWsolLamports > MAX_SOLANA_LAMPORTS
     ) {
-      throw SdkError.validation("SOL component exceeds the transaction u64 range");
+      throw SdkError.validation("SOL balance exceeds the transaction u64 range");
     }
     return { nativeLamports, canonicalWsolLamports };
   }

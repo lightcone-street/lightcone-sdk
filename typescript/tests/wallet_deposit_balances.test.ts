@@ -250,7 +250,7 @@ describe("WalletDepositBalancesState", () => {
     assert.equal(state.nativeSolBalance, "4.000000000");
   });
 
-  it("does not apply the snapshot floor to components or no-floor calls", () => {
+  it("does not apply the snapshot floor to balance updates or no-floor calls", () => {
     const state = new WalletDepositBalancesState();
     state.applyRestSnapshot(wallet, {
       context_slot: 100,
@@ -284,7 +284,7 @@ describe("WalletDepositBalancesState", () => {
     assert.equal(state.nativeSolBalance, "3.000000000");
   });
 
-  it("uses absolute component updates and ignores mismatched/status events", () => {
+  it("uses absolute balance updates and ignores mismatched/status events", () => {
     const state = new WalletDepositBalancesState();
     state.applyRestSnapshot(wallet, {
       context_slot: 1,
@@ -354,7 +354,7 @@ describe("WalletDepositBalancesState", () => {
       native_sol_balance: "18446744073.709551616",
     });
     assert.equal(state.combinedSolBalance(), "18446744073.709551616");
-    assert.throws(() => state.solComponents(), /transaction u64 range/);
+    assert.throws(() => state.solBalanceBreakdown(), /transaction u64 range/);
   });
 });
 

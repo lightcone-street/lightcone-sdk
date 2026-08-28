@@ -40,7 +40,7 @@ import { DepositSource, type PubkeyStr } from "../src/shared";
 import type { SigningStrategy } from "../src/shared/signing";
 import { RpcFailoverState } from "../src/rpcFailover";
 
-/** Build complete wallet authority with exact native and canonical components. */
+/** Build complete wallet authority with an exact native and canonical breakdown. */
 function stateFor(
   wallet: PublicKey,
   native: string,
@@ -446,12 +446,12 @@ describe("SOL action plans", () => {
   });
 
   it("uses account-creation live costs and sponsored zero reserve", () => {
-    const components = {
+    const breakdown = {
       nativeLamports: 10_000_000n,
       canonicalWsolLamports: 5_000_000n,
     };
     assert.equal(
-      solBalanceAvailability(components, {
+      solBalanceAvailability(breakdown, {
         feeLamports: 1_000_000n,
         upfrontRentLamports: 3_000_000n,
         createsCanonicalWsolAccount: true,
@@ -460,7 +460,7 @@ describe("SOL action plans", () => {
       4_000_000n
     );
     assert.equal(
-      solBalanceAvailability(components, {
+      solBalanceAvailability(breakdown, {
         feeLamports: 20_000_000n,
         upfrontRentLamports: 20_000_000n,
         createsCanonicalWsolAccount: true,
@@ -471,7 +471,7 @@ describe("SOL action plans", () => {
   });
 
   it("rejects malformed or overflowing action costs", () => {
-    const components = {
+    const breakdown = {
       nativeLamports: 10_000_000n,
       canonicalWsolLamports: 5_000_000n,
     };
@@ -485,7 +485,7 @@ describe("SOL action plans", () => {
     ]) {
       assert.throws(
         () =>
-          solBalanceAvailability(components, {
+          solBalanceAvailability(breakdown, {
             ...costs,
             createsCanonicalWsolAccount: false,
             sponsored: true,
@@ -509,7 +509,7 @@ describe("SOL action plans", () => {
         ),
       /displayed SOL exceeds the transaction u64 range/
     );
-    for (const components of [
+    for (const breakdown of [
       { nativeLamports: -1n, canonicalWsolLamports: 0n },
       {
         nativeLamports: 0n,
@@ -518,7 +518,7 @@ describe("SOL action plans", () => {
     ]) {
       assert.throws(
         () =>
-          solBalanceAvailability(components, {
+          solBalanceAvailability(breakdown, {
             feeLamports: 0n,
             upfrontRentLamports: 0n,
             createsCanonicalWsolAccount: false,
@@ -530,7 +530,7 @@ describe("SOL action plans", () => {
   });
 
   it("uses exact fee-only availability for unwrap-all", () => {
-    const components = {
+    const breakdown = {
       nativeLamports: 5_000n,
       canonicalWsolLamports: 500_000_000n,
     };
@@ -540,15 +540,15 @@ describe("SOL action plans", () => {
       createsCanonicalWsolAccount: false,
       sponsored: false,
     };
-    assert.deepEqual(unwrapAllSolBalanceAvailability(components, costs), {
-      components,
+    assert.deepEqual(unwrapAllSolBalanceAvailability(breakdown, costs), {
+      breakdown,
       displayedLamports: 500_005_000n,
       reserveLamports: 5_000n,
       spendableLamports: 500_000_000n,
     });
     let error: unknown;
     try {
-      unwrapAllSolBalanceAvailability(components, {
+      unwrapAllSolBalanceAvailability(breakdown, {
         ...costs,
         feeLamports: 5_001n,
       });
@@ -576,7 +576,7 @@ describe("SOL action plans", () => {
       { ...costs, sponsored: true },
     ]) {
       assert.throws(
-        () => unwrapAllSolBalanceAvailability(components, invalidCosts),
+        () => unwrapAllSolBalanceAvailability(breakdown, invalidCosts),
         /must be unsponsored with no upfront rent or account creation/
       );
     }
@@ -585,7 +585,7 @@ describe("SOL action plans", () => {
       { ...costs, upfrontRentLamports: 0x1_0000_0000_0000_0000n },
     ]) {
       assert.throws(
-        () => unwrapAllSolBalanceAvailability(components, invalidCosts),
+        () => unwrapAllSolBalanceAvailability(breakdown, invalidCosts),
         /must fit the non-negative u64 lamport range/
       );
     }
@@ -839,7 +839,7 @@ describe("SOL action plans", () => {
       sponsored: false,
     });
     assert.deepEqual(plan.availability, {
-      components: {
+      breakdown: {
         nativeLamports: 5_000n,
         canonicalWsolLamports: 500_000_000n,
       },
