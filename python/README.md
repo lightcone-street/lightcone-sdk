@@ -310,8 +310,11 @@ separate from the mint-keyed SPL `balances` mapping. Use
 `wallet_deposit_balances` WebSocket events, and to derive exact native plus
 canonical WSOL without floating-point arithmetic:
 
-The nested `wallet_deposit_balance_snapshot` replaces all stored SPL and native
-state even after a higher component slot. `wallet_deposit_balance_update`
+The reducer methods accept an optional `minimum_snapshot_slot`; only a complete
+REST or stream snapshot below that floor is ignored without mutation. Equal-slot
+snapshots and all component/status events keep their existing behavior. Without
+a floor, the nested `wallet_deposit_balance_snapshot` replaces all stored SPL and
+native state even after a higher component slot. `wallet_deposit_balance_update`
 replaces one absolute SPL balance and removes explicit zero, while
 `wallet_native_sol_balance_update` replaces the absolute native value rather
 than applying a delta. Pre-baseline updates, wrong-wallet updates, and
@@ -500,7 +503,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 |---------|-------------|
 | [`ws_book_and_trades`](examples/ws_book_and_trades.py) | Live orderbook depth with `OrderbookState` state + rolling `TradeHistory` buffer |
 | [`ws_ticker_and_prices`](examples/ws_ticker_and_prices.py) | Best bid/ask ticker + price history line data with `PriceHistoryState` |
-| [`ws_user_and_market`](examples/ws_user_and_market.py) | Authenticated user stream (orders, balances) + market lifecycle events |
+| [`ws_user_and_market`](examples/ws_user_and_market.py) | Read-only authenticated user/market subscriptions plus one reduced Trading Wallet balance snapshot |
 
 ## Error Handling
 

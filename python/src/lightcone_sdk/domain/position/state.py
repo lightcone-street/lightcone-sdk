@@ -222,9 +222,17 @@ class WalletDepositBalancesState:
     native_sol_balance: str | None = None
 
     def apply_rest_snapshot(
-        self, wallet_address: str, snapshot: DepositTokenBalancesSnapshot
+        self,
+        wallet_address: str,
+        snapshot: DepositTokenBalancesSnapshot,
+        minimum_snapshot_slot: int | None = None,
     ) -> WalletDepositBalancesApplyResult:
-        """Initialize or wholesale-replace state without comparing prior slots."""
+        """Replace state unless a supplied minimum rejects this complete snapshot."""
+        if (
+            minimum_snapshot_slot is not None
+            and snapshot.context_slot < minimum_snapshot_slot
+        ):
+            return WalletDepositBalancesApplyResult.IGNORED
         self._replace(
             wallet_address,
             snapshot.context_slot,
@@ -234,15 +242,23 @@ class WalletDepositBalancesState:
         return WalletDepositBalancesApplyResult.APPLIED
 
     def apply_event(
-        self, event: WalletDepositBalancesEvent
+        self,
+        event: WalletDepositBalancesEvent,
+        minimum_snapshot_slot: int | None = None,
     ) -> WalletDepositBalancesApplyResult:
         """Apply authoritative snapshots, absolute updates, and lifecycle guards.
 
-        Complete snapshots always replace. Matching component updates replace one
-        value, zero SPL removes its mint, and status or wrong-wallet events are
-        ignored without stale-slot filtering.
+        Complete snapshots replace unless below ``minimum_snapshot_slot``. The
+        optional floor does not apply to component or status events. Matching
+        component updates replace one value, zero SPL removes its mint, and status
+        or wrong-wallet events are ignored without stale-slot filtering.
         """
         if isinstance(event, WalletDepositBalanceSnapshot):
+            if (
+                minimum_snapshot_slot is not None
+                and event.context_slot < minimum_snapshot_slot
+            ):
+                return WalletDepositBalancesApplyResult.IGNORED
             # Complete snapshots are authoritative even after a higher
             # component event because their slot is the lower component slot.
             self._replace(

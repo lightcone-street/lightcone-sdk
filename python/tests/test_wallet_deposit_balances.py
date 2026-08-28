@@ -273,6 +273,99 @@ def test_state_replacement_component_updates_zero_removal_and_exact_combined_sol
     )
 
 
+def test_complete_snapshot_floor_ignores_lower_slots_and_accepts_equal_slot() -> None:
+    state = initialized_state("wallet-a")
+
+    assert (
+        state.apply_rest_snapshot(
+            "wallet-a",
+            DepositTokenBalancesSnapshot(
+                context_slot=99,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.IGNORED
+    )
+    assert state.context_slot == 100
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=99,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.IGNORED
+    )
+    assert state.context_slot == 100
+
+    assert (
+        state.apply_rest_snapshot(
+            "wallet-a",
+            DepositTokenBalancesSnapshot(
+                context_slot=100,
+                native_sol_balance="3.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.context_slot == 100
+    assert state.native_sol_balance == "3.000000000"
+
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=100,
+                native_sol_balance="4.000000000",
+                balances={},
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.native_sol_balance == "4.000000000"
+
+
+def test_snapshot_floor_does_not_change_component_or_no_floor_behavior() -> None:
+    state = initialized_state("wallet-a")
+
+    assert (
+        state.apply_event(
+            WalletNativeSolBalanceUpdate(
+                event_type="wallet_native_sol_balance_update",
+                wallet_address="wallet-a",
+                context_slot=50,
+                native_sol_balance="3.000000000",
+            ),
+            minimum_snapshot_slot=100,
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert (
+        state.apply_event(
+            WalletDepositBalanceSnapshot(
+                event_type="wallet_deposit_balance_snapshot",
+                wallet_address="wallet-a",
+                context_slot=25,
+                native_sol_balance="4.000000000",
+                balances={},
+            )
+        )
+        is WalletDepositBalancesApplyResult.APPLIED
+    )
+    assert state.context_slot == 25
+    assert state.native_sol_balance == "4.000000000"
+
+
 def test_transaction_components_reject_u64_overflow() -> None:
     """Keep broad display arithmetic while rejecting transaction-range overflow."""
     state = WalletDepositBalancesState()

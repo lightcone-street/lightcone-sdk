@@ -228,6 +228,19 @@ impl WalletDepositBalancesState {
         wallet_address: PubkeyStr,
         snapshot: &DepositTokenBalancesSnapshot,
     ) -> WalletDepositBalancesApplyResult {
+        self.apply_rest_snapshot_with_minimum_snapshot_slot(wallet_address, snapshot, None)
+    }
+
+    /// Replace state unless the complete REST snapshot predates a required slot.
+    pub fn apply_rest_snapshot_with_minimum_snapshot_slot(
+        &mut self,
+        wallet_address: PubkeyStr,
+        snapshot: &DepositTokenBalancesSnapshot,
+        minimum_snapshot_slot: Option<u64>,
+    ) -> WalletDepositBalancesApplyResult {
+        if minimum_snapshot_slot.is_some_and(|floor| snapshot.context_slot < floor) {
+            return WalletDepositBalancesApplyResult::Ignored;
+        }
         self.replace(
             wallet_address,
             snapshot.context_slot,
@@ -246,6 +259,15 @@ impl WalletDepositBalancesState {
         &mut self,
         event: &WalletDepositBalancesEvent,
     ) -> WalletDepositBalancesApplyResult {
+        self.apply_event_with_minimum_snapshot_slot(event, None)
+    }
+
+    /// Apply an event while ignoring only complete snapshots below a required slot.
+    pub fn apply_event_with_minimum_snapshot_slot(
+        &mut self,
+        event: &WalletDepositBalancesEvent,
+        minimum_snapshot_slot: Option<u64>,
+    ) -> WalletDepositBalancesApplyResult {
         match event {
             WalletDepositBalancesEvent::Snapshot {
                 wallet_address,
@@ -253,6 +275,9 @@ impl WalletDepositBalancesState {
                 balances,
                 native_sol_balance,
             } => {
+                if minimum_snapshot_slot.is_some_and(|floor| *context_slot < floor) {
+                    return WalletDepositBalancesApplyResult::Ignored;
+                }
                 // Complete snapshots are authoritative even when their lower
                 // cross-component slot trails a previously observed update.
                 self.replace(
@@ -436,6 +461,94 @@ mod tests {
         assert_eq!(state.context_slot, Some(100));
         assert_eq!(state.native_sol_balance.as_deref(), Some("3.000000000"));
         assert_eq!(state.balances.len(), 1);
+    }
+
+    #[test]
+    fn guarded_complete_snapshots_ignore_below_floor_and_accept_equal_slot() {
+        let wallet = PubkeyStr::from("WalletA");
+        let mut state = WalletDepositBalancesState::default();
+        state.apply_rest_snapshot(wallet.clone(), &snapshot(200, "1.000000000"));
+        let before = state.clone();
+
+        assert_eq!(
+            state.apply_rest_snapshot_with_minimum_snapshot_slot(
+                wallet.clone(),
+                &snapshot(99, "2.000000000"),
+                Some(100),
+            ),
+            WalletDepositBalancesApplyResult::Ignored
+        );
+        assert_eq!(state, before);
+        assert_eq!(
+            state.apply_event_with_minimum_snapshot_slot(
+                &WalletDepositBalancesEvent::Snapshot {
+                    wallet_address: wallet.clone(),
+                    context_slot: 99,
+                    balances: HashMap::new(),
+                    native_sol_balance: "2.000000000".into(),
+                },
+                Some(100),
+            ),
+            WalletDepositBalancesApplyResult::Ignored
+        );
+        assert_eq!(state, before);
+
+        assert_eq!(
+            state.apply_rest_snapshot_with_minimum_snapshot_slot(
+                wallet,
+                &snapshot(100, "3.000000000"),
+                Some(100),
+            ),
+            WalletDepositBalancesApplyResult::Applied
+        );
+        assert_eq!(state.context_slot, Some(100));
+        assert_eq!(state.native_sol_balance.as_deref(), Some("3.000000000"));
+
+        assert_eq!(
+            state.apply_event_with_minimum_snapshot_slot(
+                &WalletDepositBalancesEvent::Snapshot {
+                    wallet_address: PubkeyStr::from("WalletA"),
+                    context_slot: 100,
+                    balances: HashMap::new(),
+                    native_sol_balance: "4.000000000".into(),
+                },
+                Some(100),
+            ),
+            WalletDepositBalancesApplyResult::Applied
+        );
+        assert_eq!(state.native_sol_balance.as_deref(), Some("4.000000000"));
+    }
+
+    #[test]
+    fn guarded_event_floor_does_not_change_component_or_no_floor_behavior() {
+        let wallet = PubkeyStr::from("WalletA");
+        let mut state = WalletDepositBalancesState::default();
+        state.apply_rest_snapshot(wallet.clone(), &snapshot(100, "1.000000000"));
+
+        assert_eq!(
+            state.apply_event_with_minimum_snapshot_slot(
+                &WalletDepositBalancesEvent::NativeSolBalanceUpdate {
+                    wallet_address: wallet.clone(),
+                    context_slot: 50,
+                    native_sol_balance: "2.000000000".into(),
+                },
+                Some(100),
+            ),
+            WalletDepositBalancesApplyResult::Applied
+        );
+        assert_eq!(state.context_slot, Some(50));
+
+        assert_eq!(
+            state.apply_event(&WalletDepositBalancesEvent::Snapshot {
+                wallet_address: wallet,
+                context_slot: 25,
+                balances: HashMap::new(),
+                native_sol_balance: "3.000000000".into(),
+            }),
+            WalletDepositBalancesApplyResult::Applied
+        );
+        assert_eq!(state.context_slot, Some(25));
+        assert_eq!(state.native_sol_balance.as_deref(), Some("3.000000000"));
     }
 
     #[test]
