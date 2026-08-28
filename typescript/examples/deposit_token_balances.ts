@@ -31,7 +31,7 @@ async function main() {
   const state = new WalletDepositBalancesState();
   const ws = client.ws();
   // Install the reducer before subscribing so the complete baseline cannot race
-  // the listener; pre-baseline component events remain safely ignored by state.
+  // the listener; pre-baseline balance events remain safely ignored by state.
   const removeListener = ws.on((event) => {
     if (
       event.type === "Message" &&

@@ -289,7 +289,7 @@ let positions = client
 replacement methods. Confirmation-aware consumers may instead use
 `apply_rest_snapshot_with_minimum_snapshot_slot` or
 `apply_event_with_minimum_snapshot_slot`; a complete snapshot below the optional
-floor is ignored without mutation, while equal slots and component/status events
+floor is ignored without mutation, while equal slots and balance/status events
 keep their existing behavior.
 
 On WASM these methods are equivalent to their non-`_with_cookies` counterparts because the browser is already attaching the cookie via credentials mode.

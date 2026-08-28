@@ -10,11 +10,11 @@ use std::collections::{hash_map::Entry, HashMap};
 pub use builders::{
     DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    SolActionKind, SolActionPlan, SolComponentDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
+    SolActionKind, SolActionPlan, SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
     WithdrawFromPositionBuilder,
 };
 pub use state::{
-    CanonicalWsolAccountInfo, SolActionCosts, SolBalanceAvailability, SolBalanceComponents,
+    CanonicalWsolAccountInfo, SolActionCosts, SolBalanceAvailability, SolBalanceBreakdown,
     WalletDepositBalancesApplyResult, WalletDepositBalancesState, WRAPPED_SOL_MINT_ADDRESS,
 };
 
@@ -180,10 +180,10 @@ pub struct DepositTokenBalance {
 ///
 /// Native SOL is required as canonical nine-decimal text and intentionally
 /// remains outside the mint-keyed SPL map. The type has no empty default because
-/// omitting either balance component would manufacture a partial snapshot.
+/// omitting either native or SPL balances would manufacture a partial snapshot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DepositTokenBalancesSnapshot {
-    /// Lower confirmed slot valid for both independently observed components.
+    /// Lower confirmed slot valid for both independently observed balance sources.
     pub context_slot: u64,
     /// Complete SPL balance map keyed by mint; it does not contain native SOL.
     pub balances: HashMap<PubkeyStr, DepositTokenBalance>,
@@ -214,7 +214,7 @@ pub enum WalletDepositBalancesEvent {
     Snapshot {
         /// External wallet observed by this stream.
         wallet_address: PubkeyStr,
-        /// Lower slot valid across the snapshot's SPL and native components.
+        /// Lower slot valid across the snapshot's SPL and native balances.
         context_slot: u64,
         /// Complete mint-keyed SPL map.
         balances: HashMap<PubkeyStr, DepositTokenBalance>,
@@ -227,7 +227,7 @@ pub enum WalletDepositBalancesEvent {
     BalanceUpdate {
         /// Wallet whose initialized baseline may accept the update.
         wallet_address: PubkeyStr,
-        /// Slot of this component observation, not a global stream sequence.
+        /// Slot of this mint balance observation, not a global stream sequence.
         context_slot: u64,
         /// Complete current balance for the affected mint, not a delta.
         balance: DepositTokenBalance,
@@ -237,7 +237,7 @@ pub enum WalletDepositBalancesEvent {
     NativeSolBalanceUpdate {
         /// Wallet whose initialized baseline may accept the update.
         wallet_address: PubkeyStr,
-        /// Slot of this native component observation.
+        /// Slot of this native balance observation.
         context_slot: u64,
         /// Exact non-negative native SOL with nine fractional digits.
         #[serde(deserialize_with = "deserialize_native_sol_balance")]

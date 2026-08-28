@@ -231,13 +231,13 @@ signed-64-bit admission rules; no tick or size normalization is implicit.
 the outer `wallet_deposit_balances` channel's nested snapshot, absolute SPL,
 absolute native-SOL, and status events to `applyEvent()`. Both methods accept an
 optional minimum snapshot slot; only a complete snapshot below that floor is
-ignored without mutation, while an equal slot and every component/status event
+ignored without mutation, while an equal slot and every balance/status event
 keep their existing behavior. Without a floor, complete snapshots replace state
-even after a higher component slot. Status and wrong-wallet events do not mutate
-it, pre-baseline component updates are ignored, and explicit-zero SPL updates
+even after a higher incremental-update slot. Status and wrong-wallet events do not mutate
+it, pre-baseline balance updates are ignored, and explicit-zero SPL updates
 remove their mint. Matching SPL updates with invalid or negative
 idle balances return `rejected` without mutation. `contextSlot` records the latest accepted
-component observation rather than enforcing global monotonic ordering.
+balance observation rather than enforcing global monotonic ordering.
 `combinedSolBalance()` sums native SOL and canonical WSOL with `bigint` precision
 while retaining both stored values. REST response types are trusted rather than
 runtime-decoded; WebSocket frames are validated strictly, while malformed REST
@@ -284,7 +284,7 @@ Unwrap-all accepts no partial amount and closes the entire positive canonical
 account back to the same wallet. Its `SolActionCosts` fields contain the fresh fee, zero
 upfront rent, no account creation, and no sponsorship. Availability reserves
 only that fee rather than the ordinary persistent-account floor;
-`unwrapAllSolBalanceAvailability(components, costs)` validates that complete
+`unwrapAllSolBalanceAvailability(breakdown, costs)` validates that complete
 cost tuple before deriving fee-only fields. The
 native delta credits every live account lamport, including refunded rent or
 direct donations, minus the fee and removes the full canonical token amount.

@@ -31,8 +31,8 @@ MAX_SOLANA_LAMPORTS = 2**64 - 1
 
 
 @dataclass(frozen=True)
-class SolBalanceComponents:
-    """Exact lamport components behind the single displayed SOL asset."""
+class SolBalanceBreakdown:
+    """Exact native and canonical WSOL lamport balance breakdown."""
 
     #: Lamports held by the Trading Wallet system account.
     native_lamports: int
@@ -77,9 +77,7 @@ class SolActionCosts:
                 or value < 0
                 or value > MAX_SOLANA_LAMPORTS
             ):
-                raise SdkError(
-                    f"{label} must fit the non-negative u64 lamport range"
-                )
+                raise SdkError(f"{label} must fit the non-negative u64 lamport range")
         live_costs = self.fee_lamports + self.upfront_rent_lamports
         if live_costs > MAX_SOLANA_LAMPORTS:
             raise SdkError("combined transaction costs must fit u64 lamports")
@@ -98,8 +96,8 @@ class SolBalanceAvailability:
     """Action-specific displayed, reserved, and spendable SOL values."""
 
     #: Separately authoritative native and canonical WSOL balances.
-    components: SolBalanceComponents
-    #: Sum of both components in lamports, before reserve.
+    breakdown: SolBalanceBreakdown
+    #: Sum of both balances in lamports, before reserve.
     displayed_lamports: int
     #: Native lamports withheld for an ordinary safety floor or exact unwrap fee.
     reserve_lamports: int
@@ -108,12 +106,12 @@ class SolBalanceAvailability:
 
     @classmethod
     def from_costs(
-        cls, components: SolBalanceComponents, costs: SolActionCosts
+        cls, breakdown: SolBalanceBreakdown, costs: SolActionCosts
     ) -> SolBalanceAvailability:
         """Derive availability and type insufficient native reserve as fee funding."""
         for label, value in (
-            ("native SOL", components.native_lamports),
-            ("canonical WSOL", components.canonical_wsol_lamports),
+            ("native SOL", breakdown.native_lamports),
+            ("canonical WSOL", breakdown.canonical_wsol_lamports),
         ):
             if (
                 isinstance(value, bool)
@@ -121,17 +119,15 @@ class SolBalanceAvailability:
                 or value < 0
                 or value > MAX_SOLANA_LAMPORTS
             ):
-                raise SdkError(
-                    f"{label} must fit the non-negative u64 lamport range"
-                )
+                raise SdkError(f"{label} must fit the non-negative u64 lamport range")
         reserve = costs.reserve_lamports
-        displayed = components.displayed_lamports
+        displayed = breakdown.displayed_lamports
         if displayed > MAX_SOLANA_LAMPORTS:
             raise SdkError("displayed SOL exceeds the transaction u64 range")
-        if components.native_lamports < reserve:
-            raise InsufficientSolForTransactionFees(components.native_lamports, reserve)
+        if breakdown.native_lamports < reserve:
+            raise InsufficientSolForTransactionFees(breakdown.native_lamports, reserve)
         return cls(
-            components=components,
+            breakdown=breakdown,
             displayed_lamports=displayed,
             reserve_lamports=reserve,
             spendable_lamports=displayed - reserve,
@@ -139,12 +135,12 @@ class SolBalanceAvailability:
 
     @classmethod
     def from_unwrap_all_costs(
-        cls, components: SolBalanceComponents, costs: SolActionCosts
+        cls, breakdown: SolBalanceBreakdown, costs: SolActionCosts
     ) -> SolBalanceAvailability:
         """Return unwrap-all availability with the live fee as its entire reserve.
 
         This method rejects costs that include sponsorship, account creation, or
-        upfront rent. It rejects components and fees outside Solana's unsigned
+        upfront rent. It rejects balances and fees outside Solana's unsigned
         64-bit lamport range. It rejects an overflowing displayed-balance sum.
         Native SOL must fund the fee without relying on lamports that a later
         ``CloseAccount`` instruction may transfer. The ordinary persistent-account
@@ -163,8 +159,8 @@ class SolBalanceAvailability:
             raise SdkError("unwrap-all costs must be unsponsored")
         fee_lamports = costs.fee_lamports
         for label, value in (
-            ("native SOL", components.native_lamports),
-            ("canonical WSOL", components.canonical_wsol_lamports),
+            ("native SOL", breakdown.native_lamports),
+            ("canonical WSOL", breakdown.canonical_wsol_lamports),
             ("transaction fee", fee_lamports),
         ):
             if (
@@ -174,15 +170,15 @@ class SolBalanceAvailability:
                 or value > MAX_SOLANA_LAMPORTS
             ):
                 raise SdkError(f"{label} must fit the non-negative u64 lamport range")
-        displayed = components.displayed_lamports
+        displayed = breakdown.displayed_lamports
         if displayed > MAX_SOLANA_LAMPORTS:
             raise SdkError("displayed SOL exceeds the transaction u64 range")
-        if components.native_lamports < fee_lamports:
+        if breakdown.native_lamports < fee_lamports:
             raise InsufficientSolForTransactionFees(
-                components.native_lamports, fee_lamports
+                breakdown.native_lamports, fee_lamports
             )
         return cls(
-            components=components,
+            breakdown=breakdown,
             displayed_lamports=displayed,
             reserve_lamports=fee_lamports,
             spendable_lamports=displayed - fee_lamports,
@@ -205,9 +201,9 @@ class WalletDepositBalancesState:
     """Mutable application-owned native SOL and mint-keyed SPL state.
 
     A new instance is uninitialized. A complete REST or WebSocket snapshot
-    establishes its wallet baseline; component events then require that wallet
-    and carry absolute values. ``context_slot`` records the latest accepted
-    component observation rather than a globally monotonic stream version.
+    establishes its wallet baseline; individual balance events then require that
+    wallet and carry absolute values. ``context_slot`` records the latest
+    accepted balance observation rather than a globally monotonic stream version.
     Mapping containers are copied, but mutable balance objects are retained by
     reference; treat payload entries as immutable after applying them.
     """
@@ -249,9 +245,9 @@ class WalletDepositBalancesState:
         """Apply authoritative snapshots, absolute updates, and lifecycle guards.
 
         Complete snapshots replace unless below ``minimum_snapshot_slot``. The
-        optional floor does not apply to component or status events. Matching
-        component updates replace one value, zero SPL removes its mint, and status
-        or wrong-wallet events are ignored without stale-slot filtering.
+        optional floor does not apply to individual balance or status events.
+        Matching balance updates replace one value, zero SPL removes its mint,
+        and status or wrong-wallet events are ignored without stale-slot filtering.
         """
         if isinstance(event, WalletDepositBalanceSnapshot):
             if (
@@ -260,7 +256,8 @@ class WalletDepositBalancesState:
             ):
                 return WalletDepositBalancesApplyResult.IGNORED
             # Complete snapshots are authoritative even after a higher
-            # component event because their slot is the lower component slot.
+            # individual balance event because their slot is the lower observed
+            # slot.
             self._replace(
                 event.wallet_address,
                 event.context_slot,
@@ -302,19 +299,19 @@ class WalletDepositBalancesState:
         )
         return _format_lamports(native + wrapped_lamports)
 
-    def sol_components(self) -> SolBalanceComponents:
-        """Return exact native and canonical WSOL transaction components."""
+    def sol_balance_breakdown(self) -> SolBalanceBreakdown:
+        """Return exact native and canonical WSOL transaction balances."""
         try:
             native_lamports = self.native_sol_lamports()
             canonical_wsol_lamports = self.canonical_wsol_lamports()
         except ValueError as error:
-            raise SdkError(f"invalid SOL balance component: {error}") from error
+            raise SdkError(f"invalid SOL balance breakdown: {error}") from error
         if (
             native_lamports > MAX_SOLANA_LAMPORTS
             or canonical_wsol_lamports > MAX_SOLANA_LAMPORTS
         ):
-            raise SdkError("SOL component exceeds the transaction u64 range")
-        return SolBalanceComponents(native_lamports, canonical_wsol_lamports)
+            raise SdkError("SOL balance entry exceeds the transaction u64 range")
+        return SolBalanceBreakdown(native_lamports, canonical_wsol_lamports)
 
     def native_sol_lamports(self) -> int:
         """Scale cached native SOL exactly; transaction range is checked elsewhere."""
@@ -328,7 +325,7 @@ class WalletDepositBalancesState:
         return exact_scaled_integer(wrapped.idle, 9) if wrapped is not None else 0
 
     def _matches_initialized_wallet(self, wallet_address: str) -> bool:
-        """Prevent component events from crossing wallet or baseline boundaries."""
+        """Prevent individual balance events from crossing wallet boundaries."""
         return (
             self.wallet_address == wallet_address
             and self.context_slot is not None

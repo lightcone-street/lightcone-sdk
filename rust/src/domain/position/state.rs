@@ -1,9 +1,9 @@
 //! App-owned external-wallet deposit balance state.
 //!
 //! A complete REST or WebSocket snapshot establishes the wallet-scoped
-//! baseline. Later component events apply only to that wallet and carry
+//! baseline. Later balance update events apply only to that wallet and carry
 //! absolute values, while another complete snapshot may replace the baseline
-//! even at a lower cross-component slot. Native SOL remains separate from the
+//! even at a lower shared snapshot slot. Native SOL remains separate from the
 //! sparse mint-keyed SPL map throughout this lifecycle.
 
 use std::collections::HashMap;
@@ -50,16 +50,16 @@ pub struct CanonicalWsolAccountInfo {
     pub native_reserve_lamports: u64,
 }
 
-/// Exact transaction-range components behind the single user-facing SOL balance.
+/// Exact transaction-range breakdown behind the single user-facing SOL balance.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct SolBalanceComponents {
+pub struct SolBalanceBreakdown {
     /// Lamports held by the Trading Wallet's system account.
     pub native_lamports: u64,
     /// Token amount in the Trading Wallet's canonical WSOL ATA, in lamports.
     pub canonical_wsol_lamports: u64,
 }
 
-impl SolBalanceComponents {
+impl SolBalanceBreakdown {
     /// Native plus canonical WSOL in lamports, saturated to Solana's `u64` range.
     pub fn lamports(self) -> u64 {
         self.native_lamports
@@ -108,8 +108,8 @@ impl SolActionCosts {
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub struct SolBalanceAvailability {
     /// Separately authoritative native and canonical WSOL balances.
-    pub components: SolBalanceComponents,
-    /// Sum of both components in lamports, before action reserve.
+    pub breakdown: SolBalanceBreakdown,
+    /// Sum of both balances in lamports, before action reserve.
     pub displayed_lamports: u64,
     /// Action-specific native lamports withheld; ordinary actions include a safety floor.
     pub reserve_lamports: u64,
@@ -120,22 +120,22 @@ pub struct SolBalanceAvailability {
 impl SolBalanceAvailability {
     /// Derive ordinary availability and report an insufficient native reserve as the typed fee error.
     pub fn from_costs(
-        components: SolBalanceComponents,
+        breakdown: SolBalanceBreakdown,
         costs: SolActionCosts,
     ) -> Result<Self, SdkError> {
-        let displayed_lamports = components
+        let displayed_lamports = breakdown
             .native_lamports
-            .checked_add(components.canonical_wsol_lamports)
-            .ok_or_else(|| SdkError::Validation("SOL balance components overflow u64".into()))?;
+            .checked_add(breakdown.canonical_wsol_lamports)
+            .ok_or_else(|| SdkError::Validation("SOL balance breakdown overflows u64".into()))?;
         let reserve_lamports = costs.reserve_lamports()?;
-        if components.native_lamports < reserve_lamports {
+        if breakdown.native_lamports < reserve_lamports {
             return Err(SdkError::InsufficientSolForTransactionFees {
-                available_lamports: components.native_lamports,
+                available_lamports: breakdown.native_lamports,
                 required_lamports: reserve_lamports,
             });
         }
         Ok(Self {
-            components,
+            breakdown,
             displayed_lamports,
             reserve_lamports,
             spendable_lamports: displayed_lamports.saturating_sub(reserve_lamports),
@@ -145,13 +145,13 @@ impl SolBalanceAvailability {
     /// Return unwrap-all availability with the live fee as its entire reserve.
     ///
     /// This method rejects `SolActionCosts` that include sponsorship, account
-    /// creation, or upfront rent. It checks the component sum and fee subtraction.
+    /// creation, or upfront rent. It checks the balance sum and fee subtraction.
     /// Native SOL must fund the fee without relying on lamports that a later
     /// `CloseAccount` instruction may transfer. The ordinary safety floor does not
     /// apply because unwrap-all removes the persistent canonical account. An
     /// insufficient native fee balance returns the typed transaction-fee error.
     pub fn from_unwrap_all_costs(
-        components: SolBalanceComponents,
+        breakdown: SolBalanceBreakdown,
         costs: SolActionCosts,
     ) -> Result<Self, SdkError> {
         if costs.upfront_rent_lamports != 0
@@ -163,15 +163,15 @@ impl SolBalanceAvailability {
                     .into(),
             ));
         }
-        if components.native_lamports < costs.fee_lamports {
+        if breakdown.native_lamports < costs.fee_lamports {
             return Err(SdkError::InsufficientSolForTransactionFees {
-                available_lamports: components.native_lamports,
+                available_lamports: breakdown.native_lamports,
                 required_lamports: costs.fee_lamports,
             });
         }
-        let displayed_lamports = components
+        let displayed_lamports = breakdown
             .native_lamports
-            .checked_add(components.canonical_wsol_lamports)
+            .checked_add(breakdown.canonical_wsol_lamports)
             .ok_or_else(|| {
                 SdkError::Validation("unwrap-all displayed SOL balance overflows u64".into())
             })?;
@@ -181,7 +181,7 @@ impl SolBalanceAvailability {
                 SdkError::Validation("unwrap-all fee exceeds displayed SOL balance".into())
             })?;
         Ok(Self {
-            components,
+            breakdown,
             displayed_lamports,
             reserve_lamports: costs.fee_lamports,
             spendable_lamports,
@@ -203,7 +203,7 @@ pub enum WalletDepositBalancesApplyResult {
 /// Mutable wallet-scoped balance state owned by the application.
 ///
 /// `Default` is uninitialized. Use [`Self::apply_rest_snapshot`] or a complete
-/// WebSocket snapshot before applying component updates or signing a conversion.
+/// WebSocket snapshot before applying balance updates or signing a conversion.
 /// The public fields make rendering straightforward, but callers should use the
 /// application methods to preserve replacement and wallet-matching invariants.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -253,7 +253,7 @@ impl WalletDepositBalancesState {
     /// Apply one typed nested WebSocket event.
     ///
     /// Complete snapshots replace every field regardless of prior slot order.
-    /// Matching component updates replace one absolute value, explicit-zero SPL
+    /// Matching balance updates replace one absolute value, explicit-zero SPL
     /// updates remove their mint, and status or wrong-wallet events are ignored.
     pub fn apply_event(
         &mut self,
@@ -279,7 +279,7 @@ impl WalletDepositBalancesState {
                     return WalletDepositBalancesApplyResult::Ignored;
                 }
                 // Complete snapshots are authoritative even when their lower
-                // cross-component slot trails a previously observed update.
+                // shared snapshot slot trails a previously observed update.
                 self.replace(
                     wallet_address.clone(),
                     *context_slot,
@@ -325,7 +325,7 @@ impl WalletDepositBalancesState {
     /// Addition uses arbitrary-width integers, so display state is not limited
     /// to Solana's transaction `u64` range. Invalid cached precision or an
     /// uninitialized native balance returns [`SdkError::Validation`] without
-    /// changing the separately stored components.
+    /// changing the separately stored balances.
     pub fn combined_sol_balance(&self) -> Result<String, SdkError> {
         let native = exact_lamports(self.native_sol_balance.as_deref().ok_or_else(|| {
             SdkError::Validation("wallet balance state is not initialized".into())
@@ -340,13 +340,13 @@ impl WalletDepositBalancesState {
         Ok(format_lamports(&(native + wrapped)))
     }
 
-    /// Return the exact transaction-range native and canonical WSOL components.
+    /// Return the exact transaction-range native and canonical WSOL breakdown.
     ///
     /// Display arithmetic may exceed `u64`, but a fund-moving plan cannot. This
-    /// boundary therefore rejects either component when it cannot enter a Solana
+    /// boundary therefore rejects either balance when it cannot enter a Solana
     /// instruction without rounding or truncation.
-    pub fn sol_components(&self) -> Result<SolBalanceComponents, SdkError> {
-        Ok(SolBalanceComponents {
+    pub fn sol_balance_breakdown(&self) -> Result<SolBalanceBreakdown, SdkError> {
+        Ok(SolBalanceBreakdown {
             native_lamports: self.native_sol_lamports()?,
             canonical_wsol_lamports: self.canonical_wsol_lamports()?,
         })
@@ -371,7 +371,7 @@ impl WalletDepositBalancesState {
         }
     }
 
-    /// Prevent component events from crossing wallet or incomplete-baseline boundaries.
+    /// Prevent balance updates from crossing wallet or incomplete-baseline boundaries.
     fn matches_initialized_wallet(&self, wallet_address: &PubkeyStr) -> bool {
         self.wallet_address.as_ref() == Some(wallet_address)
             && self.context_slot.is_some()
@@ -520,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn guarded_event_floor_does_not_change_component_or_no_floor_behavior() {
+    fn guarded_event_floor_does_not_change_balance_update_or_no_floor_behavior() {
         let wallet = PubkeyStr::from("WalletA");
         let mut state = WalletDepositBalancesState::default();
         state.apply_rest_snapshot(wallet.clone(), &snapshot(100, "1.000000000"));
@@ -552,7 +552,7 @@ mod tests {
     }
 
     #[test]
-    fn component_updates_require_initialized_matching_wallet_and_remove_zero() {
+    fn balance_updates_require_initialized_matching_wallet_and_remove_zero() {
         let mut state = WalletDepositBalancesState::default();
         let update = WalletDepositBalancesEvent::BalanceUpdate {
             wallet_address: PubkeyStr::from("WalletA"),
@@ -659,16 +659,16 @@ mod tests {
 
     #[test]
     /// Exposes saturating lamports and exact decimal SOL without a fallible display conversion.
-    fn sol_balance_components_report_lamports_and_sol() {
-        let components = SolBalanceComponents {
+    fn sol_balance_breakdown_reports_lamports_and_sol() {
+        let breakdown = SolBalanceBreakdown {
             native_lamports: 1_000_000_000,
             canonical_wsol_lamports: 500_000_000,
         };
-        assert_eq!(components.lamports(), 1_500_000_000);
-        assert_eq!(components.sol(), Decimal::new(15, 1));
+        assert_eq!(breakdown.lamports(), 1_500_000_000);
+        assert_eq!(breakdown.sol(), Decimal::new(15, 1));
 
         assert_eq!(
-            SolBalanceComponents {
+            SolBalanceBreakdown {
                 native_lamports: u64::MAX,
                 canonical_wsol_lamports: 1,
             }
@@ -679,24 +679,24 @@ mod tests {
 
     #[test]
     /// Keeps display arithmetic broad while rejecting transaction-range overflow.
-    fn transaction_components_reject_u64_overflow() {
+    fn transaction_breakdown_rejects_u64_overflow() {
         let mut state = WalletDepositBalancesState::default();
         state.apply_rest_snapshot(
             PubkeyStr::from("WalletA"),
             &snapshot(1, "18446744073.709551616"),
         );
-        assert!(state.sol_components().is_err());
+        assert!(state.sol_balance_breakdown().is_err());
     }
 
     #[test]
     /// Uses live costs above a floor and only honors explicit sponsorship.
     fn availability_uses_live_costs_or_the_matching_unsponsored_floor() {
-        let components = SolBalanceComponents {
+        let breakdown = SolBalanceBreakdown {
             native_lamports: 10_000_000,
             canonical_wsol_lamports: 5_000_000,
         };
         let existing = SolBalanceAvailability::from_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: 5_000,
                 upfront_rent_lamports: 0,
@@ -709,7 +709,7 @@ mod tests {
         assert_eq!(existing.spendable_lamports, 14_000_000);
 
         let creates_account = SolBalanceAvailability::from_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: 1_000_000,
                 upfront_rent_lamports: 3_000_000,
@@ -721,7 +721,7 @@ mod tests {
         assert_eq!(creates_account.reserve_lamports, 4_000_000);
 
         let sponsored = SolBalanceAvailability::from_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: 20_000_000,
                 upfront_rent_lamports: 20_000_000,
@@ -733,7 +733,7 @@ mod tests {
         assert_eq!(sponsored.reserve_lamports, 0);
         assert_eq!(sponsored.spendable_lamports, 15_000_000);
         assert!(SolBalanceAvailability::from_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: u64::MAX,
                 upfront_rent_lamports: 1,
@@ -748,7 +748,7 @@ mod tests {
     /// Requires the reserve in native SOL even when aggregate WSOL is sufficient.
     fn availability_requires_native_reserve_even_when_wrapped_sol_is_sufficient() {
         let error = SolBalanceAvailability::from_costs(
-            SolBalanceComponents {
+            SolBalanceBreakdown {
                 native_lamports: 999_999,
                 canonical_wsol_lamports: 10_000_000,
             },
@@ -770,15 +770,15 @@ mod tests {
     }
 
     #[test]
-    fn ordinary_availability_rejects_component_overflow_without_changing_display_saturation() {
-        let components = SolBalanceComponents {
+    fn ordinary_availability_rejects_breakdown_overflow_without_changing_display_saturation() {
+        let breakdown = SolBalanceBreakdown {
             native_lamports: u64::MAX,
             canonical_wsol_lamports: 1,
         };
-        assert_eq!(components.lamports(), u64::MAX);
+        assert_eq!(breakdown.lamports(), u64::MAX);
 
         let error = SolBalanceAvailability::from_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: 0,
                 upfront_rent_lamports: 0,
@@ -787,18 +787,18 @@ mod tests {
             },
         )
         .unwrap_err();
-        assert!(error.to_string().contains("components overflow u64"));
+        assert!(error.to_string().contains("breakdown overflows u64"));
     }
 
     #[test]
-    fn unwrap_all_availability_uses_fee_only_and_preserves_exact_components(
+    fn unwrap_all_availability_uses_fee_only_and_preserves_exact_breakdown(
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let components = SolBalanceComponents {
+        let breakdown = SolBalanceBreakdown {
             native_lamports: 10_000,
             canonical_wsol_lamports: 2_000_000,
         };
         let availability = SolBalanceAvailability::from_unwrap_all_costs(
-            components,
+            breakdown,
             SolActionCosts {
                 fee_lamports: 5_000,
                 upfront_rent_lamports: 0,
@@ -807,7 +807,7 @@ mod tests {
             },
         )?;
 
-        assert_eq!(availability.components, components);
+        assert_eq!(availability.breakdown, breakdown);
         assert_eq!(availability.displayed_lamports, 2_010_000);
         assert_eq!(availability.reserve_lamports, 5_000);
         assert_eq!(availability.spendable_lamports, 2_005_000);
@@ -823,7 +823,7 @@ mod tests {
             sponsored: false,
         };
         let fee_error = SolBalanceAvailability::from_unwrap_all_costs(
-            SolBalanceComponents {
+            SolBalanceBreakdown {
                 native_lamports: 4_999,
                 canonical_wsol_lamports: 10_000,
             },
@@ -839,7 +839,7 @@ mod tests {
         ));
 
         let overflow = SolBalanceAvailability::from_unwrap_all_costs(
-            SolBalanceComponents {
+            SolBalanceBreakdown {
                 native_lamports: u64::MAX,
                 canonical_wsol_lamports: 1,
             },
@@ -852,7 +852,7 @@ mod tests {
         assert!(overflow.to_string().contains("overflows u64"));
 
         let ordinary_costs = SolBalanceAvailability::from_unwrap_all_costs(
-            SolBalanceComponents {
+            SolBalanceBreakdown {
                 native_lamports: 10_000,
                 canonical_wsol_lamports: 1,
             },

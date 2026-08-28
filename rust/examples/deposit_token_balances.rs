@@ -39,7 +39,7 @@ async fn main() -> ExampleResult {
 
     let mut state = WalletDepositBalancesState::default();
 
-    // Register the wallet stream before any action. Component updates are
+    // Register the wallet stream before any action. Balance updates are
     // ignored until its first complete snapshot establishes the state baseline.
     let mut ws = client.ws_native();
     ws.connect().await?;

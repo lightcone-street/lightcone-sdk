@@ -11,7 +11,7 @@ import {
   asPubkeyStr,
   type DepositTokenBalancesSnapshot,
   type SolActionPlan,
-  type SolBalanceComponents,
+  type SolBalanceBreakdown,
   WalletDepositBalancesState,
 } from "../src";
 import { getKeypair, login, restClient, runExample } from "./common";
@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     );
 
     console.log("Trading Wallet:", wallet);
-    console.log("pre-wrap components:", state.solComponents());
+    console.log("pre-wrap balance breakdown:", state.solBalanceBreakdown());
 
     // Preview is informational; rebuild live account, rent, blockhash, and fee
     // authority immediately before signing the unchanged prepared message.
@@ -81,7 +81,7 @@ async function main(): Promise<void> {
       "final wrap upfront rent lamports:",
       wrapPlan.costs.upfrontRentLamports,
     );
-    const frozenWrapProjection = projectedComponents(wrapPlan);
+    const frozenWrapProjection = projectedBreakdown(wrapPlan);
     const wrapped = await submitPreparedOnce(
       wrapPlan.transaction,
       (transaction) =>
@@ -97,7 +97,10 @@ async function main(): Promise<void> {
       wrapped.slot,
       (slot) => client.positions().depositTokenBalances(slot),
     );
-    console.log("authoritative post-wrap components:", state.solComponents());
+    console.log(
+      "authoritative post-wrap balance breakdown:",
+      state.solBalanceBreakdown(),
+    );
 
     // There is deliberately no prompt or pause: rebuild against refreshed state,
     // display the destructive scope, then submit this exact prepared transaction.
@@ -110,12 +113,12 @@ async function main(): Promise<void> {
     console.warn(
       "All existing canonical WSOL is returned; a future WSOL action may pay account rent again.",
     );
-    console.log("pre-close components:", unwrapPlan.availability.components);
+    console.log("pre-close balance breakdown:", unwrapPlan.availability.breakdown);
     console.log("unwrap fee lamports:", unwrapPlan.costs.feeLamports);
     console.log("full account lamports returned:", returnedAccountLamports);
     // No pause or cached preview crosses the destructive boundary. Submit only
     // this final prepared message; errors exit without retrying it.
-    const frozenUnwrapProjection = projectedComponents(unwrapPlan);
+    const frozenUnwrapProjection = projectedBreakdown(unwrapPlan);
     const unwrapped = await submitPreparedOnce(
       unwrapPlan.transaction,
       (transaction) =>
@@ -125,14 +128,17 @@ async function main(): Promise<void> {
     console.log("frozen post-unwrap projection:", frozenUnwrapProjection);
 
     // Retain the final projection and deny another action until REST supplies a
-    // complete cross-component snapshot at or beyond the processing slot.
+    // complete balance snapshot at or beyond the processing slot.
     await refreshCoveringSlot(
       state,
       walletAddress,
       unwrapped.slot,
       (slot) => client.positions().depositTokenBalances(slot),
     );
-    console.log("authoritative final components:", state.solComponents());
+    console.log(
+      "authoritative final balance breakdown:",
+      state.solBalanceBreakdown(),
+    );
 
     ws.unsubscribe({
       type: "wallet_deposit_balances",
@@ -146,14 +152,14 @@ async function main(): Promise<void> {
 
 /**
  * Apply one plan delta without mutating authoritative wallet state.
- * Throws if either projected component would become negative.
+ * Throws if either projected balance would become negative.
  */
-function projectedComponents(plan: SolActionPlan): SolBalanceComponents {
+function projectedBreakdown(plan: SolActionPlan): SolBalanceBreakdown {
   const nativeLamports =
-    plan.availability.components.nativeLamports +
+    plan.availability.breakdown.nativeLamports +
     plan.expectedDelta.nativeLamports;
   const canonicalWsolLamports =
-    plan.availability.components.canonicalWsolLamports +
+    plan.availability.breakdown.canonicalWsolLamports +
     plan.expectedDelta.canonicalWsolLamports;
   if (nativeLamports < 0n || canonicalWsolLamports < 0n) {
     throw new Error("planner produced a negative frozen SOL projection");
@@ -169,7 +175,7 @@ export async function submitPreparedOnce<TTransaction, TConfirmation>(
   return submit(transaction);
 }
 
-/** Replace component observations with one authoritative covering REST snapshot. */
+/** Replace balance observations with one authoritative covering REST snapshot. */
 export async function refreshCoveringSlot(
   state: WalletDepositBalancesState,
   walletAddress: ReturnType<typeof asPubkeyStr>,

@@ -179,8 +179,8 @@ export type {
   SolActionKind,
   SolActionPlan,
   SolBalanceAvailability,
-  SolBalanceComponents,
-  SolComponentDelta,
+  SolBalanceBreakdown,
+  SolBalanceDelta,
 } from "./domain/position";
 
 export {
