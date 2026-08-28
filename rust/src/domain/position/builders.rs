@@ -50,12 +50,12 @@ pub enum SolActionKind {
     UnwrapAll,
 }
 
-/// Expected change to the separately authoritative SOL components.
+/// Expected change to the separately authoritative native and canonical WSOL balances.
 ///
 /// Values include the estimated transaction fee and net rent movement so Web
-/// can freeze one post-confirmation projection without merging component state.
+/// can freeze one post-confirmation projection without merging balance state.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
-pub struct SolComponentDelta {
+pub struct SolBalanceDelta {
     /// Expected system-account change in lamports, including unsponsored costs.
     pub native_lamports: i128,
     /// Expected canonical legacy-token WSOL ATA change in lamports.
@@ -71,10 +71,10 @@ pub struct SolActionPlan {
     pub transaction: Transaction,
     /// Live fee/rent observations and sponsorship capability used at preflight.
     pub costs: SolActionCosts,
-    /// Authoritative component totals after reserving action-specific native SOL.
+    /// Authoritative balance breakdown after reserving action-specific native SOL.
     pub availability: SolBalanceAvailability,
-    /// Projection kept component-wise so callers do not erase state authority.
-    pub expected_delta: SolComponentDelta,
+    /// Projection keeps native and canonical balances separate to preserve state authority.
+    pub expected_delta: SolBalanceDelta,
 }
 
 /// Derive the canonical native mint and the wallet's persistent Tokenkeg ATA.

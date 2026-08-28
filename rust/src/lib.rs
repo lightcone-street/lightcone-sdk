@@ -93,10 +93,10 @@ pub mod prelude {
     pub use crate::domain::position::{
         CanonicalWsolAccountInfo, DepositAssetMetadata, DepositTokenBalance,
         DepositTokenBalancesSnapshot, Portfolio, Position, PositionOutcome, SolActionCosts,
-        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceComponents,
-        SolComponentDelta, TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType,
-        WalletDepositBalanceStatus, WalletDepositBalancesApplyResult, WalletDepositBalancesEvent,
-        WalletDepositBalancesState, WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
+        SolActionKind, SolActionPlan, SolBalanceAvailability, SolBalanceBreakdown, SolBalanceDelta,
+        TokenBalance, TokenBalanceComputedBase, TokenBalanceTokenType, WalletDepositBalanceStatus,
+        WalletDepositBalancesApplyResult, WalletDepositBalancesEvent, WalletDepositBalancesState,
+        WalletHolding, WRAPPED_SOL_MINT_ADDRESS,
     };
 
     // Domain types — trade, price history

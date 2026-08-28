@@ -68,7 +68,7 @@ import {
   unwrapAllSolBalanceAvailability,
   type SolActionCosts,
   type SolBalanceAvailability,
-  type SolBalanceComponents,
+  type SolBalanceBreakdown,
   type WalletDepositBalancesState,
 } from "./state";
 import type { MarketPositionsResponse, PositionsResponse } from "./wire";
@@ -105,8 +105,8 @@ export type SolActionKind =
   | "wrap"
   | "unwrapAll";
 
-/** Expected changes to the separately authoritative SOL components. */
-export interface SolComponentDelta {
+/** Expected changes to the separately authoritative SOL balances. */
+export interface SolBalanceDelta {
   /** System-account change in lamports, including unsponsored costs. */
   nativeLamports: bigint;
   /** Persistent canonical WSOL ATA change in lamports. */
@@ -121,10 +121,10 @@ export interface SolActionPlan {
   transaction: Transaction;
   /** Live fee/rent observations and explicit sponsorship capability. */
   costs: SolActionCosts;
-  /** Component totals after action-specific native reserve. */
+  /** Balance totals after action-specific native reserve. */
   availability: SolBalanceAvailability;
-  /** Component-wise projection that does not replace authoritative state. */
-  expectedDelta: SolComponentDelta;
+  /** Balance projection that does not replace authoritative state. */
+  expectedDelta: SolBalanceDelta;
 }
 
 /** Reject non-bigint, non-positive, or non-u64 lamports before any RPC side effect. */
@@ -283,7 +283,7 @@ export class Positions {
   /**
    * Fetch a complete authenticated SPL and native-SOL balance snapshot.
    *
-   * `minContextSlot` lower-bounds the cross-component snapshot. Native SOL is
+   * `minContextSlot` lower-bounds the complete balance snapshot. Native SOL is
    * required canonical nine-decimal text and remains outside the SPL map. The
    * generic HTTP layer trusts that shape at runtime; WebSocket frames are decoded
    * strictly, while malformed REST exact values fail later when state scales them.
@@ -342,7 +342,7 @@ export class Positions {
    * and `SyncNative`. Availability uses the ordinary reserve floor.
    *
    * Callers rebuild immediately before prepared submission. They retain the
-   * returned component projection until a complete snapshot covers the confirmed
+   * returned balance projection until a complete snapshot covers the confirmed
    * slot. An uncertain outcome requires authoritative refresh before another plan.
    */
   async planWrapSol(
@@ -351,18 +351,18 @@ export class Positions {
   ): Promise<SolActionPlan> {
     assertSolActionAmount(amountLamports, "wrap");
     const wallet = this.conversionPlanningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const account = await rpc.canonicalWsolAccountInfo(canonical, wallet);
-    if (!account && components.canonicalWsolLamports > 0n) {
+    if (!account && breakdown.canonicalWsolLamports > 0n) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     if (
       account &&
-      account.tokenAmountLamports !== components.canonicalWsolLamports
+      account.tokenAmountLamports !== breakdown.canonicalWsolLamports
     ) {
       throw SdkError.validation(
         "live canonical WSOL amount does not match wallet balance state"
@@ -402,7 +402,7 @@ export class Positions {
       createsCanonicalWsolAccount,
       sponsored: false,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const requiredNativeLamports =
       amountLamports + availability.reserveLamports;
     if (requiredNativeLamports > MAX_U64) {
@@ -410,7 +410,7 @@ export class Positions {
         "wrap amount and transaction reserve exceed u64 lamports"
       );
     }
-    if (components.nativeLamports < requiredNativeLamports) {
+    if (breakdown.nativeLamports < requiredNativeLamports) {
       throw SdkError.validation(
         "native SOL cannot fund the wrap amount and transaction reserve"
       );
@@ -440,7 +440,7 @@ export class Positions {
    * native SOL to fund that fee without relying on the later account transfer.
    *
    * Callers rebuild immediately before prepared submission. They retain the
-   * returned component projection until a complete snapshot covers the confirmed
+   * returned balance projection until a complete snapshot covers the confirmed
    * slot. Signing, submission, or confirmation uncertainty requires authoritative
    * refresh and does not authorize automatic resubmission.
    */
@@ -448,8 +448,8 @@ export class Positions {
     state: WalletDepositBalancesState
   ): Promise<SolActionPlan> {
     const wallet = this.conversionPlanningWallet(state);
-    const components = state.solComponents();
-    if (components.canonicalWsolLamports === 0n) {
+    const breakdown = state.solBalanceBreakdown();
+    if (breakdown.canonicalWsolLamports === 0n) {
       throw SdkError.validation(
         "unwrap-all requires a positive canonical WSOL balance"
       );
@@ -462,7 +462,7 @@ export class Positions {
         "canonical WSOL account is required for unwrap-all"
       );
     }
-    if (account.tokenAmountLamports !== components.canonicalWsolLamports) {
+    if (account.tokenAmountLamports !== breakdown.canonicalWsolLamports) {
       throw SdkError.validation(
         "live canonical WSOL amount does not match wallet balance state"
       );
@@ -478,11 +478,11 @@ export class Positions {
     // Unwrap-all removes the persistent account, so its availability validates
     // SolActionCosts and reserves the fee without the ordinary account floor.
     const availability = unwrapAllSolBalanceAvailability(
-      components,
+      breakdown,
       costs
     );
     const projectedNativeLamports =
-      components.nativeLamports + account.accountLamports - feeLamports;
+      breakdown.nativeLamports + account.accountLamports - feeLamports;
     if (projectedNativeLamports > MAX_U64) {
       throw SdkError.validation(
         "unwrap-all projected native SOL exceeds the transaction u64 range"
@@ -495,7 +495,7 @@ export class Positions {
       availability,
       expectedDelta: {
         nativeLamports: account.accountLamports - feeLamports,
-        canonicalWsolLamports: -components.canonicalWsolLamports,
+        canonicalWsolLamports: -breakdown.canonicalWsolLamports,
       },
     };
   }
@@ -514,18 +514,18 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "split");
     const wallet = this.planningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
-    if (components.canonicalWsolLamports > 0n && !canonicalExists) {
+    if (breakdown.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     const shortfall =
-      amountLamports > components.canonicalWsolLamports
-        ? amountLamports - components.canonicalWsolLamports
+      amountLamports > breakdown.canonicalWsolLamports
+        ? amountLamports - breakdown.canonicalWsolLamports
         : 0n;
     const upfrontRentLamports = canonicalExists
       ? 0n
@@ -567,13 +567,13 @@ export class Positions {
       createsCanonicalWsolAccount: !canonicalExists,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     if (amountLamports > availability.spendableLamports) {
       throw SdkError.validation(
         "split amount exceeds spendable SOL after transaction reserve"
       );
     }
-    if (shortfall + availability.reserveLamports > components.nativeLamports) {
+    if (shortfall + availability.reserveLamports > breakdown.nativeLamports) {
       throw SdkError.validation(
         "native SOL cannot fund the wrap shortfall and transaction reserve"
       );
@@ -606,7 +606,7 @@ export class Positions {
     assertSolActionAmount(amountLamports, "merge");
     const wallet = this.planningWallet(state);
     const transaction = new Transaction({ feePayer: wallet });
-    const { rpc, components, canonicalExists, upfrontRentLamports } =
+    const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
       transaction.add(this.createCanonicalWsolAccount(wallet));
@@ -628,7 +628,7 @@ export class Positions {
       amountLamports,
       transaction,
       rpc,
-      components,
+      breakdown,
       upfrontRentLamports,
       !canonicalExists,
       sponsored
@@ -654,7 +654,7 @@ export class Positions {
     validateOutcomeIndex(outcomeIndex, numOutcomes);
     const wallet = this.planningWallet(state);
     const transaction = new Transaction({ feePayer: wallet });
-    const { rpc, components, canonicalExists, upfrontRentLamports } =
+    const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
       transaction.add(this.createCanonicalWsolAccount(wallet));
@@ -676,7 +676,7 @@ export class Positions {
       amountLamports,
       transaction,
       rpc,
-      components,
+      breakdown,
       upfrontRentLamports,
       !canonicalExists,
       sponsored
@@ -701,7 +701,7 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "withdraw");
     const wallet = this.planningWallet(state);
-    const components = state.solComponents();
+    const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
     const direct = new Transaction({ feePayer: wallet }).add(
       SystemProgram.transfer({ fromPubkey: wallet, toPubkey: recipient, lamports: amountLamports })
@@ -713,14 +713,14 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const directAvailability = solBalanceAvailability(components, directCosts);
+    const directAvailability = solBalanceAvailability(breakdown, directCosts);
     if (amountLamports > directAvailability.spendableLamports) {
       throw SdkError.validation(
         "withdraw amount exceeds spendable SOL after transaction reserve"
       );
     }
     if (
-      components.nativeLamports >=
+      breakdown.nativeLamports >=
       amountLamports + directAvailability.reserveLamports
     ) {
       return {
@@ -787,12 +787,12 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const initialAvailability = solBalanceAvailability(components, initialCosts);
+    const initialAvailability = solBalanceAvailability(breakdown, initialCosts);
     const initialRequired = amountLamports + initialAvailability.reserveLamports;
-    if (initialRequired < components.nativeLamports) {
+    if (initialRequired < breakdown.nativeLamports) {
       throw SdkError.validation("invalid temporary withdrawal requirement");
     }
-    const initialTransfer = initialRequired - components.nativeLamports;
+    const initialTransfer = initialRequired - breakdown.nativeLamports;
     transaction = this.buildTemporaryNativeWithdrawal(
       wallet,
       recipient,
@@ -811,13 +811,13 @@ export class Positions {
       createsCanonicalWsolAccount: false,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const finalRequired = amountLamports + availability.reserveLamports;
-    if (finalRequired < components.nativeLamports) {
+    if (finalRequired < breakdown.nativeLamports) {
       throw SdkError.validation("invalid temporary withdrawal requirement");
     }
-    const canonicalTransfer = finalRequired - components.nativeLamports;
-    if (canonicalTransfer > components.canonicalWsolLamports) {
+    const canonicalTransfer = finalRequired - breakdown.nativeLamports;
+    if (canonicalTransfer > breakdown.canonicalWsolLamports) {
       throw SdkError.validation(
         "canonical WSOL cannot fund the native withdrawal shortfall"
       );
@@ -997,22 +997,22 @@ export class Positions {
     state: WalletDepositBalancesState
   ): Promise<{
     rpc: Rpc;
-    components: SolBalanceComponents;
+    breakdown: SolBalanceBreakdown;
     canonicalExists: boolean;
     upfrontRentLamports: bigint;
   }> {
     const rpc = new Rpc(this.client);
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
     const canonicalExists = await rpc.canonicalWsolAccountExists(canonical, wallet);
-    const components = state.solComponents();
-    if (components.canonicalWsolLamports > 0n && !canonicalExists) {
+    const breakdown = state.solBalanceBreakdown();
+    if (breakdown.canonicalWsolLamports > 0n && !canonicalExists) {
       throw SdkError.validation(
         "canonical WSOL balance is positive but its account is unavailable"
       );
     }
     return {
       rpc,
-      components,
+      breakdown,
       canonicalExists,
       upfrontRentLamports: canonicalExists
         ? 0n
@@ -1020,13 +1020,13 @@ export class Positions {
     };
   }
 
-  /** Finish merge/redeem planning with live fee authority and component deltas. */
+  /** Finish merge/redeem planning with live fee authority and balance deltas. */
   private async finishReceivePlan(
     kind: "merge" | "redeem",
     amountLamports: bigint,
     transaction: Transaction,
     rpc: Rpc,
-    components: SolBalanceComponents,
+    breakdown: SolBalanceBreakdown,
     upfrontRentLamports: bigint,
     createsCanonicalWsolAccount: boolean,
     sponsored: boolean
@@ -1038,7 +1038,7 @@ export class Positions {
       createsCanonicalWsolAccount,
       sponsored,
     };
-    const availability = solBalanceAvailability(components, costs);
+    const availability = solBalanceAvailability(breakdown, costs);
     const walletCosts = sponsored ? 0n : feeLamports + upfrontRentLamports;
     return {
       kind,

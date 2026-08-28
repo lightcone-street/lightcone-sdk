@@ -95,7 +95,7 @@ from .builders import (
 from .state import (
     SolActionCosts,
     SolBalanceAvailability,
-    SolBalanceComponents,
+    SolBalanceBreakdown,
     WalletDepositBalancesState,
 )
 from .wire import MarketPositionsResponseWire, PositionsResponseWire
@@ -128,7 +128,7 @@ def _require_unsponsored_plan(sponsored: bool) -> None:
 
 
 @dataclass(frozen=True)
-class SolComponentDelta:
+class SolBalanceDelta:
     """Expected changes to separately authoritative native and canonical balances."""
 
     #: System-account change in lamports, including unsponsored costs.
@@ -164,10 +164,10 @@ class SolActionPlan:
     transaction: Transaction
     #: Live fee/rent observations and explicit sponsorship capability.
     costs: SolActionCosts
-    #: Component totals after action-specific native reserve.
+    #: Balance totals after action-specific native reserve.
     availability: SolBalanceAvailability
-    #: Component-wise projection that does not replace authoritative state.
-    expected_delta: SolComponentDelta
+    #: Balance projection that does not replace authoritative state.
+    expected_delta: SolBalanceDelta
 
 
 def native_withdraw_seed(
@@ -209,7 +209,7 @@ class Positions:
     Conversion planning reads live canonical-account and transaction-cost facts.
     It returns fee-prepared transactions without submitting them or mutating
     ``WalletDepositBalancesState``. Callers submit the unchanged transaction and
-    retain its component projection until a complete snapshot covers the
+    retain its balance projection until a complete snapshot covers the
     confirmed slot. An uncertain outcome requires authoritative refresh before
     another plan.
     """
@@ -300,7 +300,7 @@ class Positions:
     ) -> DepositTokenBalancesSnapshot:
         """Fetch a complete authenticated SPL and native-SOL snapshot.
 
-        ``min_context_slot`` lower-bounds the complete cross-component view.
+        ``min_context_slot`` lower-bounds the complete cross-balance view.
         Native SOL is canonical nine-decimal text outside the SPL map.
         """
         params = (
@@ -357,18 +357,18 @@ class Positions:
         ordinary reserve floor. Amounts, fees, rent, and deltas are integer lamports.
 
         Callers rebuild immediately before prepared submission. They retain the
-        returned component projection until a complete snapshot covers the
+        returned balance projection until a complete snapshot covers the
         confirmed slot. An uncertain outcome requires authoritative refresh before
         another plan and does not authorize automatic resubmission.
         """
         _require_sol_action_amount(amount_lamports, "wrap")
         wallet = self._conversion_planning_wallet(state)
-        components = state.sol_components()
+        breakdown = state.sol_balance_breakdown()
         rpc = self._client.rpc()
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
         canonical_info = await rpc.canonical_wsol_account_info(canonical, wallet)
         if canonical_info is None:
-            if components.canonical_wsol_lamports > 0:
+            if breakdown.canonical_wsol_lamports > 0:
                 raise SdkError(
                     "canonical WSOL balance is positive but its account is unavailable"
                 )
@@ -376,7 +376,7 @@ class Positions:
         else:
             if (
                 canonical_info.token_amount_lamports
-                != components.canonical_wsol_lamports
+                != breakdown.canonical_wsol_lamports
             ):
                 raise SdkError(
                     "live canonical WSOL amount does not match wallet balance state"
@@ -423,11 +423,11 @@ class Positions:
             creates_canonical_wsol_account=canonical_info is None,
             sponsored=False,
         )
-        availability = SolBalanceAvailability.from_costs(components, costs)
+        availability = SolBalanceAvailability.from_costs(breakdown, costs)
         required_native = amount_lamports + availability.reserve_lamports
         if required_native > MAX_U64:
             raise SdkError("wrap amount and transaction reserve exceed u64 lamports")
-        if required_native > components.native_lamports:
+        if required_native > breakdown.native_lamports:
             raise SdkError(
                 "native SOL cannot fund the wrap amount and transaction reserve"
             )
@@ -436,7 +436,7 @@ class Positions:
             transaction=transaction,
             costs=costs,
             availability=availability,
-            expected_delta=SolComponentDelta(
+            expected_delta=SolBalanceDelta(
                 native_lamports=-amount_lamports - fee - rent,
                 canonical_wsol_lamports=amount_lamports,
             ),
@@ -458,13 +458,13 @@ class Positions:
         relying on the later account transfer.
 
         Callers rebuild immediately before prepared submission. They retain the
-        returned component projection until a complete snapshot covers the
+        returned balance projection until a complete snapshot covers the
         confirmed slot. Signing, submission, or confirmation uncertainty requires
         authoritative refresh and does not authorize automatic resubmission.
         """
         wallet = self._conversion_planning_wallet(state)
-        components = state.sol_components()
-        if components.canonical_wsol_lamports == 0:
+        breakdown = state.sol_balance_breakdown()
+        if breakdown.canonical_wsol_lamports == 0:
             raise SdkError("canonical WSOL balance must be greater than zero to unwrap")
 
         rpc = self._client.rpc()
@@ -472,7 +472,7 @@ class Positions:
         canonical_info = await rpc.canonical_wsol_account_info(canonical, wallet)
         if canonical_info is None:
             raise SdkError("canonical WSOL account is unavailable for unwrap-all")
-        if canonical_info.token_amount_lamports != components.canonical_wsol_lamports:
+        if canonical_info.token_amount_lamports != breakdown.canonical_wsol_lamports:
             raise SdkError(
                 "live canonical WSOL amount does not match wallet balance state"
             )
@@ -497,9 +497,9 @@ class Positions:
             creates_canonical_wsol_account=False,
             sponsored=False,
         )
-        availability = SolBalanceAvailability.from_unwrap_all_costs(components, costs)
+        availability = SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)
         projected_native = (
-            components.native_lamports - fee + canonical_info.account_lamports
+            breakdown.native_lamports - fee + canonical_info.account_lamports
         )
         if projected_native > MAX_U64:
             raise SdkError("unwrap-all projected native SOL exceeds u64 lamports")
@@ -508,9 +508,9 @@ class Positions:
             transaction=transaction,
             costs=costs,
             availability=availability,
-            expected_delta=SolComponentDelta(
+            expected_delta=SolBalanceDelta(
                 native_lamports=canonical_info.account_lamports - fee,
-                canonical_wsol_lamports=-components.canonical_wsol_lamports,
+                canonical_wsol_lamports=-breakdown.canonical_wsol_lamports,
             ),
         )
 
@@ -529,15 +529,15 @@ class Positions:
         _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "split")
         wallet = self._planning_wallet(state)
-        components = state.sol_components()
+        breakdown = state.sol_balance_breakdown()
         rpc = self._client.rpc()
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
         canonical_exists = await rpc.canonical_wsol_account_exists(canonical, wallet)
-        if components.canonical_wsol_lamports > 0 and not canonical_exists:
+        if breakdown.canonical_wsol_lamports > 0 and not canonical_exists:
             raise SdkError(
                 "canonical WSOL balance is positive but its account is unavailable"
             )
-        shortfall = max(amount_lamports - components.canonical_wsol_lamports, 0)
+        shortfall = max(amount_lamports - breakdown.canonical_wsol_lamports, 0)
         rent = (
             0
             if canonical_exists
@@ -574,12 +574,12 @@ class Positions:
         transaction = Transaction.new_with_payer(instructions, wallet)
         fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
         costs = SolActionCosts(fee, rent, not canonical_exists, sponsored)
-        availability = SolBalanceAvailability.from_costs(components, costs)
+        availability = SolBalanceAvailability.from_costs(breakdown, costs)
         if amount_lamports > availability.spendable_lamports:
             raise SdkError(
                 "split amount exceeds spendable SOL after transaction reserve"
             )
-        if shortfall + availability.reserve_lamports > components.native_lamports:
+        if shortfall + availability.reserve_lamports > breakdown.native_lamports:
             raise SdkError(
                 "native SOL cannot fund the wrap shortfall and transaction reserve"
             )
@@ -589,7 +589,7 @@ class Positions:
             transaction,
             costs,
             availability,
-            SolComponentDelta(-shortfall - wallet_costs, shortfall - amount_lamports),
+            SolBalanceDelta(-shortfall - wallet_costs, shortfall - amount_lamports),
         )
 
     async def plan_sol_merge(
@@ -607,7 +607,7 @@ class Positions:
         _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "merge")
         wallet = self._planning_wallet(state)
-        rpc, components, exists, rent = await self._receive_plan_context(wallet, state)
+        rpc, breakdown, exists, rent = await self._receive_plan_context(wallet, state)
         instructions = [] if exists else [self._create_canonical_wsol_account(wallet)]
         instructions.append(
             build_merge_instruction(
@@ -624,7 +624,7 @@ class Positions:
             amount_lamports,
             Transaction.new_with_payer(instructions, wallet),
             rpc,
-            components,
+            breakdown,
             rent,
             not exists,
             sponsored,
@@ -649,7 +649,7 @@ class Positions:
         validate_outcome_count(num_outcomes)
         validate_outcome_index(outcome_index, num_outcomes)
         wallet = self._planning_wallet(state)
-        rpc, components, exists, rent = await self._receive_plan_context(wallet, state)
+        rpc, breakdown, exists, rent = await self._receive_plan_context(wallet, state)
         instructions = [] if exists else [self._create_canonical_wsol_account(wallet)]
         instructions.append(
             build_redeem_winnings_instruction(
@@ -666,7 +666,7 @@ class Positions:
             amount_lamports,
             Transaction.new_with_payer(instructions, wallet),
             rpc,
-            components,
+            breakdown,
             rent,
             not exists,
             sponsored,
@@ -690,7 +690,7 @@ class Positions:
         _require_unsponsored_plan(sponsored)
         _require_sol_action_amount(amount_lamports, "withdraw")
         wallet = self._planning_wallet(state)
-        components = state.sol_components()
+        breakdown = state.sol_balance_breakdown()
         rpc = self._client.rpc()
         direct = Transaction.new_with_payer(
             [
@@ -706,15 +706,13 @@ class Positions:
         )
         direct_fee = await rpc.prepare_and_estimate_transaction_fee(direct)
         direct_costs = SolActionCosts(direct_fee, 0, False, sponsored)
-        direct_availability = SolBalanceAvailability.from_costs(
-            components, direct_costs
-        )
+        direct_availability = SolBalanceAvailability.from_costs(breakdown, direct_costs)
         if amount_lamports > direct_availability.spendable_lamports:
             raise SdkError(
                 "withdraw amount exceeds spendable SOL after transaction reserve"
             )
         if (
-            components.native_lamports
+            breakdown.native_lamports
             >= amount_lamports + direct_availability.reserve_lamports
         ):
             return SolActionPlan(
@@ -722,9 +720,7 @@ class Positions:
                 direct,
                 direct_costs,
                 direct_availability,
-                SolComponentDelta(
-                    -amount_lamports - (0 if sponsored else direct_fee), 0
-                ),
+                SolBalanceDelta(-amount_lamports - (0 if sponsored else direct_fee), 0),
             )
 
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
@@ -761,12 +757,12 @@ class Positions:
         initial_fee = await rpc.estimate_prepared_transaction_fee(transaction)
         initial_costs = SolActionCosts(initial_fee, temporary_rent, False, sponsored)
         initial_availability = SolBalanceAvailability.from_costs(
-            components, initial_costs
+            breakdown, initial_costs
         )
         initial_required = amount_lamports + initial_availability.reserve_lamports
-        if initial_required < components.native_lamports:
+        if initial_required < breakdown.native_lamports:
             raise SdkError("invalid temporary withdrawal requirement")
-        initial_transfer = initial_required - components.native_lamports
+        initial_transfer = initial_required - breakdown.native_lamports
         transaction = self._build_temporary_native_withdrawal(
             wallet,
             recipient,
@@ -779,12 +775,12 @@ class Positions:
         transaction.partial_sign([], blockhash)
         final_fee = await rpc.estimate_prepared_transaction_fee(transaction)
         costs = SolActionCosts(final_fee, temporary_rent, False, sponsored)
-        availability = SolBalanceAvailability.from_costs(components, costs)
+        availability = SolBalanceAvailability.from_costs(breakdown, costs)
         final_required = amount_lamports + availability.reserve_lamports
-        if final_required < components.native_lamports:
+        if final_required < breakdown.native_lamports:
             raise SdkError("invalid temporary withdrawal requirement")
-        canonical_transfer = final_required - components.native_lamports
-        if canonical_transfer > components.canonical_wsol_lamports:
+        canonical_transfer = final_required - breakdown.native_lamports
+        if canonical_transfer > breakdown.canonical_wsol_lamports:
             raise SdkError("canonical WSOL cannot fund the native withdrawal shortfall")
         if canonical_transfer != initial_transfer:
             transaction = self._build_temporary_native_withdrawal(
@@ -807,7 +803,7 @@ class Positions:
             transaction,
             costs,
             availability,
-            SolComponentDelta(
+            SolBalanceDelta(
                 canonical_transfer - amount_lamports - (0 if sponsored else final_fee),
                 -canonical_transfer,
             ),
@@ -881,13 +877,13 @@ class Positions:
 
     async def _receive_plan_context(
         self, wallet: Pubkey, state: WalletDepositBalancesState
-    ) -> tuple[Rpc, SolBalanceComponents, bool, int]:
+    ) -> tuple[Rpc, SolBalanceBreakdown, bool, int]:
         """Read canonical-account existence and upfront rent for receive plans."""
         rpc = self._client.rpc()
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
         exists = await rpc.canonical_wsol_account_exists(canonical, wallet)
-        components = state.sol_components()
-        if components.canonical_wsol_lamports > 0 and not exists:
+        breakdown = state.sol_balance_breakdown()
+        if breakdown.canonical_wsol_lamports > 0 and not exists:
             raise SdkError(
                 "canonical WSOL balance is positive but its account is unavailable"
             )
@@ -896,7 +892,7 @@ class Positions:
             if exists
             else await rpc.minimum_balance_for_rent_exemption(TOKEN_ACCOUNT_SPACE)
         )
-        return rpc, components, exists, rent
+        return rpc, breakdown, exists, rent
 
     async def _finish_receive_plan(
         self,
@@ -904,7 +900,7 @@ class Positions:
         amount_lamports: int,
         transaction: Transaction,
         rpc: Rpc,
-        components: SolBalanceComponents,
+        breakdown: SolBalanceBreakdown,
         rent: int,
         creates_canonical_account: bool,
         sponsored: bool,
@@ -912,14 +908,14 @@ class Positions:
         """Finish merge/redeem planning with live fee authority and deltas."""
         fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
         costs = SolActionCosts(fee, rent, creates_canonical_account, sponsored)
-        availability = SolBalanceAvailability.from_costs(components, costs)
+        availability = SolBalanceAvailability.from_costs(breakdown, costs)
         wallet_costs = 0 if sponsored else fee + rent
         return SolActionPlan(
             kind,
             transaction,
             costs,
             availability,
-            SolComponentDelta(-wallet_costs, amount_lamports),
+            SolBalanceDelta(-wallet_costs, amount_lamports),
         )
 
     @staticmethod
