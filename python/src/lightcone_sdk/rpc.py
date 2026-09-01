@@ -1,6 +1,17 @@
-"""RPC sub-client — exchange-level on-chain fetchers, global deposit helpers, and blockhash access.
+"""Read Solana state, prepare exact transaction fees, and confirm submissions.
 
-Mirrors rust/src/rpc.rs.
+RPC failover state flow: The trigger is an operation on the active connection. The
+handoff retries the same endpoint before trying the configured alternate. The guard
+allows failover only for infrastructure errors. The result returns from a working
+endpoint, propagates a configured alternate's failure, or preserves the retry
+failure when no alternate exists. Recovery restores the primary after its cooldown.
+
+Confirmation state flow: The trigger is a submitted signature entering polling.
+The handoff sends status and block-height reads through RPC failover. Confirmation,
+on-chain failure, consecutive-error, and repeated-expiry guards choose the result.
+Recovery resets expiry evidence after gaps or live sightings and checks ledger
+history before reporting safe expiry. Three consecutive signature-status poll
+failures or the poll cap raise ``ConfirmationTimeout``.
 """
 
 from __future__ import annotations
@@ -66,7 +77,7 @@ class CanonicalWsolAccountInfo:
 
 
 def _rpc_lamports(value: object, label: str) -> int:
-    """Accept only exact non-negative u64 lamports from an RPC response."""
+    """Return an RPC value only when it is exact non-negative ``u64`` lamports."""
     if (
         isinstance(value, bool)
         or not isinstance(value, int)
@@ -240,7 +251,11 @@ class Rpc:
         return int(response.value)
 
     async def account_exists(self, address: Pubkey) -> bool:
-        """Distinguish a missing account from an unavailable confirmed RPC read."""
+        """Return account presence at confirmed commitment.
+
+        A missing account returns ``False``. Transport and RPC failures propagate
+        instead of being interpreted as absence.
+        """
         from solana.rpc.commitment import Confirmed
 
         response = await _connection_with_failover(
@@ -341,7 +356,11 @@ class Rpc:
         )
 
     async def minimum_balance_for_rent_exemption(self, data_len: int) -> int:
-        """Return the rent-exempt minimum in lamports for ``data_len`` account bytes."""
+        """Return confirmed rent-exempt lamports for ``data_len`` account bytes.
+
+        Missing, negative, inexact, boolean, or out-of-range RPC values raise
+        :class:`SdkError` rather than becoming a guessed rent value.
+        """
         from solana.rpc.commitment import Confirmed
 
         response = await _connection_with_failover(
@@ -365,16 +384,22 @@ class Rpc:
     async def prepare_and_estimate_transaction_fee(
         self, transaction: Transaction
     ) -> int:
-        """Attach a fresh blockhash and return the exact message's fee in lamports."""
+        """Prepare ``transaction`` with a fresh blockhash and return its fee.
+
+        The return value is exact lamports for that message at confirmed
+        commitment. The unsigned transaction is updated to carry the blockhash
+        used by fee estimation.
+        """
         blockhash = await self.get_latest_blockhash()
         transaction.partial_sign([], blockhash)
         return await self.estimate_prepared_transaction_fee(transaction)
 
     async def estimate_prepared_transaction_fee(self, transaction: Transaction) -> int:
-        """Return the prepared message's live fee in lamports.
+        """Return the confirmed live fee for an already-prepared message.
 
-        The prepared blockhash is preserved, and an unavailable RPC estimate
-        fails closed rather than becoming a zero fee.
+        The transaction is not mutated. A missing blockhash, unavailable estimate,
+        or negative, inexact, boolean, or out-of-range fee raises
+        :class:`SdkError`; unavailable never becomes zero.
         """
         from solana.rpc.commitment import Confirmed
         from solders.hash import Hash

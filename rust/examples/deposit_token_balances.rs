@@ -1,7 +1,7 @@
-//! Fund-moving local/staging native-SOL withdrawal example.
+//! Fund-moving local/staging native SOL withdrawal example.
 //!
 //! The example initializes exact native and canonical WSOL state, plans a native
-//! withdrawal without closing the canonical account, confirms with a slot, and
+//! withdrawal without closing canonical WSOL, confirms with a slot, and
 //! refreshes a complete snapshot covering that slot before publishing new state.
 
 mod common;

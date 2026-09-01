@@ -854,7 +854,11 @@ export class Positions {
     };
   }
 
-  /** Resolve the authenticated wallet only from fresh matching cached authority. */
+  /**
+   * Resolve an unexpired wallet from matching initialized balance state.
+   * This requires the configured signing strategy to control the authenticated
+   * wallet. It does not prove balance freshness.
+   */
   private planningWallet(state: WalletDepositBalancesState): PublicKey {
     // Cached identity is a signing trust boundary: validate expiry, complete
     // state initialization, and wallet equality before constructing a transaction.

@@ -1,4 +1,4 @@
-"""Plan and confirm a native-SOL withdrawal without closing canonical WSOL.
+"""Plan and confirm a native SOL withdrawal without closing canonical WSOL.
 
 This fund-moving example is intentionally restricted to local and staging. It
 refreshes a complete wallet snapshot covering the confirmation slot before
