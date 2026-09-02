@@ -1004,6 +1004,9 @@ impl<'a> Positions<'a> {
     }
 
     /// Build InitPositionTokens instruction.
+    ///
+    /// Permissionless and idempotent: a replay with the same `recent_slot`
+    /// reuses the existing lookup table and skips groups already present.
     pub fn init_position_tokens_ix(
         &self,
         params: &InitPositionTokensParams,
@@ -1024,6 +1027,9 @@ impl<'a> Positions<'a> {
     }
 
     /// Build ExtendPositionTokens instruction.
+    ///
+    /// Permissionless: any signer may pay, and groups already present in the
+    /// lookup table are skipped on chain.
     pub fn extend_position_tokens_ix(
         &self,
         params: &ExtendPositionTokensParams,
@@ -1037,14 +1043,14 @@ impl<'a> Positions<'a> {
         )?)
     }
 
-    /// Build ExtendPositionTokens transaction.
+    /// Build ExtendPositionTokens transaction paid by `params.payer`.
     pub fn extend_position_tokens_tx(
         &self,
         params: ExtendPositionTokensParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
 
     /// Build ClosePositionAlt instruction.

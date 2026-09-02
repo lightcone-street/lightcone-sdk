@@ -92,6 +92,11 @@ impl<'a> Rpc<'a> {
         crate::program::pda::get_exchange_pda(&self.client.program_id).0
     }
 
+    /// Get the event-authority PDA the SDK appends to every public instruction.
+    pub fn get_event_authority_pda(&self) -> Pubkey {
+        crate::program::pda::get_event_authority_pda(&self.client.program_id).0
+    }
+
     /// Get a GlobalDepositToken PDA.
     pub fn get_global_deposit_token_pda(&self, mint: &Pubkey) -> Pubkey {
         crate::program::pda::get_global_deposit_token_pda(mint, &self.client.program_id).0

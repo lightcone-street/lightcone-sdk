@@ -53,7 +53,8 @@ Individual market state.
 | condition_id | 88 | 32 | `[u8; 32]` | Keccak256(oracle \|\| question_id \|\| num_outcomes) |
 | payout_numerators | 120 | 24 | `[u32; 6]` | Payout numerators; only first `num_outcomes` entries are meaningful |
 | payout_denominator | 144 | 4 | `u32` | Sum of payout numerators |
-| _reserved | 148 | 68 | - | Reserved |
+| deposit_mint_count | 148 | 1 | `u8` | Deposit mints registered via `AddDepositMint`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`; zero for markets created before the field existed |
+| _reserved | 149 | 67 | - | Reserved |
 
 ### Position (80 bytes)
 
@@ -302,6 +303,7 @@ All functions return `(Pubkey, u8)` (address, bump).
 | Function | Seeds | Description |
 |----------|-------|-------------|
 | `get_exchange_pda(program_id)` | `["central_state"]` | Exchange singleton |
+| `get_event_authority_pda(program_id)` | `["__event_authority"]` | Event-authority PDA appended to every public instruction |
 | `get_market_pda(market_id, program_id)` | `["market", market_id.to_le_bytes()]` | Market account |
 | `get_condition_tombstone_pda(condition_id, program_id)` | `["condition", condition_id]` | Resolved condition tombstone |
 | `get_vault_pda(deposit_mint, market, program_id)` | `["market_deposit_token_account", deposit_mint, market]` | Deposit vault |
@@ -432,9 +434,9 @@ All instructions use a single-byte discriminator.
 | WhitelistDepositToken | 16 | Whitelist a global deposit token |
 | DepositToGlobal | 17 | Deposit collateral to the global pool |
 | GlobalToMarketDeposit | 18 | Move global collateral into a market position |
-| InitPositionTokens | 19 | Initialize position token accounts and ALT |
+| InitPositionTokens | 19 | Initialize position token accounts and ALT (permissionless, idempotent) |
 | DepositAndSwap | 20 | Deposit collateral and atomically swap |
-| ExtendPositionTokens | 21 | Extend a position ALT with more deposit mints |
+| ExtendPositionTokens | 21 | Extend a position ALT with more deposit mints (permissionless; present groups are skipped) |
 | WithdrawFromGlobal | 22 | Withdraw collateral from the global pool |
 | ClosePositionAlt | 23 | Deactivate or close a position ALT |
 | CloseOrderStatus | 24 | Close a fully-filled order status PDA |
@@ -462,6 +464,27 @@ fee_receiver_quote_ata, and system program. `RefreshOrderbookAlt` is an
 idempotent migration helper for fee receiver rotation; it only appends the
 current fee receiver quote ATA when missing and does not otherwise rewrite old
 ALT slot maps.
+
+### Event transport trailer
+
+Every public instruction ends with two read-only, non-signer accounts that the
+program requires for its authenticated event transport: the event-authority PDA
+(`["__event_authority"]`, see `get_event_authority_pda`) followed by the
+executable Lightcone program account. The program pops both before dispatch,
+signs one final event-batch self-CPI with the PDA, and rejects a missing, wrong,
+or writable trailer before any state change (custom errors 21 and 68). Public
+instructions must be transaction-level; invoking one through another program's
+CPI fails with custom error 73. Every SDK builder appends the trailer
+automatically, so it always occupies the last two account slots. The private
+batch discriminator `instruction::EVENT_BATCH` (255) is reserved; the SDK neither
+builds nor decodes event batches.
+
+`InitPositionTokens` is idempotent: a replay with the same `recent_slot` reuses
+the existing lookup table and skips canonical groups already present.
+`ExtendPositionTokens` is permissionless: any signer pays, and groups already in
+the table are skipped. Each market registers at most
+`MAX_DEPOSIT_MINTS_PER_MARKET` deposit mints, and each of those two instructions
+accepts at most `MAX_DEPOSIT_MINTS_PER_IX` groups.
 
 ## Constants
 
@@ -503,6 +526,7 @@ USER_NONCE_SEED: &[u8]                // b"user_nonce"
 POSITION_SEED: &[u8]                  // b"position"
 ORDERBOOK_SEED: &[u8]                 // b"orderbook"
 GLOBAL_DEPOSIT_TOKEN_SEED: &[u8]      // b"global_deposit"
+EVENT_AUTHORITY_SEED: &[u8]           // b"__event_authority"
 ```
 
 ### Sizes
@@ -526,6 +550,8 @@ SIGNATURE_SIZE: usize                 // 64
 MAX_OUTCOMES: u8                      // 6
 MIN_OUTCOMES: u8                      // 2
 MAX_MAKERS: usize                     // 5 (per match_orders_multi instruction)
+MAX_DEPOSIT_MINTS_PER_MARKET: u8      // 8 (enforced by AddDepositMint)
+MAX_DEPOSIT_MINTS_PER_IX: usize       // 8 (per init/extend_position_tokens instruction)
 ```
 
 ## Type Definitions
@@ -723,6 +749,14 @@ pub enum SdkError {
     LookupTableDeactivated,
     NoPendingRoleTransfer,
     PendingRoleMismatch,
+    InvalidEventAuthority,
+    EventBatchOverflow,
+    InvalidEventBatch,
+    InvalidEventContract,
+    UnsupportedEventSchema,
+    PublicInstructionMustBeTopLevel,
+    LookupTableCapacityExceeded,
+    TooManyDepositMints { count: usize },
     InvalidPubkey(String),
     Scaling(ScalingError),
     UnsignedOrder,

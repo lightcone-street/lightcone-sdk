@@ -434,7 +434,9 @@ status, so refresh authoritative balances before any retry. See the
 |---------|-------------|
 | [`read_onchain`](examples/read_onchain.rs) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Deposit to the global pool, move capital into a market, withdraw from global, and merge back to keep the run net-neutral |
+
+Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions must be transaction-level. See the [program module docs](src/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming
 

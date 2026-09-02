@@ -161,7 +161,7 @@ fn init_position_tokens_ix(&self, params: &InitPositionTokensParams, num_outcome
 fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
 ```
 
-Build an InitPositionTokens instruction/transaction — create a position account and associated token accounts for all outcomes.
+Build an InitPositionTokens instruction/transaction — create a position account and associated token accounts for all outcomes. Permissionless and idempotent: replaying with the same `recent_slot` reuses the existing lookup table and skips groups already present, so retries must reuse the original slot. At most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per call.
 
 #### `extend_position_tokens_ix` / `extend_position_tokens_tx`
 
@@ -170,7 +170,7 @@ fn extend_position_tokens_ix(&self, params: &ExtendPositionTokensParams, num_out
 fn extend_position_tokens_tx(&self, params: ExtendPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
 ```
 
-Build an ExtendPositionTokens instruction/transaction — extend a position's lookup table with additional token accounts.
+Build an ExtendPositionTokens instruction/transaction — extend a position's lookup table with additional token accounts. Permissionless: `params.payer` is any signer and pays for new accounts. Groups already present in the table are skipped on chain, so existing and new mints may be passed together.
 
 #### `deposit_to_global_ix` / `deposit_to_global_tx`
 

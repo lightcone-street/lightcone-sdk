@@ -5,7 +5,7 @@
 use solana_pubkey::Pubkey;
 
 use crate::program::constants::{
-    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, CONDITION_SEED, EXCHANGE_SEED,
+    ALT_PROGRAM_ID, CONDITIONAL_MINT_SEED, CONDITION_SEED, EVENT_AUTHORITY_SEED, EXCHANGE_SEED,
     GLOBAL_DEPOSIT_TOKEN_SEED, MARKET_SEED, MINT_AUTHORITY_SEED, MPL_METADATA_SEED,
     MPL_TOKEN_METADATA_PROGRAM_ID, ORDERBOOK_SEED, ORDER_STATUS_SEED, POSITION_SEED,
     USER_NONCE_SEED, VAULT_SEED,
@@ -16,6 +16,18 @@ use crate::program::constants::{
 /// Seeds: ["central_state"]
 pub fn get_exchange_pda(program_id: &Pubkey) -> (Pubkey, u8) {
     Pubkey::find_program_address(&[EXCHANGE_SEED], program_id)
+}
+
+/// Get the event-authority PDA.
+///
+/// Seeds: ["__event_authority"]
+///
+/// The program signs its event-batch self-CPI with this PDA and requires every
+/// public instruction to pass it as a read-only, non-signer trailer account
+/// immediately before the program account. The account holds no data and is
+/// never initialized.
+pub fn get_event_authority_pda(program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[EVENT_AUTHORITY_SEED], program_id)
 }
 
 /// Get a Market PDA.
@@ -357,5 +369,31 @@ mod tests {
 
         assert_eq!(pda1, pda2);
         assert_eq!(bump1, bump2);
+    }
+
+    #[test]
+    fn test_event_authority_pda_matches_seed_derivation() {
+        let program_id = test_program_id();
+        let (pda, bump) = get_event_authority_pda(&program_id);
+
+        assert_eq!(
+            (pda, bump),
+            Pubkey::find_program_address(&[EVENT_AUTHORITY_SEED], &program_id)
+        );
+        assert_eq!(get_event_authority_pda(&program_id), (pda, bump));
+
+        let (other, _) = get_event_authority_pda(&Pubkey::new_unique());
+        assert_ne!(pda, other);
+    }
+
+    #[test]
+    fn test_event_authority_pda_pinned_for_local_program() {
+        let program_id = Pubkey::from_str("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago").unwrap();
+        let (pda, _) = get_event_authority_pda(&program_id);
+
+        assert_eq!(
+            pda.to_string(),
+            "2V5fevrqDyZYEWEkvuaX8ceQUHNpfiTaSi6CYkuEw6BK"
+        );
     }
 }
