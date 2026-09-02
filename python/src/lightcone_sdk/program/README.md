@@ -91,6 +91,7 @@ from lightcone_sdk.program import (
 | `condition_id` | bytes | Computed condition ID |
 | `payout_numerators` | tuple[int, int, int, int, int, int] | Resolution vector; first `num_outcomes` entries are meaningful |
 | `payout_denominator` | int | Sum of meaningful payout numerators |
+| `deposit_mint_count` | int | Deposit mints registered through `add_deposit_mint` (byte 148; capped at `MAX_DEPOSIT_MINTS_PER_MARKET`) |
 
 #### GlobalDepositToken
 
@@ -210,7 +211,10 @@ from lightcone_sdk.program import (
 - `match_orders_multi` and `deposit_and_swap` include the fee receiver and associated token program in their fixed account lists.
 - `set_fee_receiver_with_atas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
 - `refresh_orderbook_alt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
-- Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`.
+- Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`; `INSTRUCTION_EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
+- Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both read-only, non-signer). Every `build_*_instruction` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
+- `add_deposit_mint` writes the market account and increments `Market.deposit_mint_count`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
+- `init_position_tokens` is idempotent per `recent_slot` and `extend_position_tokens` is permissionless (`payer` replaces `operator`); both accept at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per instruction.
 
 ### PDA Seeds
 
@@ -224,6 +228,7 @@ from lightcone_sdk.program import (
     SEED_ORDER_STATUS,
     SEED_USER_NONCE,
     SEED_POSITION,
+    SEED_EVENT_AUTHORITY,
 )
 ```
 
@@ -261,7 +266,34 @@ from lightcone_sdk.program import (
     MAX_OUTCOMES,       # 6
     MIN_OUTCOMES,       # 2
     MAX_MAKERS,         # 5
+    MAX_DEPOSIT_MINTS_PER_MARKET,  # 8
+    MAX_DEPOSIT_MINTS_PER_IX,      # 8
 )
+```
+
+### Event Transport Trailer
+
+The program authenticates its accounting events with one PDA-signed self-CPI per
+successful public instruction. To make that possible, every public instruction
+must end with two read-only, non-signer accounts:
+
+1. the event-authority PDA (`get_event_authority_pda(program_id)`, seed `__event_authority`)
+2. the executable program account
+
+The program pops both before dispatch and fails closed (on-chain error 21 or 68)
+if either is missing, wrong, or writable, so a legacy instruction without the
+trailer never mutates state. Public instructions must also be transaction-level:
+invoking one through another program's CPI fails with error 73. Every
+`build_*_instruction` in this module appends the trailer automatically, so
+consumers that enumerate instruction accounts should expect the two trailing
+entries. The SDK never builds or decodes the event batch itself
+(`INSTRUCTION_EVENT_BATCH = 255` is reserved), and it does not attach a
+compute-budget instruction for the self-CPI.
+
+```python
+from lightcone_sdk.program import PROGRAM_ID, get_event_authority_pda
+
+event_authority, bump = get_event_authority_pda(PROGRAM_ID)
 ```
 
 ## Errors
@@ -281,6 +313,9 @@ from lightcone_sdk.program import (
     InvalidOutcomeError,       # Invalid outcome index
     TooManyMakersError,        # Exceeds MAX_MAKERS
     OrdersDoNotCrossError,     # Orders don't match
+    TooManyDepositMintsError,  # Exceeds MAX_DEPOSIT_MINTS_PER_IX (on-chain error 75)
+    InvalidEventAuthorityError,  # On-chain error 68: bad event transport trailer
+    PublicInstructionMustBeTopLevelError,  # On-chain error 73: public ix invoked via CPI
 )
 ```
 
@@ -330,6 +365,7 @@ crosses = orders_cross(
 ```python
 from lightcone_sdk.program import (
     get_exchange_pda,
+    get_event_authority_pda,
     get_market_pda,
     get_vault_pda,
     get_mint_authority_pda,
@@ -343,6 +379,9 @@ from lightcone_sdk.program import (
 
 # Exchange PDA
 exchange_pda, bump = get_exchange_pda(PROGRAM_ID)
+
+# Event-authority PDA (appended to every public instruction by the builders)
+event_authority, bump = get_event_authority_pda(PROGRAM_ID)
 
 # Market PDA
 market_pda, bump = get_market_pda(market_id, PROGRAM_ID)

@@ -497,6 +497,11 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 
+Every instruction builder appends the program's event transport trailer (the
+event-authority PDA, then the program account) automatically, and public
+instructions must be transaction-level. See the
+[program module README](src/lightcone_sdk/program/README.md#event-transport-trailer).
+
 ### WebSocket Streaming
 
 | Example | Description |
