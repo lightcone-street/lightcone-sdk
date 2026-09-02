@@ -83,6 +83,12 @@ pub mod instruction {
     pub const ACCEPT_MANAGER: u8 = 36;
     pub const ACCEPT_OPERATOR: u8 = 37;
     pub const SET_DEPOSIT_TOKEN_STATUS: u8 = 38;
+    /// Reserved discriminator of the program's private event-batch self-CPI.
+    ///
+    /// The program dispatches this value before the public instruction table
+    /// and accepts it only when signed by the event-authority PDA. The SDK
+    /// never builds it; it is listed so no public instruction reuses the value.
+    pub const EVENT_BATCH: u8 = u8::MAX;
 }
 
 // ============================================================================
@@ -135,6 +141,11 @@ pub const GLOBAL_DEPOSIT_TOKEN_SEED: &[u8] = b"global_deposit";
 pub const FEE_RECEIVER_SEED: &[u8] = b"fee_receiver";
 /// Metaplex metadata PDA seed.
 pub const MPL_METADATA_SEED: &[u8] = b"metadata";
+/// Event-authority PDA seed.
+///
+/// The program signs its final event-batch self-CPI with this PDA and requires
+/// every public instruction to list it as a read-only, non-signer trailer.
+pub const EVENT_AUTHORITY_SEED: &[u8] = b"__event_authority";
 
 // ============================================================================
 // Account Sizes
@@ -176,3 +187,30 @@ pub const MAX_OUTCOMES: u8 = 6;
 pub const MIN_OUTCOMES: u8 = 2;
 /// Maximum makers in a single match_orders_multi instruction
 pub const MAX_MAKERS: usize = 5;
+/// Maximum deposit mints the program registers per market.
+///
+/// `AddDepositMint` rejects a further mint with on-chain error 75
+/// (`TooManyDepositMints`). The bound keeps a fully extended position lookup
+/// table within the 256-entry address lookup table limit.
+pub const MAX_DEPOSIT_MINTS_PER_MARKET: u8 = 8;
+/// Maximum deposit-mint groups accepted by one `InitPositionTokens` or
+/// `ExtendPositionTokens` instruction. Equal to the per-market cap so a single
+/// call can name every mint on a market.
+pub const MAX_DEPOSIT_MINTS_PER_IX: usize = MAX_DEPOSIT_MINTS_PER_MARKET as usize;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_transport_constants_match_program() {
+        assert_eq!(EVENT_AUTHORITY_SEED, b"__event_authority");
+        assert_eq!(instruction::EVENT_BATCH, 255);
+    }
+
+    #[test]
+    fn deposit_mint_limits_match_program() {
+        assert_eq!(MAX_DEPOSIT_MINTS_PER_MARKET, 8);
+        assert_eq!(MAX_DEPOSIT_MINTS_PER_IX, 8);
+    }
+}

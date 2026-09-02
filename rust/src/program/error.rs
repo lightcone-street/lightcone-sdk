@@ -183,6 +183,38 @@ pub enum SdkError {
     #[error("Pending role transfer mismatch")]
     PendingRoleMismatch,
 
+    /// Event-authority trailer account is missing, writable, or not the program PDA.
+    #[error("Invalid event authority")]
+    InvalidEventAuthority,
+
+    /// Serialized event batch exceeds its bounded capacity.
+    #[error("Event batch overflow")]
+    EventBatchOverflow,
+
+    /// Event batch framing or payload is malformed.
+    #[error("Invalid event batch")]
+    InvalidEventBatch,
+
+    /// Recorded events do not match the source instruction's event contract.
+    #[error("Invalid event contract")]
+    InvalidEventContract,
+
+    /// Event batch schema version is unsupported.
+    #[error("Unsupported event schema")]
+    UnsupportedEventSchema,
+
+    /// Public instructions must be transaction-level; nested CPI is rejected.
+    #[error("Public instruction must be top-level")]
+    PublicInstructionMustBeTopLevel,
+
+    /// Canonical groups would exceed the lookup table's 256-entry limit.
+    #[error("Lookup table capacity exceeded")]
+    LookupTableCapacityExceeded,
+
+    /// Too many deposit mints for one market or one position-token instruction.
+    #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_MARKET)]
+    TooManyDepositMints { count: usize },
+
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]
     InvalidPubkey(String),

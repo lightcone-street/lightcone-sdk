@@ -175,7 +175,8 @@ impl Exchange {
 /// - [88..120]  condition_id (32 bytes)
 /// - [120..144] payout_numerators ([u32; 6])
 /// - [144..148] payout_denominator (u32)
-/// - [148..216] _reserved (68 bytes)
+/// - [148]      deposit_mint_count (u8)
+/// - [149..216] _reserved (67 bytes)
 #[derive(Debug, Clone)]
 pub struct Market {
     /// Account discriminator
@@ -203,6 +204,10 @@ pub struct Market {
     pub payout_numerators: [u32; MAX_OUTCOMES as usize],
     /// Payout denominator computed by the program as the numerator sum.
     pub payout_denominator: u32,
+    /// Deposit mints registered through `AddDepositMint`, capped at
+    /// `MAX_DEPOSIT_MINTS_PER_MARKET`. Markets created before this field
+    /// existed read zero and only count mints added after the upgrade.
+    pub deposit_mint_count: u8,
 }
 
 impl Market {
@@ -244,6 +249,7 @@ impl Market {
             condition_id: read_bytes::<32>(data, 88),
             payout_numerators,
             payout_denominator: read_u32(data, 144),
+            deposit_mint_count: data[148],
         })
     }
 
@@ -627,6 +633,8 @@ mod tests {
         data[124..128].copy_from_slice(&3u32.to_le_bytes());
         // payout_denominator at offset 144
         data[144..148].copy_from_slice(&10u32.to_le_bytes());
+        // deposit_mint_count at offset 148
+        data[148] = 3;
 
         let market = Market::deserialize(&data).unwrap();
         assert_eq!(market.market_id, 42);
@@ -638,6 +646,7 @@ mod tests {
         assert_eq!(market.payout_numerators[0], 7);
         assert_eq!(market.payout_numerators[1], 3);
         assert_eq!(market.payout_denominator, 10);
+        assert_eq!(market.deposit_mint_count, 3);
     }
 
     #[test]
