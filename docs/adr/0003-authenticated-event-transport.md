@@ -13,7 +13,7 @@ Every SDK instruction builder appends the trailer unconditionally through a sing
 
 `ExtendPositionTokens` parameters name the signer `payer` rather than `operator`; the fluent builder keeps a deprecated `operator()` alias that forwards to `payer()`. Raw builder signatures are otherwise preserved; the per-instruction deposit-mint limit is validated only on already-fallible paths. The SDK does not attach a compute-budget instruction; callers budget for the program's final self-CPI themselves.
 
-The Rust SDK implements this decision first. Python and TypeScript must reach parity under the AGENTS.md cross-language rule before the program upgrade is activated in an environment they target.
+All three SDKs implement this decision: the Rust SDK landed first and the Python and TypeScript SDKs followed in the same change series under the AGENTS.md cross-language parity rule. The program upgrade must not be activated in an environment before every SDK that targets it has been upgraded.
 
 ## Considered Options
 

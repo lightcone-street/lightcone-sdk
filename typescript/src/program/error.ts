@@ -1,3 +1,5 @@
+import { MAX_DEPOSIT_MINTS_PER_MARKET } from "./constants";
+
 export type ProgramErrorVariant =
   | "InvalidDiscriminator"
   | "AccountNotFound"
@@ -40,6 +42,14 @@ export type ProgramErrorVariant =
   | "LookupTableDeactivated"
   | "NoPendingRoleTransfer"
   | "PendingRoleMismatch"
+  | "InvalidEventAuthority"
+  | "EventBatchOverflow"
+  | "InvalidEventBatch"
+  | "InvalidEventContract"
+  | "UnsupportedEventSchema"
+  | "PublicInstructionMustBeTopLevel"
+  | "LookupTableCapacityExceeded"
+  | "TooManyDepositMints"
   | "InvalidScalarRange"
   | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
@@ -295,6 +305,64 @@ export class ProgramSdkError extends Error {
     return new ProgramSdkError(
       "PendingRoleMismatch",
       "Pending role transfer mismatch",
+    );
+  }
+
+  /** On-chain error 68: event-authority trailer missing, writable, or wrong. */
+  static invalidEventAuthority(): ProgramSdkError {
+    return new ProgramSdkError(
+      "InvalidEventAuthority",
+      "Invalid event authority",
+    );
+  }
+
+  /** On-chain error 69: the instruction's event batch exceeds the program buffer. */
+  static eventBatchOverflow(): ProgramSdkError {
+    return new ProgramSdkError("EventBatchOverflow", "Event batch overflow");
+  }
+
+  /** On-chain error 70: malformed event-batch self-CPI. */
+  static invalidEventBatch(): ProgramSdkError {
+    return new ProgramSdkError("InvalidEventBatch", "Invalid event batch");
+  }
+
+  /** On-chain error 71: the event-batch self-CPI violates the event contract. */
+  static invalidEventContract(): ProgramSdkError {
+    return new ProgramSdkError("InvalidEventContract", "Invalid event contract");
+  }
+
+  /** On-chain error 72: the event batch declares an unsupported schema. */
+  static unsupportedEventSchema(): ProgramSdkError {
+    return new ProgramSdkError(
+      "UnsupportedEventSchema",
+      "Unsupported event schema",
+    );
+  }
+
+  /** On-chain error 73: a public instruction was invoked through another program's CPI. */
+  static publicInstructionMustBeTopLevel(): ProgramSdkError {
+    return new ProgramSdkError(
+      "PublicInstructionMustBeTopLevel",
+      "Public instruction must be top-level",
+    );
+  }
+
+  /** On-chain error 74: extending the lookup table would exceed its capacity. */
+  static lookupTableCapacityExceeded(): ProgramSdkError {
+    return new ProgramSdkError(
+      "LookupTableCapacityExceeded",
+      "Lookup table capacity exceeded",
+    );
+  }
+
+  /**
+   * On-chain error 75, and the client-side check that more than
+   * MAX_DEPOSIT_MINTS_PER_IX groups were supplied to one instruction.
+   */
+  static tooManyDepositMints(count: number): ProgramSdkError {
+    return new ProgramSdkError(
+      "TooManyDepositMints",
+      `Too many deposit mints: ${count} (max ${MAX_DEPOSIT_MINTS_PER_MARKET})`,
     );
   }
 

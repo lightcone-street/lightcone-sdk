@@ -1214,7 +1214,7 @@ export class Positions {
     numOutcomes: number
   ): Transaction {
     const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return new Transaction({ feePayer: params.payer }).add(ix);
   }
 
   depositToGlobalTx(params: DepositToGlobalParams): Transaction {
