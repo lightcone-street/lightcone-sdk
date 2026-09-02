@@ -279,6 +279,8 @@ from .program import (
     MAX_OUTCOMES,
     MIN_OUTCOMES,
     MAX_MAKERS,
+    MAX_DEPOSIT_MINTS_PER_MARKET,
+    MAX_DEPOSIT_MINTS_PER_IX,
     SEED_GLOBAL_DEPOSIT,
     SEED_CONDITION,
     SEED_FEE_RECEIVER,
@@ -349,6 +351,7 @@ from .program import (
     get_all_conditional_mints,
     get_global_deposit_pda,
     get_position_alt_pda,
+    get_event_authority_pda,
     get_user_global_deposit_pda,
     # Order Functions
     create_bid_order,
@@ -670,6 +673,8 @@ __all__ = [
     "MAX_OUTCOMES",
     "MIN_OUTCOMES",
     "MAX_MAKERS",
+    "MAX_DEPOSIT_MINTS_PER_MARKET",
+    "MAX_DEPOSIT_MINTS_PER_IX",
     "SEED_GLOBAL_DEPOSIT",
     "SEED_CONDITION",
     "SEED_FEE_RECEIVER",
@@ -740,6 +745,7 @@ __all__ = [
     "get_all_conditional_mints",
     "get_global_deposit_pda",
     "get_position_alt_pda",
+    "get_event_authority_pda",
     "get_user_global_deposit_pda",
     # Program - Orders
     "create_bid_order",

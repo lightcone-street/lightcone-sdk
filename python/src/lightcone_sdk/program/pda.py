@@ -10,6 +10,7 @@ from .constants import (
     SEED_CENTRAL_STATE,
     SEED_CONDITION,
     SEED_CONDITIONAL_MINT,
+    SEED_EVENT_AUTHORITY,
     SEED_GLOBAL_DEPOSIT,
     SEED_MARKET,
     SEED_MINT_AUTHORITY,
@@ -28,6 +29,18 @@ def get_exchange_pda(program_id: Pubkey = PROGRAM_ID) -> tuple[Pubkey, int]:
     Seeds: ["central_state"]
     """
     return Pubkey.find_program_address([SEED_CENTRAL_STATE], program_id)
+
+
+def get_event_authority_pda(program_id: Pubkey = PROGRAM_ID) -> tuple[Pubkey, int]:
+    """Derive the event-authority PDA.
+
+    Seeds: ["__event_authority"]
+
+    The program signs its event-batch self-CPI with this PDA and requires every
+    public instruction to pass it as a read-only, non-signer trailer account
+    immediately before the program account. The account holds no data.
+    """
+    return Pubkey.find_program_address([SEED_EVENT_AUTHORITY], program_id)
 
 
 def get_market_pda(

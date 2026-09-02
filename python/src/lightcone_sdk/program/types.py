@@ -73,6 +73,9 @@ class Market:
     condition_id: bytes
     payout_numerators: tuple[int, int, int, int, int, int]
     payout_denominator: int
+    # Deposit mints registered through add_deposit_mint (byte 148, u8). Markets
+    # created before the field existed read zero until a mint is added.
+    deposit_mint_count: int = 0
 
 
 @dataclass
@@ -517,7 +520,14 @@ class GlobalToMarketDepositParams:
 
 @dataclass
 class InitPositionTokensParams:
-    """Parameters for initializing position token accounts and ALT."""
+    """Parameters for initializing position token accounts and ALT.
+
+    Permissionless and idempotent: any payer may initialize the accounts, and a
+    replay with the same ``recent_slot`` reuses the existing lookup table and
+    skips deposit-mint groups already present. Retries must reuse the slot
+    because the table address derives from it. At most MAX_DEPOSIT_MINTS_PER_IX
+    deposit mints per instruction.
+    """
 
     payer: Pubkey
     user: Pubkey
@@ -545,9 +555,16 @@ class DepositAndSwapParams:
 
 @dataclass
 class ExtendPositionTokensParams:
-    """Parameters for extending a position ALT with new deposit mints."""
+    """Parameters for extending a position ALT with additional deposit mints.
 
-    operator: Pubkey
+    Permissionless: ``payer`` is any signer that funds the new accounts and ALT
+    rent; the position PDA remains the table authority. Deposit-mint groups
+    already present in the table are skipped on chain, so callers may pass
+    existing and new mints together. At most MAX_DEPOSIT_MINTS_PER_IX deposit
+    mints per instruction.
+    """
+
+    payer: Pubkey
     user: Pubkey
     market: Pubkey
     lookup_table: Pubkey
