@@ -12,6 +12,7 @@ import {
   ALT_PROGRAM_ID,
   MPL_TOKEN_METADATA_PROGRAM_ID,
   RENT_SYSVAR_ID,
+  MAX_DEPOSIT_MINTS_PER_IX,
   MAX_MAKERS,
   MAX_OUTCOMES,
   MIN_OUTCOMES,
@@ -57,6 +58,7 @@ import {
   OrderSide,
 } from "./types";
 import {
+  getEventAuthorityPda,
   getExchangePda,
   getMarketPda,
   getVaultPda,
@@ -107,6 +109,31 @@ function writable(pubkey: PublicKey): AccountMeta {
 
 function readonly(pubkey: PublicKey): AccountMeta {
   return { pubkey, isSigner: false, isWritable: false };
+}
+
+/**
+ * Build a public Lightcone instruction, appending the event transport trailer.
+ *
+ * The program pops the last two accounts of every public instruction before
+ * dispatch: the event-authority PDA (seed "__event_authority", readonly, never
+ * a signer) and the executable program account (readonly). It signs its final
+ * event-batch self-CPI with that PDA, so an instruction without the trailer
+ * fails closed before any state change (on-chain errors 21 and 68). Public
+ * instructions must also be transaction-level; invoking one through another
+ * program's CPI fails with on-chain error 73. Routing every builder through
+ * this constructor keeps the invariant in one place.
+ */
+function publicInstruction(
+  programId: PublicKey,
+  keys: AccountMeta[],
+  data: Buffer
+): TransactionInstruction {
+  const [eventAuthority] = getEventAuthorityPda(programId);
+  return new TransactionInstruction({
+    keys: [...keys, readonly(eventAuthority), readonly(programId)],
+    programId,
+    data,
+  });
 }
 
 function zeroPubkey(): PublicKey {
@@ -214,11 +241,7 @@ export function buildInitializeIx(
 
   const data = Buffer.from([INSTRUCTION.INITIALIZE]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -268,20 +291,19 @@ export function buildCreateMarketIx(
     toI16Le(params.takerFeeBps),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
  * Build AddDepositMint instruction
  *
- * Accounts:
+ * The program rejects the instruction with error 75 (TooManyDepositMints) once
+ * the market already holds MAX_DEPOSIT_MINTS_PER_MARKET deposit mints.
+ *
+ * Accounts (9 + num_outcomes, + 2 trailer):
  * 0. manager (signer)
  * 1. exchange
- * 2. market
+ * 2. market (mut) - deposit_mint_count is incremented
  * 3. deposit_mint
  * 4. vault
  * 5. mint_authority
@@ -289,6 +311,7 @@ export function buildCreateMarketIx(
  * 7. system_program
  * 8. global_deposit_token
  * 9+ conditional_mints[0..num_outcomes]
+ * + event_authority, program (readonly trailer)
  *
  * Data: [discriminator]
  */
@@ -315,7 +338,7 @@ export function buildAddDepositMintIx(
   const keys: AccountMeta[] = [
     signerMut(params.manager),
     readonly(exchange),
-    readonly(market),
+    writable(market),
     readonly(params.depositMint),
     writable(vault),
     readonly(mintAuthority),
@@ -330,11 +353,7 @@ export function buildAddDepositMintIx(
 
   const data = Buffer.from([INSTRUCTION.ADD_DEPOSIT_MINT]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -398,11 +417,7 @@ export function buildDepositIx(
     toU64Le(params.amount),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -462,11 +477,7 @@ export function buildMergeIx(
     toU64Le(params.amount),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -503,11 +514,7 @@ export function buildCancelOrderIx(
     serializeSignedOrder(order),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -537,11 +544,7 @@ export function buildIncrementNonceIx(
 
   const data = Buffer.from([INSTRUCTION.INCREMENT_NONCE]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -574,11 +577,7 @@ export function buildSettleMarketIx(
     ...params.payoutNumerators.map(toU32Le),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -641,11 +640,7 @@ export function buildRedeemWinningsIx(
     toU8(outcomeIndex),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -671,11 +666,7 @@ export function buildSetPausedIx(
     toU8(paused ? 1 : 0),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -704,11 +695,7 @@ export function buildSetOperatorIx(
     newOperator.toBuffer(),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -770,11 +757,7 @@ export function buildWithdrawConditionalFromPositionIx(
     toU8(params.outcomeIndex),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -812,11 +795,7 @@ export function buildActivateMarketIx(
 
   const data = Buffer.from([INSTRUCTION.ACTIVATE_MARKET]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -966,11 +945,7 @@ export function buildMatchOrdersMultiIx(
 
   const data = Buffer.concat(dataBuffers);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -1001,11 +976,7 @@ export function buildSetAuthorityIx(
     params.newAuthority.toBuffer(),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -1067,11 +1038,7 @@ export function buildCreateOrderbookIx(
     toU8(canonical.mintB.outcomeIndex),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -1105,11 +1072,7 @@ export function buildRefreshOrderbookAltIx(
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]));
 }
 
 /**
@@ -1140,11 +1103,7 @@ export function buildSetManagerIx(
     params.newManager.toBuffer(),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 function buildAcceptRoleIx(
@@ -1158,11 +1117,7 @@ function buildAcceptRoleIx(
     writable(exchange),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([discriminator]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([discriminator]));
 }
 
 /**
@@ -1213,14 +1168,14 @@ export function buildSetOracleIx(
     writable(params.market),
   ];
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.concat([
+    keys,
+    Buffer.concat([
       Buffer.from([INSTRUCTION.SET_ORACLE]),
       params.newOracle.toBuffer(),
-    ]),
-  });
+    ])
+  );
 }
 
 /**
@@ -1248,11 +1203,7 @@ export function buildSetMarketFeesIx(
     buffers.push(toI16Le(update.takerFeeBps));
   }
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.concat(buffers),
-  });
+  return publicInstruction(programId, keys, Buffer.concat(buffers));
 }
 
 /**
@@ -1272,14 +1223,14 @@ export function buildSetFeeReceiverIx(
     writable(exchange),
   ];
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.concat([
+    keys,
+    Buffer.concat([
       Buffer.from([INSTRUCTION.SET_FEE_RECEIVER]),
       params.newFeeReceiver.toBuffer(),
-    ]),
-  });
+    ])
+  );
 }
 
 /**
@@ -1315,14 +1266,14 @@ export function buildSetFeeReceiverWithAtasIx(
     keys.push(writable(getConditionalTokenAta(quoteMint, params.newFeeReceiver)));
   }
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.concat([
+    keys,
+    Buffer.concat([
       Buffer.from([INSTRUCTION.SET_FEE_RECEIVER]),
       params.newFeeReceiver.toBuffer(),
-    ]),
-  });
+    ])
+  );
 }
 
 export function buildCreateConditionalMetadataIx(
@@ -1378,10 +1329,10 @@ function buildConditionalMetadataIx(
     keys.push(readonly(RENT_SYSVAR_ID));
   }
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.concat([
+    keys,
+    Buffer.concat([
       Buffer.from([
         isCreate
           ? INSTRUCTION.CREATE_CONDITIONAL_METADATA
@@ -1389,8 +1340,8 @@ function buildConditionalMetadataIx(
         params.outcomeIndex,
       ]),
       serializeConditionalMetadata(params.name, params.symbol, params.uri),
-    ]),
-  });
+    ])
+  );
 }
 
 /**
@@ -1420,11 +1371,7 @@ export function buildWhitelistDepositTokenIx(
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([INSTRUCTION.WHITELIST_DEPOSIT_TOKEN]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.WHITELIST_DEPOSIT_TOKEN]));
 }
 
 /**
@@ -1446,14 +1393,14 @@ export function buildSetDepositTokenStatusIx(
     writable(globalDepositToken),
   ];
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.from([
+    keys,
+    Buffer.from([
       INSTRUCTION.SET_DEPOSIT_TOKEN_STATUS,
       params.active ? 1 : 0,
-    ]),
-  });
+    ])
+  );
 }
 
 /**
@@ -1535,11 +1482,7 @@ function buildDepositToGlobalIxInner(
     keys.push(readonly(ALT_PROGRAM_ID));
   }
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.concat(dataBuffers),
-  });
+  return publicInstruction(programId, keys, Buffer.concat(dataBuffers));
 }
 
 /**
@@ -1605,17 +1548,21 @@ export function buildGlobalToMarketDepositIx(
     toU64Le(params.amount),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
  * Build InitPositionTokens instruction
  *
- * Accounts:
+ * Permissionless: any payer may initialize the accounts for a user. The
+ * instruction is idempotent: replaying it with the same recentSlot reuses the
+ * existing lookup table and skips deposit-mint groups that are already
+ * present, so a retry after a partial failure must reuse the original slot
+ * (the table address derives from it). At most MAX_DEPOSIT_MINTS_PER_IX groups
+ * may be passed per instruction; more throws ProgramSdkError
+ * (TooManyDepositMints).
+ *
+ * Accounts (11 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
  * 0. payer (signer, mut)
  * 1. user (readonly)
  * 2. exchange (readonly)
@@ -1628,14 +1575,19 @@ export function buildGlobalToMarketDepositIx(
  * 9. alt_program (readonly)
  * 10. system_program (readonly)
  * + per deposit_mint: deposit_mint, vault, gdt, conditional_mint/position_ata pairs
+ * + event_authority, program (readonly trailer)
  *
- * Data: [discriminator, recent_slot (u64)]
+ * Data: [discriminator, recent_slot (u64), num_deposit_mints (u8)]
  */
 export function buildInitPositionTokensIx(
   params: InitPositionTokensParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
+    throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
+  }
+
   const [exchange] = getExchangePda(programId);
   const [position] = getPositionPda(params.user, params.market, programId);
   const [lookupTable] = getPositionAltPda(position, params.recentSlot);
@@ -1680,21 +1632,22 @@ export function buildInitPositionTokensIx(
     toU8(params.depositMints.length),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
  * Build ExtendPositionTokens instruction
  *
- * Operator-only. Extends an existing position's lookup table after a market
- * adds new deposit mints.
+ * Permissionless: any payer may extend a position's lookup table after a
+ * market adds deposit mints; the position PDA remains the table authority.
+ * Deposit-mint groups already present in the table are skipped on chain, so
+ * callers may pass existing and new mints together. The program rejects a
+ * deactivated table or one not owned by the position. At most
+ * MAX_DEPOSIT_MINTS_PER_IX groups may be passed per instruction; more throws
+ * ProgramSdkError (TooManyDepositMints).
  *
- * Accounts:
- * 0. operator (signer, mut)
+ * Accounts (10 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
+ * 0. payer (signer, mut)
  * 1. user (readonly)
  * 2. exchange (readonly)
  * 3. market (readonly)
@@ -1707,6 +1660,7 @@ export function buildInitPositionTokensIx(
  * Per deposit_mint:
  *   deposit_mint (readonly), vault (readonly), gdt (readonly),
  *   per outcome: conditional_mint (readonly), position_ata (mut)
+ * + event_authority, program (readonly trailer)
  *
  * Data: [discriminator, num_deposit_mints (u8)]
  */
@@ -1718,12 +1672,15 @@ export function buildExtendPositionTokensIx(
   if (params.depositMints.length === 0) {
     throw ProgramSdkError.missingField("deposit_mints");
   }
+  if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
+    throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
+  }
 
   const [exchange] = getExchangePda(programId);
   const [position] = getPositionPda(params.user, params.market, programId);
 
   const keys: AccountMeta[] = [
-    signerMut(params.operator),
+    signerMut(params.payer),
     readonly(params.user),
     readonly(exchange),
     readonly(params.market),
@@ -1759,11 +1716,7 @@ export function buildExtendPositionTokensIx(
     params.depositMints.length,
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -1940,11 +1893,7 @@ export function buildDepositAndSwapIx(
     buffers.push(toU64Le(maker.takerFillAmount));
   }
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.concat(buffers),
-  });
+  return publicInstruction(programId, keys, Buffer.concat(buffers));
 }
 
 /**
@@ -1985,11 +1934,7 @@ export function buildWithdrawFromGlobalIx(
     toU64Le(params.amount),
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -2020,11 +1965,7 @@ export function buildClosePositionAltIx(
     readonly(ALT_PROGRAM_ID),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([INSTRUCTION.CLOSE_POSITION_ALT]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_POSITION_ALT]));
 }
 
 /**
@@ -2055,11 +1996,7 @@ export function buildCloseOrderStatusIx(
     params.orderHash,
   ]);
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data,
-  });
+  return publicInstruction(programId, keys, data);
 }
 
 /**
@@ -2110,11 +2047,11 @@ export function buildClosePositionTokenAccountsIx(
     }
   }
 
-  return new TransactionInstruction({
-    keys,
+  return publicInstruction(
     programId,
-    data: Buffer.from([INSTRUCTION.CLOSE_POSITION_TOKEN_ACCOUNTS]),
-  });
+    keys,
+    Buffer.from([INSTRUCTION.CLOSE_POSITION_TOKEN_ACCOUNTS])
+  );
 }
 
 /**
@@ -2145,11 +2082,7 @@ export function buildCloseOrderbookAltIx(
     readonly(ALT_PROGRAM_ID),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK_ALT]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK_ALT]));
 }
 
 /**
@@ -2178,11 +2111,7 @@ export function buildCloseOrderbookIx(
     readonly(params.lookupTable),
   ];
 
-  return new TransactionInstruction({
-    keys,
-    programId,
-    data: Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK]),
-  });
+  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK]));
 }
 
 // ============================================================================
@@ -2480,7 +2409,7 @@ export function buildExtendPositionTokensTx(
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
   const ix = buildExtendPositionTokensIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return new Transaction({ feePayer: params.payer }).add(ix);
 }
 
 export function buildDepositAndSwapTx(

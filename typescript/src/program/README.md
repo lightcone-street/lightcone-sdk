@@ -118,6 +118,7 @@ import type {
 | `conditionId` | Buffer | Computed condition ID (32 bytes) |
 | `payoutNumerators` | [number, number, number, number, number, number] | Resolution vector; first `numOutcomes` entries are meaningful |
 | `payoutDenominator` | number | Sum of meaningful payout numerators |
+| `depositMintCount` | number | Deposit mints registered through `addDepositMint` (byte 148; capped at `MAX_DEPOSIT_MINTS_PER_MARKET`) |
 
 #### GlobalDepositToken
 
@@ -176,16 +177,51 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 - `matchOrdersMulti` and `depositAndSwap` include the fee receiver and associated token program in their fixed account lists.
 - `setFeeReceiverWithAtas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
 - `refreshOrderbookAlt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
-- Instruction discriminators are current through `SetDepositTokenStatus = 38`.
+- Instruction discriminators are current through `SetDepositTokenStatus = 38`; `INSTRUCTION.EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
+- Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both readonly, non-signer). Every `build*Ix` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
+- `addDepositMint` writes the market account and increments `Market.depositMintCount`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
+- `initPositionTokens` is idempotent per `recentSlot` and `extendPositionTokens` is permissionless (`payer` replaces `operator`); both accept at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per instruction.
+
+### Event Transport Trailer
+
+The program authenticates its accounting events with one PDA-signed self-CPI per
+successful public instruction. To make that possible, every public instruction
+must end with two readonly, non-signer accounts:
+
+1. the event-authority PDA (`getEventAuthorityPda(programId)`, seed `__event_authority`)
+2. the executable program account
+
+The program pops both before dispatch and fails closed (on-chain error 21 or 68)
+if either is missing, wrong, or writable, so a legacy instruction without the
+trailer never mutates state. Public instructions must also be transaction-level:
+invoking one through another program's CPI fails with error 73. Every `build*Ix`
+in this module appends the trailer automatically, so consumers that enumerate
+instruction keys should expect the two trailing entries. The SDK never builds or
+decodes the event batch itself (`INSTRUCTION.EVENT_BATCH = 255` is reserved),
+and it does not attach a compute-budget instruction for the self-CPI.
+
+```typescript
+import { getEventAuthorityPda, PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
+
+const [eventAuthority, bump] = getEventAuthorityPda(PROGRAM_ID);
+```
 
 ### Limits
 
 ```typescript
-import { MAX_OUTCOMES, MIN_OUTCOMES, MAX_MAKERS } from "@lightconexyz/lightcone-sdk";
+import {
+  MAX_OUTCOMES,
+  MIN_OUTCOMES,
+  MAX_MAKERS,
+  MAX_DEPOSIT_MINTS_PER_MARKET,
+  MAX_DEPOSIT_MINTS_PER_IX,
+} from "@lightconexyz/lightcone-sdk";
 
-MAX_OUTCOMES  // 6
-MIN_OUTCOMES  // 2
-MAX_MAKERS    // 5
+MAX_OUTCOMES                  // 6
+MIN_OUTCOMES                  // 2
+MAX_MAKERS                    // 5
+MAX_DEPOSIT_MINTS_PER_MARKET  // 8 - addDepositMint fails with on-chain error 75 beyond it
+MAX_DEPOSIT_MINTS_PER_IX      // 8 - per initPositionTokens / extendPositionTokens instruction
 ```
 
 ---

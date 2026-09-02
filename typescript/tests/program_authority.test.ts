@@ -1,12 +1,13 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { PublicKey } from "@solana/web3.js";
+import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import {
   ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
   ALT_PROGRAM_ID,
   DISCRIMINATOR,
   INSTRUCTION,
+  MAX_DEPOSIT_MINTS_PER_IX,
   TOKEN_PROGRAM_ID,
   MarketStatus,
   OrderSide,
@@ -15,6 +16,7 @@ import {
   buildAcceptAuthorityIx,
   buildAcceptManagerIx,
   buildAcceptOperatorIx,
+  buildActivateMarketIx,
   buildAddDepositMintIx,
   buildCancelOrderIx,
   buildCloseOrderStatusIx,
@@ -32,17 +34,24 @@ import {
   buildExtendPositionTokensIx,
   buildGlobalToMarketDepositIx,
   buildIncrementNonceIx,
+  buildInitPositionTokensIx,
+  buildInitializeIx,
   buildMatchOrdersMultiIx,
+  buildMergeIx,
   buildRedeemWinningsIx,
   buildRefreshOrderbookAltIx,
+  buildSetAuthorityIx,
   buildSetDepositTokenStatusIx,
   buildSetFeeReceiverIx,
   buildSetFeeReceiverWithAtasIx,
+  buildSetOperatorIx,
   buildSetOracleIx,
   buildSetManagerIx,
   buildSetMarketFeesIx,
+  buildSetPausedIx,
   buildSettleMarketIx,
   buildUpdateConditionalMetadataIx,
+  buildWhitelistDepositTokenIx,
   buildWithdrawConditionalFromPositionIx,
   buildWithdrawFromPositionIx,
   buildWithdrawFromGlobalIx,
@@ -56,6 +65,7 @@ import {
   getAltPda,
   getConditionTombstonePda,
   getDepositTokenAta,
+  getEventAuthorityPda,
   getExchangePda,
   getGlobalDepositTokenPda,
   getMarketPda,
@@ -167,6 +177,7 @@ describe("program authority/account alignment", () => {
       data.writeUInt32LE(value, 120 + index * 4);
     });
     data.writeUInt32LE(6, 144);
+    data[148] = 2;
 
     const market = deserializeMarket(data);
 
@@ -181,6 +192,7 @@ describe("program authority/account alignment", () => {
     assert.deepEqual(market.conditionId, conditionId);
     assert.deepEqual(market.payoutNumerators, [1, 2, 3, 0, 0, 0]);
     assert.equal(market.payoutDenominator, 6);
+    assert.equal(market.depositMintCount, 2);
   });
 
   it("deserializes the 47-byte GlobalDepositToken layout", () => {
@@ -222,7 +234,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildCreateMarketIx(params, 0n, programId);
 
-    assert.equal(ix.keys.length, 5);
+    assert.equal(ix.keys.length, 7);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), params.manager.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[4]!.pubkey.toBase58(), conditionTombstone.toBase58());
@@ -232,7 +244,7 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data.readInt16LE(68), 20);
   });
 
-  it("builds addDepositMint with manager, readonly market, and global deposit token", () => {
+  it("builds addDepositMint with manager, writable market, and global deposit token", () => {
     const programId = pubkey(92);
     const market = pubkey(20);
     const depositMint = pubkey(21);
@@ -248,10 +260,10 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 11);
+    assert.equal(ix.keys.length, 13);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), pubkey(1).toBase58());
     assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
-    assert.equal(ix.keys[2]!.isWritable, false);
+    assert.equal(ix.keys[2]!.isWritable, true);
     assert.equal(ix.keys[8]!.pubkey.toBase58(), globalDepositToken.toBase58());
     assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.ADD_DEPOSIT_MINT]));
   });
@@ -269,7 +281,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 17);
+    assert.equal(ix.keys.length, 19);
     assert.equal(ix.keys[7]!.pubkey.toBase58(), mintAuthority.toBase58());
     assert.equal(ix.keys[7]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.MINT_COMPLETE_SET);
@@ -282,7 +294,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildIncrementNonceIx(user, programId);
 
-    assert.equal(ix.keys.length, 4);
+    assert.equal(ix.keys.length, 6);
     assert.equal(ix.keys[3]!.pubkey.toBase58(), exchange.toBase58());
     assert.equal(ix.keys[3]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.INCREMENT_NONCE);
@@ -296,7 +308,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildSetManagerIx({ authority, newManager }, programId);
 
-    assert.equal(ix.keys.length, 2);
+    assert.equal(ix.keys.length, 4);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), authority.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
@@ -315,7 +327,7 @@ describe("program authority/account alignment", () => {
     const operatorIx = buildAcceptOperatorIx({ incomingRole }, programId);
 
     for (const ix of [authorityIx, managerIx, operatorIx]) {
-      assert.equal(ix.keys.length, 2);
+      assert.equal(ix.keys.length, 4);
       assert.equal(ix.keys[0]!.pubkey.toBase58(), incomingRole.toBase58());
       assert.equal(ix.keys[0]!.isSigner, true);
       assert.equal(ix.keys[0]!.isWritable, false);
@@ -338,7 +350,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildSetOracleIx({ authority, market, newOracle }, programId);
 
-    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys.length, 5);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), authority.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[0]!.isWritable, false);
@@ -373,7 +385,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(feesIx.keys.length, 3);
+    assert.equal(feesIx.keys.length, 5);
     assert.equal(feesIx.keys[2]!.pubkey.toBase58(), market.toBase58());
     assert.equal(feesIx.data[0], INSTRUCTION.SET_MARKET_FEES);
     assert.equal(feesIx.data.readInt16LE(1), -10);
@@ -384,7 +396,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(receiverIx.keys.length, 2);
+    assert.equal(receiverIx.keys.length, 4);
     assert.equal(receiverIx.data.length, 33);
     assert.equal(receiverIx.data[0], INSTRUCTION.SET_FEE_RECEIVER);
 
@@ -400,7 +412,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(withAtasIx.keys.length, 10);
+    assert.equal(withAtasIx.keys.length, 12);
     assert.equal(withAtasIx.keys[2]!.pubkey.toBase58(), newFeeReceiver.toBase58());
     assert.equal(withAtasIx.keys[6]!.pubkey.toBase58(), quoteMintA.toBase58());
     assert.equal(
@@ -442,14 +454,14 @@ describe("program authority/account alignment", () => {
     const [metadata] = getMplMetadataPda(conditionalMint);
 
     const createIx = buildCreateConditionalMetadataIx(params, programId);
-    assert.equal(createIx.keys.length, 10);
+    assert.equal(createIx.keys.length, 12);
     assert.equal(createIx.keys[5]!.pubkey.toBase58(), metadata.toBase58());
     assert.equal(createIx.data[0], INSTRUCTION.CREATE_CONDITIONAL_METADATA);
     assert.equal(createIx.data[1], 1);
     assert.equal(createIx.data.readUInt32LE(2), 3);
 
     const updateIx = buildUpdateConditionalMetadataIx(params, programId);
-    assert.equal(updateIx.keys.length, 8);
+    assert.equal(updateIx.keys.length, 10);
     assert.equal(updateIx.keys[0]!.isWritable, false);
     assert.equal(updateIx.data[0], INSTRUCTION.UPDATE_CONDITIONAL_METADATA);
   });
@@ -466,7 +478,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys.length, 5);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), oracle.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[0]!.isWritable, false);
@@ -560,7 +572,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildCancelOrderIx(operator, market, signedOrder, programId);
 
-    assert.equal(ix.keys.length, 4);
+    assert.equal(ix.keys.length, 6);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), operator.toBase58());
     assert.equal(ix.keys[1]!.pubkey.toBase58(), exchange.toBase58());
     assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
@@ -592,7 +604,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 15);
+    assert.equal(ix.keys.length, 17);
     assert.equal(ix.keys[2]!.pubkey.toBase58(), suppliedMintB.toBase58());
     assert.equal(ix.keys[3]!.pubkey.toBase58(), suppliedMintA.toBase58());
     assert.equal(ix.keys[4]!.pubkey.toBase58(), orderbook.toBase58());
@@ -625,7 +637,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys.length, 14);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), manager.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[0]!.isWritable, true);
@@ -685,7 +697,7 @@ describe("program authority/account alignment", () => {
     const [lookupTable] = getAltPda(userNonce, 321n);
 
     const plain = buildDepositToGlobalIx({ user, mint, amount: 100n }, programId);
-    assert.equal(plain.keys.length, 8);
+    assert.equal(plain.keys.length, 10);
     assert.equal(plain.keys[7]!.pubkey.toBase58(), exchange.toBase58());
     assert.equal(plain.data.length, 9);
 
@@ -694,7 +706,7 @@ describe("program authority/account alignment", () => {
       { kind: "create", recentSlot: 321n },
       programId
     );
-    assert.equal(withAlt.keys.length, 11);
+    assert.equal(withAlt.keys.length, 13);
     assert.equal(withAlt.keys[8]!.pubkey.toBase58(), userNonce.toBase58());
     assert.equal(withAlt.keys[9]!.pubkey.toBase58(), lookupTable.toBase58());
     assert.equal(withAlt.keys[10]!.pubkey.toBase58(), ALT_PROGRAM_ID.toBase58());
@@ -713,7 +725,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys.length, 5);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), manager.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[0]!.isWritable, false);
@@ -732,7 +744,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 7);
+    assert.equal(ix.keys.length, 9);
     assert.equal(ix.keys[6]!.pubkey.toBase58(), exchange.toBase58());
   });
 
@@ -756,7 +768,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 11);
+    assert.equal(ix.keys.length, 13);
     assert.equal(ix.keys[3]!.pubkey.toBase58(), vault.toBase58());
     assert.equal(ix.keys[4]!.pubkey.toBase58(), conditionalMint.toBase58());
     assert.equal(ix.keys[5]!.pubkey.toBase58(), position.toBase58());
@@ -794,7 +806,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 9);
+    assert.equal(ix.keys.length, 11);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), user.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
     assert.equal(ix.keys[0]!.isWritable, true);
@@ -851,7 +863,7 @@ describe("program authority/account alignment", () => {
       pubkey(106)
     );
 
-    assert.equal(ix.keys.length, 9);
+    assert.equal(ix.keys.length, 11);
     assert.equal(ix.data[0], INSTRUCTION.WITHDRAW_CONDITIONAL_FROM_POSITION);
   });
 
@@ -868,7 +880,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 18);
+    assert.equal(ix.keys.length, 20);
     assert.equal(ix.keys[8]!.pubkey.toBase58(), mintAuthority.toBase58());
     assert.equal(ix.keys[8]!.isWritable, false);
     assert.equal(ix.data[0], INSTRUCTION.GLOBAL_TO_MARKET_DEPOSIT);
@@ -915,25 +927,29 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.keys[8]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
   });
 
-  it("builds extendPositionTokens with operator signer", () => {
+  it("builds extendPositionTokens with a permissionless payer signer", () => {
     const programId = pubkey(100);
-    const operator = pubkey(1);
+    const payer = pubkey(1);
+    const lookupTable = pubkey(4);
 
     const ix = buildExtendPositionTokensIx(
       {
-        operator,
+        payer,
         user: pubkey(2),
         market: pubkey(3),
-        lookupTable: pubkey(4),
+        lookupTable,
         depositMints: [pubkey(5)],
       },
       2,
       programId
     );
 
-    assert.equal(ix.keys[0]!.pubkey.toBase58(), operator.toBase58());
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), payer.toBase58());
     assert.equal(ix.keys[0]!.isSigner, true);
-    assert.equal(ix.data[0], INSTRUCTION.EXTEND_POSITION_TOKENS);
+    assert.equal(ix.keys[0]!.isWritable, true);
+    assert.equal(ix.keys[5]!.pubkey.toBase58(), lookupTable.toBase58());
+    assert.equal(ix.keys[5]!.isWritable, true);
+    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.EXTEND_POSITION_TOKENS, 1]));
   });
 
   it("builds closeOrderStatus with order hash payload", () => {
@@ -944,7 +960,7 @@ describe("program authority/account alignment", () => {
 
     const ix = buildCloseOrderStatusIx({ operator, orderHash }, programId);
 
-    assert.equal(ix.keys.length, 3);
+    assert.equal(ix.keys.length, 5);
     assert.equal(ix.keys[0]!.pubkey.toBase58(), operator.toBase58());
     assert.equal(ix.keys[2]!.pubkey.toBase58(), orderStatus.toBase58());
     assert.equal(ix.data.length, 33);
@@ -966,7 +982,7 @@ describe("program authority/account alignment", () => {
       programId
     );
 
-    assert.equal(ix.keys.length, 12);
+    assert.equal(ix.keys.length, 14);
     assert.equal(ix.data.length, 1);
     assert.equal(ix.data[0], INSTRUCTION.CLOSE_POSITION_TOKEN_ACCOUNTS);
   });
@@ -983,21 +999,334 @@ describe("program authority/account alignment", () => {
       { operator, position, market, lookupTable },
       programId
     );
-    assert.equal(positionAltIx.keys.length, 6);
+    assert.equal(positionAltIx.keys.length, 8);
     assert.equal(positionAltIx.data[0], INSTRUCTION.CLOSE_POSITION_ALT);
 
     const orderbookAltIx = buildCloseOrderbookAltIx(
       { operator, orderbook, market, lookupTable },
       programId
     );
-    assert.equal(orderbookAltIx.keys.length, 6);
+    assert.equal(orderbookAltIx.keys.length, 8);
     assert.equal(orderbookAltIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK_ALT);
 
     const closeOrderbookIx = buildCloseOrderbookIx(
       { operator, orderbook, market, lookupTable },
       programId
     );
-    assert.equal(closeOrderbookIx.keys.length, 5);
+    assert.equal(closeOrderbookIx.keys.length, 7);
     assert.equal(closeOrderbookIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK);
   });
+  it("rejects more deposit-mint groups than the program accepts", () => {
+    const programId = pubkey(115);
+    const tooMany = Array.from({ length: MAX_DEPOSIT_MINTS_PER_IX + 1 }, (_, i) =>
+      pubkey(20 + i)
+    );
+    const isTooMany = (error: unknown) =>
+      error instanceof ProgramSdkError && error.variant === "TooManyDepositMints";
+
+    assert.throws(
+      () =>
+        buildInitPositionTokensIx(
+          { payer: pubkey(1), user: pubkey(2), market: pubkey(3), depositMints: tooMany, recentSlot: 1n },
+          2,
+          programId
+        ),
+      isTooMany
+    );
+    assert.throws(
+      () =>
+        buildExtendPositionTokensIx(
+          { payer: pubkey(1), user: pubkey(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: tooMany },
+          2,
+          programId
+        ),
+      isTooMany
+    );
+
+    const atCap = tooMany.slice(0, MAX_DEPOSIT_MINTS_PER_IX);
+    const initIx = buildInitPositionTokensIx(
+      { payer: pubkey(1), user: pubkey(2), market: pubkey(3), depositMints: atCap, recentSlot: 1n },
+      2,
+      programId
+    );
+    const extendIx = buildExtendPositionTokensIx(
+      { payer: pubkey(1), user: pubkey(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: atCap },
+      2,
+      programId
+    );
+    assert.equal(initIx.data[initIx.data.length - 1], MAX_DEPOSIT_MINTS_PER_IX);
+    assert.equal(extendIx.data[extendIx.data.length - 1], MAX_DEPOSIT_MINTS_PER_IX);
+  });
+
+  it("derives the event authority PDA from the program id", () => {
+    const localProgramId = new PublicKey("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago");
+
+    const [eventAuthority, bump] = getEventAuthorityPda(localProgramId);
+
+    assert.equal(eventAuthority.toBase58(), "2V5fevrqDyZYEWEkvuaX8ceQUHNpfiTaSi6CYkuEw6BK");
+    assert.equal(bump, 254);
+    assert.notEqual(
+      getEventAuthorityPda(pubkey(90))[0].toBase58(),
+      eventAuthority.toBase58()
+    );
+  });
+
+  it("keeps the trailer after setFeeReceiverWithAtas optional accounts", () => {
+    const programId = pubkey(116);
+    const newFeeReceiver = pubkey(7);
+    const quoteMint = pubkey(5);
+    const [eventAuthority] = getEventAuthorityPda(programId);
+
+    const ix = buildSetFeeReceiverWithAtasIx(
+      { authority: pubkey(3), newFeeReceiver, quoteMints: [quoteMint] },
+      programId
+    );
+
+    assert.equal(ix.keys.length, 10);
+    assert.equal(
+      ix.keys[7]!.pubkey.toBase58(),
+      getConditionalTokenAta(quoteMint, newFeeReceiver).toBase58()
+    );
+    assert.equal(ix.keys[8]!.pubkey.toBase58(), eventAuthority.toBase58());
+    assert.equal(ix.keys[9]!.pubkey.toBase58(), programId.toBase58());
+  });
+
+  it("appends the event transport trailer to every public instruction", () => {
+    const programId = pubkey(200);
+    const [eventAuthority] = getEventAuthorityPda(programId);
+    const builders = allPublicBuilders(programId);
+
+    assert.equal(builders.length, 42, "register new builders in allPublicBuilders");
+
+    for (const [name, ix] of builders) {
+      assert.equal(ix.programId.toBase58(), programId.toBase58(), name);
+      const body = ix.keys.slice(0, -2);
+      const trailer = ix.keys.slice(-2);
+      assert.deepEqual(
+        trailer.map((meta) => [meta.pubkey.toBase58(), meta.isSigner, meta.isWritable]),
+        [
+          [eventAuthority.toBase58(), false, false],
+          [programId.toBase58(), false, false],
+        ],
+        name
+      );
+      assert.ok(
+        body.every((meta) => !meta.pubkey.equals(eventAuthority)),
+        `${name}: event authority must only appear in the trailer`
+      );
+    }
+  });
 });
+
+/**
+ * One valid instance of every public instruction builder. Register new
+ * builders here so the trailer test covers them.
+ */
+function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInstruction]> {
+  const signer = pubkey(1);
+  const market = pubkey(2);
+  const depositMint = pubkey(3);
+  const baseMint = pubkey(4);
+  const quoteMint = pubkey(5);
+  const feeReceiver = pubkey(6);
+  const lookupTable = pubkey(7);
+  const orderbook = pubkey(10);
+  const user = pubkey(11);
+  const position = pubkey(12);
+  const takerOrder = order(1, market, baseMint, quoteMint);
+  const makerOrder = order(2, market, baseMint, quoteMint);
+  const acceptRole = { incomingRole: signer };
+  const metadata = {
+    manager: signer,
+    market,
+    depositMint,
+    outcomeIndex: 0,
+    name: "Yes",
+    symbol: "YES",
+    uri: "https://example.com/yes.json",
+  };
+  const makerFill: MakerFill = {
+    order: makerOrder,
+    makerFillAmount: 10n,
+    takerFillAmount: 8n,
+    isFullFill: true,
+    isDeposit: false,
+    depositMint,
+  };
+
+  return [
+    ["initialize", buildInitializeIx({ authority: signer }, programId)],
+    [
+      "createMarket",
+      buildCreateMarketIx(
+        {
+          manager: signer,
+          numOutcomes: 2,
+          oracle: pubkey(8),
+          questionId: Buffer.alloc(32, 1),
+          makerFeeBps: 0,
+          takerFeeBps: 0,
+        },
+        0n,
+        programId
+      ),
+    ],
+    ["addDepositMint", buildAddDepositMintIx({ manager: signer, depositMint }, market, 2, programId)],
+    ["mintCompleteSet", buildDepositIx({ user: signer, market, depositMint, amount: 1n }, 2, programId)],
+    ["mergeCompleteSet", buildMergeIx({ user: signer, market, depositMint, amount: 1n }, 2, programId)],
+    ["cancelOrder", buildCancelOrderIx(signer, market, takerOrder, programId)],
+    ["incrementNonce", buildIncrementNonceIx(signer, programId)],
+    ["settleMarket", buildSettleMarketIx({ oracle: signer, marketId: 0n, payoutNumerators: [1, 0] }, programId)],
+    ["redeemWinnings", buildRedeemWinningsIx({ user: signer, market, depositMint, amount: 1n }, 0, programId)],
+    ["setPaused", buildSetPausedIx(signer, true, programId)],
+    ["setOperator", buildSetOperatorIx(signer, pubkey(9), programId)],
+    [
+      "withdrawConditionalFromPosition",
+      buildWithdrawConditionalFromPositionIx(
+        { user: signer, market, depositMint, amount: 1n, outcomeIndex: 0 },
+        programId
+      ),
+    ],
+    [
+      "withdrawFromPosition",
+      buildWithdrawFromPositionIx(
+        { user: signer, market, depositMint, amount: 1n, outcomeIndex: 0 },
+        programId
+      ),
+    ],
+    ["activateMarket", buildActivateMarketIx({ manager: signer, marketId: 0n }, programId)],
+    [
+      "matchOrdersMulti",
+      buildMatchOrdersMultiIx(
+        {
+          operator: signer,
+          market,
+          baseMint,
+          quoteMint,
+          feeReceiver,
+          takerOrder,
+          makerOrders: [makerOrder],
+          makerFillAmounts: [10n],
+          takerFillAmounts: [8n],
+          fullFillBitmask: 0,
+        },
+        programId
+      ),
+    ],
+    [
+      "createOrderbook",
+      buildCreateOrderbookIx(
+        {
+          manager: signer,
+          market,
+          mintA: baseMint,
+          mintB: quoteMint,
+          feeReceiver,
+          mintADepositMint: depositMint,
+          mintBDepositMint: depositMint,
+          recentSlot: 1n,
+          baseIndex: 0,
+          mintAOutcomeIndex: 0,
+          mintBOutcomeIndex: 1,
+        },
+        programId
+      ),
+    ],
+    [
+      "refreshOrderbookAlt",
+      buildRefreshOrderbookAltIx(
+        { manager: signer, market, orderbook, lookupTable, quoteMint, feeReceiver },
+        programId
+      ),
+    ],
+    ["setAuthority", buildSetAuthorityIx({ currentAuthority: signer, newAuthority: pubkey(9) }, programId)],
+    ["setManager", buildSetManagerIx({ authority: signer, newManager: pubkey(9) }, programId)],
+    ["acceptAuthority", buildAcceptAuthorityIx(acceptRole, programId)],
+    ["acceptManager", buildAcceptManagerIx(acceptRole, programId)],
+    ["acceptOperator", buildAcceptOperatorIx(acceptRole, programId)],
+    ["setOracle", buildSetOracleIx({ authority: signer, market, newOracle: pubkey(8) }, programId)],
+    [
+      "setMarketFees",
+      buildSetMarketFeesIx(
+        { manager: signer, updates: [{ market, makerFeeBps: 0, takerFeeBps: 0 }] },
+        programId
+      ),
+    ],
+    ["setFeeReceiver", buildSetFeeReceiverIx({ authority: signer, newFeeReceiver: feeReceiver }, programId)],
+    [
+      "setFeeReceiverWithAtas",
+      buildSetFeeReceiverWithAtasIx(
+        { authority: signer, newFeeReceiver: feeReceiver, quoteMints: [quoteMint] },
+        programId
+      ),
+    ],
+    ["createConditionalMetadata", buildCreateConditionalMetadataIx(metadata, programId)],
+    ["updateConditionalMetadata", buildUpdateConditionalMetadataIx(metadata, programId)],
+    ["whitelistDepositToken", buildWhitelistDepositTokenIx({ authority: signer, mint: depositMint }, programId)],
+    [
+      "setDepositTokenStatus",
+      buildSetDepositTokenStatusIx({ manager: signer, mint: depositMint, active: true }, programId),
+    ],
+    ["depositToGlobal", buildDepositToGlobalIx({ user: signer, mint: depositMint, amount: 1n }, programId)],
+    [
+      "depositToGlobalWithAlt",
+      buildDepositToGlobalIxWithAlt(
+        { user: signer, mint: depositMint, amount: 1n },
+        { kind: "extend", lookupTable },
+        programId
+      ),
+    ],
+    [
+      "globalToMarketDeposit",
+      buildGlobalToMarketDepositIx({ user: signer, market, depositMint, amount: 1n }, 2, programId),
+    ],
+    [
+      "initPositionTokens",
+      buildInitPositionTokensIx(
+        { payer: signer, user, market, depositMints: [depositMint], recentSlot: 1n },
+        2,
+        programId
+      ),
+    ],
+    [
+      "depositAndSwap",
+      buildDepositAndSwapIx(
+        {
+          operator: signer,
+          market,
+          baseMint,
+          quoteMint,
+          feeReceiver,
+          takerOrder,
+          takerIsFullFill: true,
+          takerIsDeposit: false,
+          takerDepositMint: depositMint,
+          numOutcomes: 2,
+          makers: [makerFill],
+        },
+        programId
+      ),
+    ],
+    [
+      "extendPositionTokens",
+      buildExtendPositionTokensIx(
+        { payer: signer, user, market, lookupTable, depositMints: [depositMint] },
+        2,
+        programId
+      ),
+    ],
+    ["withdrawFromGlobal", buildWithdrawFromGlobalIx({ user: signer, mint: depositMint, amount: 1n }, programId)],
+    ["closePositionAlt", buildClosePositionAltIx({ operator: signer, position, market, lookupTable }, programId)],
+    ["closeOrderStatus", buildCloseOrderStatusIx({ operator: signer, orderHash: Buffer.alloc(32, 2) }, programId)],
+    [
+      "closePositionTokenAccounts",
+      buildClosePositionTokenAccountsIx(
+        { operator: signer, market, position, depositMints: [depositMint] },
+        2,
+        programId
+      ),
+    ],
+    ["closeOrderbookAlt", buildCloseOrderbookAltIx({ operator: signer, orderbook, market, lookupTable }, programId)],
+    ["closeOrderbook", buildCloseOrderbookIx({ operator: signer, orderbook, market, lookupTable }, programId)],
+  ];
+}

@@ -202,7 +202,8 @@ export function deserializeExchange(data: Buffer): Exchange {
  * - condition_id: [u8; 32]
  * - payout_numerators: [u32; 6]
  * - payout_denominator: u32
- * - _reserved: [u8; 68]
+ * - deposit_mint_count: u8
+ * - _reserved: [u8; 67]
  */
 export function deserializeMarket(data: Buffer): Market {
   if (data.length < ACCOUNT_SIZE.MARKET) {
@@ -255,6 +256,9 @@ export function deserializeMarket(data: Buffer): Market {
   const payoutDenominator = data.readUInt32LE(offset);
   offset += 4;
 
+  const depositMintCount = data[offset];
+  offset += 1;
+
   // Map status byte to enum
   let status: MarketStatus;
   switch (statusByte) {
@@ -287,6 +291,7 @@ export function deserializeMarket(data: Buffer): Market {
     conditionId,
     payoutNumerators,
     payoutDenominator,
+    depositMintCount,
   };
 }
 

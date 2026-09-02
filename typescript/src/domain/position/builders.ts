@@ -421,6 +421,14 @@ export class WithdrawFromPositionBuilder {
 
 // ─── InitPositionTokensBuilder ──────────────────────────────────────────────
 
+/**
+ * Builder for initializing a user's position accounts and lookup table.
+ *
+ * Permissionless and idempotent: any payer may initialize the accounts, and a
+ * replay with the same recent slot reuses the existing lookup table and skips
+ * deposit-mint groups already present, so retries must reuse the slot. At most
+ * MAX_DEPOSIT_MINTS_PER_IX deposit mints per instruction.
+ */
 export class InitPositionTokensBuilder {
   private readonly client: ClientContext;
   private payerValue?: PublicKey;
@@ -494,12 +502,17 @@ export class InitPositionTokensBuilder {
 // ─── ExtendPositionTokensBuilder ────────────────────────────────────────────
 
 /**
- * Operator-only builder for extending an existing position ALT after a market
- * adds new deposit mints.
+ * Builder for extending an existing position ALT after a market adds deposit
+ * mints.
+ *
+ * Permissionless: any payer may extend the table; the position PDA remains the
+ * table authority. Deposit-mint groups already present are skipped on chain,
+ * so existing and new mints may be passed together. At most
+ * MAX_DEPOSIT_MINTS_PER_IX deposit mints per instruction.
  */
 export class ExtendPositionTokensBuilder {
   private readonly client: ClientContext;
-  private operatorValue?: PublicKey;
+  private payerValue?: PublicKey;
   private userValue?: PublicKey;
   private marketValue?: PublicKey;
   private lookupTableValue?: PublicKey;
@@ -510,9 +523,16 @@ export class ExtendPositionTokensBuilder {
     this.client = client;
   }
 
-  operator(operator: PublicKey): this {
-    this.operatorValue = operator;
+  payer(payer: PublicKey): this {
+    this.payerValue = payer;
     return this;
+  }
+
+  /**
+   * @deprecated ExtendPositionTokens is permissionless; use {@link payer}.
+   */
+  operator(operator: PublicKey): this {
+    return this.payer(operator);
   }
 
   user(user: PublicKey): this {
@@ -541,7 +561,7 @@ export class ExtendPositionTokensBuilder {
   }
 
   buildIx(): TransactionInstruction {
-    const operator = requireField(this.operatorValue, "operator");
+    const payer = requireField(this.payerValue, "payer");
     const user = requireField(this.userValue, "user");
     const market = requireField(this.marketValue, "market");
     const lookupTable = requireField(this.lookupTableValue, "lookup_table");
@@ -549,16 +569,16 @@ export class ExtendPositionTokensBuilder {
     const numOutcomes = requireField(this.numOutcomesValue, "num_outcomes");
 
     return buildExtendPositionTokensIx(
-      { operator, user, market, lookupTable, depositMints },
+      { payer, user, market, lookupTable, depositMints },
       numOutcomes,
       this.client.programId,
     );
   }
 
   buildTx(): Transaction {
-    const operator = requireField(this.operatorValue, "operator");
+    const payer = requireField(this.payerValue, "payer");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: operator }).add(ix);
+    return new Transaction({ feePayer: payer }).add(ix);
   }
 
   async signAndSubmit(): Promise<string> {

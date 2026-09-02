@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { PublicKey } from "@solana/web3.js";
 import { Positions } from "../src/domain/position/client";
+import { ExtendPositionTokensBuilder } from "../src/domain/position/builders";
 import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
 import type { ClientContext } from "../src/context";
@@ -29,5 +30,30 @@ describe("WithdrawFromPositionBuilder", () => {
 
   it("validates against num_outcomes", () => {
     assert.throws(() => builder().numOutcomes(2).buildIx(), /Invalid outcome index/i);
+  });
+});
+
+describe("ExtendPositionTokensBuilder", () => {
+  it("forwards the deprecated operator() alias to payer()", () => {
+    const payer = PublicKey.unique();
+
+    const ix = new ExtendPositionTokensBuilder(client)
+      .operator(payer)
+      .user(PublicKey.unique())
+      .market(PublicKey.unique())
+      .lookupTable(PublicKey.unique())
+      .depositMints([PublicKey.unique()])
+      .numOutcomes(2)
+      .buildIx();
+
+    assert.equal(ix.keys[0]!.pubkey.toBase58(), payer.toBase58());
+    assert.equal(ix.keys[0]!.isSigner, true);
+  });
+
+  it("requires payer", () => {
+    assert.throws(
+      () => new ExtendPositionTokensBuilder(client).buildIx(),
+      /payer is required/
+    );
   });
 });

@@ -487,6 +487,11 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 | [`onchain_transactions`](examples/onchain_transactions.ts) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.ts) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
 
+Every instruction builder appends the program's event transport trailer (the
+event-authority PDA, then the program account) automatically, and public
+instructions must be transaction-level. See the
+[program module README](src/program/README.md#event-transport-trailer).
+
 ### Manual Fund-Moving Operations
 
 These examples refuse production and endpoint overrides and are intentionally
