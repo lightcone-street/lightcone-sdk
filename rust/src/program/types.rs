@@ -607,6 +607,12 @@ pub struct GlobalToMarketDepositParams {
 /// Parameters for initializing position token accounts and ALT.
 ///
 /// Permissionless — anyone can pay to create positions/ATAs/ALTs for any user.
+///
+/// The instruction is idempotent: replaying it with the same `recent_slot`
+/// reuses the existing lookup table, skips canonical groups already present,
+/// and recreates missing token accounts. The table address derives from
+/// `(position, recent_slot)`, so a retry must reuse the original slot. The
+/// program accepts at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per call.
 #[derive(Debug, Clone)]
 pub struct InitPositionTokensParams {
     /// Payer for account creation (signer, does not need to be the user)
@@ -665,18 +671,24 @@ pub struct DepositAndSwapParams {
     pub makers: Vec<MakerFill>,
 }
 
-/// Parameters for extending a position ALT with new deposit mints
+/// Parameters for extending a position ALT with additional deposit mints.
+///
+/// Permissionless — any signer may pay. The position PDA remains the lookup
+/// table authority, and the program skips canonical groups already present in
+/// the table, so a replay is safe.
 #[derive(Debug, Clone)]
 pub struct ExtendPositionTokensParams {
-    /// Operator for account creation (signer)
-    pub operator: Pubkey,
+    /// Fee payer for account creation and ALT rent (signer)
+    pub payer: Pubkey,
     /// Position owner (does not need to sign)
     pub user: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
     /// Existing ALT pubkey from init_position_tokens
     pub lookup_table: Pubkey,
-    /// New deposit mints to add (must be in ascending GDT index order)
+    /// Deposit mints whose canonical groups must be present, in ascending GDT
+    /// index order. Groups already in the table are skipped on chain. At most
+    /// `MAX_DEPOSIT_MINTS_PER_IX` per call.
     pub deposit_mints: Vec<Pubkey>,
 }
 

@@ -93,6 +93,11 @@ export const INSTRUCTION = {
   ACCEPT_MANAGER: 36,
   ACCEPT_OPERATOR: 37,
   SET_DEPOSIT_TOKEN_STATUS: 38,
+  /**
+   * Reserved: the program's private event-batch self-CPI. The SDK never builds
+   * it; it is listed so no public instruction reuses the value.
+   */
+  EVENT_BATCH: 255,
 } as const;
 
 /**
@@ -147,6 +152,18 @@ export const MIN_OUTCOMES = 2;
 export const MAX_MAKERS = 5;
 
 /**
+ * Maximum deposit mints the program registers per market. addDepositMint fails
+ * with on-chain error 75 (TooManyDepositMints) beyond it.
+ */
+export const MAX_DEPOSIT_MINTS_PER_MARKET = 8;
+
+/**
+ * Maximum deposit-mint groups accepted by one initPositionTokens or
+ * extendPositionTokens instruction. Equal to the per-market cap.
+ */
+export const MAX_DEPOSIT_MINTS_PER_IX = MAX_DEPOSIT_MINTS_PER_MARKET;
+
+/**
  * PDA Seeds
  */
 export const SEEDS = {
@@ -163,4 +180,10 @@ export const SEEDS = {
   GLOBAL_DEPOSIT: "global_deposit",
   FEE_RECEIVER: "fee_receiver",
   MPL_METADATA: "metadata",
+  /**
+   * Event-authority PDA seed. The program signs its event-batch self-CPI with
+   * this PDA and requires every public instruction to pass it as a readonly,
+   * non-signer trailer account immediately before the program account.
+   */
+  EVENT_AUTHORITY: "__event_authority",
 } as const;

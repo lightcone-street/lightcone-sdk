@@ -8,6 +8,7 @@ from lightcone_sdk import (
     get_all_conditional_mints,
     get_condition_tombstone_pda,
     get_conditional_mint_pda,
+    get_event_authority_pda,
     get_exchange_pda,
     get_market_pda,
     get_mint_authority_pda,
@@ -246,3 +247,32 @@ class TestGetAllConditionalMints:
         for i, mint in enumerate(mints):
             expected, _ = get_conditional_mint_pda(market, deposit_mint, i)
             assert mint == expected
+
+
+class TestGetEventAuthorityPda:
+    def test_derives_valid_pda(self):
+        pda, bump = get_event_authority_pda()
+
+        assert isinstance(pda, Pubkey)
+        assert 0 <= bump <= 255
+        assert pda != get_exchange_pda()[0]
+
+    def test_consistent_derivation(self):
+        assert get_event_authority_pda() == get_event_authority_pda()
+
+    def test_follows_program_id(self):
+        custom_program = Pubkey.new_unique()
+
+        pda_default, _ = get_event_authority_pda(PROGRAM_ID)
+        pda_custom, _ = get_event_authority_pda(custom_program)
+
+        assert pda_default != pda_custom
+
+    def test_matches_local_program_deployment(self):
+        # Pinned against the local program id; the seed is "__event_authority".
+        program_id = Pubkey.from_string("HQZW84F7WbpDLDdd6eaDsBh6LjDQ2uCxpkZgkLakcago")
+
+        pda, bump = get_event_authority_pda(program_id)
+
+        assert str(pda) == "2V5fevrqDyZYEWEkvuaX8ceQUHNpfiTaSi6CYkuEw6BK"
+        assert bump == 254

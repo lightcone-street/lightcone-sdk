@@ -18,6 +18,23 @@ export function getExchangePda(
 }
 
 /**
+ * Derive the event-authority PDA.
+ * Seeds: ["__event_authority"]
+ *
+ * The program signs its event-batch self-CPI with this PDA and requires every
+ * public instruction to pass it as a readonly, non-signer trailer account
+ * immediately before the program account. The account holds no data.
+ */
+export function getEventAuthorityPda(
+  programId: PublicKey = PROGRAM_ID
+): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync(
+    [Buffer.from(SEEDS.EVENT_AUTHORITY)],
+    programId
+  );
+}
+
+/**
  * Derive Market PDA
  * Seeds: ["market", market_id (u64 little-endian)]
  */
@@ -278,6 +295,7 @@ export function getPositionAltPda(
  */
 export const pda = {
   getExchangePda,
+  getEventAuthorityPda,
   getMarketPda,
   getConditionTombstonePda,
   getVaultPda,

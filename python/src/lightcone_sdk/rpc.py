@@ -44,6 +44,7 @@ from .program.accounts import (
 )
 from .program.errors import AccountNotFoundError
 from .program.pda import (
+    get_event_authority_pda,
     get_exchange_pda,
     get_global_deposit_pda,
     get_user_global_deposit_pda,
@@ -200,6 +201,11 @@ class Rpc:
     def get_exchange_pda(self) -> Pubkey:
         """Get the Exchange PDA."""
         pda, _ = get_exchange_pda(self._client.program_id)
+        return pda
+
+    def get_event_authority_pda(self) -> Pubkey:
+        """Get the event-authority PDA appended to every public instruction."""
+        pda, _ = get_event_authority_pda(self._client.program_id)
         return pda
 
     def get_global_deposit_token_pda(self, mint: Pubkey) -> Pubkey:

@@ -66,6 +66,7 @@ def build_market_data(
     taker_fee_bps: int = 0,
     payout_numerators: tuple[int, int, int, int, int, int] = (0, 0, 0, 0, 0, 0),
     payout_denominator: int = 0,
+    deposit_mint_count: int = 0,
 ) -> bytes:
     """Build Market account data for testing."""
     data = bytearray()
@@ -83,7 +84,8 @@ def build_market_data(
     for numerator in payout_numerators:
         data.extend(struct.pack("<I", numerator))
     data.extend(struct.pack("<I", payout_denominator))
-    data.extend(bytes(68))  # reserved
+    data.append(deposit_mint_count)
+    data.extend(bytes(67))  # reserved
     return bytes(data)
 
 
@@ -240,6 +242,7 @@ class TestDeserializeMarket:
         assert market.condition_id == condition_id
         assert market.payout_numerators == (0, 0, 0, 0, 0, 0)
         assert market.payout_denominator == 0
+        assert market.deposit_mint_count == 0
 
     def test_deserialize_resolved_market(self):
         data = build_market_data(
@@ -252,6 +255,7 @@ class TestDeserializeMarket:
             condition_id=bytes(32),
             payout_numerators=(1, 2, 3, 0, 0, 0),
             payout_denominator=6,
+            deposit_mint_count=2,
         )
 
         market = deserialize_market(data)
@@ -259,6 +263,7 @@ class TestDeserializeMarket:
         assert market.status == MarketStatus.RESOLVED
         assert market.payout_numerators == (1, 2, 3, 0, 0, 0)
         assert market.payout_denominator == 6
+        assert market.deposit_mint_count == 2
 
     def test_invalid_discriminator(self):
         data = b"baddisc!" + bytes(112)

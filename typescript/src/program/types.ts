@@ -75,6 +75,7 @@ export interface Market {
   conditionId: Buffer; // 32 bytes - derived from oracle + questionId + numOutcomes
   payoutNumerators: PayoutNumerators; // six u32 values; first numOutcomes are meaningful
   payoutDenominator: number; // u32 sum of meaningful payout numerators
+  depositMintCount: number; // u8 at byte 148 - mints registered via addDepositMint (max MAX_DEPOSIT_MINTS_PER_MARKET)
 }
 
 export type PayoutNumerators = [number, number, number, number, number, number];
@@ -493,7 +494,13 @@ export interface GlobalToMarketDepositParams {
 }
 
 /**
- * Parameters for initPositionTokens instruction
+ * Parameters for initPositionTokens instruction.
+ *
+ * Permissionless and idempotent: any payer may initialize the accounts, and a
+ * replay with the same recentSlot reuses the existing lookup table and skips
+ * deposit-mint groups already present. Retries must reuse the slot because
+ * the table address derives from it. At most MAX_DEPOSIT_MINTS_PER_IX deposit
+ * mints per instruction.
  */
 export interface InitPositionTokensParams {
   payer: PublicKey;
@@ -504,13 +511,16 @@ export interface InitPositionTokensParams {
 }
 
 /**
- * Parameters for depositAndSwap instruction
- */
-/**
- * Parameters for extendPositionTokens instruction
+ * Parameters for extendPositionTokens instruction.
+ *
+ * Permissionless: `payer` is any signer that funds the new accounts and ALT
+ * rent; the position PDA remains the table authority. Deposit-mint groups
+ * already present in the table are skipped on chain, so callers may pass
+ * existing and new mints together. At most MAX_DEPOSIT_MINTS_PER_IX deposit
+ * mints per instruction.
  */
 export interface ExtendPositionTokensParams {
-  operator: PublicKey;
+  payer: PublicKey;
   user: PublicKey;
   market: PublicKey;
   lookupTable: PublicKey;
@@ -526,6 +536,9 @@ export interface MakerFill {
   depositMint: PublicKey;
 }
 
+/**
+ * Parameters for depositAndSwap instruction
+ */
 export interface DepositAndSwapParams {
   operator: PublicKey;
   market: PublicKey;

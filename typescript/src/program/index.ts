@@ -107,6 +107,8 @@ export {
   MAX_OUTCOMES,
   MIN_OUTCOMES,
   MAX_MAKERS,
+  MAX_DEPOSIT_MINTS_PER_MARKET,
+  MAX_DEPOSIT_MINTS_PER_IX,
   SEEDS,
 } from "./constants";
 
@@ -146,6 +148,7 @@ export {
 // ============================================================================
 export {
   getExchangePda,
+  getEventAuthorityPda,
   getMarketPda,
   getConditionTombstonePda,
   getVaultPda,
