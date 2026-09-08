@@ -97,7 +97,7 @@ The Lightcone backend must be running locally for SDK examples to work. At minim
 - **backend/api** — REST API server
 - **backend/engine** — order matching engine
 
-Set `LIGHTCONE_ENV=local` to point the SDK at the local backend (`https://api.local.lightcone.xyz`).
+Set `LIGHTCONE_ENV=local` to point the SDK at the local backend (`https://api.local.internalcone.com`).
 
 For Caddy + mkcert TLS setup and running the full local stack, refer to the [web-app repo](https://github.com/lightcone-street/lightcone) setup instructions.
 

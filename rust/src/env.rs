@@ -44,8 +44,8 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "https://api.local.lightcone.xyz",
-            Self::Staging => "https://api.staging.lightcone.xyz",
+            Self::Local => "https://api.local.internalcone.com",
+            Self::Staging => "https://api.staging.internalcone.com",
             Self::Prod => "https://api.lightcone.xyz",
         }
         .to_string()
@@ -60,8 +60,8 @@ impl LightconeEnv {
             return override_url;
         }
         match self {
-            Self::Local => "wss://ws.local.lightcone.xyz/ws",
-            Self::Staging => "wss://ws.staging.lightcone.xyz/ws",
+            Self::Local => "wss://ws.local.internalcone.com/ws",
+            Self::Staging => "wss://ws.staging.internalcone.com/ws",
             Self::Prod => "wss://ws.lightcone.xyz/ws",
         }
         .to_string()
@@ -128,11 +128,11 @@ mod tests {
 
         assert_eq!(
             environment.api_url(),
-            "https://api.local.lightcone.xyz".to_string()
+            "https://api.local.internalcone.com".to_string()
         );
         assert_eq!(
             environment.ws_url(),
-            "wss://ws.local.lightcone.xyz/ws".to_string()
+            "wss://ws.local.internalcone.com/ws".to_string()
         );
     }
 

@@ -319,7 +319,7 @@ Each environment configures the API URL, WebSocket URL, Solana RPC URL, and on-c
 
 The Solana RPC URL can also be overridden via the `SDK_RPC_URL` environment variable, which takes precedence over the environment default. This is useful for pointing all examples at a private RPC to avoid public devnet rate limits.
 
-`LightconeEnv::Local` targets `https://api.local.lightcone.xyz` for REST and `wss://ws.local.lightcone.xyz/ws` for WebSocket connections.
+`LightconeEnv::Local` targets `https://api.local.internalcone.com` for REST and `wss://ws.local.internalcone.com/ws` for WebSocket connections.
 
 ### RPC Failover
 
