@@ -25,8 +25,8 @@ fn system_program_id() -> Pubkey {
 }
 
 use crate::program::constants::{
-    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_DEPOSIT_MINTS_PER_IX, MAX_MAKERS,
-    MAX_OUTCOMES, MIN_OUTCOMES, MPL_TOKEN_METADATA_PROGRAM_ID, RENT_SYSVAR_ID, TOKEN_PROGRAM_ID,
+    instruction, ALT_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, MAX_MAKERS, MAX_OUTCOMES,
+    MIN_OUTCOMES, MPL_TOKEN_METADATA_PROGRAM_ID, RENT_SYSVAR_ID, TOKEN_PROGRAM_ID,
 };
 use crate::program::error::{SdkError, SdkResult};
 use crate::program::orders::OrderPayload;
@@ -50,7 +50,7 @@ use crate::program::types::{
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
-    validate_fee_pair, validate_oracle, validate_outcome_count, validate_user,
+    validate_fee_pair, validate_oracle, validate_outcome_count, validate_position_token_inputs,
 };
 use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE};
 
@@ -1141,7 +1141,7 @@ fn build_conditional_metadata_ix(
 ///
 /// Accounts (7):
 /// 0. authority (signer, mut) - Must be exchange authority
-/// 1. exchange (readonly) - Exchange PDA
+/// 1. exchange (mut) - Exchange PDA; increments deposit_token_count
 /// 2. mint (readonly) - Token mint to whitelist
 /// 3. global_deposit_token (mut) - PDA to create ["global_deposit", mint]
 /// 4. system_program (readonly)
@@ -1329,7 +1329,11 @@ pub fn build_global_to_market_deposit_ix(
     public_instruction(program_id, keys, data)
 }
 
-/// Build InitPositionTokens instruction. The program rejects off-curve beneficiaries.
+/// Build InitPositionTokens instruction without validating its beneficiary or mint count.
+///
+/// This infallible API leaves those checks to the program. Use
+/// `InitPositionTokensBuilder::build_ix` or `Positions::init_position_tokens_tx`
+/// for local validation.
 ///
 /// Create position, all conditional token ATAs, and an Address Lookup Table.
 /// Permissionless — anyone (e.g., backend operator) can pay.
@@ -1610,15 +1614,7 @@ pub fn build_extend_position_tokens_ix(
     num_outcomes: u8,
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
-    if params.deposit_mints.is_empty() {
-        return Err(SdkError::MissingField("deposit_mints".to_string()));
-    }
-    validate_user(&params.user)?;
-    if params.deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
-        return Err(SdkError::TooManyDepositMints {
-            count: params.deposit_mints.len(),
-        });
-    }
+    validate_position_token_inputs(&params.user, &params.deposit_mints)?;
 
     let (exchange, _) = get_exchange_pda(program_id);
     let (position, _) = get_position_pda(&params.user, &params.market, program_id);
@@ -1823,6 +1819,7 @@ pub fn build_close_orderbook_ix(params: &CloseOrderbookParams, program_id: &Pubk
 mod tests {
     use super::*;
     use crate::env::LightconeEnv;
+    use crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX;
     use crate::program::types::{
         scalar_to_payout_numerators, MakerFill, MarketFeeUpdate, OrderSide, ScalarResolutionParams,
     };

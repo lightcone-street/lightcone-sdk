@@ -1018,6 +1018,25 @@ describe("program authority/account alignment", () => {
     assert.equal(closeOrderbookIx.keys.length, 7);
     assert.equal(closeOrderbookIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK);
   });
+  it("rejects an empty position initialization", () => {
+    assert.throws(
+      () => buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints: [], recentSlot: 99n }, 2),
+      (error: unknown) => error instanceof ProgramSdkError && error.variant === "MissingField" && error.message.includes("deposit_mints")
+    );
+  });
+
+  for (const count of [1, MAX_DEPOSIT_MINTS_PER_IX]) {
+    it(`encodes ${count} position mint groups and the exact slot`, () => {
+      const depositMints = Array.from({ length: count }, (_, i) => pubkey(20 + i));
+      const ix = buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints, recentSlot: 99n }, 2);
+      assert.equal(ix.data[0], INSTRUCTION.INIT_POSITION_TOKENS);
+      assert.equal(ix.data.readBigUInt64LE(1), 99n);
+      assert.equal(ix.data[9], count);
+      assert.ok(ix.keys[1]!.pubkey.equals(wallet(2)));
+      depositMints.forEach((mint, index) => assert.ok(ix.keys[11 + index * 7]!.pubkey.equals(mint)));
+    });
+  }
+
   it("rejects more deposit-mint groups than the program accepts", () => {
     const programId = pubkey(115);
     const tooMany = Array.from({ length: MAX_DEPOSIT_MINTS_PER_IX + 1 }, (_, i) =>

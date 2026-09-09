@@ -1362,7 +1362,7 @@ function buildConditionalMetadataIx(
  *
  * Accounts:
  * 0. authority (signer, mut)
- * 1. exchange (readonly)
+ * 1. exchange (mut) - deposit_token_count is incremented
  * 2. mint (readonly)
  * 3. global_deposit_token (mut)
  * 4. system_program (readonly)
@@ -1591,12 +1591,17 @@ export function buildGlobalToMarketDepositIx(
  * + event_authority, program (readonly trailer)
  *
  * Data: [discriminator, recent_slot (u64), num_deposit_mints (u8)]
+ * Throws MissingField for an empty depositMints list, TooManyDepositMints for
+ * more than MAX_DEPOSIT_MINTS_PER_IX groups, or InvalidPubkey for an off-curve user.
  */
 export function buildInitPositionTokensIx(
   params: InitPositionTokensParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  if (params.depositMints.length === 0) {
+    throw ProgramSdkError.missingField("deposit_mints");
+  }
   validateUser(params.user);
   if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
     throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);

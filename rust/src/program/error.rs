@@ -212,7 +212,7 @@ pub enum SdkError {
     LookupTableCapacityExceeded,
 
     /// Too many deposit mints for one market or one position-token instruction.
-    #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_MARKET)]
+    #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX)]
     TooManyDepositMints { count: usize },
 
     /// Invalid pubkey

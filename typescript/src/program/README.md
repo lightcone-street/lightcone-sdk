@@ -184,49 +184,39 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 
 ### Event Transport Trailer
 
-The program authenticates its accounting events with one PDA-signed self-CPI per
-successful public instruction. To make that possible, every public instruction
-must end with two readonly, non-signer accounts:
+Every `build*Ix` appends the event-authority PDA and executable program account
+as read-only, non-signer accounts, in that order. These are always the last two
+accounts; callers must not append another trailer.
 
-1. the event-authority PDA (`getEventAuthorityPda(programId)`, seed `__event_authority`)
-2. the executable program account
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules, the
+governance CPI allowlist, position replay semantics, program limits, and error codes.
 
-The program pops both before dispatch and fails closed (on-chain error 46 or 68)
-if either is missing, wrong, or writable, so a legacy instruction without the
-trailer never mutates state. Public instructions require transaction-level invocation except for the governance calls described below. Unsupported CPI calls fail with error 73. Every `build*Ix`
-in this module appends the trailer automatically, so consumers that enumerate
-instruction keys should expect the two trailing entries. The SDK never builds or
-decodes the event batch itself (`INSTRUCTION.EVENT_BATCH = 255` is reserved),
-and it does not attach a compute-budget instruction for the self-CPI.
+The SDK neither builds nor decodes event batches; `INSTRUCTION.EVENT_BATCH` is
+reserved. Builders do not add a compute-budget instruction. Callers must include
+the program's final self-CPI when estimating transaction compute.
 
-The existing governance builders also support one CPI level beneath a transaction-level caller for `SetPaused`, `SetOperator`, `SetAuthority`, `WhitelistDepositToken`, `SetManager`, `SetFeeReceiver`, `SetOracle`, and `AcceptAuthority`. The current exchange authority must sign, or the pending authority for `AcceptAuthority`. Deeper calls and all other public instructions reject CPI with error 73. Governance authorities and fee receivers may be PDAs.
-
-Market creation and oracle rotation reject zero or off-curve oracle keys with `InvalidOracle`. Position setup and extension require on-curve beneficiary keys because user exits require a transaction-level signature. Their fallible builders reject PDA beneficiaries with the existing invalid-public-key error. Rust's infallible raw builders retain their signatures and leave these checks to the program. `InitPositionTokensBuilder` validates the beneficiary before calling the raw Rust builder.
-
-Both matching instructions accept at most four makers. The SDK rejects a fifth maker before serialization. The maker limit does not guarantee that every account combination fits Solana's transaction packet limit.
+`buildInitPositionTokensIx` and `buildExtendPositionTokensIx` throw
+`ProgramSdkError` with variant `InvalidPubkey` for off-curve beneficiaries,
+`MissingField` for empty mint lists, and `TooManyDepositMints` for lists exceeding
+`MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders throw
+`InvalidOracle` for zero or off-curve oracle keys.
 
 ```typescript
-import { getEventAuthorityPda, PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
 
-const [eventAuthority, bump] = getEventAuthorityPda(PROGRAM_ID);
+const [eventAuthority, bump] = program.getEventAuthorityPda(program.PROGRAM_ID);
 ```
 
 ### Limits
 
 ```typescript
-import {
-  MAX_OUTCOMES,
-  MIN_OUTCOMES,
-  MAX_MAKERS,
-  MAX_DEPOSIT_MINTS_PER_MARKET,
-  MAX_DEPOSIT_MINTS_PER_IX,
-} from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
 
-MAX_OUTCOMES                  // 6
-MIN_OUTCOMES                  // 2
-MAX_MAKERS                    // 4
-MAX_DEPOSIT_MINTS_PER_MARKET  // 8 - addDepositMint fails with on-chain error 75 beyond it
-MAX_DEPOSIT_MINTS_PER_IX      // 8 - per initPositionTokens / extendPositionTokens instruction
+program.MAX_OUTCOMES                  // 6
+program.MIN_OUTCOMES                  // 2
+program.MAX_MAKERS                    // 4
+program.MAX_DEPOSIT_MINTS_PER_MARKET   // 8
+program.MAX_DEPOSIT_MINTS_PER_IX       // 8
 ```
 
 ---

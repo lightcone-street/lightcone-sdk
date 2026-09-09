@@ -5,24 +5,38 @@
 
 ## Context
 
-The Lightcone program (lightcone-pinnochio ticket LIG-957) replaced runtime-log accounting events with one PDA-authenticated self-CPI event batch per successful public instruction. Every public instruction now ends with two read-only, non-signer trailer accounts: the event-authority PDA derived from the seed `__event_authority` and the executable program account. The program pops both before dispatch and rejects a missing, wrong, or writable trailer before any state change, so legacy instruction builders fail closed. The same release makes `AddDepositMint` write the market account, adds `Market.deposit_mint_count` at byte offset 148, caps deposit mints at eight per market, makes `ExtendPositionTokens` permissionless, and makes `InitPositionTokens` idempotent. The three SDKs must present one contract for this ABI.
+The Rust, Python, and TypeScript SDKs must encode the same program wire contract.
+The [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) owns event transport behavior,
+invocation rules, position replay semantics, and program limits. This ADR records
+how the SDKs expose that contract and preserve their public APIs.
 
 ## Decision
 
-Every SDK instruction builder appends the trailer unconditionally through a single private constructor, so no builder can omit it and one table-driven test proves the invariant for every public builder. The SDK exposes the seed, the event-authority PDA helper, the reserved private discriminator, and the deposit-mint limits as documented constants, and mirrors on-chain error codes 68 through 75 in its program error type. The SDK does not build or decode event batches.
+Every SDK instruction builder appends the event-authority and program trailer
+through one private constructor. A table-driven test checks the trailer for every
+public builder. The SDKs expose the event-authority seed and PDA helper, reserved
+event-batch discriminator, and deposit-mint limits. Their program error types mirror
+codes 68 through 75, and market decoders read `deposit_mint_count` at byte offset 148.
+The SDKs neither build nor decode event batches, and builders do not add
+compute-budget instructions.
 
-`ExtendPositionTokens` parameters name the signer `payer` rather than `operator`; the fluent builder keeps a deprecated `operator()` alias that forwards to `payer()`. Raw builder signatures are otherwise preserved; the per-instruction deposit-mint limit is validated only on already-fallible paths. The SDK does not attach a compute-budget instruction; callers budget for the program's final self-CPI themselves.
-
-All three SDKs implement this decision: the Rust SDK landed first and the Python and TypeScript SDKs followed in the same change series under the AGENTS.md cross-language parity rule. The program upgrade must not be activated in an environment before every SDK that targets it has been upgraded.
+`ExtendPositionTokens` parameters name the signer `payer`. Fluent builders retain
+a deprecated `operator()` alias that forwards to `payer()`. Raw builder signatures
+are otherwise preserved. Already-fallible position initialization and extension
+paths validate beneficiaries and mint-list bounds before serialization. Rust's
+infallible `build_init_position_tokens_ix` and `Positions::init_position_tokens_ix`
+defer these checks to the program; its fluent builder and transaction helper
+validate them locally.
 
 ## Considered Options
 
-A builder flag that omits the trailer for older program deployments was rejected: the previous program parses trailing accounts as remaining accounts for init, extend, cleanup, and match instructions, so no single instruction shape works against both program versions and the cutover must be coordinated per environment. Keeping the `operator` name with corrected documentation was rejected because the name would misstate the authorization the program enforces. Making infallible raw builders return `Result` to validate the deposit-mint limit was rejected to preserve public signatures.
+An optional trailer would create two incompatible instruction layouts behind the
+same SDK API. Builders therefore always append it. Changing infallible Rust raw
+builders to return `Result` was rejected to preserve existing public signatures.
 
 ## Consequences
 
-Transactions built by an upgraded SDK gain one static account key and two account indexes per instruction and are rejected by the previous program; transactions built by an older SDK are rejected by the upgraded program. Each environment therefore upgrades the program and the SDKs together. Direct construction of `ExtendPositionTokensParams` with the old field name no longer compiles. Consumers that enumerate instruction accounts must expect the two trailing entries, and CPI consumers must use the governance allowlist at exactly one CPI level. All other public instructions require transaction-level invocation.
-
-## Program compatibility
-
-The SDK preserves the existing instruction data and account layouts for the program's governance CPI allowlist. Refer to each language's program README for the supported builders and signer constraints. Oracle validation rejects zero and off-curve keys. Fallible position setup builders reject off-curve beneficiaries. Rust's infallible raw builders preserve their return types and leave beneficiary validation to the program. Both matching instructions use the program's four-maker limit.
+Consumers that inspect instruction accounts must account for the two trailing
+entries. Code constructing `ExtendPositionTokens` parameters uses `payer`; the
+fluent alias supports migration from `operator()`. Callers select the SDK version
+that matches their program deployment and budget compute for the final self-CPI.

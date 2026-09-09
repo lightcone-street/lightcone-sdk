@@ -436,7 +436,7 @@ status, so refresh authoritative balances before any retry. See the
 | [`onchain_transactions`](examples/onchain_transactions.rs) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 | [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.rs) | Deposit to the global pool, move capital into a market, withdraw from global, and merge back to keep the run net-neutral |
 
-Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions must be transaction-level. See the [program module docs](src/program/README.md#event-transport-trailer).
+Every instruction builder appends the program's event transport trailer (the event-authority PDA and the program account, both read-only), and public Lightcone instructions require transaction-level invocation except for the governance CPI allowlist. See the [program module docs](src/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming
 

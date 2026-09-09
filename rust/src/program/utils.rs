@@ -4,7 +4,7 @@
 
 use solana_pubkey::Pubkey;
 
-use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
+use crate::program::constants::{MAX_DEPOSIT_MINTS_PER_IX, MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::program::error::{SdkError, SdkResult};
 
 // ============================================================================
@@ -54,6 +54,23 @@ pub(crate) fn validate_oracle(oracle: &Pubkey) -> SdkResult<()> {
 pub(crate) fn validate_user(user: &Pubkey) -> SdkResult<()> {
     if !user.is_on_curve() {
         return Err(SdkError::InvalidPubkey(user.to_string()));
+    }
+    Ok(())
+}
+
+/// Reject invalid position-token beneficiaries and empty or oversized mint groups.
+pub(crate) fn validate_position_token_inputs(
+    user: &Pubkey,
+    deposit_mints: &[Pubkey],
+) -> SdkResult<()> {
+    if deposit_mints.is_empty() {
+        return Err(SdkError::MissingField("deposit_mints".to_string()));
+    }
+    validate_user(user)?;
+    if deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
+        return Err(SdkError::TooManyDepositMints {
+            count: deposit_mints.len(),
+        });
     }
     Ok(())
 }

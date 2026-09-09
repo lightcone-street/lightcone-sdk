@@ -467,28 +467,26 @@ ALT slot maps.
 
 ### Event transport trailer
 
-Every public instruction ends with two read-only, non-signer accounts that the
-program requires for its authenticated event transport: the event-authority PDA
-(`["__event_authority"]`, see `get_event_authority_pda`) followed by the
-executable Lightcone program account. The program pops both before dispatch,
-signs one final event-batch self-CPI with the PDA, and rejects a missing, wrong,
-or writable trailer before any state change (custom errors 46 and 68). Public instructions require transaction-level invocation except for the governance calls described below. Unsupported CPI calls fail with custom error 73. Every SDK builder appends the trailer
-automatically, so it always occupies the last two account slots. The private
-batch discriminator `instruction::EVENT_BATCH` (255) is reserved; the SDK neither
-builds nor decodes event batches.
+Every instruction builder appends the event-authority PDA and executable program
+account as read-only, non-signer accounts, in that order. These are always the
+last two accounts; callers must not append another trailer.
+`get_event_authority_pda(program_id)` exposes the same derivation for integrations
+that inspect instruction accounts.
 
-`InitPositionTokens` is idempotent: a replay with the same `recent_slot` reuses
-the existing lookup table and skips canonical groups already present.
-`ExtendPositionTokens` is permissionless: any signer pays, and groups already in
-the table are skipped. Each market registers at most
-`MAX_DEPOSIT_MINTS_PER_MARKET` deposit mints, and each of those two instructions
-accepts at most `MAX_DEPOSIT_MINTS_PER_IX` groups.
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules, the
+governance CPI allowlist, position replay semantics, program limits, and error codes.
 
-The existing governance builders also support one CPI level beneath a transaction-level caller for `SetPaused`, `SetOperator`, `SetAuthority`, `WhitelistDepositToken`, `SetManager`, `SetFeeReceiver`, `SetOracle`, and `AcceptAuthority`. The current exchange authority must sign, or the pending authority for `AcceptAuthority`. Deeper calls and all other public instructions reject CPI with error 73. Governance authorities and fee receivers may be PDAs.
+The SDK neither builds nor decodes event batches; `instruction::EVENT_BATCH` is
+reserved. Builders do not add a compute-budget instruction. Callers must include
+the program's final self-CPI when estimating transaction compute.
 
-Market creation and oracle rotation reject zero or off-curve oracle keys with `InvalidOracle`. Position setup and extension require on-curve beneficiary keys because user exits require a transaction-level signature. Their fallible builders reject PDA beneficiaries with the existing invalid-public-key error. Rust's infallible raw builders retain their signatures and leave these checks to the program. `InitPositionTokensBuilder` validates the beneficiary before calling the raw Rust builder.
-
-Both matching instructions accept at most four makers. The SDK rejects a fifth maker before serialization. The maker limit does not guarantee that every account combination fits Solana's transaction packet limit.
+`InitPositionTokensBuilder::build_ix`, `Positions::init_position_tokens_tx`, and
+`build_extend_position_tokens_ix` reject off-curve beneficiaries with
+`InvalidPubkey`, empty mint lists with `MissingField`, and lists exceeding
+`MAX_DEPOSIT_MINTS_PER_IX` with `TooManyDepositMints`. The infallible
+`build_init_position_tokens_ix` and `Positions::init_position_tokens_ix` preserve
+their return types and defer those checks to the program. Market creation and
+oracle rotation builders reject zero or off-curve oracle keys with `InvalidOracle`.
 
 ## Constants
 

@@ -499,7 +499,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 
 Every instruction builder appends the program's event transport trailer (the
 event-authority PDA, then the program account) automatically, and public
-instructions must be transaction-level. See the
+instructions require transaction-level invocation except for the governance CPI allowlist. See the
 [program module README](src/lightcone_sdk/program/README.md#event-transport-trailer).
 
 ### WebSocket Streaming

@@ -489,7 +489,7 @@ All examples are runnable with `npx tsx examples/<name>.ts`. Examples default to
 
 Every instruction builder appends the program's event transport trailer (the
 event-authority PDA, then the program account) automatically, and public
-instructions must be transaction-level. See the
+instructions require transaction-level invocation except for the governance CPI allowlist. See the
 [program module README](src/program/README.md#event-transport-trailer).
 
 ### Manual Fund-Moving Operations

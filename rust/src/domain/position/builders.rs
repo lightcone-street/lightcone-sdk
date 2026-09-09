@@ -7,7 +7,6 @@ use crate::client::LightconeClient;
 use crate::domain::market::Market;
 use crate::domain::position::state::{SolActionCosts, SolBalanceAvailability};
 use crate::error::SdkError;
-use crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX;
 use crate::program::instructions;
 use crate::program::types::{
     BuildDepositParams, BuildMergeParams, DepositToGlobalAltContext, DepositToGlobalParams,
@@ -1137,6 +1136,7 @@ mod withdraw_from_position_tests {
 #[cfg(test)]
 mod position_token_builder_tests {
     use super::*;
+    use crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX;
     use crate::program::error::SdkError as ProgramError;
 
     fn client() -> LightconeClient {
@@ -1170,6 +1170,25 @@ mod position_token_builder_tests {
 
     fn deposit_mints(count: usize) -> Vec<Pubkey> {
         (0..count).map(|_| Pubkey::new_unique()).collect()
+    }
+
+    #[test]
+    fn init_rejects_empty_deposit_mints() {
+        let client = client();
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(vec![])
+            .recent_slot(99)
+            .num_outcomes(2)
+            .build_tx();
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(ProgramError::MissingField(field))) if field == "deposit_mints"
+        ));
     }
 
     #[test]
@@ -1343,7 +1362,9 @@ impl<'a> InitPositionTokensBuilder<'a> {
         self
     }
 
-    /// Build an init-position-tokens instruction. Rejects off-curve beneficiaries.
+    /// Build an init-position-tokens instruction.
+    ///
+    /// Rejects off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let payer = self
             .payer
@@ -1363,14 +1384,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
         let num_outcomes = self
             .num_outcomes
             .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
-        crate::program::utils::validate_user(&user)?;
-        if deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
-            return Err(SdkError::Program(
-                crate::program::error::SdkError::TooManyDepositMints {
-                    count: deposit_mints.len(),
-                },
-            ));
-        }
+        crate::program::utils::validate_position_token_inputs(&user, &deposit_mints)?;
 
         Ok(instructions::build_init_position_tokens_ix(
             &InitPositionTokensParams {

@@ -1619,10 +1619,13 @@ def build_init_position_tokens_instruction(
     + event_authority, program (readonly trailer)
 
     Raises:
+        MissingFieldError: if no deposit mints are supplied.
         InvalidPubkeyError: if the beneficiary is off-curve.
         TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
             are supplied.
     """
+    if not deposit_mints:
+        raise MissingFieldError("deposit_mints")
     _validate_user(user)
     if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
         raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)

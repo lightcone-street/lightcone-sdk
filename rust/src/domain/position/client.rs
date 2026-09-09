@@ -1017,11 +1017,14 @@ impl<'a> Positions<'a> {
     }
 
     /// Build InitPositionTokens transaction.
+    ///
+    /// Rejects off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn init_position_tokens_tx(
         &self,
         params: InitPositionTokensParams,
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
+        crate::program::utils::validate_position_token_inputs(&params.user, &params.deposit_mints)?;
         let ix = self.init_position_tokens_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
     }
@@ -1277,6 +1280,66 @@ mod tests {
     use crate::{auth::AuthCredentials, domain::position::WalletDepositBalancesState};
     use chrono::{Duration, Utc};
     use solana_pubkey::Pubkey;
+
+    #[cfg(feature = "native")]
+    #[test]
+    fn init_position_transaction_validates_beneficiary_and_mint_count() {
+        use crate::program::{
+            constants::{instruction, INITIALIZE_AUTHORITY, MAX_DEPOSIT_MINTS_PER_IX},
+            error::SdkError as ProgramError,
+            pda::get_exchange_pda,
+            types::InitPositionTokensParams,
+        };
+
+        let client = LightconeClient::builder().build().unwrap();
+        let user = *INITIALIZE_AUTHORITY;
+        let params = |user, count| InitPositionTokensParams {
+            payer: *INITIALIZE_AUTHORITY,
+            user,
+            market: Pubkey::new_unique(),
+            deposit_mints: (0..count).map(|_| Pubkey::new_unique()).collect(),
+            recent_slot: 99,
+        };
+
+        let empty = client
+            .positions()
+            .init_position_tokens_tx(params(user, 0), 2);
+        assert!(matches!(
+            empty,
+            Err(SdkError::Program(ProgramError::MissingField(field))) if field == "deposit_mints"
+        ));
+        for count in [MAX_DEPOSIT_MINTS_PER_IX + 1, 257] {
+            let oversized = client
+                .positions()
+                .init_position_tokens_tx(params(user, count), 2);
+            assert!(matches!(
+                oversized,
+                Err(SdkError::Program(ProgramError::TooManyDepositMints { count: actual })) if actual == count
+            ));
+        }
+        let pda = get_exchange_pda(&client.program_id).0;
+        let invalid_user = client
+            .positions()
+            .init_position_tokens_tx(params(pda, 1), 2);
+        assert!(matches!(
+            invalid_user,
+            Err(SdkError::Program(ProgramError::InvalidPubkey(_)))
+        ));
+
+        for count in [1, MAX_DEPOSIT_MINTS_PER_IX] {
+            let tx = client
+                .positions()
+                .init_position_tokens_tx(params(user, count), 2)
+                .unwrap();
+            let ix = &tx.message.instructions[0];
+            let mut expected = vec![instruction::INIT_POSITION_TOKENS];
+            expected.extend_from_slice(&99_u64.to_le_bytes());
+            expected.push(count as u8);
+            assert_eq!(ix.data, expected);
+            assert_eq!(tx.message.account_keys[usize::from(ix.accounts[1])], user);
+            assert_eq!(tx.message.account_keys[0], *INITIALIZE_AUTHORITY);
+        }
+    }
 
     #[cfg(feature = "native")]
     use {

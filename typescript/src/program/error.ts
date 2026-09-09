@@ -1,4 +1,4 @@
-import { MAX_DEPOSIT_MINTS_PER_MARKET } from "./constants";
+import { MAX_DEPOSIT_MINTS_PER_IX } from "./constants";
 
 export type ProgramErrorVariant =
   | "InvalidDiscriminator"
@@ -362,7 +362,7 @@ export class ProgramSdkError extends Error {
   static tooManyDepositMints(count: number): ProgramSdkError {
     return new ProgramSdkError(
       "TooManyDepositMints",
-      `Too many deposit mints: ${count} (max ${MAX_DEPOSIT_MINTS_PER_MARKET})`,
+      `Too many deposit mints: ${count} (max ${MAX_DEPOSIT_MINTS_PER_IX})`,
     );
   }
 

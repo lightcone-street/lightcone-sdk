@@ -1310,6 +1310,27 @@ def test_set_fee_receiver_with_atas_keeps_trailer_after_optional_block():
     assert [meta.pubkey for meta in ix.accounts[8:]] == event_transport_trailer()
 
 
+def test_position_token_init_rejects_empty_deposit_mints():
+    user = Keypair().pubkey()
+    with pytest.raises(MissingFieldError, match="deposit_mints"):
+        build_init_position_tokens_instruction(
+            user, user, Pubkey.new_unique(), [], 2, 99
+        )
+
+
+@pytest.mark.parametrize("count", [1, MAX_DEPOSIT_MINTS_PER_IX])
+def test_position_token_init_encodes_valid_mint_count_and_slot(count):
+    user = Keypair().pubkey()
+    mints = [Pubkey.new_unique() for _ in range(count)]
+    ix = build_init_position_tokens_instruction(
+        user, user, Pubkey.new_unique(), mints, 2, 99
+    )
+    assert bytes(ix.data[1:]) == (99).to_bytes(8, "little") + bytes([count])
+    assert ix.accounts[1].pubkey == user
+    for index, mint in enumerate(mints):
+        assert ix.accounts[11 + index * 7].pubkey == mint
+
+
 def test_position_token_builders_reject_more_groups_than_the_program_accepts():
     payer = Pubkey.new_unique()
     user = Keypair().pubkey()
