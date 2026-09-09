@@ -1146,6 +1146,28 @@ mod position_token_builder_tests {
         }
     }
 
+    #[test]
+    fn init_rejects_pda_beneficiaries() {
+        let client = client();
+        let user = crate::program::pda::get_exchange_pda(&client.program_id).0;
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .user(user)
+            .market(user)
+            .deposit_mints(vec![user])
+            .recent_slot(99)
+            .num_outcomes(2)
+            .build_ix();
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(
+                crate::program::error::SdkError::InvalidPubkey(_)
+            ))
+        ));
+    }
+
     fn deposit_mints(count: usize) -> Vec<Pubkey> {
         (0..count).map(|_| Pubkey::new_unique()).collect()
     }
@@ -1157,7 +1179,7 @@ mod position_token_builder_tests {
             .positions()
             .init_position_tokens()
             .payer(Pubkey::new_unique())
-            .user(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX + 1))
             .recent_slot(1)
@@ -1179,7 +1201,7 @@ mod position_token_builder_tests {
             .positions()
             .init_position_tokens()
             .payer(Pubkey::new_unique())
-            .user(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX))
             .recent_slot(1)
@@ -1197,7 +1219,7 @@ mod position_token_builder_tests {
     fn extend_pays_with_payer_and_keeps_the_operator_alias() {
         let client = client();
         let payer = Pubkey::new_unique();
-        let user = Pubkey::new_unique();
+        let user = *crate::program::constants::INITIALIZE_AUTHORITY;
         let market = Pubkey::new_unique();
         let lookup_table = Pubkey::new_unique();
         let mints = deposit_mints(1);
@@ -1227,7 +1249,7 @@ mod position_token_builder_tests {
         let error = client
             .positions()
             .extend_position_tokens()
-            .user(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .lookup_table(Pubkey::new_unique())
             .deposit_mints(deposit_mints(1))
@@ -1321,7 +1343,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
         self
     }
 
-    /// Build an init-position-tokens instruction.
+    /// Build an init-position-tokens instruction. Rejects off-curve beneficiaries.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let payer = self
             .payer
@@ -1341,6 +1363,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
         let num_outcomes = self
             .num_outcomes
             .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
+        crate::program::utils::validate_user(&user)?;
         if deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
             return Err(SdkError::Program(
                 crate::program::error::SdkError::TooManyDepositMints {

@@ -9,8 +9,9 @@ program requires for its authenticated event transport: the event-authority PDA
 (seed ``__event_authority``) followed by the executable program account. The
 program pops both before dispatch, signs one final event-batch self-CPI with the
 PDA, and rejects a missing, wrong, or writable trailer before any state change
-(on-chain errors 21 and 68). Public instructions must also be transaction-level;
-invoking one through another program's CPI fails with on-chain error 73. Every
+(on-chain errors 46 and 68). Public instructions require transaction-level
+invocation except for the governance allowlist documented in this module's
+README. Unsupported CPI calls fail with on-chain error 73. Every
 builder here appends the trailer through ``_public_instruction``, so it always
 occupies the last two account slots.
 """
@@ -78,6 +79,7 @@ from .errors import (
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
+    InvalidPubkeyError,
     MissingFieldError,
     PayoutVectorExceedsU32Error,
     TooManyDepositMintsError,
@@ -134,6 +136,18 @@ from .utils import (
 
 # Backward compatibility alias
 FullOrder = SignedOrder
+
+
+def _validate_oracle(oracle: Pubkey) -> None:
+    """Reject oracle keys that cannot sign top-level settlement instructions."""
+    if oracle == Pubkey.default() or not oracle.is_on_curve():
+        raise InvalidOracleError()
+
+
+def _validate_user(user: Pubkey) -> None:
+    """Reject PDA beneficiaries whose exits require a top-level user signature."""
+    if not user.is_on_curve():
+        raise InvalidPubkeyError(str(user))
 
 
 def _zero_pubkey() -> Pubkey:
@@ -203,8 +217,10 @@ def build_create_market_instruction(
     """Build the create_market instruction with a known market_id.
 
     Use this when you already know the market_id (from exchange.market_count).
+    Rejects zero or off-curve oracle keys.
     """
     validate_outcome_count(num_outcomes)
+    _validate_oracle(oracle)
     validate_fee_pair(maker_fee_bps, taker_fee_bps)
 
     exchange, _ = get_exchange_pda(program_id)
@@ -700,9 +716,7 @@ def build_withdraw_conditional_from_position_instruction(
         AccountMeta(pubkey=position, is_signer=False, is_writable=False),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=conditional_mint, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=position_conditional_ata, is_signer=False, is_writable=True
-        ),
+        AccountMeta(pubkey=position_conditional_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=user_conditional_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
@@ -882,12 +896,8 @@ def build_match_orders_multi_instruction(
 
         maker_nonce, _ = get_user_nonce_pda(maker_order.maker, program_id)
         maker_position, _ = get_position_pda(maker_order.maker, market, program_id)
-        maker_position_base_ata = get_conditional_token_ata(
-            maker_position, base_mint
-        )
-        maker_position_quote_ata = get_conditional_token_ata(
-            maker_position, quote_mint
-        )
+        maker_position_base_ata = get_conditional_token_ata(maker_position, base_mint)
+        maker_position_quote_ata = get_conditional_token_ata(maker_position, quote_mint)
 
         accounts.extend(
             [
@@ -988,7 +998,9 @@ def build_create_orderbook_instruction(
         canonical_a["mint"], canonical_b["mint"], program_id
     )
     lookup_table, _ = get_alt_pda(orderbook, recent_slot)
-    quote_mint = canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
+    quote_mint = (
+        canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
+    )
     fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     accounts = [
@@ -1012,9 +1024,7 @@ def build_create_orderbook_instruction(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
         AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True
-        ),
+        AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True),
     ]
 
     data = bytearray()
@@ -1185,9 +1195,8 @@ def build_set_oracle_instruction(
     params: SetOracleParams,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the set_oracle instruction."""
-    if params.new_oracle == _zero_pubkey():
-        raise InvalidOracleError()
+    """Build set_oracle, rejecting zero or off-curve oracle keys."""
+    _validate_oracle(params.new_oracle)
 
     exchange, _ = get_exchange_pda(program_id)
     accounts = [
@@ -1336,9 +1345,11 @@ def _build_conditional_metadata_instruction(
 
     data = bytearray(
         [
-            INSTRUCTION_CREATE_CONDITIONAL_METADATA
-            if is_create
-            else INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
+            (
+                INSTRUCTION_CREATE_CONDITIONAL_METADATA
+                if is_create
+                else INSTRUCTION_UPDATE_CONDITIONAL_METADATA
+            ),
             params.outcome_index,
         ]
     )
@@ -1383,7 +1394,7 @@ def build_whitelist_deposit_token_instruction(
 
     Accounts:
     0. authority (signer, writable)
-    1. exchange (readonly)
+    1. exchange (writable) - deposit_token_count is incremented
     2. mint (readonly)
     3. global_deposit_token (writable)
     4. system_program (readonly)
@@ -1393,7 +1404,7 @@ def build_whitelist_deposit_token_instruction(
 
     accounts = [
         AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=True),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
@@ -1585,7 +1596,7 @@ def build_init_position_tokens_instruction(
 ) -> Instruction:
     """Build the init_position_tokens instruction.
 
-    Permissionless: any payer may initialize the accounts for a user. The
+    Permissionless: any payer may initialize the accounts for an on-curve user. The
     instruction is idempotent: replaying it with the same ``recent_slot`` reuses
     the existing lookup table and skips deposit-mint groups that are already
     present, so a retry after a partial failure must reuse the original slot
@@ -1608,9 +1619,11 @@ def build_init_position_tokens_instruction(
     + event_authority, program (readonly trailer)
 
     Raises:
+        InvalidPubkeyError: if the beneficiary is off-curve.
         TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
             are supplied.
     """
+    _validate_user(user)
     if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
         raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
 
@@ -1741,7 +1754,9 @@ def build_deposit_and_swap_instruction(
     accounts.append(
         AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True)
     )
-    accounts.append(AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False))
+    accounts.append(
+        AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False)
+    )
     accounts.append(
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -1917,11 +1932,13 @@ def build_extend_position_tokens_instruction(
 
     Raises:
         MissingFieldError: if ``deposit_mints`` is empty.
+        InvalidPubkeyError: if the beneficiary is off-curve.
         TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
             are supplied.
     """
     if not deposit_mints:
         raise MissingFieldError("deposit_mints")
+    _validate_user(user)
     if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
         raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
 

@@ -290,7 +290,7 @@ class InvalidFeeReceiverError(LightconeError):
 
 
 class InvalidOracleError(LightconeError):
-    """Raised when a market oracle pubkey is invalid."""
+    """Raised when a market oracle pubkey is zero or off-curve."""
 
     def __init__(self):
         super().__init__("Invalid oracle")
@@ -353,7 +353,7 @@ class UnsupportedEventSchemaError(LightconeError):
 
 
 class PublicInstructionMustBeTopLevelError(LightconeError):
-    """Raised when a public instruction is invoked through another program's CPI."""
+    """Raised when an instruction or invocation depth is outside the governance CPI allowlist."""
 
     def __init__(self):
         super().__init__("Public instruction must be top-level")

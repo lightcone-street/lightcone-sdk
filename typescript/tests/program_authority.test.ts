@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import {
   ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -82,6 +82,8 @@ import {
   type MakerFill,
   type SignedOrder,
 } from "../src/program";
+
+const wallet = (seed: number): PublicKey => Keypair.fromSeed(Buffer.alloc(32, seed)).publicKey;
 
 function pubkey(fill: number): PublicKey {
   return new PublicKey(Buffer.alloc(32, fill));
@@ -224,7 +226,7 @@ describe("program authority/account alignment", () => {
     const params = {
       manager: pubkey(1),
       numOutcomes: 2,
-      oracle: pubkey(2),
+      oracle: wallet(2),
       questionId: Buffer.alloc(32, 3),
       makerFeeBps: 10,
       takerFeeBps: 20,
@@ -935,7 +937,7 @@ describe("program authority/account alignment", () => {
     const ix = buildExtendPositionTokensIx(
       {
         payer,
-        user: pubkey(2),
+        user: wallet(2),
         market: pubkey(3),
         lookupTable,
         depositMints: [pubkey(5)],
@@ -1027,7 +1029,7 @@ describe("program authority/account alignment", () => {
     assert.throws(
       () =>
         buildInitPositionTokensIx(
-          { payer: pubkey(1), user: pubkey(2), market: pubkey(3), depositMints: tooMany, recentSlot: 1n },
+          { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: tooMany, recentSlot: 1n },
           2,
           programId
         ),
@@ -1036,7 +1038,7 @@ describe("program authority/account alignment", () => {
     assert.throws(
       () =>
         buildExtendPositionTokensIx(
-          { payer: pubkey(1), user: pubkey(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: tooMany },
+          { payer: pubkey(1), user: wallet(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: tooMany },
           2,
           programId
         ),
@@ -1045,12 +1047,12 @@ describe("program authority/account alignment", () => {
 
     const atCap = tooMany.slice(0, MAX_DEPOSIT_MINTS_PER_IX);
     const initIx = buildInitPositionTokensIx(
-      { payer: pubkey(1), user: pubkey(2), market: pubkey(3), depositMints: atCap, recentSlot: 1n },
+      { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: atCap, recentSlot: 1n },
       2,
       programId
     );
     const extendIx = buildExtendPositionTokensIx(
-      { payer: pubkey(1), user: pubkey(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: atCap },
+      { payer: pubkey(1), user: wallet(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: atCap },
       2,
       programId
     );
@@ -1131,7 +1133,7 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
   const feeReceiver = pubkey(6);
   const lookupTable = pubkey(7);
   const orderbook = pubkey(10);
-  const user = pubkey(11);
+  const user = wallet(11);
   const position = pubkey(12);
   const takerOrder = order(1, market, baseMint, quoteMint);
   const makerOrder = order(2, market, baseMint, quoteMint);
@@ -1162,7 +1164,7 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
         {
           manager: signer,
           numOutcomes: 2,
-          oracle: pubkey(8),
+          oracle: wallet(8),
           questionId: Buffer.alloc(32, 1),
           makerFeeBps: 0,
           takerFeeBps: 0,
@@ -1244,7 +1246,7 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
     ["acceptAuthority", buildAcceptAuthorityIx(acceptRole, programId)],
     ["acceptManager", buildAcceptManagerIx(acceptRole, programId)],
     ["acceptOperator", buildAcceptOperatorIx(acceptRole, programId)],
-    ["setOracle", buildSetOracleIx({ authority: signer, market, newOracle: pubkey(8) }, programId)],
+    ["setOracle", buildSetOracleIx({ authority: signer, market, newOracle: wallet(8) }, programId)],
     [
       "setMarketFees",
       buildSetMarketFeesIx(

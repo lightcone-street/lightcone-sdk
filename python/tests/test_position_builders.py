@@ -1,6 +1,6 @@
-from solders.pubkey import Pubkey
-
 import pytest
+from solders.keypair import Keypair
+from solders.pubkey import Pubkey
 
 from lightcone_sdk.client import LightconeClient
 from lightcone_sdk.domain.position.builders import ExtendPositionTokensBuilder
@@ -13,7 +13,7 @@ def builder(client: LightconeClient):
     return (
         client.positions()
         .withdraw_from_position()
-        .user(Pubkey.new_unique())
+        .user(Keypair().pubkey())
         .market(Pubkey.new_unique())
         .deposit_mint(Pubkey.new_unique())
         .amount(1)
@@ -43,7 +43,7 @@ def test_extend_position_tokens_operator_alias_forwards_to_payer() -> None:
         builder = ExtendPositionTokensBuilder(client).operator(payer)
 
     ix = (
-        builder.user(Pubkey.new_unique())
+        builder.user(Keypair().pubkey())
         .market(Pubkey.new_unique())
         .lookup_table(Pubkey.new_unique())
         .deposit_mints([Pubkey.new_unique()])

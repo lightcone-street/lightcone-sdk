@@ -191,14 +191,19 @@ must end with two readonly, non-signer accounts:
 1. the event-authority PDA (`getEventAuthorityPda(programId)`, seed `__event_authority`)
 2. the executable program account
 
-The program pops both before dispatch and fails closed (on-chain error 21 or 68)
+The program pops both before dispatch and fails closed (on-chain error 46 or 68)
 if either is missing, wrong, or writable, so a legacy instruction without the
-trailer never mutates state. Public instructions must also be transaction-level:
-invoking one through another program's CPI fails with error 73. Every `build*Ix`
+trailer never mutates state. Public instructions require transaction-level invocation except for the governance calls described below. Unsupported CPI calls fail with error 73. Every `build*Ix`
 in this module appends the trailer automatically, so consumers that enumerate
 instruction keys should expect the two trailing entries. The SDK never builds or
 decodes the event batch itself (`INSTRUCTION.EVENT_BATCH = 255` is reserved),
 and it does not attach a compute-budget instruction for the self-CPI.
+
+The existing governance builders also support one CPI level beneath a transaction-level caller for `SetPaused`, `SetOperator`, `SetAuthority`, `WhitelistDepositToken`, `SetManager`, `SetFeeReceiver`, `SetOracle`, and `AcceptAuthority`. The current exchange authority must sign, or the pending authority for `AcceptAuthority`. Deeper calls and all other public instructions reject CPI with error 73. Governance authorities and fee receivers may be PDAs.
+
+Market creation and oracle rotation reject zero or off-curve oracle keys with `InvalidOracle`. Position setup and extension require on-curve beneficiary keys because user exits require a transaction-level signature. Their fallible builders reject PDA beneficiaries with the existing invalid-public-key error. Rust's infallible raw builders retain their signatures and leave these checks to the program. `InitPositionTokensBuilder` validates the beneficiary before calling the raw Rust builder.
+
+Both matching instructions accept at most four makers. The SDK rejects a fifth maker before serialization. The maker limit does not guarantee that every account combination fits Solana's transaction packet limit.
 
 ```typescript
 import { getEventAuthorityPda, PROGRAM_ID } from "@lightconexyz/lightcone-sdk";
@@ -219,7 +224,7 @@ import {
 
 MAX_OUTCOMES                  // 6
 MIN_OUTCOMES                  // 2
-MAX_MAKERS                    // 5
+MAX_MAKERS                    // 4
 MAX_DEPOSIT_MINTS_PER_MARKET  // 8 - addDepositMint fails with on-chain error 75 beyond it
 MAX_DEPOSIT_MINTS_PER_IX      // 8 - per initPositionTokens / extendPositionTokens instruction
 ```

@@ -36,7 +36,7 @@ export const MPL_TOKEN_METADATA_PROGRAM_ID = new PublicKey(
  * Pubkey allowed by the on-chain program to initialize the exchange.
  */
 export const INITIALIZE_AUTHORITY = new PublicKey(
-  "2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb"
+  "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
 );
 
 /**
@@ -147,9 +147,9 @@ export const MAX_OUTCOMES = 6;
 export const MIN_OUTCOMES = 2;
 
 /**
- * Maximum number of makers per match_orders_multi instruction
+ * Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
  */
-export const MAX_MAKERS = 5;
+export const MAX_MAKERS = 4;
 
 /**
  * Maximum deposit mints the program registers per market. addDepositMint fails

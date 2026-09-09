@@ -339,7 +339,7 @@ export class ProgramSdkError extends Error {
     );
   }
 
-  /** On-chain error 73: a public instruction was invoked through another program's CPI. */
+  /** On-chain error 73: instruction or depth is outside the governance CPI allowlist. */
   static publicInstructionMustBeTopLevel(): ProgramSdkError {
     return new ProgramSdkError(
       "PublicInstructionMustBeTopLevel",

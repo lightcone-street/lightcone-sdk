@@ -21,4 +21,8 @@ A builder flag that omits the trailer for older program deployments was rejected
 
 ## Consequences
 
-Transactions built by an upgraded SDK gain one static account key and two account indexes per instruction and are rejected by the previous program; transactions built by an older SDK are rejected by the upgraded program. Each environment therefore upgrades the program and the SDKs together. Direct construction of `ExtendPositionTokensParams` with the old field name no longer compiles. Consumers that enumerate instruction accounts must expect the two trailing entries, and consumers that wrap Lightcone instructions in their own program's CPI can no longer do so.
+Transactions built by an upgraded SDK gain one static account key and two account indexes per instruction and are rejected by the previous program; transactions built by an older SDK are rejected by the upgraded program. Each environment therefore upgrades the program and the SDKs together. Direct construction of `ExtendPositionTokensParams` with the old field name no longer compiles. Consumers that enumerate instruction accounts must expect the two trailing entries, and CPI consumers must use the governance allowlist at exactly one CPI level. All other public instructions require transaction-level invocation.
+
+## Program compatibility
+
+The SDK preserves the existing instruction data and account layouts for the program's governance CPI allowlist. Refer to each language's program README for the supported builders and signer constraints. Oracle validation rejects zero and off-curve keys. Fallible position setup builders reject off-curve beneficiaries. Rust's infallible raw builders preserve their return types and leave beneficiary validation to the program. Both matching instructions use the program's four-maker limit.

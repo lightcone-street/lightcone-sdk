@@ -16,7 +16,7 @@ MPL_TOKEN_METADATA_PROGRAM_ID = Pubkey.from_string(
     "metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s"
 )
 INITIALIZE_AUTHORITY = Pubkey.from_string(
-    "2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb"
+    "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
 )
 
 
@@ -136,7 +136,8 @@ INSTRUCTION_EVENT_BATCH = 255
 # Limits
 MAX_OUTCOMES = 6
 MIN_OUTCOMES = 2
-MAX_MAKERS = 5
+# Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
+MAX_MAKERS = 4
 # Maximum deposit mints the program registers per market; add_deposit_mint fails
 # with on-chain error 75 (TooManyDepositMints) beyond it.
 MAX_DEPOSIT_MINTS_PER_MARKET = 8

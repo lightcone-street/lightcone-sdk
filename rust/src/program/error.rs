@@ -167,7 +167,7 @@ pub enum SdkError {
     #[error("Invalid fee receiver")]
     InvalidFeeReceiver,
 
-    /// Invalid oracle pubkey.
+    /// Oracle pubkey is zero or off-curve.
     #[error("Invalid oracle")]
     InvalidOracle,
 
@@ -203,7 +203,7 @@ pub enum SdkError {
     #[error("Unsupported event schema")]
     UnsupportedEventSchema,
 
-    /// Public instructions must be transaction-level; nested CPI is rejected.
+    /// The public instruction or invocation depth is outside the governance CPI allowlist.
     #[error("Public instruction must be top-level")]
     PublicInstructionMustBeTopLevel,
 

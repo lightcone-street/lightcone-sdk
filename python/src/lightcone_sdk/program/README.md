@@ -201,7 +201,7 @@ from lightcone_sdk.program import (
 | `SYSTEM_PROGRAM_ID` | `11111111111111111111111111111111` | System program |
 | `RENT_SYSVAR_ID` | `SysvarRent111111111111111111111111111111111` | Rent sysvar |
 | `INSTRUCTIONS_SYSVAR_ID` | `Sysvar1nstructions1111111111111111111111111` | Instructions sysvar |
-| `INITIALIZE_AUTHORITY` | `2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb` | Program initialization authority |
+| `INITIALIZE_AUTHORITY` | `3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr` | Program initialization authority |
 
 ### Current Program Alignment Notes
 
@@ -265,7 +265,7 @@ from lightcone_sdk.program import (
     # Limits
     MAX_OUTCOMES,       # 6
     MIN_OUTCOMES,       # 2
-    MAX_MAKERS,         # 5
+    MAX_MAKERS,         # 4
     MAX_DEPOSIT_MINTS_PER_MARKET,  # 8
     MAX_DEPOSIT_MINTS_PER_IX,      # 8
 )
@@ -280,15 +280,20 @@ must end with two read-only, non-signer accounts:
 1. the event-authority PDA (`get_event_authority_pda(program_id)`, seed `__event_authority`)
 2. the executable program account
 
-The program pops both before dispatch and fails closed (on-chain error 21 or 68)
+The program pops both before dispatch and fails closed (on-chain error 46 or 68)
 if either is missing, wrong, or writable, so a legacy instruction without the
-trailer never mutates state. Public instructions must also be transaction-level:
-invoking one through another program's CPI fails with error 73. Every
+trailer never mutates state. Public instructions require transaction-level invocation except for the governance calls described below. Unsupported CPI calls fail with error 73. Every
 `build_*_instruction` in this module appends the trailer automatically, so
 consumers that enumerate instruction accounts should expect the two trailing
 entries. The SDK never builds or decodes the event batch itself
 (`INSTRUCTION_EVENT_BATCH = 255` is reserved), and it does not attach a
 compute-budget instruction for the self-CPI.
+
+The existing governance builders also support one CPI level beneath a transaction-level caller for `SetPaused`, `SetOperator`, `SetAuthority`, `WhitelistDepositToken`, `SetManager`, `SetFeeReceiver`, `SetOracle`, and `AcceptAuthority`. The current exchange authority must sign, or the pending authority for `AcceptAuthority`. Deeper calls and all other public instructions reject CPI with error 73. Governance authorities and fee receivers may be PDAs.
+
+Market creation and oracle rotation reject zero or off-curve oracle keys with `InvalidOracle`. Position setup and extension require on-curve beneficiary keys because user exits require a transaction-level signature. Their fallible builders reject PDA beneficiaries with the existing invalid-public-key error. Rust's infallible raw builders retain their signatures and leave these checks to the program. `InitPositionTokensBuilder` validates the beneficiary before calling the raw Rust builder.
+
+Both matching instructions accept at most four makers. The SDK rejects a fifth maker before serialization. The maker limit does not guarantee that every account combination fits Solana's transaction packet limit.
 
 ```python
 from lightcone_sdk.program import PROGRAM_ID, get_event_authority_pda
@@ -315,7 +320,7 @@ from lightcone_sdk.program import (
     OrdersDoNotCrossError,     # Orders don't match
     TooManyDepositMintsError,  # Exceeds MAX_DEPOSIT_MINTS_PER_IX (on-chain error 75)
     InvalidEventAuthorityError,  # On-chain error 68: bad event transport trailer
-    PublicInstructionMustBeTopLevelError,  # On-chain error 73: public ix invoked via CPI
+    PublicInstructionMustBeTopLevelError,  # On-chain error 73: unsupported CPI invocation
 )
 ```
 

@@ -33,7 +33,7 @@ lazy_static::lazy_static! {
         Pubkey::from_str("metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s").unwrap();
     /// Pubkey allowed by the on-chain program to initialize the exchange.
     pub static ref INITIALIZE_AUTHORITY: Pubkey =
-        Pubkey::from_str("2m6iAtMVmd3jE2BpNxoa9E79Kj7NeE6UxBFNyCBp6QEb").unwrap();
+        Pubkey::from_str("3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr").unwrap();
 }
 
 // ============================================================================
@@ -185,8 +185,8 @@ pub const SIGNATURE_SIZE: usize = 64;
 pub const MAX_OUTCOMES: u8 = 6;
 /// Minimum outcomes per market
 pub const MIN_OUTCOMES: u8 = 2;
-/// Maximum makers in a single match_orders_multi instruction
-pub const MAX_MAKERS: usize = 5;
+/// Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
+pub const MAX_MAKERS: usize = 4;
 /// Maximum deposit mints the program registers per market.
 ///
 /// `AddDepositMint` rejects a further mint with on-chain error 75
@@ -204,6 +204,11 @@ mod tests {
 
     #[test]
     fn event_transport_constants_match_program() {
+        assert_eq!(MAX_MAKERS, 4);
+        assert_eq!(
+            INITIALIZE_AUTHORITY.to_string(),
+            "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
+        );
         assert_eq!(EVENT_AUTHORITY_SEED, b"__event_authority");
         assert_eq!(instruction::EVENT_BATCH, 255);
     }

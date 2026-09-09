@@ -10,9 +10,9 @@
 //! PDA (seed `__event_authority`) followed by the executable program account.
 //! The program pops both before dispatch, signs one final event-batch self-CPI
 //! with the PDA, and rejects a missing, wrong, or writable trailer before any
-//! state change (on-chain errors 21 and 68). Public instructions must also be
-//! transaction-level; invoking one through another program's CPI fails with
-//! on-chain error 73. Every builder here appends the trailer through the
+//! state change (on-chain errors 46 and 68). Public instructions require
+//! transaction-level invocation except for the governance allowlist documented
+//! in this module's README. Unsupported CPI calls fail with on-chain error 73. Every builder here appends the trailer through the
 //! private `public_instruction` constructor, so it always occupies the last
 //! two account slots.
 
@@ -50,7 +50,7 @@ use crate::program::types::{
 };
 use crate::program::utils::{
     get_conditional_token_ata, get_deposit_token_ata, serialize_conditional_metadata,
-    validate_fee_pair, validate_outcome_count,
+    validate_fee_pair, validate_oracle, validate_outcome_count, validate_user,
 };
 use crate::program::{derive_condition_id, ORDER_SIZE, SIGNATURE_SIZE};
 
@@ -196,7 +196,7 @@ pub fn build_initialize_ix(authority: &Pubkey, program_id: &Pubkey) -> Instructi
 
 /// Build CreateMarket instruction.
 ///
-/// Creates a new market in Pending status.
+/// Creates a new market in Pending status. Rejects zero or off-curve oracles.
 ///
 /// Accounts:
 /// 0. manager (signer, mut) - Must be exchange manager
@@ -212,6 +212,7 @@ pub fn build_create_market_ix(
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
     validate_outcome_count(params.num_outcomes)?;
+    validate_oracle(&params.oracle)?;
     validate_fee_pair(params.maker_fee_bps, params.taker_fee_bps)?;
 
     let (exchange, _) = get_exchange_pda(program_id);
@@ -950,14 +951,12 @@ pub fn build_accept_operator_ix(params: &AcceptRoleParams, program_id: &Pubkey) 
 /// Build SetOracle instruction.
 ///
 /// Authority-only. Reassigns a market oracle while the market is not resolved
-/// or cancelled. The market condition ID is not changed by the program.
+/// or cancelled. Rejects zero or off-curve oracles. The condition ID stays unchanged.
 pub fn build_set_oracle_ix(
     params: &SetOracleParams,
     program_id: &Pubkey,
 ) -> SdkResult<Instruction> {
-    if params.new_oracle == zero_pubkey() {
-        return Err(SdkError::InvalidOracle);
-    }
+    validate_oracle(&params.new_oracle)?;
 
     let (exchange, _) = get_exchange_pda(program_id);
     let keys = vec![
@@ -1330,7 +1329,7 @@ pub fn build_global_to_market_deposit_ix(
     public_instruction(program_id, keys, data)
 }
 
-/// Build InitPositionTokens instruction.
+/// Build InitPositionTokens instruction. The program rejects off-curve beneficiaries.
 ///
 /// Create position, all conditional token ATAs, and an Address Lookup Table.
 /// Permissionless — anyone (e.g., backend operator) can pay.
@@ -1583,7 +1582,7 @@ pub fn build_deposit_and_swap_ix(
     Ok(public_instruction(program_id, keys, data))
 }
 
-/// Build ExtendPositionTokens instruction.
+/// Build ExtendPositionTokens instruction. Rejects off-curve beneficiaries.
 ///
 /// Extend an existing position ALT with entries for additional deposit mints.
 /// Permissionless: any signer may pay. The position PDA remains the table
@@ -1614,6 +1613,7 @@ pub fn build_extend_position_tokens_ix(
     if params.deposit_mints.is_empty() {
         return Err(SdkError::MissingField("deposit_mints".to_string()));
     }
+    validate_user(&params.user)?;
     if params.deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
         return Err(SdkError::TooManyDepositMints {
             count: params.deposit_mints.len(),
@@ -1885,7 +1885,7 @@ mod tests {
         let params = CreateMarketParams {
             manager: Pubkey::new_unique(),
             num_outcomes: 3,
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             question_id: [42u8; 32],
             maker_fee_bps: 10,
             taker_fee_bps: 20,
@@ -1907,7 +1907,7 @@ mod tests {
         let params = CreateMarketParams {
             manager: Pubkey::new_unique(),
             num_outcomes: 7, // Invalid - max is 6
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             question_id: [0u8; 32],
             maker_fee_bps: 0,
             taker_fee_bps: 0,
@@ -1952,7 +1952,7 @@ mod tests {
     #[test]
     fn test_build_settle_market_ix() {
         let params = SettleMarketParams {
-            oracle: Pubkey::new_unique(),
+            oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
             market_id: 1,
             payout_numerators: vec![7, 3],
         };
@@ -1972,7 +1972,7 @@ mod tests {
     #[test]
     fn test_build_settle_market_rejects_invalid_vectors() {
         let program_id = test_program_id();
-        let oracle = Pubkey::new_unique();
+        let oracle = *crate::program::constants::INITIALIZE_AUTHORITY;
 
         for payout_numerators in [vec![], vec![0, 0], vec![1], vec![1; 7]] {
             let params = SettleMarketParams {
@@ -2039,7 +2039,7 @@ mod tests {
     fn test_build_redeem_winnings_ix_includes_outcome_and_exchange() {
         let program_id = test_program_id();
         let params = RedeemWinningsParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mint: Pubkey::new_unique(),
             amount: 1_000,
@@ -2247,7 +2247,7 @@ mod tests {
         let params = SetOracleParams {
             authority: Pubkey::new_unique(),
             market: Pubkey::new_unique(),
-            new_oracle: Pubkey::new_unique(),
+            new_oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
         };
 
         let ix = build_set_oracle_ix(&params, &program_id).unwrap();
@@ -2547,7 +2547,7 @@ mod tests {
     fn test_build_deposit_to_global_ix() {
         let program_id = test_program_id();
         let params = DepositToGlobalParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             mint: Pubkey::new_unique(),
             amount: 1_000_000,
         };
@@ -2564,7 +2564,7 @@ mod tests {
         let program_id = test_program_id();
         let recent_slot = 12345;
         let params = DepositToGlobalParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             mint: Pubkey::new_unique(),
             amount: 1_000_000,
         };
@@ -2589,7 +2589,7 @@ mod tests {
     fn test_build_withdraw_from_global_ix() {
         let program_id = test_program_id();
         let params = WithdrawFromGlobalParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             mint: Pubkey::new_unique(),
             amount: 1_000_000,
         };
@@ -2605,7 +2605,7 @@ mod tests {
     fn test_build_global_to_market_deposit_ix() {
         let program_id = test_program_id();
         let params = GlobalToMarketDepositParams {
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mint: Pubkey::new_unique(),
             amount: 500_000,
@@ -2625,7 +2625,7 @@ mod tests {
         let deposit_mint = Pubkey::new_unique();
         let params = InitPositionTokensParams {
             payer: Pubkey::new_unique(),
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             deposit_mints: vec![deposit_mint],
             recent_slot: 12345,
@@ -2832,7 +2832,7 @@ mod tests {
         let deposit_mint = Pubkey::new_unique();
         let base_mint = Pubkey::new_unique();
         let quote_mint = Pubkey::new_unique();
-        let signer = Pubkey::new_unique();
+        let signer = *crate::program::constants::INITIALIZE_AUTHORITY;
         let taker = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
         let maker = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
         let metadata = ConditionalMetadataParams {
@@ -2861,7 +2861,7 @@ mod tests {
                     &CreateMarketParams {
                         manager: signer,
                         num_outcomes: 2,
-                        oracle: Pubkey::new_unique(),
+                        oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
                         question_id: [1u8; 32],
                         maker_fee_bps: 0,
                         taker_fee_bps: 0,
@@ -3068,7 +3068,7 @@ mod tests {
                     &SetOracleParams {
                         authority: signer,
                         market,
-                        new_oracle: Pubkey::new_unique(),
+                        new_oracle: *crate::program::constants::INITIALIZE_AUTHORITY,
                     },
                     program_id,
                 )
@@ -3173,7 +3173,7 @@ mod tests {
                 build_init_position_tokens_ix(
                     &InitPositionTokensParams {
                         payer: signer,
-                        user: Pubkey::new_unique(),
+                        user: *crate::program::constants::INITIALIZE_AUTHORITY,
                         market,
                         deposit_mints: vec![deposit_mint],
                         recent_slot: 1,
@@ -3214,7 +3214,7 @@ mod tests {
                 build_extend_position_tokens_ix(
                     &ExtendPositionTokensParams {
                         payer: signer,
-                        user: Pubkey::new_unique(),
+                        user: *crate::program::constants::INITIALIZE_AUTHORITY,
                         market,
                         lookup_table: Pubkey::new_unique(),
                         deposit_mints: vec![deposit_mint],
@@ -3357,7 +3357,7 @@ mod tests {
         let program_id = test_program_id();
         let mut params = ExtendPositionTokensParams {
             payer: Pubkey::new_unique(),
-            user: Pubkey::new_unique(),
+            user: *crate::program::constants::INITIALIZE_AUTHORITY,
             market: Pubkey::new_unique(),
             lookup_table: Pubkey::new_unique(),
             deposit_mints: (0..=MAX_DEPOSIT_MINTS_PER_IX)
@@ -3373,5 +3373,164 @@ mod tests {
         params.deposit_mints.truncate(MAX_DEPOSIT_MINTS_PER_IX);
         let ix = build_extend_position_tokens_ix(&params, 2, &program_id).unwrap();
         assert_eq!(ix.accounts[0], signer_mut(params.payer));
+    }
+
+    #[test]
+    fn matching_four_maker_boundary_preserves_exact_fills() {
+        let program_id = test_program_id();
+        let market = Pubkey::new_unique();
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let taker = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
+        let makers: Vec<_> = (0..5)
+            .map(|i| {
+                let mut order = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
+                order.nonce = i + 1;
+                order.signature = [i as u8 + 1; 64];
+                order
+            })
+            .collect();
+        let maker_amount = (1u64 << 53) + 7;
+        let taker_amount = (1u64 << 63) + 11;
+        for deposit in [false, true] {
+            let build = |count: usize| {
+                if deposit {
+                    build_deposit_and_swap_ix(
+                        &DepositAndSwapParams {
+                            operator: market,
+                            market,
+                            base_mint,
+                            quote_mint,
+                            fee_receiver: market,
+                            taker_order: taker.clone(),
+                            taker_is_full_fill: true,
+                            taker_is_deposit: false,
+                            taker_deposit_mint: base_mint,
+                            num_outcomes: 2,
+                            makers: makers[..count]
+                                .iter()
+                                .map(|order| MakerFill {
+                                    order: order.clone(),
+                                    maker_fill_amount: maker_amount,
+                                    taker_fill_amount: taker_amount,
+                                    is_full_fill: true,
+                                    is_deposit: false,
+                                    deposit_mint: base_mint,
+                                })
+                                .collect(),
+                        },
+                        &program_id,
+                    )
+                } else {
+                    build_match_orders_multi_ix(
+                        &MatchOrdersMultiParams {
+                            operator: market,
+                            market,
+                            base_mint,
+                            quote_mint,
+                            fee_receiver: market,
+                            taker_order: taker.clone(),
+                            maker_orders: makers[..count].to_vec(),
+                            maker_fill_amounts: vec![maker_amount; count],
+                            taker_fill_amounts: vec![taker_amount; count],
+                            full_fill_bitmask: 0x8f,
+                        },
+                        &program_id,
+                    )
+                }
+            };
+            let data = build(4).unwrap().data;
+            assert_eq!(data[0], if deposit { 20 } else { 13 });
+            assert_eq!(&data[102..104], &[4, 0x8f]);
+            if deposit {
+                assert_eq!(data[104], 0);
+            }
+            for (i, maker) in makers[..4].iter().enumerate() {
+                let offset = (if deposit { 105 } else { 104 }) + i * 117;
+                assert_eq!(&data[offset + 37..offset + 101], &maker.signature);
+                assert_eq!(
+                    u64::from_le_bytes(data[offset + 101..offset + 109].try_into().unwrap()),
+                    maker_amount
+                );
+                assert_eq!(
+                    u64::from_le_bytes(data[offset + 109..offset + 117].try_into().unwrap()),
+                    taker_amount
+                );
+            }
+            assert!(matches!(
+                build(5),
+                Err(SdkError::TooManyMakers { count: 5 })
+            ));
+        }
+    }
+
+    #[test]
+    fn create_market_and_set_oracle_reject_zero_and_pda_oracles() {
+        let program_id = test_program_id();
+        let (pda, _) = get_exchange_pda(&program_id);
+        for oracle in [Pubkey::default(), pda] {
+            assert!(matches!(
+                build_create_market_ix(
+                    &CreateMarketParams {
+                        manager: pda,
+                        oracle,
+                        num_outcomes: 2,
+                        question_id: [0; 32],
+                        maker_fee_bps: 0,
+                        taker_fee_bps: 0,
+                    },
+                    0,
+                    &program_id
+                ),
+                Err(SdkError::InvalidOracle)
+            ));
+            assert!(matches!(
+                build_set_oracle_ix(
+                    &SetOracleParams {
+                        authority: pda,
+                        market: pda,
+                        new_oracle: oracle,
+                    },
+                    &program_id
+                ),
+                Err(SdkError::InvalidOracle)
+            ));
+        }
+        let oracle = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let ix = build_set_oracle_ix(
+            &SetOracleParams {
+                authority: pda,
+                market: pda,
+                new_oracle: oracle,
+            },
+            &program_id,
+        )
+        .unwrap();
+        assert_eq!(&ix.data[1..], oracle.as_ref());
+        assert_eq!(ix.accounts[0], signer(pda));
+        assert_eq!(
+            build_set_paused_ix(&pda, true, &program_id).accounts[0],
+            signer_mut(pda)
+        );
+    }
+
+    #[test]
+    fn extend_position_tokens_rejects_pda_beneficiaries() {
+        let program_id = test_program_id();
+        let (user, _) = get_exchange_pda(&program_id);
+        assert!(matches!(
+            build_extend_position_tokens_ix(
+                &ExtendPositionTokensParams {
+                    payer: *crate::program::constants::INITIALIZE_AUTHORITY,
+                    user,
+                    market: user,
+                    lookup_table: user,
+                    deposit_mints: vec![user],
+                },
+                2,
+                &program_id
+            ),
+            Err(SdkError::InvalidPubkey(_))
+        ));
     }
 }

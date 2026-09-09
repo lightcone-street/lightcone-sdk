@@ -42,6 +42,22 @@ pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 // Validation Helpers
 // ============================================================================
 
+/// Reject oracle keys that cannot sign top-level settlement instructions.
+pub(crate) fn validate_oracle(oracle: &Pubkey) -> SdkResult<()> {
+    if *oracle == Pubkey::default() || !oracle.is_on_curve() {
+        return Err(SdkError::InvalidOracle);
+    }
+    Ok(())
+}
+
+/// Reject PDA beneficiaries whose exits require a top-level user signature.
+pub(crate) fn validate_user(user: &Pubkey) -> SdkResult<()> {
+    if !user.is_on_curve() {
+        return Err(SdkError::InvalidPubkey(user.to_string()));
+    }
+    Ok(())
+}
+
 /// Validate that the number of outcomes is within the allowed range.
 pub fn validate_outcome_count(num_outcomes: u8) -> SdkResult<()> {
     if !(MIN_OUTCOMES..=MAX_OUTCOMES).contains(&num_outcomes) {

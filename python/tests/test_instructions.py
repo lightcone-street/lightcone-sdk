@@ -2,6 +2,7 @@
 
 import pytest
 from solders.instruction import Instruction
+from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
@@ -133,7 +134,7 @@ def signed_order(
 
 def test_create_market_uses_manager_and_condition_tombstone():
     manager = Pubkey.new_unique()
-    oracle = Pubkey.new_unique()
+    oracle = Keypair().pubkey()
     question_id = bytes([9] * 32)
 
     ix = build_create_market_instruction(
@@ -183,7 +184,7 @@ def test_add_deposit_mint_writes_market_and_reads_global_deposit_token():
 
 
 def test_mint_complete_set_matches_canonical_account_layout():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
     position, _ = get_position_pda(user, market)
@@ -326,7 +327,7 @@ def test_accept_role_instruction_layouts():
 def test_set_oracle_instruction_layout_and_zero_validation():
     authority = Pubkey.new_unique()
     market = Pubkey.new_unique()
-    new_oracle = Pubkey.new_unique()
+    new_oracle = Keypair().pubkey()
     exchange, _ = get_exchange_pda()
 
     ix = build_set_oracle_instruction(
@@ -449,7 +450,7 @@ def test_conditional_metadata_instruction_layouts():
 
 
 def test_settle_market_uses_payout_vector_layout():
-    oracle = Pubkey.new_unique()
+    oracle = Keypair().pubkey()
     market_id = 7
     exchange, _ = get_exchange_pda()
     market, _ = get_market_pda(market_id)
@@ -474,7 +475,7 @@ def test_settle_market_uses_payout_vector_layout():
 
 
 def test_settle_market_rejects_invalid_payout_vectors():
-    oracle = Pubkey.new_unique()
+    oracle = Keypair().pubkey()
 
     with pytest.raises(InvalidPayoutNumeratorsError):
         build_settle_market_instruction(oracle, 1, [0, 0])
@@ -511,7 +512,7 @@ def test_cancel_order_uses_operator_exchange_market_status_layout():
 
 
 def test_increment_nonce_includes_exchange():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     exchange, _ = get_exchange_pda()
 
     ix = build_increment_nonce_instruction(user)
@@ -596,7 +597,7 @@ def test_deposit_and_swap_includes_orderbook_at_fixed_index():
 
 
 def test_deposit_to_global_includes_exchange_and_optional_alt_context():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     mint = Pubkey.new_unique()
     exchange, _ = get_exchange_pda()
 
@@ -646,7 +647,7 @@ def test_set_deposit_token_status_instruction_layout():
 
 
 def test_withdraw_from_global_includes_exchange():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     mint = Pubkey.new_unique()
     exchange, _ = get_exchange_pda()
 
@@ -657,7 +658,7 @@ def test_withdraw_from_global_includes_exchange():
 
 
 def test_global_to_market_deposit_matches_canonical_account_layout():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
     exchange, _ = get_exchange_pda()
@@ -700,15 +701,13 @@ def test_global_to_market_deposit_matches_canonical_account_layout():
 
 
 def test_withdraw_conditional_from_position_matches_canonical_account_layout():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
     outcome_index = 1
     exchange, _ = get_exchange_pda()
     position, _ = get_position_pda(user, market)
-    conditional_mint, _ = get_conditional_mint_pda(
-        market, deposit_mint, outcome_index
-    )
+    conditional_mint, _ = get_conditional_mint_pda(market, deposit_mint, outcome_index)
     position_conditional_ata = get_conditional_token_ata(position, conditional_mint)
     user_conditional_ata = get_conditional_token_ata(user, conditional_mint)
 
@@ -746,7 +745,7 @@ def test_withdraw_conditional_from_position_matches_canonical_account_layout():
 
 
 def test_withdraw_conditional_from_position_rejects_out_of_range_outcome_index():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
 
@@ -762,7 +761,7 @@ def test_withdraw_conditional_from_position_rejects_out_of_range_outcome_index()
 
 
 def test_withdraw_from_position_wrapper_uses_conditional_contract():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
 
@@ -778,7 +777,7 @@ def test_withdraw_from_position_wrapper_uses_conditional_contract():
 
 
 def test_redeem_winnings_uses_outcome_index_and_exchange():
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
     outcome_index = 2
@@ -819,7 +818,7 @@ def test_extend_position_tokens_uses_permissionless_payer_signer():
 
     ix = build_extend_position_tokens_instruction(
         payer=payer,
-        user=Pubkey.new_unique(),
+        user=Keypair().pubkey(),
         market=Pubkey.new_unique(),
         lookup_table=lookup_table,
         deposit_mints=[Pubkey.new_unique()],
@@ -1008,7 +1007,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
         (
             "create_market",
             build_create_market_instruction(
-                signer, 0, 2, Pubkey.new_unique(), bytes([1] * 32), 0, 0
+                signer, 0, 2, Keypair().pubkey(), bytes([1] * 32), 0, 0
             ),
         ),
         (
@@ -1100,7 +1099,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             "set_oracle",
             build_set_oracle_instruction(
                 SetOracleParams(
-                    authority=signer, market=market, new_oracle=Pubkey.new_unique()
+                    authority=signer, market=market, new_oracle=Keypair().pubkey()
                 )
             ),
         ),
@@ -1173,7 +1172,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
         (
             "init_position_tokens",
             build_init_position_tokens_instruction(
-                signer, Pubkey.new_unique(), market, [deposit_mint], 2, 1
+                signer, Keypair().pubkey(), market, [deposit_mint], 2, 1
             ),
         ),
         (
@@ -1204,7 +1203,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             "extend_position_tokens",
             build_extend_position_tokens_instruction(
                 signer,
-                Pubkey.new_unique(),
+                Keypair().pubkey(),
                 market,
                 Pubkey.new_unique(),
                 [deposit_mint],
@@ -1313,7 +1312,7 @@ def test_set_fee_receiver_with_atas_keeps_trailer_after_optional_block():
 
 def test_position_token_builders_reject_more_groups_than_the_program_accepts():
     payer = Pubkey.new_unique()
-    user = Pubkey.new_unique()
+    user = Keypair().pubkey()
     market = Pubkey.new_unique()
     too_many = [Pubkey.new_unique() for _ in range(MAX_DEPOSIT_MINTS_PER_IX + 1)]
 

@@ -472,9 +472,7 @@ program requires for its authenticated event transport: the event-authority PDA
 (`["__event_authority"]`, see `get_event_authority_pda`) followed by the
 executable Lightcone program account. The program pops both before dispatch,
 signs one final event-batch self-CPI with the PDA, and rejects a missing, wrong,
-or writable trailer before any state change (custom errors 21 and 68). Public
-instructions must be transaction-level; invoking one through another program's
-CPI fails with custom error 73. Every SDK builder appends the trailer
+or writable trailer before any state change (custom errors 46 and 68). Public instructions require transaction-level invocation except for the governance calls described below. Unsupported CPI calls fail with custom error 73. Every SDK builder appends the trailer
 automatically, so it always occupies the last two account slots. The private
 batch discriminator `instruction::EVENT_BATCH` (255) is reserved; the SDK neither
 builds nor decodes event batches.
@@ -485,6 +483,12 @@ the existing lookup table and skips canonical groups already present.
 the table are skipped. Each market registers at most
 `MAX_DEPOSIT_MINTS_PER_MARKET` deposit mints, and each of those two instructions
 accepts at most `MAX_DEPOSIT_MINTS_PER_IX` groups.
+
+The existing governance builders also support one CPI level beneath a transaction-level caller for `SetPaused`, `SetOperator`, `SetAuthority`, `WhitelistDepositToken`, `SetManager`, `SetFeeReceiver`, `SetOracle`, and `AcceptAuthority`. The current exchange authority must sign, or the pending authority for `AcceptAuthority`. Deeper calls and all other public instructions reject CPI with error 73. Governance authorities and fee receivers may be PDAs.
+
+Market creation and oracle rotation reject zero or off-curve oracle keys with `InvalidOracle`. Position setup and extension require on-curve beneficiary keys because user exits require a transaction-level signature. Their fallible builders reject PDA beneficiaries with the existing invalid-public-key error. Rust's infallible raw builders retain their signatures and leave these checks to the program. `InitPositionTokensBuilder` validates the beneficiary before calling the raw Rust builder.
+
+Both matching instructions accept at most four makers. The SDK rejects a fifth maker before serialization. The maker limit does not guarantee that every account combination fits Solana's transaction packet limit.
 
 ## Constants
 
@@ -549,7 +553,7 @@ SIGNATURE_SIZE: usize                 // 64
 ```rust
 MAX_OUTCOMES: u8                      // 6
 MIN_OUTCOMES: u8                      // 2
-MAX_MAKERS: usize                     // 5 (per match_orders_multi instruction)
+MAX_MAKERS: usize                     // 4 (per MatchOrdersMulti or DepositAndSwap instruction)
 MAX_DEPOSIT_MINTS_PER_MARKET: u8      // 8 (enforced by AddDepositMint)
 MAX_DEPOSIT_MINTS_PER_IX: usize       // 8 (per init/extend_position_tokens instruction)
 ```

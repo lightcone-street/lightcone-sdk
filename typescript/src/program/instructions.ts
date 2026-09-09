@@ -118,10 +118,10 @@ function readonly(pubkey: PublicKey): AccountMeta {
  * dispatch: the event-authority PDA (seed "__event_authority", readonly, never
  * a signer) and the executable program account (readonly). It signs its final
  * event-batch self-CPI with that PDA, so an instruction without the trailer
- * fails closed before any state change (on-chain errors 21 and 68). Public
- * instructions must also be transaction-level; invoking one through another
- * program's CPI fails with on-chain error 73. Routing every builder through
- * this constructor keeps the invariant in one place.
+ * fails closed before any state change (on-chain errors 46 and 68). Public
+ * instructions require transaction-level invocation except for the governance
+ * allowlist documented in this module's README. Unsupported CPI fails with error 73.
+ * Routing every builder through this constructor keeps the invariant in one place.
  */
 function publicInstruction(
   programId: PublicKey,
@@ -134,6 +134,20 @@ function publicInstruction(
     programId,
     data,
   });
+}
+
+/** Reject oracle keys that cannot sign top-level settlement instructions. */
+function validateOracle(oracle: PublicKey): void {
+  if (oracle.equals(zeroPubkey()) || !PublicKey.isOnCurve(oracle.toBytes())) {
+    throw ProgramSdkError.invalidOracle();
+  }
+}
+
+/** Reject PDA beneficiaries whose exits require a top-level user signature. */
+function validateUser(user: PublicKey): void {
+  if (!PublicKey.isOnCurve(user.toBytes())) {
+    throw ProgramSdkError.invalidPubkey(user.toBase58());
+  }
 }
 
 function zeroPubkey(): PublicKey {
@@ -246,7 +260,7 @@ export function buildInitializeIx(
 
 /**
  * Build CreateMarket instruction
- * Creates a new market in Pending status
+ * Creates a new market in Pending status. Rejects zero or off-curve oracle keys.
  *
  * Accounts:
  * 0. manager (signer, mut) - Must be exchange manager
@@ -263,6 +277,7 @@ export function buildCreateMarketIx(
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   validateOutcomes(params.numOutcomes);
+  validateOracle(params.oracle);
   validateFeePair(params.makerFeeBps, params.takerFeeBps);
 
   const [exchange] = getExchangePda(programId);
@@ -1151,15 +1166,13 @@ export function buildAcceptOperatorIx(
 }
 
 /**
- * Build SetOracle instruction.
+ * Build SetOracle instruction. Rejects zero or off-curve oracle keys.
  */
 export function buildSetOracleIx(
   params: SetOracleParams,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
-  if (params.newOracle.equals(zeroPubkey())) {
-    throw ProgramSdkError.invalidOracle();
-  }
+  validateOracle(params.newOracle);
 
   const [exchange] = getExchangePda(programId);
   const keys: AccountMeta[] = [
@@ -1584,6 +1597,7 @@ export function buildInitPositionTokensIx(
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  validateUser(params.user);
   if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
     throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
   }
@@ -1672,6 +1686,7 @@ export function buildExtendPositionTokensIx(
   if (params.depositMints.length === 0) {
     throw ProgramSdkError.missingField("deposit_mints");
   }
+  validateUser(params.user);
   if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
     throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
   }
