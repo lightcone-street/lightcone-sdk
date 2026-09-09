@@ -196,7 +196,7 @@ reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
 
 `buildInitPositionTokensIx` and `buildExtendPositionTokensIx` throw
-`ProgramSdkError` with variant `InvalidPubkey` for off-curve beneficiaries,
+`ProgramSdkError` with variant `InvalidPubkey` for zero or off-curve beneficiaries,
 `MissingField` for empty mint lists, and `TooManyDepositMints` for lists exceeding
 `MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders throw
 `InvalidOracle` for zero or off-curve oracle keys.

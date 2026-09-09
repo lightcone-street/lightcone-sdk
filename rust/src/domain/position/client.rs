@@ -1018,7 +1018,7 @@ impl<'a> Positions<'a> {
 
     /// Build InitPositionTokens transaction.
     ///
-    /// Rejects off-curve beneficiaries and empty or oversized deposit-mint lists.
+    /// Rejects zero or off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn init_position_tokens_tx(
         &self,
         params: InitPositionTokensParams,
@@ -1318,13 +1318,15 @@ mod tests {
             ));
         }
         let pda = get_exchange_pda(&client.program_id).0;
-        let invalid_user = client
-            .positions()
-            .init_position_tokens_tx(params(pda, 1), 2);
-        assert!(matches!(
-            invalid_user,
-            Err(SdkError::Program(ProgramError::InvalidPubkey(_)))
-        ));
+        for beneficiary in [Pubkey::default(), pda] {
+            let invalid_user = client
+                .positions()
+                .init_position_tokens_tx(params(beneficiary, 1), 2);
+            assert!(matches!(
+                invalid_user,
+                Err(SdkError::Program(ProgramError::InvalidPubkey(key))) if key == beneficiary.to_string()
+            ));
+        }
 
         for count in [1, MAX_DEPOSIT_MINTS_PER_IX] {
             let tx = client

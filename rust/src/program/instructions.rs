@@ -1586,7 +1586,7 @@ pub fn build_deposit_and_swap_ix(
     Ok(public_instruction(program_id, keys, data))
 }
 
-/// Build ExtendPositionTokens instruction. Rejects off-curve beneficiaries.
+/// Build ExtendPositionTokens instruction. Rejects zero or off-curve beneficiaries.
 ///
 /// Extend an existing position ALT with entries for additional deposit mints.
 /// Permissionless: any signer may pay. The position PDA remains the table
@@ -3512,22 +3512,24 @@ mod tests {
     }
 
     #[test]
-    fn extend_position_tokens_rejects_pda_beneficiaries() {
+    fn extend_position_tokens_rejects_zero_and_pda_beneficiaries() {
         let program_id = test_program_id();
-        let (user, _) = get_exchange_pda(&program_id);
-        assert!(matches!(
-            build_extend_position_tokens_ix(
-                &ExtendPositionTokensParams {
-                    payer: *crate::program::constants::INITIALIZE_AUTHORITY,
-                    user,
-                    market: user,
-                    lookup_table: user,
-                    deposit_mints: vec![user],
-                },
-                2,
-                &program_id
-            ),
-            Err(SdkError::InvalidPubkey(_))
-        ));
+        let (pda, _) = get_exchange_pda(&program_id);
+        for user in [Pubkey::default(), pda] {
+            assert!(matches!(
+                build_extend_position_tokens_ix(
+                    &ExtendPositionTokensParams {
+                        payer: *crate::program::constants::INITIALIZE_AUTHORITY,
+                        user,
+                        market: Pubkey::new_unique(),
+                        lookup_table: Pubkey::new_unique(),
+                        deposit_mints: vec![Pubkey::new_unique()],
+                    },
+                    2,
+                    &program_id
+                ),
+                Err(SdkError::InvalidPubkey(key)) if key == user.to_string()
+            ));
+        }
     }
 }

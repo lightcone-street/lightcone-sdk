@@ -54,12 +54,14 @@ it("rejects zero and PDA oracles for creation and rotation", () => {
   }
 });
 
-it("rejects PDA beneficiaries while accepting PDA governance authorities", () => {
+it("rejects zero and PDA beneficiaries while accepting PDA governance authorities", () => {
   const [user] = PublicKey.findProgramAddressSync([Buffer.from("user")], wallet(9));
-  const params = { payer: wallet(1), user, market: wallet(2), depositMints: [wallet(3)], recentSlot: 99n, lookupTable: wallet(4) };
-  const invalid = (e: unknown) => e instanceof ProgramSdkError && e.variant === "InvalidPubkey";
-  assert.throws(() => buildInitPositionTokensIx(params, 2), invalid);
-  assert.throws(() => buildExtendPositionTokensIx(params, 2), invalid);
+  for (const beneficiary of [PublicKey.default, user]) {
+    const params = { payer: wallet(1), user: beneficiary, market: wallet(2), depositMints: [wallet(3)], recentSlot: 99n, lookupTable: wallet(4) };
+    const invalid = (e: unknown) => e instanceof ProgramSdkError && e.variant === "InvalidPubkey" && e.message.includes(beneficiary.toBase58());
+    assert.throws(() => buildInitPositionTokensIx(params, 2), invalid);
+    assert.throws(() => buildExtendPositionTokensIx(params, 2), invalid);
+  }
   const ix = buildSetPausedIx(user, true);
   assert.ok(ix.keys[0]!.pubkey.equals(user));
   assert.ok(ix.keys[0]!.isSigner);

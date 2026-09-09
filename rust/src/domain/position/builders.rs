@@ -1147,25 +1147,25 @@ mod position_token_builder_tests {
     }
 
     #[test]
-    fn init_rejects_pda_beneficiaries() {
+    fn init_rejects_zero_and_pda_beneficiaries() {
         let client = client();
-        let user = crate::program::pda::get_exchange_pda(&client.program_id).0;
-        let result = client
-            .positions()
-            .init_position_tokens()
-            .payer(*crate::program::constants::INITIALIZE_AUTHORITY)
-            .user(user)
-            .market(user)
-            .deposit_mints(vec![user])
-            .recent_slot(99)
-            .num_outcomes(2)
-            .build_ix();
-        assert!(matches!(
-            result,
-            Err(SdkError::Program(
-                crate::program::error::SdkError::InvalidPubkey(_)
-            ))
-        ));
+        let pda = crate::program::pda::get_exchange_pda(&client.program_id).0;
+        for user in [Pubkey::default(), pda] {
+            let result = client
+                .positions()
+                .init_position_tokens()
+                .payer(*crate::program::constants::INITIALIZE_AUTHORITY)
+                .user(user)
+                .market(Pubkey::new_unique())
+                .deposit_mints(vec![Pubkey::new_unique()])
+                .recent_slot(99)
+                .num_outcomes(2)
+                .build_ix();
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidPubkey(key))) if key == user.to_string()
+            ));
+        }
     }
 
     fn deposit_mints(count: usize) -> Vec<Pubkey> {
@@ -1364,7 +1364,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
 
     /// Build an init-position-tokens instruction.
     ///
-    /// Rejects off-curve beneficiaries and empty or oversized deposit-mint lists.
+    /// Rejects zero or off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let payer = self
             .payer

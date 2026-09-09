@@ -285,7 +285,7 @@ reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
 
 `build_init_position_tokens_instruction` and `build_extend_position_tokens_instruction`
-raise `InvalidPubkeyError` for off-curve beneficiaries, `MissingFieldError` for
+raise `InvalidPubkeyError` for zero or off-curve beneficiaries, `MissingFieldError` for
 empty mint lists, and `TooManyDepositMintsError` for lists exceeding
 `MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders raise
 `InvalidOracleError` for zero or off-curve oracle keys.

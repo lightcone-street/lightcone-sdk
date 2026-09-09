@@ -50,9 +50,9 @@ pub(crate) fn validate_oracle(oracle: &Pubkey) -> SdkResult<()> {
     Ok(())
 }
 
-/// Reject PDA beneficiaries whose exits require a top-level user signature.
+/// Reject zero and off-curve beneficiaries that cannot sign user exits.
 pub(crate) fn validate_user(user: &Pubkey) -> SdkResult<()> {
-    if !user.is_on_curve() {
+    if *user == Pubkey::default() || !user.is_on_curve() {
         return Err(SdkError::InvalidPubkey(user.to_string()));
     }
     Ok(())

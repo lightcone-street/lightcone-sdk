@@ -481,11 +481,11 @@ reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
 
 `InitPositionTokensBuilder::build_ix`, `Positions::init_position_tokens_tx`, and
-`build_extend_position_tokens_ix` reject off-curve beneficiaries with
+`build_extend_position_tokens_ix` reject zero or off-curve beneficiaries with
 `InvalidPubkey`, empty mint lists with `MissingField`, and lists exceeding
 `MAX_DEPOSIT_MINTS_PER_IX` with `TooManyDepositMints`. The infallible
 `build_init_position_tokens_ix` and `Positions::init_position_tokens_ix` preserve
-their return types and defer those checks to the program. Market creation and
+their return types and perform no local input validation. Market creation and
 oracle rotation builders reject zero or off-curve oracle keys with `InvalidOracle`.
 
 ## Constants

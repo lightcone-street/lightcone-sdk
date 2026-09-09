@@ -124,16 +124,17 @@ def test_market_creation_and_rotation_reject_invalid_oracles(oracle):
         build_set_oracle_instruction(SetOracleParams(wallet(1), wallet(2), oracle))
 
 
-def test_position_setup_rejects_pda_beneficiaries_without_restricting_governance():
+def test_position_setup_rejects_zero_and_pda_beneficiaries_without_restricting_governance():
     user = Pubkey.find_program_address([b"user"], wallet(9))[0]
-    with pytest.raises(InvalidPubkeyError):
-        build_init_position_tokens_instruction(
-            wallet(1), user, wallet(2), [wallet(3)], 2, 99
-        )
-    with pytest.raises(InvalidPubkeyError):
-        build_extend_position_tokens_instruction(
-            wallet(1), user, wallet(2), wallet(4), [wallet(3)], 2
-        )
+    for beneficiary in (Pubkey.default(), user):
+        with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
+            build_init_position_tokens_instruction(
+                wallet(1), beneficiary, wallet(2), [wallet(3)], 2, 99
+            )
+        with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
+            build_extend_position_tokens_instruction(
+                wallet(1), beneficiary, wallet(2), wallet(4), [wallet(3)], 2
+            )
     ix = build_set_paused_instruction(user, True)
     assert ix.accounts[0].pubkey == user
     assert ix.accounts[0].is_signer

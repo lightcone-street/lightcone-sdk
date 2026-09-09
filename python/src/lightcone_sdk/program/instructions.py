@@ -145,8 +145,8 @@ def _validate_oracle(oracle: Pubkey) -> None:
 
 
 def _validate_user(user: Pubkey) -> None:
-    """Reject PDA beneficiaries whose exits require a top-level user signature."""
-    if not user.is_on_curve():
+    """Reject zero and off-curve beneficiaries that cannot sign user exits."""
+    if user == Pubkey.default() or not user.is_on_curve():
         raise InvalidPubkeyError(str(user))
 
 
@@ -1620,7 +1620,7 @@ def build_init_position_tokens_instruction(
 
     Raises:
         MissingFieldError: if no deposit mints are supplied.
-        InvalidPubkeyError: if the beneficiary is off-curve.
+        InvalidPubkeyError: if the beneficiary is zero or off-curve.
         TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
             are supplied.
     """
@@ -1935,7 +1935,7 @@ def build_extend_position_tokens_instruction(
 
     Raises:
         MissingFieldError: if ``deposit_mints`` is empty.
-        InvalidPubkeyError: if the beneficiary is off-curve.
+        InvalidPubkeyError: if the beneficiary is zero or off-curve.
         TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
             are supplied.
     """

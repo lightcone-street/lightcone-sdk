@@ -143,9 +143,9 @@ function validateOracle(oracle: PublicKey): void {
   }
 }
 
-/** Reject PDA beneficiaries whose exits require a top-level user signature. */
+/** Reject zero and off-curve beneficiaries that cannot sign user exits. */
 function validateUser(user: PublicKey): void {
-  if (!PublicKey.isOnCurve(user.toBytes())) {
+  if (user.equals(PublicKey.default) || !PublicKey.isOnCurve(user.toBytes())) {
     throw ProgramSdkError.invalidPubkey(user.toBase58());
   }
 }
@@ -1592,7 +1592,7 @@ export function buildGlobalToMarketDepositIx(
  *
  * Data: [discriminator, recent_slot (u64), num_deposit_mints (u8)]
  * Throws MissingField for an empty depositMints list, TooManyDepositMints for
- * more than MAX_DEPOSIT_MINTS_PER_IX groups, or InvalidPubkey for an off-curve user.
+ * more than MAX_DEPOSIT_MINTS_PER_IX groups, or InvalidPubkey for a zero or off-curve user.
  */
 export function buildInitPositionTokensIx(
   params: InitPositionTokensParams,

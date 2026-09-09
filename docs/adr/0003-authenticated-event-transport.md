@@ -23,10 +23,10 @@ compute-budget instructions.
 `ExtendPositionTokens` parameters name the signer `payer`. Fluent builders retain
 a deprecated `operator()` alias that forwards to `payer()`. Raw builder signatures
 are otherwise preserved. Already-fallible position initialization and extension
-paths validate beneficiaries and mint-list bounds before serialization. Rust's
-infallible `build_init_position_tokens_ix` and `Positions::init_position_tokens_ix`
-defer these checks to the program; its fluent builder and transaction helper
-validate them locally.
+paths reject zero or off-curve beneficiaries and validate mint-list bounds before
+serialization. Rust's infallible `build_init_position_tokens_ix` and
+`Positions::init_position_tokens_ix` perform no local input validation; its fluent
+builder and transaction helper validate them locally.
 
 ## Considered Options
 
