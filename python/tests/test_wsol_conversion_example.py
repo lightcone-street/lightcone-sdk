@@ -93,8 +93,8 @@ def test_wsol_conversion_example_accepts_ci_endpoints_but_not_program_override(
     """Permit workflow endpoints without permitting a different program ID."""
     monkeypatch.setenv("CI", "true")
     monkeypatch.setenv("LIGHTCONE_ENV", "staging")
-    monkeypatch.setenv("SDK_API_URL", "https://api.dev.lightcone.xyz")
-    monkeypatch.setenv("SDK_WS_URL", "wss://ws.dev.lightcone.xyz/ws")
+    monkeypatch.setenv("SDK_API_URL", "https://api.dev.internalcone.com")
+    monkeypatch.setenv("SDK_WS_URL", "wss://ws.dev.internalcone.com/ws")
     monkeypatch.setenv("SDK_RPC_URL", "ci-rpc")
     monkeypatch.delenv("SDK_PROGRAM_ID", raising=False)
     _safety_gate(monkeypatch)()

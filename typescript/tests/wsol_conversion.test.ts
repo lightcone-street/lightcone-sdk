@@ -87,8 +87,8 @@ describe("WSOL conversion example safety", () => {
       requireNonProduction({
         CI: "true",
         LIGHTCONE_ENV: "staging",
-        SDK_API_URL: "https://api.dev.lightcone.xyz",
-        SDK_WS_URL: "wss://ws.dev.lightcone.xyz/ws",
+        SDK_API_URL: "https://api.dev.internalcone.com",
+        SDK_WS_URL: "wss://ws.dev.internalcone.com/ws",
         SDK_RPC_URL: "https://example.invalid",
       })
     );
