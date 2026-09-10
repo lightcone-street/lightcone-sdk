@@ -118,6 +118,7 @@ import type {
 | `conditionId` | Buffer | Computed condition ID (32 bytes) |
 | `payoutNumerators` | [number, number, number, number, number, number] | Resolution vector; first `numOutcomes` entries are meaningful |
 | `payoutDenominator` | number | Sum of meaningful payout numerators |
+| `depositMintCount` | number | Deposit mints registered through `addDepositMint` (byte 148; capped at `MAX_DEPOSIT_MINTS_PER_MARKET`) |
 
 #### GlobalDepositToken
 
@@ -176,16 +177,46 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 - `matchOrdersMulti` and `depositAndSwap` include the fee receiver and associated token program in their fixed account lists.
 - `setFeeReceiverWithAtas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
 - `refreshOrderbookAlt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
-- Instruction discriminators are current through `SetDepositTokenStatus = 38`.
+- Instruction discriminators are current through `SetDepositTokenStatus = 38`; `INSTRUCTION.EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
+- Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both readonly, non-signer). Every `build*Ix` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
+- `addDepositMint` writes the market account and increments `Market.depositMintCount`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
+- `initPositionTokens` is idempotent per `recentSlot` and `extendPositionTokens` is permissionless (`payer` replaces `operator`); both accept at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per instruction.
+
+### Event Transport Trailer
+
+Every `build*Ix` appends the event-authority PDA and executable program account
+as read-only, non-signer accounts, in that order. These are always the last two
+accounts; callers must not append another trailer.
+
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules, the
+governance CPI allowlist, position replay semantics, program limits, and error codes.
+
+The SDK neither builds nor decodes event batches; `INSTRUCTION.EVENT_BATCH` is
+reserved. Builders do not add a compute-budget instruction. Callers must include
+the program's final self-CPI when estimating transaction compute.
+
+`buildInitPositionTokensIx` and `buildExtendPositionTokensIx` throw
+`ProgramSdkError` with variant `InvalidPubkey` for zero or off-curve beneficiaries,
+`MissingField` for empty mint lists, and `TooManyDepositMints` for lists exceeding
+`MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders throw
+`InvalidOracle` for zero or off-curve oracle keys.
+
+```typescript
+import { program } from "@lightconexyz/lightcone-sdk";
+
+const [eventAuthority, bump] = program.getEventAuthorityPda(program.PROGRAM_ID);
+```
 
 ### Limits
 
 ```typescript
-import { MAX_OUTCOMES, MIN_OUTCOMES, MAX_MAKERS } from "@lightconexyz/lightcone-sdk";
+import { program } from "@lightconexyz/lightcone-sdk";
 
-MAX_OUTCOMES  // 6
-MIN_OUTCOMES  // 2
-MAX_MAKERS    // 5
+program.MAX_OUTCOMES                  // 6
+program.MIN_OUTCOMES                  // 2
+program.MAX_MAKERS                    // 4
+program.MAX_DEPOSIT_MINTS_PER_MARKET   // 8
+program.MAX_DEPOSIT_MINTS_PER_IX       // 8
 ```
 
 ---

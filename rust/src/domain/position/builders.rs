@@ -1133,11 +1133,162 @@ mod withdraw_from_position_tests {
     }
 }
 
+#[cfg(test)]
+mod position_token_builder_tests {
+    use super::*;
+    use crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX;
+    use crate::program::error::SdkError as ProgramError;
+
+    fn client() -> LightconeClient {
+        match LightconeClient::builder().build() {
+            Ok(client) => client,
+            Err(error) => panic!("failed to build test client: {error}"),
+        }
+    }
+
+    #[test]
+    fn init_rejects_zero_and_pda_beneficiaries() {
+        let client = client();
+        let pda = crate::program::pda::get_exchange_pda(&client.program_id).0;
+        for user in [Pubkey::default(), pda] {
+            let result = client
+                .positions()
+                .init_position_tokens()
+                .payer(*crate::program::constants::INITIALIZE_AUTHORITY)
+                .user(user)
+                .market(Pubkey::new_unique())
+                .deposit_mints(vec![Pubkey::new_unique()])
+                .recent_slot(99)
+                .num_outcomes(2)
+                .build_ix();
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidPubkey(key))) if key == user.to_string()
+            ));
+        }
+    }
+
+    fn deposit_mints(count: usize) -> Vec<Pubkey> {
+        (0..count).map(|_| Pubkey::new_unique()).collect()
+    }
+
+    #[test]
+    fn init_rejects_empty_deposit_mints() {
+        let client = client();
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(vec![])
+            .recent_slot(99)
+            .num_outcomes(2)
+            .build_tx();
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(ProgramError::MissingField(field))) if field == "deposit_mints"
+        ));
+    }
+
+    #[test]
+    fn init_rejects_more_groups_than_the_program_accepts() {
+        let client = client();
+        let error = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX + 1))
+            .recent_slot(1)
+            .num_outcomes(2)
+            .build_ix()
+            .expect_err("expected the group cap to reject the request");
+
+        assert!(matches!(
+            error,
+            SdkError::Program(ProgramError::TooManyDepositMints { count })
+                if count == MAX_DEPOSIT_MINTS_PER_IX + 1
+        ));
+    }
+
+    #[test]
+    fn init_accepts_the_maximum_group_count() {
+        let client = client();
+        let ix = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX))
+            .recent_slot(1)
+            .num_outcomes(2)
+            .build_ix()
+            .expect("maximum group count must build");
+
+        assert_eq!(
+            ix.data.last().copied(),
+            Some(MAX_DEPOSIT_MINTS_PER_IX as u8)
+        );
+    }
+
+    #[test]
+    fn extend_pays_with_payer_and_keeps_the_operator_alias() {
+        let client = client();
+        let payer = Pubkey::new_unique();
+        let user = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let market = Pubkey::new_unique();
+        let lookup_table = Pubkey::new_unique();
+        let mints = deposit_mints(1);
+        let build = |builder: ExtendPositionTokensBuilder<'_>| {
+            builder
+                .user(user)
+                .market(market)
+                .lookup_table(lookup_table)
+                .deposit_mints(mints.clone())
+                .num_outcomes(2)
+                .build_tx()
+                .expect("extend transaction must build")
+        };
+
+        let tx = build(client.positions().extend_position_tokens().payer(payer));
+        assert_eq!(tx.message.account_keys[0], payer);
+        assert!(tx.message.is_signer(0));
+
+        #[allow(deprecated)]
+        let aliased = build(client.positions().extend_position_tokens().operator(payer));
+        assert_eq!(aliased.message, tx.message);
+    }
+
+    #[test]
+    fn extend_requires_a_payer() {
+        let client = client();
+        let error = client
+            .positions()
+            .extend_position_tokens()
+            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
+            .market(Pubkey::new_unique())
+            .lookup_table(Pubkey::new_unique())
+            .deposit_mints(deposit_mints(1))
+            .num_outcomes(2)
+            .build_ix()
+            .expect_err("missing payer must fail");
+
+        assert!(error.to_string().contains("payer is required"));
+    }
+}
+
 // ─── InitPositionTokensBuilder ─────────────────────────────────────────────
 
 /// Fluent builder for init-position-tokens operations.
 ///
 /// Created via `client.positions().init_position_tokens()` — direct construction is not exposed.
+///
+/// Idempotent on chain: replaying with the same `recent_slot` reuses the
+/// existing lookup table and skips groups already present. At most
+/// `MAX_DEPOSIT_MINTS_PER_IX` deposit mints are accepted per instruction.
 ///
 /// # Example
 ///
@@ -1212,6 +1363,8 @@ impl<'a> InitPositionTokensBuilder<'a> {
     }
 
     /// Build an init-position-tokens instruction.
+    ///
+    /// Rejects zero or off-curve beneficiaries and empty or oversized deposit-mint lists.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let payer = self
             .payer
@@ -1231,6 +1384,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
         let num_outcomes = self
             .num_outcomes
             .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
+        crate::program::utils::validate_position_token_inputs(&user, &deposit_mints)?;
 
         Ok(instructions::build_init_position_tokens_ix(
             &InitPositionTokensParams {
@@ -1268,11 +1422,14 @@ impl<'a> InitPositionTokensBuilder<'a> {
 ///
 /// Created via `client.positions().extend_position_tokens()` — direct construction is not exposed.
 ///
+/// Permissionless: any signer may pay. Groups already present in the position's
+/// lookup table are skipped on chain, so the same mints may be passed again.
+///
 /// # Example
 ///
 /// ```rust,ignore
 /// let tx_signature = client.positions().extend_position_tokens()
-///     .operator(keypair.pubkey())
+///     .payer(keypair.pubkey())
 ///     .user(user_pubkey)
 ///     .market(market_pubkey)
 ///     .lookup_table(alt_pubkey)
@@ -1283,7 +1440,7 @@ impl<'a> InitPositionTokensBuilder<'a> {
 /// ```
 pub struct ExtendPositionTokensBuilder<'a> {
     client: &'a LightconeClient,
-    operator: Option<Pubkey>,
+    payer: Option<Pubkey>,
     user: Option<Pubkey>,
     market: Option<Pubkey>,
     lookup_table: Option<Pubkey>,
@@ -1295,7 +1452,7 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
     pub(crate) fn new(client: &'a LightconeClient) -> Self {
         Self {
             client,
-            operator: None,
+            payer: None,
             user: None,
             market: None,
             lookup_table: None,
@@ -1304,10 +1461,19 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
         }
     }
 
-    /// Set the operator's public key (signer).
-    pub fn operator(mut self, operator: Pubkey) -> Self {
-        self.operator = Some(operator);
+    /// Set the fee payer's public key (signer). Any signer may extend a position table.
+    pub fn payer(mut self, payer: Pubkey) -> Self {
+        self.payer = Some(payer);
         self
+    }
+
+    /// Set the fee payer's public key (signer).
+    ///
+    /// Retained for source compatibility; `ExtendPositionTokens` no longer
+    /// requires the exchange operator.
+    #[deprecated(note = "ExtendPositionTokens is permissionless; use payer()")]
+    pub fn operator(self, operator: Pubkey) -> Self {
+        self.payer(operator)
     }
 
     /// Set the position owner's public key.
@@ -1328,7 +1494,7 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
         self
     }
 
-    /// Set the new deposit mints to add.
+    /// Set the deposit mints whose canonical groups must be present.
     pub fn deposit_mints(mut self, deposit_mints: Vec<Pubkey>) -> Self {
         self.deposit_mints = Some(deposit_mints);
         self
@@ -1342,9 +1508,9 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
     /// Build an extend-position-tokens instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
-        let operator = self
-            .operator
-            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
+        let payer = self
+            .payer
+            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
         let user = self
             .user
             .ok_or_else(|| SdkError::Validation("user is required".into()))?;
@@ -1363,7 +1529,7 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
         Ok(instructions::build_extend_position_tokens_ix(
             &ExtendPositionTokensParams {
-                operator,
+                payer,
                 user,
                 market,
                 lookup_table,
@@ -1376,11 +1542,11 @@ impl<'a> ExtendPositionTokensBuilder<'a> {
 
     /// Build an extend-position-tokens transaction.
     pub fn build_tx(self) -> Result<Transaction, SdkError> {
-        let operator = self
-            .operator
-            .ok_or_else(|| SdkError::Validation("operator is required".into()))?;
+        let payer = self
+            .payer
+            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
         let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&operator)))
+        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
     }
 
     /// Build, sign, and submit the extend-position-tokens transaction.

@@ -1,6 +1,19 @@
 """Instruction builders for the Lightcone SDK.
 
 This module provides functions to build all Lightcone program instructions.
+
+Event transport trailer
+-----------------------
+Every public instruction ends with two read-only, non-signer accounts that the
+program requires for its authenticated event transport: the event-authority PDA
+(seed ``__event_authority``) followed by the executable program account. The
+program pops both before dispatch, signs one final event-batch self-CPI with the
+PDA, and rejects a missing, wrong, or writable trailer before any state change
+(on-chain errors 46 and 68). Public instructions require transaction-level
+invocation except for the governance allowlist documented in this module's
+README. Unsupported CPI calls fail with on-chain error 73. Every
+builder here appends the trailer through ``_public_instruction``, so it always
+occupies the last two account slots.
 """
 
 from solders.instruction import AccountMeta, Instruction
@@ -49,6 +62,7 @@ from .constants import (
     INSTRUCTION_WHITELIST_DEPOSIT_TOKEN,
     INSTRUCTION_WITHDRAW_CONDITIONAL_FROM_POSITION,
     INSTRUCTION_WITHDRAW_FROM_GLOBAL,
+    MAX_DEPOSIT_MINTS_PER_IX,
     MAX_MAKERS,
     MAX_OUTCOMES,
     MIN_OUTCOMES,
@@ -65,8 +79,10 @@ from .errors import (
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
+    InvalidPubkeyError,
     MissingFieldError,
     PayoutVectorExceedsU32Error,
+    TooManyDepositMintsError,
     TooManyMakersError,
 )
 from .orders import hash_order, serialize_full_order, serialize_order, to_order
@@ -74,6 +90,7 @@ from .pda import (
     get_alt_pda,
     get_condition_tombstone_pda,
     get_conditional_mint_pda,
+    get_event_authority_pda,
     get_exchange_pda,
     get_global_deposit_pda,
     get_market_pda,
@@ -121,8 +138,46 @@ from .utils import (
 FullOrder = SignedOrder
 
 
+def _validate_oracle(oracle: Pubkey) -> None:
+    """Reject oracle keys that cannot sign top-level settlement instructions."""
+    if oracle == Pubkey.default() or not oracle.is_on_curve():
+        raise InvalidOracleError()
+
+
+def _validate_user(user: Pubkey) -> None:
+    """Reject zero and off-curve beneficiaries that cannot sign user exits."""
+    if user == Pubkey.default() or not user.is_on_curve():
+        raise InvalidPubkeyError(str(user))
+
+
 def _zero_pubkey() -> Pubkey:
     return Pubkey.from_bytes(bytes(32))
+
+
+def _public_instruction(
+    program_id: Pubkey,
+    accounts: list[AccountMeta],
+    data: bytes,
+) -> Instruction:
+    """Build a public Lightcone instruction with the event transport trailer.
+
+    The program pops the last two accounts of every public instruction before
+    dispatch: the event-authority PDA (seed ``__event_authority``, read-only,
+    never a signer) and the executable program account (read-only). It signs
+    its final event-batch self-CPI with that PDA, so an instruction without the
+    trailer fails closed before any state change. Routing every builder through
+    this constructor keeps the invariant in one place.
+    """
+    event_authority, _ = get_event_authority_pda(program_id)
+    return Instruction(
+        program_id=program_id,
+        accounts=[
+            *accounts,
+            AccountMeta(pubkey=event_authority, is_signer=False, is_writable=False),
+            AccountMeta(pubkey=program_id, is_signer=False, is_writable=False),
+        ],
+        data=data,
+    )
 
 
 def build_initialize_instruction(
@@ -146,7 +201,7 @@ def build_initialize_instruction(
 
     data = bytes([INSTRUCTION_INITIALIZE])
 
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_create_market_instruction(
@@ -162,8 +217,10 @@ def build_create_market_instruction(
     """Build the create_market instruction with a known market_id.
 
     Use this when you already know the market_id (from exchange.market_count).
+    Rejects zero or off-curve oracle keys.
     """
     validate_outcome_count(num_outcomes)
+    _validate_oracle(oracle)
     validate_fee_pair(maker_fee_bps, taker_fee_bps)
 
     exchange, _ = get_exchange_pda(program_id)
@@ -187,7 +244,7 @@ def build_create_market_instruction(
         AccountMeta(pubkey=condition_tombstone, is_signer=False, is_writable=True),
     ]
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_add_deposit_mint_instruction(
@@ -199,10 +256,10 @@ def build_add_deposit_mint_instruction(
 ) -> Instruction:
     """Build the add_deposit_mint instruction.
 
-    Accounts:
+    Accounts (9 + num_outcomes, + 2 trailer):
     0. manager (signer, writable)
     1. exchange (readonly)
-    2. market (readonly)
+    2. market (writable) - deposit_mint_count is incremented
     3. deposit_mint (readonly)
     4. vault (writable)
     5. mint_authority (readonly)
@@ -210,6 +267,10 @@ def build_add_deposit_mint_instruction(
     7. system_program (readonly)
     8. global_deposit_token (readonly)
     9+. conditional_mints[0..num_outcomes] (writable)
+    + event_authority, program (readonly trailer)
+
+    The program rejects the instruction with error 75 (TooManyDepositMints)
+    once the market already holds MAX_DEPOSIT_MINTS_PER_MARKET deposit mints.
 
     Data: [2]
     """
@@ -223,7 +284,7 @@ def build_add_deposit_mint_instruction(
     accounts = [
         AccountMeta(pubkey=manager, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=market, is_signer=False, is_writable=True),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=vault, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
@@ -239,10 +300,8 @@ def build_add_deposit_mint_instruction(
             AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=True)
         )
 
-    return Instruction(
-        program_id=program_id,
-        accounts=accounts,
-        data=bytes([INSTRUCTION_ADD_DEPOSIT_MINT]),
+    return _public_instruction(
+        program_id, accounts, bytes([INSTRUCTION_ADD_DEPOSIT_MINT])
     )
 
 
@@ -308,7 +367,7 @@ def build_mint_complete_set_instruction(
     data.append(INSTRUCTION_MINT_COMPLETE_SET)
     data.extend(encode_u64(amount))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_merge_complete_set_instruction(
@@ -369,7 +428,7 @@ def build_merge_complete_set_instruction(
     data.append(INSTRUCTION_MERGE_COMPLETE_SET)
     data.extend(encode_u64(amount))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_cancel_order_instruction(
@@ -404,7 +463,7 @@ def build_cancel_order_instruction(
     data.extend(order_hash)
     data.extend(serialize_full_order(order))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_increment_nonce_instruction(
@@ -431,7 +490,7 @@ def build_increment_nonce_instruction(
 
     data = bytes([INSTRUCTION_INCREMENT_NONCE])
 
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_settle_market_instruction(
@@ -465,7 +524,7 @@ def build_settle_market_instruction(
     for numerator in payout_numerators:
         data.extend(encode_u32(numerator))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def _validate_payout_numerators(payout_numerators: list[int]) -> None:
@@ -553,7 +612,7 @@ def build_redeem_winnings_instruction(
     data.extend(encode_u64(amount))
     data.extend(encode_u8(outcome_index))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_set_paused_instruction(
@@ -578,7 +637,7 @@ def build_set_paused_instruction(
 
     data = bytes([INSTRUCTION_SET_PAUSED, 1 if paused else 0])
 
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_set_operator_instruction(
@@ -608,7 +667,7 @@ def build_set_operator_instruction(
     data.append(INSTRUCTION_SET_OPERATOR)
     data.extend(bytes(new_operator))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_withdraw_conditional_from_position_instruction(
@@ -657,9 +716,7 @@ def build_withdraw_conditional_from_position_instruction(
         AccountMeta(pubkey=position, is_signer=False, is_writable=False),
         AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=conditional_mint, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=position_conditional_ata, is_signer=False, is_writable=True
-        ),
+        AccountMeta(pubkey=position_conditional_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=user_conditional_ata, is_signer=False, is_writable=True),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
@@ -669,7 +726,7 @@ def build_withdraw_conditional_from_position_instruction(
     data.extend(encode_u64(amount))
     data.extend(encode_u8(outcome_index))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_withdraw_from_position_instruction(
@@ -714,7 +771,7 @@ def build_activate_market_instruction(
 
     data = bytes([INSTRUCTION_ACTIVATE_MARKET])
 
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_match_orders_multi_instruction(
@@ -839,12 +896,8 @@ def build_match_orders_multi_instruction(
 
         maker_nonce, _ = get_user_nonce_pda(maker_order.maker, program_id)
         maker_position, _ = get_position_pda(maker_order.maker, market, program_id)
-        maker_position_base_ata = get_conditional_token_ata(
-            maker_position, base_mint
-        )
-        maker_position_quote_ata = get_conditional_token_ata(
-            maker_position, quote_mint
-        )
+        maker_position_base_ata = get_conditional_token_ata(maker_position, base_mint)
+        maker_position_quote_ata = get_conditional_token_ata(maker_position, quote_mint)
 
         accounts.extend(
             [
@@ -880,7 +933,7 @@ def build_match_orders_multi_instruction(
         data.extend(encode_u64(maker_fill_amounts[i]))
         data.extend(encode_u64(taker_fill_amounts[i]))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_create_orderbook_instruction(
@@ -945,7 +998,9 @@ def build_create_orderbook_instruction(
         canonical_a["mint"], canonical_b["mint"], program_id
     )
     lookup_table, _ = get_alt_pda(orderbook, recent_slot)
-    quote_mint = canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
+    quote_mint = (
+        canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
+    )
     fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
     accounts = [
@@ -969,9 +1024,7 @@ def build_create_orderbook_instruction(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
         AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True
-        ),
+        AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True),
     ]
 
     data = bytearray()
@@ -981,7 +1034,7 @@ def build_create_orderbook_instruction(
     data.append(canonical_a["outcome_index"])
     data.append(canonical_b["outcome_index"])
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_refresh_orderbook_alt_instruction(
@@ -1022,10 +1075,8 @@ def build_refresh_orderbook_alt_instruction(
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
-    return Instruction(
-        program_id=program_id,
-        accounts=accounts,
-        data=bytes([INSTRUCTION_REFRESH_ORDERBOOK_ALT]),
+    return _public_instruction(
+        program_id, accounts, bytes([INSTRUCTION_REFRESH_ORDERBOOK_ALT])
     )
 
 
@@ -1056,7 +1107,7 @@ def build_set_authority_instruction(
     data.append(INSTRUCTION_SET_AUTHORITY)
     data.extend(bytes(new_authority))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_set_manager_instruction(
@@ -1086,7 +1137,7 @@ def build_set_manager_instruction(
     data.append(INSTRUCTION_SET_MANAGER)
     data.extend(bytes(new_manager))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def _build_accept_role_instruction(
@@ -1101,11 +1152,7 @@ def _build_accept_role_instruction(
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
     ]
 
-    return Instruction(
-        program_id=program_id,
-        accounts=accounts,
-        data=bytes([discriminator]),
-    )
+    return _public_instruction(program_id, accounts, bytes([discriminator]))
 
 
 def build_accept_authority_instruction(
@@ -1148,9 +1195,8 @@ def build_set_oracle_instruction(
     params: SetOracleParams,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the set_oracle instruction."""
-    if params.new_oracle == _zero_pubkey():
-        raise InvalidOracleError()
+    """Build set_oracle, rejecting zero or off-curve oracle keys."""
+    _validate_oracle(params.new_oracle)
 
     exchange, _ = get_exchange_pda(program_id)
     accounts = [
@@ -1161,7 +1207,7 @@ def build_set_oracle_instruction(
 
     data = bytearray([INSTRUCTION_SET_ORACLE])
     data.extend(bytes(params.new_oracle))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_set_market_fees_instruction(
@@ -1187,7 +1233,7 @@ def build_set_market_fees_instruction(
         data.extend(encode_i16(update.maker_fee_bps))
         data.extend(encode_i16(update.taker_fee_bps))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_set_fee_receiver_instruction(
@@ -1206,7 +1252,7 @@ def build_set_fee_receiver_instruction(
 
     data = bytearray([INSTRUCTION_SET_FEE_RECEIVER])
     data.extend(bytes(params.new_fee_receiver))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_set_fee_receiver_with_atas_instruction(
@@ -1255,7 +1301,7 @@ def build_set_fee_receiver_with_atas_instruction(
 
     data = bytearray([INSTRUCTION_SET_FEE_RECEIVER])
     data.extend(bytes(params.new_fee_receiver))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_create_conditional_metadata_instruction(
@@ -1299,9 +1345,11 @@ def _build_conditional_metadata_instruction(
 
     data = bytearray(
         [
-            INSTRUCTION_CREATE_CONDITIONAL_METADATA
-            if is_create
-            else INSTRUCTION_UPDATE_CONDITIONAL_METADATA,
+            (
+                INSTRUCTION_CREATE_CONDITIONAL_METADATA
+                if is_create
+                else INSTRUCTION_UPDATE_CONDITIONAL_METADATA
+            ),
             params.outcome_index,
         ]
     )
@@ -1334,7 +1382,7 @@ def _build_conditional_metadata_instruction(
             AccountMeta(pubkey=RENT_SYSVAR_ID, is_signer=False, is_writable=False)
         )
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_whitelist_deposit_token_instruction(
@@ -1346,7 +1394,7 @@ def build_whitelist_deposit_token_instruction(
 
     Accounts:
     0. authority (signer, writable)
-    1. exchange (readonly)
+    1. exchange (writable) - deposit_token_count is incremented
     2. mint (readonly)
     3. global_deposit_token (writable)
     4. system_program (readonly)
@@ -1356,14 +1404,14 @@ def build_whitelist_deposit_token_instruction(
 
     accounts = [
         AccountMeta(pubkey=authority, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
+        AccountMeta(pubkey=exchange, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint, is_signer=False, is_writable=False),
         AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=True),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
     data = bytes([INSTRUCTION_WHITELIST_DEPOSIT_TOKEN])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_set_deposit_token_status_instruction(
@@ -1380,10 +1428,10 @@ def build_set_deposit_token_status_instruction(
         AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=True),
     ]
 
-    return Instruction(
-        program_id=program_id,
-        accounts=accounts,
-        data=bytes([INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS, 1 if params.active else 0]),
+    return _public_instruction(
+        program_id,
+        accounts,
+        bytes([INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS, 1 if params.active else 0]),
     )
 
 
@@ -1453,7 +1501,7 @@ def build_deposit_to_global_instruction(
             AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False)
         )
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_deposit_to_global_instruction_with_alt(
@@ -1534,7 +1582,7 @@ def build_global_to_market_deposit_instruction(
 
     data = bytearray([INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT])
     data.extend(encode_u64(amount))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_init_position_tokens_instruction(
@@ -1548,9 +1596,14 @@ def build_init_position_tokens_instruction(
 ) -> Instruction:
     """Build the init_position_tokens instruction.
 
-    Permissionless: separate payer from user, supports multiple deposit mints.
+    Permissionless: any payer may initialize the accounts for an on-curve user. The
+    instruction is idempotent: replaying it with the same ``recent_slot`` reuses
+    the existing lookup table and skips deposit-mint groups that are already
+    present, so a retry after a partial failure must reuse the original slot
+    (the table address derives from it). At most MAX_DEPOSIT_MINTS_PER_IX
+    groups may be passed per instruction.
 
-    Accounts (11 + per deposit_mint: 3 + num_outcomes*2):
+    Accounts (11 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
     0. payer (signer, writable)
     1. user (readonly)
     2. exchange (readonly)
@@ -1563,7 +1616,20 @@ def build_init_position_tokens_instruction(
     9. alt_program (readonly)
     10. system_program (readonly)
     + per deposit_mint: deposit_mint, vault, gdt, [cond_mint, ata] x num_outcomes
+    + event_authority, program (readonly trailer)
+
+    Raises:
+        MissingFieldError: if no deposit mints are supplied.
+        InvalidPubkeyError: if the beneficiary is zero or off-curve.
+        TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
+            are supplied.
     """
+    if not deposit_mints:
+        raise MissingFieldError("deposit_mints")
+    _validate_user(user)
+    if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
+        raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
+
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
     lookup_table, _ = get_position_alt_pda(position, recent_slot)
@@ -1608,7 +1674,7 @@ def build_init_position_tokens_instruction(
     data = bytearray([INSTRUCTION_INIT_POSITION_TOKENS])
     data.extend(encode_u64(recent_slot))
     data.append(len(deposit_mints))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_deposit_and_swap_instruction(
@@ -1691,7 +1757,9 @@ def build_deposit_and_swap_instruction(
     accounts.append(
         AccountMeta(pubkey=fee_receiver_quote_ata, is_signer=False, is_writable=True)
     )
-    accounts.append(AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False))
+    accounts.append(
+        AccountMeta(pubkey=fee_receiver, is_signer=False, is_writable=False)
+    )
     accounts.append(
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -1829,11 +1897,11 @@ def build_deposit_and_swap_instruction(
         data.extend(encode_u64(maker.maker_fill_amount))
         data.extend(encode_u64(maker.taker_fill_amount))
 
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_extend_position_tokens_instruction(
-    operator: Pubkey,
+    payer: Pubkey,
     user: Pubkey,
     market: Pubkey,
     lookup_table: Pubkey,
@@ -1843,11 +1911,15 @@ def build_extend_position_tokens_instruction(
 ) -> Instruction:
     """Build the extend_position_tokens instruction.
 
-    Operator-only. Use this after a market adds new deposit mints to extend an
-    existing position ALT with those new mint accounts.
+    Permissionless: any ``payer`` may extend a position lookup table after a
+    market adds deposit mints; the position PDA remains the table authority.
+    Deposit-mint groups already present in the table are skipped on chain, so
+    callers may pass existing and new mints together. The program rejects a
+    deactivated table or one not owned by the position. At most
+    MAX_DEPOSIT_MINTS_PER_IX groups may be passed per instruction.
 
-    Accounts (10 + per deposit_mint: 3 + num_outcomes*2):
-    0. operator (signer, writable)
+    Accounts (10 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
+    0. payer (signer, writable)
     1. user (readonly)
     2. exchange (readonly)
     3. market (readonly)
@@ -1859,15 +1931,25 @@ def build_extend_position_tokens_instruction(
     9. system_program (readonly)
     + per deposit_mint: deposit_mint, vault, global_deposit_token,
       then per outcome: conditional_mint, position_conditional_ata
+    + event_authority, program (readonly trailer)
+
+    Raises:
+        MissingFieldError: if ``deposit_mints`` is empty.
+        InvalidPubkeyError: if the beneficiary is zero or off-curve.
+        TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
+            are supplied.
     """
     if not deposit_mints:
         raise MissingFieldError("deposit_mints")
+    _validate_user(user)
+    if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
+        raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
 
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
 
     accounts = [
-        AccountMeta(pubkey=operator, is_signer=True, is_writable=True),
+        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
         AccountMeta(pubkey=user, is_signer=False, is_writable=False),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
@@ -1905,7 +1987,7 @@ def build_extend_position_tokens_instruction(
 
     data = bytearray([INSTRUCTION_EXTEND_POSITION_TOKENS])
     data.append(len(deposit_mints))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_withdraw_from_global_instruction(
@@ -1944,7 +2026,7 @@ def build_withdraw_from_global_instruction(
 
     data = bytearray([INSTRUCTION_WITHDRAW_FROM_GLOBAL])
     data.extend(encode_u64(amount))
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_close_position_alt_instruction(
@@ -1973,7 +2055,7 @@ def build_close_position_alt_instruction(
     ]
 
     data = bytes([INSTRUCTION_CLOSE_POSITION_ALT])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_close_order_status_instruction(
@@ -2000,7 +2082,7 @@ def build_close_order_status_instruction(
 
     data = bytearray([INSTRUCTION_CLOSE_ORDER_STATUS])
     data.extend(params.order_hash)
-    return Instruction(program_id=program_id, accounts=accounts, data=bytes(data))
+    return _public_instruction(program_id, accounts, bytes(data))
 
 
 def build_close_position_token_accounts_instruction(
@@ -2060,7 +2142,7 @@ def build_close_position_token_accounts_instruction(
             )
 
     data = bytes([INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_close_orderbook_alt_instruction(
@@ -2089,7 +2171,7 @@ def build_close_orderbook_alt_instruction(
     ]
 
     data = bytes([INSTRUCTION_CLOSE_ORDERBOOK_ALT])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 def build_close_orderbook_instruction(
@@ -2116,7 +2198,7 @@ def build_close_orderbook_instruction(
     ]
 
     data = bytes([INSTRUCTION_CLOSE_ORDERBOOK])
-    return Instruction(program_id=program_id, accounts=accounts, data=data)
+    return _public_instruction(program_id, accounts, data)
 
 
 # Aliases matching Rust SDK naming (PR #46)

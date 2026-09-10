@@ -5,6 +5,7 @@ Created via factory methods on ``client.positions()``.
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, List, Optional
 
 from solders.instruction import Instruction
@@ -499,7 +500,10 @@ class InitPositionTokensBuilder:
 
     Creates the Position PDA, conditional token ATAs, and position ALT entries
     for the supplied deposit mints. Permissionless: any payer can initialize
-    these accounts for a user.
+    these accounts for a user. Idempotent: replaying with the same recent slot
+    reuses the existing lookup table and skips deposit-mint groups already
+    present, so retries must reuse the original slot. At most
+    MAX_DEPOSIT_MINTS_PER_IX deposit mints per instruction.
     """
 
     def __init__(self, client: "LightconeClient"):
@@ -582,22 +586,39 @@ class InitPositionTokensBuilder:
 class ExtendPositionTokensBuilder:
     """Fluent builder for extend-position-tokens operations.
 
-    Operator-only. Use this after a market adds new deposit mints to extend an
-    existing position ALT with those new mint accounts.
+    Permissionless: any payer may extend a position ALT after a market adds
+    deposit mints; the position PDA remains the table authority. Deposit-mint
+    groups already present in the table are skipped on chain, so existing and
+    new mints may be passed together. At most MAX_DEPOSIT_MINTS_PER_IX deposit
+    mints per instruction.
     """
 
     def __init__(self, client: "LightconeClient"):
         self._client = client
-        self._operator: Optional[Pubkey] = None
+        self._payer: Optional[Pubkey] = None
         self._user: Optional[Pubkey] = None
         self._market: Optional[Pubkey] = None
         self._lookup_table: Optional[Pubkey] = None
         self._deposit_mints: Optional[List[Pubkey]] = None
         self._num_outcomes: Optional[int] = None
 
-    def operator(self, operator: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._operator = operator
+    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
+        self._payer = payer
         return self
+
+    def operator(self, operator: Pubkey) -> "ExtendPositionTokensBuilder":
+        """Deprecated alias for :meth:`payer`.
+
+        extend_position_tokens is permissionless; the signer only pays for the
+        new accounts.
+        """
+        warnings.warn(
+            "ExtendPositionTokensBuilder.operator() is deprecated; "
+            "extend_position_tokens is permissionless, use payer()",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.payer(operator)
 
     def user(self, user: Pubkey) -> "ExtendPositionTokensBuilder":
         self._user = user
@@ -622,9 +643,9 @@ class ExtendPositionTokensBuilder:
         return self
 
     def build_ix(self) -> Instruction:
-        operator = self._operator
-        if operator is None:
-            raise SdkError("operator is required")
+        payer = self._payer
+        if payer is None:
+            raise SdkError("payer is required")
         user = self._user
         if user is None:
             raise SdkError("user is required")
@@ -641,7 +662,7 @@ class ExtendPositionTokensBuilder:
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
         return build_extend_position_tokens_instruction(
-            operator,
+            payer,
             user,
             market,
             lookup_table,
@@ -651,10 +672,10 @@ class ExtendPositionTokensBuilder:
         )
 
     def build_tx(self) -> Transaction:
-        operator = self._operator
-        if operator is None:
-            raise SdkError("operator is required")
-        return Transaction.new_with_payer([self.build_ix()], operator)
+        payer = self._payer
+        if payer is None:
+            raise SdkError("payer is required")
+        return Transaction.new_with_payer([self.build_ix()], payer)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the extend-position-tokens transaction."""

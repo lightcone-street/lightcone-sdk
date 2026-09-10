@@ -115,7 +115,8 @@ def deserialize_market(data: bytes) -> Market:
     - [88..120]: condition_id (32 bytes)
     - [120..144]: payout_numerators ([u32; 6])
     - [144..148]: payout_denominator (u32)
-    - [148..216]: reserved
+    - [148]: deposit_mint_count (u8)
+    - [149..216]: reserved
     """
     _validate_discriminator(data, MARKET_DISCRIMINATOR, "Market")
 
@@ -143,6 +144,7 @@ def deserialize_market(data: bytes) -> Market:
             decode_u32(data, 140),
         ),
         payout_denominator=decode_u32(data, 144),
+        deposit_mint_count=decode_u8(data, 148),
     )
 
 

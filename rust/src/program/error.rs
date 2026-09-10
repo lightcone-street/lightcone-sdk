@@ -167,7 +167,7 @@ pub enum SdkError {
     #[error("Invalid fee receiver")]
     InvalidFeeReceiver,
 
-    /// Invalid oracle pubkey.
+    /// Oracle pubkey is zero or off-curve.
     #[error("Invalid oracle")]
     InvalidOracle,
 
@@ -182,6 +182,38 @@ pub enum SdkError {
     /// Pending role transfer kind or signer does not match.
     #[error("Pending role transfer mismatch")]
     PendingRoleMismatch,
+
+    /// Event-authority trailer account is missing, writable, or not the program PDA.
+    #[error("Invalid event authority")]
+    InvalidEventAuthority,
+
+    /// Serialized event batch exceeds its bounded capacity.
+    #[error("Event batch overflow")]
+    EventBatchOverflow,
+
+    /// Event batch framing or payload is malformed.
+    #[error("Invalid event batch")]
+    InvalidEventBatch,
+
+    /// Recorded events do not match the source instruction's event contract.
+    #[error("Invalid event contract")]
+    InvalidEventContract,
+
+    /// Event batch schema version is unsupported.
+    #[error("Unsupported event schema")]
+    UnsupportedEventSchema,
+
+    /// The public instruction or invocation depth is outside the governance CPI allowlist.
+    #[error("Public instruction must be top-level")]
+    PublicInstructionMustBeTopLevel,
+
+    /// Canonical groups would exceed the lookup table's 256-entry limit.
+    #[error("Lookup table capacity exceeded")]
+    LookupTableCapacityExceeded,
+
+    /// Too many deposit mints for one market or one position-token instruction.
+    #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX)]
+    TooManyDepositMints { count: usize },
 
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]

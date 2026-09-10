@@ -4,7 +4,7 @@
 
 use solana_pubkey::Pubkey;
 
-use crate::program::constants::{MAX_OUTCOMES, MIN_OUTCOMES};
+use crate::program::constants::{MAX_DEPOSIT_MINTS_PER_IX, MAX_OUTCOMES, MIN_OUTCOMES};
 use crate::program::error::{SdkError, SdkResult};
 
 // ============================================================================
@@ -41,6 +41,39 @@ pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
 // ============================================================================
 // Validation Helpers
 // ============================================================================
+
+/// Reject oracle keys that cannot sign top-level settlement instructions.
+pub(crate) fn validate_oracle(oracle: &Pubkey) -> SdkResult<()> {
+    if *oracle == Pubkey::default() || !oracle.is_on_curve() {
+        return Err(SdkError::InvalidOracle);
+    }
+    Ok(())
+}
+
+/// Reject zero and off-curve beneficiaries that cannot sign user exits.
+pub(crate) fn validate_user(user: &Pubkey) -> SdkResult<()> {
+    if *user == Pubkey::default() || !user.is_on_curve() {
+        return Err(SdkError::InvalidPubkey(user.to_string()));
+    }
+    Ok(())
+}
+
+/// Reject invalid position-token beneficiaries and empty or oversized mint groups.
+pub(crate) fn validate_position_token_inputs(
+    user: &Pubkey,
+    deposit_mints: &[Pubkey],
+) -> SdkResult<()> {
+    if deposit_mints.is_empty() {
+        return Err(SdkError::MissingField("deposit_mints".to_string()));
+    }
+    validate_user(user)?;
+    if deposit_mints.len() > MAX_DEPOSIT_MINTS_PER_IX {
+        return Err(SdkError::TooManyDepositMints {
+            count: deposit_mints.len(),
+        });
+    }
+    Ok(())
+}
 
 /// Validate that the number of outcomes is within the allowed range.
 pub fn validate_outcome_count(num_outcomes: u8) -> SdkResult<()> {

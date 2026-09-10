@@ -1,8 +1,9 @@
+import pytest
+from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
-import pytest
-
 from lightcone_sdk.client import LightconeClient
+from lightcone_sdk.domain.position.builders import ExtendPositionTokensBuilder
 from lightcone_sdk.error import SdkError
 from lightcone_sdk.http import LightconeHttp
 from lightcone_sdk.program.errors import InvalidOutcomeIndexError
@@ -12,7 +13,7 @@ def builder(client: LightconeClient):
     return (
         client.positions()
         .withdraw_from_position()
-        .user(Pubkey.new_unique())
+        .user(Keypair().pubkey())
         .market(Pubkey.new_unique())
         .deposit_mint(Pubkey.new_unique())
         .amount(1)
@@ -32,3 +33,30 @@ def test_withdraw_from_position_validates_against_num_outcomes() -> None:
 
     with pytest.raises(InvalidOutcomeIndexError):
         builder(client).num_outcomes(2).build_ix()
+
+
+def test_extend_position_tokens_operator_alias_forwards_to_payer() -> None:
+    client = LightconeClient(LightconeHttp("https://example.com"))
+    payer = Pubkey.new_unique()
+
+    with pytest.warns(DeprecationWarning, match="use payer"):
+        builder = ExtendPositionTokensBuilder(client).operator(payer)
+
+    ix = (
+        builder.user(Keypair().pubkey())
+        .market(Pubkey.new_unique())
+        .lookup_table(Pubkey.new_unique())
+        .deposit_mints([Pubkey.new_unique()])
+        .num_outcomes(2)
+        .build_ix()
+    )
+
+    assert ix.accounts[0].pubkey == payer
+    assert ix.accounts[0].is_signer is True
+
+
+def test_extend_position_tokens_requires_payer() -> None:
+    client = LightconeClient(LightconeHttp("https://example.com"))
+
+    with pytest.raises(SdkError, match="payer is required"):
+        ExtendPositionTokensBuilder(client).build_ix()

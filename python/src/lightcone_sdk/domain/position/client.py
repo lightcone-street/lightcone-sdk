@@ -1025,7 +1025,7 @@ class Positions:
     def init_position_tokens_ix(
         self, params: InitPositionTokensParams, num_outcomes: int
     ) -> Instruction:
-        """Build InitPositionTokens instruction."""
+        """Build InitPositionTokens instruction (idempotent per recent_slot)."""
         return build_init_position_tokens_instruction(
             payer=params.payer,
             user=params.user,
@@ -1039,9 +1039,9 @@ class Positions:
     def extend_position_tokens_ix(
         self, params: ExtendPositionTokensParams, num_outcomes: int
     ) -> Instruction:
-        """Build ExtendPositionTokens instruction."""
+        """Build ExtendPositionTokens instruction (permissionless; any payer)."""
         return build_extend_position_tokens_instruction(
-            operator=params.operator,
+            payer=params.payer,
             user=params.user,
             market=params.market,
             lookup_table=params.lookup_table,
@@ -1145,7 +1145,7 @@ class Positions:
     ) -> Transaction:
         """Build ExtendPositionTokens transaction."""
         ix = self.extend_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.operator)
+        return Transaction.new_with_payer([ix], params.payer)
 
     def close_position_alt_tx(self, params: ClosePositionAltParams) -> Transaction:
         """Build ClosePositionAlt transaction."""

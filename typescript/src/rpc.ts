@@ -20,6 +20,7 @@ import { SdkError } from "./error";
 import { sleep } from "./rpcFailover";
 import { ProgramSdkError } from "./program/error";
 import {
+  getEventAuthorityPda,
   getExchangePda,
   getGlobalDepositTokenPda,
   getUserGlobalDepositPda,
@@ -102,6 +103,11 @@ export class Rpc {
 
   getExchangePda(): PublicKey {
     return getExchangePda(this.client.programId)[0];
+  }
+
+  /** Event-authority PDA appended to every public instruction. */
+  getEventAuthorityPda(): PublicKey {
+    return getEventAuthorityPda(this.client.programId)[0];
   }
 
   getGlobalDepositTokenPda(mint: PublicKey): PublicKey {

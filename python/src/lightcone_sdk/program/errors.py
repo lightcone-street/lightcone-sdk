@@ -290,7 +290,7 @@ class InvalidFeeReceiverError(LightconeError):
 
 
 class InvalidOracleError(LightconeError):
-    """Raised when a market oracle pubkey is invalid."""
+    """Raised when a market oracle pubkey is zero or off-curve."""
 
     def __init__(self):
         super().__init__("Invalid oracle")
@@ -315,6 +315,64 @@ class PendingRoleMismatchError(LightconeError):
 
     def __init__(self):
         super().__init__("Pending role transfer mismatch")
+
+
+class InvalidEventAuthorityError(LightconeError):
+    """Raised when the event-authority trailer account is missing or wrong."""
+
+    def __init__(self):
+        super().__init__("Invalid event authority")
+
+
+class EventBatchOverflowError(LightconeError):
+    """Raised when an instruction's event batch exceeds the program's buffer."""
+
+    def __init__(self):
+        super().__init__("Event batch overflow")
+
+
+class InvalidEventBatchError(LightconeError):
+    """Raised when the program rejects a malformed event-batch self-CPI."""
+
+    def __init__(self):
+        super().__init__("Invalid event batch")
+
+
+class InvalidEventContractError(LightconeError):
+    """Raised when an event-batch self-CPI violates the event contract."""
+
+    def __init__(self):
+        super().__init__("Invalid event contract")
+
+
+class UnsupportedEventSchemaError(LightconeError):
+    """Raised when an event batch declares an unsupported schema version."""
+
+    def __init__(self):
+        super().__init__("Unsupported event schema")
+
+
+class PublicInstructionMustBeTopLevelError(LightconeError):
+    """Raised when an instruction or invocation depth is outside the governance CPI allowlist."""
+
+    def __init__(self):
+        super().__init__("Public instruction must be top-level")
+
+
+class LookupTableCapacityExceededError(LightconeError):
+    """Raised when extending a lookup table would exceed its capacity."""
+
+    def __init__(self):
+        super().__init__("Lookup table capacity exceeded")
+
+
+class TooManyDepositMintsError(LightconeError):
+    """Raised when a market or instruction exceeds the deposit-mint cap."""
+
+    def __init__(self, count: int, max_count: int):
+        self.count = count
+        self.max_count = max_count
+        super().__init__(f"Too many deposit mints: {count} (maximum: {max_count})")
 
 
 class InvalidOrderbookError(LightconeError):
