@@ -112,14 +112,12 @@ Clear the internal decimals cache. Rarely needed.
 ### On-Chain Cleanup Builders
 
 ```rust
-fn close_orderbook_alt_ix(&self, params: &CloseOrderbookAltParams) -> Instruction
-fn close_orderbook_alt_tx(&self, params: CloseOrderbookAltParams) -> Result<Transaction, SdkError>
 
 fn close_orderbook_ix(&self, params: &CloseOrderbookParams) -> Instruction
 fn close_orderbook_tx(&self, params: CloseOrderbookParams) -> Result<Transaction, SdkError>
 ```
 
-Build cleanup instructions for resolved orderbooks. `CloseOrderbookAlt` deactivates or closes the orderbook lookup table; `CloseOrderbook` closes the orderbook PDA after the lookup table is closed.
+Build direct cleanup instructions for resolved orderbooks. `CloseOrderbookParams` supplies the operator, orderbook, and market. The program closes the book and refunds its lamports to the operator. The fee receiver quote ATA remains open.
 
 ## State Container: OrderbookState
 

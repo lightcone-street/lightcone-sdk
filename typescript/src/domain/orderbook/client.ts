@@ -4,13 +4,11 @@ import { requireConnection } from "../../context";
 import { ProgramSdkError } from "../../program/error";
 import { RetryPolicy } from "../../http";
 import {
-  buildCloseOrderbookAltIx,
   buildCloseOrderbookIx,
 } from "../../program/instructions";
 import { getOrderbookPda } from "../../program/pda";
 import { deserializeOrderbook as deserializeProgramOrderbook } from "../../program/accounts";
 import type {
-  CloseOrderbookAltParams,
   CloseOrderbookParams,
   Orderbook as ProgramOrderbook,
 } from "../../program/types";
@@ -143,17 +141,8 @@ export class Orderbooks {
 
   // ── On-chain transaction builders ────────────────────────────────────
 
-  closeOrderbookAltIx(params: CloseOrderbookAltParams): TransactionInstruction {
-    return buildCloseOrderbookAltIx(params, this.client.programId);
-  }
-
   closeOrderbookIx(params: CloseOrderbookParams): TransactionInstruction {
     return buildCloseOrderbookIx(params, this.client.programId);
-  }
-
-  closeOrderbookAltTx(params: CloseOrderbookAltParams): Transaction {
-    const ix = this.closeOrderbookAltIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   closeOrderbookTx(params: CloseOrderbookParams): Transaction {

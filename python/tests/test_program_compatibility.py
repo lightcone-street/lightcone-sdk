@@ -10,16 +10,9 @@ from lightcone_sdk.program import (
     SYSTEM_PROGRAM_ID,
     InvalidOracleError,
     InvalidPubkeyError,
-    MakerFill,
-    OrderSide,
     SetOracleParams,
-    SignedOrder,
-    TooManyMakersError,
     build_create_market_instruction,
-    build_deposit_and_swap_instruction,
-    build_extend_position_tokens_instruction,
     build_init_position_tokens_instruction,
-    build_match_orders_multi_instruction,
     build_set_oracle_instruction,
     build_set_paused_instruction,
     build_whitelist_deposit_token_instruction,
@@ -34,84 +27,8 @@ def wallet(seed: int) -> Pubkey:
 
 
 def test_program_constants():
-    assert MAX_MAKERS == 4
+    assert MAX_MAKERS == 11
     assert str(INITIALIZE_AUTHORITY) == "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
-
-
-@pytest.mark.parametrize("deposit", [False, True])
-def test_matching_four_maker_boundary_preserves_exact_fills(deposit):
-    market, base, quote = wallet(3), wallet(4), wallet(5)
-    orders = [
-        SignedOrder(
-            nonce=i,
-            salt=i,
-            maker=wallet(i + 10),
-            market=market,
-            base_mint=base,
-            quote_mint=quote,
-            side=OrderSide.BID if i == 0 else OrderSide.ASK,
-            amount_in=2**63 + 11,
-            amount_out=2**53 + 7,
-            expiration=0,
-            signature=bytes([i]) * 64,
-        )
-        for i in range(6)
-    ]
-    common = {
-        "operator": wallet(1),
-        "market": market,
-        "base_mint": base,
-        "quote_mint": quote,
-        "fee_receiver": wallet(2),
-        "taker_order": orders[0],
-    }
-    maker_amount, taker_amount = 2**53 + 7, 2**63 + 11
-
-    def build(count):
-        if deposit:
-            return build_deposit_and_swap_instruction(
-                **common,
-                taker_is_full_fill=True,
-                taker_deposit_mint=base,
-                makers=[
-                    MakerFill(
-                        order=o,
-                        maker_fill_amount=maker_amount,
-                        taker_fill_amount=taker_amount,
-                        is_full_fill=True,
-                        is_deposit=False,
-                        deposit_mint=base,
-                    )
-                    for o in orders[1 : count + 1]
-                ],
-            )
-        return build_match_orders_multi_instruction(
-            **common,
-            maker_orders=orders[1 : count + 1],
-            maker_fill_amounts=[maker_amount] * count,
-            taker_fill_amounts=[taker_amount] * count,
-            full_fill_bitmask=0x8F,
-        )
-
-    data = build(4).data
-    assert data[0] == (20 if deposit else 13)
-    assert data[102:104] == bytes([4, 0x8F])
-    start = 105 if deposit else 104
-    if deposit:
-        assert data[104] == 0
-    for i in range(4):
-        offset = start + i * 117
-        assert data[offset + 37 : offset + 101] == orders[i + 1].signature
-        assert (
-            int.from_bytes(data[offset + 101 : offset + 109], "little") == maker_amount
-        )
-        assert (
-            int.from_bytes(data[offset + 109 : offset + 117], "little") == taker_amount
-        )
-    with pytest.raises(TooManyMakersError) as exc:
-        build(5)
-    assert exc.value.count == 5
-    assert exc.value.max_count == 4
 
 
 @pytest.mark.parametrize(
@@ -129,11 +46,7 @@ def test_position_setup_rejects_zero_and_pda_beneficiaries_without_restricting_g
     for beneficiary in (Pubkey.default(), user):
         with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
             build_init_position_tokens_instruction(
-                wallet(1), beneficiary, wallet(2), [wallet(3)], 2, 99
-            )
-        with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
-            build_extend_position_tokens_instruction(
-                wallet(1), beneficiary, wallet(2), wallet(4), [wallet(3)], 2
+                wallet(1), beneficiary, wallet(2), [wallet(3)], 2
             )
     ix = build_set_paused_instruction(user, True)
     assert ix.accounts[0].pubkey == user

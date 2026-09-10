@@ -6,20 +6,14 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
-    ALT_PROGRAM_ID,
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-    MAX_DEPOSIT_MINTS_PER_IX,
     PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     AcceptRoleParams,
     ArithmeticOverflowError,
-    CloseOrderbookAltParams,
     CloseOrderbookParams,
     CloseOrderStatusParams,
-    ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
     ConditionalMetadataParams,
-    DepositToGlobalAltContext,
     InvalidOracleError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
@@ -28,14 +22,12 @@ from lightcone_sdk.program import (
     MarketFeeUpdate,
     MissingFieldError,
     OrderSide,
-    RefreshOrderbookAltParams,
     SetDepositTokenStatusParams,
     SetFeeReceiverParams,
     SetFeeReceiverWithAtasParams,
     SetMarketFeesParams,
     SetOracleParams,
     SignedOrder,
-    TooManyDepositMintsError,
     build_accept_authority_instruction,
     build_accept_manager_instruction,
     build_accept_operator_instruction,
@@ -43,17 +35,13 @@ from lightcone_sdk.program import (
     build_add_deposit_mint_instruction,
     build_cancel_order_instruction,
     build_close_order_status_instruction,
-    build_close_orderbook_alt_instruction,
     build_close_orderbook_instruction,
-    build_close_position_alt_instruction,
     build_close_position_token_accounts_instruction,
     build_create_conditional_metadata_instruction,
     build_create_market_instruction,
     build_create_orderbook_instruction,
     build_deposit_and_swap_instruction,
     build_deposit_to_global_instruction,
-    build_deposit_to_global_instruction_with_alt,
-    build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_increment_nonce_instruction,
     build_init_position_tokens_instruction,
@@ -62,7 +50,6 @@ from lightcone_sdk.program import (
     build_merge_complete_set_instruction,
     build_mint_complete_set_instruction,
     build_redeem_winnings_instruction,
-    build_refresh_orderbook_alt_instruction,
     build_set_authority_instruction,
     build_set_deposit_token_status_instruction,
     build_set_fee_receiver_instruction,
@@ -79,7 +66,6 @@ from lightcone_sdk.program import (
     build_withdraw_from_global_instruction,
     build_withdraw_from_position_instruction,
     derive_condition_id,
-    get_alt_pda,
     get_associated_token_address,
     get_condition_tombstone_pda,
     get_conditional_mint_pda,
@@ -91,10 +77,8 @@ from lightcone_sdk.program import (
     get_mint_authority_pda,
     get_mpl_metadata_pda,
     get_order_status_pda,
-    get_orderbook_pda,
     get_position_pda,
     get_user_global_deposit_pda,
-    get_user_nonce_pda,
     get_vault_pda,
     hash_order,
 )
@@ -212,81 +196,6 @@ def test_mint_complete_set_matches_canonical_account_layout():
     )
     assert len(ix.data) == 9
     assert ix.data[0] == 3
-
-
-def test_create_orderbook_canonicalizes_mints_and_data():
-    manager = Pubkey.new_unique()
-    market = Pubkey.new_unique()
-    high_mint = fixed_pubkey(9)
-    low_mint = fixed_pubkey(1)
-    high_deposit_mint = fixed_pubkey(8)
-    low_deposit_mint = fixed_pubkey(2)
-
-    ix = build_create_orderbook_instruction(
-        manager=manager,
-        market=market,
-        mint_a=high_mint,
-        mint_b=low_mint,
-        fee_receiver=fixed_pubkey(7),
-        mint_a_deposit_mint=high_deposit_mint,
-        mint_b_deposit_mint=low_deposit_mint,
-        recent_slot=123,
-        base_index=0,
-        mint_a_outcome_index=4,
-        mint_b_outcome_index=1,
-    )
-
-    orderbook, _ = get_orderbook_pda(low_mint, high_mint)
-
-    assert len(ix.accounts) == 17
-    assert ix.accounts[0].pubkey == manager
-    assert ix.accounts[2].pubkey == low_mint
-    assert ix.accounts[3].pubkey == high_mint
-    assert ix.accounts[4].pubkey == orderbook
-    assert ix.accounts[9].pubkey == low_deposit_mint
-    assert ix.accounts[10].pubkey == high_deposit_mint
-    assert ix.accounts[13].pubkey == fixed_pubkey(7)
-    assert len(ix.data) == 12
-    assert ix.data[9] == 1
-    assert ix.data[10] == 1
-    assert ix.data[11] == 4
-
-
-def test_refresh_orderbook_alt_instruction_layout():
-    manager = Pubkey.new_unique()
-    market = Pubkey.new_unique()
-    orderbook = Pubkey.new_unique()
-    lookup_table = Pubkey.new_unique()
-    quote_mint = Pubkey.new_unique()
-    fee_receiver = Pubkey.new_unique()
-
-    ix = build_refresh_orderbook_alt_instruction(
-        RefreshOrderbookAltParams(
-            manager=manager,
-            market=market,
-            orderbook=orderbook,
-            lookup_table=lookup_table,
-            quote_mint=quote_mint,
-            fee_receiver=fee_receiver,
-        )
-    )
-
-    assert len(ix.accounts) == 14
-    assert ix.accounts[0].pubkey == manager
-    assert ix.accounts[0].is_signer is True
-    assert ix.accounts[0].is_writable is True
-    assert ix.accounts[2].pubkey == market
-    assert ix.accounts[3].pubkey == orderbook
-    assert ix.accounts[4].pubkey == lookup_table
-    assert ix.accounts[4].is_writable is True
-    assert ix.accounts[5].pubkey == quote_mint
-    assert ix.accounts[6].pubkey == fee_receiver
-    assert ix.accounts[7].pubkey == get_conditional_token_ata(
-        fee_receiver,
-        quote_mint,
-    )
-    assert ix.accounts[9].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
-    assert ix.data == bytes([34])
 
 
 def test_set_manager_instruction_layout():
@@ -524,104 +433,6 @@ def test_increment_nonce_includes_exchange():
     assert ix.data == bytes([6])
 
 
-def test_match_orders_multi_includes_orderbook_at_fixed_index():
-    operator = Pubkey.new_unique()
-    market = Pubkey.new_unique()
-    base_mint = Pubkey.new_unique()
-    quote_mint = Pubkey.new_unique()
-    taker_order = signed_order(Pubkey.new_unique(), market, base_mint, quote_mint)
-    maker_order = signed_order(
-        Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, nonce=2
-    )
-    fee_receiver = Pubkey.new_unique()
-    orderbook, _ = get_orderbook_pda(base_mint, quote_mint)
-
-    ix = build_match_orders_multi_instruction(
-        operator=operator,
-        market=market,
-        base_mint=base_mint,
-        quote_mint=quote_mint,
-        fee_receiver=fee_receiver,
-        taker_order=taker_order,
-        maker_orders=[maker_order],
-        maker_fill_amounts=[100],
-        taker_fill_amounts=[50],
-    )
-
-    assert ix.accounts[3].pubkey == orderbook
-    assert ix.accounts[3].is_writable is False
-    assert ix.accounts[13].pubkey == get_conditional_token_ata(
-        fee_receiver,
-        quote_mint,
-    )
-    assert ix.accounts[14].pubkey == fee_receiver
-    assert ix.accounts[15].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
-
-
-def test_deposit_and_swap_includes_orderbook_at_fixed_index():
-    operator = Pubkey.new_unique()
-    market = Pubkey.new_unique()
-    base_mint = Pubkey.new_unique()
-    quote_mint = Pubkey.new_unique()
-    taker_order = signed_order(Pubkey.new_unique(), market, base_mint, quote_mint)
-    maker_order = signed_order(
-        Pubkey.new_unique(), market, base_mint, quote_mint, OrderSide.ASK, nonce=2
-    )
-    fee_receiver = Pubkey.new_unique()
-    orderbook, _ = get_orderbook_pda(base_mint, quote_mint)
-
-    ix = build_deposit_and_swap_instruction(
-        operator=operator,
-        market=market,
-        base_mint=base_mint,
-        quote_mint=quote_mint,
-        fee_receiver=fee_receiver,
-        taker_order=taker_order,
-        makers=[
-            MakerFill(
-                order=maker_order,
-                maker_fill_amount=100,
-                taker_fill_amount=50,
-                deposit_mint=Pubkey.new_unique(),
-            )
-        ],
-    )
-
-    assert ix.accounts[3].pubkey == orderbook
-    assert ix.accounts[6].pubkey == get_conditional_token_ata(
-        fee_receiver,
-        quote_mint,
-    )
-    assert ix.accounts[7].pubkey == fee_receiver
-    assert ix.accounts[8].pubkey == ASSOCIATED_TOKEN_PROGRAM_ID
-
-
-def test_deposit_to_global_includes_exchange_and_optional_alt_context():
-    user = Keypair().pubkey()
-    mint = Pubkey.new_unique()
-    exchange, _ = get_exchange_pda()
-
-    ix = build_deposit_to_global_instruction(user, mint, 1_000)
-
-    assert len(ix.accounts) == 10
-    assert ix.accounts[7].pubkey == exchange
-    assert len(ix.data) == 9
-
-    alt_ix = build_deposit_to_global_instruction(
-        user,
-        mint,
-        1_000,
-        alt_context=DepositToGlobalAltContext.create(123),
-    )
-    user_nonce, _ = get_user_nonce_pda(user)
-    lookup_table, _ = get_alt_pda(user_nonce, 123)
-
-    assert len(alt_ix.accounts) == 13
-    assert alt_ix.accounts[8].pubkey == user_nonce
-    assert alt_ix.accounts[9].pubkey == lookup_table
-    assert len(alt_ix.data) == 17
-
-
 def test_set_deposit_token_status_instruction_layout():
     manager = Pubkey.new_unique()
     mint = Pubkey.new_unique()
@@ -812,27 +623,6 @@ def test_redeem_winnings_uses_outcome_index_and_exchange():
     assert ix.data[9] == outcome_index
 
 
-def test_extend_position_tokens_uses_permissionless_payer_signer():
-    payer = Pubkey.new_unique()
-    lookup_table = Pubkey.new_unique()
-
-    ix = build_extend_position_tokens_instruction(
-        payer=payer,
-        user=Keypair().pubkey(),
-        market=Pubkey.new_unique(),
-        lookup_table=lookup_table,
-        deposit_mints=[Pubkey.new_unique()],
-        num_outcomes=2,
-    )
-
-    assert ix.accounts[0].pubkey == payer
-    assert ix.accounts[0].is_signer is True
-    assert ix.accounts[0].is_writable is True
-    assert ix.accounts[5].pubkey == lookup_table
-    assert ix.accounts[5].is_writable is True
-    assert ix.data == bytes([21, 1])
-
-
 def test_close_order_status_instruction_layout():
     operator = Pubkey.new_unique()
     order_hash = bytes([7] * 32)
@@ -905,77 +695,6 @@ def test_close_position_token_accounts_instruction_layout():
         )
 
 
-def test_close_alt_and_orderbook_instruction_layouts():
-    operator = Pubkey.new_unique()
-    market = Pubkey.new_unique()
-    position = Pubkey.new_unique()
-    orderbook = Pubkey.new_unique()
-    lookup_table = Pubkey.new_unique()
-    exchange, _ = get_exchange_pda()
-
-    position_alt_ix = build_close_position_alt_instruction(
-        ClosePositionAltParams(
-            operator=operator,
-            position=position,
-            market=market,
-            lookup_table=lookup_table,
-        )
-    )
-    assert len(position_alt_ix.accounts) == 8
-    assert [meta.pubkey for meta in position_alt_ix.accounts] == [
-        operator,
-        exchange,
-        position,
-        market,
-        lookup_table,
-        ALT_PROGRAM_ID,
-        *event_transport_trailer(),
-    ]
-    assert position_alt_ix.accounts[4].is_writable is True
-    assert position_alt_ix.data == bytes([23])
-
-    orderbook_alt_ix = build_close_orderbook_alt_instruction(
-        CloseOrderbookAltParams(
-            operator=operator,
-            orderbook=orderbook,
-            market=market,
-            lookup_table=lookup_table,
-        )
-    )
-    assert len(orderbook_alt_ix.accounts) == 8
-    assert [meta.pubkey for meta in orderbook_alt_ix.accounts] == [
-        operator,
-        exchange,
-        orderbook,
-        market,
-        lookup_table,
-        ALT_PROGRAM_ID,
-        *event_transport_trailer(),
-    ]
-    assert orderbook_alt_ix.data == bytes([26])
-
-    close_orderbook_ix = build_close_orderbook_instruction(
-        CloseOrderbookParams(
-            operator=operator,
-            orderbook=orderbook,
-            market=market,
-            lookup_table=lookup_table,
-        )
-    )
-    assert len(close_orderbook_ix.accounts) == 7
-    assert [meta.pubkey for meta in close_orderbook_ix.accounts] == [
-        operator,
-        exchange,
-        orderbook,
-        market,
-        lookup_table,
-        *event_transport_trailer(),
-    ]
-    assert close_orderbook_ix.accounts[2].is_writable is True
-    assert close_orderbook_ix.accounts[4].is_writable is False
-    assert close_orderbook_ix.data == bytes([27])
-
-
 def all_public_builders() -> list[tuple[str, Instruction]]:
     """One valid instance of every public instruction builder.
 
@@ -984,8 +703,9 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
     signer = Pubkey.new_unique()
     market = Pubkey.new_unique()
     deposit_mint = Pubkey.new_unique()
-    base_mint = Pubkey.new_unique()
-    quote_mint = Pubkey.new_unique()
+    base_deposit_mint = Pubkey.new_unique()
+    base_mint = get_conditional_mint_pda(market, base_deposit_mint, 0)[0]
+    quote_mint = get_conditional_mint_pda(market, deposit_mint, 0)[0]
     fee_receiver = Pubkey.new_unique()
     taker_order = signed_order(Pubkey.new_unique(), market, base_mint, quote_mint)
     maker_order = signed_order(
@@ -1056,6 +776,8 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
                 [maker_order],
                 [50],
                 [100],
+                base_deposit_mint=base_deposit_mint,
+                quote_deposit_mint=deposit_mint,
             ),
         ),
         (
@@ -1066,25 +788,10 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
                 base_mint,
                 quote_mint,
                 fee_receiver,
+                base_deposit_mint,
                 deposit_mint,
-                deposit_mint,
-                1,
                 0,
                 0,
-                1,
-            ),
-        ),
-        (
-            "refresh_orderbook_alt",
-            build_refresh_orderbook_alt_instruction(
-                RefreshOrderbookAltParams(
-                    manager=signer,
-                    market=market,
-                    orderbook=Pubkey.new_unique(),
-                    lookup_table=Pubkey.new_unique(),
-                    quote_mint=quote_mint,
-                    fee_receiver=fee_receiver,
-                )
             ),
         ),
         (
@@ -1155,15 +862,6 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             build_deposit_to_global_instruction(signer, deposit_mint, 1),
         ),
         (
-            "deposit_to_global_with_alt",
-            build_deposit_to_global_instruction_with_alt(
-                signer,
-                deposit_mint,
-                1,
-                DepositToGlobalAltContext.extend(Pubkey.new_unique()),
-            ),
-        ),
-        (
             "global_to_market_deposit",
             build_global_to_market_deposit_instruction(
                 signer, market, deposit_mint, 1, 2
@@ -1172,7 +870,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
         (
             "init_position_tokens",
             build_init_position_tokens_instruction(
-                signer, Keypair().pubkey(), market, [deposit_mint], 2, 1
+                signer, Keypair().pubkey(), market, [deposit_mint], 2
             ),
         ),
         (
@@ -1184,6 +882,8 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
                 quote_mint,
                 fee_receiver,
                 taker_order,
+                base_deposit_mint=base_deposit_mint,
+                quote_deposit_mint=deposit_mint,
                 taker_is_full_fill=True,
                 taker_is_deposit=True,
                 taker_deposit_mint=deposit_mint,
@@ -1200,30 +900,8 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             ),
         ),
         (
-            "extend_position_tokens",
-            build_extend_position_tokens_instruction(
-                signer,
-                Keypair().pubkey(),
-                market,
-                Pubkey.new_unique(),
-                [deposit_mint],
-                2,
-            ),
-        ),
-        (
             "withdraw_from_global",
             build_withdraw_from_global_instruction(signer, deposit_mint, 1),
-        ),
-        (
-            "close_position_alt",
-            build_close_position_alt_instruction(
-                ClosePositionAltParams(
-                    operator=signer,
-                    position=Pubkey.new_unique(),
-                    market=market,
-                    lookup_table=Pubkey.new_unique(),
-                )
-            ),
         ),
         (
             "close_order_status",
@@ -1244,24 +922,12 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
             ),
         ),
         (
-            "close_orderbook_alt",
-            build_close_orderbook_alt_instruction(
-                CloseOrderbookAltParams(
-                    operator=signer,
-                    orderbook=Pubkey.new_unique(),
-                    market=market,
-                    lookup_table=Pubkey.new_unique(),
-                )
-            ),
-        ),
-        (
             "close_orderbook",
             build_close_orderbook_instruction(
                 CloseOrderbookParams(
                     operator=signer,
                     orderbook=Pubkey.new_unique(),
                     market=market,
-                    lookup_table=Pubkey.new_unique(),
                 )
             ),
         ),
@@ -1270,7 +936,7 @@ def all_public_builders() -> list[tuple[str, Instruction]]:
 
 def test_every_public_builder_ends_with_event_transport_trailer():
     builders = all_public_builders()
-    assert len(builders) == 42, "register new builders in all_public_builders"
+    assert len(builders) == 37, "register new builders in all_public_builders"
     expected = event_transport_trailer()
 
     for name, ix in builders:
@@ -1308,49 +974,3 @@ def test_set_fee_receiver_with_atas_keeps_trailer_after_optional_block():
     assert len(ix.accounts) == 10
     assert ix.accounts[7].pubkey == get_conditional_token_ata(fee_receiver, quote_mint)
     assert [meta.pubkey for meta in ix.accounts[8:]] == event_transport_trailer()
-
-
-def test_position_token_init_rejects_empty_deposit_mints():
-    user = Keypair().pubkey()
-    with pytest.raises(MissingFieldError, match="deposit_mints"):
-        build_init_position_tokens_instruction(
-            user, user, Pubkey.new_unique(), [], 2, 99
-        )
-
-
-@pytest.mark.parametrize("count", [1, MAX_DEPOSIT_MINTS_PER_IX])
-def test_position_token_init_encodes_valid_mint_count_and_slot(count):
-    user = Keypair().pubkey()
-    mints = [Pubkey.new_unique() for _ in range(count)]
-    ix = build_init_position_tokens_instruction(
-        user, user, Pubkey.new_unique(), mints, 2, 99
-    )
-    assert bytes(ix.data[1:]) == (99).to_bytes(8, "little") + bytes([count])
-    assert ix.accounts[1].pubkey == user
-    for index, mint in enumerate(mints):
-        assert ix.accounts[11 + index * 7].pubkey == mint
-
-
-def test_position_token_builders_reject_more_groups_than_the_program_accepts():
-    payer = Pubkey.new_unique()
-    user = Keypair().pubkey()
-    market = Pubkey.new_unique()
-    too_many = [Pubkey.new_unique() for _ in range(MAX_DEPOSIT_MINTS_PER_IX + 1)]
-
-    with pytest.raises(TooManyDepositMintsError) as excinfo:
-        build_init_position_tokens_instruction(payer, user, market, too_many, 2, 1)
-    assert excinfo.value.count == MAX_DEPOSIT_MINTS_PER_IX + 1
-    assert excinfo.value.max_count == MAX_DEPOSIT_MINTS_PER_IX
-
-    with pytest.raises(TooManyDepositMintsError):
-        build_extend_position_tokens_instruction(
-            payer, user, market, Pubkey.new_unique(), too_many, 2
-        )
-
-    at_cap = too_many[:MAX_DEPOSIT_MINTS_PER_IX]
-    init_ix = build_init_position_tokens_instruction(payer, user, market, at_cap, 2, 1)
-    extend_ix = build_extend_position_tokens_instruction(
-        payer, user, market, Pubkey.new_unique(), at_cap, 2
-    )
-    assert init_ix.data[-1] == MAX_DEPOSIT_MINTS_PER_IX
-    assert extend_ix.data[-1] == MAX_DEPOSIT_MINTS_PER_IX

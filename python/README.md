@@ -493,7 +493,7 @@ The authenticated markets client provides paginated `favorite_markets(limit=None
 
 | Example | Description |
 |---------|-------------|
-| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Init position tokens, deposit to global pool, move capital into a market, extend an existing ALT, withdraw from global, and merge back to keep the run net-neutral |
+| [`global_deposit_withdrawal`](examples/global_deposit_withdrawal.py) | Deposit to the global pool, move capital into a market, withdraw from global, and merge the complete set |
 | [`read_onchain`](examples/read_onchain.py) | Read exchange state, market state, user nonce, and PDA derivations via RPC |
 | [`onchain_transactions`](examples/onchain_transactions.py) | Build, sign, and submit mint/merge complete set and increment nonce on-chain |
 

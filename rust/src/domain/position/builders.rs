@@ -9,9 +9,9 @@ use crate::domain::position::state::{SolActionCosts, SolBalanceAvailability};
 use crate::error::SdkError;
 use crate::program::instructions;
 use crate::program::types::{
-    BuildDepositParams, BuildMergeParams, DepositToGlobalAltContext, DepositToGlobalParams,
-    ExtendPositionTokensParams, GlobalToMarketDepositParams, InitPositionTokensParams,
-    RedeemWinningsParams, WithdrawConditionalFromPositionParams, WithdrawFromGlobalParams,
+    BuildDepositParams, BuildMergeParams, DepositToGlobalParams, GlobalToMarketDepositParams,
+    InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
+    WithdrawFromGlobalParams,
 };
 use crate::shared::DepositSource;
 use sha2::{Digest, Sha256};
@@ -1158,7 +1158,6 @@ mod position_token_builder_tests {
                 .user(user)
                 .market(Pubkey::new_unique())
                 .deposit_mints(vec![Pubkey::new_unique()])
-                .recent_slot(99)
                 .num_outcomes(2)
                 .build_ix();
             assert!(matches!(
@@ -1182,7 +1181,6 @@ mod position_token_builder_tests {
             .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .deposit_mints(vec![])
-            .recent_slot(99)
             .num_outcomes(2)
             .build_tx();
         assert!(matches!(
@@ -1201,7 +1199,6 @@ mod position_token_builder_tests {
             .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX + 1))
-            .recent_slot(1)
             .num_outcomes(2)
             .build_ix()
             .expect_err("expected the group cap to reject the request");
@@ -1223,7 +1220,6 @@ mod position_token_builder_tests {
             .user(*crate::program::constants::INITIALIZE_AUTHORITY)
             .market(Pubkey::new_unique())
             .deposit_mints(deposit_mints(MAX_DEPOSIT_MINTS_PER_IX))
-            .recent_slot(1)
             .num_outcomes(2)
             .build_ix()
             .expect("maximum group count must build");
@@ -1235,48 +1231,66 @@ mod position_token_builder_tests {
     }
 
     #[test]
-    fn extend_pays_with_payer_and_keeps_the_operator_alias() {
+    fn init_validates_outcomes_and_duplicate_groups_without_a_slot() {
+        let client = client();
+        let user = *crate::program::constants::INITIALIZE_AUTHORITY;
+        let mint = Pubkey::new_unique();
+        for outcomes in [0, 1, 7] {
+            let result = client
+                .positions()
+                .init_position_tokens()
+                .payer(Pubkey::new_unique())
+                .user(user)
+                .market(Pubkey::new_unique())
+                .deposit_mints(vec![mint])
+                .num_outcomes(outcomes)
+                .build_ix();
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidOutcomeCount { .. }))
+            ));
+        }
+        let result = client
+            .positions()
+            .init_position_tokens()
+            .payer(Pubkey::new_unique())
+            .user(user)
+            .market(Pubkey::new_unique())
+            .deposit_mints(vec![mint, mint])
+            .num_outcomes(2)
+            .build_tx();
+        assert!(matches!(
+            result,
+            Err(SdkError::Program(ProgramError::InvalidDepositMintOrder))
+        ));
+    }
+
+    #[test]
+    fn init_transaction_preserves_sponsoring_payer_and_unsigned_beneficiary() {
         let client = client();
         let payer = Pubkey::new_unique();
         let user = *crate::program::constants::INITIALIZE_AUTHORITY;
         let market = Pubkey::new_unique();
-        let lookup_table = Pubkey::new_unique();
-        let mints = deposit_mints(1);
-        let build = |builder: ExtendPositionTokensBuilder<'_>| {
-            builder
+        let mints = deposit_mints(2);
+        let build = || {
+            client
+                .positions()
+                .init_position_tokens()
+                .payer(payer)
                 .user(user)
                 .market(market)
-                .lookup_table(lookup_table)
                 .deposit_mints(mints.clone())
-                .num_outcomes(2)
+                .num_outcomes(6)
                 .build_tx()
-                .expect("extend transaction must build")
+                .unwrap()
         };
-
-        let tx = build(client.positions().extend_position_tokens().payer(payer));
-        assert_eq!(tx.message.account_keys[0], payer);
-        assert!(tx.message.is_signer(0));
-
-        #[allow(deprecated)]
-        let aliased = build(client.positions().extend_position_tokens().operator(payer));
-        assert_eq!(aliased.message, tx.message);
-    }
-
-    #[test]
-    fn extend_requires_a_payer() {
-        let client = client();
-        let error = client
-            .positions()
-            .extend_position_tokens()
-            .user(*crate::program::constants::INITIALIZE_AUTHORITY)
-            .market(Pubkey::new_unique())
-            .lookup_table(Pubkey::new_unique())
-            .deposit_mints(deposit_mints(1))
-            .num_outcomes(2)
-            .build_ix()
-            .expect_err("missing payer must fail");
-
-        assert!(error.to_string().contains("payer is required"));
+        let first = build();
+        assert_eq!(first.message, build().message);
+        assert_eq!(first.message.account_keys[0], payer);
+        let ix = &first.message.instructions[0];
+        assert_eq!(ix.data, vec![19, 2]);
+        assert_eq!(first.message.account_keys[ix.accounts[1] as usize], user);
+        assert!(!first.message.is_signer(ix.accounts[1] as usize));
     }
 }
 
@@ -1286,9 +1300,9 @@ mod position_token_builder_tests {
 ///
 /// Created via `client.positions().init_position_tokens()` — direct construction is not exposed.
 ///
-/// Idempotent on chain: replaying with the same `recent_slot` reuses the
-/// existing lookup table and skips groups already present. At most
-/// `MAX_DEPOSIT_MINTS_PER_IX` deposit mints are accepted per instruction.
+/// Every call validates all supplied groups and creates missing accounts.
+/// Existing accounts remain in place on retries and additional-group calls.
+/// Supply 1–8 deposit mints in strictly increasing GDT index order.
 ///
 /// # Example
 ///
@@ -1298,7 +1312,6 @@ mod position_token_builder_tests {
 ///     .user(user_pubkey)
 ///     .market(market_pubkey)
 ///     .deposit_mints(vec![mint_a, mint_b])
-///     .recent_slot(slot)
 ///     .num_outcomes(2)
 ///     .sign_and_submit()
 ///     .await?;
@@ -1309,7 +1322,6 @@ pub struct InitPositionTokensBuilder<'a> {
     user: Option<Pubkey>,
     market: Option<Pubkey>,
     deposit_mints: Option<Vec<Pubkey>>,
-    recent_slot: Option<u64>,
     num_outcomes: Option<u8>,
 }
 
@@ -1321,7 +1333,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
             user: None,
             market: None,
             deposit_mints: None,
-            recent_slot: None,
             num_outcomes: None,
         }
     }
@@ -1350,12 +1361,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
         self
     }
 
-    /// Set the recent slot for ALT address derivation.
-    pub fn recent_slot(mut self, recent_slot: u64) -> Self {
-        self.recent_slot = Some(recent_slot);
-        self
-    }
-
     /// Set the number of outcomes in the market.
     pub fn num_outcomes(mut self, num_outcomes: u8) -> Self {
         self.num_outcomes = Some(num_outcomes);
@@ -1378,13 +1383,11 @@ impl<'a> InitPositionTokensBuilder<'a> {
         let deposit_mints = self
             .deposit_mints
             .ok_or_else(|| SdkError::Validation("deposit_mints is required".into()))?;
-        let recent_slot = self
-            .recent_slot
-            .ok_or_else(|| SdkError::Validation("recent_slot is required".into()))?;
         let num_outcomes = self
             .num_outcomes
             .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
         crate::program::utils::validate_position_token_inputs(&user, &deposit_mints)?;
+        crate::program::utils::validate_outcome_count(num_outcomes)?;
 
         Ok(instructions::build_init_position_tokens_ix(
             &InitPositionTokensParams {
@@ -1392,7 +1395,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
                 user,
                 market,
                 deposit_mints,
-                recent_slot,
             },
             num_outcomes,
             &self.client.program_id,
@@ -1409,147 +1411,6 @@ impl<'a> InitPositionTokensBuilder<'a> {
     }
 
     /// Build, sign, and submit the init-position-tokens transaction.
-    pub async fn sign_and_submit(self) -> Result<String, SdkError> {
-        let client = self.client;
-        let transaction = self.build_tx()?;
-        client.sign_and_submit_tx(transaction).await
-    }
-}
-
-// ─── ExtendPositionTokensBuilder ───────────────────────────────────────────
-
-/// Fluent builder for extend-position-tokens operations.
-///
-/// Created via `client.positions().extend_position_tokens()` — direct construction is not exposed.
-///
-/// Permissionless: any signer may pay. Groups already present in the position's
-/// lookup table are skipped on chain, so the same mints may be passed again.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// let tx_signature = client.positions().extend_position_tokens()
-///     .payer(keypair.pubkey())
-///     .user(user_pubkey)
-///     .market(market_pubkey)
-///     .lookup_table(alt_pubkey)
-///     .deposit_mints(vec![mint_c, mint_d])
-///     .num_outcomes(2)
-///     .sign_and_submit()
-///     .await?;
-/// ```
-pub struct ExtendPositionTokensBuilder<'a> {
-    client: &'a LightconeClient,
-    payer: Option<Pubkey>,
-    user: Option<Pubkey>,
-    market: Option<Pubkey>,
-    lookup_table: Option<Pubkey>,
-    deposit_mints: Option<Vec<Pubkey>>,
-    num_outcomes: Option<u8>,
-}
-
-impl<'a> ExtendPositionTokensBuilder<'a> {
-    pub(crate) fn new(client: &'a LightconeClient) -> Self {
-        Self {
-            client,
-            payer: None,
-            user: None,
-            market: None,
-            lookup_table: None,
-            deposit_mints: None,
-            num_outcomes: None,
-        }
-    }
-
-    /// Set the fee payer's public key (signer). Any signer may extend a position table.
-    pub fn payer(mut self, payer: Pubkey) -> Self {
-        self.payer = Some(payer);
-        self
-    }
-
-    /// Set the fee payer's public key (signer).
-    ///
-    /// Retained for source compatibility; `ExtendPositionTokens` no longer
-    /// requires the exchange operator.
-    #[deprecated(note = "ExtendPositionTokens is permissionless; use payer()")]
-    pub fn operator(self, operator: Pubkey) -> Self {
-        self.payer(operator)
-    }
-
-    /// Set the position owner's public key.
-    pub fn user(mut self, user: Pubkey) -> Self {
-        self.user = Some(user);
-        self
-    }
-
-    /// Set the market public key.
-    pub fn market(mut self, market: Pubkey) -> Self {
-        self.market = Some(market);
-        self
-    }
-
-    /// Set the existing ALT public key from init_position_tokens.
-    pub fn lookup_table(mut self, lookup_table: Pubkey) -> Self {
-        self.lookup_table = Some(lookup_table);
-        self
-    }
-
-    /// Set the deposit mints whose canonical groups must be present.
-    pub fn deposit_mints(mut self, deposit_mints: Vec<Pubkey>) -> Self {
-        self.deposit_mints = Some(deposit_mints);
-        self
-    }
-
-    /// Set the number of outcomes in the market.
-    pub fn num_outcomes(mut self, num_outcomes: u8) -> Self {
-        self.num_outcomes = Some(num_outcomes);
-        self
-    }
-
-    /// Build an extend-position-tokens instruction.
-    pub fn build_ix(self) -> Result<Instruction, SdkError> {
-        let payer = self
-            .payer
-            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
-        let user = self
-            .user
-            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
-        let market = self
-            .market
-            .ok_or_else(|| SdkError::Validation("market is required".into()))?;
-        let lookup_table = self
-            .lookup_table
-            .ok_or_else(|| SdkError::Validation("lookup_table is required".into()))?;
-        let deposit_mints = self
-            .deposit_mints
-            .ok_or_else(|| SdkError::Validation("deposit_mints is required".into()))?;
-        let num_outcomes = self
-            .num_outcomes
-            .ok_or_else(|| SdkError::Validation("num_outcomes is required".into()))?;
-
-        Ok(instructions::build_extend_position_tokens_ix(
-            &ExtendPositionTokensParams {
-                payer,
-                user,
-                market,
-                lookup_table,
-                deposit_mints,
-            },
-            num_outcomes,
-            &self.client.program_id,
-        )?)
-    }
-
-    /// Build an extend-position-tokens transaction.
-    pub fn build_tx(self) -> Result<Transaction, SdkError> {
-        let payer = self
-            .payer
-            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
-        let instruction = self.build_ix()?;
-        Ok(Transaction::new_with_payer(&[instruction], Some(&payer)))
-    }
-
-    /// Build, sign, and submit the extend-position-tokens transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
         let transaction = self.build_tx()?;
@@ -1578,7 +1439,6 @@ pub struct DepositToGlobalBuilder<'a> {
     user: Option<Pubkey>,
     mint: Option<Pubkey>,
     amount: Option<u64>,
-    alt_context: Option<DepositToGlobalAltContext>,
 }
 
 impl<'a> DepositToGlobalBuilder<'a> {
@@ -1588,7 +1448,6 @@ impl<'a> DepositToGlobalBuilder<'a> {
             user: None,
             mint: None,
             amount: None,
-            alt_context: None,
         }
     }
 
@@ -1610,18 +1469,6 @@ impl<'a> DepositToGlobalBuilder<'a> {
         self
     }
 
-    /// Create the user's deposit ALT while depositing.
-    pub fn create_alt(mut self, recent_slot: u64) -> Self {
-        self.alt_context = Some(DepositToGlobalAltContext::Create { recent_slot });
-        self
-    }
-
-    /// Extend an existing user deposit ALT while depositing.
-    pub fn extend_alt(mut self, lookup_table: Pubkey) -> Self {
-        self.alt_context = Some(DepositToGlobalAltContext::Extend { lookup_table });
-        self
-    }
-
     /// Build a deposit-to-global instruction.
     pub fn build_ix(self) -> Result<Instruction, SdkError> {
         let user = self
@@ -1635,14 +1482,10 @@ impl<'a> DepositToGlobalBuilder<'a> {
             .ok_or_else(|| SdkError::Validation("amount is required".into()))?;
 
         let params = DepositToGlobalParams { user, mint, amount };
-        Ok(match self.alt_context {
-            Some(alt_context) => instructions::build_deposit_to_global_ix_with_alt(
-                &params,
-                alt_context,
-                &self.client.program_id,
-            ),
-            None => instructions::build_deposit_to_global_ix(&params, &self.client.program_id),
-        })
+        Ok(instructions::build_deposit_to_global_ix(
+            &params,
+            &self.client.program_id,
+        ))
     }
 
     /// Build a deposit-to-global transaction.

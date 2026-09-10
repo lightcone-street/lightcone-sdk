@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { PublicKey } from "@solana/web3.js";
+import { Keypair, PublicKey } from "@solana/web3.js";
 import { Positions } from "../src/domain/position/client";
-import { ExtendPositionTokensBuilder } from "../src/domain/position/builders";
+import { InitPositionTokensBuilder } from "../src/domain/position/builders";
 import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
 import type { ClientContext } from "../src/context";
@@ -33,15 +33,14 @@ describe("WithdrawFromPositionBuilder", () => {
   });
 });
 
-describe("ExtendPositionTokensBuilder", () => {
-  it("forwards the deprecated operator() alias to payer()", () => {
+describe("InitPositionTokensBuilder", () => {
+  it("prepares a beneficiary without a slot or lookup table", () => {
     const payer = PublicKey.unique();
 
-    const ix = new ExtendPositionTokensBuilder(client)
-      .operator(payer)
-      .user(PublicKey.unique())
+    const ix = new InitPositionTokensBuilder(client)
+      .payer(payer)
+      .user(Keypair.fromSeed(Buffer.alloc(32, 2)).publicKey)
       .market(PublicKey.unique())
-      .lookupTable(PublicKey.unique())
       .depositMints([PublicKey.unique()])
       .numOutcomes(2)
       .buildIx();
@@ -52,7 +51,7 @@ describe("ExtendPositionTokensBuilder", () => {
 
   it("requires payer", () => {
     assert.throws(
-      () => new ExtendPositionTokensBuilder(client).buildIx(),
+      () => new InitPositionTokensBuilder(client).buildIx(),
       /payer is required/
     );
   });

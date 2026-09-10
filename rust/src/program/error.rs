@@ -147,10 +147,6 @@ pub enum SdkError {
     #[error("Token account is not empty")]
     TokenAccountNotEmpty,
 
-    /// Lookup table must be closed first
-    #[error("Lookup table is not closed")]
-    LookupTableNotClosed,
-
     /// Invalid manager
     #[error("Invalid manager")]
     InvalidManager,
@@ -170,10 +166,6 @@ pub enum SdkError {
     /// Oracle pubkey is zero or off-curve.
     #[error("Invalid oracle")]
     InvalidOracle,
-
-    /// Lookup table is deactivated and cannot be extended.
-    #[error("Lookup table is deactivated")]
-    LookupTableDeactivated,
 
     /// No pending privileged-role transfer exists.
     #[error("No pending role transfer")]
@@ -207,13 +199,21 @@ pub enum SdkError {
     #[error("Public instruction must be top-level")]
     PublicInstructionMustBeTopLevel,
 
-    /// Canonical groups would exceed the lookup table's 256-entry limit.
-    #[error("Lookup table capacity exceeded")]
-    LookupTableCapacityExceeded,
-
     /// Too many deposit mints for one market or one position-token instruction.
     #[error("Too many deposit mints: {count} (max {max})", max = crate::program::constants::MAX_DEPOSIT_MINTS_PER_IX)]
     TooManyDepositMints { count: usize },
+
+    /// A required trading collateral is inactive (program custom error 76).
+    #[error("Inactive deposit token")]
+    InactiveDepositToken,
+
+    /// Collateral differs from the required provenance (program custom error 77).
+    #[error("Deposit mint mismatch")]
+    DepositMintMismatch,
+
+    /// A conditional mint does not derive from the supplied market, collateral, and outcome.
+    #[error("Invalid conditional mint")]
+    InvalidConditionalMint,
 
     /// Invalid pubkey
     #[error("Invalid pubkey: {0}")]

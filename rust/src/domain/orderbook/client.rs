@@ -6,7 +6,7 @@ use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
-use crate::program::types::{CloseOrderbookAltParams, CloseOrderbookParams};
+use crate::program::types::CloseOrderbookParams;
 use async_lock::OnceCell;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
@@ -114,21 +114,6 @@ impl<'a> Orderbooks<'a> {
     /// Remove every cached orderbook-rules entry.
     pub async fn clear_decimals_cache(&self) {
         self.client.orderbook_rules.write().await.clear();
-    }
-
-    /// Build CloseOrderbookAlt instruction.
-    pub fn close_orderbook_alt_ix(&self, params: &CloseOrderbookAltParams) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_close_orderbook_alt_ix(params, pid)
-    }
-
-    /// Build CloseOrderbookAlt transaction.
-    pub fn close_orderbook_alt_tx(
-        &self,
-        params: CloseOrderbookAltParams,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.close_orderbook_alt_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     /// Build CloseOrderbook instruction.

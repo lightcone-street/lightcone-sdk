@@ -386,18 +386,22 @@ pub struct MatchOrdersMultiParams {
     pub base_mint: Pubkey,
     /// Quote mint pubkey
     pub quote_mint: Pubkey,
+    /// Underlying collateral backing the base conditional mint, required on every trade.
+    pub base_deposit_mint: Pubkey,
+    /// Underlying collateral backing the quote conditional mint, required on every trade.
+    pub quote_deposit_mint: Pubkey,
     /// Current exchange fee receiver. Used to derive the quote ATA that collects fees.
     pub fee_receiver: Pubkey,
     /// Taker order (signed)
     pub taker_order: OrderPayload,
     /// Maker orders (signed)
     pub maker_orders: Vec<OrderPayload>,
-    /// Fill amounts for each maker (maker side)
+    /// Amounts supplied by each maker in integer units of its offered token.
     pub maker_fill_amounts: Vec<u64>,
-    /// Fill amounts for each maker (taker side)
+    /// Amounts supplied by the taker per maker in integer units of its offered token.
     pub taker_fill_amounts: Vec<u64>,
-    /// Bitmask indicating which orders require full fill (bit i = maker i, bit 7 = taker)
-    pub full_fill_bitmask: u8,
+    /// Full-fill/status-omission mask: maker i uses bit i, taker uses bit 15.
+    pub full_fill_bitmask: u16,
 }
 
 /// Parameters for creating an on-chain orderbook
@@ -411,20 +415,16 @@ pub struct CreateOrderbookParams {
     pub mint_a: Pubkey,
     /// Second conditional mint pubkey. The builder canonicalizes account order.
     pub mint_b: Pubkey,
-    /// Current exchange fee receiver. The orderbook ALT records its quote ATA.
+    /// Current exchange fee receiver. The builder derives its quote conditional ATA.
     pub fee_receiver: Pubkey,
     /// Deposit mint used to derive `mint_a`
     pub mint_a_deposit_mint: Pubkey,
     /// Deposit mint used to derive `mint_b`
     pub mint_b_deposit_mint: Pubkey,
-    /// Recent slot for ALT creation
-    pub recent_slot: u64,
     /// Which supplied mint is the base asset (0 = mint_a, 1 = mint_b)
     pub base_index: u8,
-    /// Outcome index used to derive `mint_a`
-    pub mint_a_outcome_index: u8,
-    /// Outcome index used to derive `mint_b`
-    pub mint_b_outcome_index: u8,
+    /// Shared market outcome used to derive both conditional mints.
+    pub outcome_index: u8,
 }
 
 /// Parameters for proposing a new authority.
@@ -467,23 +467,6 @@ pub struct SetOracleParams {
     pub market: Pubkey,
     /// New oracle pubkey. Must not be the zero pubkey.
     pub new_oracle: Pubkey,
-}
-
-/// Parameters for refreshing an orderbook ALT after fee receiver rotation.
-#[derive(Debug, Clone)]
-pub struct RefreshOrderbookAltParams {
-    /// Manager pubkey. Pays ATA/ALT rent deltas.
-    pub manager: Pubkey,
-    /// Market account for the orderbook.
-    pub market: Pubkey,
-    /// Orderbook PDA.
-    pub orderbook: Pubkey,
-    /// Lookup table recorded on the orderbook.
-    pub lookup_table: Pubkey,
-    /// Current orderbook quote mint.
-    pub quote_mint: Pubkey,
-    /// Current exchange fee receiver.
-    pub fee_receiver: Pubkey,
 }
 
 /// One per-market fee update.
@@ -554,14 +537,14 @@ pub struct WhitelistDepositTokenParams {
     pub mint: Pubkey,
 }
 
-/// Parameters for updating the backend-visible global deposit token status flag.
+/// Parameters for enabling or disabling trading backed by a registered collateral mint.
 #[derive(Debug, Clone)]
 pub struct SetDepositTokenStatusParams {
     /// Manager pubkey (must be exchange manager)
     pub manager: Pubkey,
     /// Whitelisted deposit token mint.
     pub mint: Pubkey,
-    /// New active flag. Current on-chain user flows do not gate on this value.
+    /// Whether this collateral may back either side of an executed trade.
     pub active: bool,
 }
 
@@ -572,23 +555,8 @@ pub struct DepositToGlobalParams {
     pub user: Pubkey,
     /// Deposit token mint pubkey
     pub mint: Pubkey,
-    /// Amount to deposit
+    /// Amount to deposit in integer collateral token units.
     pub amount: u64,
-}
-
-/// Optional user deposit ALT behavior for `deposit_to_global`.
-#[derive(Debug, Clone, Copy)]
-pub enum DepositToGlobalAltContext {
-    /// Create the user's deposit ALT at PDA([user_nonce, recent_slot]).
-    Create {
-        /// Recent slot for ALT address derivation.
-        recent_slot: u64,
-    },
-    /// Extend an existing user deposit ALT.
-    Extend {
-        /// Existing lookup table address.
-        lookup_table: Pubkey,
-    },
 }
 
 /// Parameters for transferring from global deposit to a market vault
@@ -604,15 +572,12 @@ pub struct GlobalToMarketDepositParams {
     pub amount: u64,
 }
 
-/// Parameters for initializing position token accounts and ALT.
+/// Parameters for idempotent position and conditional-ATA preparation.
 ///
-/// Permissionless — anyone can pay to create positions/ATAs/ALTs for any user.
-///
-/// The instruction is idempotent: replaying it with the same `recent_slot`
-/// reuses the existing lookup table, skips canonical groups already present,
-/// and recreates missing token accounts. The table address derives from
-/// `(position, recent_slot)`, so a retry must reuse the original slot. The
-/// program accepts at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per call.
+/// Any payer may prepare accounts for an on-curve user. Every call validates all
+/// supplied collateral groups and creates missing accounts. Existing valid
+/// accounts remain in place, including on retries and additional-group calls.
+/// Supply 1–8 groups in strictly increasing global registration-index order.
 #[derive(Debug, Clone)]
 pub struct InitPositionTokensParams {
     /// Payer for account creation (signer, does not need to be the user)
@@ -623,8 +588,6 @@ pub struct InitPositionTokensParams {
     pub market: Pubkey,
     /// Deposit mints to initialize (must be in ascending GDT index order)
     pub deposit_mints: Vec<Pubkey>,
-    /// Recent slot for ALT address derivation
-    pub recent_slot: u64,
 }
 
 /// Per-maker fill info for deposit_and_swap
@@ -632,9 +595,9 @@ pub struct InitPositionTokensParams {
 pub struct MakerFill {
     /// Maker order (signed)
     pub order: OrderPayload,
-    /// Fill amount (maker side)
+    /// Amount supplied by the maker in integer units of its offered token.
     pub maker_fill_amount: u64,
-    /// Fill amount (taker side)
+    /// Amount supplied by the taker in integer units of its offered token.
     pub taker_fill_amount: u64,
     /// Whether this maker requires full fill (skips order_status account)
     pub is_full_fill: bool,
@@ -651,10 +614,14 @@ pub struct DepositAndSwapParams {
     pub operator: Pubkey,
     /// Market pubkey
     pub market: Pubkey,
-    /// Base mint pubkey (conditional token A)
+    /// Base conditional mint pubkey in the approved orderbook orientation.
     pub base_mint: Pubkey,
-    /// Quote mint pubkey (conditional token B)
+    /// Quote conditional mint pubkey in the approved orderbook orientation.
     pub quote_mint: Pubkey,
+    /// Underlying collateral backing the base conditional mint, required on every trade.
+    pub base_deposit_mint: Pubkey,
+    /// Underlying collateral backing the quote conditional mint, required on every trade.
+    pub quote_deposit_mint: Pubkey,
     /// Current exchange fee receiver. Used to derive the quote ATA that collects fees.
     pub fee_receiver: Pubkey,
     /// Taker order (signed)
@@ -671,27 +638,6 @@ pub struct DepositAndSwapParams {
     pub makers: Vec<MakerFill>,
 }
 
-/// Parameters for extending a position ALT with additional deposit mints.
-///
-/// Permissionless — any signer may pay. The position PDA remains the lookup
-/// table authority, and the program skips canonical groups already present in
-/// the table, so a replay is safe.
-#[derive(Debug, Clone)]
-pub struct ExtendPositionTokensParams {
-    /// Fee payer for account creation and ALT rent (signer)
-    pub payer: Pubkey,
-    /// Position owner (does not need to sign)
-    pub user: Pubkey,
-    /// Market pubkey
-    pub market: Pubkey,
-    /// Existing ALT pubkey from init_position_tokens
-    pub lookup_table: Pubkey,
-    /// Deposit mints whose canonical groups must be present, in ascending GDT
-    /// index order. Groups already in the table are skipped on chain. At most
-    /// `MAX_DEPOSIT_MINTS_PER_IX` per call.
-    pub deposit_mints: Vec<Pubkey>,
-}
-
 /// Parameters for withdrawing tokens from a global deposit account
 #[derive(Debug, Clone)]
 pub struct WithdrawFromGlobalParams {
@@ -701,19 +647,6 @@ pub struct WithdrawFromGlobalParams {
     pub mint: Pubkey,
     /// Amount to withdraw
     pub amount: u64,
-}
-
-/// Parameters for deactivating or closing a position ALT.
-#[derive(Debug, Clone)]
-pub struct ClosePositionAltParams {
-    /// Operator pubkey (must be exchange operator)
-    pub operator: Pubkey,
-    /// Position PDA whose ALT authority controls the lookup table
-    pub position: Pubkey,
-    /// Resolved market pubkey
-    pub market: Pubkey,
-    /// Position lookup table pubkey
-    pub lookup_table: Pubkey,
 }
 
 /// Parameters for closing a fully-filled order status PDA.
@@ -738,20 +671,7 @@ pub struct ClosePositionTokenAccountsParams {
     pub deposit_mints: Vec<Pubkey>,
 }
 
-/// Parameters for deactivating or closing an orderbook ALT.
-#[derive(Debug, Clone)]
-pub struct CloseOrderbookAltParams {
-    /// Operator pubkey (must be exchange operator)
-    pub operator: Pubkey,
-    /// Orderbook PDA
-    pub orderbook: Pubkey,
-    /// Resolved market pubkey
-    pub market: Pubkey,
-    /// Lookup table stored on the orderbook account
-    pub lookup_table: Pubkey,
-}
-
-/// Parameters for closing an orderbook PDA after its ALT has been closed.
+/// Parameters for closing an orderbook PDA after its market resolves.
 #[derive(Debug, Clone)]
 pub struct CloseOrderbookParams {
     /// Operator pubkey (must be exchange operator)
@@ -760,8 +680,6 @@ pub struct CloseOrderbookParams {
     pub orderbook: Pubkey,
     /// Resolved market pubkey
     pub market: Pubkey,
-    /// Lookup table stored on the orderbook account; must already be closed
-    pub lookup_table: Pubkey,
 }
 
 // ============================================================================

@@ -42,8 +42,12 @@ async fn main() -> ExampleResult {
         onchain_market.market_id, onchain_market.num_outcomes, onchain_market.status
     );
     println!(
-        "orderbook: lookup_table={} base_index={} bump={}",
-        onchain_orderbook.lookup_table, onchain_orderbook.base_index, onchain_orderbook.bump
+        "orderbook: collateral_a={} collateral_b={} base_index={} outcome={} bump={}",
+        onchain_orderbook.deposit_mint_a,
+        onchain_orderbook.deposit_mint_b,
+        onchain_orderbook.base_index,
+        onchain_orderbook.outcome_index,
+        onchain_orderbook.bump
     );
     println!("user nonce: {}", nonce);
     println!("position exists: {}", position.is_some());

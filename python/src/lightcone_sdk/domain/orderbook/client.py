@@ -3,28 +3,28 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 from solders.transaction import Transaction
 
-from .aggregation import BookAggregation
-from .wire import DecimalsResponse, OrderbookDepthResponse
-from ...shared.scaling import OrderbookRules
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
 from ...program.instructions import (
-    build_close_orderbook_alt_instruction,
     build_close_orderbook_instruction,
 )
 from ...program.pda import get_orderbook_pda
 from ...program.types import (
-    CloseOrderbookAltParams,
     CloseOrderbookParams,
+)
+from ...program.types import (
     Orderbook as OnchainOrderbook,
 )
 from ...rpc import require_connection
+from ...shared.scaling import OrderbookRules
+from .aggregation import BookAggregation
+from .wire import DecimalsResponse, OrderbookDepthResponse
 
 if TYPE_CHECKING:
     from ...client import LightconeClient
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 class Orderbooks:
     """Orderbook operations sub-client."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
         self._rules_cache: dict[str, OrderbookRules] = {}
         self._rules_in_flight: dict[str, asyncio.Task[OrderbookRules]] = {}
@@ -47,26 +47,11 @@ class Orderbooks:
 
     # ── On-chain instruction builders ────────────────────────────────────
 
-    def close_orderbook_alt_ix(
-        self,
-        params: CloseOrderbookAltParams,
-    ) -> Instruction:
-        """Build CloseOrderbookAlt instruction."""
-        return build_close_orderbook_alt_instruction(params, self._client.program_id)
-
     def close_orderbook_ix(self, params: CloseOrderbookParams) -> Instruction:
         """Build CloseOrderbook instruction."""
         return build_close_orderbook_instruction(params, self._client.program_id)
 
     # ── On-chain transaction builders ────────────────────────────────────
-
-    def close_orderbook_alt_tx(
-        self,
-        params: CloseOrderbookAltParams,
-    ) -> Transaction:
-        """Build CloseOrderbookAlt transaction."""
-        ix = self.close_orderbook_alt_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
 
     def close_orderbook_tx(self, params: CloseOrderbookParams) -> Transaction:
         """Build CloseOrderbook transaction."""
@@ -78,10 +63,10 @@ class Orderbooks:
     async def get(
         self,
         orderbook_id: str,
-        depth: Optional[int] = None,
+        depth: int | None = None,
         *,
-        n_sig_figs: Optional[int] = None,
-        mantissa: Optional[int] = None,
+        n_sig_figs: int | None = None,
+        mantissa: int | None = None,
     ) -> OrderbookDepthResponse:
         """Get live orderbook depth, optionally aggregated (Hyperliquid-style).
 
@@ -112,6 +97,7 @@ class Orderbooks:
             return cached
         task = self._rules_in_flight.get(orderbook_id)
         if task is None:
+
             async def _fetch() -> OrderbookRules:
                 data = await self._client._http.get(
                     f"/api/orderbooks/{orderbook_id}/decimals"

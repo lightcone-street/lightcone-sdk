@@ -21,7 +21,6 @@ from solders.pubkey import Pubkey
 
 from ..env import PROGRAM_ID
 from .constants import (
-    ALT_PROGRAM_ID,
     ASSOCIATED_TOKEN_PROGRAM_ID,
     INSTRUCTION_ACCEPT_AUTHORITY,
     INSTRUCTION_ACCEPT_MANAGER,
@@ -31,15 +30,12 @@ from .constants import (
     INSTRUCTION_CANCEL_ORDER,
     INSTRUCTION_CLOSE_ORDER_STATUS,
     INSTRUCTION_CLOSE_ORDERBOOK,
-    INSTRUCTION_CLOSE_ORDERBOOK_ALT,
-    INSTRUCTION_CLOSE_POSITION_ALT,
     INSTRUCTION_CLOSE_POSITION_TOKEN_ACCOUNTS,
     INSTRUCTION_CREATE_CONDITIONAL_METADATA,
     INSTRUCTION_CREATE_MARKET,
     INSTRUCTION_CREATE_ORDERBOOK,
     INSTRUCTION_DEPOSIT_AND_SWAP,
     INSTRUCTION_DEPOSIT_TO_GLOBAL,
-    INSTRUCTION_EXTEND_POSITION_TOKENS,
     INSTRUCTION_GLOBAL_TO_MARKET_DEPOSIT,
     INSTRUCTION_INCREMENT_NONCE,
     INSTRUCTION_INIT_POSITION_TOKENS,
@@ -48,7 +44,6 @@ from .constants import (
     INSTRUCTION_MERGE_COMPLETE_SET,
     INSTRUCTION_MINT_COMPLETE_SET,
     INSTRUCTION_REDEEM_WINNINGS,
-    INSTRUCTION_REFRESH_ORDERBOOK_ALT,
     INSTRUCTION_SET_AUTHORITY,
     INSTRUCTION_SET_DEPOSIT_TOKEN_STATUS,
     INSTRUCTION_SET_FEE_RECEIVER,
@@ -69,25 +64,32 @@ from .constants import (
     MPL_TOKEN_METADATA_PROGRAM_ID,
     RENT_SYSVAR_ID,
     SYSTEM_PROGRAM_ID,
+    TAKER_MASK,
     TOKEN_PROGRAM_ID,
 )
 from .errors import (
     ArithmeticOverflowError,
+    DepositMintMismatchError,
+    InvalidConditionalMintError,
+    InvalidDepositMintOrderError,
     InvalidFeeReceiverError,
     InvalidMintOrderError,
     InvalidOracleError,
+    InvalidOrderError,
     InvalidOutcomeCountError,
     InvalidOutcomeIndexError,
     InvalidPayoutNumeratorsError,
     InvalidPubkeyError,
+    InvalidSignatureError,
     MissingFieldError,
     PayoutVectorExceedsU32Error,
+    SerializationError,
     TooManyDepositMintsError,
     TooManyMakersError,
+    ZeroAmountError,
 )
 from .orders import hash_order, serialize_full_order, serialize_order, to_order
 from .pda import (
-    get_alt_pda,
     get_condition_tombstone_pda,
     get_conditional_mint_pda,
     get_event_authority_pda,
@@ -98,7 +100,6 @@ from .pda import (
     get_mpl_metadata_pda,
     get_order_status_pda,
     get_orderbook_pda,
-    get_position_alt_pda,
     get_position_pda,
     get_user_global_deposit_pda,
     get_user_nonce_pda,
@@ -106,14 +107,11 @@ from .pda import (
 )
 from .types import (
     AcceptRoleParams,
-    CloseOrderbookAltParams,
     CloseOrderbookParams,
     CloseOrderStatusParams,
-    ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
     ConditionalMetadataParams,
-    DepositToGlobalAltContext,
-    RefreshOrderbookAltParams,
+    MakerFill,
     SetDepositTokenStatusParams,
     SetFeeReceiverParams,
     SetFeeReceiverWithAtasParams,
@@ -125,6 +123,7 @@ from .utils import (
     derive_condition_id,
     encode_i16,
     encode_u8,
+    encode_u16,
     encode_u32,
     encode_u64,
     get_associated_token_address,
@@ -132,6 +131,7 @@ from .utils import (
     serialize_conditional_metadata,
     validate_fee_pair,
     validate_outcome_count,
+    validate_outcome_index,
 )
 
 # Backward compatibility alias
@@ -148,6 +148,82 @@ def _validate_user(user: Pubkey) -> None:
     """Reject zero and off-curve beneficiaries that cannot sign user exits."""
     if user == Pubkey.default() or not user.is_on_curve():
         raise InvalidPubkeyError(str(user))
+
+
+def _trading_gdts(
+    base_mint: Pubkey,
+    quote_mint: Pubkey,
+    base_deposit_mint: Pubkey,
+    quote_deposit_mint: Pubkey,
+    program_id: Pubkey,
+) -> list[AccountMeta]:
+    """Keep collateral identities paired with canonical conditional-mint order."""
+    if base_mint == quote_mint:
+        raise InvalidMintOrderError()
+    if base_deposit_mint == quote_deposit_mint:
+        raise DepositMintMismatchError()
+    collateral = (base_deposit_mint, quote_deposit_mint)
+    if bytes(base_mint) > bytes(quote_mint):
+        collateral = collateral[::-1]
+    return [
+        AccountMeta(get_global_deposit_pda(mint, program_id)[0], False, False)
+        for mint in collateral
+    ]
+
+
+def _validate_participant_mask(mask: int, num_makers: int) -> None:
+    """Reject truncation, reserved bits, and bits without a maker record."""
+    allowed = ((1 << num_makers) - 1) | TAKER_MASK
+    if (
+        not isinstance(mask, int)
+        or isinstance(mask, bool)
+        or mask < 0
+        or mask > 0xFFFF
+        or mask & ~allowed
+    ):
+        raise SerializationError("Invalid participant mask")
+
+
+def _validate_trading_orders(
+    taker: SignedOrder,
+    makers: list[SignedOrder],
+    market: Pubkey,
+    base_mint: Pubkey,
+    quote_mint: Pubkey,
+) -> None:
+    """Validate the signed context and exact signature widths before encoding."""
+    for order in [taker, *makers]:
+        if len(order.signature) != 64:
+            raise InvalidSignatureError("Signature must be exactly 64 bytes")
+        if (
+            not isinstance(order.side, int)
+            or isinstance(order.side, bool)
+            or order.side not in (0, 1)
+        ):
+            raise InvalidOrderError("Order side must be BUY or SELL")
+        if (order.market, order.base_mint, order.quote_mint) != (
+            market,
+            base_mint,
+            quote_mint,
+        ):
+            raise InvalidOrderError(
+                "Order market or mint pair differs from instruction"
+            )
+    if any(order.side == taker.side for order in makers):
+        raise InvalidOrderError("Maker orders must oppose the taker")
+
+
+def _validate_funding_mint(
+    order: SignedOrder,
+    deposit_mint: Pubkey | None,
+    base_deposit_mint: Pubkey,
+    quote_deposit_mint: Pubkey,
+) -> None:
+    if deposit_mint is None:
+        raise MissingFieldError("deposit_mint")
+    expected = quote_deposit_mint if order.side == 0 else base_deposit_mint
+    if deposit_mint != expected:
+        raise DepositMintMismatchError()
 
 
 def _zero_pubkey() -> Pubkey:
@@ -786,36 +862,16 @@ def build_match_orders_multi_instruction(
     taker_fill_amounts: list[int],
     full_fill_bitmask: int = 0,
     program_id: Pubkey = PROGRAM_ID,
+    *,
+    base_deposit_mint: Pubkey,
+    quote_deposit_mint: Pubkey,
 ) -> Instruction:
-    """Build the match_orders_multi instruction.
+    """Match 1 through 11 makers using a u16 status-omission mask.
 
-    New data format:
-    - discriminator(1) + taker_order(37) + taker_sig(64) + num_makers(1) + bitmask(1)
-    - Per maker: order(37) + sig(64) + maker_fill(8) + taker_fill(8) = 117 bytes each
-
-    Accounts:
-    0. operator (signer, writable)
-    1. exchange
-    2. market
-    3. orderbook
-    4. taker_order_status (writable, omitted when taker is full-fill)
-    5. taker_nonce
-    6. taker_position (writable)
-    7. base_mint
-    8. quote_mint
-    9. taker_position_base_ata (writable)
-    10. taker_position_quote_ata (writable)
-    11. token_program
-    12. system_program
-    13. fee_receiver_quote_ata (writable)
-    14. fee_receiver
-    15. ata_program
-    Per maker (5 accounts each, conditionally including order_status based on bitmask):
-    - order_status (writable) [only if bit set in bitmask]
-    - nonce
-    - position (writable)
-    - base_ata (writable)
-    - quote_ata (writable)
+    Maker bits are 0 through 10, and the taker uses bit 15. Set bits omit
+    status accounts. Fill amounts use integer units supplied by each participant.
+    The 104-byte body header precedes 117-byte maker records. Business accounts
+    total 18 + 5*M - popcount(mask), followed by the event trailer.
     """
     if not maker_orders:
         raise MissingFieldError("maker_orders")
@@ -825,6 +881,12 @@ def build_match_orders_multi_instruction(
         raise MissingFieldError("maker_fill_amounts")
     if len(maker_orders) != len(taker_fill_amounts):
         raise MissingFieldError("taker_fill_amounts")
+
+    _validate_participant_mask(full_fill_bitmask, len(maker_orders))
+    _validate_trading_orders(taker_order, maker_orders, market, base_mint, quote_mint)
+    gdts = _trading_gdts(
+        base_mint, quote_mint, base_deposit_mint, quote_deposit_mint, program_id
+    )
 
     exchange, _ = get_exchange_pda(program_id)
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint, program_id)
@@ -837,16 +899,17 @@ def build_match_orders_multi_instruction(
     taker_position_quote_ata = get_conditional_token_ata(taker_position, quote_mint)
     fee_receiver_quote_ata = get_conditional_token_ata(fee_receiver, quote_mint)
 
-    taker_full_fill = bool((full_fill_bitmask >> 7) & 1)
+    taker_full_fill = bool(full_fill_bitmask & TAKER_MASK)
 
     accounts = [
         AccountMeta(pubkey=operator, is_signer=True, is_writable=True),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=orderbook, is_signer=False, is_writable=False),
+        *gdts,
     ]
 
-    # Taker order_status: only if NOT full fill (bit 7 = 0)
+    # Taker order_status: only if NOT full fill (bit 15 = 0)
     if not taker_full_fill:
         taker_order_status, _ = get_order_status_pda(taker_hash, program_id)
         accounts.append(
@@ -856,7 +919,7 @@ def build_match_orders_multi_instruction(
     accounts.extend(
         [
             AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False),
-            AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True),
+            AccountMeta(pubkey=taker_position, is_signer=False, is_writable=False),
             AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False),
             AccountMeta(pubkey=quote_mint, is_signer=False, is_writable=False),
             AccountMeta(
@@ -902,7 +965,7 @@ def build_match_orders_multi_instruction(
         accounts.extend(
             [
                 AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False),
-                AccountMeta(pubkey=maker_position, is_signer=False, is_writable=True),
+                AccountMeta(pubkey=maker_position, is_signer=False, is_writable=False),
                 AccountMeta(
                     pubkey=maker_position_base_ata, is_signer=False, is_writable=True
                 ),
@@ -923,7 +986,7 @@ def build_match_orders_multi_instruction(
 
     # Number of makers + bitmask
     data.append(num_makers)
-    data.append(full_fill_bitmask & 0xFF)
+    data.extend(encode_u16(full_fill_bitmask))
 
     # Maker data: order(37) + sig(64) + maker_fill(8) + taker_fill(8) per maker
     for i, maker_order in enumerate(maker_orders):
@@ -944,48 +1007,40 @@ def build_create_orderbook_instruction(
     fee_receiver: Pubkey,
     mint_a_deposit_mint: Pubkey,
     mint_b_deposit_mint: Pubkey,
-    recent_slot: int,
     base_index: int,
-    mint_a_outcome_index: int,
-    mint_b_outcome_index: int,
+    outcome_index: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the create_orderbook instruction.
+    """Create a book for one outcome and two distinct collateral assets.
 
-    Accounts:
-    0. manager (signer, writable)
-    1. market (readonly)
-    2. mint_a (readonly, canonical order)
-    3. mint_b (readonly, canonical order)
-    4. orderbook (writable)
-    5. lookup_table (writable)
-    6. exchange (readonly)
-    7. alt_program (readonly)
-    8. system_program
-    9. mint_a_deposit_mint (canonical order)
-    10. mint_b_deposit_mint (canonical order)
-    11. token_program
-    12. associated_token_program
-    13. fee_receiver
-    14. fee_receiver_quote_ata
-
-    Data: [15, recent_slot (u64), base_index (u8), mint_a_outcome_index (u8), mint_b_outcome_index (u8)]
+    Paired conditional/collateral identities are canonicalized together. The
+    requested base orientation is preserved. Registration activity is not a
+    creation condition. Data is [15, base_index, outcome_index].
     """
-    if base_index > 1:
-        raise InvalidOutcomeIndexError(base_index, 1)
+    validate_outcome_index(base_index, 2)
+    validate_outcome_index(outcome_index, MAX_OUTCOMES)
+    if mint_a_deposit_mint == mint_b_deposit_mint:
+        raise DepositMintMismatchError()
+    for conditional, deposit in (
+        (mint_a, mint_a_deposit_mint),
+        (mint_b, mint_b_deposit_mint),
+    ):
+        if (
+            get_conditional_mint_pda(market, deposit, outcome_index, program_id)[0]
+            != conditional
+        ):
+            raise InvalidConditionalMintError()
     if mint_a == mint_b:
         raise InvalidMintOrderError()
 
     left = {
         "mint": mint_a,
         "deposit_mint": mint_a_deposit_mint,
-        "outcome_index": mint_a_outcome_index,
         "is_base": base_index == 0,
     }
     right = {
         "mint": mint_b,
         "deposit_mint": mint_b_deposit_mint,
-        "outcome_index": mint_b_outcome_index,
         "is_base": base_index == 1,
     }
     canonical_a, canonical_b = (
@@ -997,7 +1052,6 @@ def build_create_orderbook_instruction(
     orderbook, _ = get_orderbook_pda(
         canonical_a["mint"], canonical_b["mint"], program_id
     )
-    lookup_table, _ = get_alt_pda(orderbook, recent_slot)
     quote_mint = (
         canonical_b["mint"] if canonical_base_index == 0 else canonical_a["mint"]
     )
@@ -1009,9 +1063,17 @@ def build_create_orderbook_instruction(
         AccountMeta(pubkey=canonical_a["mint"], is_signer=False, is_writable=False),
         AccountMeta(pubkey=canonical_b["mint"], is_signer=False, is_writable=False),
         AccountMeta(pubkey=orderbook, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
+        AccountMeta(
+            get_global_deposit_pda(canonical_a["deposit_mint"], program_id)[0],
+            False,
+            False,
+        ),
+        AccountMeta(
+            get_global_deposit_pda(canonical_b["deposit_mint"], program_id)[0],
+            False,
+            False,
+        ),
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=canonical_a["deposit_mint"], is_signer=False, is_writable=False
@@ -1029,55 +1091,10 @@ def build_create_orderbook_instruction(
 
     data = bytearray()
     data.append(INSTRUCTION_CREATE_ORDERBOOK)
-    data.extend(encode_u64(recent_slot))
     data.append(canonical_base_index)
-    data.append(canonical_a["outcome_index"])
-    data.append(canonical_b["outcome_index"])
+    data.append(outcome_index)
 
     return _public_instruction(program_id, accounts, bytes(data))
-
-
-def build_refresh_orderbook_alt_instruction(
-    params: RefreshOrderbookAltParams,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the refresh_orderbook_alt instruction.
-
-    Ensures the current fee receiver quote ATA exists and appends it to the
-    orderbook ALT when absent. This does not fully reshape old ALTs.
-    """
-    exchange, _ = get_exchange_pda(program_id)
-    fee_receiver_quote_ata = get_conditional_token_ata(
-        params.fee_receiver,
-        params.quote_mint,
-    )
-
-    accounts = [
-        AccountMeta(pubkey=params.manager, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=params.quote_mint, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.fee_receiver, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=fee_receiver_quote_ata,
-            is_signer=False,
-            is_writable=True,
-        ),
-        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID,
-            is_signer=False,
-            is_writable=False,
-        ),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    return _public_instruction(
-        program_id, accounts, bytes([INSTRUCTION_REFRESH_ORDERBOOK_ALT])
-    )
 
 
 def build_set_authority_instruction(
@@ -1440,24 +1457,16 @@ def build_deposit_to_global_instruction(
     mint: Pubkey,
     amount: int,
     program_id: Pubkey = PROGRAM_ID,
-    alt_context: DepositToGlobalAltContext | None = None,
 ) -> Instruction:
-    """Build the deposit_to_global instruction.
+    """Deposit positive integer token units into the user global custody PDA.
 
-    Accounts:
-    0. user (signer, writable)
-    1. global_deposit_token (readonly) - Whitelist PDA
-    2. mint (readonly)
-    3. user_global_deposit (writable) - User's deposit PDA
-    4. user_token_account (writable) - User's source token account
-    5. token_program (readonly)
-    6. system_program (readonly)
-    7. exchange (readonly)
-    Optional ALT accounts:
-    8. user_nonce (readonly)
-    9. lookup_table (writable)
-    10. alt_program (readonly)
+    Exactly eight business accounts precede the event trailer. This instruction
+    emits one GlobalDeposit event and does not initialize a user nonce.
     """
+    if isinstance(amount, bool) or not isinstance(amount, int):
+        raise SerializationError("Amount must be integer token units")
+    if amount == 0:
+        raise ZeroAmountError()
     global_deposit_token, _ = get_global_deposit_pda(mint, program_id)
     user_global_deposit, _ = get_user_global_deposit_pda(user, mint, program_id)
     exchange, _ = get_exchange_pda(program_id)
@@ -1477,48 +1486,7 @@ def build_deposit_to_global_instruction(
     data = bytearray([INSTRUCTION_DEPOSIT_TO_GLOBAL])
     data.extend(encode_u64(amount))
 
-    if alt_context is not None:
-        user_nonce, _ = get_user_nonce_pda(user, program_id)
-        if alt_context.kind == "create":
-            if alt_context.recent_slot is None:
-                raise MissingFieldError("recent_slot")
-            data.extend(encode_u64(alt_context.recent_slot))
-            lookup_table, _ = get_alt_pda(user_nonce, alt_context.recent_slot)
-        elif alt_context.kind == "extend":
-            if alt_context.lookup_table is None:
-                raise MissingFieldError("lookup_table")
-            lookup_table = alt_context.lookup_table
-        else:
-            raise MissingFieldError("alt_context")
-
-        accounts.append(
-            AccountMeta(pubkey=user_nonce, is_signer=False, is_writable=False)
-        )
-        accounts.append(
-            AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True)
-        )
-        accounts.append(
-            AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False)
-        )
-
     return _public_instruction(program_id, accounts, bytes(data))
-
-
-def build_deposit_to_global_instruction_with_alt(
-    user: Pubkey,
-    mint: Pubkey,
-    amount: int,
-    alt_context: DepositToGlobalAltContext,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build deposit_to_global with user-deposit ALT create/extend accounts."""
-    return build_deposit_to_global_instruction(
-        user=user,
-        mint=mint,
-        amount=amount,
-        alt_context=alt_context,
-        program_id=program_id,
-    )
 
 
 def build_global_to_market_deposit_instruction(
@@ -1591,48 +1559,26 @@ def build_init_position_tokens_instruction(
     market: Pubkey,
     deposit_mints: list[Pubkey],
     num_outcomes: int,
-    recent_slot: int,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the init_position_tokens instruction.
+    """Prepare the position and conditional ATAs for all requested collateral groups.
 
-    Permissionless: any payer may initialize the accounts for an on-curve user. The
-    instruction is idempotent: replaying it with the same ``recent_slot`` reuses
-    the existing lookup table and skips deposit-mint groups that are already
-    present, so a retry after a partial failure must reuse the original slot
-    (the table address derives from it). At most MAX_DEPOSIT_MINTS_PER_IX
-    groups may be passed per instruction.
-
-    Accounts (11 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
-    0. payer (signer, writable)
-    1. user (readonly)
-    2. exchange (readonly)
-    3. market (readonly)
-    4. position (writable)
-    5. lookup_table (writable)
-    6. mint_authority (readonly)
-    7. token_program (readonly)
-    8. ata_program (readonly)
-    9. alt_program (readonly)
-    10. system_program (readonly)
-    + per deposit_mint: deposit_mint, vault, gdt, [cond_mint, ata] x num_outcomes
-    + event_authority, program (readonly trailer)
-
-    Raises:
-        MissingFieldError: if no deposit mints are supplied.
-        InvalidPubkeyError: if the beneficiary is zero or off-curve.
-        TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
-            are supplied.
+    Supply unique deposit mints in strictly increasing global registration index
+    order. The payer signs, and the on-curve beneficiary does not sign. Calls
+    can prepare missing accounts, retry existing groups, or add new groups.
+    Data is [19, group_count]. Business accounts total 9 + G*(3 + 2*O).
     """
     if not deposit_mints:
         raise MissingFieldError("deposit_mints")
     _validate_user(user)
+    validate_outcome_count(num_outcomes)
+    if len(set(deposit_mints)) != len(deposit_mints):
+        raise InvalidDepositMintOrderError()
     if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
         raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
 
     exchange, _ = get_exchange_pda(program_id)
     position, _ = get_position_pda(user, market, program_id)
-    lookup_table, _ = get_position_alt_pda(position, recent_slot)
     mint_authority, _ = get_mint_authority_pda(market, program_id)
 
     accounts = [
@@ -1641,13 +1587,11 @@ def build_init_position_tokens_instruction(
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=market, is_signer=False, is_writable=False),
         AccountMeta(pubkey=position, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False),
         AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(
             pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
         ),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
         AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
     ]
 
@@ -1672,7 +1616,6 @@ def build_init_position_tokens_instruction(
             )
 
     data = bytearray([INSTRUCTION_INIT_POSITION_TOKENS])
-    data.extend(encode_u64(recent_slot))
     data.append(len(deposit_mints))
     return _public_instruction(program_id, accounts, bytes(data))
 
@@ -1686,26 +1629,21 @@ def build_deposit_and_swap_instruction(
     taker_order: SignedOrder,
     taker_is_full_fill: bool = False,
     taker_is_deposit: bool = False,
-    taker_deposit_mint: Pubkey = None,
+    taker_deposit_mint: Pubkey | None = None,
     num_outcomes: int = 2,
-    makers: list = None,
+    makers: list[MakerFill] | None = None,
     program_id: Pubkey = PROGRAM_ID,
+    *,
+    base_deposit_mint: Pubkey,
+    quote_deposit_mint: Pubkey,
 ) -> Instruction:
-    """Build the deposit_and_swap instruction.
+    """Match orders with optional complete-set funding from global custody.
 
-    Unified order execution: participants can deposit from global deposits and/or swap
-    conditional tokens in a single instruction.
-
-    Account layout:
-      Fixed (9): operator, exchange, market, orderbook, mint_authority, token_program,
-                 fee_receiver_quote_ata, fee_receiver, ata_program
-      Taker block: [order_status], nonce, position, base_mint, quote_mint,
-                   taker_receive_ata, taker_give_ata, system_program
-      Taker deposit block (optional): deposit_mint, vault, gdt, user_global_deposit,
-                                       [cond_mint, ata] x num_outcomes
-      Per-maker blocks: [order_status], nonce, position,
-                         [deposit block if depositing],
-                         maker_receive_ata, maker_give_ata
+    Both masks use u16 values with taker bit 15. Each selected participant
+    supplies its signed give-side collateral. All outcome mints are writable
+    in deposit blocks. Repeated accounts retain their positions in the list.
+    Business accounts total 19 + 5*M - F + D*(4 + 2*O), then two trailers.
+    Maker settlement ATAs follow the taker receive/give directions on both paths.
     """
     if makers is None:
         makers = []
@@ -1714,6 +1652,23 @@ def build_deposit_and_swap_instruction(
         raise MissingFieldError("makers")
     if len(makers) > MAX_MAKERS:
         raise TooManyMakersError(len(makers), MAX_MAKERS)
+
+    validate_outcome_count(num_outcomes)
+    _validate_trading_orders(
+        taker_order, [m.order for m in makers], market, base_mint, quote_mint
+    )
+    gdts = _trading_gdts(
+        base_mint, quote_mint, base_deposit_mint, quote_deposit_mint, program_id
+    )
+    if taker_is_deposit:
+        _validate_funding_mint(
+            taker_order, taker_deposit_mint, base_deposit_mint, quote_deposit_mint
+        )
+    for maker in makers:
+        if maker.is_deposit:
+            _validate_funding_mint(
+                maker.order, maker.deposit_mint, base_deposit_mint, quote_deposit_mint
+            )
 
     exchange, _ = get_exchange_pda(program_id)
     orderbook, _ = get_orderbook_pda(base_mint, quote_mint, program_id)
@@ -1732,9 +1687,9 @@ def build_deposit_and_swap_instruction(
     full_fill_bitmask = 0
     deposit_bitmask = 0
     if taker_is_full_fill:
-        full_fill_bitmask |= 0x80
+        full_fill_bitmask |= TAKER_MASK
     if taker_is_deposit:
-        deposit_bitmask |= 0x80
+        deposit_bitmask |= TAKER_MASK
     for i, maker in enumerate(makers):
         if maker.is_full_fill:
             full_fill_bitmask |= 1 << i
@@ -1743,11 +1698,12 @@ def build_deposit_and_swap_instruction(
 
     accounts = []
 
-    # Fixed accounts (9)
+    # Fixed accounts (11)
     accounts.append(AccountMeta(pubkey=operator, is_signer=True, is_writable=True))
     accounts.append(AccountMeta(pubkey=exchange, is_signer=False, is_writable=False))
     accounts.append(AccountMeta(pubkey=market, is_signer=False, is_writable=False))
     accounts.append(AccountMeta(pubkey=orderbook, is_signer=False, is_writable=False))
+    accounts.extend(gdts)
     accounts.append(
         AccountMeta(pubkey=mint_authority, is_signer=False, is_writable=False)
     )
@@ -1781,7 +1737,7 @@ def build_deposit_and_swap_instruction(
     taker_give_ata = get_conditional_token_ata(taker_position, give_mint)
     accounts.append(AccountMeta(pubkey=taker_nonce, is_signer=False, is_writable=False))
     accounts.append(
-        AccountMeta(pubkey=taker_position, is_signer=False, is_writable=True)
+        AccountMeta(pubkey=taker_position, is_signer=False, is_writable=False)
     )
     accounts.append(AccountMeta(pubkey=base_mint, is_signer=False, is_writable=False))
     accounts.append(AccountMeta(pubkey=quote_mint, is_signer=False, is_writable=False))
@@ -1836,7 +1792,7 @@ def build_deposit_and_swap_instruction(
             AccountMeta(pubkey=maker_nonce, is_signer=False, is_writable=False)
         )
         accounts.append(
-            AccountMeta(pubkey=maker_position, is_signer=False, is_writable=True)
+            AccountMeta(pubkey=maker_position, is_signer=False, is_writable=False)
         )
 
         # Maker deposit block (only if maker deposits)
@@ -1887,8 +1843,8 @@ def build_deposit_and_swap_instruction(
     data.extend(serialize_order(taker_compact))
     data.extend(taker_order.signature)
     data.append(num_makers)
-    data.append(full_fill_bitmask & 0xFF)
-    data.append(deposit_bitmask & 0xFF)
+    data.extend(encode_u16(full_fill_bitmask))
+    data.extend(encode_u16(deposit_bitmask))
 
     for maker in makers:
         maker_compact = to_order(maker.order)
@@ -1897,96 +1853,6 @@ def build_deposit_and_swap_instruction(
         data.extend(encode_u64(maker.maker_fill_amount))
         data.extend(encode_u64(maker.taker_fill_amount))
 
-    return _public_instruction(program_id, accounts, bytes(data))
-
-
-def build_extend_position_tokens_instruction(
-    payer: Pubkey,
-    user: Pubkey,
-    market: Pubkey,
-    lookup_table: Pubkey,
-    deposit_mints: list[Pubkey],
-    num_outcomes: int,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the extend_position_tokens instruction.
-
-    Permissionless: any ``payer`` may extend a position lookup table after a
-    market adds deposit mints; the position PDA remains the table authority.
-    Deposit-mint groups already present in the table are skipped on chain, so
-    callers may pass existing and new mints together. The program rejects a
-    deactivated table or one not owned by the position. At most
-    MAX_DEPOSIT_MINTS_PER_IX groups may be passed per instruction.
-
-    Accounts (10 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
-    0. payer (signer, writable)
-    1. user (readonly)
-    2. exchange (readonly)
-    3. market (readonly)
-    4. position (readonly)
-    5. lookup_table (writable)
-    6. token_program (readonly)
-    7. ata_program (readonly)
-    8. alt_program (readonly)
-    9. system_program (readonly)
-    + per deposit_mint: deposit_mint, vault, global_deposit_token,
-      then per outcome: conditional_mint, position_conditional_ata
-    + event_authority, program (readonly trailer)
-
-    Raises:
-        MissingFieldError: if ``deposit_mints`` is empty.
-        InvalidPubkeyError: if the beneficiary is zero or off-curve.
-        TooManyDepositMintsError: if more than MAX_DEPOSIT_MINTS_PER_IX groups
-            are supplied.
-    """
-    if not deposit_mints:
-        raise MissingFieldError("deposit_mints")
-    _validate_user(user)
-    if len(deposit_mints) > MAX_DEPOSIT_MINTS_PER_IX:
-        raise TooManyDepositMintsError(len(deposit_mints), MAX_DEPOSIT_MINTS_PER_IX)
-
-    exchange, _ = get_exchange_pda(program_id)
-    position, _ = get_position_pda(user, market, program_id)
-
-    accounts = [
-        AccountMeta(pubkey=payer, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=user, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=position, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=lookup_table, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=TOKEN_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(
-            pubkey=ASSOCIATED_TOKEN_PROGRAM_ID, is_signer=False, is_writable=False
-        ),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=SYSTEM_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    for deposit_mint in deposit_mints:
-        vault, _ = get_vault_pda(deposit_mint, market, program_id)
-        global_deposit_token, _ = get_global_deposit_pda(deposit_mint, program_id)
-
-        accounts.append(
-            AccountMeta(pubkey=deposit_mint, is_signer=False, is_writable=False)
-        )
-        accounts.append(AccountMeta(pubkey=vault, is_signer=False, is_writable=False))
-        accounts.append(
-            AccountMeta(pubkey=global_deposit_token, is_signer=False, is_writable=False)
-        )
-
-        for i in range(num_outcomes):
-            cond_mint, _ = get_conditional_mint_pda(market, deposit_mint, i, program_id)
-            position_cond_ata = get_conditional_token_ata(position, cond_mint)
-            accounts.append(
-                AccountMeta(pubkey=cond_mint, is_signer=False, is_writable=False)
-            )
-            accounts.append(
-                AccountMeta(pubkey=position_cond_ata, is_signer=False, is_writable=True)
-            )
-
-    data = bytearray([INSTRUCTION_EXTEND_POSITION_TOKENS])
-    data.append(len(deposit_mints))
     return _public_instruction(program_id, accounts, bytes(data))
 
 
@@ -2027,35 +1893,6 @@ def build_withdraw_from_global_instruction(
     data = bytearray([INSTRUCTION_WITHDRAW_FROM_GLOBAL])
     data.extend(encode_u64(amount))
     return _public_instruction(program_id, accounts, bytes(data))
-
-
-def build_close_position_alt_instruction(
-    params: ClosePositionAltParams,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the close_position_alt instruction.
-
-    Accounts:
-    0. operator (signer, writable)
-    1. exchange (readonly)
-    2. position (readonly)
-    3. market (readonly)
-    4. lookup_table (writable)
-    5. alt_program (readonly)
-    """
-    exchange, _ = get_exchange_pda(program_id)
-
-    accounts = [
-        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.position, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    data = bytes([INSTRUCTION_CLOSE_POSITION_ALT])
-    return _public_instruction(program_id, accounts, data)
 
 
 def build_close_order_status_instruction(
@@ -2145,48 +1982,11 @@ def build_close_position_token_accounts_instruction(
     return _public_instruction(program_id, accounts, data)
 
 
-def build_close_orderbook_alt_instruction(
-    params: CloseOrderbookAltParams,
-    program_id: Pubkey = PROGRAM_ID,
-) -> Instruction:
-    """Build the close_orderbook_alt instruction.
-
-    Accounts:
-    0. operator (signer, writable)
-    1. exchange (readonly)
-    2. orderbook (readonly)
-    3. market (readonly)
-    4. lookup_table (writable)
-    5. alt_program (readonly)
-    """
-    exchange, _ = get_exchange_pda(program_id)
-
-    accounts = [
-        AccountMeta(pubkey=params.operator, is_signer=True, is_writable=True),
-        AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=True),
-        AccountMeta(pubkey=ALT_PROGRAM_ID, is_signer=False, is_writable=False),
-    ]
-
-    data = bytes([INSTRUCTION_CLOSE_ORDERBOOK_ALT])
-    return _public_instruction(program_id, accounts, data)
-
-
 def build_close_orderbook_instruction(
     params: CloseOrderbookParams,
     program_id: Pubkey = PROGRAM_ID,
 ) -> Instruction:
-    """Build the close_orderbook instruction.
-
-    Accounts:
-    0. operator (signer, writable)
-    1. exchange (readonly)
-    2. orderbook (writable)
-    3. market (readonly)
-    4. lookup_table (readonly)
-    """
+    """Close a resolved orderbook directly with four business accounts."""
     exchange, _ = get_exchange_pda(program_id)
 
     accounts = [
@@ -2194,7 +1994,6 @@ def build_close_orderbook_instruction(
         AccountMeta(pubkey=exchange, is_signer=False, is_writable=False),
         AccountMeta(pubkey=params.orderbook, is_signer=False, is_writable=True),
         AccountMeta(pubkey=params.market, is_signer=False, is_writable=False),
-        AccountMeta(pubkey=params.lookup_table, is_signer=False, is_writable=False),
     ]
 
     data = bytes([INSTRUCTION_CLOSE_ORDERBOOK])

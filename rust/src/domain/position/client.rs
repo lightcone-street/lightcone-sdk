@@ -14,10 +14,10 @@ use crate::domain::position::builders::{
     build_direct_native_withdraw_transaction, build_sol_merge_transaction,
     build_sol_redeem_transaction, build_sol_split_transaction,
     build_temporary_native_withdraw_transaction, native_withdraw_seed, temporary_wsol_account,
-    wrapped_sol_accounts, DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    SolActionKind, SolActionPlan, SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
-    WithdrawFromPositionBuilder, TOKEN_ACCOUNT_SPACE,
+    wrapped_sol_accounts, DepositBuilder, DepositToGlobalBuilder, GlobalToMarketDepositBuilder,
+    InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder, SolActionKind, SolActionPlan,
+    SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
+    TOKEN_ACCOUNT_SPACE,
 };
 #[cfg(feature = "native-auth")]
 use crate::domain::position::builders::{
@@ -32,8 +32,7 @@ use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
 use crate::program::types::{
-    ClosePositionAltParams, ClosePositionTokenAccountsParams, DepositToGlobalAltContext,
-    DepositToGlobalParams, ExtendPositionTokensParams, GlobalToMarketDepositParams,
+    ClosePositionTokenAccountsParams, DepositToGlobalParams, GlobalToMarketDepositParams,
     InitPositionTokensParams, RedeemWinningsParams, WithdrawConditionalFromPositionParams,
     WithdrawFromGlobalParams, WithdrawFromPositionParams,
 };
@@ -1005,8 +1004,8 @@ impl<'a> Positions<'a> {
 
     /// Build InitPositionTokens instruction.
     ///
-    /// Permissionless and idempotent: a replay with the same `recent_slot`
-    /// reuses the existing lookup table and skips groups already present.
+    /// Permissionless and idempotent: validate all requested groups and create
+    /// missing accounts, including on retries and additional-group calls.
     pub fn init_position_tokens_ix(
         &self,
         params: &InitPositionTokensParams,
@@ -1025,50 +1024,9 @@ impl<'a> Positions<'a> {
         num_outcomes: u8,
     ) -> Result<Transaction, SdkError> {
         crate::program::utils::validate_position_token_inputs(&params.user, &params.deposit_mints)?;
+        crate::program::utils::validate_outcome_count(num_outcomes)?;
         let ix = self.init_position_tokens_ix(&params, num_outcomes);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
-    }
-
-    /// Build ExtendPositionTokens instruction.
-    ///
-    /// Permissionless: any signer may pay, and groups already present in the
-    /// lookup table are skipped on chain.
-    pub fn extend_position_tokens_ix(
-        &self,
-        params: &ExtendPositionTokensParams,
-        num_outcomes: u8,
-    ) -> Result<Instruction, SdkError> {
-        let pid = &self.client.program_id;
-        Ok(instructions::build_extend_position_tokens_ix(
-            params,
-            num_outcomes,
-            pid,
-        )?)
-    }
-
-    /// Build ExtendPositionTokens transaction paid by `params.payer`.
-    pub fn extend_position_tokens_tx(
-        &self,
-        params: ExtendPositionTokensParams,
-        num_outcomes: u8,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.extend_position_tokens_ix(&params, num_outcomes)?;
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.payer)))
-    }
-
-    /// Build ClosePositionAlt instruction.
-    pub fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_close_position_alt_ix(params, pid)
-    }
-
-    /// Build ClosePositionAlt transaction.
-    pub fn close_position_alt_tx(
-        &self,
-        params: ClosePositionAltParams,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.close_position_alt_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
     }
 
     /// Build ClosePositionTokenAccounts instruction.
@@ -1101,32 +1059,12 @@ impl<'a> Positions<'a> {
         instructions::build_deposit_to_global_ix(params, pid)
     }
 
-    /// Build DepositToGlobal instruction with user deposit ALT create/extend accounts.
-    pub fn deposit_to_global_ix_with_alt(
-        &self,
-        params: &DepositToGlobalParams,
-        alt_context: DepositToGlobalAltContext,
-    ) -> Instruction {
-        let pid = &self.client.program_id;
-        instructions::build_deposit_to_global_ix_with_alt(params, alt_context, pid)
-    }
-
     /// Build DepositToGlobal transaction.
     pub fn deposit_to_global_tx(
         &self,
         params: DepositToGlobalParams,
     ) -> Result<Transaction, SdkError> {
         let ix = self.deposit_to_global_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
-    }
-
-    /// Build DepositToGlobal transaction with user deposit ALT create/extend accounts.
-    pub fn deposit_to_global_tx_with_alt(
-        &self,
-        params: DepositToGlobalParams,
-        alt_context: DepositToGlobalAltContext,
-    ) -> Result<Transaction, SdkError> {
-        let ix = self.deposit_to_global_ix_with_alt(&params, alt_context);
         Ok(Transaction::new_with_payer(&[ix], Some(&params.user)))
     }
 
@@ -1222,13 +1160,6 @@ impl<'a> Positions<'a> {
         InitPositionTokensBuilder::new(self.client)
     }
 
-    /// Create an extend-position-tokens builder.
-    ///
-    /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
-    pub fn extend_position_tokens(&self) -> ExtendPositionTokensBuilder<'a> {
-        ExtendPositionTokensBuilder::new(self.client)
-    }
-
     /// Create a deposit-to-global builder.
     ///
     /// Use `.build_ix()`, `.build_tx()`, or `.sign_and_submit()` to produce the final result.
@@ -1298,8 +1229,17 @@ mod tests {
             user,
             market: Pubkey::new_unique(),
             deposit_mints: (0..count).map(|_| Pubkey::new_unique()).collect(),
-            recent_slot: 99,
         };
+        for outcomes in [0, 1, 7] {
+            let result = client.positions().init_position_tokens_tx(
+                params(*crate::program::constants::INITIALIZE_AUTHORITY, 1),
+                outcomes,
+            );
+            assert!(matches!(
+                result,
+                Err(SdkError::Program(ProgramError::InvalidOutcomeCount { .. }))
+            ));
+        }
 
         let empty = client
             .positions()
@@ -1334,9 +1274,7 @@ mod tests {
                 .init_position_tokens_tx(params(user, count), 2)
                 .unwrap();
             let ix = &tx.message.instructions[0];
-            let mut expected = vec![instruction::INIT_POSITION_TOKENS];
-            expected.extend_from_slice(&99_u64.to_le_bytes());
-            expected.push(count as u8);
+            let expected = vec![instruction::INIT_POSITION_TOKENS, count as u8];
             assert_eq!(ix.data, expected);
             assert_eq!(tx.message.account_keys[usize::from(ix.accounts[1])], user);
             assert_eq!(tx.message.account_keys[0], *INITIALIZE_AUTHORITY);

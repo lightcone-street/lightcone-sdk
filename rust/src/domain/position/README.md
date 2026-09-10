@@ -161,16 +161,7 @@ fn init_position_tokens_ix(&self, params: &InitPositionTokensParams, num_outcome
 fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
 ```
 
-Build an InitPositionTokens instruction/transaction — create a position account and associated token accounts for all outcomes. Permissionless and idempotent: replaying with the same `recent_slot` reuses the existing lookup table and skips groups already present, so retries must reuse the original slot. At most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per call.
-
-#### `extend_position_tokens_ix` / `extend_position_tokens_tx`
-
-```rust
-fn extend_position_tokens_ix(&self, params: &ExtendPositionTokensParams, num_outcomes: u8) -> Result<Instruction, SdkError>
-fn extend_position_tokens_tx(&self, params: ExtendPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
-```
-
-Build an ExtendPositionTokens instruction/transaction — extend a position's lookup table with additional token accounts. Permissionless: `params.payer` is any signer and pays for new accounts. Groups already present in the table are skipped on chain, so existing and new mints may be passed together.
+Build permissionless, idempotent position preparation with a signing payer and an unsigned on-curve user. Every call validates all requested collateral groups and creates missing position accounts and conditional ATAs. Existing valid accounts remain in place. Use the same instruction for initial, partial, repeated, and additional-group preparation. Supply 1–8 distinct mints in strictly increasing GDT registration-index order. No recent slot is required. The fluent builder and transaction helper validate beneficiaries, group counts, duplicate mints, and outcome counts locally. Raw instruction builders retain their infallible return types and leave validation to the program.
 
 #### `deposit_to_global_ix` / `deposit_to_global_tx`
 
@@ -189,15 +180,6 @@ fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_o
 ```
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
-
-#### `close_position_alt_ix` / `close_position_alt_tx`
-
-```rust
-fn close_position_alt_ix(&self, params: &ClosePositionAltParams) -> Instruction
-fn close_position_alt_tx(&self, params: ClosePositionAltParams) -> Result<Transaction, SdkError>
-```
-
-Build a ClosePositionAlt instruction/transaction — deactivate or close a resolved position lookup table.
 
 #### `close_position_token_accounts_ix` / `close_position_token_accounts_tx`
 

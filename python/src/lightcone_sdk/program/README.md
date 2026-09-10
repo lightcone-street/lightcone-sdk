@@ -210,11 +210,17 @@ from lightcone_sdk.program import (
 - `set_authority`, `set_manager`, and `set_operator` now propose role transfers. The matching `accept_authority`, `accept_manager`, or `accept_operator` instruction performs the effective role change.
 - `match_orders_multi` and `deposit_and_swap` include the fee receiver and associated token program in their fixed account lists.
 - `set_fee_receiver_with_atas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
-- `refresh_orderbook_alt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
 - Instruction discriminators are current through `SET_DEPOSIT_TOKEN_STATUS = 38`; `INSTRUCTION_EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
 - Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both read-only, non-signer). Every `build_*_instruction` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
 - `add_deposit_mint` writes the market account and increments `Market.deposit_mint_count`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
-- `init_position_tokens` is idempotent per `recent_slot` and `extend_position_tokens` is permissionless (`payer` replaces `operator`); both accept at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per instruction.
+- `init_position_tokens` prepares the position and conditional ATAs without a recent slot. Repeat calls and additional collateral groups use the same instruction. Supply unique collateral mints in strictly increasing GDT registration index order.
+- `Orderbook` is exactly 176 bytes and stores both collateral mints and one shared outcome. Its former lookup-table field is removed.
+- Both matching builders require `base_deposit_mint` and `quote_deposit_mint`. They derive two fixed GDTs in canonical conditional-mint order. Both live registrations must be active when the program executes a trade.
+- Trading supports at most eleven makers in the instruction parser. Full-fill and funding masks use little-endian u16 values, maker bits 0 through 10, and taker bit 15. Reserved bits and absent-maker bits are invalid.
+- A selected global funding deposit must use the participant's signed give-side collateral: quote collateral for BUY and base collateral for SELL.
+- `deposit_to_global` accepts eight business accounts and emits one GlobalDeposit event. It does not initialize a user nonce.
+- `close_orderbook` closes a resolved book directly. Instruction IDs 21, 23, 26, and 34 and their ALT helpers are removed.
+- Event completion uses schema 2. The SDK keeps the authenticated trailer and does not encode or decode completion batches.
 
 ### PDA Seeds
 
@@ -265,7 +271,7 @@ from lightcone_sdk.program import (
     # Limits
     MAX_OUTCOMES,       # 6
     MIN_OUTCOMES,       # 2
-    MAX_MAKERS,         # 4
+    MAX_MAKERS,         # 11 (instruction parser ceiling)
     MAX_DEPOSIT_MINTS_PER_MARKET,  # 8
     MAX_DEPOSIT_MINTS_PER_IX,      # 8
 )
@@ -284,8 +290,8 @@ The SDK neither builds nor decodes event batches; `INSTRUCTION_EVENT_BATCH` is
 reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
 
-`build_init_position_tokens_instruction` and `build_extend_position_tokens_instruction`
-raise `InvalidPubkeyError` for zero or off-curve beneficiaries, `MissingFieldError` for
+`build_init_position_tokens_instruction`
+raises `InvalidPubkeyError` for zero or off-curve beneficiaries, `MissingFieldError` for
 empty mint lists, and `TooManyDepositMintsError` for lists exceeding
 `MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders raise
 `InvalidOracleError` for zero or off-curve oracle keys.
@@ -319,7 +325,8 @@ from lightcone_sdk.program import (
     InvalidEventBatchError,      # On-chain error 70: malformed batch
     InvalidEventContractError,   # On-chain error 71: instruction/event mismatch
     UnsupportedEventSchemaError, # On-chain error 72: unsupported schema
-    LookupTableCapacityExceededError,  # On-chain error 74: lookup table capacity exceeded
+    InactiveDepositTokenError,  # On-chain error 76: trading collateral is inactive
+    DepositMintMismatchError,  # On-chain error 77: collateral provenance mismatch
     PublicInstructionMustBeTopLevelError,  # On-chain error 73: unsupported CPI invocation
 )
 ```
@@ -759,7 +766,6 @@ from lightcone_sdk.program import (
     build_activate_market_instruction,
     build_match_orders_multi_instruction,
     build_create_orderbook_instruction,
-    build_refresh_orderbook_alt_instruction,
     build_set_authority_instruction,
     build_set_manager_instruction,
     build_accept_authority_instruction,
@@ -774,12 +780,26 @@ from lightcone_sdk.program import (
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_deposit_and_swap_instruction,
-    build_extend_position_tokens_instruction,
     build_withdraw_from_global_instruction,
-    build_close_position_alt_instruction,
     build_close_order_status_instruction,
     build_close_position_token_accounts_instruction,
-    build_close_orderbook_alt_instruction,
     build_close_orderbook_instruction,
 )
 ```
+
+
+### Preparation and transaction capacity
+
+Synchronous preparation builders preserve the supplied mint order. Fetch global registration records when that order is unknown:
+
+```python
+records = [await client.rpc().get_global_deposit_token(mint) for mint in deposit_mints]
+ordered_mints = [record.mint for record in sorted(records, key=lambda record: record.index)]
+ix = (client.positions().init_position_tokens()
+      .payer(payer).user(user).market(market)
+      .deposit_mints(ordered_mints).num_outcomes(num_outcomes).build_ix())
+```
+
+The same call prepares missing ATAs, validates existing accounts, and can prepare newly registered collateral groups. A successful retry reports all requested groups. Preparation does not create global custody or mint balances. Inactive registration blocks trading, but does not independently block preparation, deposits, splits, merges, or exits.
+
+The program ABI and the outer transaction version are separate. Python transaction helpers currently construct legacy `solders.transaction.Transaction` values. Eleven-maker instruction data alone occupies 1392 bytes for matching and 1394 bytes for deposit-and-swap, exceeding legacy/v0 capacity. The maker ceiling does not guarantee submission capacity. Select batches that fit the actual transport and execution limits. This cutover does not implement Solana transaction-v1 envelopes or alter fee-prepared message guarantees.

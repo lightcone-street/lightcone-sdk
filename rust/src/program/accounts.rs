@@ -428,20 +428,22 @@ impl UserNonce {
 }
 
 // ============================================================================
-// Orderbook Account (144 bytes)
+// Orderbook Account (176 bytes)
 // ============================================================================
 
-/// Orderbook account - on-chain orderbook with lookup table
+/// Orderbook account - one market outcome traded between two distinct collateral assets
 ///
 /// Layout:
 /// - [0..8]     discriminator (8 bytes)
 /// - [8..40]    market (32 bytes)
 /// - [40..72]   mint_a (32 bytes)
 /// - [72..104]  mint_b (32 bytes)
-/// - [104..136] lookup_table (32 bytes)
-/// - [136]      base_index (1 byte)
-/// - [137]      bump (1 byte)
-/// - [138..144] _padding (6 bytes)
+/// - [104..136] deposit_mint_a (32 bytes)
+/// - [136..168] deposit_mint_b (32 bytes)
+/// - [168]      base_index (1 byte)
+/// - [169]      outcome_index (1 byte)
+/// - [170]      bump (1 byte)
+/// - [171..176] _padding (5 bytes)
 #[derive(Debug, Clone)]
 pub struct Orderbook {
     /// Account discriminator
@@ -452,10 +454,14 @@ pub struct Orderbook {
     pub mint_a: Pubkey,
     /// Mint B
     pub mint_b: Pubkey,
-    /// Address lookup table
-    pub lookup_table: Pubkey,
+    /// Collateral backing canonical conditional mint A.
+    pub deposit_mint_a: Pubkey,
+    /// Collateral backing canonical conditional mint B.
+    pub deposit_mint_b: Pubkey,
     /// Which mint is the base asset (0 = mint_a, 1 = mint_b)
     pub base_index: u8,
+    /// Shared outcome index for both conditional mints.
+    pub outcome_index: u8,
     /// PDA bump seed
     pub bump: u8,
 }
@@ -466,7 +472,7 @@ impl Orderbook {
 
     /// Deserialize from account data
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < Self::LEN {
+        if data.len() != Self::LEN {
             return Err(SdkError::InvalidDataLength {
                 expected: Self::LEN,
                 actual: data.len(),
@@ -481,15 +487,39 @@ impl Orderbook {
             });
         }
 
+        if data[168] > 1 || data[169] >= MAX_OUTCOMES {
+            return Err(SdkError::InvalidOrderbook);
+        }
+
         Ok(Self {
             discriminator,
             market: read_pubkey(data, 8),
             mint_a: read_pubkey(data, 40),
             mint_b: read_pubkey(data, 72),
-            lookup_table: read_pubkey(data, 104),
-            base_index: data[136],
-            bump: data[137],
+            deposit_mint_a: read_pubkey(data, 104),
+            deposit_mint_b: read_pubkey(data, 136),
+            base_index: data[168],
+            outcome_index: data[169],
+            bump: data[170],
         })
+    }
+
+    /// Underlying collateral backing the base conditional mint.
+    pub fn base_deposit_mint(&self) -> Pubkey {
+        if self.base_index == 0 {
+            self.deposit_mint_a
+        } else {
+            self.deposit_mint_b
+        }
+    }
+
+    /// Underlying collateral backing the quote conditional mint.
+    pub fn quote_deposit_mint(&self) -> Pubkey {
+        if self.base_index == 0 {
+            self.deposit_mint_b
+        } else {
+            self.deposit_mint_a
+        }
     }
 
     /// Check if account data has the orderbook discriminator
@@ -521,7 +551,7 @@ pub struct GlobalDepositToken {
     pub bump: u8,
     /// Sequential index assigned at whitelist time
     pub index: u16,
-    /// Backend-visible status flag. Current on-chain user flows do not gate on this flag.
+    /// Whether this collateral may back an executed trade. Deposits and exits do not require activity.
     pub active: bool,
 }
 
@@ -531,7 +561,7 @@ impl GlobalDepositToken {
 
     /// Deserialize from account data
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < Self::LEN {
+        if data.len() != Self::LEN {
             return Err(SdkError::InvalidDataLength {
                 expected: Self::LEN,
                 actual: data.len(),
@@ -544,6 +574,13 @@ impl GlobalDepositToken {
                 expected: hex::encode(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR),
                 actual: hex::encode(discriminator),
             });
+        }
+
+        if data[43] > 1 {
+            return Err(SdkError::Serialization(format!(
+                "invalid deposit token activity: {} (must be 0 or 1)",
+                data[43]
+            )));
         }
 
         Ok(Self {
@@ -702,19 +739,23 @@ mod tests {
         data[40..72].copy_from_slice(&[2u8; 32]);
         // mint_b at offset 72
         data[72..104].copy_from_slice(&[3u8; 32]);
-        // lookup_table at offset 104
+        // collateral A at offset 104
         data[104..136].copy_from_slice(&[4u8; 32]);
-        // base_index at offset 136
-        data[136] = 1;
-        // bump at offset 137
-        data[137] = 252;
+        data[136..168].copy_from_slice(&[5u8; 32]);
+        data[168] = 1;
+        data[169] = 2;
+        data[170] = 252;
 
         let orderbook = Orderbook::deserialize(&data).unwrap();
         assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
         assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
         assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
-        assert_eq!(orderbook.lookup_table, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(orderbook.deposit_mint_a, Pubkey::new_from_array([4u8; 32]));
+        assert_eq!(orderbook.deposit_mint_b, Pubkey::new_from_array([5u8; 32]));
         assert_eq!(orderbook.base_index, 1);
+        assert_eq!(orderbook.outcome_index, 2);
+        assert_eq!(orderbook.base_deposit_mint(), orderbook.deposit_mint_b);
+        assert_eq!(orderbook.quote_deposit_mint(), orderbook.deposit_mint_a);
         assert_eq!(orderbook.bump, 252);
     }
 
