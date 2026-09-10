@@ -2412,9 +2412,11 @@ mod tests {
             &params.maker_fill_amounts,
             &params.taker_fill_amounts,
         );
-        assert_order_status_accounts(&ix, &params, &program_id);
+        // 18 + 5*11 - 5 full fills, followed by the two-account trailer.
+        assert_eq!(ix.accounts.len(), 70);
+        assert_eleven_maker_account_sequence(&ix, &params, &program_id, false);
 
-        for invalid_mask in [0x0800, 0x1000, 0x4000] {
+        for invalid_mask in [0x0800, 0x1000, 0x2000, 0x4000] {
             params.full_fill_bitmask = invalid_mask;
             assert!(matches!(
                 build_match_orders_multi_ix(&params, &program_id),
@@ -2667,21 +2669,10 @@ mod tests {
             &matching.maker_fill_amounts,
             &matching.taker_fill_amounts,
         );
-        assert_order_status_accounts(&ix, &matching, &program_id);
-        for maker in &params.makers {
-            let (global_deposit, _) =
-                get_user_global_deposit_pda(&maker.order.maker, &maker.deposit_mint, &program_id);
-            assert_eq!(
-                ix.accounts.contains(&writable(global_deposit)),
-                maker.is_deposit
-            );
-        }
-        let (taker_global_deposit, _) = get_user_global_deposit_pda(
-            &params.taker_order.maker,
-            &params.taker_deposit_mint,
-            &program_id,
-        );
-        assert!(ix.accounts.contains(&writable(taker_global_deposit)));
+        // Four depositors each supply 4 + 2*6 references, including repeated
+        // mints and GDTs: 19 + 5*11 - 5 full fills + 4*16 + 2 trailer accounts.
+        assert_eq!(ix.accounts.len(), 135);
+        assert_eleven_maker_account_sequence(&ix, &matching, &program_id, true);
 
         params.makers.push(params.makers[0].clone());
         assert!(matches!(
@@ -2755,8 +2746,10 @@ mod tests {
 
     fn eleven_maker_params() -> MatchOrdersMultiParams {
         let market = Pubkey::new_unique();
-        let base_mint = Pubkey::new_unique();
-        let quote_mint = Pubkey::new_unique();
+        // Reverse base/quote relative to canonical mint order so GDT slots 4
+        // and 5 must contain quote collateral first, then base collateral.
+        let base_mint = Pubkey::new_from_array([2; 32]);
+        let quote_mint = Pubkey::new_from_array([1; 32]);
         let mut taker_order = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
         taker_order.nonce = 0x1234_5678;
         taker_order.salt = 0x0102_0304_0506_0708;
@@ -2830,26 +2823,163 @@ mod tests {
         }
     }
 
-    fn assert_order_status_accounts(
+    fn assert_eleven_maker_account_sequence(
         ix: &Instruction,
         params: &MatchOrdersMultiParams,
         program_id: &Pubkey,
+        deposit_and_swap: bool,
     ) {
-        let (taker_status, _) = get_order_status_pda(&params.taker_order.hash(), program_id);
-        assert!(!ix.accounts.iter().any(|meta| meta.pubkey == taker_status));
-        for (i, maker) in params.maker_orders.iter().enumerate() {
-            let (status, _) = get_order_status_pda(&maker.hash(), program_id);
-            let meta = ix.accounts.iter().find(|meta| meta.pubkey == status);
-            if matches!(i, 0 | 7 | 8 | 10) {
-                assert!(meta.is_none());
-            } else {
-                assert_eq!(meta, Some(&writable(status)));
-            }
+        // Expected (pubkey, signer, writable) triples follow the pinned
+        // db552338 program parsers. They do not use SDK account-meta helpers,
+        // mask decoding, or the builders' collateral canonicalization.
+        let taker = params.taker_order.maker;
+        let taker_position = get_position_pda(&taker, &params.market, program_id).0;
+        let taker_nonce = get_user_nonce_pda(&taker, program_id).0;
+        let taker_base_ata = get_conditional_token_ata(&taker_position, &params.base_mint);
+        let taker_quote_ata = get_conditional_token_ata(&taker_position, &params.quote_mint);
+        let fee_ata = get_conditional_token_ata(&params.fee_receiver, &params.quote_mint);
+        let mut expected = vec![
+            (params.operator, true, true),
+            (get_exchange_pda(program_id).0, false, false),
+            (params.market, false, false),
+            (
+                get_orderbook_pda(&params.base_mint, &params.quote_mint, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_global_deposit_token_pda(&params.quote_deposit_mint, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_global_deposit_token_pda(&params.base_deposit_mint, program_id).0,
+                false,
+                false,
+            ),
+        ];
+        if deposit_and_swap {
+            expected.extend([
+                (
+                    get_mint_authority_pda(&params.market, program_id).0,
+                    false,
+                    false,
+                ),
+                (TOKEN_PROGRAM_ID, false, false),
+                (fee_ata, false, true),
+                (params.fee_receiver, false, false),
+                (ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
+                // The full-fill taker has no status account. Its BUY order
+                // receives base and gives quote, defining both parties' ATA order.
+                (taker_nonce, false, false),
+                (taker_position, false, false),
+                (params.base_mint, false, false),
+                (params.quote_mint, false, false),
+                (taker_base_ata, false, true),
+                (taker_quote_ata, false, true),
+                (solana_system_interface::program::ID, false, false),
+            ]);
+            expected.extend(expected_six_outcome_deposit_accounts(
+                &params.market,
+                &taker,
+                &params.quote_deposit_mint,
+                program_id,
+            ));
+        } else {
+            expected.extend([
+                (taker_nonce, false, false),
+                (taker_position, false, false),
+                (params.base_mint, false, false),
+                (params.quote_mint, false, false),
+                (taker_base_ata, false, true),
+                (taker_quote_ata, false, true),
+                (TOKEN_PROGRAM_ID, false, false),
+                (solana_system_interface::program::ID, false, false),
+                (fee_ata, false, true),
+                (params.fee_receiver, false, false),
+                (ASSOCIATED_TOKEN_PROGRAM_ID, false, false),
+            ]);
         }
-        assert_eq!(
-            &ix.accounts[ix.accounts.len() - 2..],
-            &event_transport_trailer(program_id)
-        );
+
+        for (i, maker) in params.maker_orders.iter().enumerate() {
+            // Literal participants selected by this vector's full-fill mask.
+            if !matches!(i, 0 | 7 | 8 | 10) {
+                expected.push((
+                    get_order_status_pda(&maker.hash(), program_id).0,
+                    false,
+                    true,
+                ));
+            }
+            let position = get_position_pda(&maker.maker, &params.market, program_id).0;
+            expected.extend([
+                (get_user_nonce_pda(&maker.maker, program_id).0, false, false),
+                (position, false, false),
+            ]);
+            if deposit_and_swap && matches!(i, 1 | 9 | 10) {
+                expected.extend(expected_six_outcome_deposit_accounts(
+                    &params.market,
+                    &maker.maker,
+                    &params.base_deposit_mint,
+                    program_id,
+                ));
+            }
+            // Settlement ATAs follow every maker block, including depositors.
+            expected.extend([
+                (
+                    get_conditional_token_ata(&position, &params.base_mint),
+                    false,
+                    true,
+                ),
+                (
+                    get_conditional_token_ata(&position, &params.quote_mint),
+                    false,
+                    true,
+                ),
+            ]);
+        }
+        expected.extend([
+            (get_event_authority_pda(program_id).0, false, false),
+            (*program_id, false, false),
+        ]);
+        assert_eq!(ix.accounts.len(), expected.len());
+        for (index, (actual, expected)) in ix.accounts.iter().zip(expected).enumerate() {
+            assert_eq!(
+                (actual.pubkey, actual.is_signer, actual.is_writable),
+                expected,
+                "account {index} differs from the program ABI"
+            );
+        }
+    }
+
+    fn expected_six_outcome_deposit_accounts(
+        market: &Pubkey,
+        user: &Pubkey,
+        collateral: &Pubkey,
+        program_id: &Pubkey,
+    ) -> Vec<(Pubkey, bool, bool)> {
+        let position = get_position_pda(user, market, program_id).0;
+        let mut expected = vec![
+            (*collateral, false, false),
+            (get_vault_pda(collateral, market, program_id).0, false, true),
+            (
+                get_global_deposit_token_pda(collateral, program_id).0,
+                false,
+                false,
+            ),
+            (
+                get_user_global_deposit_pda(user, collateral, program_id).0,
+                false,
+                true,
+            ),
+        ];
+        for outcome in [0, 1, 2, 3, 4, 5] {
+            let mint = get_conditional_mint_pda(market, collateral, outcome, program_id).0;
+            expected.extend([
+                (mint, false, true),
+                (get_conditional_token_ata(&position, &mint), false, true),
+            ]);
+        }
+        expected
     }
 
     /// One representative instruction per public builder. Register new builders

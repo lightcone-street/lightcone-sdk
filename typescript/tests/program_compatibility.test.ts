@@ -135,7 +135,12 @@ for (const outcomeIndex of [6, 255]) {
   it(`rejects Orderbook outcome index ${outcomeIndex}`, () => {
     const data = orderbookAccountBytes();
     data[169] = outcomeIndex;
-    assert.throws(() => deserializeOrderbook(data), programError("InvalidOutcomeIndex"));
+    assert.throws(() => deserializeOrderbook(data), (error: unknown) => {
+      assert.ok(error instanceof ProgramSdkError);
+      assert.equal(error.variant, "InvalidOutcomeIndex");
+      assert.equal(error.message, `Invalid outcome index: ${outcomeIndex}. Must be between 0 and 5.`);
+      return true;
+    });
   });
 }
 

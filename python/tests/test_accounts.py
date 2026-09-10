@@ -15,6 +15,8 @@ from lightcone_sdk.program import (
     USER_NONCE_DISCRIMINATOR,
     InvalidAccountDataError,
     InvalidDiscriminatorError,
+    InvalidOrderbookError,
+    InvalidOutcomeIndexError,
     InvalidPendingRoleKindError,
     MarketStatus,
     PendingRoleKind,
@@ -383,14 +385,21 @@ class TestDeserializeOrderbook:
         with pytest.raises(InvalidAccountDataError, match="176 bytes"):
             deserialize_orderbook(data)
 
-    @pytest.mark.parametrize(
-        "offset,value", [(168, 2), (168, 255), (169, 6), (169, 255)]
-    )
-    def test_rejects_invalid_base_and_outcome(self, offset, value):
+    @pytest.mark.parametrize("base_index", [2, 255])
+    def test_rejects_invalid_base_index(self, base_index):
         data = bytearray(build_orderbook_data())
-        data[offset] = value
-        with pytest.raises(InvalidAccountDataError, match="base or outcome index"):
+        data[168] = base_index
+        with pytest.raises(InvalidOrderbookError):
             deserialize_orderbook(bytes(data))
+
+    @pytest.mark.parametrize("outcome_index", [6, 255])
+    def test_rejects_invalid_outcome_index(self, outcome_index):
+        data = bytearray(build_orderbook_data())
+        data[169] = outcome_index
+        with pytest.raises(InvalidOutcomeIndexError) as exc:
+            deserialize_orderbook(bytes(data))
+        assert exc.value.index == outcome_index
+        assert exc.value.max_index == 5
 
     def test_rejects_wrong_discriminator(self):
         with pytest.raises(InvalidDiscriminatorError):

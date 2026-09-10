@@ -487,8 +487,14 @@ impl Orderbook {
             });
         }
 
-        if data[168] > 1 || data[169] >= MAX_OUTCOMES {
+        if data[168] > 1 {
             return Err(SdkError::InvalidOrderbook);
+        }
+        if data[169] >= MAX_OUTCOMES {
+            return Err(SdkError::InvalidOutcomeIndex {
+                index: data[169],
+                max: MAX_OUTCOMES - 1,
+            });
         }
 
         Ok(Self {
@@ -799,12 +805,20 @@ mod tests {
     fn test_orderbook_rejects_invalid_base_and_outcome_indexes() {
         let mut valid_data = vec![0u8; 176];
         valid_data[..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
-        for (offset, invalid) in [(168, 2), (168, 255), (169, 6), (169, 255)] {
+        for invalid in [2, 255] {
             let mut data = valid_data.clone();
-            data[offset] = invalid;
+            data[168] = invalid;
             assert!(matches!(
                 Orderbook::deserialize(&data),
                 Err(SdkError::InvalidOrderbook)
+            ));
+        }
+        for invalid in [6, 255] {
+            let mut data = valid_data.clone();
+            data[169] = invalid;
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidOutcomeIndex { index, max: 5 }) if index == invalid
             ));
         }
     }

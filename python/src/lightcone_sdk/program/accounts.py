@@ -20,6 +20,8 @@ from .constants import (
 from .errors import (
     InvalidAccountDataError,
     InvalidDiscriminatorError,
+    InvalidOrderbookError,
+    InvalidOutcomeIndexError,
     InvalidPendingRoleKindError,
 )
 from .types import (
@@ -227,8 +229,10 @@ def deserialize_orderbook(data: bytes) -> Orderbook:
         raise InvalidAccountDataError(
             f"Orderbook must be {ORDERBOOK_SIZE} bytes, got {len(data)}"
         )
-    if data[168] > 1 or data[169] >= MAX_OUTCOMES:
-        raise InvalidAccountDataError("Invalid orderbook base or outcome index")
+    if data[168] > 1:
+        raise InvalidOrderbookError()
+    if data[169] >= MAX_OUTCOMES:
+        raise InvalidOutcomeIndexError(data[169], MAX_OUTCOMES - 1)
     return Orderbook(
         market=decode_pubkey(data, 8),
         mint_a=decode_pubkey(data, 40),
