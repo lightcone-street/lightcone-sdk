@@ -37,8 +37,8 @@ class LightconeEnv(Enum):
         if override:
             return override
         return {
-            LightconeEnv.LOCAL: "https://api.local.lightcone.xyz",
-            LightconeEnv.STAGING: "https://api.staging.lightcone.xyz",
+            LightconeEnv.LOCAL: "https://api.local.internalcone.com",
+            LightconeEnv.STAGING: "https://api.staging.internalcone.com",
             LightconeEnv.PROD: "https://api.lightcone.xyz",
         }[self]
 
@@ -53,8 +53,8 @@ class LightconeEnv(Enum):
         if override:
             return override
         return {
-            LightconeEnv.LOCAL: "wss://ws.local.lightcone.xyz/ws",
-            LightconeEnv.STAGING: "wss://ws.staging.lightcone.xyz/ws",
+            LightconeEnv.LOCAL: "wss://ws.local.internalcone.com/ws",
+            LightconeEnv.STAGING: "wss://ws.staging.internalcone.com/ws",
             LightconeEnv.PROD: "wss://ws.lightcone.xyz/ws",
         }[self]
 
