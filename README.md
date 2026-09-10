@@ -24,7 +24,7 @@ All three SDKs expose the same interface and capabilities.
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
 
-Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. Existing transaction helpers use legacy transactions. Native Solana transaction-v1 submission is separate from event schema 2. Refer to the [SDK contract decision](docs/adr/0003-authenticated-event-transport.md).
+Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. Existing transaction helpers use legacy transactions. Native Solana transaction-v1 compilation and submission remain a separate transport change. Refer to the [SDK contract decision](docs/adr/0003-authenticated-event-transport.md).
 
 ## SOL Account Lifecycle
 

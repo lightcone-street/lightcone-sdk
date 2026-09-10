@@ -20,6 +20,8 @@ Python SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
+Requires Python 3.10 or newer.
+
 ```bash
 pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
 ```

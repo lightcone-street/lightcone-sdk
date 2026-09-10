@@ -311,6 +311,7 @@ from lightcone_sdk.program import (
     AccountNotFoundError,      # Account does not exist
     InvalidAccountDataError,   # Account data malformed
     InvalidOrderError,         # Order validation failed
+    InvalidConditionalMintError, # On-chain error 18: invalid conditional-mint provenance or properties
     InvalidSignatureError,     # Signature verification failed
     OrderExpiredError,         # Order has expired
     InsufficientBalanceError,  # Insufficient funds

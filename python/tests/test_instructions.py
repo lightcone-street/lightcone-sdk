@@ -6,7 +6,10 @@ from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
 from lightcone_sdk.program import (
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    MAX_DEPOSIT_MINTS_PER_IX,
     PROGRAM_ID,
+    SYSTEM_PROGRAM_ID,
     TOKEN_PROGRAM_ID,
     AcceptRoleParams,
     ArithmeticOverflowError,
@@ -28,6 +31,7 @@ from lightcone_sdk.program import (
     SetMarketFeesParams,
     SetOracleParams,
     SignedOrder,
+    TooManyDepositMintsError,
     build_accept_authority_instruction,
     build_accept_manager_instruction,
     build_accept_operator_instruction,
@@ -77,6 +81,7 @@ from lightcone_sdk.program import (
     get_mint_authority_pda,
     get_mpl_metadata_pda,
     get_order_status_pda,
+    get_orderbook_pda,
     get_position_pda,
     get_user_global_deposit_pda,
     get_vault_pda,
@@ -114,6 +119,76 @@ def signed_order(
         expiration=1_900_000_000,
         signature=bytes([nonce] * 64),
     )
+
+
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("base_index", [0, 1])
+def test_create_orderbook_encodes_canonical_collateral_and_base_orientation(
+    reverse, base_index
+):
+    manager, market, fee_receiver, program = map(fixed_pubkey, [31, 32, 33, 34])
+    outcome = 5
+    canonical = sorted(
+        [
+            (get_conditional_mint_pda(market, mint, outcome, program)[0], mint)
+            for mint in (fixed_pubkey(41), fixed_pubkey(42))
+        ],
+        key=lambda pair: bytes(pair[0]),
+    )
+    supplied = canonical[::-1] if reverse else canonical
+    ix = build_create_orderbook_instruction(
+        manager,
+        market,
+        supplied[0][0],
+        supplied[1][0],
+        fee_receiver,
+        supplied[0][1],
+        supplied[1][1],
+        base_index,
+        outcome,
+        program,
+    )
+    mint_a, deposit_a = canonical[0]
+    mint_b, deposit_b = canonical[1]
+    canonical_base_index = base_index ^ int(reverse)
+    quote_mint = supplied[1 - base_index][0]
+
+    assert ix.program_id == program
+    assert ix.data == bytes([15, canonical_base_index, outcome])
+    assert [
+        (meta.pubkey, meta.is_signer, meta.is_writable) for meta in ix.accounts
+    ] == [
+        (manager, True, True),
+        (market, False, False),
+        (mint_a, False, False),
+        (mint_b, False, False),
+        (get_orderbook_pda(mint_a, mint_b, program)[0], False, True),
+        (get_global_deposit_pda(deposit_a, program)[0], False, False),
+        (get_global_deposit_pda(deposit_b, program)[0], False, False),
+        (get_exchange_pda(program)[0], False, False),
+        (SYSTEM_PROGRAM_ID, False, False),
+        (deposit_a, False, False),
+        (deposit_b, False, False),
+        (TOKEN_PROGRAM_ID, False, False),
+        (ASSOCIATED_TOKEN_PROGRAM_ID, False, False),
+        (fee_receiver, False, False),
+        (get_conditional_token_ata(fee_receiver, quote_mint), False, True),
+        (get_event_authority_pda(program)[0], False, False),
+        (program, False, False),
+    ]
+
+
+def test_position_preparation_rejects_empty_mints():
+    user = Keypair.from_seed(bytes([1]) * 32).pubkey()
+    with pytest.raises(MissingFieldError, match="deposit_mints"):
+        build_init_position_tokens_instruction(user, user, fixed_pubkey(2), [], 2)
+
+
+def test_position_preparation_rejects_too_many_mint_groups():
+    user = Keypair.from_seed(bytes([1]) * 32).pubkey()
+    mints = [fixed_pubkey(index + 10) for index in range(MAX_DEPOSIT_MINTS_PER_IX + 1)]
+    with pytest.raises(TooManyDepositMintsError):
+        build_init_position_tokens_instruction(user, user, fixed_pubkey(2), mints, 2)
 
 
 def test_create_market_uses_manager_and_condition_tombstone():
