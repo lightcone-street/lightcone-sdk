@@ -2392,6 +2392,47 @@ mod tests {
     }
 
     #[test]
+    fn test_match_orders_multi_eleven_makers_and_u16_mask() {
+        let program_id = test_program_id();
+        let mut params = eleven_maker_params();
+        let ix = build_match_orders_multi_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.data[0], instruction::MATCH_ORDERS_MULTI);
+        assert_eq!(ix.data.len(), 1392);
+        assert_eq!(&ix.data[103..105], &[0x81, 0x85]);
+        assert_eq!(
+            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            0x8581
+        );
+        assert_trade_records(
+            &ix.data,
+            105,
+            &params.taker_order,
+            &params.maker_orders,
+            &params.maker_fill_amounts,
+            &params.taker_fill_amounts,
+        );
+        assert_order_status_accounts(&ix, &params, &program_id);
+
+        for invalid_mask in [0x0800, 0x1000, 0x4000] {
+            params.full_fill_bitmask = invalid_mask;
+            assert!(matches!(
+                build_match_orders_multi_ix(&params, &program_id),
+                Err(SdkError::Serialization(_))
+            ));
+        }
+
+        params.full_fill_bitmask = 0x8581;
+        params.maker_orders.push(params.maker_orders[0].clone());
+        params.maker_fill_amounts.push(1);
+        params.taker_fill_amounts.push(2);
+        assert!(matches!(
+            build_match_orders_multi_ix(&params, &program_id),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
+    }
+
+    #[test]
     fn test_build_whitelist_deposit_token_ix() {
         let program_id = test_program_id();
         let params = WhitelistDepositTokenParams {
@@ -2575,6 +2616,81 @@ mod tests {
     }
 
     #[test]
+    fn test_deposit_and_swap_eleven_makers_and_u16_masks() {
+        let program_id = test_program_id();
+        let matching = eleven_maker_params();
+        let mut params = DepositAndSwapParams {
+            operator: matching.operator,
+            market: matching.market,
+            base_mint: matching.base_mint,
+            quote_mint: matching.quote_mint,
+            base_deposit_mint: matching.base_deposit_mint,
+            quote_deposit_mint: matching.quote_deposit_mint,
+            fee_receiver: matching.fee_receiver,
+            taker_order: matching.taker_order.clone(),
+            taker_is_full_fill: true,
+            taker_is_deposit: true,
+            taker_deposit_mint: matching.quote_deposit_mint,
+            num_outcomes: 6,
+            makers: matching
+                .maker_orders
+                .iter()
+                .enumerate()
+                .map(|(i, order)| MakerFill {
+                    order: order.clone(),
+                    maker_fill_amount: matching.maker_fill_amounts[i],
+                    taker_fill_amount: matching.taker_fill_amounts[i],
+                    is_full_fill: matches!(i, 0 | 7 | 8 | 10),
+                    is_deposit: matches!(i, 1 | 9 | 10),
+                    deposit_mint: matching.base_deposit_mint,
+                })
+                .collect(),
+        };
+        let ix = build_deposit_and_swap_ix(&params, &program_id).unwrap();
+
+        assert_eq!(ix.data[0], instruction::DEPOSIT_AND_SWAP);
+        assert_eq!(ix.data.len(), 1394);
+        assert_eq!(&ix.data[103..107], &[0x81, 0x85, 0x02, 0x86]);
+        assert_eq!(
+            u16::from_le_bytes(ix.data[103..105].try_into().unwrap()),
+            0x8581
+        );
+        assert_eq!(
+            u16::from_le_bytes(ix.data[105..107].try_into().unwrap()),
+            0x8602
+        );
+        assert_trade_records(
+            &ix.data,
+            107,
+            &matching.taker_order,
+            &matching.maker_orders,
+            &matching.maker_fill_amounts,
+            &matching.taker_fill_amounts,
+        );
+        assert_order_status_accounts(&ix, &matching, &program_id);
+        for maker in &params.makers {
+            let (global_deposit, _) =
+                get_user_global_deposit_pda(&maker.order.maker, &maker.deposit_mint, &program_id);
+            assert_eq!(
+                ix.accounts.contains(&writable(global_deposit)),
+                maker.is_deposit
+            );
+        }
+        let (taker_global_deposit, _) = get_user_global_deposit_pda(
+            &params.taker_order.maker,
+            &params.taker_deposit_mint,
+            &program_id,
+        );
+        assert!(ix.accounts.contains(&writable(taker_global_deposit)));
+
+        params.makers.push(params.makers[0].clone());
+        assert!(matches!(
+            build_deposit_and_swap_ix(&params, &program_id),
+            Err(SdkError::TooManyMakers { count: 12 })
+        ));
+    }
+
+    #[test]
     fn test_build_close_order_status_ix() {
         let program_id = test_program_id();
         let order_hash = [9u8; 32];
@@ -2635,6 +2751,105 @@ mod tests {
             expiration: 0,
             signature: [1u8; 64],
         }
+    }
+
+    fn eleven_maker_params() -> MatchOrdersMultiParams {
+        let market = Pubkey::new_unique();
+        let base_mint = Pubkey::new_unique();
+        let quote_mint = Pubkey::new_unique();
+        let mut taker_order = sample_order(market, base_mint, quote_mint, OrderSide::Bid);
+        taker_order.nonce = 0x1234_5678;
+        taker_order.salt = 0x0102_0304_0506_0708;
+        taker_order.amount_in = u64::MAX - 100;
+        taker_order.amount_out = (1u64 << 53) + 101;
+        taker_order.expiration = -123_456_789;
+        let maker_orders = (0u32..11)
+            .map(|i| {
+                let mut order = sample_order(market, base_mint, quote_mint, OrderSide::Ask);
+                order.nonce = 0x89ab_cd00 + u64::from(i);
+                order.salt = 0x1112_1314_1516_1700 + u64::from(i);
+                order.amount_in = (1u64 << 53) + 201 + u64::from(i);
+                order.amount_out = u64::MAX - 301 - u64::from(i);
+                order.expiration = -987_654_321 - i64::from(i);
+                order.signature = [i as u8 + 2; 64];
+                order
+            })
+            .collect();
+        MatchOrdersMultiParams {
+            operator: Pubkey::new_unique(),
+            market,
+            base_mint,
+            quote_mint,
+            base_deposit_mint: Pubkey::new_unique(),
+            quote_deposit_mint: Pubkey::new_unique(),
+            fee_receiver: Pubkey::new_unique(),
+            taker_order,
+            maker_orders,
+            maker_fill_amounts: (0..11).map(|i| (1u64 << 53) + 401 + i).collect(),
+            taker_fill_amounts: (0..11).map(|i| u64::MAX - 501 - i).collect(),
+            // Full fills for the taker and makers 0, 7, 8, and 10.
+            full_fill_bitmask: 0x8581,
+        }
+    }
+
+    fn assert_encoded_order(data: &[u8], expected: &OrderPayload) {
+        assert_eq!(data.len(), 101);
+        let order = crate::program::orders::Order::deserialize(&data[..37]).unwrap();
+        assert_eq!(u64::from(order.nonce), expected.nonce);
+        assert_eq!(order.salt, expected.salt);
+        assert_eq!(order.side, expected.side);
+        assert_eq!(order.amount_in, expected.amount_in);
+        assert_eq!(order.amount_out, expected.amount_out);
+        assert_eq!(order.expiration, expected.expiration);
+        assert_eq!(&data[37..101], &expected.signature);
+    }
+
+    fn assert_trade_records(
+        data: &[u8],
+        records_offset: usize,
+        taker: &OrderPayload,
+        makers: &[OrderPayload],
+        maker_fills: &[u64],
+        taker_fills: &[u64],
+    ) {
+        assert_eq!(data[102], 11);
+        assert_encoded_order(&data[1..102], taker);
+        let records = data[records_offset..].chunks_exact(117);
+        assert!(records.remainder().is_empty());
+        assert_eq!(records.len(), 11);
+        for (i, record) in records.enumerate() {
+            assert_encoded_order(&record[..101], &makers[i]);
+            assert_eq!(
+                u64::from_le_bytes(record[101..109].try_into().unwrap()),
+                maker_fills[i]
+            );
+            assert_eq!(
+                u64::from_le_bytes(record[109..117].try_into().unwrap()),
+                taker_fills[i]
+            );
+        }
+    }
+
+    fn assert_order_status_accounts(
+        ix: &Instruction,
+        params: &MatchOrdersMultiParams,
+        program_id: &Pubkey,
+    ) {
+        let (taker_status, _) = get_order_status_pda(&params.taker_order.hash(), program_id);
+        assert!(!ix.accounts.iter().any(|meta| meta.pubkey == taker_status));
+        for (i, maker) in params.maker_orders.iter().enumerate() {
+            let (status, _) = get_order_status_pda(&maker.hash(), program_id);
+            let meta = ix.accounts.iter().find(|meta| meta.pubkey == status);
+            if matches!(i, 0 | 7 | 8 | 10) {
+                assert!(meta.is_none());
+            } else {
+                assert_eq!(meta, Some(&writable(status)));
+            }
+        }
+        assert_eq!(
+            &ix.accounts[ix.accounts.len() - 2..],
+            &event_transport_trailer(program_id)
+        );
     }
 
     /// One representative instruction per public builder. Register new builders

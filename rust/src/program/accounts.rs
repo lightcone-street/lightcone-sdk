@@ -731,7 +731,8 @@ mod tests {
 
     #[test]
     fn test_orderbook_deserialization() {
-        let mut data = vec![0u8; ORDERBOOK_SIZE];
+        assert_eq!(Orderbook::LEN, 176);
+        let mut data = vec![0u8; 176];
         data[0..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
         // market at offset 8
         data[8..40].copy_from_slice(&[1u8; 32]);
@@ -742,21 +743,70 @@ mod tests {
         // collateral A at offset 104
         data[104..136].copy_from_slice(&[4u8; 32]);
         data[136..168].copy_from_slice(&[5u8; 32]);
-        data[168] = 1;
-        data[169] = 2;
         data[170] = 252;
 
-        let orderbook = Orderbook::deserialize(&data).unwrap();
-        assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
-        assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
-        assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
-        assert_eq!(orderbook.deposit_mint_a, Pubkey::new_from_array([4u8; 32]));
-        assert_eq!(orderbook.deposit_mint_b, Pubkey::new_from_array([5u8; 32]));
-        assert_eq!(orderbook.base_index, 1);
-        assert_eq!(orderbook.outcome_index, 2);
-        assert_eq!(orderbook.base_deposit_mint(), orderbook.deposit_mint_b);
-        assert_eq!(orderbook.quote_deposit_mint(), orderbook.deposit_mint_a);
-        assert_eq!(orderbook.bump, 252);
+        for base_index in [0, 1] {
+            for outcome_index in [0, 5] {
+                data[168] = base_index;
+                data[169] = outcome_index;
+                let orderbook = Orderbook::deserialize(&data).unwrap();
+                assert_eq!(orderbook.discriminator, ORDERBOOK_DISCRIMINATOR);
+                assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
+                assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
+                assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
+                assert_eq!(orderbook.deposit_mint_a, Pubkey::new_from_array([4u8; 32]));
+                assert_eq!(orderbook.deposit_mint_b, Pubkey::new_from_array([5u8; 32]));
+                assert_eq!(orderbook.base_index, base_index);
+                assert_eq!(orderbook.outcome_index, outcome_index);
+                let (base_collateral, quote_collateral) =
+                    if base_index == 0 { (4, 5) } else { (5, 4) };
+                assert_eq!(
+                    orderbook.base_deposit_mint(),
+                    Pubkey::new_from_array([base_collateral; 32])
+                );
+                assert_eq!(
+                    orderbook.quote_deposit_mint(),
+                    Pubkey::new_from_array([quote_collateral; 32])
+                );
+                assert_eq!(orderbook.bump, 252);
+            }
+        }
+    }
+
+    #[test]
+    fn test_orderbook_rejects_nonexact_lengths_and_bad_discriminators() {
+        let mut valid_data = vec![0u8; 176];
+        valid_data[..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        for actual in [0, 7, 175, 177] {
+            let mut data = valid_data.clone();
+            data.resize(actual, 0);
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidDataLength { expected: 176, actual: len }) if len == actual
+            ));
+        }
+
+        valid_data[0] ^= 0xff;
+        assert!(matches!(
+            Orderbook::deserialize(&valid_data),
+            Err(SdkError::InvalidDiscriminator { expected, actual })
+                if expected == hex::encode(ORDERBOOK_DISCRIMINATOR)
+                    && actual == hex::encode(&valid_data[..8])
+        ));
+    }
+
+    #[test]
+    fn test_orderbook_rejects_invalid_base_and_outcome_indexes() {
+        let mut valid_data = vec![0u8; 176];
+        valid_data[..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        for (offset, invalid) in [(168, 2), (168, 255), (169, 6), (169, 255)] {
+            let mut data = valid_data.clone();
+            data[offset] = invalid;
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidOrderbook)
+            ));
+        }
     }
 
     #[test]
@@ -771,17 +821,19 @@ mod tests {
 
     #[test]
     fn test_global_deposit_token_deserialization() {
-        let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        assert_eq!(GlobalDepositToken::LEN, 47);
+        let mut data = vec![0u8; 47];
         data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
         data[8..40].copy_from_slice(&[5u8; 32]);
         data[40] = 251;
-        data[41..43].copy_from_slice(&42u16.to_le_bytes());
+        data[41..43].copy_from_slice(&[0xef, 0xbe]);
         data[43] = 1;
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
+        assert_eq!(gdt.discriminator, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
         assert_eq!(gdt.mint, Pubkey::new_from_array([5u8; 32]));
         assert_eq!(gdt.bump, 251);
-        assert_eq!(gdt.index, 42);
+        assert_eq!(gdt.index, 0xbeef);
         assert!(gdt.active);
     }
 
@@ -793,6 +845,41 @@ mod tests {
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
         assert!(!gdt.active);
+    }
+
+    #[test]
+    fn test_global_deposit_token_rejects_nonexact_lengths_and_bad_discriminators() {
+        let mut valid_data = vec![0u8; 47];
+        valid_data[..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        for actual in [0, 7, 46, 48] {
+            let mut data = valid_data.clone();
+            data.resize(actual, 0);
+            assert!(matches!(
+                GlobalDepositToken::deserialize(&data),
+                Err(SdkError::InvalidDataLength { expected: 47, actual: len }) if len == actual
+            ));
+        }
+
+        valid_data[0] ^= 0xff;
+        assert!(matches!(
+            GlobalDepositToken::deserialize(&valid_data),
+            Err(SdkError::InvalidDiscriminator { expected, actual })
+                if expected == hex::encode(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR)
+                    && actual == hex::encode(&valid_data[..8])
+        ));
+    }
+
+    #[test]
+    fn test_global_deposit_token_rejects_nonboolean_activity() {
+        let mut data = vec![0u8; 47];
+        data[..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        for active in [2, 255] {
+            data[43] = active;
+            assert!(matches!(
+                GlobalDepositToken::deserialize(&data),
+                Err(SdkError::Serialization(_))
+            ));
+        }
     }
 
     #[test]

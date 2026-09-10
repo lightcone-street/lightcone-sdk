@@ -6,6 +6,8 @@ import {
   buildCreateMarketIx, buildSetOracleIx, buildSetPausedIx,
   buildInitPositionTokensIx,
   buildMatchOrdersMultiIx, buildDepositAndSwapIx, type SignedOrder,
+  deserializeOrderbook, deserializeGlobalDepositToken,
+  getOrderbookBaseDepositMint, getOrderbookQuoteDepositMint,
 } from "../src/program";
 
 const wallet = (seed: number): PublicKey => Keypair.fromSeed(Buffer.alloc(32, seed)).publicKey;
@@ -66,4 +68,104 @@ it("rejects zero and PDA beneficiaries while accepting PDA governance authoritie
   assert.ok(ix.keys[0]!.pubkey.equals(user));
   assert.ok(ix.keys[0]!.isSigner);
   assert.deepEqual(buildSetOracleIx({ authority: user, market: wallet(2), newOracle: wallet(1) }).data.subarray(1), wallet(1).toBuffer());
+});
+
+function orderbookAccountBytes(baseIndex = 0): Buffer {
+  const data = Buffer.alloc(176);
+  Buffer.from("2b221971c3454807", "hex").copy(data, 0);
+  [8, 40, 72, 104, 136].forEach((offset, index) => {
+    data.fill(index + 1, offset, offset + 32);
+  });
+  data[168] = baseIndex;
+  data[169] = 5;
+  data[170] = 247;
+  return data;
+}
+
+function globalDepositTokenAccountBytes(active = 0): Buffer {
+  const data = Buffer.alloc(47);
+  Buffer.from("25bea1e87b922a57", "hex").copy(data, 0);
+  data.fill(6, 8, 40);
+  data[40] = 251;
+  data.writeUInt16LE(0x1234, 41);
+  data[43] = active;
+  return data;
+}
+
+const programError = (variant: ProgramSdkError["variant"]) => (error: unknown): boolean =>
+  error instanceof ProgramSdkError && error.variant === variant;
+
+for (const baseIndex of [0, 1]) {
+  it(`decodes every 176-byte Orderbook field and collateral orientation (baseIndex=${baseIndex})`, () => {
+    const book = deserializeOrderbook(orderbookAccountBytes(baseIndex));
+    assert.equal(book.discriminator.toString("hex"), "2b221971c3454807");
+    const fields = ["market", "mintA", "mintB", "depositMintA", "depositMintB"] as const;
+    fields.forEach((field, index) => {
+      assert.ok(book[field].equals(new PublicKey(Buffer.alloc(32, index + 1))), field);
+    });
+    assert.equal(book.baseIndex, baseIndex);
+    assert.equal(book.outcomeIndex, 5);
+    assert.equal(book.bump, 247);
+    assert.ok(getOrderbookBaseDepositMint(book).equals(new PublicKey(Buffer.alloc(32, baseIndex === 0 ? 4 : 5))));
+    assert.ok(getOrderbookQuoteDepositMint(book).equals(new PublicKey(Buffer.alloc(32, baseIndex === 0 ? 5 : 4))));
+  });
+}
+
+for (const length of [144, 175, 177]) {
+  it(`rejects a ${length}-byte Orderbook account`, () => {
+    const data = Buffer.alloc(length);
+    orderbookAccountBytes().copy(data);
+    assert.throws(() => deserializeOrderbook(data), programError("InvalidDataLength"));
+  });
+}
+
+it("rejects an Orderbook account with the wrong discriminator", () => {
+  const data = orderbookAccountBytes();
+  data[0] ^= 0xff;
+  assert.throws(() => deserializeOrderbook(data), programError("InvalidDiscriminator"));
+});
+
+for (const baseIndex of [2, 255]) {
+  it(`rejects Orderbook base index ${baseIndex}`, () => {
+    assert.throws(() => deserializeOrderbook(orderbookAccountBytes(baseIndex)), programError("InvalidOrderbook"));
+  });
+}
+
+for (const outcomeIndex of [6, 255]) {
+  it(`rejects Orderbook outcome index ${outcomeIndex}`, () => {
+    const data = orderbookAccountBytes();
+    data[169] = outcomeIndex;
+    assert.throws(() => deserializeOrderbook(data), programError("InvalidOutcomeIndex"));
+  });
+}
+
+for (const active of [0, 1]) {
+  it(`decodes every 47-byte GlobalDepositToken field with active=${active}`, () => {
+    const token = deserializeGlobalDepositToken(globalDepositTokenAccountBytes(active));
+    assert.equal(token.discriminator.toString("hex"), "25bea1e87b922a57");
+    assert.ok(token.mint.equals(new PublicKey(Buffer.alloc(32, 6))));
+    assert.equal(token.bump, 251);
+    assert.equal(token.index, 0x1234);
+    assert.equal(token.active, active === 1);
+  });
+}
+
+for (const active of [2, 255]) {
+  it(`rejects the nonboolean GlobalDepositToken activity byte ${active}`, () => {
+    assert.throws(() => deserializeGlobalDepositToken(globalDepositTokenAccountBytes(active)), programError("Serialization"));
+  });
+}
+
+for (const length of [46, 48]) {
+  it(`rejects a ${length}-byte GlobalDepositToken account`, () => {
+    const data = Buffer.alloc(length);
+    globalDepositTokenAccountBytes().copy(data);
+    assert.throws(() => deserializeGlobalDepositToken(data), programError("InvalidDataLength"));
+  });
+}
+
+it("rejects a GlobalDepositToken account with the wrong discriminator", () => {
+  const data = globalDepositTokenAccountBytes();
+  data[0] ^= 0xff;
+  assert.throws(() => deserializeGlobalDepositToken(data), programError("InvalidDiscriminator"));
 });
