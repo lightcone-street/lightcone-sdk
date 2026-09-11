@@ -1,4 +1,4 @@
-name: Conetext Adoption
+name: Repository Guidance
 
 on:
   pull_request:
@@ -9,22 +9,18 @@ permissions:
   contents: read
 
 jobs:
-  validate-adoption:
-    name: Validate Adoption
+  validate-guidance:
+    name: Validate Guidance Files
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
-      - name: Validate v0.2.0 shared guidance contract
+      - name: Check repository guidance files
         shell: bash
         run: |
-          for path in .conetext-version AGENTS.md CLAUDE.md CONTEXT.md; do
-            test -f "$path"
-            test ! -L "$path"
+          for path in AGENTS.md CLAUDE.md CONTEXT.md; do
+            if [[ ! -f "$path" || -L "$path" ]]; then
+              printf 'Missing or non-regular guidance file: %s\n' "$path" >&2
+              exit 1
+            fi
           done
-          test "$(cat .conetext-version)" = "0.2.0"
-          test "$(cat CLAUDE.md)" = "@AGENTS.md"
-          grep -q '[^[:space:]]' CONTEXT.md
-          grep -Fq "conetext" AGENTS.md
-          grep -Fq ".conetext-version" AGENTS.md
-          grep -Fq "Developer instructions" AGENTS.md
