@@ -10,7 +10,9 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 | **TypeScript** | [`@lightconexyz/lightcone-sdk`](typescript/) | `npm install @lightconexyz/lightcone-sdk` |
 | **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python` |
 
-All three SDKs expose the same interface and capabilities.
+All three SDKs share the protocol's instruction ABI and business semantics.
+Rust transaction helpers require Solana v1; TypeScript and Python still use
+legacy outer transactions and require a separate migration for v1-only use.
 
 ## Features
 
@@ -24,7 +26,9 @@ All three SDKs expose the same interface and capabilities.
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
 
-Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. Existing transaction helpers use legacy transactions. Native Solana transaction-v1 compilation and submission remain a separate transport change. Refer to the [SDK contract decision](docs/adr/0003-authenticated-event-transport.md).
+Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. Rust transaction helpers compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [Rust v1 decision](docs/adr/0004-rust-solana-v1.md) and [Rust migration instructions](rust/README.md#solana-v1-transactions). TypeScript and Python retain their existing transaction transports.
+
+Program event schema version 2 is independent of outer Solana transaction version 1. Refer to the [authenticated event transport decision](docs/adr/0003-authenticated-event-transport.md).
 
 ## SOL Account Lifecycle
 

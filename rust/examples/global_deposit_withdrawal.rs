@@ -79,7 +79,7 @@ async fn main() -> ExampleResult {
 
     for (name, ix) in &instructions {
         let context = client.transaction_context().await?;
-        let tx = V1Transaction::compile(&[ix.clone()], &keypair.pubkey(), &context)?;
+        let tx = V1Transaction::compile(std::slice::from_ref(ix), &keypair.pubkey(), &context)?;
         let tx = tx.sign(&[&keypair])?;
         let sig = client.submit_signed_transaction(&tx).await?;
         client

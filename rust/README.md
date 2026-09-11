@@ -22,18 +22,20 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
-Add to your `Cargo.toml`:
+This branch targets `0.10.0-rc.1`. Until that version is published, use a path
+dependency to this checkout's `rust` directory or pin its Git revision.
+After publication, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["native"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["wasm"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
@@ -55,6 +57,8 @@ planners and fluent submitters, or call `transaction_context_with_resources`.
 
 Use `to_wire_bytes()` and `message_bytes()` for canonical v1 encoding. Wallet
 responses must preserve the complete message and provide valid signatures.
+External signers must implement `ExternalSigner::wallet_address()` and return
+the connected wallet's public key for unsponsored transaction submission.
 Submission requires active cluster support, exact-message simulation, and
 preflight. A transport failure returns `SubmissionUnknown` with the signature
 and expiry; reconcile it before rebuilding. Existing SOL balance, reserve,

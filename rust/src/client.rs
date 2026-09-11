@@ -1472,7 +1472,8 @@ impl LightconeClientBuilder {
 
     /// Set an external signer for signing orders, cancels, and transactions.
     /// Intended for browser wallet adapters. Implement the `ExternalSigner` trait
-    /// to bridge your wallet adapter to the SDK.
+    /// to bridge your wallet adapter to the SDK. Unsponsored transaction
+    /// submission requires its `wallet_address()` to return the fee payer.
     pub fn external_signer(mut self, signer: Arc<dyn ExternalSigner>) -> Self {
         self.signing_strategy = Some(SigningStrategy::WalletAdapter(signer));
         self

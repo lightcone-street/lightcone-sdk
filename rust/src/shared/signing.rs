@@ -19,11 +19,22 @@ use solana_pubkey::Pubkey;
 /// # Example
 ///
 /// ```rust,ignore
-/// struct MyAdapterSigner;
+/// use lightcone::prelude::ExternalSigner;
+/// use solana_pubkey::Pubkey;
+/// use std::{future::Future, pin::Pin};
+///
+/// struct MyAdapterSigner {
+///     // Keep this identity synchronized with the connected wallet.
+///     wallet: Pubkey,
+/// }
 ///
 /// impl ExternalSigner for MyAdapterSigner {
-///     fn sign_message(&self, message: &[u8])
-///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + '_>>
+///     fn wallet_address(&self) -> Option<Pubkey> {
+///         Some(self.wallet)
+///     }
+///
+///     fn sign_message<'a>(&'a self, message: &'a [u8])
+///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>
 ///     {
 ///         Box::pin(async move {
 ///             let result = ADAPTER().sign_message(message).await.map_err(|e| format!("{e:?}"))?;
@@ -31,8 +42,8 @@ use solana_pubkey::Pubkey;
 ///         })
 ///     }
 ///
-///     fn sign_transaction(&self, tx_bytes: &[u8])
-///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + '_>>
+///     fn sign_transaction<'a>(&'a self, tx_bytes: &'a [u8])
+///         -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>
 ///     {
 ///         Box::pin(async move {
 ///             let result = ADAPTER().sign_transaction(tx_bytes, None).await.map_err(|e| format!("{e:?}"))?;
@@ -42,8 +53,12 @@ use solana_pubkey::Pubkey;
 /// }
 /// ```
 pub trait ExternalSigner: Send + Sync {
-    /// Return the wallet controlled by this signer when it can be verified
-    /// before signing an identity-bound transaction.
+    /// Return the public key of the connected wallet controlled by this signer.
+    ///
+    /// Unsponsored transaction submission requires `Some` with the transaction's
+    /// fee payer; `None` fails before signing. Message-only signers can retain
+    /// the default. Sponsored submission does not require a wallet identity,
+    /// but identity-bound SOL planners still do.
     fn wallet_address(&self) -> Option<Pubkey> {
         None
     }

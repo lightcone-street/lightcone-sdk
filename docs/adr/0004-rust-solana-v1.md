@@ -1,4 +1,4 @@
-# ADR 0002: Rust Solana v1 transaction cutover
+# ADR 0004: Rust Solana v1 transaction cutover
 
 - Status: Accepted for the Rust admin SDK integration
 - Date: 2026-09-11

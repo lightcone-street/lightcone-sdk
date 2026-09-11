@@ -78,7 +78,7 @@ pub fn get_keypair_from_env(variable: &str, default: Option<&str>) -> ExampleRes
     } else {
         raw.into()
     };
-    Ok(read_keypair_file(path)?)
+    read_keypair_file(path)
 }
 
 pub async fn login(
