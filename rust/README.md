@@ -22,18 +22,20 @@ Rust SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
-Add to your `Cargo.toml`:
+This branch targets `0.10.0-rc.1`. Until that version is published, use a path
+dependency to this checkout's `rust` directory or pin its Git revision.
+After publication, add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["native"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["native"] }
 ```
 
 For browser/WASM targets:
 
 ```toml
 [dependencies]
-lightcone = { version = "0.7.0", features = ["wasm"] }
+lightcone = { version = "=0.10.0-rc.1", features = ["wasm"] }
 ```
 
 ## Feature Flags
@@ -43,6 +45,38 @@ lightcone = { version = "0.7.0", features = ["wasm"] }
 | **`native`** | `http` + `native-auth` + `ws-native` + `solana-rpc` | **Market makers, bots, CLI tools** |
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
 | **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
+
+## Solana v1 transactions
+
+This Rust release is a hard cutover to `V1Transaction`. Every `_tx` and fluent
+`build_tx` takes `&V1TransactionContext`. Context binds explicit compute units,
+loaded account bytes, total priority fee lamports, optional heap bytes, and a
+blockhash with its last valid block height. There is no legacy/v0 fallback or ALT
+configuration. Configure `LightconeClientBuilder::transaction_resources` for SOL
+planners and fluent submitters, or call `transaction_context_with_resources`.
+
+Use `to_wire_bytes()` and `message_bytes()` for canonical v1 encoding. Wallet
+responses must preserve the complete message and provide valid signatures.
+External signers must implement `ExternalSigner::wallet_address()` and return
+the connected wallet's public key for unsponsored transaction submission.
+Submission requires active cluster support, exact-message simulation, and
+preflight. A definite request or preflight rejection returns `SubmissionRejected` with its RPC
+code and reason. An uncertain send or `AlreadyProcessed` response returns
+`SubmissionUnknown` with the signature
+and expiry; reconcile it before rebuilding. Existing SOL balance, reserve,
+canonical WSOL, and temporary-account semantics remain intact.
+
+```rust,ignore
+let resources = V1ResourceConfig {
+    compute_unit_limit: 200_000,
+    loaded_accounts_data_size_limit: 1024 * 1024,
+    priority_fee_lamports: 1_000, // total lamports per transaction
+    heap_size: None,
+};
+let context = client.transaction_context_with_resources(resources).await?;
+let tx = client.orders().increment_nonce_tx(&payer, &context)?;
+let confirmed = client.sign_and_submit_tx_confirmed_with_slot(tx).await?;
+```
 
 ## Transaction Fee Funding
 
@@ -135,12 +169,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use lightcone::prelude::*;
 use solana_keypair::read_keypair_file;
 use solana_signer::Signer;
+use std::sync::Arc;
 
 // Defaults to Prod. Use .env(LightconeEnv::Staging) for staging.
+let keypair = Arc::new(read_keypair_file(std::env::var("LIGHTCONE_WALLET_PATH")?)?);
+let rpc_url = std::env::var("SDK_RPC_URL")?;
+let payer = keypair.pubkey();
 let client = LightconeClient::builder()
     .deposit_source(DepositSource::Market)
+    .transaction_resources(V1ResourceConfig {
+        compute_unit_limit: 200_000,
+        loaded_accounts_data_size_limit: 1024 * 1024,
+        priority_fee_lamports: 1_000,
+        heap_size: None,
+    })
+    .rpc_url(&rpc_url)
     .build()?;
-let keypair = read_keypair_file("~/.config/solana/id.json")?;
+client.set_signing_strategy(SigningStrategy::Native(keypair.clone())).await;
 ```
 
 ### Step 1: Find a Market
@@ -160,7 +205,7 @@ let orderbook = market
 ```rust
 let deposit_mint = market.deposit_assets[0].pubkey().to_pubkey()?;
 let deposit_ix = client.positions().deposit().await
-    .user(keypair.pubkey())
+    .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
     .build_ix()
@@ -171,7 +216,7 @@ let deposit_ix = client.positions().deposit().await
 
 ```rust
 let order = client.orders().limit_order().await
-    .maker(keypair.pubkey())
+    .maker(payer)
     .bid()
     .price("0.55")
     .size("1")
@@ -197,7 +242,7 @@ ws.subscribe(SubscribeParams::Books {
     orderbook_ids: vec![orderbook.orderbook_id.clone()],
 })?;
 ws.subscribe(SubscribeParams::User {
-    wallet_address: keypair.pubkey().into(),
+    wallet_address: payer.into(),
 })?;
 ```
 
@@ -222,7 +267,7 @@ REST depth is a coherent projection that may briefly lag a mutation. Use its
 ### Step 5: Cancel an Order
 
 ```rust
-let cancel = CancelBody::signed(order.order_hash.clone(), keypair.pubkey().into(), &keypair);
+let cancel = CancelBody::signed(order.order_hash.clone(), payer.into(), keypair.as_ref());
 client.orders().cancel(&cancel).await?;
 ```
 
@@ -231,7 +276,7 @@ client.orders().cancel(&cancel).await?;
 ```rust
 // sign_and_submit builds the tx, signs it using the client's signing strategy, and submits
 let tx_hash = client.positions().merge()
-    .user(keypair.pubkey())
+    .user(payer)
     .market(&market)
     .mint(deposit_mint)
     .amount(1_000_000)
@@ -243,7 +288,7 @@ let tx_hash = client.positions().merge()
 
 ```rust
 let withdraw_ix = client.positions().withdraw().await
-    .user(keypair.pubkey())
+    .user(payer)
     .mint(deposit_mint)
     .amount(1_000_000)
     .build_ix()

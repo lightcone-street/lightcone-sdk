@@ -11,10 +11,10 @@ use std::str::FromStr;
 // ============================================================================
 
 /// SPL Token Program ID
-pub const TOKEN_PROGRAM_ID: Pubkey = spl_token::ID;
+pub const TOKEN_PROGRAM_ID: Pubkey = spl_token_interface::ID;
 
 /// Associated Token Account Program ID
-pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account::ID;
+pub const ASSOCIATED_TOKEN_PROGRAM_ID: Pubkey = spl_associated_token_account_interface::program::ID;
 
 /// System Program ID
 pub const SYSTEM_PROGRAM_ID: Pubkey = solana_sdk_ids::system_program::ID;

@@ -314,3 +314,6 @@ export {
 // ORDER BUILDER
 // ============================================================================
 export { OrderBuilder } from "./builder";
+
+export { V1Transaction, validateV1Resources } from "./transaction";
+export type { V1ResourceConfig, V1TransactionContext } from "./transaction";

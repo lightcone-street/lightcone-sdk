@@ -151,6 +151,8 @@ export type SdkErrorVariant =
   | "UserCancelled"
   | "TransactionFailed"
   | "TransactionExpired"
+  | "SubmissionUnknown"
+  | "SubmissionRejected"
   | "ConfirmationTimeout"
   | "ApiRejected"
   | "Program"
@@ -160,8 +162,11 @@ export class SdkError extends Error {
   readonly variant: SdkErrorVariant;
   readonly causeError?: Error;
   readonly apiRejectedDetails?: ApiRejectedDetails;
-  /** Transaction signature, set on the transaction-confirmation variants. */
+  /** Transaction signature, set on submission and confirmation errors. */
   readonly signature?: string;
+  readonly lastValidBlockHeight?: number;
+  /** JSON-RPC rejection code, when the node rejected this send before queuing it. */
+  readonly rpcCode?: number;
   /** Confirmed Native SOL Balance in the declared fee payer, in lamports. */
   readonly availableLamports?: bigint;
   /** Exact transaction fee or planner-owned reserve required, in lamports. */
@@ -174,7 +179,9 @@ export class SdkError extends Error {
     apiRejectedDetails?: ApiRejectedDetails,
     signature?: string,
     availableLamports?: bigint,
-    requiredLamports?: bigint
+    requiredLamports?: bigint,
+    lastValidBlockHeight?: number,
+    rpcCode?: number
   ) {
     super(message);
     this.name = "SdkError";
@@ -184,6 +191,26 @@ export class SdkError extends Error {
     this.signature = signature;
     this.availableLamports = availableLamports;
     this.requiredLamports = requiredLamports;
+    this.lastValidBlockHeight = lastValidBlockHeight;
+    this.rpcCode = rpcCode;
+  }
+
+  /** Submission may have reached the cluster; reconcile before rebuilding. */
+  static submissionUnknown(signature: string, lastValidBlockHeight: number, reason: string): SdkError {
+    return new SdkError("SubmissionUnknown", `Transaction ${signature} submission is unknown: ${reason}`, undefined, undefined, signature, undefined, undefined, lastValidBlockHeight);
+  }
+
+  /** A definite RPC rejection before queuing this send; never retried automatically. */
+  static submissionRejected(
+    signature: string,
+    code: number,
+    reason: string
+  ): SdkError {
+    return new SdkError(
+      "SubmissionRejected",
+      `RPC rejected transaction ${signature} (${code}): ${reason}`,
+      undefined, undefined, signature, undefined, undefined, undefined, code
+    );
   }
 
   static from(error: unknown): SdkError {
@@ -273,7 +300,7 @@ export class SdkError extends Error {
   static transactionExpired(signature: string): SdkError {
     return new SdkError(
       "TransactionExpired",
-      `Transaction ${signature} expired before confirmation — it was never processed and is safe to resubmit`,
+      `Transaction ${signature} expired before confirmation; reconcile its signature and authoritative state before rebuilding`,
       undefined,
       undefined,
       signature

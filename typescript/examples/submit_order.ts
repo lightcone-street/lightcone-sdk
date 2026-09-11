@@ -1,8 +1,7 @@
-import { Transaction } from "@solana/web3.js";
+import { V1Transaction } from "../src";
 import { generateSalt, OrderSide } from "../src/program";
 import { scalePriceSize } from "../src/shared";
 import {
-  confirmTransactionOrThrow,
   freshOrderNonce,
   getKeypair,
   login,
@@ -31,7 +30,6 @@ async function main() {
   ).quoteAtoms;
   const requiredBalance = Number(orderQuoteAmount) / 10 ** rules.quoteDecimals;
   const mint = quoteDepositMint(orderbook);
-  const connection = client.rpc().inner();
 
   // 1. Deposit collateral into the global pool.
   //
@@ -49,15 +47,11 @@ async function main() {
     .amount(orderQuoteAmount)
     .buildIx();
   {
-    const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-    const tx = new Transaction({
-      feePayer: keypair.publicKey,
-      blockhash,
-      lastValidBlockHeight,
-    }).add(depositIx);
-    tx.sign(keypair);
-    const sig = await connection.sendRawTransaction(tx.serialize());
-    await confirmTransactionOrThrow(connection, sig, { blockhash, lastValidBlockHeight });
+    const context = await client.transactionContext();
+    const tx = V1Transaction.compile([depositIx], keypair.publicKey, context);
+    const signed = tx.sign([keypair]);
+    const sig = await client.rpc().submitSignedTransaction(signed);
+    await client.rpc().confirmSignature(sig, context.lastValidBlockHeight);
     console.log(`deposit_to_global: confirmed ${sig}`);
   }
 

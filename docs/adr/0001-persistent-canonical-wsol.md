@@ -46,9 +46,10 @@ plan -> sign the prepared message -> submit -> confirm -> refresh complete state
    action authority.
 
 Invalid signed bytes or a changed prepared message fail before RPC submission. An
-on-chain failure is terminal. Prepared confirmation does not claim block-height
-expiry, so a timeout leaves the result unknown; inspect the signature or authoritative
-balances before retrying.
+on-chain failure is terminal. V1 prepared transactions in all three SDKs retain
+the blockhash and last valid block height through signing and confirmation.
+A timeout leaves the result unknown;
+inspect the signature or authoritative balances before retrying.
 
 ## Instruction Ownership
 

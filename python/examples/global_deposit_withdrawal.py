@@ -2,22 +2,25 @@
 
 import asyncio
 
-from solders.pubkey import Pubkey
-
 from common import (
     client as make_client,
+)
+from common import (
+    get_keypair,
     login,
     market_and_orderbook,
     num_outcomes,
     quote_deposit_mint,
-    get_keypair,
 )
-from lightcone_sdk.rpc import require_connection
+from solders.pubkey import Pubkey
+
+from lightcone_sdk.shared.signing import SigningStrategy
 
 
 async def main():
     client = make_client()
     keypair = get_keypair()
+    client.set_signing_strategy(SigningStrategy.native(keypair))
     await login(client, keypair)
 
     m, ob = await market_and_orderbook(client)
@@ -28,8 +31,6 @@ async def main():
     deposit_amount = (
         amount * 2
     )  # deposit extra so global has funds after market transfer
-
-    connection = require_connection(client)
 
     instructions: list[tuple[str, object]] = []
 
@@ -95,12 +96,11 @@ async def main():
     for index, (name, ix) in enumerate(instructions):
         if index > 0:
             await asyncio.sleep(1)  # avoid devnet RPC rate limits
-        blockhash = await client.rpc().get_latest_blockhash()
-        tx = await client.rpc().build_transaction([ix])
-        tx.sign([keypair], blockhash)
-        result = await connection.send_raw_transaction(bytes(tx))
-        await connection.confirm_transaction(result.value)
-        print(f"{name}: confirmed {result.value}")
+        tx = await client.rpc().build_transaction(
+            [ix], keypair.pubkey(), await client.transaction_context()
+        )
+        result = await client.sign_and_submit_tx_confirmed_with_slot(tx)
+        print(f"{name}: confirmed {result.signature}")
 
     # ── Unified deposit/withdraw/merge builders ─────────────────────────
     #

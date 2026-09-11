@@ -14,6 +14,13 @@ from lightcone_sdk.domain.position import (
 )
 
 
+@pytest.fixture(autouse=True)
+def isolate_ci_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Require each scenario to opt into CI instead of inheriting the test runner."""
+    monkeypatch.delenv("CI", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+
+
 def _example_namespace(monkeypatch: pytest.MonkeyPatch) -> dict[str, object]:
     """Load the guarded example without running its fund-moving entrypoint."""
     examples = Path(__file__).parents[1] / "examples"

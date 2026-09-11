@@ -2,14 +2,18 @@
 
 use thiserror::Error;
 
-#[cfg(feature = "native")]
-use solana_client::client_error::ClientError;
+#[cfg(feature = "solana-rpc")]
+use solana_rpc_client_api::client_error::Error as ClientError;
 
 /// SDK-specific errors
 #[derive(Debug, Error)]
 pub enum SdkError {
+    /// Invalid v1 resources, message, signatures, or wire encoding.
+    #[error("Invalid v1 transaction: {0}")]
+    InvalidTransaction(String),
+
     /// RPC client error
-    #[cfg(feature = "native")]
+    #[cfg(feature = "solana-rpc")]
     #[error("RPC error: {0}")]
     Rpc(#[from] ClientError),
 

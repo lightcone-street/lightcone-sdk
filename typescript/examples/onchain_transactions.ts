@@ -1,6 +1,5 @@
-import { Transaction } from "@solana/web3.js";
+import { V1Transaction } from "../src";
 import {
-  confirmTransactionOrThrow,
   rpcClient,
   getKeypair,
   marketAndOrderbook,
@@ -8,23 +7,22 @@ import {
   runExample,
 } from "./common";
 
-function describeTx(name: string, tx: Transaction): void {
+function describeTx(name: string, tx: V1Transaction): void {
   console.log(
-    `${name}: ${tx.instructions.length} instruction(s), ${tx.serialize().length} bytes, signature=${tx.signature?.toString("base64") ?? "unsigned"}`
+    `${name}: ${tx.instructions.length} instruction(s), ${tx.toWireBytes().length} bytes, signature=${tx.signature}`
   );
 }
 
 async function main() {
   const client = rpcClient();
   const keypair = getKeypair();
-  const connection = client.rpc().inner();
 
   const [m, ob] = await marketAndOrderbook(client);
   const dMint = quoteDepositMint(ob);
 
-  const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
+  const context = await client.transactionContext();
 
-  const transactions: Array<[string, Transaction]> = [
+  const transactions: Array<[string, V1Transaction]> = [
     [
       "deposit",
       client.positions().deposit()
@@ -32,7 +30,7 @@ async function main() {
         .mint(dMint)
         .amount(1_000_000n)
         .withMarketDepositSource(m)
-        .buildTx(),
+        .buildTx(context),
     ],
     [
       "merge",
@@ -41,21 +39,16 @@ async function main() {
         .market(m)
         .mint(dMint)
         .amount(1_000_000n)
-        .buildTx(),
+        .buildTx(context),
     ],
-    ["increment_nonce", client.orders().incrementNonceTx(keypair.publicKey)],
+    ["increment_nonce", client.orders().incrementNonceTx(keypair.publicKey, context)],
   ];
 
   for (const [name, tx] of transactions) {
-    tx.recentBlockhash = blockhash;
-    tx.lastValidBlockHeight = lastValidBlockHeight;
-    tx.sign(keypair);
-    describeTx(name, tx);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await confirmTransactionOrThrow(connection, signature, {
-      blockhash,
-      lastValidBlockHeight,
-    });
+    const signed = tx.sign([keypair]);
+    describeTx(name, signed);
+    const signature = await client.rpc().submitSignedTransaction(signed);
+    await client.rpc().confirmSignature(signature, context.lastValidBlockHeight);
     console.log(`${name}: confirmed ${signature}`);
   }
 }

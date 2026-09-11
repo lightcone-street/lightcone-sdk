@@ -10,23 +10,22 @@ Confirmation state flow: The trigger is a submitted signature entering polling.
 The handoff sends status and block-height reads through RPC failover. Confirmation,
 on-chain failure, consecutive-error, and repeated-expiry guards choose the result.
 Recovery resets expiry evidence after gaps or live sightings and checks ledger
-history before reporting safe expiry. Three consecutive signature-status poll
+history before reporting expiry. Three consecutive signature-status poll
 failures or the poll cap raise ``ConfirmationTimeout``.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
 from solders.hash import Hash
 from solders.instruction import Instruction
-from solders.message import Message
 from solders.pubkey import Pubkey
 from solders.signature import Signature
-from solders.transaction import Transaction
 from solders.transaction_status import TransactionConfirmationStatus
 from spl.token._layouts import ACCOUNT_LAYOUT
 from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
@@ -35,6 +34,8 @@ from spl.token.instructions import get_associated_token_address
 from .error import (
     ConfirmationTimeout,
     SdkError,
+    SubmissionRejected,
+    SubmissionUnknown,
     TransactionExpired,
     TransactionFailed,
 )
@@ -49,6 +50,7 @@ from .program.pda import (
     get_global_deposit_pda,
     get_user_global_deposit_pda,
 )
+from .program.transaction import V1Transaction, V1TransactionContext
 from .program.types import Exchange, GlobalDepositToken
 from .rpc_failover import (
     FAST_RETRY_DELAY_SECS,
@@ -75,6 +77,18 @@ class CanonicalWsolAccountInfo:
     account_lamports: int
     token_amount_lamports: int
     native_reserve_lamports: int
+
+
+@dataclass(frozen=True)
+class TransactionSimulation:
+    """Confirmed simulation observations for an exact signed v1 message."""
+
+    slot: int
+    #: Compute units consumed during simulation.
+    units_consumed: int | None
+    #: Total loaded account data, in bytes.
+    loaded_accounts_data_size: int | None
+    logs: tuple[str, ...]
 
 
 def _rpc_lamports(value: object, label: str) -> int:
@@ -188,6 +202,126 @@ async def _connection_with_failover(
             raise
 
     raise retry_failure
+
+
+class _RpcSendRejected(Exception):
+    """Carry a parsed rejection separately from transport or acknowledgement failures."""
+
+    def __init__(self, code: int, reason: str):
+        super().__init__(reason)
+        self.code = code
+
+
+def _definite_rpc_rejection(error: object) -> _RpcSendRejected | None:
+    """Recognize errors emitted before queuing, excluding already-processed signatures."""
+    if not isinstance(error, dict):
+        return None
+    code, reason = error.get("code"), error.get("message")
+    if type(code) is not int or not isinstance(reason, str):
+        return None
+    data = error.get("data")
+    if (isinstance(data, dict) and data.get("err") == "AlreadyProcessed") or any(
+        phrase in reason.lower()
+        for phrase in (
+            "alreadyprocessed",
+            "already processed",
+            "already been processed",
+        )
+    ):
+        return None
+    if code in {
+        -32700,
+        -32600,
+        -32601,
+        -32602,
+        -32002,
+        -32003,
+        -32005,
+        -32006,
+        -32013,
+        -32015,
+        -32016,
+    }:
+        return _RpcSendRejected(code, reason)
+    return None
+
+
+def _binding_rpc_error(error: object) -> dict | None:
+    """Recover RPC codes omitted by solders' typed error JSON representation."""
+    from solders.rpc import errors
+
+    if isinstance(error, errors.RpcCustomErrorFieldless):
+        fieldless = (
+            (
+                errors.RpcCustomErrorFieldless.TransactionSignatureVerificationFailure,
+                -32003,
+            ),
+            (errors.RpcCustomErrorFieldless.TransactionSignatureLenMismatch, -32013),
+        )
+        for kind, code in fieldless:
+            if error == kind:
+                return {"code": code, "message": str(error)}
+        return None
+    codes = (
+        (errors.ParseErrorMessage, -32700),
+        (errors.InvalidRequestMessage, -32600),
+        (errors.MethodNotFoundMessage, -32601),
+        (errors.InvalidParamsMessage, -32602),
+        (errors.SendTransactionPreflightFailureMessage, -32002),
+        (errors.NodeUnhealthyMessage, -32005),
+        (errors.TransactionPrecompileVerificationFailureMessage, -32006),
+        (errors.UnsupportedTransactionVersionMessage, -32015),
+        (errors.MinContextSlotNotReachedMessage, -32016),
+    )
+    for kind, code in codes:
+        if isinstance(error, kind):
+            return {**json.loads(error.to_json()), "code": code}
+    return None
+
+
+async def _send_transaction_once(
+    connection: AsyncClient, wire: bytes, options: object
+) -> str:
+    """Bypass solana-py's transport retry loop while preserving its HTTP session.
+
+    Even caller-provided AsyncClient instances may enable transport retries. Their
+    existing session retains endpoint headers, proxy, timeout, and custom transport.
+    SDK-shaped alternate connections must honor the same one-attempt send contract.
+    """
+    from solana.rpc.async_api import AsyncClient
+
+    if not isinstance(connection, AsyncClient):
+        from solana.rpc.core import RPCException
+
+        try:
+            response = await connection.send_raw_transaction(wire, opts=options)
+        except RPCException as error:
+            payload = _binding_rpc_error(error.args[0]) if error.args else None
+            rejection = _definite_rpc_rejection(payload)
+            if rejection is not None:
+                raise rejection from None
+            raise
+        return str(getattr(response, "value", ""))
+    provider = connection._provider
+    body = connection._send_raw_transaction_body(wire, options)
+    headers = {"Content-Type": "application/json", **(provider.extra_headers or {})}
+    response = await provider.session.post(
+        provider.endpoint_uri,
+        content=body.to_json(),
+        headers=headers,
+    )
+    response.raise_for_status()
+    payload = response.json()
+    if not isinstance(payload, dict):
+        raise SdkError("RPC returned an invalid send acknowledgement")
+    if payload.get("error") is not None:
+        rejection = _definite_rpc_rejection(payload["error"])
+        if rejection is not None and "result" not in payload:
+            raise rejection
+        raise SdkError("RPC returned an uncertain send error")
+    if not isinstance(payload.get("result"), str):
+        raise SdkError("RPC returned an invalid send acknowledgement")
+    return payload["result"]
 
 
 class Rpc:
@@ -388,79 +522,125 @@ class Rpc:
         return _rpc_lamports(response.value, "fee-payer balance")
 
     async def prepare_and_estimate_transaction_fee(
-        self, transaction: Transaction
+        self, transaction: V1Transaction
     ) -> int:
-        """Prepare ``transaction`` with a fresh blockhash and return its fee.
-
-        The return value is exact lamports for that message at confirmed
-        commitment. The unsigned transaction is updated to carry the blockhash
-        used by fee estimation.
-        """
-        blockhash = await self.get_latest_blockhash()
-        transaction.partial_sign([], blockhash)
+        """Estimate the immutable prepared v1 message without replacing its blockhash."""
         return await self.estimate_prepared_transaction_fee(transaction)
 
-    async def estimate_prepared_transaction_fee(self, transaction: Transaction) -> int:
-        """Return the confirmed live fee for an already-prepared message.
-
-        The transaction is not mutated. A missing blockhash, unavailable estimate,
-        or negative, inexact, boolean, or out-of-range fee raises
-        :class:`SdkError`; unavailable never becomes zero.
-        """
+    async def estimate_prepared_transaction_fee(
+        self, transaction: V1Transaction
+    ) -> int:
+        """Return the exact confirmed fee in lamports; missing authority fails closed."""
         from solana.rpc.commitment import Confirmed
-        from solders.hash import Hash
 
-        if transaction.message.recent_blockhash == Hash.default():
-            raise SdkError("prepared transaction is missing a recent blockhash")
+        if not isinstance(transaction, V1Transaction):
+            raise SdkError("only validated Solana v1 transactions are supported")
         response = await _connection_with_failover(
             self._client,
             lambda conn: conn.get_fee_for_message(transaction.message, Confirmed),
         )
-        fee = response.value
-        if fee is None:
+        if response.value is None:
             raise SdkError("transaction fee estimate is unavailable")
-        return _rpc_lamports(fee, "transaction fee estimate")
+        return _rpc_lamports(response.value, "transaction fee estimate")
 
-    async def send_raw_transaction(self, tx_bytes: bytes) -> str:
-        """Submit a signed transaction, returning its signature.
-
-        Fire-and-forget: confirmation is skipped explicitly rather than left
-        to solana-py's ``TxOpts`` defaults — waiting is ``confirm_signature``'s
-        job, with its terminal error taxonomy. Preflight simulates at
-        ``confirmed`` commitment, matching the other submit paths.
-        """
+    async def ensure_v1_supported(self) -> None:
+        """Require the runtime v1 feature to be active in the observed confirmed bank."""
         from solana.rpc.commitment import Confirmed
-        from solana.rpc.types import TxOpts
 
+        feature = Pubkey.from_string("txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL")
+        response = await _connection_with_failover(
+            self._client, lambda conn: conn.get_account_info(feature, Confirmed)
+        )
+        account = response.value
+        if (
+            account is None
+            or str(account.owner) != "Feature111111111111111111111111111111111111"
+            or account.executable
+        ):
+            raise SdkError("Solana v1 transaction feature is unavailable")
+        data = bytes(account.data)
+        if len(data) < 9 or data[0] != 1:
+            raise SdkError("Solana v1 transaction feature is inactive")
+        activated_at = int.from_bytes(data[1:9], "little")
+        slot = _rpc_lamports(response.context.slot, "feature bank slot")
+        if activated_at > slot:
+            raise SdkError("Solana v1 transaction feature is not active in this bank")
+
+    async def simulate_transaction(
+        self, transaction: V1Transaction
+    ) -> TransactionSimulation:
+        """Simulate valid signed v1 bytes without replacing the blockhash."""
+        from solana.rpc.commitment import Confirmed
+
+        if not isinstance(transaction, V1Transaction):
+            raise SdkError("only validated Solana v1 transactions are supported")
+        transaction.verify_signatures()
+        await self.ensure_v1_supported()
         response = await _connection_with_failover(
             self._client,
-            lambda conn: conn.send_raw_transaction(
-                tx_bytes,
-                opts=TxOpts(
-                    skip_confirmation=True,
-                    preflight_commitment=Confirmed,
-                ),
+            lambda conn: conn.simulate_transaction(
+                transaction.as_versioned(),
+                sig_verify=True,
+                commitment=Confirmed,
+                replace_recent_blockhash=False,
             ),
         )
-        return str(response.value)  # type: ignore[attr-defined]
+        value = response.value
+        if not hasattr(value, "err"):
+            raise SdkError("transaction simulation result is unavailable")
+        if value.err is not None:
+            raise SdkError(f"transaction simulation failed: {value.err}")
+        return TransactionSimulation(
+            response.context.slot,
+            value.units_consumed,
+            value.loaded_accounts_data_size,
+            tuple(value.logs or ()),
+        )
 
-    async def send_raw_transaction_once(self, tx_bytes: bytes) -> str:
-        """Submit signed bytes once on the active RPC and return the signature.
-
-        This method does not retry or fail over because a transport error does not
-        prove that the active endpoint rejected the transaction.
-        """
+    async def submit_signed_transaction(self, transaction: V1Transaction) -> str:
+        """Verify, simulate, and send once; retain signature and expiry on uncertainty."""
         from solana.rpc.commitment import Confirmed
-        from solana.rpc.types import TxOpts
+        from solana.rpc.models import TxOpts
 
-        response = await require_connection(self._client).send_raw_transaction(
-            tx_bytes,
-            opts=TxOpts(
-                skip_confirmation=True,
-                preflight_commitment=Confirmed,
-            ),
-        )
-        return str(response.value)  # type: ignore[attr-defined]
+        if not isinstance(transaction, V1Transaction):
+            raise SdkError("only validated Solana v1 transactions are supported")
+        transaction.verify_signatures()
+        await self.simulate_transaction(transaction)
+        signature = str(transaction.signatures[0])
+        try:
+            response = await _send_transaction_once(
+                require_connection(self._client),
+                transaction.to_wire_bytes(),
+                TxOpts(
+                    skip_confirmation=True,
+                    skip_preflight=False,
+                    preflight_commitment=Confirmed,
+                    max_retries=0,
+                ),
+            )
+        except _RpcSendRejected as error:
+            raise SubmissionRejected(signature, error.code, str(error)) from None
+        except Exception:
+            raise SubmissionUnknown(
+                signature,
+                transaction.context.last_valid_block_height,
+                "RPC did not acknowledge the expected signature",
+            ) from None
+        if response != signature:
+            raise SubmissionUnknown(
+                signature,
+                transaction.context.last_valid_block_height,
+                "RPC returned a missing or mismatched signature",
+            )
+        return signature
+
+    async def send_raw_transaction(self, transaction: V1Transaction) -> str:
+        """Submit a validated signed v1 transaction through the single-send path."""
+        return await self.submit_signed_transaction(transaction)
+
+    async def send_raw_transaction_once(self, transaction: V1Transaction) -> str:
+        """Alias of send_raw_transaction; all v1 sends already use one attempt."""
+        return await self.send_raw_transaction(transaction)
 
     async def get_signature_statuses(
         self,
@@ -500,7 +680,7 @@ class Rpc:
         - ``TransactionExpired``: the chain moved past
           ``last_valid_block_height`` on consecutive height samples and a
           history-searching status check still cannot see the signature; the
-          transaction can never land and is safe to resubmit.
+          transaction cannot newly land; reconcile its signature before retrying.
         - ``ConfirmationTimeout``: the outcome could not be determined
           (persistent RPC errors or the poll cap); check the signature
           on-chain before resubmitting.
@@ -563,7 +743,7 @@ class Rpc:
                     if over_bound_samples >= _EXPIRY_HEIGHT_SAMPLES:
                         # Search ledger history before declaring expiry — the
                         # recent-status cache can evict landed transactions,
-                        # and TransactionExpired promises resubmit safety.
+                        # before reporting expiry without a live sighting.
                         history: list[TransactionStatus | None] | None
                         try:
                             history = await self.get_signature_statuses(
@@ -612,11 +792,19 @@ class Rpc:
 
     # ── Convenience ──────────────────────────────────────────────────────
 
-    async def build_transaction(self, instructions: list[Instruction]) -> Transaction:
-        """Build an unsigned transaction with a fresh blockhash."""
-        blockhash = await self.get_latest_blockhash()
-        message = Message.new_with_blockhash(instructions, None, blockhash)
-        return Transaction.new_unsigned(message)
+    async def build_transaction(
+        self,
+        instructions: list[Instruction],
+        payer: Pubkey,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
+        """Compile v1 with an explicit payer, blockhash expiry, and resource budget."""
+        return V1Transaction.compile(instructions, payer, context)
 
 
-__all__ = ["CanonicalWsolAccountInfo", "Rpc", "require_connection"]
+__all__ = [
+    "CanonicalWsolAccountInfo",
+    "TransactionSimulation",
+    "Rpc",
+    "require_connection",
+]

@@ -19,7 +19,7 @@ pub fn get_associated_token_address(
     mint: &Pubkey,
     token_program_id: &Pubkey,
 ) -> Pubkey {
-    let ata_program_id = spl_associated_token_account::id();
+    let ata_program_id = spl_associated_token_account_interface::program::id();
 
     Pubkey::find_program_address(
         &[wallet.as_ref(), token_program_id.as_ref(), mint.as_ref()],
@@ -30,12 +30,12 @@ pub fn get_associated_token_address(
 
 /// Get the ATA for a conditional token (using SPL Token).
 pub fn get_conditional_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
-    get_associated_token_address(wallet, mint, &spl_token::id())
+    get_associated_token_address(wallet, mint, &spl_token_interface::id())
 }
 
 /// Get the ATA for a deposit token (using SPL Token).
 pub fn get_deposit_token_ata(wallet: &Pubkey, mint: &Pubkey) -> Pubkey {
-    get_associated_token_address(wallet, mint, &spl_token::id())
+    get_associated_token_address(wallet, mint, &spl_token_interface::id())
 }
 
 // ============================================================================

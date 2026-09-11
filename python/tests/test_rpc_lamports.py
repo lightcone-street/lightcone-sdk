@@ -3,14 +3,19 @@ from types import SimpleNamespace
 import pytest
 from solders.account import Account
 from solders.hash import Hash
-from solders.message import Message
+from solders.instruction import Instruction
+from solders.message.v1 import Message
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
 from spl.token.instructions import get_associated_token_address
 
 from lightcone_sdk import CanonicalWsolAccountInfo
 from lightcone_sdk.error import SdkError
+from lightcone_sdk.program.transaction import (
+    V1ResourceConfig,
+    V1Transaction,
+    V1TransactionContext,
+)
 from lightcone_sdk.rpc import Rpc
 from lightcone_sdk.rpc_failover import RpcFailoverState
 
@@ -55,9 +60,13 @@ def _rpc(value: object) -> Rpc:
     return Rpc(_StubClient(_StubConnection(value)))  # type: ignore[arg-type]
 
 
-def _prepared_transaction() -> Transaction:
-    return Transaction.new_unsigned(
-        Message.new_with_blockhash([], Pubkey.new_unique(), Hash.new_unique())
+def _prepared_transaction() -> V1Transaction:
+    return V1Transaction.compile(
+        [Instruction(Pubkey.new_unique(), b"", [])],
+        Pubkey.new_unique(),
+        V1TransactionContext(
+            Hash.new_unique(), 123, V1ResourceConfig(200_000, 1_048_576, 0)
+        ),
     )
 
 

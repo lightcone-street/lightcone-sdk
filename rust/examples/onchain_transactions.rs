@@ -1,15 +1,15 @@
 mod common;
 
 use common::{get_keypair, market_and_orderbook, quote_deposit_mint, rest_client, ExampleResult};
+use lightcone::program::V1Transaction;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 
-fn describe_tx(name: &str, tx: &Transaction) -> ExampleResult {
+fn describe_tx(name: &str, tx: &V1Transaction) -> ExampleResult {
     println!(
         "{name}: {} instruction(s), {} bytes, signature={}",
-        tx.message.instructions.len(),
-        bincode::serialize(tx)?.len(),
-        tx.signatures[0]
+        tx.message().instructions.len(),
+        tx.to_wire_bytes()?.len(),
+        tx.as_versioned().signatures[0]
     );
     Ok(())
 }
@@ -21,9 +21,9 @@ async fn main() -> ExampleResult {
     let (market, orderbook) = market_and_orderbook(&client).await?;
     let deposit_mint = quote_deposit_mint(&orderbook)?;
     let amount = 1_000_000;
-    let blockhash = client.rpc().get_latest_blockhash().await?;
+    let context = client.transaction_context().await?;
 
-    let mut transactions = vec![
+    let transactions = vec![
         (
             "deposit",
             client
@@ -34,7 +34,7 @@ async fn main() -> ExampleResult {
                 .mint(deposit_mint)
                 .amount(amount)
                 .with_market_deposit_source(&market)
-                .build_tx()
+                .build_tx(&context)
                 .await?,
         ),
         (
@@ -46,20 +46,23 @@ async fn main() -> ExampleResult {
                 .market(&market)
                 .mint(deposit_mint)
                 .amount(amount)
-                .build_tx()?,
+                .build_tx(&context)?,
         ),
         (
             "increment_nonce",
-            client.orders().increment_nonce_tx(&keypair.pubkey())?,
+            client
+                .orders()
+                .increment_nonce_tx(&keypair.pubkey(), &context)?,
         ),
     ];
 
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
-    for (name, tx) in &mut transactions {
-        tx.try_sign(&[&keypair], blockhash)?;
-        describe_tx(name, tx)?;
-        let sig = rpc.send_and_confirm_transaction(tx).await?;
+    for (name, tx) in &transactions {
+        let tx = tx.sign(&[&keypair])?;
+        describe_tx(name, &tx)?;
+        let sig = client.submit_signed_transaction(&tx).await?;
+        client
+            .confirm_signature(&sig, Some(tx.context().last_valid_block_height))
+            .await?;
         println!("{name}: confirmed {sig}");
     }
 

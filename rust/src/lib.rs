@@ -53,6 +53,7 @@ pub mod client;
 // ── Prelude ──────────────────────────────────────────────────────────────────
 
 pub mod prelude {
+    pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
         Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
@@ -181,7 +182,7 @@ pub mod prelude {
         GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
         MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
         PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
-        TransactionStatus,
+        TransactionSimulation, TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

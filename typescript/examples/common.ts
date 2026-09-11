@@ -14,7 +14,12 @@ const DEFAULT_WALLET_PATH = "~/.config/solana/id.json";
  * (options: local, staging, prod).
  */
 export function restClient(): LightconeClient {
-  const builder = LightconeClient.builder();
+  // Explicit example limits; applications choose limits appropriate to their workload.
+  const builder = LightconeClient.builder().transactionResources({
+    computeUnitLimit: 1_400_000,
+    loadedAccountsDataSizeLimit: 64 * 1024 * 1024,
+    priorityFeeLamports: 0n,
+  });
   const envStr = process.env.LIGHTCONE_ENV?.toLowerCase();
   if (envStr) {
     switch (envStr) {

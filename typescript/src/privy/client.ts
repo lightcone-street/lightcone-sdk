@@ -1,3 +1,4 @@
+import { SdkError } from "../error";
 import { RetryPolicy, type LightconeHttp } from "../http";
 import type {
   ExportWalletRequest,
@@ -10,7 +11,6 @@ import type {
   TriggerCancelResponse,
   SignAndSendOrderRequest,
   SignAndSendOrderResponse,
-  SignAndSendTxRequest,
   SignAndSendTxResponse,
 } from "./index";
 
@@ -21,21 +21,9 @@ interface ClientContext {
 export class Privy {
   constructor(private readonly client: ClientContext) {}
 
-  /**
-   * Forward caller-prepared transaction bytes to the Privy signing backend.
-   * This raw API does not run the shared SDK fee-funding preflight.
-   */
-  async signAndSendTx(walletId: string, base64Tx: string): Promise<SignAndSendTxResponse> {
-    const url = `${this.client.http.baseUrl()}/api/privy/sign_and_send_tx`;
-    const body: SignAndSendTxRequest = {
-      wallet_id: walletId,
-      base64_tx: base64Tx,
-    };
-    return this.client.http.post<SignAndSendTxResponse, SignAndSendTxRequest>(
-      url,
-      body,
-      RetryPolicy.None
-    );
+  /** Privy sign-and-send cannot expose the signed bytes required by v1 validation. */
+  async signAndSendTx(_walletId: string, _base64Tx: string): Promise<SignAndSendTxResponse> {
+    throw SdkError.validation("Privy sign-and-send cannot verify v1 signed bytes; configure an ExternalSigner that returns signed transaction bytes");
   }
 
   async signAndSendOrder(walletId: string, order: PrivyOrderEnvelope): Promise<SignAndSendOrderResponse> {

@@ -54,6 +54,10 @@ export function isInfrastructureError(err: unknown): boolean {
 
   if (err instanceof Error) {
     const message = err.message.toLowerCase();
+    // Connection wraps fetch TypeErrors in a plain Error when fetching blockhashes.
+    if (/typeerror:\s*(fetch failed|failed to fetch|network request failed)/.test(message)) {
+      return true;
+    }
     if (message.includes("timeout") || message.includes("timed out")) {
       return true;
     }

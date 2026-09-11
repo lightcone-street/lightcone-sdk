@@ -6,6 +6,22 @@ use thiserror::Error;
 /// Top-level SDK error.
 #[derive(Error, Debug)]
 pub enum SdkError {
+    /// The endpoint may have accepted these exact signed bytes. Do not rebuild automatically.
+    #[error("Submission outcome unknown for {signature} (last valid block height {last_valid_block_height}): {reason}")]
+    SubmissionUnknown {
+        signature: String,
+        last_valid_block_height: u64,
+        reason: String,
+    },
+
+    /// The RPC rejected this send before queuing it. No automatic retry is performed.
+    #[error("RPC rejected transaction {signature} ({code}): {reason}")]
+    SubmissionRejected {
+        signature: String,
+        code: i64,
+        reason: String,
+    },
+
     #[error("HTTP error: {0}")]
     Http(#[from] HttpError),
 
@@ -46,7 +62,7 @@ pub enum SdkError {
     TransactionFailed { signature: String, error: String },
 
     #[error(
-        "Transaction {signature} expired before confirmation — it was never processed and is safe to resubmit"
+        "Transaction {signature} expired before confirmation — reconcile this signature before rebuilding"
     )]
     TransactionExpired { signature: String },
 

@@ -15,7 +15,6 @@ from common import (
 
 from lightcone_sdk.program.orders import generate_salt
 from lightcone_sdk.program.types import OrderSide
-from lightcone_sdk.rpc import require_connection
 from lightcone_sdk.shared.scaling import scale_price_size
 from lightcone_sdk.shared.signing import SigningStrategy
 
@@ -35,7 +34,6 @@ async def main():
     ).quote_atoms
     required_balance = order_quote_amount / 10**rules.quote_decimals
     mint = quote_deposit_mint(orderbook)
-    connection = require_connection(client)
 
     # 1. Deposit collateral into the global pool.
     #
@@ -53,12 +51,11 @@ async def main():
         .amount(order_quote_amount)
         .build_ix()
     )
-    blockhash = await client.rpc().get_latest_blockhash()
-    deposit_tx = await client.rpc().build_transaction([deposit_ix])
-    deposit_tx.sign([keypair], blockhash)
-    deposit_result = await connection.send_raw_transaction(bytes(deposit_tx))
-    await connection.confirm_transaction(deposit_result.value)
-    print(f"deposit_to_global: confirmed {deposit_result.value}")
+    deposit_tx = await client.rpc().build_transaction(
+        [deposit_ix], keypair.pubkey(), await client.transaction_context()
+    )
+    deposit_result = await client.sign_and_submit_tx_confirmed_with_slot(deposit_tx)
+    print(f"deposit_to_global: confirmed {deposit_result.signature}")
 
     await wait_for_global_balance(client, mint, required_balance)
 

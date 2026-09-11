@@ -1,3 +1,4 @@
+import { V1Transaction } from "../src/program/transaction";
 /** Cross-SDK SOL planning invariants at RPC, account, and instruction boundaries. */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -166,7 +167,7 @@ function planningHarness(
   let occupiedTemporaryAttempts = options.occupiedTemporaryAttempts ?? 0;
   const feeValues = [...(options.feeValues ?? [5_000])];
   const blockhashValues = [
-    ...(options.blockhashValues ?? ["11111111111111111111111111111111"]),
+    ...(options.blockhashValues ?? [Keypair.fromSeed(Buffer.alloc(32, 9)).publicKey.toBase58()]),
   ];
   const connection = {
     /** Return ordered blockhash authority while retaining the final fallback. */
@@ -224,6 +225,13 @@ function planningHarness(
     },
     programId: PublicKey.default,
     primaryConnection: connection,
+    transactionResources: { computeUnitLimit: 1_400_000, loadedAccountsDataSizeLimit: 67_108_864, priorityFeeLamports: 0n },
+    rpcFetch: async (_url: unknown, init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      assert.equal(request.method, "getFeeForMessage");
+      feeLookups.push(Buffer.from(request.params[0], "base64"));
+      return Response.json({ result: { context: { slot: 1 }, value: feeValues.length > 1 ? feeValues.shift()! : feeValues[0]! } });
+    },
     rpcFailoverState: new RpcFailoverState(),
     depositSource: DepositSource.Global,
     signingStrategy:
@@ -612,7 +620,7 @@ describe("SOL action plans", () => {
 
     assert.equal(plan.kind, "wrap");
     assert.equal(plan.transaction.feePayer?.equals(wallet.publicKey), true);
-    assert.equal(plan.transaction.recentBlockhash, "11111111111111111111111111111111");
+    assert.equal(plan.transaction.recentBlockhash, Keypair.fromSeed(Buffer.alloc(32, 9)).publicKey.toBase58());
     assert.equal(plan.transaction.lastValidBlockHeight, 100);
     assert.equal(plan.transaction.instructions.length, 2);
     const transfer = SystemInstruction.decodeTransfer(
@@ -821,7 +829,7 @@ describe("SOL action plans", () => {
 
     assert.equal(plan.kind, "unwrapAll");
     assert.equal(plan.transaction.feePayer?.equals(wallet.publicKey), true);
-    assert.equal(plan.transaction.recentBlockhash, "11111111111111111111111111111111");
+    assert.equal(plan.transaction.recentBlockhash, Keypair.fromSeed(Buffer.alloc(32, 9)).publicKey.toBase58());
     assert.equal(plan.transaction.lastValidBlockHeight, 100);
     assert.equal(plan.transaction.instructions.length, 1);
     const close = decodeCloseAccountInstruction(
@@ -1051,7 +1059,7 @@ describe("SOL action plans", () => {
       }
     );
 
-    for (const fee of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    for (const fee of [-1, 1.5]) {
       const inexact = planningHarness(wallet, {
         ...base,
         feeValues: [fee],
@@ -1401,9 +1409,19 @@ describe("SOL action plans", () => {
     assert.equal(incomplete.accountLookups.length, 0);
   });
 
+  it("preserves a large fee integer from canonical JSON-RPC without rounding", async () => {
+    const wallet = Keypair.generate();
+    const fee = Number.MAX_SAFE_INTEGER + 1;
+    const harness = planningHarness(wallet, { feeValues: [fee] });
+    await assert.rejects(
+      harness.positions.planNativeSolWithdrawal(Keypair.generate().publicKey, 1n, stateFor(wallet.publicKey, "1.000000000", "0.000000000"), false),
+      error => error instanceof SdkError && error.variant === "InsufficientSolForTransactionFees" && error.requiredLamports === 9_007_199_254_740_992n
+    );
+  });
+
   it("fails closed on inexact or negative RPC lamport values", async () => {
     const wallet = Keypair.generate();
-    for (const fee of [-1, 1.5, Number.MAX_SAFE_INTEGER + 1]) {
+    for (const fee of [-1, 1.5]) {
       const harness = planningHarness(wallet, { feeValues: [fee] });
       await assert.rejects(
         harness.positions.planNativeSolWithdrawal(

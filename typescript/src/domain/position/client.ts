@@ -1,7 +1,7 @@
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
 import {
   PublicKey,
   SystemProgram,
-  Transaction,
   type TransactionInstruction,
 } from "@solana/web3.js";
 import {
@@ -111,7 +111,7 @@ export interface SolActionPlan {
   /** Operation whose balance semantics produced this plan. */
   kind: SolActionKind;
   /** Fee-prepared message that submission must preserve exactly. */
-  transaction: Transaction;
+  transaction: V1Transaction;
   /** Live fee/rent observations and explicit sponsorship capability. */
   costs: SolActionCosts;
   /** Balance totals after action-specific native reserve. */
@@ -386,7 +386,8 @@ export class Positions {
     const transaction = this.buildWrapSolTransaction(
       wallet,
       amountLamports,
-      createsCanonicalWsolAccount
+      createsCanonicalWsolAccount,
+      await rpc.transactionContext()
     );
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
@@ -460,7 +461,7 @@ export class Positions {
         "live canonical WSOL amount does not match wallet balance state"
       );
     }
-    const transaction = this.buildUnwrapWsolAllTransaction(wallet);
+    const transaction = this.buildUnwrapWsolAllTransaction(wallet, await rpc.transactionContext());
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports,
@@ -523,9 +524,9 @@ export class Positions {
     const upfrontRentLamports = canonicalExists
       ? 0n
       : await rpc.minimumBalanceForRentExemption(TOKEN_ACCOUNT_SPACE);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     if (!canonicalExists) {
-      transaction.add(
+      instructions.push(
         createAssociatedTokenAccountIdempotentInstruction(
           wallet,
           canonical,
@@ -536,12 +537,12 @@ export class Positions {
       );
     }
     if (shortfall > 0n) {
-      transaction.add(
+      instructions.push(
         SystemProgram.transfer({ fromPubkey: wallet, toPubkey: canonical, lamports: shortfall }),
         createSyncNativeInstruction(canonical, TOKEN_PROGRAM_ID)
       );
     }
-    transaction.add(
+    instructions.push(
       buildDepositIx(
         {
           user: wallet,
@@ -553,6 +554,7 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     const feeLamports = await rpc.prepareAndEstimateTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports,
@@ -598,13 +600,13 @@ export class Positions {
     assertUnsponsoredPlan(sponsored);
     assertSolActionAmount(amountLamports, "merge");
     const wallet = this.planningWallet(state);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
-      transaction.add(this.createCanonicalWsolAccount(wallet));
+      instructions.push(this.createCanonicalWsolAccount(wallet));
     }
-    transaction.add(
+    instructions.push(
       buildMergeIx(
         {
           user: wallet,
@@ -616,6 +618,7 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     return this.finishReceivePlan(
       "merge",
       amountLamports,
@@ -646,13 +649,13 @@ export class Positions {
     validateOutcomes(numOutcomes);
     validateOutcomeIndex(outcomeIndex, numOutcomes);
     const wallet = this.planningWallet(state);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     const { rpc, breakdown, canonicalExists, upfrontRentLamports } =
       await this.receivePlanContext(wallet, state);
     if (!canonicalExists) {
-      transaction.add(this.createCanonicalWsolAccount(wallet));
+      instructions.push(this.createCanonicalWsolAccount(wallet));
     }
-    transaction.add(
+    instructions.push(
       buildRedeemWinningsIx(
         {
           user: wallet,
@@ -664,6 +667,7 @@ export class Positions {
         this.client.programId
       )
     );
+    const transaction = V1Transaction.compile(instructions, wallet, await rpc.transactionContext());
     return this.finishReceivePlan(
       "redeem",
       amountLamports,
@@ -696,9 +700,9 @@ export class Positions {
     const wallet = this.planningWallet(state);
     const breakdown = state.solBalanceBreakdown();
     const rpc = new Rpc(this.client);
-    const direct = new Transaction({ feePayer: wallet }).add(
+    const direct = V1Transaction.compile([
       SystemProgram.transfer({ fromPubkey: wallet, toPubkey: recipient, lamports: amountLamports })
-    );
+    ], wallet, await rpc.transactionContext());
     const directFee = await rpc.prepareAndEstimateTransactionFee(direct);
     const directCosts: SolActionCosts = {
       feeLamports: directFee,
@@ -735,7 +739,8 @@ export class Positions {
       );
     }
     const temporaryRent = await rpc.minimumBalanceForRentExemption(TOKEN_ACCOUNT_SPACE);
-    const { blockhash, lastValidBlockHeight } = await rpc.getLatestBlockhash();
+    const context = await rpc.transactionContext();
+    const { blockhash } = context;
     let seed: string | undefined;
     let temporary: PublicKey | undefined;
     // Bound account-existence RPCs; the blockhash and attempt byte make eight collisions remote.
@@ -769,10 +774,9 @@ export class Positions {
       1n,
       temporaryRent,
       seed,
-      temporary
+      temporary,
+      context
     );
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
     const initialFee = await rpc.estimatePreparedTransactionFee(transaction);
     const initialCosts: SolActionCosts = {
       feeLamports: initialFee,
@@ -793,10 +797,9 @@ export class Positions {
       initialTransfer,
       temporaryRent,
       seed,
-      temporary
+      temporary,
+      context
     );
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
     const finalFee = await rpc.estimatePreparedTransactionFee(transaction);
     const costs: SolActionCosts = {
       feeLamports: finalFee,
@@ -823,10 +826,9 @@ export class Positions {
         canonicalTransfer,
         temporaryRent,
         seed,
-        temporary
+        temporary,
+        context
       );
-      transaction.recentBlockhash = blockhash;
-      transaction.lastValidBlockHeight = lastValidBlockHeight;
       const stableFee = await rpc.estimatePreparedTransactionFee(transaction);
       if (stableFee !== finalFee) {
         throw SdkError.validation(
@@ -923,17 +925,18 @@ export class Positions {
    * When planning observed no canonical ATA, the first instruction is strict ATA
    * creation. A concurrently created ATA therefore makes execution fail instead of
    * using account state that was absent from the plan. The transfer and `SyncNative`
-   * instructions follow. Fee preparation later attaches the live blockhash.
+   * instructions follow. The explicit context supplies the blockhash and resource limits.
    */
   private buildWrapSolTransaction(
     wallet: PublicKey,
     amountLamports: bigint,
-    createsCanonicalWsolAccount: boolean
-  ): Transaction {
+    createsCanonicalWsolAccount: boolean,
+    context: V1TransactionContext
+  ): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    const transaction = new Transaction({ feePayer: wallet });
+    const instructions: TransactionInstruction[] = [];
     if (createsCanonicalWsolAccount) {
-      transaction.add(
+      instructions.push(
         createAssociatedTokenAccountInstruction(
           wallet,
           canonical,
@@ -943,7 +946,7 @@ export class Positions {
         )
       );
     }
-    return transaction.add(
+    instructions.push(
       SystemProgram.transfer({
         fromPubkey: wallet,
         toPubkey: canonical,
@@ -951,6 +954,7 @@ export class Positions {
       }),
       createSyncNativeInstruction(canonical, TOKEN_PROGRAM_ID)
     );
+    return V1Transaction.compile(instructions, wallet, context);
   }
 
   /**
@@ -959,9 +963,9 @@ export class Positions {
    * The Trading Wallet is the fee payer, close authority, and destination. A later
    * successful submission transfers the complete account balance to that wallet.
    */
-  private buildUnwrapWsolAllTransaction(wallet: PublicKey): Transaction {
+  private buildUnwrapWsolAllTransaction(wallet: PublicKey, context: V1TransactionContext): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    return new Transaction({ feePayer: wallet }).add(
+    return V1Transaction.compile([
       createCloseAccountInstruction(
         canonical,
         wallet,
@@ -969,7 +973,7 @@ export class Positions {
         [],
         TOKEN_PROGRAM_ID
       )
-    );
+    ], wallet, context);
   }
 
   /**
@@ -1021,7 +1025,7 @@ export class Positions {
   private async finishReceivePlan(
     kind: "merge" | "redeem",
     amountLamports: bigint,
-    transaction: Transaction,
+    transaction: V1Transaction,
     rpc: Rpc,
     breakdown: SolBalanceBreakdown,
     upfrontRentLamports: bigint,
@@ -1061,10 +1065,11 @@ export class Positions {
     canonicalTransfer: bigint,
     temporaryRent: bigint,
     seed: string,
-    temporary: PublicKey
-  ): Transaction {
+    temporary: PublicKey,
+    context: V1TransactionContext
+  ): V1Transaction {
     const canonical = getAssociatedTokenAddressSync(NATIVE_MINT, wallet);
-    return new Transaction({ feePayer: wallet }).add(
+    return V1Transaction.compile([
       SystemProgram.createAccountWithSeed({
         fromPubkey: wallet,
         newAccountPubkey: temporary,
@@ -1100,7 +1105,7 @@ export class Positions {
         toPubkey: recipient,
         lamports: amountLamports,
       })
-    );
+    ], wallet, context);
   }
 
   // ── On-chain transaction builders ────────────────────────────────────
@@ -1161,53 +1166,69 @@ export class Positions {
 
   redeemWinningsTx(
     params: RedeemWinningsParams,
-    outcomeIndex: number
-  ): Transaction {
+    outcomeIndex: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.redeemWinningsIx(params, outcomeIndex);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawConditionalFromPositionTx(params: WithdrawConditionalFromPositionParams): Transaction {
+  withdrawConditionalFromPositionTx(
+    params: WithdrawConditionalFromPositionParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.withdrawConditionalFromPositionIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawFromPositionTx(params: WithdrawFromPositionParams): Transaction {
-    return this.withdrawConditionalFromPositionTx(params);
+  withdrawFromPositionTx(
+    params: WithdrawFromPositionParams,
+    context: V1TransactionContext
+  ): V1Transaction {
+    return this.withdrawConditionalFromPositionTx(params, context);
   }
 
   initPositionTokensTx(
     params: InitPositionTokensParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.initPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
+    return V1Transaction.compile([ix], params.payer, context);
   }
 
-  depositToGlobalTx(params: DepositToGlobalParams): Transaction {
+  depositToGlobalTx(
+    params: DepositToGlobalParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.depositToGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
   globalToMarketDepositTx(
     params: GlobalToMarketDepositParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.globalToMarketDepositIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
-  withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
+  withdrawFromGlobalTx(
+    params: WithdrawFromGlobalParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.withdrawFromGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
+    return V1Transaction.compile([ix], params.user, context);
   }
 
   closePositionTokenAccountsTx(
     params: ClosePositionTokenAccountsParams,
-    numOutcomes: number
-  ): Transaction {
+    numOutcomes: number,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.closePositionTokenAccountsIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── Builder factories ──────────────────────────────────────────────

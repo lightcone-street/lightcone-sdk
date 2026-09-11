@@ -1,9 +1,15 @@
+import { parseJsonExact, stringifyJsonExact } from "./shared/json";
+import {
+  V1Transaction,
+  validateV1Resources,
+  type V1ResourceConfig,
+  type V1TransactionContext,
+} from "./program/transaction";
 import type {
   Connection,
   PublicKey,
   SignatureStatus,
   SignatureStatusConfig,
-  Transaction,
 } from "@solana/web3.js";
 import {
   AccountLayout,
@@ -31,6 +37,32 @@ import {
 } from "./program/accounts";
 import type { Exchange, GlobalDepositToken } from "./program/types";
 
+/** Parsed RPC errors retain their code separately from transport failures. */
+class RpcResponseError extends SdkError {
+  constructor(
+    readonly code: number,
+    message: string,
+    readonly data: unknown
+  ) {
+    super("Other", message);
+  }
+
+  /** Request/preflight rejections precede queuing; existing signatures remain uncertain. */
+  isDefiniteRejection(): boolean {
+    const message = this.message.toLowerCase();
+    const error = this.data && typeof this.data === "object"
+      ? (this.data as { err?: unknown }).err
+      : undefined;
+    const alreadyProcessed = [
+      "alreadyprocessed", "already processed", "already been processed"
+    ].some(text => message.includes(text));
+    return error !== "AlreadyProcessed" && !alreadyProcessed && [
+      -32700, -32600, -32601, -32602, -32002, -32003, -32005,
+      -32006, -32013, -32015, -32016
+    ].includes(this.code);
+  }
+}
+
 // ── Transaction confirmation ──────────────────────────────────────────────
 
 /** Interval between polls while awaiting transaction confirmation. */
@@ -56,7 +88,11 @@ const EXPIRY_HEIGHT_SAMPLES = 2;
 const MAX_SOLANA_LAMPORTS = 0xffff_ffff_ffff_ffffn;
 
 /** Convert a JSON number only when it still represents exact lamports. */
-function rpcLamports(value: number, label: string): bigint {
+function rpcLamports(value: number | bigint, label: string): bigint {
+  if (typeof value === "bigint") {
+    if (value < 0n || value > MAX_SOLANA_LAMPORTS) throw SdkError.validation(`${label} must fit unsigned 64-bit lamports`);
+    return value;
+  }
   if (!Number.isSafeInteger(value) || value < 0) {
     throw SdkError.validation(`${label} must be a non-negative safe integer`);
   }
@@ -84,6 +120,11 @@ function isTransactionConfirmed(status: SignatureStatus): boolean {
     status.confirmationStatus === "confirmed" ||
     status.confirmationStatus === "finalized"
   );
+}
+
+/** Reject legacy JavaScript callers before transaction RPC work begins. */
+function requireV1Transaction(transaction: unknown): asserts transaction is V1Transaction {
+  if (!(transaction instanceof V1Transaction)) throw SdkError.validation("only validated Solana v1 transactions are supported");
 }
 
 export class Rpc {
@@ -282,29 +323,221 @@ export class Rpc {
     return rpcLamports(balance, "fee-payer balance");
   }
 
-  /** Attach a fresh blockhash and return the exact message's live fee in lamports. */
-  async prepareAndEstimateTransactionFee(transaction: Transaction): Promise<bigint> {
-    const { blockhash, lastValidBlockHeight } = await this.getLatestBlockhash();
-    transaction.recentBlockhash = blockhash;
-    transaction.lastValidBlockHeight = lastValidBlockHeight;
+  /** Fetch a blockhash/expiry pair with explicitly configured transaction resources. */
+  async transactionContext(): Promise<V1TransactionContext> {
+    if (!this.client.transactionResources)
+      throw SdkError.validation(
+        "transaction resources are required; configure transactionResources on the client builder"
+      );
+    return this.transactionContextWithResources(
+      this.client.transactionResources
+    );
+  }
+
+  /** Fetch a fresh context with caller-selected limits and total priority fee lamports. */
+  async transactionContextWithResources(
+    resources: V1ResourceConfig
+  ): Promise<V1TransactionContext> {
+    validateV1Resources(resources);
+    const snapshot = Object.freeze({ ...resources });
+    const lifetime = await this.getLatestBlockhash();
+    return Object.freeze({ ...lifetime, resources: snapshot });
+  }
+
+  /** Alias of estimatePreparedTransactionFee; does not prepare or modify the message. */
+  async prepareAndEstimateTransactionFee(
+    transaction: V1Transaction
+  ): Promise<bigint> {
     return this.estimatePreparedTransactionFee(transaction);
   }
 
-  /**
-   * Return the prepared message's live fee in lamports without replacing its blockhash.
-   * A null RPC estimate fails closed rather than becoming a zero fee.
-   */
-  async estimatePreparedTransactionFee(transaction: Transaction): Promise<bigint> {
-    if (!transaction.recentBlockhash) {
-      throw SdkError.validation("prepared transaction is missing a recent blockhash");
-    }
-    const fee = await connectionWithFailover(this.client, (connection) =>
-      connection.getFeeForMessage(transaction.compileMessage(), "confirmed")
-    );
-    if (fee.value === null) {
+  /** Return the exact message fee in lamports; a missing estimate fails closed. */
+  async estimatePreparedTransactionFee(
+    transaction: V1Transaction
+  ): Promise<bigint> {
+    requireV1Transaction(transaction);
+    const params = [
+      Buffer.from(transaction.messageBytes()).toString("base64"),
+      { commitment: "confirmed" }
+    ];
+    const result = await this.v1ReadRequest("getFeeForMessage", params) as {
+      value?: number | bigint | null;
+    };
+    if (result?.value === null || result?.value === undefined)
       throw SdkError.validation("transaction fee estimate is unavailable");
+    return rpcLamports(result.value, "transaction fee estimate");
+  }
+
+  /** Require feature activation in the same confirmed bank used for the account read. */
+  async ensureV1Supported(): Promise<void> {
+    const result = (await this.v1ReadRequest("getAccountInfo", [
+      "txv1aq4pp281K9um3tnPgkfX8UqtFT6wcVW3hNezGLL",
+      { commitment: "confirmed", encoding: "base64" }
+    ])) as {
+      context?: { slot?: number };
+      value?: {
+        owner?: string;
+        executable?: boolean;
+        data?: [string, string];
+      } | null;
+    };
+    const account = result?.value;
+    const slot = result?.context?.slot;
+    if (
+      !account ||
+      account.owner !== "Feature111111111111111111111111111111111111" ||
+      account.executable !== false ||
+      !Array.isArray(account.data) ||
+      account.data[1] !== "base64" ||
+      typeof account.data[0] !== "string" ||
+      slot === undefined ||
+      !Number.isSafeInteger(slot) ||
+      slot < 0
+    )
+      throw SdkError.validation(
+        "Solana v1 feature is unavailable or inactive on this RPC cluster"
+      );
+    const data = Buffer.from(account.data[0], "base64");
+    if (
+      data.toString("base64") !== account.data[0] ||
+      data.length < 9 ||
+      data[0] !== 1 ||
+      data.readBigUInt64LE(1) > BigInt(slot)
+    )
+      throw SdkError.validation(
+        "Solana v1 feature is unavailable or inactive on this RPC cluster"
+      );
+  }
+
+  /** Simulate exact fully signed bytes with signature checks and no blockhash replacement. */
+  async simulateTransaction(
+    transaction: V1Transaction
+  ): Promise<TransactionSimulation> {
+    requireV1Transaction(transaction);
+    transaction.verifySignatures();
+    await this.ensureV1Supported();
+    const result = (await this.v1ReadRequest("simulateTransaction", [
+      Buffer.from(transaction.toWireBytes()).toString("base64"),
+      {
+        encoding: "base64",
+        commitment: "confirmed",
+        sigVerify: true,
+        replaceRecentBlockhash: false
+      }
+    ])) as {
+      context?: { slot?: number };
+      value?: {
+        err?: unknown;
+        unitsConsumed?: number;
+        loadedAccountsDataSize?: number;
+        logs?: string[];
+      };
+    };
+    if (!result?.value || result.value.err !== null)
+      throw SdkError.validation(
+        `v1 simulation failed: ${stringifyJsonExact(result?.value?.err)}`
+      );
+    if (
+      !Number.isSafeInteger(result.context?.slot) ||
+      (result.context?.slot ?? -1) < 0
+    )
+      throw SdkError.validation("v1 simulation response is missing its slot");
+    return {
+      slot: result.context?.slot as number,
+      unitsConsumed: result.value.unitsConsumed,
+      loadedAccountsDataSize: result.value.loadedAccountsDataSize,
+      logs: result.value.logs ?? []
+    };
+  }
+
+  /** Verify, simulate, and send once. An ambiguous result retains signature and expiry. */
+  async submitSignedTransaction(transaction: V1Transaction): Promise<string> {
+    requireV1Transaction(transaction);
+    transaction.verifySignatures();
+    await this.simulateTransaction(transaction);
+    const signature = transaction.signature;
+    try {
+      const returned = await this.v1Request("sendTransaction", [
+        Buffer.from(transaction.toWireBytes()).toString("base64"),
+        {
+          encoding: "base64",
+          skipPreflight: false,
+          preflightCommitment: "confirmed",
+          maxRetries: 0
+        }
+      ]);
+      if (returned !== signature)
+        throw new Error(
+          "RPC returned a missing or different transaction signature"
+        );
+      return signature;
+    } catch (error) {
+      if (error instanceof RpcResponseError && error.isDefiniteRejection())
+        throw SdkError.submissionRejected(signature, error.code, error.message);
+      throw SdkError.submissionUnknown(
+        signature,
+        transaction.lastValidBlockHeight,
+        "RPC did not acknowledge the expected signature"
+      );
     }
-    return rpcLamports(fee.value, "transaction fee estimate");
+  }
+
+  /** Retry and fail over read-only requests while retaining their exact parameters. */
+  private async v1ReadRequest(method: string, params: unknown[]): Promise<unknown> {
+    try {
+      return await connectionWithFailover(this.client, async connection => {
+        try {
+          return await this.v1Request(method, params, connection);
+        } catch (error) {
+          // Infrastructure classification needs the original transport exception.
+          throw error instanceof SdkError && error.causeError
+            ? error.causeError
+            : error;
+        }
+      });
+    } catch (error) {
+      throw SdkError.from(error);
+    }
+  }
+
+  /** One HTTP attempt without the legacy Connection's rate-limit retries. */
+  private async v1Request(
+    method: string,
+    params: unknown[],
+    connection?: Connection
+  ): Promise<unknown> {
+    try {
+      const response = await (this.client.rpcFetch ?? fetch)(
+        (connection ?? requireConnection(this.client)).rpcEndpoint,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+          signal: AbortSignal.timeout(180_000)
+        }
+      );
+      if (!response.ok) throw new Error(`RPC HTTP ${response.status}`);
+      const result = parseJsonExact<{ error?: unknown; result?: unknown }>(
+        await response.text()
+      );
+      if (result.error !== undefined && result.error !== null) {
+        const error = result.error as {
+          code?: unknown; message?: unknown; data?: unknown;
+        };
+        if (
+          "result" in result ||
+          !Number.isSafeInteger(error.code) ||
+          typeof error.message !== "string"
+        )
+          throw new Error("RPC returned a malformed error response");
+        throw new RpcResponseError(error.code as number, error.message, error.data);
+      }
+      if (!("result" in result))
+        throw new Error(`RPC ${method} omitted its result`);
+      return result.result;
+    } catch (error) {
+      throw SdkError.from(error);
+    }
   }
 
   /**
@@ -332,16 +565,15 @@ export class Rpc {
    * reports the transaction as `confirmed` or `finalized`.
    * `lastValidBlockHeight` bounds the wait: pass the height returned
    * alongside the transaction's blockhash, or `null` when the submitted
-   * transaction's blockhash cannot be proven (e.g. an external signer may
-   * have replaced it) — expiry is then never reported and only the poll cap
+   * transaction's original lifetime is unknown (for example a historical
+   * signature imported without its context) — expiry is then never reported and only the poll cap
    * ends the wait. Terminal outcomes:
    *
    * - `"TransactionFailed"` — the transaction landed but errored on-chain;
    *   resubmitting the same transaction would fail again.
    * - `"TransactionExpired"` — the chain moved past `lastValidBlockHeight`
    *   on consecutive height samples and a history-searching status check
-   *   still cannot see the signature; the transaction can never land and is
-   *   safe to resubmit.
+   *   still cannot see the signature; reconcile the signature and authoritative state before rebuilding.
    * - `"ConfirmationTimeout"` — the outcome could not be determined
    *   (persistent RPC errors or the poll cap); check the signature on-chain
    *   before resubmitting.
@@ -415,7 +647,7 @@ export class Rpc {
           if (overBoundSamples >= EXPIRY_HEIGHT_SAMPLES) {
             // Search ledger history before declaring expiry — the
             // recent-status cache can evict landed transactions, and
-            // `"TransactionExpired"` promises resubmit safety.
+            // expiry still requires final history evidence.
             let history: (SignatureStatus | null)[] | undefined;
             try {
               history = await this.getSignatureStatuses([signature], {
@@ -477,4 +709,14 @@ export class Rpc {
     }
     return deserializeGlobalDepositToken(accountInfo.data as Buffer);
   }
+}
+
+/** Resource usage reported for the exact signed v1 message. */
+export interface TransactionSimulation {
+  slot: number;
+  /** Compute units consumed during simulation. */
+  unitsConsumed?: number;
+  /** Total loaded account data, in bytes. */
+  loadedAccountsDataSize?: number;
+  logs: string[];
 }

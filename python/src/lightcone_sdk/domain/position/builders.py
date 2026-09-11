@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from ...error import MissingMarketContext, SdkError
 from ...program.instructions import (
@@ -22,6 +21,7 @@ from ...program.instructions import (
     build_withdraw_conditional_from_position_instruction,
     build_withdraw_from_global_instruction,
 )
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...shared.types import DepositSource
 
@@ -119,17 +119,21 @@ class DepositBuilder:
                 program_id=program_id,
             )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_with_payer([ix], user)
+        return V1Transaction.compile([ix], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawBuilder ────────────────────────────────────────────────────────
@@ -201,17 +205,21 @@ class MergeBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_with_payer([ix], user)
+        return V1Transaction.compile([ix], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the merge transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 class WithdrawBuilder:
@@ -318,17 +326,21 @@ class WithdrawBuilder:
                 program_id=program_id,
             )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
         ix = self.build_ix()
-        return Transaction.new_with_payer([ix], user)
+        return V1Transaction.compile([ix], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── RedeemWinningsBuilder ──────────────────────────────────────────────────
@@ -390,16 +402,20 @@ class RedeemWinningsBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_with_payer([self.build_ix()], user)
+        return V1Transaction.compile([self.build_ix()], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the redeem winnings transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawFromPositionBuilder ────────────────────────────────────────────
@@ -476,16 +492,20 @@ class WithdrawFromPositionBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_with_payer([self.build_ix()], user)
+        return V1Transaction.compile([self.build_ix()], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-position transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── InitPositionTokensBuilder ──────────────────────────────────────────────
@@ -551,16 +571,20 @@ class InitPositionTokensBuilder:
             self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         payer = self._payer
         if payer is None:
             raise SdkError("payer is required")
-        return Transaction.new_with_payer([self.build_ix()], payer)
+        return V1Transaction.compile([self.build_ix()], payer, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the init-position-tokens transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        payer = self._payer
+        if payer is None:
+            raise SdkError("payer is required")
+        return await self._client._sign_and_submit_instructions([instruction], payer)
 
 
 # ─── DepositToGlobalBuilder ─────────────────────────────────────────────────
@@ -604,16 +628,20 @@ class DepositToGlobalBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_with_payer([self.build_ix()], user)
+        return V1Transaction.compile([self.build_ix()], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit-to-global transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawFromGlobalBuilder ──────────────────────────────────────────────
@@ -657,16 +685,20 @@ class WithdrawFromGlobalBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_with_payer([self.build_ix()], user)
+        return V1Transaction.compile([self.build_ix()], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-global transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── GlobalToMarketDepositBuilder ───────────────────────────────────────────
@@ -728,16 +760,20 @@ class GlobalToMarketDepositBuilder:
             program_id=self._client.program_id,
         )
 
-    def build_tx(self) -> Transaction:
+    def build_tx(self, context: V1TransactionContext) -> V1Transaction:
+        """Compile a v1 message with the caller's blockhash expiry and budgets."""
         user = self._user
         if user is None:
             raise SdkError("user is required")
-        return Transaction.new_with_payer([self.build_ix()], user)
+        return V1Transaction.compile([self.build_ix()], user, context)
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the global-to-market deposit transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 __all__ = [

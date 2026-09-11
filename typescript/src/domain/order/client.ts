@@ -1,5 +1,6 @@
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
 import bs58 from "bs58";
-import { Keypair, Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { Keypair, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection, requireSigningStrategy } from "../../context";
 import { SdkError } from "../../error";
@@ -552,20 +553,27 @@ export class Orders {
   cancelOrderTx(
     operator: PublicKey,
     market: PublicKey,
-    order: SignedOrder
-  ): Transaction {
+    order: SignedOrder,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.cancelOrderIx(operator, market, order);
-    return new Transaction({ feePayer: operator }).add(ix);
+    return V1Transaction.compile([ix], operator, context);
   }
 
-  incrementNonceTx(user: PublicKey): Transaction {
+  incrementNonceTx(
+    user: PublicKey,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.incrementNonceIx(user);
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
-  closeOrderStatusTx(params: CloseOrderStatusParams): Transaction {
+  closeOrderStatusTx(
+    params: CloseOrderStatusParams,
+    context: V1TransactionContext
+  ): V1Transaction {
     const ix = this.closeOrderStatusIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── Order helpers ────────────────────────────────────────────────────
@@ -598,7 +606,11 @@ export class Orders {
     return programHashOrder(order);
   }
 
-  signOrder(order: SignedOrder, signer: Keypair, rules: OrderbookRules): Buffer {
+  signOrder(
+    order: SignedOrder,
+    signer: Keypair,
+    rules: OrderbookRules
+  ): Buffer {
     return programSignOrder(order, signer, rules);
   }
 

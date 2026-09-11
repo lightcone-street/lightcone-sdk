@@ -163,8 +163,6 @@ from lightcone_sdk.program import (
     InitializeParams,
     CreateMarketParams,
     AddDepositMintParams,
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     SettleMarketParams,
     RedeemWinningsParams,
     WithdrawConditionalFromPositionParams,
@@ -482,7 +480,7 @@ validate_signed_order(order)  # Also verifies signature
 
 ## Transaction Builders
 
-All transaction builders return a `Transaction` ready for signing.
+All transaction builders require an explicit `V1TransactionContext` and return an immutable `V1Transaction`. See [Solana v1 transactions](../../../README.md#solana-v1-transactions) for resource limits, signing, and submission.
 
 ### Exchange Administration & Market Lifecycle
 
@@ -512,86 +510,56 @@ payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(
 
 ```python
 from lightcone_sdk.program import (
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     RedeemWinningsParams,
     WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
 )
 
-# Mint complete set (deposit collateral, receive outcome tokens)
-tx = await client.mint_complete_set(
-    MintCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
+context = await client.transaction_context()
+# Use the fluent deposit/merge APIs for a complete Market object.
+tx = (client.positions().deposit().user(user_pubkey).mint(usdc_mint)
+      .amount(1_000_000).with_market_deposit_source(market).build_tx(context))
+tx = (client.positions().merge().user(user_pubkey).market(market).mint(usdc_mint)
+      .amount(1_000_000).build_tx(context))
+tx = client.positions().redeem_winnings_tx(
+    RedeemWinningsParams(user=user_pubkey, market=market_pubkey,
+                        deposit_mint=usdc_mint, amount=1_000_000),
+    outcome_index=0, context=context,
 )
-
-# Merge complete set (burn outcome tokens, receive collateral)
-tx = await client.merge_complete_set(
-    MergeCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
-)
-
-# Redeem winnings (after settlement)
-tx = await client.redeem_winnings(
-    RedeemWinningsParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    outcome_index=0,
-)
-
-# Withdraw conditional tokens from position account.
-# WithdrawFromPositionParams is a compatibility alias for the same layout.
 tx = client.positions().withdraw_conditional_from_position_tx(
-    WithdrawConditionalFromPositionParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=500_000,
-        outcome_index=0,
-    ),
+    WithdrawConditionalFromPositionParams(user=user_pubkey, market=market_pubkey,
+        deposit_mint=usdc_mint, amount=500_000, outcome_index=0),
+    context,
 )
 ```
 
 ### Order Matching
 
-Three strategies with different transaction size/verification tradeoffs:
+Compile the instruction encoder's result with an explicit v1 context. This async
+excerpt assumes the client, participant orders, token mints, and fill amounts have
+already been selected; fill amounts use each order's integer units.
 
 ```python
-from lightcone_sdk.program import MakerFill
+from lightcone_sdk import V1Transaction
+from lightcone_sdk.program import build_match_orders_multi_instruction
 
-maker_fills = [
-    MakerFill(order=maker_order_1, fill_amount=100_000),
-    MakerFill(order=maker_order_2, fill_amount=200_000),
-]
-
-# 1. Without Ed25519 verification (signatures verified off-chain)
-tx = await client.match_orders_multi(
+instruction = build_match_orders_multi_instruction(
     operator=operator_pubkey,
     market=market_pubkey,
     base_mint=base_mint,
     quote_mint=quote_mint,
+    base_deposit_mint=base_deposit_mint,
+    quote_deposit_mint=quote_deposit_mint,
+    fee_receiver=fee_receiver_pubkey,
     taker_order=taker_order,
-    maker_fills=maker_fills,
+    maker_orders=[maker_order_1, maker_order_2],
+    maker_fill_amounts=[100_000, 200_000],
+    taker_fill_amounts=[50_000, 100_000],
+    full_fill_bitmask=0,
+    program_id=client.program_id,
 )
-
-# 2. With batch Ed25519 verification (signatures in instruction data)
-tx = await client.match_orders_multi_with_verify(...)
-
-# 3. With cross-reference Ed25519 (smallest transaction size)
-tx = await client.match_orders_multi_cross_ref(...)
+context = await client.transaction_context()
+tx = V1Transaction.compile([instruction], operator_pubkey, context)
 ```
 
 ## Client Utility Methods
@@ -802,4 +770,8 @@ ix = (client.positions().init_position_tokens()
 
 The same call prepares missing ATAs, validates existing accounts, and can prepare newly registered collateral groups. A successful retry reports all requested groups. Preparation does not create global custody or mint balances. Inactive registration blocks trading, but does not independently block preparation, deposits, splits, merges, or exits.
 
-The program ABI and the outer transaction version are separate. Python transaction helpers currently construct legacy `solders.transaction.Transaction` values. Eleven-maker instruction data alone occupies 1392 bytes for matching and 1394 bytes for deposit-and-swap, exceeding legacy/v0 capacity. The maker ceiling does not guarantee submission capacity. Select batches that fit the actual transport and execution limits. This cutover does not implement Solana transaction-v1 envelopes or alter fee-prepared message guarantees.
+Python uses the same Solana v1 outer transaction contract as Rust and TypeScript.
+Compilation and import enforce 4096 bytes including all signatures and 64 distinct
+inline account keys. Eleven-maker instructions are supported when the entire
+transaction fits these limits. Split larger account groups or instruction batches
+before compilation; there is no ALT, legacy, or v0 fallback.

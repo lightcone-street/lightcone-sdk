@@ -1,4 +1,5 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
+import type { V1Transaction } from "./transaction";
+import { PublicKey } from "@solana/web3.js";
 
 // ============================================================================
 // ENUMS
@@ -565,7 +566,7 @@ export interface CloseOrderbookParams {
  */
 export interface BuildResult<T = Record<string, PublicKey>> {
   /** Unsigned transaction ready for signing */
-  transaction: Transaction;
+  transaction: V1Transaction;
   /** Key accounts involved in the transaction */
   accounts: T;
   /** Serialize transaction to base64 */

@@ -1,4 +1,10 @@
-import { Connection, Keypair, PublicKey, Transaction } from "@solana/web3.js";
+import {
+  V1Transaction,
+  validateV1Resources,
+  type V1ResourceConfig,
+  type V1TransactionContext,
+} from "./program/transaction";
+import { Connection, Keypair, PublicKey } from "@solana/web3.js";
 import { Auth, type AuthCredentials } from "./auth";
 import type { ClientContext } from "./context";
 import {
@@ -48,6 +54,8 @@ class AuthState {
 }
 
 export class LightconeClient implements ClientContext {
+  readonly transactionResources?: V1ResourceConfig;
+  readonly rpcFetch?: typeof fetch;
   readonly http: LightconeHttp;
   readonly programId: PublicKey;
   readonly primaryConnection?: Connection;
@@ -76,11 +84,18 @@ export class LightconeClient implements ClientContext {
     depositSource?: DepositSource;
     signingStrategy?: SigningStrategy;
     transactionSponsorshipEnabled?: boolean;
+    transactionResources?: V1ResourceConfig;
+    rpcFetch?: typeof fetch;
     orderNonce?: number;
     authCredentials?: AuthCredentials;
     authState?: AuthState;
     orderbookRulesCache?: Map<string, Promise<OrderbookRules>>;
   }) {
+    if (params.transactionResources) validateV1Resources(params.transactionResources);
+    this.transactionResources = params.transactionResources
+      ? Object.freeze({ ...params.transactionResources })
+      : undefined;
+    this.rpcFetch = params.rpcFetch;
     this.http = params.http;
     this.programId = params.programId ?? envProgramId(LightconeEnv.Prod);
     this.primaryConnection = params.primaryConnection;
@@ -197,9 +212,21 @@ export class LightconeClient implements ClientContext {
     this.http.clearCredentialRestorer();
   }
 
+  /** Fetch a fresh context with configured v1 transaction resources. */
+  transactionContext(): Promise<V1TransactionContext> {
+    return this.rpc().transactionContext();
+  }
+
+  /** Fetch a fresh context with explicit limits and total priority fee lamports. */
+  transactionContextWithResources(
+    resources: V1ResourceConfig
+  ): Promise<V1TransactionContext> {
+    return this.rpc().transactionContextWithResources(resources);
+  }
+
   // ── Transaction signing + submission ────────────────────────────────
 
-  async signAndSubmitTx(tx: Transaction): Promise<string> {
+  async signAndSubmitTx(tx: V1Transaction): Promise<string> {
     return signAndSubmitTxFn(this, tx);
   }
 
@@ -208,13 +235,13 @@ export class LightconeClient implements ClientContext {
    * commitment on-chain. Prefer this over {@link signAndSubmitTx} when a
    * follow-up transaction depends on this one's state.
    */
-  async signAndSubmitTxConfirmed(tx: Transaction): Promise<string> {
+  async signAndSubmitTxConfirmed(tx: V1Transaction): Promise<string> {
     return signAndSubmitTxConfirmedFn(this, tx);
   }
 
   /** Sign, submit, confirm, and return the transaction's processing slot. */
   async signAndSubmitTxConfirmedWithSlot(
-    tx: Transaction
+    tx: V1Transaction
   ): Promise<ConfirmedTransaction> {
     return signAndSubmitTxConfirmedWithSlotFn(this, tx);
   }
@@ -225,7 +252,7 @@ export class LightconeClient implements ClientContext {
    * timeout leaves the outcome unknown; inspect authoritative state before retrying.
    */
   async signAndSubmitPreparedTxConfirmedWithSlot(
-    tx: Transaction
+    tx: V1Transaction
   ): Promise<ConfirmedTransaction> {
     return signAndSubmitPreparedTxConfirmedWithSlotFn(this, tx);
   }
@@ -326,15 +353,17 @@ export class LightconeClient implements ClientContext {
       wsConfig: { ...this.wsConfigValue },
       programId: this.programId,
       primaryConnection: this.primaryConnection
-        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed" })
+        ? new Connection(this.primaryConnection.rpcEndpoint, { commitment: "confirmed", fetch: this.rpcFetch })
         : undefined,
       backupConnection: this.backupConnection
-        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed" })
+        ? new Connection(this.backupConnection.rpcEndpoint, { commitment: "confirmed", fetch: this.rpcFetch })
         : undefined,
       rpcFailoverState: this.rpcFailoverState,
       depositSource: this.depositSourceValue,
       signingStrategy: this.signingStrategyValue,
       transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
+      transactionResources: this.transactionResources,
+      rpcFetch: this.rpcFetch,
       orderNonce: this.orderNonceValue,
       authState: this.authStateStore,
       orderbookRulesCache: this.orderbookRulesCache,
@@ -350,6 +379,8 @@ export class LightconeClientBuilder {
   private depositSourceValue: DepositSource = DepositSource.Global;
   private signingStrategyValue?: SigningStrategy;
   private transactionSponsorshipEnabledValue = false;
+  private transactionResourcesValue?: V1ResourceConfig;
+  private rpcFetchValue?: typeof fetch;
   private primaryRpcUrlValue?: string = rpcUrl(LightconeEnv.Prod);
   private backupRpcUrlValue?: string;
 
@@ -429,6 +460,19 @@ export class LightconeClientBuilder {
     return this;
   }
 
+  /** Set explicit v1 limits and total priority fee lamports for fluent builders and SOL plans. */
+  transactionResources(resources: V1ResourceConfig): LightconeClientBuilder {
+    validateV1Resources(resources);
+    this.transactionResourcesValue = Object.freeze({ ...resources });
+    return this;
+  }
+
+  /** Set the one-attempt fetch transport for v1 RPC, for example to add RPC authentication headers. */
+  rpcFetch(transport: typeof fetch): LightconeClientBuilder {
+    this.rpcFetchValue = transport;
+    return this;
+  }
+
   rpcUrl(url: string): LightconeClientBuilder {
     this.primaryRpcUrlValue = url;
     return this;
@@ -456,11 +500,13 @@ export class LightconeClientBuilder {
       signingStrategy: this.signingStrategyValue,
       transactionSponsorshipEnabled: this.transactionSponsorshipEnabledValue,
       primaryConnection: this.primaryRpcUrlValue
-        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed" })
+        ? new Connection(this.primaryRpcUrlValue, { commitment: "confirmed", fetch: this.rpcFetchValue })
         : undefined,
       backupConnection: this.backupRpcUrlValue
-        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed" })
+        ? new Connection(this.backupRpcUrlValue, { commitment: "confirmed", fetch: this.rpcFetchValue })
         : undefined,
+      transactionResources: this.transactionResourcesValue,
+      rpcFetch: this.rpcFetchValue,
       authCredentials: this.authCredentials,
     });
   }
