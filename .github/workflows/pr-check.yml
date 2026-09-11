@@ -87,7 +87,7 @@ jobs:
           npm run typecheck:examples
           npm run build
 
-      - name: Unit tests and shared v1 fixtures
+      - name: Unit tests
         run: npm test
 
   python_tests:
@@ -132,7 +132,7 @@ jobs:
               subprocess.run(["uv", "run", "--locked", "ruff", "check", *files], check=True)
           PY
 
-      - name: Unit tests and shared v1 fixtures
+      - name: Unit tests
         run: uv run --locked pytest
 
   publish:

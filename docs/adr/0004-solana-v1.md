@@ -42,14 +42,7 @@ its final blockhash expiry. Changing budgets requires a fresh plan, fee estimate
 and signatures. Generic fee-funding preflight remains best-effort under ADR 0002;
 SOL planners keep their stricter live fee, rent, and reserve requirements.
 
-## Parity validation
+## Validation
 
-All three SDKs test the same canonical vectors in
-`rust/src/program/fixtures/solana_v1_transactions.json`. The vectors were generated
-with the pinned Rust compiler and codec and cover zero and maximum priority fees,
-optional heap encoding, signer/account ordering, merged privileges and repeated
-references, writable invoked program accounts, 64 inline addresses, and the
-4,096-byte signed transaction limit.
-Each suite checks message bytes, unsigned and signed transaction bytes, required
-signers, signatures, and immutable wallet acceptance. Language-local tests cover
-invalid imports, changed messages, resource bounds, funding, and submission errors.
+Each language tests transaction resource and size limits, invalid imports, immutable
+signing, wallet message validation, funding, and submission errors.

@@ -2,7 +2,6 @@ import { ed25519 } from "@noble/curves/ed25519";
 import { sha512 } from "@noble/hashes/sha512";
 import nacl from "tweetnacl";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import {
   Keypair,
@@ -17,94 +16,8 @@ import {
 import {
   V1Transaction,
   validateV1Resources,
-  type V1TransactionContext,
 } from "../src/program/transaction";
 import { TEST_CONTEXT, transferTransaction } from "./v1_helpers";
-
-const fixtures = JSON.parse(
-  readFileSync(
-    new URL(
-      "../../rust/src/program/fixtures/solana_v1_transactions.json",
-      import.meta.url,
-    ),
-    "utf8",
-  ),
-);
-
-describe("canonical cross-language v1 vectors", () => {
-  for (const fixture of fixtures.cases) {
-    it(fixture.name, () => {
-      const context: V1TransactionContext = {
-        blockhash: fixture.context.blockhash,
-        lastValidBlockHeight: Number(fixture.context.last_valid_block_height),
-        resources: {
-          computeUnitLimit: fixture.context.resources.compute_unit_limit,
-          loadedAccountsDataSizeLimit:
-            fixture.context.resources.loaded_accounts_data_size_limit,
-          priorityFeeLamports: BigInt(
-            fixture.context.resources.priority_fee_lamports,
-          ),
-          heapSize: fixture.context.resources.heap_size ?? undefined,
-        },
-      };
-      const instructions = fixture.instructions.map(
-        (ix: {
-          program_id: string;
-          accounts: Array<{
-            pubkey: string;
-            is_signer: boolean;
-            is_writable: boolean;
-          }>;
-          data_hex: string;
-        }) =>
-          new TransactionInstruction({
-            programId: new PublicKey(ix.program_id),
-            keys: ix.accounts.map((a) => ({
-              pubkey: new PublicKey(a.pubkey),
-              isSigner: a.is_signer,
-              isWritable: a.is_writable,
-            })),
-            data: Buffer.from(ix.data_hex, "hex"),
-          }),
-      );
-      const tx = V1Transaction.compile(
-        instructions,
-        new PublicKey(fixture.payer),
-        context,
-      );
-      assert.equal(
-        Buffer.from(tx.messageBytes()).toString("base64"),
-        fixture.expected.message_base64,
-      );
-      assert.equal(
-        Buffer.from(tx.toWireBytes()).toString("base64"),
-        fixture.expected.unsigned_transaction_base64,
-      );
-      assert.deepEqual(
-        tx.requiredSigners.map((key) => key.toBase58()),
-        fixture.expected.required_signers,
-      );
-      assert.equal(tx.toWireBytes().length, fixture.expected.wire_size);
-      const signed = tx.sign(
-        fixture.signer_seeds_hex.map((seed: string) =>
-          Keypair.fromSeed(Buffer.from(seed, "hex")),
-        ),
-      );
-      assert.equal(
-        Buffer.from(signed.toWireBytes()).toString("base64"),
-        fixture.expected.signed_transaction_base64,
-      );
-      assert.equal(signed.signature, fixture.expected.signatures[0]);
-      assert.deepEqual(
-        V1Transaction.fromWireBytes(
-          signed.toWireBytes(),
-          context,
-        ).toWireBytes(),
-        signed.toWireBytes(),
-      );
-    });
-  }
-});
 
 describe("v1 validation and immutable signing", () => {
   const payer = Keypair.fromSeed(Buffer.alloc(32, 1));

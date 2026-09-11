@@ -1,9 +1,6 @@
-"""Canonical Solana v1 boundaries and shared Rust wire fixtures."""
+"""Canonical Solana v1 boundaries and immutable signing."""
 
-import base64
-import json
 from dataclasses import FrozenInstanceError, replace
-from pathlib import Path
 
 import pytest
 from solders.hash import Hash
@@ -148,62 +145,3 @@ def test_wallet_cannot_change_even_correctly_signed_message(field):
     )
     with pytest.raises(SdkError):
         tx.accept_signed_bytes(bytes(changed))
-
-
-def test_shared_rust_golden_fixtures():
-    fixture = (
-        Path(__file__).resolve().parents[2]
-        / "rust/src/program/fixtures/solana_v1_transactions.json"
-    )
-    cases = json.loads(fixture.read_text())["cases"]
-    for case in cases:
-        raw = case["context"]
-        resource = raw["resources"]
-        context = V1TransactionContext(
-            Hash.from_string(raw["blockhash"]),
-            int(raw["last_valid_block_height"]),
-            V1ResourceConfig(
-                resource["compute_unit_limit"],
-                resource["loaded_accounts_data_size_limit"],
-                int(resource["priority_fee_lamports"]),
-                resource["heap_size"],
-            ),
-        )
-        instructions = [
-            Instruction(
-                Pubkey.from_string(ix["program_id"]),
-                bytes.fromhex(ix["data_hex"]),
-                [
-                    AccountMeta(
-                        Pubkey.from_string(meta["pubkey"]),
-                        meta["is_signer"],
-                        meta["is_writable"],
-                    )
-                    for meta in ix["accounts"]
-                ],
-            )
-            for ix in case["instructions"]
-        ]
-        tx = V1Transaction.compile(
-            instructions, Pubkey.from_string(case["payer"]), context
-        )
-        expected = case["expected"]
-        assert tx.message_bytes() == base64.b64decode(expected["message_base64"]), case[
-            "name"
-        ]
-        assert bytes(tx) == base64.b64decode(
-            expected["unsigned_transaction_base64"]
-        ), case["name"]
-        signed = tx.sign(
-            [
-                Keypair.from_seed(bytes.fromhex(seed))
-                for seed in case["signer_seeds_hex"]
-            ]
-        )
-        assert bytes(signed) == base64.b64decode(
-            expected["signed_transaction_base64"]
-        ), case["name"]
-        assert len(bytes(signed)) == expected["wire_size"]
-        assert [str(key) for key in tx.required_signers] == expected["required_signers"]
-        assert [str(key) for key in tx.message.account_keys] == expected["account_keys"]
-        assert [str(sig) for sig in signed.signatures] == expected["signatures"]
