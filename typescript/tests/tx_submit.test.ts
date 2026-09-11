@@ -5,6 +5,7 @@ import {
   signAndSubmitTx,
   signAndSubmitInstructions,
   signAndSubmitPreparedTxConfirmedWithSlot,
+  signAndSubmitTxConfirmedUsingStrategy,
   type ClientContext,
 } from "../src/context";
 import { LightconeClient } from "../src/client";
@@ -545,4 +546,59 @@ it("rejects malformed fee and simulation envelopes with SDK errors", async () =>
       );
     }
   }
+});
+
+
+it("keeps the original native keypair when the strategy is mutated during blockhash RPC", async () => {
+  const strategy: SigningStrategy = { type: "native", keypair: PAYER };
+  const replacement = Keypair.generate();
+  const h = harness({ strategy });
+  h.context.primaryConnection!.getLatestBlockhash = async () => {
+    strategy.keypair = replacement;
+    Object.assign(h.context, { transactionSponsorshipEnabled: true });
+    return { blockhash: TEST_CONTEXT.blockhash, lastValidBlockHeight: TEST_CONTEXT.lastValidBlockHeight };
+  };
+  assert.equal(
+    await signAndSubmitInstructions(h.context, TRANSACTION.instructions, PAYER.publicKey),
+    SIGNED.signature,
+  );
+  assert.equal(strategy.keypair, replacement);
+  assert.deepEqual(
+    h.calls.filter(call => call.method === "sendTransaction").map(call => call.params[0]),
+    [Buffer.from(SIGNED.toWireBytes()).toString("base64")],
+  );
+});
+
+it("keeps the original native keypair during direct and confirmed submission RPC", async () => {
+  for (const submit of [signAndSubmitTx, signAndSubmitPreparedTxConfirmedWithSlot, signAndSubmitTxConfirmedUsingStrategy]) {
+    const strategy: SigningStrategy = { type: "native", keypair: PAYER };
+    const replacement = Keypair.generate();
+    const h = harness({ strategy, onFee: () => { strategy.keypair = replacement; } });
+    const result = await submit(h.context, TRANSACTION, strategy);
+    assert.equal(typeof result === "string" ? result : result.signature, SIGNED.signature);
+    assert.equal(strategy.keypair, replacement);
+    assert.deepEqual(
+      h.calls.filter(call => call.method === "sendTransaction").map(call => call.params[0]),
+      [Buffer.from(SIGNED.toWireBytes()).toString("base64")],
+    );
+  }
+});
+
+it("keeps the original external signer when its strategy is mutated during RPC", async () => {
+  let strategy: Extract<SigningStrategy, { type: "walletAdapter" }>;
+  const h = harness({ onFee: () => {
+    strategy.signer = {
+      walletAddress: PAYER.publicKey.toBase58(),
+      async signMessage() { throw Error("replacement signer must not be called"); },
+      async signTransaction() { throw Error("replacement signer must not be called"); },
+    };
+  } });
+  assert.equal(h.context.signingStrategy?.type, "walletAdapter");
+  strategy = h.context.signingStrategy as Extract<SigningStrategy, { type: "walletAdapter" }>;
+  assert.equal(await signAndSubmitTx(h.context, TRANSACTION), SIGNED.signature);
+  assert.equal(h.signingCalls(), 1);
+  assert.deepEqual(
+    h.calls.filter(call => call.method === "sendTransaction").map(call => call.params[0]),
+    [Buffer.from(SIGNED.toWireBytes()).toString("base64")],
+  );
 });

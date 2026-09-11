@@ -129,7 +129,7 @@ function requireTransactionSigningContext(ctx: ClientContext): {
   sponsorshipEnabled: boolean;
 } {
   return {
-    strategy: requireSigningStrategy(ctx),
+    strategy: Object.freeze({ ...requireSigningStrategy(ctx) }),
     sponsorshipEnabled: ctx.transactionSponsorshipEnabled ?? false,
   };
 }
@@ -294,7 +294,7 @@ export async function signAndSubmitTxConfirmedUsingStrategy(
     await signAndSubmitTxConfirmedWithSlotUsingStrategy(
       ctx,
       tx,
-      strategy,
+      Object.freeze({ ...strategy }),
       ctx.transactionSponsorshipEnabled ?? false,
     )
   ).signature;
