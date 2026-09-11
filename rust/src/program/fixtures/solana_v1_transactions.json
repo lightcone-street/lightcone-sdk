@@ -717,6 +717,74 @@
         "0101010101010101010101010101010101010101010101010101010101010101",
         "0202020202020202020202020202020202020202020202020202020202020202"
       ]
+    },
+    {
+      "context": {
+        "blockhash": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+        "last_valid_block_height": "123456",
+        "resources": {
+          "compute_unit_limit": 200000,
+          "heap_size": null,
+          "loaded_accounts_data_size_limit": 1048576,
+          "priority_fee_lamports": "0"
+        }
+      },
+      "expected": {
+        "account_keys": [
+          "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+          "7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH",
+          "7gyGAp71YXQRoxmFBaHxofQXAipvgHyBKPyxmdSJxyvz"
+        ],
+        "message_base64": "gQEAAAwAAAAHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwIDiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1xiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjQA0DAAAAEAACAgIAAQICAAIBAQICAAME",
+        "required_signers": [
+          "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9"
+        ],
+        "signatures": [
+          "4NCHgJHjjvLsy4bgt5hsZdRUkCsbXrDcGYswkvrDsN7XGKtMaibX21iYF9kWFr5gEm2K2DwkchU7tyqZRDmxKddP"
+        ],
+        "signed_transaction_base64": "gQEAAAwAAAAHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwIDiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1xiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjQA0DAAAAEAACAgIAAQICAAIBAQICAAMEqFQTpKD2vIGPu1BIfdOvOMzSQ+uMuoXVPeX5+jp7ISvxCNWdMc/q7eCXxjOsWNB7pjI49HSqXt4ju+dUJmY9Dg==",
+        "unsigned_transaction_base64": "gQEAAAwAAAAHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwcHBwIDiojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1xiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmNjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjY2NjQA0DAAAAEAACAgIAAQICAAIBAQICAAMEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        "wire_size": 226
+      },
+      "instructions": [
+        {
+          "accounts": [
+            {
+              "is_signer": false,
+              "is_writable": true,
+              "pubkey": "7gyGAp71YXQRoxmFBaHxofQXAipvgHyBKPyxmdSJxyvz"
+            },
+            {
+              "is_signer": false,
+              "is_writable": true,
+              "pubkey": "7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH"
+            }
+          ],
+          "data_hex": "0102",
+          "program_id": "7gyGAp71YXQRoxmFBaHxofQXAipvgHyBKPyxmdSJxyvz"
+        },
+        {
+          "accounts": [
+            {
+              "is_signer": false,
+              "is_writable": false,
+              "pubkey": "7gyGAp71YXQRoxmFBaHxofQXAipvgHyBKPyxmdSJxyvz"
+            },
+            {
+              "is_signer": true,
+              "is_writable": true,
+              "pubkey": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9"
+            }
+          ],
+          "data_hex": "0304",
+          "program_id": "7d3y2WdzxE7CfsWjkGy3WndkvZcj1EHMkzKJiFPiDecH"
+        }
+      ],
+      "name": "writable_invoked_programs",
+      "payer": "AKnL4NNf3DGWZJS6cPknBuEGnVsV4A4m5tgebLHaRSZ9",
+      "signer_seeds_hex": [
+        "0101010101010101010101010101010101010101010101010101010101010101"
+      ]
     }
   ],
   "description": "Canonical Solana v1 vectors generated with solana-message 4.4.1 and solana-transaction 4.1.6. Deterministic signer seeds are public test data; never use these keys for funds.",

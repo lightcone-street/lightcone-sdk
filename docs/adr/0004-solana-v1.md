@@ -28,8 +28,10 @@ available. Unsponsored external signers must expose the fee-payer identity.
 The program ABI from SDK PR #164 remains unchanged, including eleven-maker u16
 masks, canonical GlobalDepositToken accounts, and the 176-byte orderbook. This
 decision changes the outer Solana transaction format and the APIs that own it.
-Rust uses the upstream Solana compiler and wincode codec, TypeScript uses Solana
-Kit, and Python uses solders. Python requires 3.11 or newer for the compatible
+Rust uses the upstream Solana compiler and wincode codec. TypeScript matches
+Rust's account privilege merging and raw-address ordering while using Solana Kit
+for canonical encoding and decoding; Kit's compiler rejects writable invoked
+program accounts that Rust permits. Python uses solders. Python requires 3.11 or newer for the compatible
 solana-py/solders dependency pair. Package dependencies pin the supported codec
 versions; legacy transport libraries are retained only for compatible instruction,
 address, and RPC helpers.
@@ -46,7 +48,8 @@ All three SDKs test the same canonical vectors in
 `rust/src/program/fixtures/solana_v1_transactions.json`. The vectors were generated
 with the pinned Rust compiler and codec and cover zero and maximum priority fees,
 optional heap encoding, signer/account ordering, merged privileges and repeated
-references, 64 inline addresses, and the 4,096-byte signed transaction limit.
+references, writable invoked program accounts, 64 inline addresses, and the
+4,096-byte signed transaction limit.
 Each suite checks message bytes, unsigned and signed transaction bytes, required
 signers, signatures, and immutable wallet acceptance. Language-local tests cover
 invalid imports, changed messages, resource bounds, funding, and submission errors.
