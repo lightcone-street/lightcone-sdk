@@ -6,7 +6,7 @@ use crate::error::SdkError;
 use solana_pubkey::Pubkey;
 
 #[cfg(feature = "solana-rpc")]
-use solana_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
+use solana_rpc_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
 
 #[cfg(feature = "solana-rpc")]
 use crate::rpc_failover::{is_infrastructure_error_solana, with_failover, ActiveRpc};
@@ -39,13 +39,13 @@ pub(crate) async fn resolve_solana_rpc(
 async fn solana_rpc_with_failover<F, T>(
     client: &LightconeClient,
     operation: F,
-) -> Result<T, solana_client::client_error::ClientError>
+) -> Result<T, solana_rpc_client_api::client_error::Error>
 where
     for<'r> F: Fn(
         &'r SolanaRpcClient,
     ) -> Pin<
         Box<
-            dyn std::future::Future<Output = Result<T, solana_client::client_error::ClientError>>
+            dyn std::future::Future<Output = Result<T, solana_rpc_client_api::client_error::Error>>
                 + Send
                 + 'r,
         >,

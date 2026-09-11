@@ -53,6 +53,7 @@ pub mod client;
 // ── Prelude ──────────────────────────────────────────────────────────────────
 
 pub mod prelude {
+    pub use crate::program::transaction::{V1ResourceConfig, V1Transaction, V1TransactionContext};
     // Shared newtypes
     pub use crate::shared::{
         Denominator, DepositSource, ExactDecimal, OrderBookId, PubkeyStr, Resolution, Side,
