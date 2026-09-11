@@ -1,8 +1,7 @@
-import { Rpc } from "../../rpc";
 import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
 import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
-import { resolveDepositSource, signAndSubmitTx } from "../../context";
+import { resolveDepositSource, signAndSubmitInstructions } from "../../context";
 import { SdkError } from "../../error";
 import {
   buildDepositIx,
@@ -110,8 +109,9 @@ export class DepositBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -208,8 +208,9 @@ export class WithdrawBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -271,8 +272,9 @@ export class MergeBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -336,8 +338,9 @@ export class RedeemWinningsBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -413,8 +416,9 @@ export class WithdrawFromPositionBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -485,8 +489,9 @@ export class InitPositionTokensBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.payerValue, "payer"),
+    );
   }
 }
 
@@ -533,8 +538,9 @@ export class DepositToGlobalBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -580,8 +586,9 @@ export class WithdrawFromGlobalBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }
 
@@ -645,7 +652,8 @@ export class GlobalToMarketDepositBuilder {
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
-    return signAndSubmitTx(this.client, tx);
+    return signAndSubmitInstructions(
+      this.client, [this.buildIx()], requireField(this.userValue, "user"),
+    );
   }
 }

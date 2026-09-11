@@ -344,7 +344,7 @@ export class Rpc {
     return Object.freeze({ ...lifetime, resources: snapshot });
   }
 
-  /** Estimate the immutable message without changing its blockhash or resources. */
+  /** Alias of estimatePreparedTransactionFee; does not prepare or modify the message. */
   async prepareAndEstimateTransactionFee(
     transaction: V1Transaction
   ): Promise<bigint> {
@@ -363,7 +363,7 @@ export class Rpc {
     const result = await this.v1ReadRequest("getFeeForMessage", params) as {
       value?: number | bigint | null;
     };
-    if (result.value === null || result.value === undefined)
+    if (result?.value === null || result?.value === undefined)
       throw SdkError.validation("transaction fee estimate is unavailable");
     return rpcLamports(result.value, "transaction fee estimate");
   }
@@ -381,8 +381,8 @@ export class Rpc {
         data?: [string, string];
       } | null;
     };
-    const account = result.value;
-    const slot = result.context?.slot;
+    const account = result?.value;
+    const slot = result?.context?.slot;
     if (
       !account ||
       account.owner !== "Feature111111111111111111111111111111111111" ||
@@ -433,9 +433,9 @@ export class Rpc {
         logs?: string[];
       };
     };
-    if (!result.value || result.value.err !== null)
+    if (!result?.value || result.value.err !== null)
       throw SdkError.validation(
-        `v1 simulation failed: ${stringifyJsonExact(result.value?.err)}`
+        `v1 simulation failed: ${stringifyJsonExact(result?.value?.err)}`
       );
     if (
       !Number.isSafeInteger(result.context?.slot) ||
@@ -525,7 +525,7 @@ export class Rpc {
           code?: unknown; message?: unknown; data?: unknown;
         };
         if (
-          (result.result !== undefined && result.result !== null) ||
+          "result" in result ||
           !Number.isSafeInteger(error.code) ||
           typeof error.message !== "string"
         )

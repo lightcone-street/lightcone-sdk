@@ -535,31 +535,31 @@ tx = client.positions().withdraw_conditional_from_position_tx(
 
 ### Order Matching
 
-Three strategies with different transaction size/verification tradeoffs:
+Compile the instruction encoder's result with an explicit v1 context. This async
+excerpt assumes the client, participant orders, token mints, and fill amounts have
+already been selected; fill amounts use each order's integer units.
 
 ```python
-from lightcone_sdk.program import MakerFill
+from lightcone_sdk import V1Transaction
+from lightcone_sdk.program import build_match_orders_multi_instruction
 
-maker_fills = [
-    MakerFill(order=maker_order_1, fill_amount=100_000),
-    MakerFill(order=maker_order_2, fill_amount=200_000),
-]
-
-# 1. Without Ed25519 verification (signatures verified off-chain)
-tx = await client.match_orders_multi(
+instruction = build_match_orders_multi_instruction(
     operator=operator_pubkey,
     market=market_pubkey,
     base_mint=base_mint,
     quote_mint=quote_mint,
+    base_deposit_mint=base_deposit_mint,
+    quote_deposit_mint=quote_deposit_mint,
+    fee_receiver=fee_receiver_pubkey,
     taker_order=taker_order,
-    maker_fills=maker_fills,
+    maker_orders=[maker_order_1, maker_order_2],
+    maker_fill_amounts=[100_000, 200_000],
+    taker_fill_amounts=[50_000, 100_000],
+    full_fill_bitmask=0,
+    program_id=client.program_id,
 )
-
-# 2. With batch Ed25519 verification (signatures in instruction data)
-tx = await client.match_orders_multi_with_verify(...)
-
-# 3. With cross-reference Ed25519 (smallest transaction size)
-tx = await client.match_orders_multi_cross_ref(...)
+context = await client.transaction_context()
+tx = V1Transaction.compile([instruction], operator_pubkey, context)
 ```
 
 ## Client Utility Methods

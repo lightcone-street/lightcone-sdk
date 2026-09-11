@@ -51,6 +51,9 @@ Legacy/v0 imports, ComputeBudget instructions, messages with more than 64 distin
 accounts, and wire transactions larger than 4096 bytes (including every signature)
 are rejected. Instruction encoders continue to return solders `Instruction` values.
 
+The following async usage excerpt assumes an initialized, funded `keypair` and
+runs inside your application's async function.
+
 ```python
 from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig, V1Transaction
 

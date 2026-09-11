@@ -496,6 +496,7 @@ async def test_structured_rpc_rejections_are_typed_and_never_retried(code):
             "error": {"code": -32002, "message": "rejected"},
             "result": "conflicting signature",
         },
+        {"error": {"code": -32002, "message": "rejected"}, "result": None},
         None,
     ],
 )

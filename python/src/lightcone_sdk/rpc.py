@@ -316,7 +316,7 @@ async def _send_transaction_once(
         raise SdkError("RPC returned an invalid send acknowledgement")
     if payload.get("error") is not None:
         rejection = _definite_rpc_rejection(payload["error"])
-        if rejection is not None and payload.get("result") is None:
+        if rejection is not None and "result" not in payload:
             raise rejection
         raise SdkError("RPC returned an uncertain send error")
     if not isinstance(payload.get("result"), str):
@@ -639,8 +639,8 @@ class Rpc:
         return await self.submit_signed_transaction(transaction)
 
     async def send_raw_transaction_once(self, transaction: V1Transaction) -> str:
-        """Submit a validated signed v1 transaction through the single-send path."""
-        return await self.submit_signed_transaction(transaction)
+        """Alias of send_raw_transaction; all v1 sends already use one attempt."""
+        return await self.send_raw_transaction(transaction)
 
     async def get_signature_statuses(
         self,

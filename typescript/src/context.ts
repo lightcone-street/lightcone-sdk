@@ -1,5 +1,5 @@
 import { V1Transaction, type V1ResourceConfig } from "./program/transaction";
-import { type Connection, type PublicKey } from "@solana/web3.js";
+import { type Connection, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import { SdkError } from "./error";
 import type { LightconeHttp } from "./http";
 import type { AuthCredentials } from "./auth";
@@ -141,11 +141,11 @@ function requireTransactionSigningContext(ctx: ClientContext): {
  * is rejected before blockhash RPC or caller-transaction mutation.
  */
 function validateTransactionFeeFundingContext(
-  tx: V1Transaction,
+  feePayer: PublicKey,
   strategy: SigningStrategy,
   sponsorshipEnabled: boolean,
 ): void {
-  if (!tx.feePayer) {
+  if (!feePayer) {
     throw SdkError.validation("transaction is missing a declared fee payer");
   }
   if (sponsorshipEnabled) {
@@ -158,11 +158,40 @@ function validateTransactionFeeFundingContext(
   }
 
   const signingAddress = signingStrategyWalletAddress(strategy);
-  if (signingAddress && signingAddress !== tx.feePayer.toBase58()) {
+  if (signingAddress && signingAddress !== feePayer.toBase58()) {
     throw SdkError.validation(
       "signing strategy does not control transaction fee payer",
     );
   }
+}
+
+/** Validate local signing inputs before any transaction work can yield. */
+function validateTransactionSigningContext(
+  feePayer: PublicKey,
+  strategy: SigningStrategy,
+  sponsorshipEnabled: boolean,
+): asserts strategy is Exclude<SigningStrategy, { type: "privy" }> {
+  if (strategy.type === "privy")
+    throw SdkError.validation(
+      "Privy sign-and-send cannot verify v1 signed bytes; configure an ExternalSigner that returns signed transaction bytes",
+    );
+  validateTransactionFeeFundingContext(feePayer, strategy, sponsorshipEnabled);
+  if (!sponsorshipEnabled && !signingStrategyWalletAddress(strategy))
+    throw SdkError.validation("signing strategy wallet identity is required");
+}
+
+/** @internal Submit builder-owned instructions after local validation, before fetching context. */
+export async function signAndSubmitInstructions(
+  ctx: ClientContext,
+  instructions: TransactionInstruction[],
+  payer: PublicKey,
+): Promise<string> {
+  const { strategy, sponsorshipEnabled } = requireTransactionSigningContext(ctx);
+  validateTransactionSigningContext(payer, strategy, sponsorshipEnabled);
+  const { Rpc } = await import("./rpc");
+  const context = await new Rpc(ctx).transactionContext();
+  const transaction = V1Transaction.compile(instructions, payer, context);
+  return signAndSubmitTxInner(ctx, transaction, strategy, sponsorshipEnabled);
 }
 
 /**
@@ -179,7 +208,7 @@ async function preflightTransactionFeeFunding(
   strategy: SigningStrategy,
   sponsorshipEnabled: boolean,
 ): Promise<void> {
-  validateTransactionFeeFundingContext(tx, strategy, sponsorshipEnabled);
+  validateTransactionFeeFundingContext(tx.feePayer, strategy, sponsorshipEnabled);
   if (sponsorshipEnabled) return;
   const feePayer = tx.feePayer;
   if (!feePayer) {
@@ -301,13 +330,7 @@ async function signAndSubmitTxInner(
     throw SdkError.validation(
       "only validated Solana v1 transactions are supported",
     );
-  if (strategy.type === "privy")
-    throw SdkError.validation(
-      "Privy sign-and-send cannot verify v1 signed bytes; configure an ExternalSigner that returns signed transaction bytes",
-    );
-  validateTransactionFeeFundingContext(tx, strategy, sponsorshipEnabled);
-  if (!sponsorshipEnabled && !signingStrategyWalletAddress(strategy))
-    throw SdkError.validation("signing strategy wallet identity is required");
+  validateTransactionSigningContext(tx.feePayer, strategy, sponsorshipEnabled);
   await preflightTransactionFeeFunding(ctx, tx, strategy, sponsorshipEnabled);
   const { Rpc } = await import("./rpc");
   const rpc = new Rpc(ctx);

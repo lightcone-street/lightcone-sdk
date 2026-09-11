@@ -82,8 +82,3 @@ export type {
 } from "./prelude";
 
 export * from "./prelude";
-
-export { V1Transaction, validateV1Resources } from "./program/transaction";
-export type { V1ResourceConfig, V1TransactionContext } from "./program/transaction";
-
-export type { TransactionSimulation } from "./rpc";

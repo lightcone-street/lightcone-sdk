@@ -1255,7 +1255,7 @@ fn rpc_submission_rejection(response: &serde_json::Value, signature: &str) -> Op
     let error = response.get("error")?;
     let code = error.get("code")?.as_i64()?;
     let reason = error.get("message")?.as_str()?;
-    if !response["result"].is_null() {
+    if response.get("result").is_some() {
         return None;
     }
     let message = reason.to_ascii_lowercase();
@@ -2215,6 +2215,7 @@ mod tests {
             serde_json::json!({"error":{"code":-32099,"message":"provider failure"}}),
             serde_json::json!({"error":{"code":-32002}}),
             serde_json::json!({"result":"signature","error":{"code":-32002,"message":"conflicting response"}}),
+            serde_json::json!({"result":null,"error":{"code":-32002,"message":"conflicting response"}}),
             serde_json::json!({"result":"signature","error":null}),
         ] {
             assert!(rpc_submission_rejection(&response, "signature").is_none());

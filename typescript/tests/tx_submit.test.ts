@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { Keypair, type Connection } from "@solana/web3.js";
 import {
   signAndSubmitTx,
+  signAndSubmitInstructions,
   signAndSubmitPreparedTxConfirmedWithSlot,
   type ClientContext,
 } from "../src/context";
@@ -29,6 +30,7 @@ function harness(
     simulationError?: unknown;
     sendError?: boolean;
     sendRpcError?: unknown;
+    sendResult?: unknown;
     wrongSignature?: boolean;
     sponsored?: boolean;
     strategy?: SigningStrategy;
@@ -123,7 +125,7 @@ function harness(
         case "sendTransaction":
           if (options.sendError) throw Error("connection reset: https://rpc.invalid/?api-key=do-not-expose");
           if (options.sendRpcError !== undefined)
-            return Response.json({ error: options.sendRpcError });
+            return Response.json({ error: options.sendRpcError, ...("sendResult" in options ? { result: options.sendResult } : {}) });
           result = options.wrongSignature ? "wrong" : SIGNED.signature;
           break;
         default:
@@ -473,4 +475,74 @@ describe("v1 transaction submission", () => {
       /resources are required/,
     );
   });
+});
+
+
+it("uses the configured RPC fetch for blockhashes on both managed endpoints", async () => {
+  const urls: string[] = [];
+  const client = LightconeClient.builder()
+    .rpcUrl("https://primary.example.invalid")
+    .backupRpcUrl("https://backup.example.invalid")
+    .transactionResources(TEST_CONTEXT.resources)
+    .rpcFetch(async (url, init) => {
+      urls.push(String(url));
+      if (String(url).includes("primary")) throw new TypeError("fetch failed");
+      const request = JSON.parse(String(init?.body));
+      assert.equal(request.method, "getLatestBlockhash");
+      assert.deepEqual(request.params, [{ commitment: "confirmed" }]);
+      return Response.json({ jsonrpc: "2.0", id: request.id,
+        result: { context: { slot: 10 }, value: {
+          blockhash: TEST_CONTEXT.blockhash, lastValidBlockHeight: 100,
+        } },
+      });
+    }).build();
+  assert.deepEqual(await client.transactionContext(), TEST_CONTEXT);
+  assert.deepEqual(await client.clone().transactionContext(), TEST_CONTEXT);
+  assert.deepEqual(urls, ["https://primary.example.invalid", "https://primary.example.invalid", "https://backup.example.invalid", "https://backup.example.invalid"]);
+});
+
+it("rejects malformed feature result shapes with an SDK error", async () => {
+  for (const result of [null, false, 7, "invalid", [], {}, { value: null }, { context: null, value: {} }]) {
+    const h = harness();
+    const rpc = new Rpc({ ...h.context, rpcFetch: async () => Response.json({ result }) });
+    await assert.rejects(rpc.ensureV1Supported(), error =>
+      error instanceof SdkError && error.message.includes("feature is unavailable"));
+  }
+});
+
+
+it("captures a builder signer before fetching its context", async () => {
+  const h = harness({ strategy: { type: "native", keypair: PAYER } });
+  h.context.primaryConnection!.getLatestBlockhash = async () => {
+    Object.assign(h.context, { signingStrategy: { type: "native", keypair: Keypair.generate() } });
+    return { blockhash: TEST_CONTEXT.blockhash, lastValidBlockHeight: TEST_CONTEXT.lastValidBlockHeight };
+  };
+  assert.equal(await signAndSubmitInstructions(h.context, TRANSACTION.instructions, PAYER.publicKey), SIGNED.signature);
+  assert.equal(h.calls.filter(call => call.method === "sendTransaction").length, 1);
+});
+
+
+it("treats a present null result alongside an RPC error as an uncertain send", async () => {
+  const h = harness({ sendRpcError: { code: -32002, message: "rejected" }, sendResult: null });
+  await assert.rejects(new Rpc(h.context).submitSignedTransaction(SIGNED), error =>
+    error instanceof SdkError && error.variant === "SubmissionUnknown" &&
+    error.signature === SIGNED.signature && error.lastValidBlockHeight === 100);
+  assert.equal(h.calls.filter(call => call.method === "sendTransaction").length, 1);
+});
+
+
+it("rejects malformed fee and simulation envelopes with SDK errors", async () => {
+  for (const method of ["getFeeForMessage", "simulateTransaction"]) {
+    for (const result of [null, false, 7, "invalid", [], {}]) {
+      const h = harness();
+      const rpc = new Rpc({ ...h.context, rpcFetch: async (url, init) => {
+        const request = JSON.parse(String(init?.body));
+        return request.method === method ? Response.json({ result }) : h.context.rpcFetch!(url, init);
+      } });
+      await assert.rejects(
+        method === "getFeeForMessage" ? rpc.estimatePreparedTransactionFee(TRANSACTION) : rpc.simulateTransaction(SIGNED),
+        error => error instanceof SdkError,
+      );
+    }
+  }
 });

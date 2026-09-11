@@ -90,11 +90,17 @@ transactions. Rebuild and obtain new signatures when the message or budget chang
 a timeout or expired status does not authorize automatic resubmission.
 
 Canonical v1 RPC uses a direct `fetch` transport to avoid web3.js's internal
-rate-limit retry. Fee estimation retains read-only retry and failover for its exact
-message bytes; feature checks, simulation, and sends each use one HTTP attempt.
+rate-limit retry. Fee estimation, feature checks, and simulation use read-only
+retry and failover with their exact parameters. Sends use one HTTP attempt.
 Use `.rpcFetch(customFetch)` on the builder when RPC access needs custom headers or
 a transport override. The supplied transport must also avoid resending requests.
 Existing account reads and confirmation retain their read-only failover behavior.
+
+Legacy `Connection`
+constructor headers/middleware are not copied into the v1 transport; configure
+v1 authentication in `rpcFetch`, including when supplying your own Connection.
+SDK-managed connections (including clones and backups) share that fetch for
+blockhash acquisition and other reads.
 
 See the [cross-language transaction ADR](../docs/adr/0004-solana-v1.md).
 
