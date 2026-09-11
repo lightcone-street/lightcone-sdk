@@ -2,10 +2,7 @@
 
 ## Guidance Layers
 
-Use the shared agent baseline from the private
-[`lightcone-street/conetext`](https://github.com/lightcone-street/conetext)
-repository at the minimum release declared in `.conetext-version`. This file owns
-SDK-specific compatibility, parity, and validation guidance.
+Use the shared agent baseline from the private [`lightcone-street/conetext`](https://github.com/lightcone-street/conetext) repository. This file owns SDK-specific compatibility, parity, and validation guidance.
 
 Developer instructions override both layers. Follow the override, briefly disclose its
 consequence, and persist an exception only when requested.
