@@ -129,8 +129,11 @@ class DepositBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawBuilder ────────────────────────────────────────────────────────
@@ -212,8 +215,11 @@ class MergeBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the merge transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 class WithdrawBuilder:
@@ -330,8 +336,11 @@ class WithdrawBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── RedeemWinningsBuilder ──────────────────────────────────────────────────
@@ -402,8 +411,11 @@ class RedeemWinningsBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the redeem winnings transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawFromPositionBuilder ────────────────────────────────────────────
@@ -489,8 +501,11 @@ class WithdrawFromPositionBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-position transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── InitPositionTokensBuilder ──────────────────────────────────────────────
@@ -565,8 +580,11 @@ class InitPositionTokensBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the init-position-tokens transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        payer = self._payer
+        if payer is None:
+            raise SdkError("payer is required")
+        return await self._client._sign_and_submit_instructions([instruction], payer)
 
 
 # ─── DepositToGlobalBuilder ─────────────────────────────────────────────────
@@ -619,8 +637,11 @@ class DepositToGlobalBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the deposit-to-global transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── WithdrawFromGlobalBuilder ──────────────────────────────────────────────
@@ -673,8 +694,11 @@ class WithdrawFromGlobalBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the withdraw-from-global transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 # ─── GlobalToMarketDepositBuilder ───────────────────────────────────────────
@@ -745,8 +769,11 @@ class GlobalToMarketDepositBuilder:
 
     async def sign_and_submit(self) -> str:
         """Build, sign, and submit the global-to-market deposit transaction."""
-        tx = self.build_tx(await self._client.transaction_context())
-        return await self._client.sign_and_submit_tx(tx)
+        instruction = self.build_ix()
+        user = self._user
+        if user is None:
+            raise SdkError("user is required")
+        return await self._client._sign_and_submit_instructions([instruction], user)
 
 
 __all__ = [

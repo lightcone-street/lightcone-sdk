@@ -6,9 +6,11 @@ Mirrors rust/src/client.rs — unified entry point with sub-client accessors.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from copy import copy
 from dataclasses import dataclass
 
+from solders.instruction import Instruction
 from solders.pubkey import Pubkey
 
 from .auth import AuthCredentials
@@ -272,11 +274,14 @@ class LightconeClient:
 
     def _require_transaction_signing_context(self) -> tuple[SigningStrategy, bool]:
         """Capture one signer and sponsorship assertion before async transaction work."""
-        return self._require_signing_strategy(), self._transaction_sponsorship_enabled
+        return (
+            copy(self._require_signing_strategy()),
+            self._transaction_sponsorship_enabled,
+        )
 
     def _validate_transaction_fee_funding_context(
         self,
-        tx: V1Transaction,
+        fee_payer: Pubkey,
         strategy: SigningStrategy,
         sponsorship_enabled: bool,
     ) -> None:
@@ -286,8 +291,6 @@ class LightconeClient:
         external flows may use a different payer, while native sponsorship is rejected
         before blockhash RPC or caller-transaction mutation.
         """
-        if not tx.message.account_keys:
-            raise SdkError("transaction is missing a declared fee payer")
         if sponsorship_enabled:
             if strategy.kind == SigningStrategyKind.NATIVE:
                 raise SdkError(
@@ -295,10 +298,39 @@ class LightconeClient:
                 )
             return
         signing_address = strategy.controlled_wallet_address()
-        if signing_address is not None and signing_address != str(
-            tx.message.account_keys[0]
-        ):
+        if signing_address is not None and signing_address != str(fee_payer):
             raise SdkError("signing strategy does not control transaction fee payer")
+
+    def _validate_transaction_signing_context(
+        self,
+        fee_payer: Pubkey,
+        strategy: SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> None:
+        """Validate local signer authority before acquiring transaction context."""
+        if strategy.kind == SigningStrategyKind.PRIVY:
+            raise SdkError(
+                "Privy transaction signing cannot return verifiable v1 signed bytes; use a v1-capable external signer"
+            )
+        if not sponsorship_enabled and strategy.controlled_wallet_address() is None:
+            raise SdkError("signing strategy wallet identity is required")
+        self._validate_transaction_fee_funding_context(
+            fee_payer, strategy, sponsorship_enabled
+        )
+
+    async def _sign_and_submit_instructions(
+        self, instructions: Sequence[Instruction], payer: Pubkey
+    ) -> str:
+        """Capture validated builder inputs and signing authority before RPC work."""
+        instructions = tuple(instructions)
+        strategy, sponsorship_enabled = self._require_transaction_signing_context()
+        self._validate_transaction_signing_context(payer, strategy, sponsorship_enabled)
+        context = await self.transaction_context()
+        transaction = V1Transaction.compile(instructions, payer, context)
+        signature, _height = await self._sign_and_submit_tx_inner(
+            transaction, strategy, sponsorship_enabled
+        )
+        return signature
 
     async def _preflight_transaction_fee_funding(
         self,
@@ -314,7 +346,7 @@ class LightconeClient:
         signer and sponsorship value were captured together before RPC work.
         """
         self._validate_transaction_fee_funding_context(
-            tx, strategy, sponsorship_enabled
+            tx.message.account_keys[0], strategy, sponsorship_enabled
         )
         if sponsorship_enabled:
             return
@@ -397,14 +429,8 @@ class LightconeClient:
         elif sponsorship_enabled is None:
             sponsorship_enabled = self._transaction_sponsorship_enabled
         strategy = copy(strategy)
-        if strategy.kind == SigningStrategyKind.PRIVY:
-            raise SdkError(
-                "Privy transaction signing cannot return verifiable v1 signed bytes; use a v1-capable external signer"
-            )
-        if not sponsorship_enabled and strategy.controlled_wallet_address() is None:
-            raise SdkError("signing strategy wallet identity is required")
-        self._validate_transaction_fee_funding_context(
-            tx, strategy, bool(sponsorship_enabled)
+        self._validate_transaction_signing_context(
+            tx.message.account_keys[0], strategy, bool(sponsorship_enabled)
         )
         await self._preflight_transaction_fee_funding(
             tx, strategy, bool(sponsorship_enabled)

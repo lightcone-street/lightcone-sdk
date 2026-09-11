@@ -39,6 +39,7 @@ use solana_commitment_config::CommitmentConfig;
 use solana_rpc_client::nonblocking::rpc_client::RpcClient as SolanaRpcClient;
 
 use async_lock::{OnceCell, RwLock};
+use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -766,10 +767,10 @@ impl LightconeClient {
         strategy: &SigningStrategy,
         sponsorship_enabled: bool,
     ) -> Result<(), SdkError> {
-        self.validate_transaction_fee_funding_context(transaction, strategy, sponsorship_enabled)?;
         let fee_payer = transaction.message().account_keys.first().ok_or_else(|| {
             SdkError::Validation("transaction is missing a declared fee payer".into())
         })?;
+        self.validate_transaction_fee_funding_context(fee_payer, strategy, sponsorship_enabled)?;
 
         if sponsorship_enabled {
             return Ok(());
@@ -799,13 +800,10 @@ impl LightconeClient {
     /// before blockhash RPC or caller-transaction mutation.
     fn validate_transaction_fee_funding_context(
         &self,
-        transaction: &V1Transaction,
+        fee_payer: &Pubkey,
         strategy: &SigningStrategy,
         sponsorship_enabled: bool,
     ) -> Result<(), SdkError> {
-        let fee_payer = transaction.message().account_keys.first().ok_or_else(|| {
-            SdkError::Validation("transaction is missing a declared fee payer".into())
-        })?;
         if sponsorship_enabled {
             if strategy.is_local_keypair() {
                 return Err(SdkError::Validation(
@@ -823,6 +821,39 @@ impl LightconeClient {
             ));
         }
         Ok(())
+    }
+
+    fn validate_transaction_signing_context(
+        &self,
+        fee_payer: &Pubkey,
+        strategy: &SigningStrategy,
+        sponsorship_enabled: bool,
+    ) -> Result<(), SdkError> {
+        self.validate_transaction_fee_funding_context(fee_payer, strategy, sponsorship_enabled)?;
+        if !sponsorship_enabled && strategy.wallet_address().is_none() {
+            return Err(SdkError::Validation(
+                "signing strategy wallet identity is required".into(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Submit locally validated builder instructions with one captured signing context.
+    pub(crate) async fn sign_and_submit_instructions(
+        &self,
+        instructions: &[Instruction],
+        payer: &Pubkey,
+    ) -> Result<String, SdkError> {
+        let (strategy, sponsorship_enabled) = self.transaction_signing_snapshot().await;
+        let strategy = strategy.ok_or_else(|| {
+            SdkError::Validation("signing strategy is not set on the client".into())
+        })?;
+        self.validate_transaction_signing_context(payer, &strategy, sponsorship_enabled)?;
+        let context = self.transaction_context().await?;
+        let transaction = V1Transaction::compile(instructions, payer, &context)?;
+        self.sign_and_submit_tx_inner(transaction, strategy, sponsorship_enabled)
+            .await
+            .map(|(signature, _)| signature)
     }
 
     /// Fetch the statuses of recently submitted transactions via JSON-RPC POST.
@@ -1186,12 +1217,10 @@ impl LightconeClient {
         strategy: SigningStrategy,
         sponsorship_enabled: bool,
     ) -> Result<(String, Option<u64>), SdkError> {
-        self.validate_transaction_fee_funding_context(&tx, &strategy, sponsorship_enabled)?;
-        if !sponsorship_enabled && strategy.wallet_address().is_none() {
-            return Err(SdkError::Validation(
-                "signing strategy wallet identity is required".into(),
-            ));
-        }
+        let payer = tx.message().account_keys.first().ok_or_else(|| {
+            SdkError::Validation("transaction is missing a declared fee payer".into())
+        })?;
+        self.validate_transaction_signing_context(payer, &strategy, sponsorship_enabled)?;
         self.preflight_transaction_fee_funding(&tx, &strategy, sponsorship_enabled)
             .await?;
         self.ensure_v1_supported().await?;
@@ -2286,6 +2315,200 @@ mod tests {
             }
             method => panic!("unexpected read {method}"),
         }
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn fluent_builders_validate_fields_before_blockhash_rpc() {
+        let (url, calls, server) = v1_rpc_test_server(|_| (503, None)).await;
+        let signer = Keypair::new();
+        let payer = signer.pubkey();
+        let client = LightconeClient::builder()
+            .rpc_url(&url)
+            .transaction_resources(crate::program::transaction::test_context().resources)
+            .native_signer(signer)
+            .build()
+            .unwrap();
+        let positions = client.positions();
+        let missing_payer = [
+            positions.deposit().await.sign_and_submit().await,
+            positions.merge().sign_and_submit().await,
+            positions.withdraw().await.sign_and_submit().await,
+            positions.redeem_winnings().sign_and_submit().await,
+            positions.withdraw_from_position().sign_and_submit().await,
+            positions.init_position_tokens().sign_and_submit().await,
+            positions.deposit_to_global().sign_and_submit().await,
+            positions.withdraw_from_global().sign_and_submit().await,
+            positions.global_to_market_deposit().sign_and_submit().await,
+        ];
+        for result in missing_payer {
+            assert!(
+                matches!(result, Err(SdkError::Validation(message)) if message.ends_with("is required"))
+            );
+        }
+        let missing_fields = [
+            positions
+                .deposit()
+                .await
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions.merge().user(payer).sign_and_submit().await,
+            positions
+                .withdraw()
+                .await
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .redeem_winnings()
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .withdraw_from_position()
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .init_position_tokens()
+                .payer(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .deposit_to_global()
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .withdraw_from_global()
+                .user(payer)
+                .sign_and_submit()
+                .await,
+            positions
+                .global_to_market_deposit()
+                .user(payer)
+                .sign_and_submit()
+                .await,
+        ];
+        for result in missing_fields {
+            assert!(
+                matches!(result, Err(SdkError::Validation(message)) if message.ends_with("is required"))
+            );
+        }
+        assert!(calls.lock().unwrap().is_empty());
+        server.abort();
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn fluent_builders_validate_signing_context_before_blockhash_rpc() {
+        let (url, calls, server) = v1_rpc_test_server(|_| (503, None)).await;
+        let payer = Pubkey::new_unique();
+        let client = LightconeClient::builder()
+            .rpc_url(&url)
+            .transaction_resources(crate::program::transaction::test_context().resources)
+            .build()
+            .unwrap();
+        for expected_error in [
+            "signing strategy is not set on the client",
+            "signing strategy does not control transaction fee payer",
+            "transaction sponsorship is not supported with local-keypair signing",
+        ] {
+            let error = client
+                .positions()
+                .deposit_to_global()
+                .user(payer)
+                .mint(Pubkey::new_unique())
+                .amount(1)
+                .sign_and_submit()
+                .await
+                .unwrap_err();
+            assert!(matches!(error, SdkError::Validation(message) if message == expected_error));
+            let sponsorship = client.signing_strategy().await.is_some();
+            client
+                .set_transaction_signing_context(
+                    SigningStrategy::Native(Arc::new(Keypair::new())),
+                    sponsorship,
+                )
+                .await;
+        }
+        assert!(calls.lock().unwrap().is_empty());
+        server.abort();
+    }
+
+    #[cfg(feature = "native")]
+    #[tokio::test]
+    async fn fluent_submission_keeps_signing_context_captured_before_blockhash_rpc() {
+        let signer = Keypair::new();
+        let payer = signer.pubkey();
+        let signing_context =
+            Arc::new(std::sync::OnceLock::<Arc<RwLock<TransactionSigningContext>>>::new());
+        let rpc_signing_context = signing_context.clone();
+        let (url, calls, server) = v1_rpc_test_server(move |request| {
+            let result = match request["method"].as_str().unwrap() {
+                "getLatestBlockhash" => {
+                    *rpc_signing_context.get().unwrap().try_write().unwrap() = TransactionSigningContext {
+                        strategy: Some(SigningStrategy::Native(Arc::new(Keypair::new()))),
+                        sponsorship_enabled: true,
+                    };
+                    serde_json::json!({"context":{"slot":10},"value":{
+                        "blockhash":crate::program::transaction::test_context().blockhash.to_string(),
+                        "lastValidBlockHeight":100
+                    }})
+                }
+                "getFeeForMessage" => serde_json::json!({"context":{"slot":10},"value":5000}),
+                "getBalance" => serde_json::json!({"context":{"slot":10},"value":1000000}),
+                "sendTransaction" => {
+                    let bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD,
+                        request["params"][0].as_str().unwrap()).unwrap();
+                    let signed = V1Transaction::from_wire_bytes(&bytes, &crate::program::transaction::test_context()).unwrap();
+                    signed.verify_signatures().unwrap();
+                    assert_eq!(signed.message().account_keys[0], payer);
+                    serde_json::json!(signed.as_versioned().signatures[0].to_string())
+                }
+                _ => return (200, Some(v1_read_response(request))),
+            };
+            (200, Some(serde_json::json!({"jsonrpc":"2.0","id":request["id"],"result":result})))
+        }).await;
+        let client = LightconeClient::builder()
+            .rpc_url(&url)
+            .transaction_resources(crate::program::transaction::test_context().resources)
+            .native_signer(signer)
+            .build()
+            .unwrap();
+        assert!(signing_context
+            .set(client.transaction_signing_context.clone())
+            .is_ok());
+        let signature = tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            client
+                .positions()
+                .deposit_to_global()
+                .user(payer)
+                .mint(Pubkey::new_unique())
+                .amount(1)
+                .sign_and_submit(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert!(!signature.is_empty());
+        assert!(
+            client
+                .transaction_signing_context
+                .read()
+                .await
+                .sponsorship_enabled
+        );
+        let calls = calls.lock().unwrap();
+        for method in ["getLatestBlockhash", "sendTransaction"] {
+            assert_eq!(
+                calls.iter().filter(|call| call["method"] == method).count(),
+                1
+            );
+        }
+        server.abort();
     }
 
     #[cfg(feature = "native")]

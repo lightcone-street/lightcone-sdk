@@ -542,9 +542,13 @@ impl<'a> DepositBuilder<'a> {
     /// Build, sign, and submit the deposit transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context).await?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix().await?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -655,9 +659,13 @@ impl<'a> MergeBuilder<'a> {
     /// Build, sign, and submit the merge transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -840,9 +848,13 @@ impl<'a> WithdrawBuilder<'a> {
     /// Build, sign, and submit the withdraw transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context).await?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix().await?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -965,9 +977,13 @@ impl<'a> RedeemWinningsBuilder<'a> {
     /// Build, sign, and submit the redeem winnings transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1106,9 +1122,13 @@ impl<'a> WithdrawFromPositionBuilder<'a> {
     /// Build, sign, and submit the withdraw-from-position transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1440,9 +1460,13 @@ impl<'a> InitPositionTokensBuilder<'a> {
     /// Build, sign, and submit the init-position-tokens transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .payer
+            .ok_or_else(|| SdkError::Validation("payer is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1531,9 +1555,13 @@ impl<'a> DepositToGlobalBuilder<'a> {
     /// Build, sign, and submit the deposit-to-global transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1621,9 +1649,13 @@ impl<'a> WithdrawFromGlobalBuilder<'a> {
     /// Build, sign, and submit the withdraw-from-global transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
@@ -1741,9 +1773,13 @@ impl<'a> GlobalToMarketDepositBuilder<'a> {
     /// Build, sign, and submit the global-to-market deposit transaction.
     pub async fn sign_and_submit(self) -> Result<String, SdkError> {
         let client = self.client;
-        let context = client.transaction_context().await?;
-        let transaction = self.build_tx(&context)?;
-        client.sign_and_submit_tx(transaction).await
+        let payer = self
+            .user
+            .ok_or_else(|| SdkError::Validation("user is required".into()))?;
+        let instruction = self.build_ix()?;
+        client
+            .sign_and_submit_instructions(&[instruction], &payer)
+            .await
     }
 }
 
