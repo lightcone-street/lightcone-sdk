@@ -1,4 +1,4 @@
-"""Regression coverage for the program's matching and signer boundaries."""
+"""Regression coverage for public program exports and matching/signer boundaries."""
 
 import struct
 
@@ -6,6 +6,7 @@ import pytest
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
+import lightcone_sdk as sdk
 from lightcone_sdk.program import (
     INITIALIZE_AUTHORITY,
     MAX_MAKERS,
@@ -38,6 +39,26 @@ def wallet(seed: int) -> Pubkey:
 def test_program_constants():
     assert MAX_MAKERS == 11
     assert str(INITIALIZE_AUTHORITY) == "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
+
+
+def test_root_orderbook_id_accepts_signed_order():
+    order = sdk.SignedOrder(
+        nonce=0,
+        maker=wallet(1),
+        market=wallet(2),
+        base_mint=Pubkey.from_bytes(bytes([3]) * 32),
+        quote_mint=Pubkey.from_bytes(bytes([4]) * 32),
+        side=sdk.OrderSide.BID,
+        amount_in=10,
+        amount_out=20,
+        expiration=0,
+    )
+    assert sdk.derive_orderbook_id(order) == "CktRuQ2m_GgBaCs3N"
+    assert sdk.program.derive_orderbook_id(order) == "CktRuQ2m_GgBaCs3N"
+    assert (
+        sdk.shared.derive_orderbook_id(str(order.base_mint), str(order.quote_mint))
+        == "CktRuQ2m_GgBaCs3N"
+    )
 
 
 @pytest.mark.parametrize("deposit", [False, True])

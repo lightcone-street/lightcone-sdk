@@ -149,7 +149,6 @@ from .program import (
     SIGNED_ORDER_SIZE,
     SYSTEM_PROGRAM_ID,
     TAKER_MASK,
-    # Constants
     TOKEN_PROGRAM_ID,
     AccountNotFoundError,
     ActivateMarketParams,
@@ -170,14 +169,12 @@ from .program import (
     DepositMintMismatchError,
     DepositToGlobalParams,
     DuplicateScalarOutcomesError,
-    # Types - Account Data
     Exchange,
     ExchangePausedError,
     FullOrder,
     GlobalDepositToken,
     GlobalToMarketDepositParams,
     InactiveDepositTokenError,
-    # Types - Params
     InitializeParams,
     InitPositionTokensParams,
     InsufficientBalanceError,
@@ -195,15 +192,12 @@ from .program import (
     InvalidPayoutNumeratorsError,
     InvalidScalarRangeError,
     InvalidSignatureError,
-    # Errors
     LightconeError,
-    # Envelope & Builder
     LimitOrderEnvelope,
     MakerFill,
     Market,
     MarketFeeUpdate,
     MarketNotActiveError,
-    # Types - Enums
     MarketStatus,
     MatchOrdersMultiParams,
     MergeCompleteSetParams,
@@ -226,7 +220,6 @@ from .program import (
     SetManagerParams,
     SetMarketFeesParams,
     SettleMarketParams,
-    # Types - Orders
     SignedOrder,
     TokenAccountNotEmptyError,
     TooManyMakersError,
@@ -252,7 +245,6 @@ from .program import (
     build_global_to_market_deposit_instruction,
     build_increment_nonce_instruction,
     build_init_position_tokens_instruction,
-    # Instruction Builders
     build_initialize_instruction,
     build_match_orders_multi_instruction,
     build_merge_complete_set_instruction,
@@ -276,13 +268,12 @@ from .program import (
     cancel_order_message,
     canonical_mint_pair,
     create_ask_order,
-    # Order Functions
     create_bid_order,
     create_signed_ask_order,
     create_signed_bid_order,
     derive_condition_id,
+    derive_orderbook_id,
     deserialize_compact_order,
-    # Account Deserialization
     deserialize_exchange,
     deserialize_full_order,
     deserialize_global_deposit_token,
@@ -300,7 +291,6 @@ from .program import (
     get_conditional_mint_pda,
     get_conditional_token_ata,
     get_event_authority_pda,
-    # PDA Functions
     get_exchange_pda,
     get_global_deposit_pda,
     get_market_pda,
@@ -317,7 +307,6 @@ from .program import (
     is_global_deposit_token,
     is_order_expired,
     is_signed,
-    # Utils
     keccak256,
     orders_can_cross,
     orders_cross,
@@ -342,9 +331,7 @@ from .shared import (
     ApiRejectedDetails,
     ApiResponse,
     DepositSource,
-    # Types
     OrderBookId,
-    # Scaling
     OrderbookRules,
     OrderUpdateType,
     PubkeyStr,
@@ -357,8 +344,6 @@ from .shared import (
     TimeInForce,
     TradingRules,
     abbr_number,
-    # Utils
-    derive_orderbook_id,
     display,
     display_decimal,
     display_formatted_string,
@@ -366,7 +351,6 @@ from .shared import (
     format_decimal,
     from_decimal_value,
     is_zero,
-    # Price
     parse_decimal,
     scale_price_size,
     to_base_units,

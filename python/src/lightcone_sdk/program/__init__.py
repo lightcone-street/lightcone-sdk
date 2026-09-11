@@ -4,7 +4,6 @@ This module provides the client and utilities for interacting with
 the Lightcone smart contract on Solana.
 """
 
-# Types
 # Constants
 from ..env import PROGRAM_ID
 

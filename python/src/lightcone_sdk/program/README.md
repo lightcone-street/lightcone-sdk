@@ -100,7 +100,7 @@ from lightcone_sdk.program import (
 | `mint` | Pubkey | Whitelisted deposit mint |
 | `bump` | int | PDA bump seed |
 | `index` | int | Deposit token ordering index |
-| `active` | bool | Backend-visible status flag |
+| `active` | bool | Whether the collateral may back an executed trade; inactivity leaves deposit, preparation, split, merge, and exit rules unchanged |
 
 #### Position
 
@@ -283,8 +283,7 @@ Every `build_*_instruction` appends the event-authority PDA and executable progr
 account as read-only, non-signer accounts, in that order. These are always the
 last two accounts; callers must not append another trailer.
 
-See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules, the
-governance CPI allowlist, position replay semantics, program limits, and error codes.
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
 
 The SDK neither builds nor decodes event batches; `INSTRUCTION_EVENT_BATCH` is
 reserved. Builders do not add a compute-budget instruction. Callers must include

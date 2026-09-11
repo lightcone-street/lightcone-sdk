@@ -132,9 +132,11 @@ INSTRUCTION_EVENT_BATCH = 255
 MAX_OUTCOMES = 6
 MIN_OUTCOMES = 2
 # Maximum makers in one MatchOrdersMulti or DepositAndSwap instruction.
+# This encoding ceiling does not guarantee that a transaction fits runtime limits.
 MAX_MAKERS = 11
-# The maker ceiling does not guarantee that a transaction fits runtime limits.
+# Bit 15 selects the taker in a participant mask.
 TAKER_MASK = 0x8000
+# Encoded participant-mask width in bytes (unsigned 16-bit little-endian).
 PARTICIPANT_MASK_LEN = 2
 # Maximum deposit mints the program registers per market; add_deposit_mint fails
 # with on-chain error 75 (TooManyDepositMints) beyond it.

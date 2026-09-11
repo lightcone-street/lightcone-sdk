@@ -22,7 +22,10 @@ async function main() {
   let onchainOrderbook;
   try {
     onchainOrderbook = await client.orderbooks().getOnchain(baseMint, quoteMint);
-  } catch {
+  } catch (error) {
+    if (!(error instanceof program.ProgramSdkError) || error.variant !== "AccountNotFound") {
+      throw error;
+    }
     console.log("orderbook: not found on-chain");
   }
   const nonce = await client.orders().currentNonce(keypair.publicKey);

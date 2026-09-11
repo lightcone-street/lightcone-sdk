@@ -6,7 +6,7 @@
 ## Context
 
 The Rust, Python, and TypeScript SDKs must encode the same program wire contract.
-The [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) owns event transport behavior and invocation rules. The [schema-2 program source](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces. This ADR records the SDK exposure and compatibility boundary.
+The [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) owns event transport behavior and invocation rules. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces. This ADR records the SDK exposure and compatibility boundary.
 
 ## Decision
 
@@ -17,7 +17,7 @@ event-batch discriminator, and deposit-mint limits. Their program error types ex
 The SDKs neither build nor decode event batches, and builders do not add
 compute-budget instructions.
 
-The SDKs target the schema-2 program ABI as a hard cutover. They expose the 176-byte Orderbook provenance and require both collateral identities for trading. They reject the legacy account layout and remove the program's retired ALT operations, parameters, and helpers.
+The SDKs target the program ABI at `db552338` as a hard cutover. The program emits event schema 2; this event payload version is independent of the outer Solana transaction version. The SDKs expose the 176-byte Orderbook provenance and require both collateral identities for trading. They reject the legacy account layout and remove the program's retired address lookup table (ALT) operations, parameters, and helpers.
 
 `InitPositionTokens` prepares every requested collateral group without a slot or lookup table. Callers supply groups in increasing global registration index order. The same instruction prepares missing accounts and additional groups and validates repeated requests. Fallible preparation paths reject invalid beneficiaries, outcome counts, and mint lists before serialization. Rust's infallible `build_init_position_tokens_ix` and `Positions::init_position_tokens_ix` retain their return types. Its fluent builder and transaction helper validate locally.
 
