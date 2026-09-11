@@ -10,9 +10,9 @@ Official SDKs for the [Lightcone](https://lightcone.xyz) impact market protocol.
 | **TypeScript** | [`@lightconexyz/lightcone-sdk`](typescript/) | `npm install @lightconexyz/lightcone-sdk` |
 | **Python** | [`lightcone-sdk`](python/) | `pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python` |
 
-All three SDKs share the protocol's instruction ABI and business semantics.
-Rust transaction helpers require Solana v1; TypeScript and Python still use
-legacy outer transactions and require a separate migration for v1-only use.
+Rust, TypeScript, and Python share the protocol's instruction ABI, business
+semantics, and Solana v1 transaction contract. Transaction builders require
+explicit resources and a blockhash/expiry context; legacy/v0 imports are rejected.
 
 ## Features
 
@@ -26,7 +26,7 @@ legacy outer transactions and require a separate migration for v1-only use.
 
 The program builders target the [reviewed program ABI](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src). This is a hard cutover. Orderbooks use the 176-byte layout with both collateral mints and a shared outcome. Matching requires both collateral identities. Preparation uses `InitPositionTokens` without a slot. Retired ALT operations and their SDK parameters are removed.
 
-Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. Rust transaction helpers compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [Rust v1 decision](docs/adr/0004-rust-solana-v1.md) and [Rust migration instructions](rust/README.md#solana-v1-transactions). TypeScript and Python retain their existing transaction transports.
+Matching instructions support up to eleven makers with two-byte participant masks and taker bit 15. This limit does not guarantee that a transaction fits the transport or runtime limits. All three SDKs compile, sign, simulate, and submit Solana v1 transactions with explicit resources and expiry. They reject legacy/v0 imports and changed wallet messages. See the [v1 decision](docs/adr/0004-solana-v1.md) and migration instructions for [Rust](rust/README.md#solana-v1-transactions), [TypeScript](typescript/README.md#solana-v1-transactions), and [Python](python/README.md#solana-v1-transactions). Python now requires 3.11 or newer for its maintained v1 dependencies.
 
 Program event schema version 2 is independent of outer Solana transaction version 1. Refer to the [authenticated event transport decision](docs/adr/0003-authenticated-event-transport.md).
 
@@ -60,14 +60,15 @@ and try again.` Fee or balance lookup failure preserves the existing submission;
 SOL action planners keep their stricter live fee, rent, and reserve requirements.
 
 Transaction Sponsorship Capability is a client-wide trusted application assertion
-that defaults to false. It bypasses the generic check for external and Privy
-signing, while local-keypair submission rejects it with `transaction sponsorship
-is not supported with local-keypair signing`. The SDK does not infer sponsorship
-from a wallet provider. TypeScript `Privy.signAndSendTx`, Python
-`Privy.sign_and_send_tx`, and other raw pre-serialized forwarding methods remain
-outside this shared boundary. Unsponsored Python Privy shared submission obtains
-best-effort blockhash evidence for fee estimation; lookup failure preserves its
-existing backend-forwarding path. See [ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md).
+that defaults to false. It bypasses the generic check for external signing, while
+local-keypair submission rejects it with `transaction sponsorship is not supported
+with local-keypair signing`. The SDK does not infer sponsorship from a wallet
+provider. The existing Privy transaction endpoint cannot return signed bytes for
+message validation, so SDK-owned Privy transaction submission fails before any
+request. Use a v1-capable external signer that returns the signed transaction;
+Privy off-chain order signing remains available. See
+[ADR 0002](docs/adr/0002-transaction-fee-funding-preflight.md) and the
+[v1 signing contract](docs/adr/0004-solana-v1.md).
 
 ## Development Setup
 
@@ -75,7 +76,7 @@ existing backend-forwarding path. See [ADR 0002](docs/adr/0002-transaction-fee-f
 
 - [Rust](https://rustup.rs/) toolchain (via rustup)
 - [Node.js](https://nodejs.org/) 22+ and npm
-- [Python](https://www.python.org/) 3.12+ and [uv](https://docs.astral.sh/uv/)
+- [Python](https://www.python.org/) 3.11+ and [uv](https://docs.astral.sh/uv/)
 - [Solana CLI](https://docs.solanalabs.com/cli/install) (`solana-keygen` for wallet generation)
 
 ### Per-SDK Setup

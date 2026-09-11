@@ -478,4 +478,152 @@ mod tests {
         *corrupt.last_mut().unwrap() ^= 1;
         assert!(tx.accept_signed_bytes(&corrupt).is_err());
     }
+
+    #[test]
+    fn canonical_transactions_match_shared_language_fixtures() {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+
+        // Public deterministic test keys; the fixtures also drive TypeScript and Python.
+        let fixtures: serde_json::Value =
+            serde_json::from_str(include_str!("fixtures/solana_v1_transactions.json")).unwrap();
+        assert_eq!(fixtures["schema_version"], 1);
+        for case in fixtures["cases"].as_array().unwrap() {
+            let name = case["name"].as_str().unwrap();
+            let resources = &case["context"]["resources"];
+            let context = V1TransactionContext {
+                blockhash: case["context"]["blockhash"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                last_valid_block_height: case["context"]["last_valid_block_height"]
+                    .as_str()
+                    .unwrap()
+                    .parse()
+                    .unwrap(),
+                resources: V1ResourceConfig {
+                    compute_unit_limit: resources["compute_unit_limit"]
+                        .as_u64()
+                        .unwrap()
+                        .try_into()
+                        .unwrap(),
+                    loaded_accounts_data_size_limit: resources["loaded_accounts_data_size_limit"]
+                        .as_u64()
+                        .unwrap()
+                        .try_into()
+                        .unwrap(),
+                    priority_fee_lamports: resources["priority_fee_lamports"]
+                        .as_str()
+                        .unwrap()
+                        .parse()
+                        .unwrap(),
+                    heap_size: resources["heap_size"]
+                        .as_u64()
+                        .map(|value| value.try_into().unwrap()),
+                },
+            };
+            let instructions: Vec<_> = case["instructions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|ix| Instruction {
+                    program_id: ix["program_id"].as_str().unwrap().parse().unwrap(),
+                    accounts: ix["accounts"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|account| AccountMeta {
+                            pubkey: account["pubkey"].as_str().unwrap().parse().unwrap(),
+                            is_signer: account["is_signer"].as_bool().unwrap(),
+                            is_writable: account["is_writable"].as_bool().unwrap(),
+                        })
+                        .collect(),
+                    data: hex::decode(ix["data_hex"].as_str().unwrap()).unwrap(),
+                })
+                .collect();
+            let payer = case["payer"].as_str().unwrap().parse().unwrap();
+            let unsigned = V1Transaction::compile(&instructions, &payer, &context).unwrap();
+            let keypairs: Vec<_> = case["signer_seeds_hex"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|seed| {
+                    Keypair::new_from_array(
+                        hex::decode(seed.as_str().unwrap())
+                            .unwrap()
+                            .try_into()
+                            .unwrap(),
+                    )
+                })
+                .collect();
+            let signers: Vec<&dyn Signer> = keypairs
+                .iter()
+                .rev()
+                .map(|keypair| keypair as &dyn Signer)
+                .collect();
+            let signed = unsigned.sign(&signers).unwrap();
+            let expected = &case["expected"];
+            assert_eq!(
+                STANDARD.encode(unsigned.message_bytes().unwrap()),
+                expected["message_base64"],
+                "{name}: message"
+            );
+            assert_eq!(
+                STANDARD.encode(unsigned.to_wire_bytes().unwrap()),
+                expected["unsigned_transaction_base64"],
+                "{name}: unsigned transaction"
+            );
+            assert_eq!(
+                STANDARD.encode(signed.to_wire_bytes().unwrap()),
+                expected["signed_transaction_base64"],
+                "{name}: signed transaction"
+            );
+            assert_eq!(
+                serde_json::json!(unsigned
+                    .message()
+                    .account_keys
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()),
+                expected["account_keys"],
+                "{name}: account order"
+            );
+            assert_eq!(
+                serde_json::json!(unsigned
+                    .required_signers()
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()),
+                expected["required_signers"],
+                "{name}: signer order"
+            );
+            assert_eq!(
+                serde_json::json!(signed
+                    .as_versioned()
+                    .signatures
+                    .iter()
+                    .map(ToString::to_string)
+                    .collect::<Vec<_>>()),
+                expected["signatures"],
+                "{name}: signatures"
+            );
+            assert_eq!(
+                signed.to_wire_bytes().unwrap().len() as u64,
+                expected["wire_size"].as_u64().unwrap(),
+                "{name}: wire size"
+            );
+            assert_eq!(
+                unsigned
+                    .accept_signed_bytes(&signed.to_wire_bytes().unwrap())
+                    .unwrap(),
+                signed,
+                "{name}: wallet response"
+            );
+            assert_eq!(
+                V1Transaction::from_wire_bytes(&signed.to_wire_bytes().unwrap(), &context).unwrap(),
+                signed,
+                "{name}: import"
+            );
+        }
+    }
 }

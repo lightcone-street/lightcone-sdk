@@ -70,8 +70,8 @@ jobs:
       - name: Set RC version
         run: |
           OLD=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-          IFS='.' read -r MA MI PA <<< "$OLD"
-          RC="${MA}.${MI}.$((PA + 1))-rc.${GITHUB_RUN_NUMBER}"
+          NEXT=$(bash ../.github/scripts/next-release-version.sh "$OLD")
+          RC="${NEXT}-rc.${GITHUB_RUN_NUMBER}"
           sed -i "0,/^version = \"${OLD}\"/s//version = \"${RC}\"/" Cargo.toml
           sed -i "/^name = \"lightcone\"/{n;s/version = \"${OLD}\"/version = \"${RC}\"/;}" Cargo.lock
           echo "Publishing rust RC $RC"
@@ -104,8 +104,8 @@ jobs:
       - name: Set RC version
         run: |
           OLD=$(node -p "require('./package.json').version")
-          IFS='.' read -r MA MI PA <<< "$OLD"
-          RC="${MA}.${MI}.$((PA + 1))-rc.${GITHUB_RUN_NUMBER}"
+          NEXT=$(bash ../.github/scripts/next-release-version.sh "$OLD")
+          RC="${NEXT}-rc.${GITHUB_RUN_NUMBER}"
           npm version "$RC" --no-git-tag-version
           echo "Publishing ts RC $RC"
 
