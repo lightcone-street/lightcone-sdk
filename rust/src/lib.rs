@@ -182,7 +182,7 @@ pub mod prelude {
         GlobalDepositAssetsResult, LightconeClient, LightconeClientBuilder, MarketsClient,
         MarketsResult, MetricsClient, NotificationsClient, OrderbooksClient, OrdersClient,
         PositionsClient, PriceHistorySubClient, ReferralsClient, RpcClient, TradesClient,
-        TransactionStatus,
+        TransactionSimulation, TransactionStatus,
     };
     #[cfg(feature = "http")]
     pub use crate::http::retry::{RetryConfig, RetryPolicy};

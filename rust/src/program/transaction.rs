@@ -31,9 +31,12 @@ pub struct V1ResourceConfig {
 }
 
 impl V1ResourceConfig {
+    /// Runtime compute-unit ceiling.
     pub const MAX_COMPUTE_UNITS: u32 = 1_400_000;
+    /// Runtime loaded-account data ceiling, in bytes.
     pub const MAX_LOADED_ACCOUNT_BYTES: u32 = 64 * 1024 * 1024;
 
+    /// Reject resource values outside the supported runtime limits.
     pub fn validate(&self) -> SdkResult<()> {
         if !(1..=Self::MAX_COMPUTE_UNITS).contains(&self.compute_unit_limit) {
             return Err(invalid("compute limit must be 1..=1,400,000"));
@@ -65,8 +68,11 @@ impl V1ResourceConfig {
 /// A blockhash and its expiry, together with caller-selected transaction resources.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct V1TransactionContext {
+    /// Recent confirmed blockhash, encoded in the signed message.
     pub blockhash: Hash,
+    /// Expiry returned by the same getLatestBlockhash result.
     pub last_valid_block_height: u64,
+    /// Caller-selected limits and total priority fee.
     pub resources: V1ResourceConfig,
 }
 
@@ -81,7 +87,9 @@ pub struct V1Transaction {
 }
 
 impl V1Transaction {
+    /// Maximum canonical transaction bytes, including every signature.
     pub const MAX_TRANSACTION_SIZE: usize = v1::MAX_TRANSACTION_SIZE;
+    /// Maximum distinct inline account addresses.
     pub const MAX_ADDRESSES: usize = v1::MAX_ADDRESSES as usize;
 
     /// Compile offline using inline account keys and explicit resources.
@@ -154,6 +162,9 @@ impl V1Transaction {
         if bytes.len() > Self::MAX_TRANSACTION_SIZE {
             return Err(invalid("transaction exceeds the v1 wire size limit"));
         }
+        if bytes.first() != Some(&v1::V1_PREFIX) {
+            return Err(invalid("only Solana v1 transactions are supported"));
+        }
         let transaction = wincode::deserialize(bytes).map_err(invalid)?;
         let result = Self::from_versioned(transaction, context)?;
         if result.to_wire_bytes()? != bytes {
@@ -162,6 +173,7 @@ impl V1Transaction {
         Ok(result)
     }
 
+    /// Inspect the immutable v1 message used for fees and signatures.
     pub fn message(&self) -> &v1::Message {
         match &self.transaction.message {
             VersionedMessage::V1(message) => message,
@@ -169,6 +181,7 @@ impl V1Transaction {
         }
     }
 
+    /// Return the original blockhash expiry and resource configuration.
     pub fn context(&self) -> &V1TransactionContext {
         &self.context
     }
@@ -178,6 +191,7 @@ impl V1Transaction {
         &self.transaction
     }
 
+    /// Return distinct required signing keys in signature order, starting with the payer.
     pub fn required_signers(&self) -> &[Pubkey] {
         &self.message().account_keys[..usize::from(self.message().header.num_required_signatures)]
     }
@@ -225,6 +239,7 @@ impl V1Transaction {
         Ok(signed)
     }
 
+    /// Verify every required signature over this exact version-prefixed message.
     pub fn verify_signatures(&self) -> SdkResult<()> {
         self.transaction
             .verify_and_hash_message()

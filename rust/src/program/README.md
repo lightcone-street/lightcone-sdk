@@ -183,7 +183,7 @@ let solana_rpc = rpc.inner().await?;
 
 ### Instruction Builders
 
-Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a `Transaction` and return `Result<Transaction, SdkError>`.
+Instruction builders are organized by domain sub-client. `_ix` methods return an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders). `_tx` convenience methods wrap the instruction in a validated `V1Transaction` and return `Result<V1Transaction, SdkError>`.
 
 **Positions — Deposit/Merge/Withdraw (`client.positions()`):**
 ```rust
@@ -467,7 +467,7 @@ Amounts and fills use integer token units. Order signing, compact orders, 117-by
 
 `InitPositionTokens` handles initial, partial, repeated, and additional-group preparation. Every call validates all supplied groups and creates missing accounts. Supply 1–8 groups in strictly increasing GDT registration-index order. Preparation does not mint balances or create global custody. Inactive collateral remains available for preparation, deposits, splits, merges, withdrawals, and redemption under their existing rules.
 
-The maker ceiling is eleven in the program parser. Builders still return legacy Solana transactions, whose capacity can be lower. Eleven-maker instruction data alone is 1,392 or 1,394 bytes. Callers must select transaction batches that fit their transport and execution limits. This SDK cutover does not enable outer transaction version 1.
+The maker ceiling is eleven. Builders compile Solana v1 transactions and enforce the 4,096-byte signed wire limit and 64 distinct inline addresses. Eleven-maker instruction data alone is 1,392 or 1,394 bytes; the complete account list, signatures, resources, and other instructions must also fit. No legacy or v0 transactions are accepted.
 
 ### Event transport trailer
 

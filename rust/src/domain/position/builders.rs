@@ -323,6 +323,8 @@ pub(crate) fn temporary_wsol_account(wallet: &Pubkey, seed: &str) -> Result<Pubk
 /// recipient transfer. All five instructions execute in one Solana transaction,
 /// so any instruction failure rolls back the temporary account and both transfers.
 /// The canonical account is never closed.
+// Keep the atomic withdrawal amounts and account evidence explicit at each call site.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_temporary_native_withdraw_transaction(
     wallet: Pubkey,
     recipient: Pubkey,
@@ -509,10 +511,7 @@ impl<'a> DepositBuilder<'a> {
                 let market = self.market.ok_or(SdkError::MissingMarketContext(
                     "market is required for Market deposit source",
                 ))?;
-                let market_pubkey = market
-                    .pubkey
-                    .to_pubkey()
-                    .map_err(|error| SdkError::Validation(error))?;
+                let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
                 let num_outcomes = market.num_outcomes;
                 Ok(instructions::build_deposit_ix(
                     &BuildDepositParams {
@@ -622,10 +621,7 @@ impl<'a> MergeBuilder<'a> {
         let market = self.market.ok_or(SdkError::MissingMarketContext(
             "market is required for merge",
         ))?;
-        let market_pubkey = market
-            .pubkey
-            .to_pubkey()
-            .map_err(|error| SdkError::Validation(error))?;
+        let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
         let num_outcomes = market.num_outcomes;
         let program_id = &self.client.program_id;
 
@@ -804,10 +800,7 @@ impl<'a> WithdrawBuilder<'a> {
                 let market = self.market.ok_or(SdkError::MissingMarketContext(
                     "market is required for Market withdrawal",
                 ))?;
-                let market_pubkey = market
-                    .pubkey
-                    .to_pubkey()
-                    .map_err(|error| SdkError::Validation(error))?;
+                let market_pubkey = market.pubkey.to_pubkey().map_err(SdkError::Validation)?;
                 let outcome_index = self.outcome_index.ok_or_else(|| {
                     SdkError::Validation("outcome_index is required for Market withdrawal".into())
                 })?;

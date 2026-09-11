@@ -89,6 +89,9 @@ pin-project-lite = "0.2"
 # uuid needs an explicit randomness source on wasm32-unknown-unknown; without
 # this, the crate only compiles for wasm when the consumer enables uuid/js.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+# Solana address randomness and the SDK's rand 0.8 use different getrandom releases.
+getrandom = { version = "0.2", features = ["js"] }
+getrandom-v03 = { package = "getrandom", version = "0.3", features = ["wasm_js"] }
 uuid = { version = "1", features = ["v4", "js"] }
 
 [dev-dependencies]

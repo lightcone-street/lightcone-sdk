@@ -46,9 +46,10 @@ plan -> sign the prepared message -> submit -> confirm -> refresh complete state
    action authority.
 
 Invalid signed bytes or a changed prepared message fail before RPC submission. An
-on-chain failure is terminal. Prepared confirmation does not claim block-height
-expiry, so a timeout leaves the result unknown; inspect the signature or authoritative
-balances before retrying.
+on-chain failure is terminal. Rust v1 prepared transactions retain the blockhash and last valid block height
+through signing and confirmation. Python and TypeScript prepared confirmation
+still does not claim block-height expiry. A timeout leaves the result unknown;
+inspect the signature or authoritative balances before retrying.
 
 ## Instruction Ownership
 

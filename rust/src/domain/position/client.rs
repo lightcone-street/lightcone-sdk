@@ -352,7 +352,7 @@ impl<'a> Positions<'a> {
             0
         };
         let context = self.client.transaction_context().await?;
-        let mut transaction = build_wrap_sol_transaction(
+        let transaction = build_wrap_sol_transaction(
             wallet,
             amount_lamports,
             creates_canonical_wsol_account,
@@ -360,7 +360,7 @@ impl<'a> Positions<'a> {
         )?;
         let fee_lamports = self
             .client
-            .prepare_and_estimate_transaction_fee(&mut transaction)
+            .prepare_and_estimate_transaction_fee(&transaction)
             .await?;
         let costs = SolActionCosts {
             fee_lamports,
@@ -435,10 +435,10 @@ impl<'a> Positions<'a> {
         }
 
         let context = self.client.transaction_context().await?;
-        let mut transaction = build_unwrap_wsol_all_transaction(wallet, &context)?;
+        let transaction = build_unwrap_wsol_all_transaction(wallet, &context)?;
         let fee_lamports = self
             .client
-            .prepare_and_estimate_transaction_fee(&mut transaction)
+            .prepare_and_estimate_transaction_fee(&transaction)
             .await?;
         let costs = SolActionCosts {
             fee_lamports,
@@ -507,7 +507,7 @@ impl<'a> Positions<'a> {
                 .await?
         };
         let context = self.client.transaction_context().await?;
-        let mut transaction = build_sol_split_transaction(
+        let transaction = build_sol_split_transaction(
             &self.client.program_id,
             wallet,
             market,
@@ -518,7 +518,7 @@ impl<'a> Positions<'a> {
         )?;
         let fee_lamports = self
             .client
-            .prepare_and_estimate_transaction_fee(&mut transaction)
+            .prepare_and_estimate_transaction_fee(&transaction)
             .await?;
         let costs = SolActionCosts {
             fee_lamports,
@@ -596,7 +596,7 @@ impl<'a> Positions<'a> {
                 .await?
         };
         let context = self.client.transaction_context().await?;
-        let mut transaction = build_sol_merge_transaction(
+        let transaction = build_sol_merge_transaction(
             &self.client.program_id,
             wallet,
             market,
@@ -611,7 +611,7 @@ impl<'a> Positions<'a> {
             sponsored,
             !canonical_exists,
             upfront_rent_lamports,
-            &mut transaction,
+            &transaction,
         )
         .await
     }
@@ -657,7 +657,7 @@ impl<'a> Positions<'a> {
                 .await?
         };
         let context = self.client.transaction_context().await?;
-        let mut transaction = build_sol_redeem_transaction(
+        let transaction = build_sol_redeem_transaction(
             &self.client.program_id,
             wallet,
             market,
@@ -673,7 +673,7 @@ impl<'a> Positions<'a> {
             sponsored,
             !canonical_exists,
             upfront_rent_lamports,
-            &mut transaction,
+            &transaction,
         )
         .await
     }
@@ -709,11 +709,11 @@ impl<'a> Positions<'a> {
         let breakdown = state.sol_balance_breakdown()?;
 
         let context = self.client.transaction_context().await?;
-        let mut direct =
+        let direct =
             build_direct_native_withdraw_transaction(wallet, recipient, amount_lamports, &context)?;
         let direct_fee = self
             .client
-            .prepare_and_estimate_transaction_fee(&mut direct)
+            .prepare_and_estimate_transaction_fee(&direct)
             .await?;
         let direct_costs = SolActionCosts {
             fee_lamports: direct_fee,
@@ -891,7 +891,7 @@ impl<'a> Positions<'a> {
         sponsored: bool,
         creates_canonical_wsol_account: bool,
         upfront_rent_lamports: u64,
-        transaction: &mut V1Transaction,
+        transaction: &V1Transaction,
     ) -> Result<SolActionPlan, SdkError> {
         let fee_lamports = self
             .client
@@ -1132,7 +1132,7 @@ impl<'a> Positions<'a> {
 
     /// Create a deposit builder pre-seeded with the client's deposit source.
     ///
-    /// Use `.build_ix()` or `.build_tx(&crate::program::transaction::test_context())` to produce the final instruction/transaction.
+    /// Use `.build_ix()` or `.build_tx(&context)` to produce the final instruction/transaction.
     pub async fn deposit(&self) -> DepositBuilder<'a> {
         let deposit_source = self.client.deposit_source().await;
         DepositBuilder::new(self.client, deposit_source)
@@ -1141,7 +1141,7 @@ impl<'a> Positions<'a> {
     /// Create a merge builder.
     ///
     /// Burns a complete set of conditional tokens and releases collateral.
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn merge(&self) -> MergeBuilder<'a> {
         MergeBuilder::new(self.client)
     }
@@ -1152,7 +1152,7 @@ impl<'a> Positions<'a> {
     /// - **Global**: withdraws from global deposit pool
     /// - **Market**: withdraws conditional tokens from a position ATA
     ///
-    /// Use `.build_ix()` or `.build_tx(&crate::program::transaction::test_context())` to produce the final instruction/transaction.
+    /// Use `.build_ix()` or `.build_tx(&context)` to produce the final instruction/transaction.
     pub async fn withdraw(&self) -> WithdrawBuilder<'a> {
         let deposit_source = self.client.deposit_source().await;
         WithdrawBuilder::new(self.client, deposit_source)
@@ -1160,7 +1160,7 @@ impl<'a> Positions<'a> {
 
     /// Create a redeem winnings builder.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn redeem_winnings(&self) -> RedeemWinningsBuilder<'a> {
         RedeemWinningsBuilder::new(self.client)
     }
@@ -1168,7 +1168,7 @@ impl<'a> Positions<'a> {
     /// Create a conditional-token withdraw-from-position builder.
     /// Set `.num_outcomes(...)` before building because this path only receives a market pubkey.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn withdraw_from_position(&self) -> WithdrawFromPositionBuilder<'a> {
         WithdrawFromPositionBuilder::new(self.client)
     }
@@ -1180,28 +1180,28 @@ impl<'a> Positions<'a> {
 
     /// Create an init-position-tokens builder.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn init_position_tokens(&self) -> InitPositionTokensBuilder<'a> {
         InitPositionTokensBuilder::new(self.client)
     }
 
     /// Create a deposit-to-global builder.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn deposit_to_global(&self) -> DepositToGlobalBuilder<'a> {
         DepositToGlobalBuilder::new(self.client)
     }
 
     /// Create a withdraw-from-global builder.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn withdraw_from_global(&self) -> WithdrawFromGlobalBuilder<'a> {
         WithdrawFromGlobalBuilder::new(self.client)
     }
 
     /// Create a global-to-market deposit builder.
     ///
-    /// Use `.build_ix()`, `.build_tx(&crate::program::transaction::test_context())`, or `.sign_and_submit()` to produce the final result.
+    /// Use `.build_ix()`, `.build_tx(&context)`, or `.sign_and_submit()` to produce the final result.
     pub fn global_to_market_deposit(&self) -> GlobalToMarketDepositBuilder<'a> {
         GlobalToMarketDepositBuilder::new(self.client)
     }
@@ -1303,7 +1303,17 @@ mod tests {
             ));
         }
 
-        for count in [1, MAX_DEPOSIT_MINTS_PER_IX] {
+        // Eight valid groups exceed the v1 address limit even with only two outcomes.
+        let too_large = client.positions().init_position_tokens_tx(
+            params(user, MAX_DEPOSIT_MINTS_PER_IX),
+            2,
+            &crate::program::transaction::test_context(),
+        );
+        assert!(matches!(
+            too_large,
+            Err(SdkError::Program(ProgramError::InvalidTransaction(_)))
+        ));
+        for count in [1, MAX_DEPOSIT_MINTS_PER_IX - 1] {
             let tx = client
                 .positions()
                 .init_position_tokens_tx(

@@ -114,7 +114,7 @@ Clear the internal decimals cache. Rarely needed.
 ```rust
 
 fn close_orderbook_ix(&self, params: &CloseOrderbookParams) -> Instruction
-fn close_orderbook_tx(&self, params: CloseOrderbookParams) -> Result<Transaction, SdkError>
+fn close_orderbook_tx(&self, params: CloseOrderbookParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build direct cleanup instructions for resolved orderbooks. `CloseOrderbookParams` supplies the operator, orderbook, and market. The program closes the book and refunds its lamports to the operator. The fee receiver quote ATA remains open.

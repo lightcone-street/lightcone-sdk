@@ -128,13 +128,13 @@ The `wsol_conversion` example runs automatically for every SDK wallet in local a
 
 ### On-Chain Instruction & Transaction Builders
 
-Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<Transaction, SdkError>`.
+Each operation has an `_ix` method returning an `Instruction` (or `Result<Instruction, SdkError>` for fallible builders) and a `_tx` convenience method returning `Result<V1Transaction, SdkError>`.
 
 #### `redeem_winnings_ix` / `redeem_winnings_tx`
 
 ```rust
 fn redeem_winnings_ix(&self, params: &RedeemWinningsParams, outcome_index: u8) -> Instruction
-fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8) -> Result<Transaction, SdkError>
+fn redeem_winnings_tx(&self, params: RedeemWinningsParams, outcome_index: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a RedeemWinnings instruction/transaction — redeem conditional tokens for collateral after market resolution.
@@ -143,11 +143,11 @@ Build a RedeemWinnings instruction/transaction — redeem conditional tokens for
 
 ```rust
 fn withdraw_conditional_from_position_ix(&self, params: &WithdrawConditionalFromPositionParams) -> Instruction
-fn withdraw_conditional_from_position_tx(&self, params: WithdrawConditionalFromPositionParams) -> Result<Transaction, SdkError>
+fn withdraw_conditional_from_position_tx(&self, params: WithdrawConditionalFromPositionParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 
 // Compatibility wrappers:
 fn withdraw_from_position_ix(&self, params: &WithdrawFromPositionParams) -> Instruction
-fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams) -> Result<Transaction, SdkError>
+fn withdraw_from_position_tx(&self, params: WithdrawFromPositionParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a conditional-token withdrawal instruction/transaction. The params take the market's registered `deposit_mint`; the SDK derives the conditional mint from `(market, deposit_mint, outcome_index)` and withdraws from the position's canonical conditional-token ATA to the user's canonical ATA.
@@ -158,7 +158,7 @@ The fluent `withdraw_from_position()` and `withdraw_conditional_from_position()`
 
 ```rust
 fn init_position_tokens_ix(&self, params: &InitPositionTokensParams, num_outcomes: u8) -> Instruction
-fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn init_position_tokens_tx(&self, params: InitPositionTokensParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build permissionless, idempotent position preparation with a signing payer and an unsigned on-curve user. Every call validates all requested collateral groups and creates missing position accounts and conditional ATAs. Existing valid accounts remain in place. Use the same instruction for initial, partial, repeated, and additional-group preparation. Supply 1–8 distinct mints in strictly increasing GDT registration-index order. No recent slot is required. The fluent builder and transaction helper validate beneficiaries, group counts, duplicate mints, and outcome counts locally. Raw instruction builders retain their infallible return types and leave validation to the program.
@@ -167,7 +167,7 @@ Build permissionless, idempotent position preparation with a signing payer and a
 
 ```rust
 fn deposit_to_global_ix(&self, params: &DepositToGlobalParams) -> Instruction
-fn deposit_to_global_tx(&self, params: DepositToGlobalParams) -> Result<Transaction, SdkError>
+fn deposit_to_global_tx(&self, params: DepositToGlobalParams, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a DepositToGlobal instruction/transaction — deposit collateral into the global deposit pool for cross-market use.
@@ -176,7 +176,7 @@ Build a DepositToGlobal instruction/transaction — deposit collateral into the 
 
 ```rust
 fn global_to_market_deposit_ix(&self, params: &GlobalToMarketDepositParams, num_outcomes: u8) -> Instruction
-fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn global_to_market_deposit_tx(&self, params: GlobalToMarketDepositParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a GlobalToMarketDeposit instruction/transaction — move collateral from the global deposit pool into a specific market position.
@@ -185,7 +185,7 @@ Build a GlobalToMarketDeposit instruction/transaction — move collateral from t
 
 ```rust
 fn close_position_token_accounts_ix(&self, params: &ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Instruction, SdkError>
-fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8) -> Result<Transaction, SdkError>
+fn close_position_token_accounts_tx(&self, params: ClosePositionTokenAccountsParams, num_outcomes: u8, context: &V1TransactionContext) -> Result<V1Transaction, SdkError>
 ```
 
 Build a ClosePositionTokenAccounts instruction/transaction — close empty position-owned conditional token accounts.
@@ -200,7 +200,7 @@ The preferred way to build deposit, withdraw, and merge instructions.
 async fn deposit(&self) -> DepositBuilder<'a>
 ```
 
-Create a `DepositBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `DepositBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 For market deposits, use `.with_market_deposit_source(&market)` or `.market(&market)` if the client is already configured with `DepositSource::Market`.
 
@@ -210,7 +210,7 @@ For market deposits, use `.with_market_deposit_source(&market)` or `.market(&mar
 async fn withdraw(&self) -> WithdrawBuilder<'a>
 ```
 
-Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `WithdrawBuilder` pre-seeded with the client's deposit source. Chain `.user()`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 For market withdrawals, `.mint()` is the registered deposit mint and the SDK derives the conditional mint from `.outcome_index()`. Position withdrawals are conditional-token only; collateral exits through global withdrawal, complete-set merge, or winnings redemption.
 
@@ -220,7 +220,7 @@ For market withdrawals, `.mint()` is the registered deposit mint and the SDK der
 fn merge(&self) -> MergeBuilder<'a>
 ```
 
-Create a `MergeBuilder` for burning a complete set of conditional tokens and releasing collateral. Chain `.user()`, `.market(&market)`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx()`.
+Create a `MergeBuilder` for burning a complete set of conditional tokens and releasing collateral. Chain `.user()`, `.market(&market)`, `.mint()`, `.amount()`, then call `.build_ix()` or `.build_tx(&context)`.
 
 ## Examples
 

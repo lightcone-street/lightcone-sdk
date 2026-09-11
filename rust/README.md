@@ -44,6 +44,34 @@ lightcone = { version = "0.7.0", features = ["wasm"] }
 | **`wasm`** | `http` + `ws-wasm` | **Browser applications** |
 | **`trigger_orders`** | Stop-limit & take-profit-limit order types, envelope, state | **Under development** — not yet available. For internal use only. |
 
+## Solana v1 transactions
+
+This Rust release is a hard cutover to `V1Transaction`. Every `_tx` and fluent
+`build_tx` takes `&V1TransactionContext`. Context binds explicit compute units,
+loaded account bytes, total priority fee lamports, optional heap bytes, and a
+blockhash with its last valid block height. There is no legacy/v0 fallback or ALT
+configuration. Configure `LightconeClientBuilder::transaction_resources` for SOL
+planners and fluent submitters, or call `transaction_context_with_resources`.
+
+Use `to_wire_bytes()` and `message_bytes()` for canonical v1 encoding. Wallet
+responses must preserve the complete message and provide valid signatures.
+Submission requires active cluster support, exact-message simulation, and
+preflight. A transport failure returns `SubmissionUnknown` with the signature
+and expiry; reconcile it before rebuilding. Existing SOL balance, reserve,
+canonical WSOL, and temporary-account semantics remain intact.
+
+```rust,ignore
+let resources = V1ResourceConfig {
+    compute_unit_limit: 200_000,
+    loaded_accounts_data_size_limit: 1024 * 1024,
+    priority_fee_lamports: 1_000, // total lamports per transaction
+    heap_size: None,
+};
+let context = client.transaction_context_with_resources(resources).await?;
+let tx = client.orders().increment_nonce_tx(&payer, &context)?;
+let confirmed = client.sign_and_submit_tx_confirmed_with_slot(tx).await?;
+```
+
 ## Transaction Fee Funding
 
 Shared on-chain submission checks the exact prepared message fee and declared

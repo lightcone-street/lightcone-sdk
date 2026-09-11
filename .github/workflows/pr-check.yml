@@ -24,6 +24,9 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+          targets: wasm32-unknown-unknown
 
       - name: Cache cargo
         uses: actions/cache@v4
@@ -35,6 +38,17 @@ jobs:
           key: rust-tests-${{ hashFiles('rust/Cargo.lock') }}
           restore-keys: rust-tests-
 
+      - name: Rust formatting
+        run: cargo fmt --all --check
+
+      - name: Check default and explicit RPC features
+        run: |
+          cargo check
+          cargo check --features solana-rpc
+
+      - name: Clippy
+        run: cargo clippy --all-targets --features native,trigger_orders
+
       - name: Unit tests (native)
         run: cargo test --features native
 
@@ -42,7 +56,7 @@ jobs:
         run: cargo test --features native,trigger_orders
 
       - name: Check web-facing WASM feature
-        run: cargo check --no-default-features --features wasm
+        run: cargo check --no-default-features --features wasm,trigger_orders --target wasm32-unknown-unknown
 
   publish:
     needs: [rust_tests]
