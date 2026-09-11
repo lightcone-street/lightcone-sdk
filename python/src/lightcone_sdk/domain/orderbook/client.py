@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from ...program.accounts import deserialize_orderbook
 from ...program.errors import AccountNotFoundError
@@ -15,6 +14,7 @@ from ...program.instructions import (
     build_close_orderbook_instruction,
 )
 from ...program.pda import get_orderbook_pda
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
     CloseOrderbookParams,
 )
@@ -53,10 +53,12 @@ class Orderbooks:
 
     # ── On-chain transaction builders ────────────────────────────────────
 
-    def close_orderbook_tx(self, params: CloseOrderbookParams) -> Transaction:
+    def close_orderbook_tx(
+        self, params: CloseOrderbookParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build CloseOrderbook transaction."""
         ix = self.close_orderbook_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
+        return V1Transaction.compile([ix], params.operator, context)
 
     # ── HTTP methods ─────────────────────────────────────────────────────
 

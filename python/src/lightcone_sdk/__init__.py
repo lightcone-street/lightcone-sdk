@@ -91,6 +91,7 @@ from .error import (
     MissingMarketContext,
     SdkError,
     SigningError,
+    SubmissionUnknown,
     TransactionExpired,
     TransactionFailed,
     UserCancelled,
@@ -326,7 +327,8 @@ from .program import (
     verify_order_signature,
     winner_takes_all_payout_numerators,
 )
-from .rpc import CanonicalWsolAccountInfo, Rpc
+from .program.transaction import V1ResourceConfig, V1Transaction, V1TransactionContext
+from .rpc import CanonicalWsolAccountInfo, Rpc, TransactionSimulation
 from .shared import (
     ApiRejectedDetails,
     ApiResponse,
@@ -779,3 +781,6 @@ __all__ = [
     "error",
     "network",
 ]
+
+__all__ += ["V1ResourceConfig", "V1Transaction", "V1TransactionContext"]
+__all__ += ["SubmissionUnknown", "TransactionSimulation"]

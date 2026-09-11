@@ -4,11 +4,11 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from ..shared.types import DepositSource, Side
 from .constants import MAX_OUTCOMES, MIN_OUTCOMES
 from .errors import InvalidOutcomeCountError, InvalidOutcomeIndexError
+from .transaction import V1Transaction
 
 
 class MarketStatus(IntEnum):
@@ -574,9 +574,9 @@ class CloseOrderbookParams:
 
 @dataclass
 class BuildResult:
-    """Result of building a transaction."""
+    """Result of compiling a validated Solana v1 transaction."""
 
-    transaction: Transaction
+    transaction: V1Transaction
     signers: list[Pubkey]
 
 

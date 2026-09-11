@@ -163,8 +163,6 @@ from lightcone_sdk.program import (
     InitializeParams,
     CreateMarketParams,
     AddDepositMintParams,
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     SettleMarketParams,
     RedeemWinningsParams,
     WithdrawConditionalFromPositionParams,
@@ -482,7 +480,7 @@ validate_signed_order(order)  # Also verifies signature
 
 ## Transaction Builders
 
-All transaction builders return a `Transaction` ready for signing.
+All transaction builders require an explicit `V1TransactionContext` and return an immutable `V1Transaction`. See [Solana v1 transactions](../../../README.md#solana-v1-transactions) for resource limits, signing, and submission.
 
 ### Exchange Administration & Market Lifecycle
 
@@ -512,56 +510,26 @@ payout_numerators = scalar_to_payout_numerators(ScalarResolutionParams(
 
 ```python
 from lightcone_sdk.program import (
-    MintCompleteSetParams,
-    MergeCompleteSetParams,
     RedeemWinningsParams,
     WithdrawConditionalFromPositionParams,
     WithdrawFromPositionParams,
 )
 
-# Mint complete set (deposit collateral, receive outcome tokens)
-tx = await client.mint_complete_set(
-    MintCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
+context = await client.transaction_context()
+# Use the fluent deposit/merge APIs for a complete Market object.
+tx = (client.positions().deposit().user(user_pubkey).mint(usdc_mint)
+      .amount(1_000_000).with_market_deposit_source(market).build_tx(context))
+tx = (client.positions().merge().user(user_pubkey).market(market).mint(usdc_mint)
+      .amount(1_000_000).build_tx(context))
+tx = client.positions().redeem_winnings_tx(
+    RedeemWinningsParams(user=user_pubkey, market=market_pubkey,
+                        deposit_mint=usdc_mint, amount=1_000_000),
+    outcome_index=0, context=context,
 )
-
-# Merge complete set (burn outcome tokens, receive collateral)
-tx = await client.merge_complete_set(
-    MergeCompleteSetParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    num_outcomes=2,
-)
-
-# Redeem winnings (after settlement)
-tx = await client.redeem_winnings(
-    RedeemWinningsParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=1_000_000,
-    ),
-    outcome_index=0,
-)
-
-# Withdraw conditional tokens from position account.
-# WithdrawFromPositionParams is a compatibility alias for the same layout.
 tx = client.positions().withdraw_conditional_from_position_tx(
-    WithdrawConditionalFromPositionParams(
-        user=user_pubkey,
-        market=market_pubkey,
-        deposit_mint=usdc_mint,
-        amount=500_000,
-        outcome_index=0,
-    ),
+    WithdrawConditionalFromPositionParams(user=user_pubkey, market=market_pubkey,
+        deposit_mint=usdc_mint, amount=500_000, outcome_index=0),
+    context,
 )
 ```
 
@@ -802,4 +770,8 @@ ix = (client.positions().init_position_tokens()
 
 The same call prepares missing ATAs, validates existing accounts, and can prepare newly registered collateral groups. A successful retry reports all requested groups. Preparation does not create global custody or mint balances. Inactive registration blocks trading, but does not independently block preparation, deposits, splits, merges, or exits.
 
-The program ABI and the outer transaction version are separate. Python transaction helpers currently construct legacy `solders.transaction.Transaction` values. Eleven-maker instruction data alone occupies 1392 bytes for matching and 1394 bytes for deposit-and-swap, exceeding legacy/v0 capacity. The maker ceiling does not guarantee submission capacity. Select batches that fit the actual transport and execution limits. This cutover does not implement Solana transaction-v1 envelopes or alter fee-prepared message guarantees.
+Python uses the same Solana v1 outer transaction contract as Rust and TypeScript.
+Compilation and import enforce 4096 bytes including all signatures and 64 distinct
+inline account keys. Eleven-maker instructions are supported when the entire
+transaction fits these limits. Split larger account groups or instruction batches
+before compilation; there is no ALT, legacy, or v0 fallback.

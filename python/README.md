@@ -20,7 +20,7 @@ Python SDK for the Lightcone impact market protocol on Solana.
 
 ## Installation
 
-Requires Python 3.10 or newer.
+Requires Python 3.11 or newer. Official v1 bindings require `solders>=0.29,<0.30` and `solana>=0.40,<0.41`; solana 0.40 requires Python 3.11.
 
 ```bash
 pip install git+https://github.com/lightcone-street/lightcone-sdk.git@prod#subdirectory=python
@@ -38,12 +38,62 @@ checks.
 
 `LightconeClientBuilder().transaction_sponsorship(True)` and
 `client.set_transaction_sponsorship_enabled(True)` are trusted application
-assertions for wallet-adapter and Privy signing. The default is false, each
-transaction captures its signer and capability before asynchronous RPC work, and
-local-keypair submission rejects an enabled capability. Unsponsored shared Privy
-submission best-effort installs blockhash evidence for the fee check; lookup
-failure preserves backend forwarding. Raw `Privy.sign_and_send_tx` forwarding and
-off-chain order-message signing are outside this contract.
+assertions for external signing. The default is false, each transaction captures
+its signer and capability before asynchronous RPC work, and local-keypair
+submission rejects an enabled capability. Off-chain order-message signing remains
+outside this contract. Privy's backend transaction endpoint cannot expose its final
+signed bytes and is rejected by both shared submission and `Privy.sign_and_send_tx`.
+
+## Solana v1 transactions
+
+Every transaction builder and submission API accepts only `V1Transaction`.
+Legacy/v0 imports, ComputeBudget instructions, messages with more than 64 distinct
+accounts, and wire transactions larger than 4096 bytes (including every signature)
+are rejected. Instruction encoders continue to return solders `Instruction` values.
+
+```python
+from lightcone_sdk import LightconeClientBuilder, V1ResourceConfig, V1Transaction
+
+# Explicit example limits; select budgets for your own workload.
+resources = V1ResourceConfig(
+    compute_unit_limit=200_000,
+    loaded_accounts_data_size_limit=1_048_576,
+    priority_fee_lamports=0,  # Total lamports, not micro-lamports per compute unit.
+)
+client = (LightconeClientBuilder().native_signer(keypair)
+          .transaction_resources(resources).build())
+context = await client.transaction_context()
+tx = client.orders().increment_nonce_tx(keypair.pubkey(), context)
+# Fluent builders use .build_tx(context); .sign_and_submit() obtains configured context.
+confirmed = await client.sign_and_submit_tx_confirmed_with_slot(tx)
+```
+
+Offline compilation uses `V1Transaction.compile(instructions, payer, context)`.
+`V1TransactionContext` stores the blockhash and last valid block height returned
+by one `getLatestBlockhash` response. `client.transaction_context_with_resources`
+fetches a context for a specific explicit budget. No SDK resource defaults are
+selected. Optional `heap_size` is bytes, 32–256 KiB in 1-KiB steps.
+
+Transactions and contexts are immutable. `tx.sign(keypairs)` returns a new signed
+transaction and requires every signer; it never changes the original transaction.
+Use `tx.to_wire_bytes()` for canonical version-prefixed wire encoding and
+`tx.message_bytes()` for signing/fee bytes. `from_wire_bytes(wire, context)` rejects
+noncanonical encodings, legacy/v0 data, and context mismatches. An external signer's
+`sign_transaction(bytes)` must return valid signatures over the exact original
+message; changing budgets, instructions, accounts, payer, or blockhash is rejected.
+
+Submission requires active runtime v1 support, verifies all signatures, simulates
+the exact signed bytes with signature verification and no blockhash replacement,
+and sends once with preflight and `maxRetries=0`. It never retries or changes
+endpoints after an uncertain send. `SubmissionUnknown` retains `signature`,
+`last_valid_block_height`, and `reason`; reconcile the signature before another
+attempt. Confirmation retains the original expiry for ordinary and SOL-prepared
+transactions. A changed budget requires a fresh plan and signatures.
+
+The Privy backend only returns a submission hash, so it cannot satisfy these
+checks. Use a v1-capable `ExternalSigner` that returns signed bytes; Privy off-chain
+order signing remains available. See the [v1 ADR](../docs/adr/0004-solana-v1.md).
+
 
 
 ## Quick Start
@@ -406,8 +456,10 @@ native/canonical balance breakdown with displayed SOL checked in the common
 unsigned 64-bit range, reserve equal to the fee only, and spendable equal to
 displayed minus fee after native SOL proves it can pay that fee. The native delta
 is the complete account balance minus fee; the canonical delta removes the full
-token amount. Wallet-adapter and Privy strategies are rejected only for these
-explicit conversion planners, not for ordinary actions.
+token amount. These explicit conversion planners require native-keypair signing.
+Ordinary SOL planning keeps its separate wallet-identity rules, and v1-capable
+external signers can submit ordinary plans. All Privy transaction submission is
+rejected because its backend cannot expose the final signed bytes for validation.
 
 `SolBalanceAvailability.from_unwrap_all_costs(breakdown, costs)` is the
 conversion-specific fee-only constructor. It accepts the complete factual cost
@@ -527,6 +579,7 @@ or one of its subclasses:
 | `MissingMarketContext` | Market context not provided for operation requiring `DepositSource.MARKET` |
 | `SigningError` | Signing operation failures |
 | `UserCancelled` | User cancelled wallet signing prompt |
+| `SubmissionUnknown` | A send acknowledgement failed or was invalid; retains `signature`, `last_valid_block_height`, and `reason` for reconciliation before retrying |
 | `SdkError` | Catch-all for other SDK failures |
 
 Strict wallet-balance REST and nested WebSocket decoders raise `TypeError` for

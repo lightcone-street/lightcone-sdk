@@ -25,12 +25,8 @@ from solders.system_program import (
 from solders.system_program import (
     transfer as system_transfer,
 )
-from solders.transaction import Transaction
 from spl.token.constants import TOKEN_PROGRAM_ID, WRAPPED_SOL_MINT
 from spl.token.instructions import (
-    CloseAccountParams,
-    InitializeAccount3Params,
-    SyncNativeParams,
     close_account,
     create_idempotent_associated_token_account,
     get_associated_token_address,
@@ -38,10 +34,15 @@ from spl.token.instructions import (
     sync_native,
 )
 from spl.token.instructions import (
-    TransferParams as TokenTransferParams,
-)
-from spl.token.instructions import (
     transfer as token_transfer,
+)
+from spl.token.models import (
+    CloseAccountParams,
+    InitializeAccount3Params,
+    SyncNativeParams,
+)
+from spl.token.models import (
+    TransferParams as TokenTransferParams,
 )
 
 from ...error import SdkError
@@ -58,6 +59,7 @@ from ...program.instructions import (
     build_withdraw_from_global_instruction,
 )
 from ...program.pda import get_position_pda
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
     ClosePositionTokenAccountsParams,
     DepositToGlobalParams,
@@ -130,7 +132,9 @@ class SolBalanceDelta:
     canonical_wsol_lamports: int
 
 
-class SolActionKind(str, Enum):
+class SolActionKind(
+    str, Enum
+):  # noqa: UP042 - preserve the public enum string representation
     """Identify the SOL-aware operation represented by an action plan."""
 
     #: Mint a complete conditional-token set, wrapping only a WSOL shortfall.
@@ -154,7 +158,7 @@ class SolActionPlan:
     #: Operation whose balance semantics produced this plan.
     kind: SolActionKind
     #: Fee-prepared message that submission must preserve exactly.
-    transaction: Transaction
+    transaction: V1Transaction
     #: Live fee/rent observations and explicit sponsorship capability.
     costs: SolActionCosts
     #: Balance totals after action-specific native reserve.
@@ -408,7 +412,9 @@ class Positions:
                 ),
             ]
         )
-        transaction = Transaction.new_with_payer(instructions, wallet)
+        transaction = V1Transaction.compile(
+            instructions, wallet, await self._client.transaction_context()
+        )
         fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
         costs = SolActionCosts(
             fee_lamports=fee,
@@ -470,7 +476,7 @@ class Positions:
                 "live canonical WSOL amount does not match wallet balance state"
             )
 
-        transaction = Transaction.new_with_payer(
+        transaction = V1Transaction.compile(
             [
                 close_account(
                     CloseAccountParams(
@@ -482,6 +488,7 @@ class Positions:
                 )
             ],
             wallet,
+            await self._client.transaction_context(),
         )
         fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
         costs = SolActionCosts(
@@ -564,7 +571,9 @@ class Positions:
                 program_id=self._client.program_id,
             )
         )
-        transaction = Transaction.new_with_payer(instructions, wallet)
+        transaction = V1Transaction.compile(
+            instructions, wallet, await self._client.transaction_context()
+        )
         fee = await rpc.prepare_and_estimate_transaction_fee(transaction)
         costs = SolActionCosts(fee, rent, not canonical_exists, sponsored)
         availability = SolBalanceAvailability.from_costs(breakdown, costs)
@@ -615,7 +624,9 @@ class Positions:
         return await self._finish_receive_plan(
             SolActionKind.MERGE,
             amount_lamports,
-            Transaction.new_with_payer(instructions, wallet),
+            V1Transaction.compile(
+                instructions, wallet, await self._client.transaction_context()
+            ),
             rpc,
             breakdown,
             rent,
@@ -657,7 +668,9 @@ class Positions:
         return await self._finish_receive_plan(
             SolActionKind.REDEEM,
             amount_lamports,
-            Transaction.new_with_payer(instructions, wallet),
+            V1Transaction.compile(
+                instructions, wallet, await self._client.transaction_context()
+            ),
             rpc,
             breakdown,
             rent,
@@ -685,7 +698,7 @@ class Positions:
         wallet = self._planning_wallet(state)
         breakdown = state.sol_balance_breakdown()
         rpc = self._client.rpc()
-        direct = Transaction.new_with_payer(
+        direct = V1Transaction.compile(
             [
                 system_transfer(
                     TransferParams(
@@ -696,6 +709,7 @@ class Positions:
                 )
             ],
             wallet,
+            await self._client.transaction_context(),
         )
         direct_fee = await rpc.prepare_and_estimate_transaction_fee(direct)
         direct_costs = SolActionCosts(direct_fee, 0, False, sponsored)
@@ -722,7 +736,8 @@ class Positions:
         temporary_rent = await rpc.minimum_balance_for_rent_exemption(
             TOKEN_ACCOUNT_SPACE
         )
-        blockhash = await rpc.get_latest_blockhash()
+        context = await self._client.transaction_context()
+        blockhash = context.blockhash
         selected: tuple[str, Pubkey] | None = None
         # Bound account-existence RPCs; blockhash plus attempt makes eight collisions remote.
         for attempt in range(8):
@@ -745,8 +760,8 @@ class Positions:
             temporary_rent,
             seed,
             temporary,
+            context,
         )
-        transaction.partial_sign([], blockhash)
         initial_fee = await rpc.estimate_prepared_transaction_fee(transaction)
         initial_costs = SolActionCosts(initial_fee, temporary_rent, False, sponsored)
         initial_availability = SolBalanceAvailability.from_costs(
@@ -764,8 +779,8 @@ class Positions:
             temporary_rent,
             seed,
             temporary,
+            context,
         )
-        transaction.partial_sign([], blockhash)
         final_fee = await rpc.estimate_prepared_transaction_fee(transaction)
         costs = SolActionCosts(final_fee, temporary_rent, False, sponsored)
         availability = SolBalanceAvailability.from_costs(breakdown, costs)
@@ -784,8 +799,8 @@ class Positions:
                 temporary_rent,
                 seed,
                 temporary,
+                context,
             )
-            transaction.partial_sign([], blockhash)
             stable_fee = await rpc.estimate_prepared_transaction_fee(transaction)
             if stable_fee != final_fee:
                 raise SdkError(
@@ -895,7 +910,7 @@ class Positions:
         self,
         kind: SolActionKind,
         amount_lamports: int,
-        transaction: Transaction,
+        transaction: V1Transaction,
         rpc: Rpc,
         breakdown: SolBalanceBreakdown,
         rent: int,
@@ -924,14 +939,15 @@ class Positions:
         temporary_rent: int,
         seed: str,
         temporary: Pubkey,
-    ) -> Transaction:
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build the sole WSOL-to-native path without closing canonical authority.
 
         The temporary Tokenkeg account is initialized, funded, and closed back
         to the wallet before the exact recipient transfer in one transaction.
         """
         canonical = get_associated_token_address(wallet, WRAPPED_SOL_MINT)
-        return Transaction.new_with_payer(
+        return V1Transaction.compile(
             [
                 create_account_with_seed(
                     CreateAccountWithSeedParams(
@@ -979,6 +995,7 @@ class Positions:
                 ),
             ],
             wallet,
+            context,
         )
 
     # ── On-chain instruction builders ────────────────────────────────────
@@ -1074,71 +1091,87 @@ class Positions:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def redeem_winnings_tx(
-        self, params: RedeemWinningsParams, outcome_index: int
-    ) -> Transaction:
+        self,
+        params: RedeemWinningsParams,
+        outcome_index: int,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build RedeemWinnings transaction."""
         ix = self.redeem_winnings_ix(params, outcome_index)
-        return Transaction.new_with_payer([ix], params.user)
+        return V1Transaction.compile([ix], params.user, context)
 
     def withdraw_conditional_from_position_tx(
-        self, params: WithdrawConditionalFromPositionParams
-    ) -> Transaction:
+        self,
+        params: WithdrawConditionalFromPositionParams,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build conditional-token withdrawal from a position transaction."""
         ix = self.withdraw_conditional_from_position_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
+        return V1Transaction.compile([ix], params.user, context)
 
     def withdraw_from_position_tx(
-        self, params: WithdrawFromPositionParams
-    ) -> Transaction:
+        self, params: WithdrawFromPositionParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Compatibility wrapper for conditional-token position withdrawal."""
-        return self.withdraw_conditional_from_position_tx(params)
+        return self.withdraw_conditional_from_position_tx(params, context)
 
     def init_position_tokens_tx(
-        self, params: InitPositionTokensParams, num_outcomes: int
-    ) -> Transaction:
+        self,
+        params: InitPositionTokensParams,
+        num_outcomes: int,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build InitPositionTokens transaction."""
         ix = self.init_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.payer)
+        return V1Transaction.compile([ix], params.payer, context)
 
     def close_position_token_accounts_tx(
         self,
         params: ClosePositionTokenAccountsParams,
         num_outcomes: int,
-    ) -> Transaction:
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build ClosePositionTokenAccounts transaction."""
         ix = self.close_position_token_accounts_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.operator)
+        return V1Transaction.compile([ix], params.operator, context)
 
-    def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
+    def deposit_to_global_tx(
+        self, params: DepositToGlobalParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build DepositToGlobal transaction."""
         ix = self.deposit_to_global_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
+        return V1Transaction.compile([ix], params.user, context)
 
     def global_to_market_deposit_tx(
-        self, params: GlobalToMarketDepositParams, num_outcomes: int
-    ) -> Transaction:
+        self,
+        params: GlobalToMarketDepositParams,
+        num_outcomes: int,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build GlobalToMarketDeposit transaction."""
         ix = self.global_to_market_deposit_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.user)
+        return V1Transaction.compile([ix], params.user, context)
 
-    def withdraw_from_global_tx(self, params: WithdrawFromGlobalParams) -> Transaction:
+    def withdraw_from_global_tx(
+        self, params: WithdrawFromGlobalParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build WithdrawFromGlobal transaction."""
         ix = self.withdraw_from_global_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
+        return V1Transaction.compile([ix], params.user, context)
 
     # ── Builder factories ────────────────────────────────────────────────
 
     def deposit(self) -> DepositBuilder:
         """Create a deposit builder pre-seeded with the client's deposit source.
 
-        Use ``.build_ix()`` or ``.build_tx()`` to produce the final instruction/transaction.
+        Use ``.build_ix()`` or ``.build_tx(context)`` to produce the final instruction/transaction.
         """
         return DepositBuilder(self._client, self._client.deposit_source)
 
     def withdraw(self) -> WithdrawBuilder:
         """Create a withdraw builder pre-seeded with the client's deposit source.
 
-        Use ``.build_ix()`` or ``.build_tx()`` to produce the final instruction/transaction.
+        Use ``.build_ix()`` or ``.build_tx(context)`` to produce the final instruction/transaction.
         """
         return WithdrawBuilder(self._client, self._client.deposit_source)
 

@@ -11,7 +11,6 @@ import os
 from collections.abc import Awaitable, Callable
 
 from common import get_keypair, login, rest_client
-from solders.transaction import Transaction
 
 from lightcone_sdk.client import ConfirmedTransaction
 from lightcone_sdk.domain.position import (
@@ -20,6 +19,7 @@ from lightcone_sdk.domain.position import (
     SolBalanceDelta,
     WalletDepositBalancesState,
 )
+from lightcone_sdk.program.transaction import V1Transaction
 from lightcone_sdk.shared.signing import SigningStrategy
 from lightcone_sdk.ws import WsEventType
 from lightcone_sdk.ws.subscriptions import WalletDepositBalancesParams
@@ -166,8 +166,8 @@ def project_breakdown(
 
 
 async def submit_prepared_once(
-    transaction: Transaction,
-    submit: Callable[[Transaction], Awaitable[ConfirmedTransaction]],
+    transaction: V1Transaction,
+    submit: Callable[[V1Transaction], Awaitable[ConfirmedTransaction]],
 ) -> ConfirmedTransaction:
     """Submit one prepared message exactly once and propagate uncertain failure."""
     return await submit(transaction)

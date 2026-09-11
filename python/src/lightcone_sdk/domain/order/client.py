@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
-from solders.transaction import Transaction
 
 from ...error import SigningError, _require
 from ...program.accounts import deserialize_order_status, deserialize_user_nonce
@@ -28,6 +27,7 @@ from ...program.orders import (
     sign_order,
 )
 from ...program.pda import get_order_status_pda, get_user_nonce_pda
+from ...program.transaction import V1Transaction, V1TransactionContext
 from ...program.types import (
     AskOrderParams,
     BidOrderParams,
@@ -37,15 +37,15 @@ from ...program.types import (
     SignedOrder,
 )
 from ...rpc import require_connection
-from ...shared.types import (
-    SubmitOrderRequest,
-    SubmitTriggerOrderRequest,
-)
 from ...shared.scaling import (
     OrderbookRules,
     validate_raw_amounts,
     validate_signed_fields,
     validate_trigger_price,
+)
+from ...shared.types import (
+    SubmitOrderRequest,
+    SubmitTriggerOrderRequest,
 )
 from . import (
     CancelAllBody,
@@ -56,9 +56,9 @@ from . import (
     CancelTriggerSuccess,
     SubmitOrderResponse,
     TriggerOrderResponse,
+    UserMarketBalance,
     UserOrderFillsResponse,
     UserOrdersResponse,
-    UserMarketBalance,
     UserSnapshotOrder,
 )
 from .convert import submit_response_from_dict
@@ -70,7 +70,7 @@ if TYPE_CHECKING:
 class Orders:
     """Order operations sub-client."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
 
     # ── PDA helpers ──────────────────────────────────────────────────────
@@ -176,9 +176,7 @@ class Orders:
             else request
         )
         await self._preflight_submit(normalized)
-        data = await self._client._http.post(
-            "/api/orders/submit", normalized.to_dict()
-        )
+        data = await self._client._http.post("/api/orders/submit", normalized.to_dict())
         return TriggerOrderResponse(
             trigger_order_id=data.get("trigger_order_id", ""),
             order_hash=data.get("order_hash", ""),
@@ -190,9 +188,7 @@ class Orders:
             side = OrderSide(request.side)
         except ValueError as exc:
             raise ValueError("side must be BID or ASK") from exc
-        validate_raw_amounts(
-            request.amount_in, request.amount_out, int(side), rules
-        )
+        validate_raw_amounts(request.amount_in, request.amount_out, int(side), rules)
         validate_signed_fields(
             request.amount_in, request.amount_out, request.salt, request.nonce
         )
@@ -208,8 +204,8 @@ class Orders:
 
     async def get_user_orders(
         self,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrdersResponse:
         """Get the authenticated user's open orders with pagination.
 
@@ -227,8 +223,8 @@ class Orders:
 
     async def get_user_orders_with_cookies(
         self,
-        limit: Optional[int],
-        cursor: Optional[str],
+        limit: int | None,
+        cursor: str | None,
         cookie_header: str,
     ) -> UserOrdersResponse:
         """Same as :meth:`get_user_orders`, with an explicit per-call ``cookie_header``.
@@ -250,9 +246,9 @@ class Orders:
 
     async def get_user_order_fills(
         self,
-        market_pubkey: Optional[str] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        market_pubkey: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrderFillsResponse:
         """Fetch the authenticated user's filled orders with nested fill events.
 
@@ -267,14 +263,16 @@ class Orders:
             params["limit"] = str(limit)
         if cursor is not None:
             params["cursor"] = cursor
-        data = await self._client._http.get("/api/users/order-fills", params=params or None)
+        data = await self._client._http.get(
+            "/api/users/order-fills", params=params or None
+        )
         return UserOrderFillsResponse.from_dict(data)
 
     async def get_user_order_fills_with_cookies(
         self,
-        market_pubkey: Optional[str],
-        limit: Optional[int],
-        cursor: Optional[str],
+        market_pubkey: str | None,
+        limit: int | None,
+        cursor: str | None,
         cookie_header: str,
     ) -> UserOrderFillsResponse:
         """Same as :meth:`get_user_order_fills`, with an explicit per-call ``cookie_header``.
@@ -299,9 +297,9 @@ class Orders:
     async def get_user_order_fills_by_wallet(
         self,
         wallet_address: str,
-        market_pubkey: Optional[str] = None,
-        limit: Optional[int] = None,
-        cursor: Optional[str] = None,
+        market_pubkey: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
     ) -> UserOrderFillsResponse:
         """Public variant of :meth:`get_user_order_fills`.
 
@@ -370,7 +368,7 @@ class Orders:
         user_pubkey: str,
         timestamp: int,
         salt: str,
-        orderbook_id: Optional[str] = None,
+        orderbook_id: str | None = None,
     ) -> CancelAllSuccess:
         """Cancel all orders using the client's signing strategy."""
         from ...program.orders import cancel_all_message, sign_cancel_all
@@ -499,28 +497,33 @@ class Orders:
     # ── On-chain transaction builders ────────────────────────────────────
 
     def cancel_order_tx(
-        self, operator: Pubkey, market: Pubkey, order: SignedOrder
-    ) -> Transaction:
+        self,
+        operator: Pubkey,
+        market: Pubkey,
+        order: SignedOrder,
+        context: V1TransactionContext,
+    ) -> V1Transaction:
         """Build CancelOrder transaction."""
         ix = self.cancel_order_ix(operator, market, order)
-        return Transaction.new_with_payer([ix], operator)
+        return V1Transaction.compile([ix], operator, context)
 
-    def increment_nonce_tx(self, user: Pubkey) -> Transaction:
+    def increment_nonce_tx(
+        self, user: Pubkey, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build IncrementNonce transaction."""
         ix = self.increment_nonce_ix(user)
-        return Transaction.new_with_payer([ix], user)
+        return V1Transaction.compile([ix], user, context)
 
     def close_order_status_tx(
-        self,
-        params: CloseOrderStatusParams,
-    ) -> Transaction:
+        self, params: CloseOrderStatusParams, context: V1TransactionContext
+    ) -> V1Transaction:
         """Build CloseOrderStatus transaction."""
         ix = self.close_order_status_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
+        return V1Transaction.compile([ix], params.operator, context)
 
     # ── On-chain account fetchers (require connection) ───────────────────
 
-    async def get_status(self, order_hash: bytes) -> Optional[OrderStatus]:
+    async def get_status(self, order_hash: bytes) -> OrderStatus | None:
         """Fetch an OrderStatus account (returns None if not found)."""
         conn = require_connection(self._client)
         addr = self.status_pda(order_hash)
@@ -545,7 +548,6 @@ class Orders:
         if nonce > 0xFFFFFFFF:
             raise ArithmeticOverflowError()
         return nonce
-
 
 
 def _user_orders_response_from_wire(data: dict, wallet: str) -> UserOrdersResponse:

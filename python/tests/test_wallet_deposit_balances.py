@@ -45,6 +45,7 @@ from lightcone_sdk.domain.position import (
 from lightcone_sdk.domain.position.client import Positions, native_withdraw_seed
 from lightcone_sdk.error import InsufficientSolForTransactionFees, SdkError
 from lightcone_sdk.program import InvalidOutcomeIndexError, get_associated_token_address
+from lightcone_sdk.program.transaction import V1ResourceConfig, V1TransactionContext
 from lightcone_sdk.rpc import CanonicalWsolAccountInfo
 from lightcone_sdk.shared.signing import (
     ExternalSigner,
@@ -418,7 +419,7 @@ class FakeRpc:
         self.occupied_temporary_attempts = occupied_temporary_attempts
         self.fees = list(fees or [5_000])
         self.rent_lamports = rent_lamports
-        self.blockhashes = list(blockhashes or [Hash.default()])
+        self.blockhashes = list(blockhashes or [Hash.from_bytes(bytes([7] * 32))])
         self.canonical_token_amount_lamports = canonical_token_amount_lamports
         self.canonical_account_lamports = canonical_account_lamports
         self.canonical_native_reserve_lamports = canonical_native_reserve_lamports
@@ -470,7 +471,6 @@ class FakeRpc:
 
     async def prepare_and_estimate_transaction_fee(self, transaction) -> int:
         """Attach deterministic blockhash authority before fee estimation."""
-        transaction.partial_sign([], await self.get_latest_blockhash())
         return await self.estimate_prepared_transaction_fee(transaction)
 
     async def estimate_prepared_transaction_fee(self, _transaction) -> int:
@@ -496,6 +496,13 @@ class FakePlanningClient:
         self._auth = FakeAuth(credentials)
         self._rpc = rpc
         self._strategy = strategy
+
+    async def transaction_context(self) -> V1TransactionContext:
+        return V1TransactionContext(
+            await self._rpc.get_latest_blockhash(),
+            123,
+            V1ResourceConfig(200_000, 1_048_576, 0),
+        )
 
     def auth(self) -> FakeAuth:
         """Return the cached-identity facade."""

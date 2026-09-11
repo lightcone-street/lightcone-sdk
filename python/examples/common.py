@@ -12,10 +12,11 @@ from solders.pubkey import Pubkey
 # Allow imports from the SDK source
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from lightcone_sdk.client import LightconeClientBuilder, LightconeClient
-from lightcone_sdk.auth.client import sign_login_message
 from lightcone_sdk.auth import SessionResponse
+from lightcone_sdk.auth.client import sign_login_message
+from lightcone_sdk.client import LightconeClient, LightconeClientBuilder
 from lightcone_sdk.domain.market import Market, OrderBookPair
+from lightcone_sdk.program.transaction import V1ResourceConfig
 
 DEFAULT_WALLET_PATH = "~/.config/solana/id.json"
 
@@ -28,7 +29,10 @@ def client() -> LightconeClient:
     """
     from lightcone_sdk.env import LightconeEnv
 
-    builder = LightconeClientBuilder()
+    # Explicit example budget; applications should choose limits for their workload.
+    builder = LightconeClientBuilder().transaction_resources(
+        V1ResourceConfig(1_400_000, 67_108_864, 0)
+    )
     env_str = os.environ.get("LIGHTCONE_ENV")
     if env_str:
         try:
@@ -136,7 +140,9 @@ async def wait_for_global_balance(
         current_idle = float(entry.idle) if entry is not None else 0.0
         symbol = entry.symbol if entry is not None else "unknown"
         if current_idle >= minimum_amount:
-            print(f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})")
+            print(
+                f"global balance ready: {symbol} idle={current_idle} (attempt {attempt})"
+            )
             return
         remaining = deadline - time.monotonic()
         print(

@@ -1,694 +1,419 @@
-"""Tests for the wallet-adapter submit path — _sign_and_submit_tx_inner.
+"""V1 submission retains exact fee authority, full signatures, and original expiry."""
 
-Exercises the real submit path in-process (stubbing only the RPC edges):
-the SDK sets a fresh blockhash via ``Transaction.partial_sign([], blockhash)``
-before external signing, and the expiry bound is kept only when the signed
-bytes still carry that blockhash.
-"""
-
-from __future__ import annotations
-
-import asyncio
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
+from solders.account import Account
 from solders.hash import Hash
+from solders.instruction import AccountMeta, Instruction
 from solders.keypair import Keypair
-from solders.message import Message
+from solders.message.v1 import Message
 from solders.pubkey import Pubkey
-from solders.signature import Signature
-from solders.system_program import TransferParams, transfer
-from solders.transaction import Transaction
+from solders.transaction import Transaction, VersionedTransaction
 
-from lightcone_sdk.client import LightconeClient, LightconeClientBuilder
-from lightcone_sdk.error import InsufficientSolForTransactionFees, SdkError
-from lightcone_sdk.http.client import LightconeHttp
+from lightcone_sdk import (
+    InsufficientSolForTransactionFees,
+    LightconeClientBuilder,
+    SdkError,
+    SubmissionUnknown,
+    V1ResourceConfig,
+    V1Transaction,
+    V1TransactionContext,
+)
 from lightcone_sdk.shared.signing import ExternalSigner, SigningStrategy
 
-FRESH_BLOCKHASH = Hash.new_unique()
-LAST_VALID_BLOCK_HEIGHT = 123
+CONTEXT = V1TransactionContext(
+    Hash.from_bytes(bytes([7] * 32)), 123, V1ResourceConfig(200_000, 1_048_576, 0)
+)
 
 
-class _EchoSigner(ExternalSigner):
-    """Signs by returning the wire bytes unchanged (blockhash preserved)."""
-
-    async def sign_message(self, message: bytes) -> bytes:
-        return message
-
-    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        return tx_bytes
-
-
-class _RecordingSigner(_EchoSigner):
-    def __init__(self) -> None:
-        self.transaction_calls = 0
-
-    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        self.transaction_calls += 1
-        return tx_bytes
-
-
-class _CapturingSigner(_RecordingSigner):
-    def __init__(self) -> None:
-        super().__init__()
-        self.signed_message: bytes | None = None
-
-    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        self.signed_message = bytes(Transaction.from_bytes(tx_bytes).message)
-        return await super().sign_transaction(tx_bytes)
-
-
-class _RehashSigner(ExternalSigner):
-    """Simulates a wallet that replaces the blockhash before signing."""
-
-    async def sign_message(self, message: bytes) -> bytes:
-        return message
-
-    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        original = Transaction.from_bytes(tx_bytes)
-        message = original.message
-        rehashed_message = Message.new_with_compiled_instructions(
-            message.header.num_required_signatures,
-            message.header.num_readonly_signed_accounts,
-            message.header.num_readonly_unsigned_accounts,
-            list(message.account_keys),
-            Hash.new_unique(),
-            list(message.instructions),
+class Connection:
+    def __init__(self):
+        self.sent = []
+        self.simulated = []
+        self.fee = 5000
+        self.balance = 1_000_000
+        self.feature = Account(
+            1,
+            b"\x01" + (50).to_bytes(8, "little"),
+            Pubkey.from_string("Feature111111111111111111111111111111111111"),
         )
-        return bytes(Transaction.new_unsigned(rehashed_message))
+        self.send_error = None
+        self.response_signature = None
+        self.simulation_error = None
 
+    async def get_fee_for_message(self, message, commitment):
+        self.fee_message = message
+        if isinstance(self.fee, Exception):
+            raise self.fee
+        return SimpleNamespace(value=self.fee)
 
-class _ChangePayerSigner(ExternalSigner):
-    """Returns a valid transaction whose fee payer differs from preflight."""
+    async def get_balance(self, payer, commitment):
+        return SimpleNamespace(value=self.balance)
 
-    async def sign_message(self, message: bytes) -> bytes:
-        return message
-
-    async def sign_transaction(self, tx_bytes: bytes) -> bytes:
-        original = Transaction.from_bytes(tx_bytes)
-        message = original.message
-        keys = list(message.account_keys)
-        keys[0] = Pubkey.new_unique()
-        changed = Message.new_with_compiled_instructions(
-            message.header.num_required_signatures,
-            message.header.num_readonly_signed_accounts,
-            message.header.num_readonly_unsigned_accounts,
-            keys,
-            message.recent_blockhash,
-            list(message.instructions),
-        )
-        return bytes(Transaction.new_unsigned(changed))
-
-
-def _instructions() -> list:
-    keypair = Keypair()
-    return [
-        transfer(
-            TransferParams(
-                from_pubkey=keypair.pubkey(),
-                to_pubkey=Pubkey.new_unique(),
-                lamports=1,
+    async def get_latest_blockhash(self, commitment):
+        return SimpleNamespace(
+            value=SimpleNamespace(
+                blockhash=CONTEXT.blockhash,
+                last_valid_block_height=CONTEXT.last_valid_block_height,
             )
         )
-    ]
 
-
-def _unsigned_tx() -> Transaction:
-    message = Message.new_with_blockhash(
-        _instructions(), Keypair().pubkey(), Hash.new_unique()
-    )
-    return Transaction.new_unsigned(message)
-
-
-def _wallet_client(
-    signer: ExternalSigner, expected_bound: int | None = LAST_VALID_BLOCK_HEIGHT
-) -> LightconeClient:
-    """Build a wallet-adapter client with deterministic submit and confirmation edges."""
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.wallet_adapter(signer),
-    )
-
-    async def fake_blockhash_with_height() -> tuple[Hash, int]:
-        return FRESH_BLOCKHASH, LAST_VALID_BLOCK_HEIGHT
-
-    async def fake_rpc_call(body: dict) -> dict:
-        assert body["method"] == "sendTransaction"
-        return {"result": str(Signature.default())}
-
-    async def fake_confirm_signature_status(
-        signature: str, last_valid_block_height: int | None
-    ) -> SimpleNamespace:
-        assert signature == str(Signature.default())
-        assert last_valid_block_height == expected_bound
-        return SimpleNamespace(slot=7)
-
-    async def fake_estimate_transaction_fee(_tx: Transaction) -> int:
-        return 5_000
-
-    async def fake_balance_lamports(_fee_payer: Pubkey) -> int:
-        return 5_000
-
-    async def fake_send_raw_transaction(_tx_bytes: bytes) -> str:
-        return str(Signature.default())
-
-    client._rpc.get_latest_blockhash_with_height = (  # type: ignore[method-assign]
-        fake_blockhash_with_height
-    )
-    client._rpc_call_with_failover = fake_rpc_call  # type: ignore[method-assign]
-    client._rpc.confirm_signature_status = (  # type: ignore[method-assign]
-        fake_confirm_signature_status
-    )
-    client._rpc.estimate_prepared_transaction_fee = (  # type: ignore[method-assign]
-        fake_estimate_transaction_fee
-    )
-    client._rpc.balance_lamports = fake_balance_lamports  # type: ignore[method-assign]
-    client._rpc.send_raw_transaction = fake_send_raw_transaction  # type: ignore[method-assign]
-    client._rpc.send_raw_transaction_once = (  # type: ignore[method-assign]
-        fake_send_raw_transaction
-    )
-    return client
-
-
-def test_transaction_sponsorship_defaults_false_and_python_has_no_clone() -> None:
-    client = LightconeClientBuilder().build()
-
-    assert client.transaction_sponsorship_enabled is False
-    assert not hasattr(client, "clone")
-
-    client.set_transaction_sponsorship_enabled(True)
-    assert client.transaction_sponsorship_enabled is True
-
-
-@pytest.mark.asyncio
-async def test_wallet_submit_sets_fresh_blockhash_and_keeps_bound() -> None:
-    client = _wallet_client(_EchoSigner())
-    tx = _unsigned_tx()
-
-    signature, bound = await client._sign_and_submit_tx_inner(tx)
-
-    assert signature == str(Signature.default())
-    # partial_sign([], blockhash) replaced the caller's stale blockhash.
-    assert tx.message.recent_blockhash == FRESH_BLOCKHASH
-    # The signer returned the bytes unchanged, so the exact bound is kept.
-    assert bound == LAST_VALID_BLOCK_HEIGHT
-
-
-@pytest.mark.asyncio
-async def test_wallet_submit_drops_bound_when_signer_rehashes() -> None:
-    client = _wallet_client(_RehashSigner())
-
-    _signature, bound = await client._sign_and_submit_tx_inner(_unsigned_tx())
-
-    # The signed bytes no longer carry the SDK's blockhash, so no expiry
-    # bound can be trusted.
-    assert bound is None
-
-
-@pytest.mark.asyncio
-async def test_confirmed_submit_uses_explicit_strategy_after_configuration_swap() -> (
-    None
-):
-    validated_signer = _RecordingSigner()
-    replacement_signer = _RecordingSigner()
-    client = _wallet_client(replacement_signer)
-
-    signature = await client._sign_and_submit_tx_confirmed_with_strategy(
-        _unsigned_tx(), SigningStrategy.wallet_adapter(validated_signer)
-    )
-
-    assert signature == str(Signature.default())
-    assert validated_signer.transaction_calls == 1
-    assert replacement_signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_prepared_submit_preserves_the_fee_estimated_message() -> None:
-    tx = _unsigned_tx()
-    signer = _EchoSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer, expected_bound=None)
-    expected_message = bytes(tx.message)
-    expected_blockhash = tx.message.recent_blockhash
-
-    confirmed = await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert bytes(tx.message) == expected_message
-    assert tx.message.recent_blockhash == expected_blockhash
-    assert confirmed.signature == str(Signature.default())
-    assert confirmed.slot == 7
-
-
-@pytest.mark.asyncio
-async def test_prepared_submit_returns_typed_fee_error_before_signing() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer, expected_bound=None)
-
-    async def insufficient_balance(_fee_payer: Pubkey) -> int:
-        return 4_999
-
-    client._rpc.balance_lamports = insufficient_balance  # type: ignore[method-assign]
-
-    with pytest.raises(InsufficientSolForTransactionFees) as raised:
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert raised.value.available_lamports == 4_999
-    assert raised.value.required_lamports == 5_000
-    assert (
-        str(raised.value)
-        == "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
-    )
-    assert signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_ordinary_submit_routes_through_typed_funding_guard() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    client = _wallet_client(signer)
-
-    async def insufficient_balance(_fee_payer: Pubkey) -> int:
-        return 4_999
-
-    client._rpc.balance_lamports = insufficient_balance  # type: ignore[method-assign]
-
-    with pytest.raises(InsufficientSolForTransactionFees):
-        await client.sign_and_submit_tx(tx)
-
-    assert signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_ordinary_submit_keeps_sponsorship_captured_before_blockhash() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    client = _wallet_client(signer)
-    blockhash_started = asyncio.Event()
-    release_blockhash = asyncio.Event()
-
-    async def paused_blockhash() -> tuple[Hash, int]:
-        blockhash_started.set()
-        await release_blockhash.wait()
-        return FRESH_BLOCKHASH, LAST_VALID_BLOCK_HEIGHT
-
-    async def insufficient_balance(_fee_payer: Pubkey) -> int:
-        return 4_999
-
-    client._rpc.get_latest_blockhash_with_height = paused_blockhash  # type: ignore[method-assign]
-    client._rpc.balance_lamports = insufficient_balance  # type: ignore[method-assign]
-
-    submission = asyncio.create_task(client.sign_and_submit_tx(tx))
-    await blockhash_started.wait()
-    client.set_transaction_sponsorship_enabled(True)
-    release_blockhash.set()
-
-    with pytest.raises(InsufficientSolForTransactionFees):
-        await submission
-    assert signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_ordinary_native_submit_uses_fresh_blockhash_and_preflight() -> None:
-    keypair = Keypair()
-    tx = Transaction.new_unsigned(
-        Message.new_with_blockhash([], keypair.pubkey(), Hash.new_unique())
-    )
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.native(keypair),
-    )
-    observations: list[str] = []
-
-    async def blockhash() -> tuple[Hash, int]:
-        observations.append("blockhash")
-        return FRESH_BLOCKHASH, LAST_VALID_BLOCK_HEIGHT
-
-    async def fee(_tx: Transaction) -> int:
-        observations.append("fee")
-        return 5_000
-
-    async def balance(_fee_payer: Pubkey) -> int:
-        observations.append("balance")
-        return 5_000
-
-    async def send(_tx_bytes: bytes) -> str:
-        observations.append("send")
-        return str(Signature.default())
-
-    client._rpc.get_latest_blockhash_with_height = blockhash  # type: ignore[method-assign]
-    client._rpc.estimate_prepared_transaction_fee = fee  # type: ignore[method-assign]
-    client._rpc.balance_lamports = balance  # type: ignore[method-assign]
-    client._rpc.send_raw_transaction = send  # type: ignore[method-assign]
-
-    signature = await client.sign_and_submit_tx(tx)
-
-    assert signature == str(Signature.default())
-    assert tx.message.recent_blockhash == FRESH_BLOCKHASH
-    assert tx.signatures != [Signature.default()]
-    assert observations == ["blockhash", "fee", "balance", "send"]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("failed_observation", ["fee", "balance"])
-async def test_prepared_submit_continues_when_funding_observation_fails(
-    failed_observation: str,
-) -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer, expected_bound=None)
-
-    async def unavailable(_value: object) -> int:
-        raise SdkError(f"{failed_observation} unavailable")
-
-    if failed_observation == "fee":
-        client._rpc.estimate_prepared_transaction_fee = unavailable  # type: ignore[method-assign]
-    else:
-        client._rpc.balance_lamports = unavailable  # type: ignore[method-assign]
-
-    await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert signer.transaction_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_prepared_submit_continues_with_strictly_sufficient_balance() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer, expected_bound=None)
-
-    async def sufficient_balance(_fee_payer: Pubkey) -> int:
-        return 5_001
-
-    client._rpc.balance_lamports = sufficient_balance  # type: ignore[method-assign]
-
-    await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert signer.transaction_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_sponsored_wallet_may_differ_from_prepared_fee_payer() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(Pubkey.new_unique())
-    client = _wallet_client(signer, expected_bound=None)
-    client.set_transaction_sponsorship_enabled(True)
-
-    async def unexpected(_value: object) -> int:
-        raise AssertionError("sponsored submission must not read funding evidence")
-
-    client._rpc.estimate_prepared_transaction_fee = unexpected  # type: ignore[method-assign]
-    client._rpc.balance_lamports = unexpected  # type: ignore[method-assign]
-
-    await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert signer.transaction_calls == 1
-
-
-@pytest.mark.asyncio
-async def test_sponsored_local_keypair_is_rejected_before_signing() -> None:
-    keypair = Keypair()
-    tx = Transaction.new_unsigned(
-        Message.new_with_blockhash([], Pubkey.new_unique(), Hash.new_unique())
-    )
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.native(keypair),
-        transaction_sponsorship_enabled=True,
-    )
-
-    with pytest.raises(
-        SdkError,
-        match="transaction sponsorship is not supported with local-keypair signing",
-    ):
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-
-    assert tx.signatures == [Signature.default()]
-
-
-@pytest.mark.asyncio
-async def test_ordinary_sponsored_local_keypair_is_rejected_before_blockhash() -> None:
-    keypair = Keypair()
-    tx = Transaction.new_unsigned(
-        Message.new_with_blockhash([], keypair.pubkey(), Hash.new_unique())
-    )
-    original_blockhash = tx.message.recent_blockhash
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.native(keypair),
-        transaction_sponsorship_enabled=True,
-    )
-    blockhash_calls = 0
-
-    async def unexpected_blockhash() -> tuple[Hash, int]:
-        nonlocal blockhash_calls
-        blockhash_calls += 1
-        raise AssertionError("blockhash lookup must not run")
-
-    client._rpc.get_latest_blockhash_with_height = unexpected_blockhash  # type: ignore[method-assign]
-
-    with pytest.raises(
-        SdkError,
-        match="transaction sponsorship is not supported with local-keypair signing",
-    ):
-        await client.sign_and_submit_tx(tx)
-
-    assert blockhash_calls == 0
-    assert tx.message.recent_blockhash == original_blockhash
-
-
-@pytest.mark.asyncio
-async def test_ordinary_submit_rejects_known_signer_mismatch_before_rpc() -> None:
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(Pubkey.new_unique())
-    client = _wallet_client(signer)
-    blockhash_calls = 0
-
-    async def unexpected_blockhash() -> tuple[Hash, int]:
-        nonlocal blockhash_calls
-        blockhash_calls += 1
-        raise AssertionError("blockhash lookup must not run")
-
-    client._rpc.get_latest_blockhash_with_height = unexpected_blockhash  # type: ignore[method-assign]
-
-    with pytest.raises(SdkError, match="does not control transaction fee payer"):
-        await client.sign_and_submit_tx(tx)
-
-    assert blockhash_calls == 0
-    assert signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_ordinary_submit_rejects_wallet_message_mutation_beyond_blockhash() -> (
-    None
-):
-    tx = _unsigned_tx()
-    signer = _ChangePayerSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer)
-
-    with pytest.raises(
-        SdkError, match="changed the transaction message beyond recent blockhash"
-    ):
-        await client.sign_and_submit_tx(tx)
-
-
-@pytest.mark.asyncio
-async def test_unsponsored_privy_uses_best_effort_blockhash_evidence() -> None:
-    tx = _unsigned_tx()
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.privy(
-            "wallet-id", str(tx.message.account_keys[0])
-        ),
-    )
-    observations: list[str] = []
-
-    async def blockhash() -> tuple[Hash, int]:
-        observations.append("blockhash")
-        return FRESH_BLOCKHASH, LAST_VALID_BLOCK_HEIGHT
-
-    async def fee(_tx: Transaction) -> int:
-        observations.append("fee")
-        return 5_000
-
-    async def balance(_fee_payer: Pubkey) -> int:
-        observations.append("balance")
-        return 5_000
-
-    async def forward(_wallet_id: str, _base64_tx: str) -> SimpleNamespace:
-        observations.append("forward")
-        return SimpleNamespace(hash=str(Signature.default()))
-
-    client._rpc.get_latest_blockhash_with_height = blockhash  # type: ignore[method-assign]
-    client._rpc.estimate_prepared_transaction_fee = fee  # type: ignore[method-assign]
-    client._rpc.balance_lamports = balance  # type: ignore[method-assign]
-    client._privy.sign_and_send_tx = forward  # type: ignore[method-assign]
-
-    await client._sign_and_submit_tx_inner(tx)
-
-    assert tx.message.recent_blockhash == FRESH_BLOCKHASH
-    assert observations == ["blockhash", "fee", "balance", "forward"]
-
-
-@pytest.mark.asyncio
-async def test_privy_blockhash_failure_preserves_backend_forwarding() -> None:
-    tx = _unsigned_tx()
-    original_blockhash = tx.message.recent_blockhash
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.privy(
-            "wallet-id", str(tx.message.account_keys[0])
-        ),
-    )
-    forwarded = 0
-
-    async def unavailable_blockhash() -> tuple[Hash, int]:
-        raise SdkError("blockhash unavailable")
-
-    async def unexpected(_value: object) -> int:
-        raise AssertionError("fee preflight must not run without blockhash evidence")
-
-    async def forward(_wallet_id: str, _base64_tx: str) -> SimpleNamespace:
-        nonlocal forwarded
-        forwarded += 1
-        return SimpleNamespace(hash=str(Signature.default()))
-
-    client._rpc.get_latest_blockhash_with_height = unavailable_blockhash  # type: ignore[method-assign]
-    client._rpc.estimate_prepared_transaction_fee = unexpected  # type: ignore[method-assign]
-    client._rpc.balance_lamports = unexpected  # type: ignore[method-assign]
-    client._privy.sign_and_send_tx = forward  # type: ignore[method-assign]
-
-    await client._sign_and_submit_tx_inner(tx)
-
-    assert tx.message.recent_blockhash == original_blockhash
-    assert forwarded == 1
-
-
-@pytest.mark.asyncio
-async def test_ordinary_submit_owns_snapshot_while_fee_rpc_waits() -> None:
-    tx = _unsigned_tx()
-    signer = _CapturingSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer)
-    fee_started = asyncio.Event()
-    release_fee = asyncio.Event()
-    expected_message: bytes | None = None
-
-    async def paused_fee(submitted_tx: Transaction) -> int:
-        nonlocal expected_message
-        expected_message = bytes(submitted_tx.message)
-        fee_started.set()
-        await release_fee.wait()
-        return 5_000
-
-    client._rpc.estimate_prepared_transaction_fee = paused_fee  # type: ignore[method-assign]
-
-    submission = asyncio.create_task(client._sign_and_submit_tx_inner(tx))
-    await fee_started.wait()
-    tx.partial_sign([], Hash.new_unique())
-    release_fee.set()
-    await submission
-
-    assert expected_message is not None
-    assert signer.signed_message == expected_message
-
-
-@pytest.mark.asyncio
-async def test_sponsored_privy_bypasses_local_funding_evidence() -> None:
-    tx = _unsigned_tx()
-    original_blockhash = tx.message.recent_blockhash
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        signing_strategy=SigningStrategy.privy(
-            "wallet-id", str(tx.message.account_keys[0])
-        ),
-        transaction_sponsorship_enabled=True,
-    )
-    forwarded = 0
-
-    async def unexpected(*_args: object) -> object:
-        raise AssertionError(
-            "sponsored Privy submission must not read funding evidence"
+    async def get_account_info(self, address, commitment):
+        return SimpleNamespace(value=self.feature, context=SimpleNamespace(slot=100))
+
+    async def simulate_transaction(self, transaction, **options):
+        self.simulated.append((bytes(transaction), options))
+        return SimpleNamespace(
+            context=SimpleNamespace(slot=101),
+            value=SimpleNamespace(
+                err=self.simulation_error,
+                units_consumed=1000,
+                loaded_accounts_data_size=256,
+                logs=["ok"],
+            ),
         )
 
-    async def forward(_wallet_id: str, _base64_tx: str) -> SimpleNamespace:
-        nonlocal forwarded
-        forwarded += 1
-        return SimpleNamespace(hash=str(Signature.default()))
-
-    client._rpc.get_latest_blockhash_with_height = unexpected  # type: ignore[method-assign]
-    client._rpc.estimate_prepared_transaction_fee = unexpected  # type: ignore[method-assign]
-    client._rpc.balance_lamports = unexpected  # type: ignore[method-assign]
-    client._privy.sign_and_send_tx = forward  # type: ignore[method-assign]
-
-    await client._sign_and_submit_tx_inner(tx)
-
-    assert tx.message.recent_blockhash == original_blockhash
-    assert forwarded == 1
+    async def send_raw_transaction(self, wire, opts):
+        self.sent.append((wire, opts))
+        if self.send_error:
+            raise self.send_error
+        return SimpleNamespace(
+            value=self.response_signature
+            or VersionedTransaction.from_bytes(wire).signatures[0]
+        )
 
 
-@pytest.mark.asyncio
-async def test_prepared_submit_rejects_a_signer_blockhash_change() -> None:
-    tx = _unsigned_tx()
-    signer = _RehashSigner()
-    signer.wallet_address = str(tx.message.account_keys[0])
-    client = _wallet_client(signer, expected_bound=None)
+class Wallet(ExternalSigner):
+    def __init__(self, keypair, mutate=False, unsigned=False):
+        self.keypair = keypair
+        self.wallet_address = str(keypair.pubkey())
+        self.calls = 0
+        self.mutate = mutate
+        self.unsigned = unsigned
 
-    with pytest.raises(SdkError, match="changed the fee-prepared transaction message"):
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
+    async def sign_message(self, message):
+        return bytes(self.keypair.sign_message(message))
+
+    async def sign_transaction(self, wire):
+        self.calls += 1
+        if self.unsigned:
+            return wire
+        tx = VersionedTransaction.from_bytes(wire)
+        message = tx.message
+        if self.mutate:
+            message = Message(
+                message.header,
+                message.config,
+                Hash.new_unique(),
+                message.account_keys,
+                message.instructions,
+            )
+        return bytes(VersionedTransaction(message, [self.keypair]))
 
 
-@pytest.mark.asyncio
-async def test_prepared_submit_rejects_a_mismatched_signing_wallet() -> None:
-    """Reject the wrong wallet before invoking it or submitting bytes."""
-    tx = _unsigned_tx()
-    signer = _RecordingSigner()
-    signer.wallet_address = str(Pubkey.new_unique())
-    client = _wallet_client(signer, expected_bound=None)
-
-    with pytest.raises(SdkError, match="does not control transaction fee payer"):
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(tx)
-    assert signer.transaction_calls == 0
-
-
-@pytest.mark.asyncio
-async def test_prepared_submission_transport_failure_is_sent_once() -> None:
-    """Do not retry or fail over signed bytes after an uncertain RPC response."""
-
-    class FailingConnection:
-        def __init__(self, message: str) -> None:
-            self.message = message
-            self.attempts = 0
-            self.submitted_signature: Signature | None = None
-
-        async def send_raw_transaction(self, tx_bytes: bytes, *, opts: object) -> None:
-            self.attempts += 1
-            self.submitted_signature = Transaction.from_bytes(tx_bytes).signatures[0]
-            raise ConnectionError(self.message)
-
-    keypair = Keypair()
-    transaction = Transaction.new_unsigned(
-        Message.new_with_blockhash([], keypair.pubkey(), Hash.new_unique())
+def setup(wallet=False):
+    keypair, connection = Keypair(), Connection()
+    builder = (
+        LightconeClientBuilder()
+        .rpc_connection(connection)
+        .transaction_resources(CONTEXT.resources)
     )
-    primary = FailingConnection("network response was lost")
-    backup = FailingConnection("backup must not receive prepared bytes")
-    client = LightconeClient(
-        LightconeHttp("http://localhost:0"),
-        connection=primary,
-        backup_connection=backup,
-        signing_strategy=SigningStrategy.native(keypair),
+    signer = Wallet(keypair) if wallet else None
+    builder = (
+        builder.external_signer(signer) if wallet else builder.native_signer(keypair)
     )
+    client = builder.build()
+    tx = V1Transaction.compile(
+        [Instruction(Pubkey.new_unique(), b"test", [])], keypair.pubkey(), CONTEXT
+    )
+    return client, connection, keypair, signer, tx
 
-    with pytest.raises(ConnectionError, match="network response was lost"):
-        await client.sign_and_submit_prepared_tx_confirmed_with_slot(transaction)
 
-    assert primary.attempts == 1
-    assert backup.attempts == 0
-    assert primary.submitted_signature is not None
-    assert transaction.signatures[0] == primary.submitted_signature
+@pytest.mark.parametrize("external", [False, True])
+async def test_exact_signed_simulation_single_send_and_immutable_input(external):
+    client, connection, _, signer, tx = setup(external)
+    original = bytes(tx)
+    signature, height = await client._sign_and_submit_tx_inner(tx)
+    assert height == CONTEXT.last_valid_block_height
+    assert bytes(tx) == original
+    assert len(connection.sent) == 1
+    wire, options = connection.sent[0]
+    assert signature == str(VersionedTransaction.from_bytes(wire).signatures[0])
+    assert connection.simulated[0][0] == wire
+    assert connection.simulated[0][1] == {
+        "sig_verify": True,
+        "commitment": "confirmed",
+        "replace_recent_blockhash": False,
+    }
+    assert (
+        options.max_retries == 0
+        and options.skip_preflight is False
+        and options.skip_confirmation
+    )
+    assert connection.fee_message == tx.message
+    assert signer is None or signer.calls == 1
+    await client.close()
+
+
+@pytest.mark.parametrize("prepared", [False, True])
+async def test_confirmation_preserves_original_expiry(prepared):
+    client, _, _, _, tx = setup()
+    client.rpc().confirm_signature_status = AsyncMock(
+        return_value=SimpleNamespace(slot=999)
+    )
+    method = (
+        client.sign_and_submit_prepared_tx_confirmed_with_slot
+        if prepared
+        else client.sign_and_submit_tx_confirmed_with_slot
+    )
+    result = await method(tx)
+    client.rpc().confirm_signature_status.assert_awaited_once_with(
+        result.signature, 123
+    )
+    assert result.slot == 999
+    await client.close()
+
+
+async def test_feature_failure_precedes_wallet_prompt_and_send():
+    client, connection, _, signer, tx = setup(True)
+    connection.feature = None
+    with pytest.raises(SdkError, match="feature"):
+        await client.sign_and_submit_tx(tx)
+    assert signer.calls == 0 and not connection.sent
+    await client.close()
+
+
+@pytest.mark.parametrize(
+    "data,owner,executable",
+    [
+        (b"\0" * 9, "Feature111111111111111111111111111111111111", False),
+        (
+            b"\1" + (101).to_bytes(8, "little"),
+            "Feature111111111111111111111111111111111111",
+            False,
+        ),
+        (b"\1", "Feature111111111111111111111111111111111111", False),
+        (b"\1" + bytes(8), "11111111111111111111111111111111", False),
+        (b"\1" + bytes(8), "Feature111111111111111111111111111111111111", True),
+    ],
+)
+async def test_feature_account_validation(data, owner, executable):
+    client, conn, _, _, tx = setup()
+    conn.feature = Account(1, data, Pubkey.from_string(owner), executable)
+    with pytest.raises(SdkError, match="feature"):
+        await client.sign_and_submit_tx(tx)
+    assert not conn.sent
+    await client.close()
+
+
+@pytest.mark.parametrize("mutate,unsigned", [(True, False), (False, True)])
+async def test_wallet_rejects_changed_or_unsigned_bytes_before_submission(
+    mutate, unsigned
+):
+    client, connection, _, signer, tx = setup(True)
+    signer.mutate, signer.unsigned = mutate, unsigned
+    with pytest.raises(SdkError):
+        await client.sign_and_submit_tx(tx)
+    assert not connection.sent and not connection.simulated
+    await client.close()
+
+
+async def test_fee_shortfall_rejects_before_signer_unknown_fees_continue():
+    client, connection, _, signer, tx = setup(True)
+    connection.balance = 4999
+    with pytest.raises(InsufficientSolForTransactionFees) as error:
+        await client.sign_and_submit_tx(tx)
+    assert (error.value.available_lamports, error.value.required_lamports) == (
+        4999,
+        5000,
+    )
+    assert not connection.sent and signer.calls == 0
+    connection.fee = ValueError("fee unavailable")
+    await client.sign_and_submit_tx(tx)
+    assert len(connection.sent) == 1
+    await client.close()
+
+
+@pytest.mark.parametrize("kind", ["transport", "signature"])
+async def test_ambiguous_send_retains_signature_expiry_without_retry(kind):
+    client, conn, payer, _, tx = setup()
+    if kind == "transport":
+        conn.send_error = ConnectionError("connection lost after send")
+    else:
+        conn.response_signature = "wrong"
+    with pytest.raises(SubmissionUnknown) as error:
+        await client.sign_and_submit_tx(tx)
+    assert len(conn.sent) == 1
+    assert error.value.signature == str(tx.sign([payer]).signatures[0])
+    assert error.value.last_valid_block_height == 123
+    await client.close()
+
+
+async def test_simulation_failure_and_unsigned_direct_send_fail_before_send():
+    client, conn, payer, _, tx = setup()
+    with pytest.raises(SdkError):
+        await client.rpc().send_raw_transaction(tx)
+    conn.simulation_error = "program failed"
+    with pytest.raises(SdkError, match="simulation failed"):
+        await client.rpc().submit_signed_transaction(tx.sign([payer]))
+    assert not conn.sent
+    await client.close()
+
+
+async def test_context_requires_explicit_resources_and_rejects_legacy_and_privy():
+    client, conn, _, _, tx = setup()
+    assert await client.transaction_context() == CONTEXT
+    client._transaction_resources = None
+    with pytest.raises(SdkError, match="resources are required"):
+        await client.transaction_context()
+    with pytest.raises(SdkError, match="v1"):
+        await client.sign_and_submit_tx(Transaction.default())
+    client.signing_strategy = SigningStrategy.privy("id")
+    with pytest.raises(SdkError, match="Privy"):
+        await client.sign_and_submit_tx(tx)
+    with pytest.raises(SdkError, match="Privy"):
+        await client.privy().sign_and_send_tx("id", "AA==")
+    assert not conn.sent
+    await client.close()
+
+
+async def test_sponsorship_keeps_payer_rules():
+    client, conn, payer, _, tx = setup()
+    client.transaction_sponsorship_enabled = True
+    with pytest.raises(SdkError, match="sponsorship"):
+        await client.sign_and_submit_tx(tx)
+    client.transaction_sponsorship_enabled = False
+    client.signing_strategy = SigningStrategy.native(Keypair())
+    with pytest.raises(SdkError, match="fee payer"):
+        await client.sign_and_submit_tx(tx)
+    assert not conn.sent
+    await client.close()
+
+
+async def test_real_solana_rpc_requests_encode_canonical_v1_bytes():
+    """Exercise maintained binding request serializers, not only fake RPC methods."""
+    import base64
+    import json
+
+    from solana.rpc.async_api import AsyncClient
+
+    client, _, payer, _, tx = setup()
+    rpc = AsyncClient("http://localhost:8899")
+    rpc._provider.make_request = AsyncMock(return_value=SimpleNamespace(value=5000))
+    await rpc.get_fee_for_message(tx.message, "confirmed")
+    request = rpc._provider.make_request.call_args.args[0]
+    assert (
+        json.loads(request.to_json())["params"][0]
+        == base64.b64encode(tx.message_bytes()).decode()
+    )
+    signed = tx.sign([payer])
+    await rpc.simulate_transaction(
+        signed.as_versioned(),
+        sig_verify=True,
+        replace_recent_blockhash=False,
+        commitment="confirmed",
+    )
+    request = json.loads(rpc._provider.make_request.call_args.args[0].to_json())
+    assert request["params"][0] == base64.b64encode(bytes(signed)).decode()
+    assert request["params"][1]["sigVerify"] is True
+    assert request["params"][1]["replaceRecentBlockhash"] is False
+    await rpc.close()
+    await client.close()
+
+
+async def test_sponsored_external_submission_requires_every_signature():
+    client, conn, wallet_key, signer, _ = setup(True)
+    sponsor = Keypair()
+    tx = V1Transaction.compile(
+        [
+            Instruction(
+                Pubkey.new_unique(),
+                b"test",
+                [AccountMeta(wallet_key.pubkey(), True, False)],
+            )
+        ],
+        sponsor.pubkey(),
+        CONTEXT,
+    )
+    client.set_transaction_sponsorship_enabled(True)
+    conn.fee = 1_000_000
+    conn.balance = 0
+
+    async def sign_all(wire):
+        return bytes(
+            VersionedTransaction(
+                VersionedTransaction.from_bytes(wire).message, [sponsor, wallet_key]
+            )
+        )
+
+    signer.sign_transaction = sign_all
+    await client.sign_and_submit_tx(tx)
+    assert len(conn.sent) == 1
+    assert not hasattr(conn, "fee_message")
+    await client.close()
+
+
+async def test_submission_snapshots_strategy_before_awaiting_fee_authority():
+    client, conn, payer, _, tx = setup()
+    original_fee = conn.get_fee_for_message
+
+    async def change_strategy(message, commitment):
+        client.signing_strategy.keypair = Keypair()
+        client.set_transaction_sponsorship_enabled(True)
+        return await original_fee(message, commitment)
+
+    conn.get_fee_for_message = change_strategy
+    signature = await client.sign_and_submit_tx(tx)
+    assert signature == str(tx.sign([payer]).signatures[0])
+    await client.close()
+
+
+async def test_unsponsored_external_signer_requires_known_wallet_identity():
+    client, conn, _, signer, tx = setup(True)
+    signer.wallet_address = None
+    with pytest.raises(SdkError, match="identity"):
+        await client.sign_and_submit_tx(tx)
+    assert signer.calls == 0 and not conn.sent
+    await client.close()
+
+
+@pytest.mark.parametrize("failure", ["http429", "transport", "rpc_error"])
+async def test_injected_solana_connection_cannot_retry_uncertain_send(failure):
+    import httpx2
+    from solana.rpc.async_api import AsyncClient
+
+    client, _, payer, _, tx = setup()
+    connection = AsyncClient("http://localhost:8899", max_transport_retries=3)
+    await connection._provider.session.aclose()
+    attempts = []
+
+    async def handle(request):
+        attempts.append(request)
+        if failure == "http429":
+            return httpx2.Response(429, request=request)
+        if failure == "transport":
+            raise httpx2.RemoteProtocolError("response lost")
+        return httpx2.Response(
+            200,
+            json={
+                "jsonrpc": "2.0",
+                "id": 0,
+                "error": {"code": -32002, "message": "simulation rejected"},
+            },
+            request=request,
+        )
+
+    connection._provider.session = httpx2.AsyncClient(
+        transport=httpx2.MockTransport(handle)
+    )
+    client._primary_connection = connection
+    client.rpc().simulate_transaction = AsyncMock()
+    with pytest.raises(SubmissionUnknown) as error:
+        await client.rpc().submit_signed_transaction(tx.sign([payer]))
+    assert len(attempts) == 1
+    assert error.value.signature == str(tx.sign([payer]).signatures[0])
+    assert error.value.last_valid_block_height == CONTEXT.last_valid_block_height
+    await connection.close()
+    await client.close()
