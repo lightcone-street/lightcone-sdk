@@ -6,11 +6,11 @@ use crate::domain::orderbook::wire::{DecimalsResponse, OrderbookDepthResponse};
 use crate::error::SdkError;
 use crate::http::RetryPolicy;
 use crate::program::instructions;
+use crate::program::transaction::{V1Transaction, V1TransactionContext};
 use crate::program::types::CloseOrderbookParams;
 use async_lock::OnceCell;
 use solana_instruction::Instruction;
 use solana_pubkey::Pubkey;
-use solana_transaction::Transaction;
 use std::sync::Arc;
 
 pub struct Orderbooks<'a> {
@@ -126,9 +126,10 @@ impl<'a> Orderbooks<'a> {
     pub fn close_orderbook_tx(
         &self,
         params: CloseOrderbookParams,
-    ) -> Result<Transaction, SdkError> {
+        context: &V1TransactionContext,
+    ) -> Result<V1Transaction, SdkError> {
         let ix = self.close_orderbook_ix(&params);
-        Ok(Transaction::new_with_payer(&[ix], Some(&params.operator)))
+        Ok(V1Transaction::compile(&[ix], &params.operator, context)?)
     }
 }
 

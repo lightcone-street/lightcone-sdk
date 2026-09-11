@@ -54,7 +54,10 @@ pub trait ExternalSigner: Send + Sync {
         message: &'a [u8],
     ) -> Pin<Box<dyn Future<Output = Result<Vec<u8>, String>> + 'a>>;
 
-    /// Sign a serialized unsigned transaction and return the signed transaction bytes.
+    /// Sign canonical Solana v1 wire bytes and return canonical signed v1 bytes.
+    /// The wallet must support v1 and preserve the entire message, including the
+    /// blockhash and inline resources. Unsupported wallets must return an error.
+    /// The SDK verifies every signature and rejects changed messages before send.
     fn sign_transaction<'a>(
         &'a self,
         tx_bytes: &'a [u8],

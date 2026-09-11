@@ -4,8 +4,8 @@ use common::{
     get_keypair, login, market_and_orderbook, num_outcomes, parse_pubkey, quote_deposit_mint,
     rest_client, ExampleResult,
 };
+use lightcone::program::V1Transaction;
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 
 #[tokio::main]
 async fn main() -> ExampleResult {
@@ -19,9 +19,6 @@ async fn main() -> ExampleResult {
     let num_outcomes = num_outcomes(&market)?;
     let amount = 1_000_000;
     let deposit_amount = amount * 2; // deposit extra so global has funds after market transfer
-
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
 
     let mut instructions: Vec<(&str, solana_instruction::Instruction)> = vec![];
 
@@ -81,10 +78,13 @@ async fn main() -> ExampleResult {
     ));
 
     for (name, ix) in &instructions {
-        let blockhash = rpc_sub.get_latest_blockhash().await?;
-        let mut tx = Transaction::new_with_payer(&[ix.clone()], Some(&keypair.pubkey()));
-        tx.try_sign(&[&keypair], blockhash)?;
-        let sig = rpc.send_and_confirm_transaction(&tx).await?;
+        let context = client.transaction_context().await?;
+        let tx = V1Transaction::compile(&[ix.clone()], &keypair.pubkey(), &context)?;
+        let tx = tx.sign(&[&keypair])?;
+        let sig = client.submit_signed_transaction(&tx).await?;
+        client
+            .confirm_signature(&sig, Some(tx.context().last_valid_block_height))
+            .await?;
         println!("{name}: confirmed {sig}");
     }
 

@@ -5,9 +5,9 @@ use common::{
     wait_for_global_balance, ExampleResult,
 };
 use lightcone::prelude::*;
+use lightcone::program::V1Transaction;
 use lightcone::{program::types::OrderSide, shared::scale_price_size};
 use solana_signer::Signer;
-use solana_transaction::Transaction;
 use std::sync::Arc;
 
 #[tokio::main]
@@ -31,8 +31,6 @@ async fn main() -> ExampleResult {
         u32::from(rules.quote_decimals),
     );
     let mint = quote_deposit_mint(&orderbook)?;
-    let rpc_sub = client.rpc();
-    let rpc = rpc_sub.inner().await?;
 
     // 1. Deposit collateral into the global pool.
     //
@@ -49,10 +47,16 @@ async fn main() -> ExampleResult {
         .mint(mint)
         .amount(order_quote_amount)
         .build_ix()?;
-    let blockhash = rpc_sub.get_latest_blockhash().await?;
-    let mut deposit_tx = Transaction::new_with_payer(&[deposit_ix], Some(&maker));
-    deposit_tx.try_sign(&[keypair.as_ref()], blockhash)?;
-    let deposit_sig = rpc.send_and_confirm_transaction(&deposit_tx).await?;
+    let context = client.transaction_context().await?;
+    let deposit_tx = V1Transaction::compile(&[deposit_ix], &maker, &context)?;
+    let deposit_tx = deposit_tx.sign(&[keypair.as_ref()])?;
+    let deposit_sig = client.submit_signed_transaction(&deposit_tx).await?;
+    client
+        .confirm_signature(
+            &deposit_sig,
+            Some(deposit_tx.context().last_valid_block_height),
+        )
+        .await?;
     println!("deposit_to_global: confirmed {deposit_sig}");
 
     client

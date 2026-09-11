@@ -36,7 +36,13 @@ pub async fn fresh_order_nonce(client: &LightconeClient, user: &Pubkey) -> Examp
 }
 
 pub fn rest_client() -> ExampleResult<LightconeClient> {
-    let mut builder = LightconeClient::builder();
+    let mut builder =
+        LightconeClient::builder().transaction_resources(lightcone::program::V1ResourceConfig {
+            compute_unit_limit: 1_400_000,
+            loaded_accounts_data_size_limit: 64 * 1024 * 1024,
+            priority_fee_lamports: 0,
+            heap_size: None,
+        });
     if let Ok(env_str) = env::var("LIGHTCONE_ENV") {
         let environment = match env_str.to_lowercase().as_str() {
             "local" => LightconeEnv::Local,
