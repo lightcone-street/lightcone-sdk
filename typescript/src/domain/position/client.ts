@@ -31,12 +31,9 @@ import {
   buildRedeemWinningsIx,
   buildWithdrawConditionalFromPositionIx,
   buildInitPositionTokensIx,
-  buildExtendPositionTokensIx,
   buildDepositToGlobalIx,
-  buildDepositToGlobalIxWithAlt,
   buildGlobalToMarketDepositIx,
   buildWithdrawFromGlobalIx,
-  buildClosePositionAltIx,
   buildClosePositionTokenAccountsIx,
 } from "../../program/instructions";
 import { Rpc } from "../../rpc";
@@ -53,12 +50,9 @@ import type {
   WithdrawConditionalFromPositionParams,
   WithdrawFromPositionParams,
   InitPositionTokensParams,
-  ExtendPositionTokensParams,
   DepositToGlobalParams,
-  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   WithdrawFromGlobalParams,
-  ClosePositionAltParams,
   ClosePositionTokenAccountsParams,
 } from "../../program/types";
 import type { Market } from "../market";
@@ -79,7 +73,6 @@ import {
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
   InitPositionTokensBuilder,
-  ExtendPositionTokensBuilder,
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,
@@ -1138,22 +1131,8 @@ export class Positions {
     return buildInitPositionTokensIx(params, numOutcomes, this.client.programId);
   }
 
-  extendPositionTokensIx(
-    params: ExtendPositionTokensParams,
-    numOutcomes: number
-  ): TransactionInstruction {
-    return buildExtendPositionTokensIx(params, numOutcomes, this.client.programId);
-  }
-
   depositToGlobalIx(params: DepositToGlobalParams): TransactionInstruction {
     return buildDepositToGlobalIx(params, this.client.programId);
-  }
-
-  depositToGlobalIxWithAlt(
-    params: DepositToGlobalParams,
-    altContext: DepositToGlobalAltContext
-  ): TransactionInstruction {
-    return buildDepositToGlobalIxWithAlt(params, altContext, this.client.programId);
   }
 
   globalToMarketDepositIx(
@@ -1165,10 +1144,6 @@ export class Positions {
 
   withdrawFromGlobalIx(params: WithdrawFromGlobalParams): TransactionInstruction {
     return buildWithdrawFromGlobalIx(params, this.client.programId);
-  }
-
-  closePositionAltIx(params: ClosePositionAltParams): TransactionInstruction {
-    return buildClosePositionAltIx(params, this.client.programId);
   }
 
   closePositionTokenAccountsIx(
@@ -1209,24 +1184,8 @@ export class Positions {
     return new Transaction({ feePayer: params.payer }).add(ix);
   }
 
-  extendPositionTokensTx(
-    params: ExtendPositionTokensParams,
-    numOutcomes: number
-  ): Transaction {
-    const ix = this.extendPositionTokensIx(params, numOutcomes);
-    return new Transaction({ feePayer: params.payer }).add(ix);
-  }
-
   depositToGlobalTx(params: DepositToGlobalParams): Transaction {
     const ix = this.depositToGlobalIx(params);
-    return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  depositToGlobalTxWithAlt(
-    params: DepositToGlobalParams,
-    altContext: DepositToGlobalAltContext
-  ): Transaction {
-    const ix = this.depositToGlobalIxWithAlt(params, altContext);
     return new Transaction({ feePayer: params.user }).add(ix);
   }
 
@@ -1241,11 +1200,6 @@ export class Positions {
   withdrawFromGlobalTx(params: WithdrawFromGlobalParams): Transaction {
     const ix = this.withdrawFromGlobalIx(params);
     return new Transaction({ feePayer: params.user }).add(ix);
-  }
-
-  closePositionAltTx(params: ClosePositionAltParams): Transaction {
-    const ix = this.closePositionAltIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
   }
 
   closePositionTokenAccountsTx(
@@ -1284,10 +1238,6 @@ export class Positions {
 
   initPositionTokens(): InitPositionTokensBuilder {
     return new InitPositionTokensBuilder(this.client);
-  }
-
-  extendPositionTokens(): ExtendPositionTokensBuilder {
-    return new ExtendPositionTokensBuilder(this.client);
   }
 
   depositToGlobal(): DepositToGlobalBuilder {

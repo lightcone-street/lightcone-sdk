@@ -428,20 +428,22 @@ impl UserNonce {
 }
 
 // ============================================================================
-// Orderbook Account (144 bytes)
+// Orderbook Account (176 bytes)
 // ============================================================================
 
-/// Orderbook account - on-chain orderbook with lookup table
+/// Orderbook account - one market outcome traded between two distinct collateral assets
 ///
 /// Layout:
 /// - [0..8]     discriminator (8 bytes)
 /// - [8..40]    market (32 bytes)
 /// - [40..72]   mint_a (32 bytes)
 /// - [72..104]  mint_b (32 bytes)
-/// - [104..136] lookup_table (32 bytes)
-/// - [136]      base_index (1 byte)
-/// - [137]      bump (1 byte)
-/// - [138..144] _padding (6 bytes)
+/// - [104..136] deposit_mint_a (32 bytes)
+/// - [136..168] deposit_mint_b (32 bytes)
+/// - [168]      base_index (1 byte)
+/// - [169]      outcome_index (1 byte)
+/// - [170]      bump (1 byte)
+/// - [171..176] _padding (5 bytes)
 #[derive(Debug, Clone)]
 pub struct Orderbook {
     /// Account discriminator
@@ -452,10 +454,14 @@ pub struct Orderbook {
     pub mint_a: Pubkey,
     /// Mint B
     pub mint_b: Pubkey,
-    /// Address lookup table
-    pub lookup_table: Pubkey,
+    /// Collateral backing canonical conditional mint A.
+    pub deposit_mint_a: Pubkey,
+    /// Collateral backing canonical conditional mint B.
+    pub deposit_mint_b: Pubkey,
     /// Which mint is the base asset (0 = mint_a, 1 = mint_b)
     pub base_index: u8,
+    /// Shared outcome index for both conditional mints.
+    pub outcome_index: u8,
     /// PDA bump seed
     pub bump: u8,
 }
@@ -466,7 +472,7 @@ impl Orderbook {
 
     /// Deserialize from account data
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < Self::LEN {
+        if data.len() != Self::LEN {
             return Err(SdkError::InvalidDataLength {
                 expected: Self::LEN,
                 actual: data.len(),
@@ -481,15 +487,45 @@ impl Orderbook {
             });
         }
 
+        if data[168] > 1 {
+            return Err(SdkError::InvalidOrderbook);
+        }
+        if data[169] >= MAX_OUTCOMES {
+            return Err(SdkError::InvalidOutcomeIndex {
+                index: data[169],
+                max: MAX_OUTCOMES - 1,
+            });
+        }
+
         Ok(Self {
             discriminator,
             market: read_pubkey(data, 8),
             mint_a: read_pubkey(data, 40),
             mint_b: read_pubkey(data, 72),
-            lookup_table: read_pubkey(data, 104),
-            base_index: data[136],
-            bump: data[137],
+            deposit_mint_a: read_pubkey(data, 104),
+            deposit_mint_b: read_pubkey(data, 136),
+            base_index: data[168],
+            outcome_index: data[169],
+            bump: data[170],
         })
+    }
+
+    /// Underlying collateral backing the base conditional mint.
+    pub fn base_deposit_mint(&self) -> Pubkey {
+        if self.base_index == 0 {
+            self.deposit_mint_a
+        } else {
+            self.deposit_mint_b
+        }
+    }
+
+    /// Underlying collateral backing the quote conditional mint.
+    pub fn quote_deposit_mint(&self) -> Pubkey {
+        if self.base_index == 0 {
+            self.deposit_mint_b
+        } else {
+            self.deposit_mint_a
+        }
     }
 
     /// Check if account data has the orderbook discriminator
@@ -521,7 +557,7 @@ pub struct GlobalDepositToken {
     pub bump: u8,
     /// Sequential index assigned at whitelist time
     pub index: u16,
-    /// Backend-visible status flag. Current on-chain user flows do not gate on this flag.
+    /// Whether this collateral may back an executed trade. Deposits and exits do not require activity.
     pub active: bool,
 }
 
@@ -531,7 +567,7 @@ impl GlobalDepositToken {
 
     /// Deserialize from account data
     pub fn deserialize(data: &[u8]) -> SdkResult<Self> {
-        if data.len() < Self::LEN {
+        if data.len() != Self::LEN {
             return Err(SdkError::InvalidDataLength {
                 expected: Self::LEN,
                 actual: data.len(),
@@ -544,6 +580,13 @@ impl GlobalDepositToken {
                 expected: hex::encode(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR),
                 actual: hex::encode(discriminator),
             });
+        }
+
+        if data[43] > 1 {
+            return Err(SdkError::Serialization(format!(
+                "invalid deposit token activity: {} (must be 0 or 1)",
+                data[43]
+            )));
         }
 
         Ok(Self {
@@ -694,7 +737,8 @@ mod tests {
 
     #[test]
     fn test_orderbook_deserialization() {
-        let mut data = vec![0u8; ORDERBOOK_SIZE];
+        assert_eq!(Orderbook::LEN, 176);
+        let mut data = vec![0u8; 176];
         data[0..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
         // market at offset 8
         data[8..40].copy_from_slice(&[1u8; 32]);
@@ -702,20 +746,81 @@ mod tests {
         data[40..72].copy_from_slice(&[2u8; 32]);
         // mint_b at offset 72
         data[72..104].copy_from_slice(&[3u8; 32]);
-        // lookup_table at offset 104
+        // collateral A at offset 104
         data[104..136].copy_from_slice(&[4u8; 32]);
-        // base_index at offset 136
-        data[136] = 1;
-        // bump at offset 137
-        data[137] = 252;
+        data[136..168].copy_from_slice(&[5u8; 32]);
+        data[170] = 252;
 
-        let orderbook = Orderbook::deserialize(&data).unwrap();
-        assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
-        assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
-        assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
-        assert_eq!(orderbook.lookup_table, Pubkey::new_from_array([4u8; 32]));
-        assert_eq!(orderbook.base_index, 1);
-        assert_eq!(orderbook.bump, 252);
+        for base_index in [0, 1] {
+            for outcome_index in [0, 5] {
+                data[168] = base_index;
+                data[169] = outcome_index;
+                let orderbook = Orderbook::deserialize(&data).unwrap();
+                assert_eq!(orderbook.discriminator, ORDERBOOK_DISCRIMINATOR);
+                assert_eq!(orderbook.market, Pubkey::new_from_array([1u8; 32]));
+                assert_eq!(orderbook.mint_a, Pubkey::new_from_array([2u8; 32]));
+                assert_eq!(orderbook.mint_b, Pubkey::new_from_array([3u8; 32]));
+                assert_eq!(orderbook.deposit_mint_a, Pubkey::new_from_array([4u8; 32]));
+                assert_eq!(orderbook.deposit_mint_b, Pubkey::new_from_array([5u8; 32]));
+                assert_eq!(orderbook.base_index, base_index);
+                assert_eq!(orderbook.outcome_index, outcome_index);
+                let (base_collateral, quote_collateral) =
+                    if base_index == 0 { (4, 5) } else { (5, 4) };
+                assert_eq!(
+                    orderbook.base_deposit_mint(),
+                    Pubkey::new_from_array([base_collateral; 32])
+                );
+                assert_eq!(
+                    orderbook.quote_deposit_mint(),
+                    Pubkey::new_from_array([quote_collateral; 32])
+                );
+                assert_eq!(orderbook.bump, 252);
+            }
+        }
+    }
+
+    #[test]
+    fn test_orderbook_rejects_nonexact_lengths_and_bad_discriminators() {
+        let mut valid_data = vec![0u8; 176];
+        valid_data[..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        for actual in [0, 7, 175, 177] {
+            let mut data = valid_data.clone();
+            data.resize(actual, 0);
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidDataLength { expected: 176, actual: len }) if len == actual
+            ));
+        }
+
+        valid_data[0] ^= 0xff;
+        assert!(matches!(
+            Orderbook::deserialize(&valid_data),
+            Err(SdkError::InvalidDiscriminator { expected, actual })
+                if expected == hex::encode(ORDERBOOK_DISCRIMINATOR)
+                    && actual == hex::encode(&valid_data[..8])
+        ));
+    }
+
+    #[test]
+    fn test_orderbook_rejects_invalid_base_and_outcome_indexes() {
+        let mut valid_data = vec![0u8; 176];
+        valid_data[..8].copy_from_slice(&ORDERBOOK_DISCRIMINATOR);
+        for invalid in [2, 255] {
+            let mut data = valid_data.clone();
+            data[168] = invalid;
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidOrderbook)
+            ));
+        }
+        for invalid in [6, 255] {
+            let mut data = valid_data.clone();
+            data[169] = invalid;
+            assert!(matches!(
+                Orderbook::deserialize(&data),
+                Err(SdkError::InvalidOutcomeIndex { index, max: 5 }) if index == invalid
+            ));
+        }
     }
 
     #[test]
@@ -730,17 +835,19 @@ mod tests {
 
     #[test]
     fn test_global_deposit_token_deserialization() {
-        let mut data = vec![0u8; GLOBAL_DEPOSIT_TOKEN_SIZE];
+        assert_eq!(GlobalDepositToken::LEN, 47);
+        let mut data = vec![0u8; 47];
         data[0..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
         data[8..40].copy_from_slice(&[5u8; 32]);
         data[40] = 251;
-        data[41..43].copy_from_slice(&42u16.to_le_bytes());
+        data[41..43].copy_from_slice(&[0xef, 0xbe]);
         data[43] = 1;
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
+        assert_eq!(gdt.discriminator, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
         assert_eq!(gdt.mint, Pubkey::new_from_array([5u8; 32]));
         assert_eq!(gdt.bump, 251);
-        assert_eq!(gdt.index, 42);
+        assert_eq!(gdt.index, 0xbeef);
         assert!(gdt.active);
     }
 
@@ -752,6 +859,41 @@ mod tests {
 
         let gdt = GlobalDepositToken::deserialize(&data).unwrap();
         assert!(!gdt.active);
+    }
+
+    #[test]
+    fn test_global_deposit_token_rejects_nonexact_lengths_and_bad_discriminators() {
+        let mut valid_data = vec![0u8; 47];
+        valid_data[..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        for actual in [0, 7, 46, 48] {
+            let mut data = valid_data.clone();
+            data.resize(actual, 0);
+            assert!(matches!(
+                GlobalDepositToken::deserialize(&data),
+                Err(SdkError::InvalidDataLength { expected: 47, actual: len }) if len == actual
+            ));
+        }
+
+        valid_data[0] ^= 0xff;
+        assert!(matches!(
+            GlobalDepositToken::deserialize(&valid_data),
+            Err(SdkError::InvalidDiscriminator { expected, actual })
+                if expected == hex::encode(GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR)
+                    && actual == hex::encode(&valid_data[..8])
+        ));
+    }
+
+    #[test]
+    fn test_global_deposit_token_rejects_nonboolean_activity() {
+        let mut data = vec![0u8; 47];
+        data[..8].copy_from_slice(&GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR);
+        for active in [2, 255] {
+            data[43] = active;
+            assert!(matches!(
+                GlobalDepositToken::deserialize(&data),
+                Err(SdkError::Serialization(_))
+            ));
+        }
     }
 
     #[test]

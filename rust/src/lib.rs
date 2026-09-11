@@ -156,10 +156,9 @@ pub mod prelude {
 
     // Position builders
     pub use crate::domain::position::{
-        DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-        GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder,
-        RedeemWinningsBuilder, WithdrawBuilder, WithdrawFromGlobalBuilder,
-        WithdrawFromPositionBuilder,
+        DepositBuilder, DepositToGlobalBuilder, GlobalToMarketDepositBuilder,
+        InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder, WithdrawBuilder,
+        WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
     };
 
     // Signing strategy

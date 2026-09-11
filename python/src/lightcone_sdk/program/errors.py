@@ -296,13 +296,6 @@ class InvalidOracleError(LightconeError):
         super().__init__("Invalid oracle")
 
 
-class LookupTableDeactivatedError(LightconeError):
-    """Raised when a lookup table is deactivated and cannot be extended."""
-
-    def __init__(self):
-        super().__init__("Lookup table is deactivated")
-
-
 class NoPendingRoleTransferError(LightconeError):
     """Raised when no pending privileged-role transfer exists."""
 
@@ -357,13 +350,6 @@ class PublicInstructionMustBeTopLevelError(LightconeError):
 
     def __init__(self):
         super().__init__("Public instruction must be top-level")
-
-
-class LookupTableCapacityExceededError(LightconeError):
-    """Raised when extending a lookup table would exceed its capacity."""
-
-    def __init__(self):
-        super().__init__("Lookup table capacity exceeded")
 
 
 class TooManyDepositMintsError(LightconeError):
@@ -457,13 +443,6 @@ class TokenAccountNotEmptyError(LightconeError):
         super().__init__("Token account is not empty")
 
 
-class LookupTableNotClosedError(LightconeError):
-    """Raised when an orderbook PDA is closed before its lookup table."""
-
-    def __init__(self):
-        super().__init__("Lookup table is not closed")
-
-
 class InvalidPubkeyError(LightconeError):
     """Raised when a public key is invalid."""
 
@@ -484,3 +463,24 @@ class UnsignedOrderError(LightconeError):
 
     def __init__(self):
         super().__init__("Order is not signed")
+
+
+class InactiveDepositTokenError(LightconeError):
+    """Program error 76: a required trading collateral registration is inactive."""
+
+    def __init__(self):
+        super().__init__("Inactive deposit token")
+
+
+class DepositMintMismatchError(LightconeError):
+    """Program error 77: collateral differs from book or funding provenance."""
+
+    def __init__(self):
+        super().__init__("Deposit mint mismatch")
+
+
+class InvalidConditionalMintError(LightconeError):
+    """Program error 18: a conditional mint has invalid provenance or properties."""
+
+    def __init__(self):
+        super().__init__("Invalid conditional mint")

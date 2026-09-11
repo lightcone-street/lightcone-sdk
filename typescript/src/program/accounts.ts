@@ -1,5 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
-import { DISCRIMINATOR, ACCOUNT_SIZE } from "./constants";
+import { DISCRIMINATOR, ACCOUNT_SIZE, MAX_OUTCOMES } from "./constants";
 import { ProgramSdkError } from "./error";
 import {
   Exchange,
@@ -408,18 +408,20 @@ export function deserializePosition(data: Buffer): Position {
 /**
  * Deserialize Orderbook account data
  *
- * Layout (144 bytes):
+ * Layout (176 bytes):
  * - discriminator: [u8; 8]
  * - market: Pubkey (32 bytes)
  * - mint_a: Pubkey (32 bytes)
  * - mint_b: Pubkey (32 bytes)
- * - lookup_table: Pubkey (32 bytes)
+ * - deposit_mint_a: Pubkey (32 bytes)
+ * - deposit_mint_b: Pubkey (32 bytes)
  * - base_index: u8 (1 byte)
+ * - outcome_index: u8 (1 byte)
  * - bump: u8 (1 byte)
- * - _padding: [u8; 6]
+ * - _padding: [u8; 5]
  */
 export function deserializeOrderbook(data: Buffer): Orderbook {
-  if (data.length < ACCOUNT_SIZE.ORDERBOOK) {
+  if (data.length !== ACCOUNT_SIZE.ORDERBOOK) {
     throw ProgramSdkError.invalidDataLength("Orderbook", ACCOUNT_SIZE.ORDERBOOK, data.length);
   }
 
@@ -439,26 +441,56 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
   const mintB = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
-  const lookupTable = new PublicKey(data.subarray(offset, offset + 32));
+  const depositMintA = new PublicKey(data.subarray(offset, offset + 32));
+  offset += 32;
+
+  const depositMintB = new PublicKey(data.subarray(offset, offset + 32));
   offset += 32;
 
   const baseIndex = data[offset];
   offset += 1;
 
+  if (baseIndex > 1) {
+    throw ProgramSdkError.invalidOrderbook();
+  }
+
+  const outcomeIndex = data[offset];
+  offset += 1;
+
+  if (outcomeIndex >= MAX_OUTCOMES) {
+    throw ProgramSdkError.invalidOutcomeIndex(outcomeIndex, MAX_OUTCOMES - 1);
+  }
+
   const bump = data[offset];
   offset += 1;
 
-  // Skip padding: 6 bytes
+  // Skip padding: 5 bytes
 
   return {
     discriminator,
     market,
     mintA,
     mintB,
-    lookupTable,
+    depositMintA,
+    depositMintB,
     baseIndex,
+    outcomeIndex,
     bump,
   };
+}
+
+/** Return the collateral backing the orderbook's approved base conditional mint. */
+export function getOrderbookBaseDepositMint(orderbook: Orderbook): PublicKey {
+  if (orderbook.baseIndex === 0) return orderbook.depositMintA;
+  if (orderbook.baseIndex === 1) return orderbook.depositMintB;
+  throw ProgramSdkError.invalidOrderbook();
+}
+
+/** Return the collateral backing the orderbook's approved quote conditional mint. */
+export function getOrderbookQuoteDepositMint(orderbook: Orderbook): PublicKey {
+  if (orderbook.baseIndex === 0) return orderbook.depositMintB;
+  if (orderbook.baseIndex === 1) return orderbook.depositMintA;
+  throw ProgramSdkError.invalidOrderbook();
 }
 
 /**
@@ -473,7 +505,7 @@ export function deserializeOrderbook(data: Buffer): Orderbook {
  * - _padding: [u8; 3]
  */
 export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken {
-  if (data.length < ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN) {
+  if (data.length !== ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN) {
     throw ProgramSdkError.invalidDataLength("GlobalDepositToken", ACCOUNT_SIZE.GLOBAL_DEPOSIT_TOKEN, data.length);
   }
 
@@ -492,7 +524,10 @@ export function deserializeGlobalDepositToken(data: Buffer): GlobalDepositToken 
   const index = data.readUInt16LE(offset);
   offset += 2;
 
-  const active = data[offset] !== 0;
+  if (data[offset] !== 0 && data[offset] !== 1) {
+    throw ProgramSdkError.serialization("GlobalDepositToken active must be 0 or 1");
+  }
+  const active = data[offset] === 1;
   offset += 1;
 
   return {

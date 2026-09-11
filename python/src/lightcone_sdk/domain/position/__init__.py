@@ -427,7 +427,6 @@ class UserMarketBalanceIndex:
 from .builders import (  # noqa: E402
     DepositBuilder,
     DepositToGlobalBuilder,
-    ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder,
     InitPositionTokensBuilder,
     MergeBuilder,
@@ -459,7 +458,6 @@ from .wire import PositionsResponseWire as PositionsResponse  # noqa: E402
 __all__ = [
     "DepositBuilder",
     "DepositToGlobalBuilder",
-    "ExtendPositionTokensBuilder",
     "GlobalToMarketDepositBuilder",
     "InitPositionTokensBuilder",
     "MergeBuilder",

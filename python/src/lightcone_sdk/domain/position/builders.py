@@ -5,8 +5,7 @@ Created via factory methods on ``client.positions()``.
 
 from __future__ import annotations
 
-import warnings
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING
 
 from solders.instruction import Instruction
 from solders.pubkey import Pubkey
@@ -16,16 +15,13 @@ from ...error import MissingMarketContext, SdkError
 from ...program.instructions import (
     build_deposit_instruction,
     build_deposit_to_global_instruction,
-    build_deposit_to_global_instruction_with_alt,
-    build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_merge_instruction,
     build_redeem_winnings_instruction,
-    build_withdraw_from_global_instruction,
     build_withdraw_conditional_from_position_instruction,
+    build_withdraw_from_global_instruction,
 )
-from ...program.types import DepositToGlobalAltContext
 from ...program.utils import validate_outcome_count, validate_outcome_index
 from ...shared.types import DepositSource
 
@@ -46,42 +42,42 @@ class DepositBuilder:
     Created via ``client.positions().deposit()``.
     """
 
-    def __init__(self, client: "LightconeClient", deposit_source: DepositSource):
+    def __init__(self, client: LightconeClient, deposit_source: DepositSource):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
         self._market: object = None
-        self._deposit_source: Optional[DepositSource] = deposit_source
+        self._deposit_source: DepositSource | None = deposit_source
 
-    def user(self, user: Pubkey) -> "DepositBuilder":
+    def user(self, user: Pubkey) -> DepositBuilder:
         self._user = user
         return self
 
-    def mint(self, mint: Pubkey) -> "DepositBuilder":
+    def mint(self, mint: Pubkey) -> DepositBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "DepositBuilder":
+    def amount(self, amount: int) -> DepositBuilder:
         self._amount = amount
         return self
 
-    def market(self, market: object) -> "DepositBuilder":
+    def market(self, market: object) -> DepositBuilder:
         """Set the market reference (required when deposit source is ``Market``)."""
         self._market = market
         return self
 
-    def deposit_source(self, source: DepositSource) -> "DepositBuilder":
+    def deposit_source(self, source: DepositSource) -> DepositBuilder:
         self._deposit_source = source
         return self
 
-    def with_market_deposit_source(self, market: object) -> "DepositBuilder":
+    def with_market_deposit_source(self, market: object) -> DepositBuilder:
         """Set deposit source to ``Market`` and provide the required market reference."""
         self._deposit_source = DepositSource.MARKET
         self._market = market
         return self
 
-    def with_global_deposit_source(self) -> "DepositBuilder":
+    def with_global_deposit_source(self) -> DepositBuilder:
         self._deposit_source = DepositSource.GLOBAL
         return self
 
@@ -157,26 +153,26 @@ class MergeBuilder:
             .build_ix())
     """
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
         self._market: object = None
 
-    def user(self, user: Pubkey) -> "MergeBuilder":
+    def user(self, user: Pubkey) -> MergeBuilder:
         self._user = user
         return self
 
-    def mint(self, mint: Pubkey) -> "MergeBuilder":
+    def mint(self, mint: Pubkey) -> MergeBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "MergeBuilder":
+    def amount(self, amount: int) -> MergeBuilder:
         self._amount = amount
         return self
 
-    def market(self, market: object) -> "MergeBuilder":
+    def market(self, market: object) -> MergeBuilder:
         """Set the market reference (required)."""
         self._market = market
         return self
@@ -228,20 +224,20 @@ class WithdrawBuilder:
     Created via ``client.positions().withdraw()``.
     """
 
-    def __init__(self, client: "LightconeClient", deposit_source: DepositSource):
+    def __init__(self, client: LightconeClient, deposit_source: DepositSource):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
         self._market: object = None
-        self._deposit_source: Optional[DepositSource] = deposit_source
-        self._outcome_index: Optional[int] = None
+        self._deposit_source: DepositSource | None = deposit_source
+        self._outcome_index: int | None = None
 
-    def user(self, user: Pubkey) -> "WithdrawBuilder":
+    def user(self, user: Pubkey) -> WithdrawBuilder:
         self._user = user
         return self
 
-    def mint(self, mint: Pubkey) -> "WithdrawBuilder":
+    def mint(self, mint: Pubkey) -> WithdrawBuilder:
         """Set the token mint.
 
         In ``Global`` mode this is the deposit token mint to withdraw. In
@@ -251,35 +247,35 @@ class WithdrawBuilder:
         self._mint = mint
         return self
 
-    def deposit_mint(self, deposit_mint: Pubkey) -> "WithdrawBuilder":
+    def deposit_mint(self, deposit_mint: Pubkey) -> WithdrawBuilder:
         """Set the registered deposit mint for a market withdrawal."""
         return self.mint(deposit_mint)
 
-    def amount(self, amount: int) -> "WithdrawBuilder":
+    def amount(self, amount: int) -> WithdrawBuilder:
         self._amount = amount
         return self
 
-    def market(self, market: object) -> "WithdrawBuilder":
+    def market(self, market: object) -> WithdrawBuilder:
         """Set the market reference (required when deposit source is ``Market``)."""
         self._market = market
         return self
 
-    def deposit_source(self, source: DepositSource) -> "WithdrawBuilder":
+    def deposit_source(self, source: DepositSource) -> WithdrawBuilder:
         self._deposit_source = source
         return self
 
-    def outcome_index(self, outcome_index: int) -> "WithdrawBuilder":
+    def outcome_index(self, outcome_index: int) -> WithdrawBuilder:
         """Set the outcome index (required when deposit source is ``Market``)."""
         self._outcome_index = outcome_index
         return self
 
-    def with_market_deposit_source(self, market: object) -> "WithdrawBuilder":
+    def with_market_deposit_source(self, market: object) -> WithdrawBuilder:
         """Set deposit source to ``Market`` and provide the required market reference."""
         self._deposit_source = DepositSource.MARKET
         self._market = market
         return self
 
-    def with_global_deposit_source(self) -> "WithdrawBuilder":
+    def with_global_deposit_source(self) -> WithdrawBuilder:
         self._deposit_source = DepositSource.GLOBAL
         return self
 
@@ -341,31 +337,31 @@ class WithdrawBuilder:
 class RedeemWinningsBuilder:
     """Fluent builder for redeem winnings operations."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
-        self._outcome_index: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
+        self._outcome_index: int | None = None
 
-    def user(self, user: Pubkey) -> "RedeemWinningsBuilder":
+    def user(self, user: Pubkey) -> RedeemWinningsBuilder:
         self._user = user
         return self
 
-    def market(self, market: Pubkey) -> "RedeemWinningsBuilder":
+    def market(self, market: Pubkey) -> RedeemWinningsBuilder:
         self._market = market
         return self
 
-    def mint(self, mint: Pubkey) -> "RedeemWinningsBuilder":
+    def mint(self, mint: Pubkey) -> RedeemWinningsBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "RedeemWinningsBuilder":
+    def amount(self, amount: int) -> RedeemWinningsBuilder:
         self._amount = amount
         return self
 
-    def outcome_index(self, outcome_index: int) -> "RedeemWinningsBuilder":
+    def outcome_index(self, outcome_index: int) -> RedeemWinningsBuilder:
         self._outcome_index = outcome_index
         return self
 
@@ -412,40 +408,40 @@ class RedeemWinningsBuilder:
 class WithdrawFromPositionBuilder:
     """Fluent builder for conditional-token withdraw-from-position operations."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._deposit_mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
-        self._outcome_index: Optional[int] = None
-        self._num_outcomes: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._deposit_mint: Pubkey | None = None
+        self._amount: int | None = None
+        self._outcome_index: int | None = None
+        self._num_outcomes: int | None = None
 
-    def user(self, user: Pubkey) -> "WithdrawFromPositionBuilder":
+    def user(self, user: Pubkey) -> WithdrawFromPositionBuilder:
         self._user = user
         return self
 
-    def market(self, market: Pubkey) -> "WithdrawFromPositionBuilder":
+    def market(self, market: Pubkey) -> WithdrawFromPositionBuilder:
         self._market = market
         return self
 
-    def deposit_mint(self, deposit_mint: Pubkey) -> "WithdrawFromPositionBuilder":
+    def deposit_mint(self, deposit_mint: Pubkey) -> WithdrawFromPositionBuilder:
         self._deposit_mint = deposit_mint
         return self
 
-    def mint(self, deposit_mint: Pubkey) -> "WithdrawFromPositionBuilder":
+    def mint(self, deposit_mint: Pubkey) -> WithdrawFromPositionBuilder:
         """Set the registered deposit mint for the market."""
         return self.deposit_mint(deposit_mint)
 
-    def amount(self, amount: int) -> "WithdrawFromPositionBuilder":
+    def amount(self, amount: int) -> WithdrawFromPositionBuilder:
         self._amount = amount
         return self
 
-    def outcome_index(self, outcome_index: int) -> "WithdrawFromPositionBuilder":
+    def outcome_index(self, outcome_index: int) -> WithdrawFromPositionBuilder:
         self._outcome_index = outcome_index
         return self
 
-    def num_outcomes(self, num_outcomes: int) -> "WithdrawFromPositionBuilder":
+    def num_outcomes(self, num_outcomes: int) -> WithdrawFromPositionBuilder:
         """Set the market's authoritative outcome count."""
         self._num_outcomes = num_outcomes
         return self
@@ -496,46 +492,37 @@ class WithdrawFromPositionBuilder:
 
 
 class InitPositionTokensBuilder:
-    """Fluent builder for init-position-tokens operations.
+    """Prepare position and conditional ATAs without a recent slot.
 
-    Creates the Position PDA, conditional token ATAs, and position ALT entries
-    for the supplied deposit mints. Permissionless: any payer can initialize
-    these accounts for a user. Idempotent: replaying with the same recent slot
-    reuses the existing lookup table and skips deposit-mint groups already
-    present, so retries must reuse the original slot. At most
-    MAX_DEPOSIT_MINTS_PER_IX deposit mints per instruction.
+    Supply unique deposit mints in increasing GDT registration index order.
+    The same instruction supports initial setup, retries, and additional groups.
     """
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._payer: Optional[Pubkey] = None
-        self._user: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._deposit_mints: Optional[List[Pubkey]] = None
-        self._recent_slot: Optional[int] = None
-        self._num_outcomes: Optional[int] = None
+        self._payer: Pubkey | None = None
+        self._user: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._deposit_mints: list[Pubkey] | None = None
+        self._num_outcomes: int | None = None
 
-    def payer(self, payer: Pubkey) -> "InitPositionTokensBuilder":
+    def payer(self, payer: Pubkey) -> InitPositionTokensBuilder:
         self._payer = payer
         return self
 
-    def user(self, user: Pubkey) -> "InitPositionTokensBuilder":
+    def user(self, user: Pubkey) -> InitPositionTokensBuilder:
         self._user = user
         return self
 
-    def market(self, market: Pubkey) -> "InitPositionTokensBuilder":
+    def market(self, market: Pubkey) -> InitPositionTokensBuilder:
         self._market = market
         return self
 
-    def deposit_mints(self, deposit_mints: List[Pubkey]) -> "InitPositionTokensBuilder":
+    def deposit_mints(self, deposit_mints: list[Pubkey]) -> InitPositionTokensBuilder:
         self._deposit_mints = deposit_mints
         return self
 
-    def recent_slot(self, recent_slot: int) -> "InitPositionTokensBuilder":
-        self._recent_slot = recent_slot
-        return self
-
-    def num_outcomes(self, num_outcomes: int) -> "InitPositionTokensBuilder":
+    def num_outcomes(self, num_outcomes: int) -> InitPositionTokensBuilder:
         self._num_outcomes = num_outcomes
         return self
 
@@ -552,9 +539,6 @@ class InitPositionTokensBuilder:
         deposit_mints = self._deposit_mints
         if deposit_mints is None:
             raise SdkError("deposit_mints is required")
-        recent_slot = self._recent_slot
-        if recent_slot is None:
-            raise SdkError("recent_slot is required")
         num_outcomes = self._num_outcomes
         if num_outcomes is None:
             raise SdkError("num_outcomes is required")
@@ -564,7 +548,6 @@ class InitPositionTokensBuilder:
             market,
             deposit_mints,
             num_outcomes,
-            recent_slot,
             self._client.program_id,
         )
 
@@ -580,140 +563,28 @@ class InitPositionTokensBuilder:
         return await self._client.sign_and_submit_tx(tx)
 
 
-# ─── ExtendPositionTokensBuilder ────────────────────────────────────────────
-
-
-class ExtendPositionTokensBuilder:
-    """Fluent builder for extend-position-tokens operations.
-
-    Permissionless: any payer may extend a position ALT after a market adds
-    deposit mints; the position PDA remains the table authority. Deposit-mint
-    groups already present in the table are skipped on chain, so existing and
-    new mints may be passed together. At most MAX_DEPOSIT_MINTS_PER_IX deposit
-    mints per instruction.
-    """
-
-    def __init__(self, client: "LightconeClient"):
-        self._client = client
-        self._payer: Optional[Pubkey] = None
-        self._user: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._lookup_table: Optional[Pubkey] = None
-        self._deposit_mints: Optional[List[Pubkey]] = None
-        self._num_outcomes: Optional[int] = None
-
-    def payer(self, payer: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._payer = payer
-        return self
-
-    def operator(self, operator: Pubkey) -> "ExtendPositionTokensBuilder":
-        """Deprecated alias for :meth:`payer`.
-
-        extend_position_tokens is permissionless; the signer only pays for the
-        new accounts.
-        """
-        warnings.warn(
-            "ExtendPositionTokensBuilder.operator() is deprecated; "
-            "extend_position_tokens is permissionless, use payer()",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.payer(operator)
-
-    def user(self, user: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._user = user
-        return self
-
-    def market(self, market: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._market = market
-        return self
-
-    def lookup_table(self, lookup_table: Pubkey) -> "ExtendPositionTokensBuilder":
-        self._lookup_table = lookup_table
-        return self
-
-    def deposit_mints(
-        self, deposit_mints: List[Pubkey]
-    ) -> "ExtendPositionTokensBuilder":
-        self._deposit_mints = deposit_mints
-        return self
-
-    def num_outcomes(self, num_outcomes: int) -> "ExtendPositionTokensBuilder":
-        self._num_outcomes = num_outcomes
-        return self
-
-    def build_ix(self) -> Instruction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
-        user = self._user
-        if user is None:
-            raise SdkError("user is required")
-        market = self._market
-        if market is None:
-            raise SdkError("market is required")
-        lookup_table = self._lookup_table
-        if lookup_table is None:
-            raise SdkError("lookup_table is required")
-        deposit_mints = self._deposit_mints
-        if deposit_mints is None:
-            raise SdkError("deposit_mints is required")
-        num_outcomes = self._num_outcomes
-        if num_outcomes is None:
-            raise SdkError("num_outcomes is required")
-        return build_extend_position_tokens_instruction(
-            payer,
-            user,
-            market,
-            lookup_table,
-            deposit_mints,
-            num_outcomes,
-            self._client.program_id,
-        )
-
-    def build_tx(self) -> Transaction:
-        payer = self._payer
-        if payer is None:
-            raise SdkError("payer is required")
-        return Transaction.new_with_payer([self.build_ix()], payer)
-
-    async def sign_and_submit(self) -> str:
-        """Build, sign, and submit the extend-position-tokens transaction."""
-        tx = self.build_tx()
-        return await self._client.sign_and_submit_tx(tx)
-
-
 # ─── DepositToGlobalBuilder ─────────────────────────────────────────────────
 
 
 class DepositToGlobalBuilder:
     """Fluent builder for deposit-to-global operations."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
-        self._alt_context: Optional[DepositToGlobalAltContext] = None
+        self._user: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
 
-    def user(self, user: Pubkey) -> "DepositToGlobalBuilder":
+    def user(self, user: Pubkey) -> DepositToGlobalBuilder:
         self._user = user
         return self
 
-    def mint(self, mint: Pubkey) -> "DepositToGlobalBuilder":
+    def mint(self, mint: Pubkey) -> DepositToGlobalBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "DepositToGlobalBuilder":
+    def amount(self, amount: int) -> DepositToGlobalBuilder:
         self._amount = amount
-        return self
-
-    def create_alt(self, recent_slot: int) -> "DepositToGlobalBuilder":
-        self._alt_context = DepositToGlobalAltContext.create(recent_slot)
-        return self
-
-    def extend_alt(self, lookup_table: Pubkey) -> "DepositToGlobalBuilder":
-        self._alt_context = DepositToGlobalAltContext.extend(lookup_table)
         return self
 
     def build_ix(self) -> Instruction:
@@ -726,18 +597,10 @@ class DepositToGlobalBuilder:
         amount = self._amount
         if amount is None:
             raise SdkError("amount is required")
-        if self._alt_context is None:
-            return build_deposit_to_global_instruction(
-                user=user,
-                mint=mint,
-                amount=amount,
-                program_id=self._client.program_id,
-            )
-        return build_deposit_to_global_instruction_with_alt(
+        return build_deposit_to_global_instruction(
             user=user,
             mint=mint,
             amount=amount,
-            alt_context=self._alt_context,
             program_id=self._client.program_id,
         )
 
@@ -759,21 +622,21 @@ class DepositToGlobalBuilder:
 class WithdrawFromGlobalBuilder:
     """Fluent builder for withdraw-from-global operations."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
 
-    def user(self, user: Pubkey) -> "WithdrawFromGlobalBuilder":
+    def user(self, user: Pubkey) -> WithdrawFromGlobalBuilder:
         self._user = user
         return self
 
-    def mint(self, mint: Pubkey) -> "WithdrawFromGlobalBuilder":
+    def mint(self, mint: Pubkey) -> WithdrawFromGlobalBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "WithdrawFromGlobalBuilder":
+    def amount(self, amount: int) -> WithdrawFromGlobalBuilder:
         self._amount = amount
         return self
 
@@ -812,31 +675,31 @@ class WithdrawFromGlobalBuilder:
 class GlobalToMarketDepositBuilder:
     """Fluent builder for global-to-market deposit operations."""
 
-    def __init__(self, client: "LightconeClient"):
+    def __init__(self, client: LightconeClient):
         self._client = client
-        self._user: Optional[Pubkey] = None
-        self._market: Optional[Pubkey] = None
-        self._mint: Optional[Pubkey] = None
-        self._amount: Optional[int] = None
-        self._num_outcomes: Optional[int] = None
+        self._user: Pubkey | None = None
+        self._market: Pubkey | None = None
+        self._mint: Pubkey | None = None
+        self._amount: int | None = None
+        self._num_outcomes: int | None = None
 
-    def user(self, user: Pubkey) -> "GlobalToMarketDepositBuilder":
+    def user(self, user: Pubkey) -> GlobalToMarketDepositBuilder:
         self._user = user
         return self
 
-    def market(self, market: Pubkey) -> "GlobalToMarketDepositBuilder":
+    def market(self, market: Pubkey) -> GlobalToMarketDepositBuilder:
         self._market = market
         return self
 
-    def mint(self, mint: Pubkey) -> "GlobalToMarketDepositBuilder":
+    def mint(self, mint: Pubkey) -> GlobalToMarketDepositBuilder:
         self._mint = mint
         return self
 
-    def amount(self, amount: int) -> "GlobalToMarketDepositBuilder":
+    def amount(self, amount: int) -> GlobalToMarketDepositBuilder:
         self._amount = amount
         return self
 
-    def num_outcomes(self, num_outcomes: int) -> "GlobalToMarketDepositBuilder":
+    def num_outcomes(self, num_outcomes: int) -> GlobalToMarketDepositBuilder:
         self._num_outcomes = num_outcomes
         return self
 
@@ -884,7 +747,6 @@ __all__ = [
     "RedeemWinningsBuilder",
     "WithdrawFromPositionBuilder",
     "InitPositionTokensBuilder",
-    "ExtendPositionTokensBuilder",
     "DepositToGlobalBuilder",
     "WithdrawFromGlobalBuilder",
     "GlobalToMarketDepositBuilder",

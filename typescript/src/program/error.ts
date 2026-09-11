@@ -21,6 +21,7 @@ export type ProgramErrorVariant =
   | "MarketSettled"
   | "InvalidProgramId"
   | "InvalidOrderbook"
+  | "InvalidConditionalMint"
   | "FullFillRequired"
   | "DivisionByZero"
   | "Reserved50"
@@ -33,13 +34,11 @@ export type ProgramErrorVariant =
   | "PayoutVectorExceedsU32"
   | "PayoutTooSmall"
   | "TokenAccountNotEmpty"
-  | "LookupTableNotClosed"
   | "InvalidManager"
   | "InvalidFeeRange"
   | "InvalidFeeSum"
   | "InvalidFeeReceiver"
   | "InvalidOracle"
-  | "LookupTableDeactivated"
   | "NoPendingRoleTransfer"
   | "PendingRoleMismatch"
   | "InvalidEventAuthority"
@@ -48,8 +47,9 @@ export type ProgramErrorVariant =
   | "InvalidEventContract"
   | "UnsupportedEventSchema"
   | "PublicInstructionMustBeTopLevel"
-  | "LookupTableCapacityExceeded"
   | "TooManyDepositMints"
+  | "InactiveDepositToken"
+  | "DepositMintMismatch"
   | "InvalidScalarRange"
   | "DuplicateScalarOutcomes"
   | "InvalidPubkey"
@@ -182,6 +182,11 @@ export class ProgramSdkError extends Error {
     return new ProgramSdkError("InvalidOrderbook", "Invalid orderbook");
   }
 
+  /** On-chain error 18: a conditional mint does not match its derived identity. */
+  static invalidConditionalMint(): ProgramSdkError {
+    return new ProgramSdkError("InvalidConditionalMint", "Invalid conditional mint");
+  }
+
   static fullFillRequired(): ProgramSdkError {
     return new ProgramSdkError("FullFillRequired", "Full fill required");
   }
@@ -254,13 +259,6 @@ export class ProgramSdkError extends Error {
     );
   }
 
-  static lookupTableNotClosed(): ProgramSdkError {
-    return new ProgramSdkError(
-      "LookupTableNotClosed",
-      "Lookup table is not closed",
-    );
-  }
-
   static invalidManager(): ProgramSdkError {
     return new ProgramSdkError("InvalidManager", "Invalid manager");
   }
@@ -285,13 +283,6 @@ export class ProgramSdkError extends Error {
 
   static invalidOracle(): ProgramSdkError {
     return new ProgramSdkError("InvalidOracle", "Invalid oracle");
-  }
-
-  static lookupTableDeactivated(): ProgramSdkError {
-    return new ProgramSdkError(
-      "LookupTableDeactivated",
-      "Lookup table is deactivated",
-    );
   }
 
   static noPendingRoleTransfer(): ProgramSdkError {
@@ -347,14 +338,6 @@ export class ProgramSdkError extends Error {
     );
   }
 
-  /** On-chain error 74: extending the lookup table would exceed its capacity. */
-  static lookupTableCapacityExceeded(): ProgramSdkError {
-    return new ProgramSdkError(
-      "LookupTableCapacityExceeded",
-      "Lookup table capacity exceeded",
-    );
-  }
-
   /**
    * On-chain error 75, and the client-side check that more than
    * MAX_DEPOSIT_MINTS_PER_IX groups were supplied to one instruction.
@@ -364,6 +347,16 @@ export class ProgramSdkError extends Error {
       "TooManyDepositMints",
       `Too many deposit mints: ${count} (max ${MAX_DEPOSIT_MINTS_PER_IX})`,
     );
+  }
+
+  /** On-chain error 76: an underlying collateral is inactive for trading. */
+  static inactiveDepositToken(): ProgramSdkError {
+    return new ProgramSdkError("InactiveDepositToken", "Deposit token is inactive for trading");
+  }
+
+  /** On-chain error 77: collateral does not match the orderbook or signed give side. */
+  static depositMintMismatch(): ProgramSdkError {
+    return new ProgramSdkError("DepositMintMismatch", "Deposit mint does not match collateral provenance");
   }
 
   static invalidScalarRange(): ProgramSdkError {

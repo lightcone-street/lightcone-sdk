@@ -10,10 +10,13 @@ from lightcone_sdk.program import (
     GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR,
     MARKET_DISCRIMINATOR,
     ORDER_STATUS_DISCRIMINATOR,
+    ORDERBOOK_DISCRIMINATOR,
     POSITION_DISCRIMINATOR,
     USER_NONCE_DISCRIMINATOR,
     InvalidAccountDataError,
     InvalidDiscriminatorError,
+    InvalidOrderbookError,
+    InvalidOutcomeIndexError,
     InvalidPendingRoleKindError,
     MarketStatus,
     PendingRoleKind,
@@ -21,6 +24,7 @@ from lightcone_sdk.program import (
     deserialize_global_deposit_token,
     deserialize_market,
     deserialize_order_status,
+    deserialize_orderbook,
     deserialize_position,
     deserialize_user_nonce,
 )
@@ -104,6 +108,17 @@ def build_global_deposit_token_data(
     data.append(1 if active else 0)
     data.extend(bytes(3))  # padding
     return bytes(data)
+
+
+def build_orderbook_data(base_index: int = 0, outcome_index: int = 5) -> bytes:
+    return struct.pack(
+        "<8s32s32s32s32s32sBBB5x",
+        ORDERBOOK_DISCRIMINATOR,
+        *(bytes([value]) * 32 for value in range(1, 6)),
+        base_index,
+        outcome_index,
+        251,
+    )
 
 
 def build_position_data(owner: Pubkey, market: Pubkey, bump: int) -> bytes:
@@ -346,6 +361,51 @@ class TestDeserializeUserNonce:
             deserialize_user_nonce(data)
 
 
+class TestDeserializeOrderbook:
+    @pytest.mark.parametrize("base_index", [0, 1])
+    def test_deserialize_provenance_and_orientation(self, base_index):
+        book = deserialize_orderbook(build_orderbook_data(base_index))
+
+        assert book.market == Pubkey.from_bytes(bytes([1]) * 32)
+        assert book.mint_a == Pubkey.from_bytes(bytes([2]) * 32)
+        assert book.mint_b == Pubkey.from_bytes(bytes([3]) * 32)
+        assert book.deposit_mint_a == Pubkey.from_bytes(bytes([4]) * 32)
+        assert book.deposit_mint_b == Pubkey.from_bytes(bytes([5]) * 32)
+        assert book.base_index == base_index
+        assert book.outcome_index == 5
+        assert book.bump == 251
+        assert book.base_deposit_mint == Pubkey.from_bytes(bytes([4 + base_index]) * 32)
+        assert book.quote_deposit_mint == Pubkey.from_bytes(
+            bytes([5 - base_index]) * 32
+        )
+
+    @pytest.mark.parametrize("length", [144, 175, 177])
+    def test_rejects_nonexact_lengths(self, length):
+        data = build_orderbook_data()[:length].ljust(length, b"\0")
+        with pytest.raises(InvalidAccountDataError, match="176 bytes"):
+            deserialize_orderbook(data)
+
+    @pytest.mark.parametrize("base_index", [2, 255])
+    def test_rejects_invalid_base_index(self, base_index):
+        data = bytearray(build_orderbook_data())
+        data[168] = base_index
+        with pytest.raises(InvalidOrderbookError):
+            deserialize_orderbook(bytes(data))
+
+    @pytest.mark.parametrize("outcome_index", [6, 255])
+    def test_rejects_invalid_outcome_index(self, outcome_index):
+        data = bytearray(build_orderbook_data())
+        data[169] = outcome_index
+        with pytest.raises(InvalidOutcomeIndexError) as exc:
+            deserialize_orderbook(bytes(data))
+        assert exc.value.index == outcome_index
+        assert exc.value.max_index == 5
+
+    def test_rejects_wrong_discriminator(self):
+        with pytest.raises(InvalidDiscriminatorError):
+            deserialize_orderbook(bytes(8) + build_orderbook_data()[8:])
+
+
 class TestDeserializeGlobalDepositToken:
     def test_deserialize_current_layout(self):
         mint = Pubkey.new_unique()
@@ -374,3 +434,18 @@ class TestDeserializeGlobalDepositToken:
         token = deserialize_global_deposit_token(data)
 
         assert token.active is False
+
+    @pytest.mark.parametrize("active", [2, 255])
+    def test_rejects_nonboolean_activity(self, active):
+        data = bytearray(
+            build_global_deposit_token_data(Pubkey.new_unique(), 1, 0, False)
+        )
+        data[43] = active
+        with pytest.raises(InvalidAccountDataError, match="active must be 0 or 1"):
+            deserialize_global_deposit_token(bytes(data))
+
+    @pytest.mark.parametrize("length", [46, 48])
+    def test_rejects_nonexact_lengths(self, length):
+        data = build_global_deposit_token_data(Pubkey.new_unique(), 1, 0, True)
+        with pytest.raises(InvalidAccountDataError, match="data length"):
+            deserialize_global_deposit_token(data[:length].ljust(length, b"\0"))

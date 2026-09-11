@@ -72,6 +72,11 @@ pub(crate) fn validate_position_token_inputs(
             count: deposit_mints.len(),
         });
     }
+    for (index, mint) in deposit_mints.iter().enumerate() {
+        if deposit_mints[..index].contains(mint) {
+            return Err(SdkError::InvalidDepositMintOrder);
+        }
+    }
     Ok(())
 }
 

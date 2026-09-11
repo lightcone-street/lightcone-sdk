@@ -4,7 +4,6 @@ import { Keypair, PublicKey, type TransactionInstruction } from "@solana/web3.js
 import {
   ACCOUNT_SIZE,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  ALT_PROGRAM_ID,
   DISCRIMINATOR,
   INSTRUCTION,
   MAX_DEPOSIT_MINTS_PER_IX,
@@ -20,9 +19,7 @@ import {
   buildAddDepositMintIx,
   buildCancelOrderIx,
   buildCloseOrderStatusIx,
-  buildCloseOrderbookAltIx,
   buildCloseOrderbookIx,
-  buildClosePositionAltIx,
   buildClosePositionTokenAccountsIx,
   buildCreateConditionalMetadataIx,
   buildCreateMarketIx,
@@ -30,8 +27,6 @@ import {
   buildDepositIx,
   buildDepositAndSwapIx,
   buildDepositToGlobalIx,
-  buildDepositToGlobalIxWithAlt,
-  buildExtendPositionTokensIx,
   buildGlobalToMarketDepositIx,
   buildIncrementNonceIx,
   buildInitPositionTokensIx,
@@ -39,7 +34,6 @@ import {
   buildMatchOrdersMultiIx,
   buildMergeIx,
   buildRedeemWinningsIx,
-  buildRefreshOrderbookAltIx,
   buildSetAuthorityIx,
   buildSetDepositTokenStatusIx,
   buildSetFeeReceiverIx,
@@ -62,7 +56,6 @@ import {
   deserializeOrderStatus,
   getConditionalMintPda,
   getConditionalTokenAta,
-  getAltPda,
   getConditionTombstonePda,
   getDepositTokenAta,
   getEventAuthorityPda,
@@ -584,78 +577,33 @@ describe("program authority/account alignment", () => {
 
   it("canonicalizes createOrderbook account order while preserving supplied base side", () => {
     const programId = pubkey(95);
-    const suppliedMintA = pubkey(22);
-    const suppliedMintB = pubkey(11);
-    const [orderbook] = getOrderbookPda(suppliedMintA, suppliedMintB, programId);
-    const [lookupTable] = getAltPda(orderbook, 123n);
-
-    const ix = buildCreateOrderbookIx(
-      {
-        manager: pubkey(1),
-        market: pubkey(2),
-        mintA: suppliedMintA,
-        mintB: suppliedMintB,
-        mintADepositMint: pubkey(3),
-        feeReceiver: pubkey(6),
-        mintBDepositMint: pubkey(4),
-        recentSlot: 123n,
-        baseIndex: 0,
-        mintAOutcomeIndex: 5,
-        mintBOutcomeIndex: 1,
-      },
-      programId
-    );
+    const market = pubkey(2);
+    const pairs = [pubkey(3), pubkey(4)].map((depositMint) => ({
+      depositMint,
+      mint: getConditionalMintPda(market, depositMint, 1, programId)[0],
+    })).sort((a, b) => Buffer.compare(b.mint.toBuffer(), a.mint.toBuffer()));
+    const [suppliedA, suppliedB] = pairs;
+    const ix = buildCreateOrderbookIx({
+      manager: pubkey(1), market,
+      mintA: suppliedA!.mint, mintB: suppliedB!.mint,
+      mintADepositMint: suppliedA!.depositMint, mintBDepositMint: suppliedB!.depositMint,
+      feeReceiver: pubkey(6), baseIndex: 0, outcomeIndex: 1,
+    }, programId);
 
     assert.equal(ix.keys.length, 17);
-    assert.equal(ix.keys[2]!.pubkey.toBase58(), suppliedMintB.toBase58());
-    assert.equal(ix.keys[3]!.pubkey.toBase58(), suppliedMintA.toBase58());
-    assert.equal(ix.keys[4]!.pubkey.toBase58(), orderbook.toBase58());
-    assert.equal(ix.keys[5]!.pubkey.toBase58(), lookupTable.toBase58());
-    assert.equal(ix.keys[13]!.pubkey.toBase58(), pubkey(6).toBase58());
-    assert.equal(ix.data.length, 12);
-    assert.equal(ix.data[9], 1);
-    assert.equal(ix.data[10], 1);
-    assert.equal(ix.data[11], 5);
+    assert.ok(ix.keys[2]!.pubkey.equals(suppliedB!.mint));
+    assert.ok(ix.keys[3]!.pubkey.equals(suppliedA!.mint));
+    assert.ok(ix.keys[4]!.pubkey.equals(getOrderbookPda(suppliedA!.mint, suppliedB!.mint, programId)[0]));
+    assert.ok(ix.keys[5]!.pubkey.equals(getGlobalDepositTokenPda(suppliedB!.depositMint, programId)[0]));
+    assert.ok(ix.keys[6]!.pubkey.equals(getGlobalDepositTokenPda(suppliedA!.depositMint, programId)[0]));
+    assert.ok(ix.keys[7]!.pubkey.equals(getExchangePda(programId)[0]));
+    assert.ok(ix.keys[9]!.pubkey.equals(suppliedB!.depositMint));
+    assert.ok(ix.keys[10]!.pubkey.equals(suppliedA!.depositMint));
+    assert.ok(ix.keys[14]!.pubkey.equals(getConditionalTokenAta(suppliedB!.mint, pubkey(6))));
+    assert.deepEqual(ix.data, Buffer.from([15, 1, 1]));
   });
 
-  it("builds refreshOrderbookAlt with current fee receiver ATA accounts", () => {
-    const programId = pubkey(113);
-    const manager = pubkey(1);
-    const market = pubkey(2);
-    const orderbook = pubkey(3);
-    const lookupTable = pubkey(4);
-    const quoteMint = pubkey(5);
-    const feeReceiver = pubkey(6);
 
-    const ix = buildRefreshOrderbookAltIx(
-      {
-        manager,
-        market,
-        orderbook,
-        lookupTable,
-        quoteMint,
-        feeReceiver,
-      },
-      programId
-    );
-
-    assert.equal(ix.keys.length, 14);
-    assert.equal(ix.keys[0]!.pubkey.toBase58(), manager.toBase58());
-    assert.equal(ix.keys[0]!.isSigner, true);
-    assert.equal(ix.keys[0]!.isWritable, true);
-    assert.equal(ix.keys[2]!.pubkey.toBase58(), market.toBase58());
-    assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
-    assert.equal(ix.keys[4]!.pubkey.toBase58(), lookupTable.toBase58());
-    assert.equal(ix.keys[4]!.isWritable, true);
-    assert.equal(ix.keys[5]!.pubkey.toBase58(), quoteMint.toBase58());
-    assert.equal(ix.keys[6]!.pubkey.toBase58(), feeReceiver.toBase58());
-    assert.equal(
-      ix.keys[7]!.pubkey.toBase58(),
-      getConditionalTokenAta(quoteMint, feeReceiver).toBase58()
-    );
-    assert.equal(ix.keys[9]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
-    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]));
-  });
 
   it("includes orderbook in matchOrdersMulti fixed accounts", () => {
     const programId = pubkey(96);
@@ -670,9 +618,11 @@ describe("program authority/account alignment", () => {
         market,
         baseMint,
         quoteMint,
+        baseDepositMint: pubkey(70),
+        quoteDepositMint: pubkey(71),
         feeReceiver: pubkey(6),
         takerOrder: order(1, market, baseMint, quoteMint),
-        makerOrders: [order(2, market, baseMint, quoteMint)],
+        makerOrders: [{ ...order(2, market, baseMint, quoteMint), side: OrderSide.ASK }],
         makerFillAmounts: [10n],
         takerFillAmounts: [8n],
         fullFillBitmask: 0,
@@ -682,37 +632,23 @@ describe("program authority/account alignment", () => {
 
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
     assert.equal(
-      ix.keys[13]!.pubkey.toBase58(),
+      ix.keys[15]!.pubkey.toBase58(),
       getConditionalTokenAta(quoteMint, pubkey(6)).toBase58()
     );
-    assert.equal(ix.keys[14]!.pubkey.toBase58(), pubkey(6).toBase58());
-    assert.equal(ix.keys[15]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
-    assert.equal(ix.data.length, 221);
+    assert.equal(ix.keys[16]!.pubkey.toBase58(), pubkey(6).toBase58());
+    assert.equal(ix.keys[17]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
+    assert.equal(ix.data.length, 222);
   });
 
-  it("builds depositToGlobal with exchange and optional user deposit ALT accounts", () => {
+  it("builds depositToGlobal with exactly eight business accounts and an integer amount", () => {
     const programId = pubkey(97);
-    const user = pubkey(1);
+    const user = wallet(1);
     const mint = pubkey(2);
-    const [exchange] = getExchangePda(programId);
-    const [userNonce] = getUserNoncePda(user, programId);
-    const [lookupTable] = getAltPda(userNonce, 321n);
-
-    const plain = buildDepositToGlobalIx({ user, mint, amount: 100n }, programId);
-    assert.equal(plain.keys.length, 10);
-    assert.equal(plain.keys[7]!.pubkey.toBase58(), exchange.toBase58());
-    assert.equal(plain.data.length, 9);
-
-    const withAlt = buildDepositToGlobalIxWithAlt(
-      { user, mint, amount: 100n },
-      { kind: "create", recentSlot: 321n },
-      programId
-    );
-    assert.equal(withAlt.keys.length, 13);
-    assert.equal(withAlt.keys[8]!.pubkey.toBase58(), userNonce.toBase58());
-    assert.equal(withAlt.keys[9]!.pubkey.toBase58(), lookupTable.toBase58());
-    assert.equal(withAlt.keys[10]!.pubkey.toBase58(), ALT_PROGRAM_ID.toBase58());
-    assert.equal(withAlt.data.length, 17);
+    const ix = buildDepositToGlobalIx({ user, mint, amount: 2n ** 63n + 11n }, programId);
+    assert.equal(ix.keys.length, 10);
+    assert.ok(ix.keys[7]!.pubkey.equals(getExchangePda(programId)[0]));
+    assert.equal(ix.data.length, 9);
+    assert.equal(ix.data.readBigUInt64LE(1), 2n ** 63n + 11n);
   });
 
   it("builds setDepositTokenStatus with manager signer and GDT PDA", () => {
@@ -895,7 +831,7 @@ describe("program authority/account alignment", () => {
     const quoteMint = pubkey(4);
     const [orderbook] = getOrderbookPda(baseMint, quoteMint, programId);
     const maker: MakerFill = {
-      order: order(2, market, baseMint, quoteMint),
+      order: { ...order(2, market, baseMint, quoteMint), side: OrderSide.ASK },
       makerFillAmount: 10n,
       takerFillAmount: 8n,
       isFullFill: true,
@@ -909,6 +845,8 @@ describe("program authority/account alignment", () => {
         market,
         baseMint,
         quoteMint,
+        baseDepositMint: pubkey(70),
+        quoteDepositMint: pubkey(71),
         feeReceiver: pubkey(6),
         takerOrder: order(1, market, baseMint, quoteMint),
         takerIsFullFill: true,
@@ -922,37 +860,14 @@ describe("program authority/account alignment", () => {
 
     assert.equal(ix.keys[3]!.pubkey.toBase58(), orderbook.toBase58());
     assert.equal(
-      ix.keys[6]!.pubkey.toBase58(),
+      ix.keys[8]!.pubkey.toBase58(),
       getConditionalTokenAta(quoteMint, pubkey(6)).toBase58()
     );
-    assert.equal(ix.keys[7]!.pubkey.toBase58(), pubkey(6).toBase58());
-    assert.equal(ix.keys[8]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
+    assert.equal(ix.keys[9]!.pubkey.toBase58(), pubkey(6).toBase58());
+    assert.equal(ix.keys[10]!.pubkey.toBase58(), ASSOCIATED_TOKEN_PROGRAM_ID.toBase58());
   });
 
-  it("builds extendPositionTokens with a permissionless payer signer", () => {
-    const programId = pubkey(100);
-    const payer = pubkey(1);
-    const lookupTable = pubkey(4);
 
-    const ix = buildExtendPositionTokensIx(
-      {
-        payer,
-        user: wallet(2),
-        market: pubkey(3),
-        lookupTable,
-        depositMints: [pubkey(5)],
-      },
-      2,
-      programId
-    );
-
-    assert.equal(ix.keys[0]!.pubkey.toBase58(), payer.toBase58());
-    assert.equal(ix.keys[0]!.isSigner, true);
-    assert.equal(ix.keys[0]!.isWritable, true);
-    assert.equal(ix.keys[5]!.pubkey.toBase58(), lookupTable.toBase58());
-    assert.equal(ix.keys[5]!.isWritable, true);
-    assert.deepEqual(ix.data, Buffer.from([INSTRUCTION.EXTEND_POSITION_TOKENS, 1]));
-  });
 
   it("builds closeOrderStatus with order hash payload", () => {
     const programId = pubkey(108);
@@ -989,51 +904,33 @@ describe("program authority/account alignment", () => {
     assert.equal(ix.data[0], INSTRUCTION.CLOSE_POSITION_TOKEN_ACCOUNTS);
   });
 
-  it("builds close ALT and orderbook cleanup instructions", () => {
+  it("builds direct orderbook closure with four business accounts", () => {
     const programId = pubkey(110);
-    const operator = pubkey(1);
-    const market = pubkey(2);
-    const lookupTable = pubkey(3);
-    const position = pubkey(4);
-    const orderbook = pubkey(5);
-
-    const positionAltIx = buildClosePositionAltIx(
-      { operator, position, market, lookupTable },
-      programId
-    );
-    assert.equal(positionAltIx.keys.length, 8);
-    assert.equal(positionAltIx.data[0], INSTRUCTION.CLOSE_POSITION_ALT);
-
-    const orderbookAltIx = buildCloseOrderbookAltIx(
-      { operator, orderbook, market, lookupTable },
-      programId
-    );
-    assert.equal(orderbookAltIx.keys.length, 8);
-    assert.equal(orderbookAltIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK_ALT);
-
-    const closeOrderbookIx = buildCloseOrderbookIx(
-      { operator, orderbook, market, lookupTable },
-      programId
-    );
-    assert.equal(closeOrderbookIx.keys.length, 7);
-    assert.equal(closeOrderbookIx.data[0], INSTRUCTION.CLOSE_ORDERBOOK);
+    const operator = pubkey(1), market = pubkey(2), orderbook = pubkey(5);
+    const ix = buildCloseOrderbookIx({ operator, orderbook, market }, programId);
+    assert.deepEqual(ix.keys.slice(0, -2).map((meta) => [meta.pubkey.toBase58(), meta.isSigner, meta.isWritable]), [
+      [operator.toBase58(), true, true],
+      [getExchangePda(programId)[0].toBase58(), false, false],
+      [orderbook.toBase58(), false, true],
+      [market.toBase58(), false, false],
+    ]);
+    assert.deepEqual(ix.data, Buffer.from([27]));
   });
   it("rejects an empty position initialization", () => {
     assert.throws(
-      () => buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints: [], recentSlot: 99n }, 2),
+      () => buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints: [] }, 2),
       (error: unknown) => error instanceof ProgramSdkError && error.variant === "MissingField" && error.message.includes("deposit_mints")
     );
   });
 
   for (const count of [1, MAX_DEPOSIT_MINTS_PER_IX]) {
-    it(`encodes ${count} position mint groups and the exact slot`, () => {
+    it(`encodes ${count} position mint groups without a slot`, () => {
       const depositMints = Array.from({ length: count }, (_, i) => pubkey(20 + i));
-      const ix = buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints, recentSlot: 99n }, 2);
+      const ix = buildInitPositionTokensIx({ payer: wallet(1), user: wallet(2), market: pubkey(3), depositMints }, 2);
       assert.equal(ix.data[0], INSTRUCTION.INIT_POSITION_TOKENS);
-      assert.equal(ix.data.readBigUInt64LE(1), 99n);
-      assert.equal(ix.data[9], count);
+      assert.deepEqual(ix.data, Buffer.from([19, count]));
       assert.ok(ix.keys[1]!.pubkey.equals(wallet(2)));
-      depositMints.forEach((mint, index) => assert.ok(ix.keys[11 + index * 7]!.pubkey.equals(mint)));
+      depositMints.forEach((mint, index) => assert.ok(ix.keys[9 + index * 7]!.pubkey.equals(mint)));
     });
   }
 
@@ -1048,16 +945,7 @@ describe("program authority/account alignment", () => {
     assert.throws(
       () =>
         buildInitPositionTokensIx(
-          { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: tooMany, recentSlot: 1n },
-          2,
-          programId
-        ),
-      isTooMany
-    );
-    assert.throws(
-      () =>
-        buildExtendPositionTokensIx(
-          { payer: pubkey(1), user: wallet(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: tooMany },
+          { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: tooMany },
           2,
           programId
         ),
@@ -1066,17 +954,11 @@ describe("program authority/account alignment", () => {
 
     const atCap = tooMany.slice(0, MAX_DEPOSIT_MINTS_PER_IX);
     const initIx = buildInitPositionTokensIx(
-      { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: atCap, recentSlot: 1n },
-      2,
-      programId
-    );
-    const extendIx = buildExtendPositionTokensIx(
-      { payer: pubkey(1), user: wallet(2), market: pubkey(3), lookupTable: pubkey(4), depositMints: atCap },
+      { payer: pubkey(1), user: wallet(2), market: pubkey(3), depositMints: atCap },
       2,
       programId
     );
     assert.equal(initIx.data[initIx.data.length - 1], MAX_DEPOSIT_MINTS_PER_IX);
-    assert.equal(extendIx.data[extendIx.data.length - 1], MAX_DEPOSIT_MINTS_PER_IX);
   });
 
   it("derives the event authority PDA from the program id", () => {
@@ -1117,7 +999,7 @@ describe("program authority/account alignment", () => {
     const [eventAuthority] = getEventAuthorityPda(programId);
     const builders = allPublicBuilders(programId);
 
-    assert.equal(builders.length, 42, "register new builders in allPublicBuilders");
+    assert.equal(builders.length, 37, "register new builders in allPublicBuilders");
 
     for (const [name, ix] of builders) {
       assert.equal(ix.programId.toBase58(), programId.toBase58(), name);
@@ -1150,12 +1032,11 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
   const baseMint = pubkey(4);
   const quoteMint = pubkey(5);
   const feeReceiver = pubkey(6);
-  const lookupTable = pubkey(7);
   const orderbook = pubkey(10);
   const user = wallet(11);
   const position = pubkey(12);
   const takerOrder = order(1, market, baseMint, quoteMint);
-  const makerOrder = order(2, market, baseMint, quoteMint);
+  const makerOrder = { ...order(2, market, baseMint, quoteMint), side: OrderSide.ASK };
   const acceptRole = { incomingRole: signer };
   const metadata = {
     manager: signer,
@@ -1224,6 +1105,8 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
           market,
           baseMint,
           quoteMint,
+          baseDepositMint: pubkey(70),
+          quoteDepositMint: pubkey(71),
           feeReceiver,
           takerOrder,
           makerOrders: [makerOrder],
@@ -1240,23 +1123,16 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
         {
           manager: signer,
           market,
-          mintA: baseMint,
-          mintB: quoteMint,
+          mintA: getConditionalMintPda(market, depositMint, 0, programId)[0],
+          mintB: getConditionalMintPda(market, pubkey(71), 0, programId)[0],
+          baseDepositMint: pubkey(70),
+          quoteDepositMint: pubkey(71),
           feeReceiver,
           mintADepositMint: depositMint,
-          mintBDepositMint: depositMint,
-          recentSlot: 1n,
+          mintBDepositMint: pubkey(71),
           baseIndex: 0,
-          mintAOutcomeIndex: 0,
-          mintBOutcomeIndex: 1,
+          outcomeIndex: 0,
         },
-        programId
-      ),
-    ],
-    [
-      "refreshOrderbookAlt",
-      buildRefreshOrderbookAltIx(
-        { manager: signer, market, orderbook, lookupTable, quoteMint, feeReceiver },
         programId
       ),
     ],
@@ -1290,21 +1166,13 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
     ],
     ["depositToGlobal", buildDepositToGlobalIx({ user: signer, mint: depositMint, amount: 1n }, programId)],
     [
-      "depositToGlobalWithAlt",
-      buildDepositToGlobalIxWithAlt(
-        { user: signer, mint: depositMint, amount: 1n },
-        { kind: "extend", lookupTable },
-        programId
-      ),
-    ],
-    [
       "globalToMarketDeposit",
       buildGlobalToMarketDepositIx({ user: signer, market, depositMint, amount: 1n }, 2, programId),
     ],
     [
       "initPositionTokens",
       buildInitPositionTokensIx(
-        { payer: signer, user, market, depositMints: [depositMint], recentSlot: 1n },
+        { payer: signer, user, market, depositMints: [depositMint] },
         2,
         programId
       ),
@@ -1317,6 +1185,8 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
           market,
           baseMint,
           quoteMint,
+          baseDepositMint: pubkey(70),
+          quoteDepositMint: pubkey(71),
           feeReceiver,
           takerOrder,
           takerIsFullFill: true,
@@ -1328,16 +1198,7 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
         programId
       ),
     ],
-    [
-      "extendPositionTokens",
-      buildExtendPositionTokensIx(
-        { payer: signer, user, market, lookupTable, depositMints: [depositMint] },
-        2,
-        programId
-      ),
-    ],
     ["withdrawFromGlobal", buildWithdrawFromGlobalIx({ user: signer, mint: depositMint, amount: 1n }, programId)],
-    ["closePositionAlt", buildClosePositionAltIx({ operator: signer, position, market, lookupTable }, programId)],
     ["closeOrderStatus", buildCloseOrderStatusIx({ operator: signer, orderHash: Buffer.alloc(32, 2) }, programId)],
     [
       "closePositionTokenAccounts",
@@ -1347,7 +1208,6 @@ function allPublicBuilders(programId: PublicKey): Array<[string, TransactionInst
         programId
       ),
     ],
-    ["closeOrderbookAlt", buildCloseOrderbookAltIx({ operator: signer, orderbook, market, lookupTable }, programId)],
-    ["closeOrderbook", buildCloseOrderbookIx({ operator: signer, orderbook, market, lookupTable }, programId)],
+    ["closeOrderbook", buildCloseOrderbookIx({ operator: signer, orderbook, market }, programId)],
   ];
 }

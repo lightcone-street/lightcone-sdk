@@ -30,8 +30,8 @@ const client = LightconeClient.builder()
 |------------|--------|----------------------|
 | `client.orders()` | Order management | cancelOrder, incrementNonce, closeOrderStatus, createBidOrder, createAskOrder, signOrder, getStatus, getNonce |
 | `client.markets()` | Market queries | mintCompleteSet, mergeCompleteSet, deriveConditionId, getConditionalMints, getOnchain |
-| `client.positions()` | Position management | redeemWinnings, withdrawConditionalFromPosition, withdrawFromPosition compatibility wrapper, initPositionTokens, extendPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionAlt, closePositionTokenAccounts, getOnchain |
-| `client.orderbooks()` | Orderbook data | closeOrderbookAlt, closeOrderbook, getOnchain |
+| `client.positions()` | Position management | redeemWinnings, withdrawConditionalFromPosition, withdrawFromPosition compatibility wrapper, initPositionTokens, depositToGlobal, globalToMarketDeposit, closePositionTokenAccounts, getOnchain |
+| `client.orderbooks()` | Orderbook data | closeOrderbook, getOnchain |
 | `client.rpc()` | RPC utilities | getExchange, getGlobalDepositToken, getLatestBlockhash |
 
 ### Transaction builders return `TransactionInstruction`
@@ -128,7 +128,7 @@ import type {
 | `mint` | PublicKey | Whitelisted deposit mint |
 | `bump` | number | PDA bump seed |
 | `index` | number | Deposit token ordering index |
-| `active` | boolean | Backend-visible status flag |
+| `active` | boolean | Whether the collateral may back an executed trade; inactivity leaves deposit, preparation, split, merge, and exit rules unchanged |
 
 #### SignedOrder (233 bytes)
 
@@ -171,16 +171,18 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 
 ### Current Program Alignment Notes
 
-- `Exchange` and `Market` accounts are 216 bytes.
-- `GlobalDepositToken` accounts are 47 bytes, with `bump` at offset 40, `index` at 41..43, and `active` at offset 43.
-- `setAuthority`, `setManager`, and `setOperator` now propose role transfers. The corresponding `acceptAuthority`, `acceptManager`, or `acceptOperator` instruction performs the effective role change.
-- `matchOrdersMulti` and `depositAndSwap` include the fee receiver and associated token program in their fixed account lists.
-- `setFeeReceiverWithAtas` can append quote mint / fee receiver ATA pairs for idempotent ATA creation.
-- `refreshOrderbookAlt` appends the current fee receiver quote ATA when missing, but does not fully reshape older orderbook ALTs.
-- Instruction discriminators are current through `SetDepositTokenStatus = 38`; `INSTRUCTION.EVENT_BATCH = 255` is reserved for the program's private event self-CPI and is never built by the SDK.
-- Every public instruction ends with the event transport trailer (event-authority PDA, then the program account; both readonly, non-signer). Every `build*Ix` appends it automatically; see [Event Transport Trailer](#event-transport-trailer).
-- `addDepositMint` writes the market account and increments `Market.depositMintCount`, capped at `MAX_DEPOSIT_MINTS_PER_MARKET`.
-- `initPositionTokens` is idempotent per `recentSlot` and `extendPositionTokens` is permissionless (`payer` replaces `operator`); both accept at most `MAX_DEPOSIT_MINTS_PER_IX` deposit mints per instruction.
+- `Orderbook` requires exactly 176 bytes and exposes `depositMintA`, `depositMintB`, and the shared `outcomeIndex`. Both conditional mints belong to that market outcome and have distinct collateral.
+- `createOrderbook` accepts one `outcomeIndex`. It sorts supplied mints with their collateral identities and preserves the requested base orientation.
+- `matchOrdersMulti` and `depositAndSwap` require `baseDepositMint` and `quoteDepositMint`. Fixed accounts 4 and 5 are the canonical collateral GDTs. Both live activity flags must permit trading, including with zero funding.
+- Matching accepts 1..11 makers. Masks are unsigned 16-bit little-endian values. Bits 0..10 select makers, bit 15 selects the taker, and bits 11..14 are reserved. For nine makers, `0x8100` selects maker index 8 and the taker.
+- A selected funding mint must back the participant's signed give side: quote collateral for BUY, base collateral for SELL. Complete-set funding still covers every market outcome.
+- `initPositionTokens` prepares new, partial, repeated, and additional collateral groups with any signing payer. Supply 1..8 distinct mints in increasing global registration-index order. No slot is required. The synchronous builder preserves the supplied order.
+- `depositToGlobal` emits the exact eight-account deposit interface. `closeOrderbook` directly closes a resolved book with four business accounts. Both counts exclude the two event trailers.
+- Instruction values 21, 23, 26, and 34 are unassigned. ALT instructions, helpers, options, and exports have been removed. Use `initPositionTokens` for additional preparation groups.
+- `GlobalDepositToken` requires exactly 47 bytes and an activity byte of 0 or 1. Inactivity gates trading, while deposits, preparation, splits, merges, and exits retain their existing rules.
+- `Exchange` and `Market` remain 216 bytes. Role transfers, fee updates, order signing, and backend wire fields retain their existing contracts.
+
+The transaction helpers still return `@solana/web3.js` `Transaction`. The program ABI accepts valid legacy or v0 envelopes that fit their resource limits. An eleven-maker instruction contains 1,392 or 1,394 bytes before transaction overhead and cannot fit the current 1,232-byte envelope. Full outer transaction-v1 transport requires a separate compatible message and signing stack.
 
 ### Event Transport Trailer
 
@@ -188,14 +190,13 @@ Every `build*Ix` appends the event-authority PDA and executable program account
 as read-only, non-signer accounts, in that order. These are always the last two
 accounts; callers must not append another trailer.
 
-See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules, the
-governance CPI allowlist, position replay semantics, program limits, and error codes.
+See the [program integration contract](https://github.com/lightcone-street/docs/blob/0886e2356c69e8d59b2dca953331f63d7ecd9619/api-reference/program-integration.mdx) for invocation rules and the governance CPI allowlist. The [program source at `db552338`](https://github.com/lightcone-street/lightcone-pinnochio/tree/db552338404263b17b6af5e39a99477ee16a1934/src) defines the current binary interfaces, preparation behavior, limits, and errors.
 
-The SDK neither builds nor decodes event batches; `INSTRUCTION.EVENT_BATCH` is
-reserved. Builders do not add a compute-budget instruction. Callers must include
+The program emits authenticated event schema 2. This is separate from the outer Solana transaction version.
+The SDK neither builds nor decodes event batches. `INSTRUCTION.EVENT_BATCH = 255` is reserved. Builders do not add a compute-budget instruction. Callers must include
 the program's final self-CPI when estimating transaction compute.
 
-`buildInitPositionTokensIx` and `buildExtendPositionTokensIx` throw
+`buildInitPositionTokensIx` throws
 `ProgramSdkError` with variant `InvalidPubkey` for zero or off-curve beneficiaries,
 `MissingField` for empty mint lists, and `TooManyDepositMints` for lists exceeding
 `MAX_DEPOSIT_MINTS_PER_IX`. Market creation and oracle rotation builders throw
@@ -214,7 +215,7 @@ import { program } from "@lightconexyz/lightcone-sdk";
 
 program.MAX_OUTCOMES                  // 6
 program.MIN_OUTCOMES                  // 2
-program.MAX_MAKERS                    // 4
+program.MAX_MAKERS                    // 11 (parser ceiling)
 program.MAX_DEPOSIT_MINTS_PER_MARKET   // 8
 program.MAX_DEPOSIT_MINTS_PER_IX       // 8
 ```
@@ -239,9 +240,9 @@ async function main() {
   // Get market PDA
   const marketPda = client.markets().pda(0n);
 
-  // Get conditional mints
-  const mints = client.markets().getConditionalMints(marketPda, usdcMint, 2);
-  const [yesMint, noMint] = mints;
+  // Trade the same outcome backed by two different collateral assets.
+  const [baseMint] = client.markets().getConditionalMints(marketPda, btcMint, 2);
+  const [quoteMint] = client.markets().getConditionalMints(marketPda, usdcMint, 2);
 
   // Construct and sign an exact order with immutable rules
   const orders = client.orders();
@@ -252,8 +253,8 @@ async function main() {
     .nonce(nonce)
     .maker(maker.publicKey)
     .market(marketPda)
-    .baseMint(yesMint)
-    .quoteMint(noMint)
+    .baseMint(baseMint)
+    .quoteMint(quoteMint)
     .bid()
     .price("0.5", "1", rules)
     .buildAndSign(maker, rules);
@@ -262,8 +263,10 @@ async function main() {
   const matchIx = buildMatchOrdersMultiIx({
     operator: operatorPubkey,
     market: marketPda,
-    baseMint: yesMint,
-    quoteMint: noMint,
+    baseMint,
+    quoteMint,
+    baseDepositMint: btcMint,
+    quoteDepositMint: usdcMint,
     feeReceiver: exchange.feeReceiver,
     takerOrder: signedTakerOrder,
     makerOrders: [signedOrder],
@@ -287,7 +290,7 @@ those rules automatically.
 import {
   // Instruction builders
   buildInitializeIx, buildCreateMarketIx, buildMatchOrdersMultiIx,
-  buildRefreshOrderbookAltIx, buildAcceptAuthorityIx, buildSetOracleIx,
+  buildAcceptAuthorityIx, buildSetOracleIx,
   // PDA functions
   getExchangePda, getMarketPda, getOrderStatusPda,
   // Account deserialization

@@ -9,11 +9,11 @@ import {
   SYSTEM_PROGRAM_ID,
   TOKEN_PROGRAM_ID,
   ASSOCIATED_TOKEN_PROGRAM_ID,
-  ALT_PROGRAM_ID,
   MPL_TOKEN_METADATA_PROGRAM_ID,
   RENT_SYSVAR_ID,
   MAX_DEPOSIT_MINTS_PER_IX,
   MAX_MAKERS,
+  TAKER_MASK,
   MAX_OUTCOMES,
   MIN_OUTCOMES,
 } from "./constants";
@@ -34,21 +34,16 @@ import {
   SetManagerParams,
   AcceptRoleParams,
   SetOracleParams,
-  RefreshOrderbookAltParams,
   CreateOrderbookParams,
   WhitelistDepositTokenParams,
   SetDepositTokenStatusParams,
   DepositToGlobalParams,
-  DepositToGlobalAltContext,
   GlobalToMarketDepositParams,
   InitPositionTokensParams,
-  ExtendPositionTokensParams,
   DepositAndSwapParams,
   WithdrawFromGlobalParams,
-  ClosePositionAltParams,
   CloseOrderStatusParams,
   ClosePositionTokenAccountsParams,
-  CloseOrderbookAltParams,
   CloseOrderbookParams,
   SignedOrder,
   ConditionalMetadataParams,
@@ -70,14 +65,13 @@ import {
   getPositionPda,
   getConditionTombstonePda,
   getOrderbookPda,
-  getAltPda,
   getGlobalDepositTokenPda,
   getUserGlobalDepositPda,
-  getPositionAltPda,
   getMplMetadataPda,
 } from "./pda";
 import {
   toU8,
+  toU16Le,
   toI16Le,
   toU32Le,
   toU64Le,
@@ -157,7 +151,6 @@ function zeroPubkey(): PublicKey {
 interface OrderbookMintInput {
   mint: PublicKey;
   depositMint: PublicKey;
-  outcomeIndex: number;
   isBase: boolean;
 }
 
@@ -168,7 +161,7 @@ interface CanonicalOrderbookMints {
 }
 
 function canonicalOrderbookMints(params: CreateOrderbookParams): CanonicalOrderbookMints {
-  if (params.baseIndex > 1) {
+  if (!Number.isInteger(params.baseIndex) || params.baseIndex < 0 || params.baseIndex > 1) {
     throw ProgramSdkError.invalidOutcomeIndex(params.baseIndex, 1);
   }
   if (params.mintA.equals(params.mintB)) {
@@ -178,13 +171,11 @@ function canonicalOrderbookMints(params: CreateOrderbookParams): CanonicalOrderb
   const left: OrderbookMintInput = {
     mint: params.mintA,
     depositMint: params.mintADepositMint,
-    outcomeIndex: params.mintAOutcomeIndex,
     isBase: params.baseIndex === 0,
   };
   const right: OrderbookMintInput = {
     mint: params.mintB,
     depositMint: params.mintBDepositMint,
-    outcomeIndex: params.mintBOutcomeIndex,
     isBase: params.baseIndex === 1,
   };
 
@@ -198,6 +189,77 @@ function canonicalOrderbookMints(params: CreateOrderbookParams): CanonicalOrderb
     mintB,
     baseIndex: mintA.isBase ? 0 : 1,
   };
+}
+
+/** Preserve each collateral's binding when sorting the conditional mint pair. */
+function tradingDepositTokens(
+  params: Pick<MatchOrdersMultiParams, "baseMint" | "quoteMint" | "baseDepositMint" | "quoteDepositMint">,
+  programId: PublicKey
+): [PublicKey, PublicKey] {
+  if (params.baseMint.equals(params.quoteMint)) {
+    throw ProgramSdkError.invalidOrderbook();
+  }
+  if (params.baseDepositMint.equals(params.quoteDepositMint)) {
+    throw ProgramSdkError.depositMintMismatch();
+  }
+  const [depositMintA, depositMintB] =
+    Buffer.compare(params.baseMint.toBuffer(), params.quoteMint.toBuffer()) < 0
+      ? [params.baseDepositMint, params.quoteDepositMint]
+      : [params.quoteDepositMint, params.baseDepositMint];
+  return [
+    getGlobalDepositTokenPda(depositMintA, programId)[0],
+    getGlobalDepositTokenPda(depositMintB, programId)[0],
+  ];
+}
+
+/** Validate before JavaScript bitwise operators can coerce or truncate the input. */
+function participantMaskBytes(mask: number, makerCount: number): Buffer {
+  const bytes = toU16Le(mask);
+  const allowed = ((1 << makerCount) - 1) | TAKER_MASK;
+  if ((mask & ~allowed) !== 0) {
+    throw ProgramSdkError.serialization(`Invalid participant mask ${mask} for ${makerCount} makers`);
+  }
+  return bytes;
+}
+
+function validateTradingSignature(order: SignedOrder): void {
+  if (order.signature.length !== 64) {
+    throw ProgramSdkError.invalidDataLength("signature", 64, order.signature.length);
+  }
+}
+
+/** Compact orders obtain their market and mint identities from these accounts. */
+function validateTradingOrders(
+  params: Pick<MatchOrdersMultiParams, "market" | "baseMint" | "quoteMint" | "takerOrder">,
+  makers: SignedOrder[]
+): void {
+  for (const order of [params.takerOrder, ...makers]) {
+    validateTradingSignature(order);
+    if (order.side !== OrderSide.BID && order.side !== OrderSide.ASK) {
+      throw ProgramSdkError.invalidSide(order.side);
+    }
+    if (!order.market.equals(params.market) || !order.baseMint.equals(params.baseMint) || !order.quoteMint.equals(params.quoteMint)) {
+      throw ProgramSdkError.invalidOrderbook();
+    }
+  }
+  if (makers.some((order) => order.side === params.takerOrder.side)) {
+    throw ProgramSdkError.serialization("Maker orders must trade the opposite side of the taker");
+  }
+}
+
+/** Global funding backs the asset offered by the participant's signed side. */
+function validateFundingMint(
+  order: SignedOrder,
+  depositMint: PublicKey,
+  params: DepositAndSwapParams
+): void {
+  if (order.side !== OrderSide.BID && order.side !== OrderSide.ASK) {
+    throw ProgramSdkError.invalidSide(order.side);
+  }
+  const expected = order.side === OrderSide.BID ? params.quoteDepositMint : params.baseDepositMint;
+  if (!depositMint.equals(expected)) {
+    throw ProgramSdkError.depositMintMismatch();
+  }
 }
 
 function validatePayoutNumerators(payoutNumerators: number[]): void {
@@ -814,43 +876,19 @@ export function buildActivateMarketIx(
 }
 
 /**
- * Build MatchOrdersMulti instruction
+ * Build a match against 1..11 maker orders using existing conditional balances.
  *
- * Dynamic accounts based on full_fill_bitmask:
- * 0. operator (signer)
- * 1. exchange (readonly)
- * 2. market (readonly)
- * 3. orderbook (readonly)
- * [taker_order_status if bit7=0] (mut)
- * taker_nonce (readonly)
- * taker_position (mut)
- * base_mint (readonly)
- * quote_mint (readonly)
- * taker_base_ata (mut)
- * taker_quote_ata (mut)
- * token_program (readonly)
- * system_program (readonly)
- * fee_receiver_quote_ata (mut)
- * fee_receiver (readonly)
- * ata_program (readonly)
- * Per maker:
- *   [maker_order_status if bit_i=0] (mut)
- *   maker_nonce (readonly)
- *   maker_position (mut)
- *   maker_base_ata (mut)
- *   maker_quote_ata (mut)
+ * The fixed prefix starts with operator, exchange, market, orderbook, GDT A, GDT B.
+ * GDTs follow canonical conditional-mint ordering regardless of trade direction.
+ * Each clear mask bit includes a writable OrderStatus account. Bit 15 selects the taker.
+ * Positions and nonces are read-only. Settlement ATAs are writable.
  *
- * Data:
- * [0] discriminator
- * [1..38] taker Order (37 bytes)
- * [38..102] taker_signature (64 bytes)
- * [102] num_makers
- * [103] full_fill_bitmask
- * Per maker (117 bytes):
- *   [+0..+37] maker Order (37)
- *   [+37..+101] maker_signature (64)
- *   [+101..+109] maker_fill_amount (8)
- *   [+109..+117] taker_fill_amount (8)
+ * Full instruction data: discriminator, 37-byte taker order, 64-byte signature,
+ * maker count:u8, full-fill mask:u16 LE, then 117 bytes per maker.
+ * Each maker record holds its compact order, signature, and two u64 fill amounts.
+ * Fill amounts use integer units of the asset given by that participant.
+ * Business accounts total 18 + 5*M - popcount(fullFillBitmask), followed by two trailers.
+ * Eleven makers is a parser ceiling. The outer transaction must fit execution limits.
  */
 export function buildMatchOrdersMultiIx(
   params: MatchOrdersMultiParams,
@@ -868,6 +906,10 @@ export function buildMatchOrdersMultiIx(
   if (params.makerOrders.length !== params.takerFillAmounts.length) {
     throw ProgramSdkError.invalidDataLength("takerFillAmounts", params.makerOrders.length, params.takerFillAmounts.length);
   }
+
+  const maskBytes = participantMaskBytes(params.fullFillBitmask, params.makerOrders.length);
+  validateTradingOrders(params, params.makerOrders);
+  const [gdtA, gdtB] = tradingDepositTokens(params, programId);
 
   const [exchange] = getExchangePda(programId);
   const [orderbook] = getOrderbookPda(params.baseMint, params.quoteMint, programId);
@@ -890,17 +932,19 @@ export function buildMatchOrdersMultiIx(
     readonly(exchange),
     readonly(params.market),
     readonly(orderbook),
+    readonly(gdtA),
+    readonly(gdtB),
   ];
 
-  // Taker order status if not fully filled (bit 7 = 0)
-  const takerFullFill = (params.fullFillBitmask & 0x80) !== 0;
+  // Taker order status if not fully filled (bit 15 = 0)
+  const takerFullFill = (params.fullFillBitmask & TAKER_MASK) !== 0;
   if (!takerFullFill) {
     const [takerOrderStatus] = getOrderStatusPda(takerOrderHash, programId);
     keys.push(writable(takerOrderStatus));
   }
 
   keys.push(readonly(takerNonce));
-  keys.push(writable(takerPosition));
+  keys.push(readonly(takerPosition));
   keys.push(readonly(params.baseMint));
   keys.push(readonly(params.quoteMint));
   keys.push(writable(takerBaseAta));
@@ -932,7 +976,7 @@ export function buildMatchOrdersMultiIx(
     const makerQuoteAta = getConditionalTokenAta(params.quoteMint, makerPosition);
 
     keys.push(readonly(makerNonce));
-    keys.push(writable(makerPosition));
+    keys.push(readonly(makerPosition));
     keys.push(writable(makerBaseAta));
     keys.push(writable(makerQuoteAta));
   }
@@ -944,7 +988,7 @@ export function buildMatchOrdersMultiIx(
     serializeOrder(takerCompact),
     params.takerOrder.signature,
     toU8(params.makerOrders.length),
-    toU8(params.fullFillBitmask),
+    maskBytes,
   ];
 
   // Add maker data
@@ -995,35 +1039,36 @@ export function buildSetAuthorityIx(
 }
 
 /**
- * Build CreateOrderbook instruction
+ * Create a book for one market outcome backed by two distinct collateral mints.
  *
- * Accounts:
- * 0. manager (signer, mut)
- * 1. market (readonly)
- * 2. mint_a (readonly, canonical order)
- * 3. mint_b (readonly, canonical order)
- * 4. orderbook (mut)
- * 5. lookup_table (mut)
- * 6. exchange (readonly)
- * 7. alt_program (readonly)
- * 8. system_program (readonly)
- * 9. mint_a_deposit_mint (readonly, canonical order)
- * 10. mint_b_deposit_mint (readonly, canonical order)
- * 11. token_program
- * 12. associated_token_program
- * 13. fee_receiver
- * 14. fee_receiver_quote_ata
+ * The builder sorts the supplied conditional mints with their collateral identities.
+ * It preserves the requested base orientation and validates conditional PDA derivations.
+ * The program validates live registration, mint properties, market state, and outcome bounds.
  *
- * Data: [discriminator, recent_slot (u64), base_index (u8), mint_a_outcome_index (u8), mint_b_outcome_index (u8)]
+ * Business accounts: manager, market, mint A, mint B, orderbook, GDT A, GDT B,
+ * exchange, System program, collateral A, collateral B, Token program, ATA program,
+ * fee receiver, and the fee receiver's quote ATA. Two event trailers follow.
+ * Data is exactly [15, canonical baseIndex, outcomeIndex].
  */
 export function buildCreateOrderbookIx(
   params: CreateOrderbookParams,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
   const canonical = canonicalOrderbookMints(params);
+  if (!Number.isInteger(params.outcomeIndex) || params.outcomeIndex < 0 || params.outcomeIndex >= MAX_OUTCOMES) {
+    throw ProgramSdkError.invalidOutcomeIndex(params.outcomeIndex, MAX_OUTCOMES - 1);
+  }
+  if (canonical.mintA.depositMint.equals(canonical.mintB.depositMint)) {
+    throw ProgramSdkError.depositMintMismatch();
+  }
+  for (const { mint, depositMint } of [canonical.mintA, canonical.mintB]) {
+    const [expected] = getConditionalMintPda(params.market, depositMint, params.outcomeIndex, programId);
+    if (!mint.equals(expected)) {
+      throw ProgramSdkError.invalidConditionalMint();
+    }
+  }
   const [exchange] = getExchangePda(programId);
   const [orderbook] = getOrderbookPda(canonical.mintA.mint, canonical.mintB.mint, programId);
-  const [alt] = getAltPda(orderbook, params.recentSlot);
   const quoteMint = canonical.baseIndex === 0 ? canonical.mintB.mint : canonical.mintA.mint;
   const feeReceiverQuoteAta = getConditionalTokenAta(quoteMint, params.feeReceiver);
 
@@ -1033,9 +1078,9 @@ export function buildCreateOrderbookIx(
     readonly(canonical.mintA.mint),
     readonly(canonical.mintB.mint),
     writable(orderbook),
-    writable(alt),
+    readonly(getGlobalDepositTokenPda(canonical.mintA.depositMint, programId)[0]),
+    readonly(getGlobalDepositTokenPda(canonical.mintB.depositMint, programId)[0]),
     readonly(exchange),
-    readonly(ALT_PROGRAM_ID),
     readonly(SYSTEM_PROGRAM_ID),
     readonly(canonical.mintA.depositMint),
     readonly(canonical.mintB.depositMint),
@@ -1047,47 +1092,11 @@ export function buildCreateOrderbookIx(
 
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.CREATE_ORDERBOOK]),
-    toU64Le(params.recentSlot),
     toU8(canonical.baseIndex),
-    toU8(canonical.mintA.outcomeIndex),
-    toU8(canonical.mintB.outcomeIndex),
+    toU8(params.outcomeIndex),
   ]);
 
   return publicInstruction(programId, keys, data);
-}
-
-/**
- * Build RefreshOrderbookAlt instruction.
- *
- * Ensures the current fee receiver quote ATA exists and appends it to the
- * orderbook ALT when absent. This does not fully reshape old ALTs.
- */
-export function buildRefreshOrderbookAltIx(
-  params: RefreshOrderbookAltParams,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  const [exchange] = getExchangePda(programId);
-  const feeReceiverQuoteAta = getConditionalTokenAta(
-    params.quoteMint,
-    params.feeReceiver
-  );
-
-  const keys: AccountMeta[] = [
-    signerMut(params.manager),
-    readonly(exchange),
-    readonly(params.market),
-    readonly(params.orderbook),
-    writable(params.lookupTable),
-    readonly(params.quoteMint),
-    readonly(params.feeReceiver),
-    writable(feeReceiverQuoteAta),
-    readonly(TOKEN_PROGRAM_ID),
-    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-    readonly(ALT_PROGRAM_ID),
-    readonly(SYSTEM_PROGRAM_ID),
-  ];
-
-  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.REFRESH_ORDERBOOK_ALT]));
 }
 
 /**
@@ -1390,8 +1399,8 @@ export function buildWhitelistDepositTokenIx(
 /**
  * Build SetDepositTokenStatus instruction.
  *
- * Updates the backend-visible active flag on a whitelisted GlobalDepositToken.
- * Current on-chain user flows do not gate on this flag.
+ * Sets the live trading permission for this registered collateral.
+ * Deposits, preparation, splits, merges, and exits retain their existing rules.
  */
 export function buildSetDepositTokenStatusIx(
   params: SetDepositTokenStatusParams,
@@ -1417,46 +1426,15 @@ export function buildSetDepositTokenStatusIx(
 }
 
 /**
- * Build DepositToGlobal instruction
+ * Deposit integer collateral units into the user's global custody account.
  *
- * Accounts:
- * 0. user (signer, mut)
- * 1. global_deposit_token (readonly)
- * 2. mint (readonly)
- * 3. user_global_deposit (mut)
- * 4. user_token_account (mut)
- * 5. token_program (readonly)
- * 6. system_program (readonly)
- * 7. exchange (readonly)
- * Optional ALT accounts:
- * 8. user_nonce (readonly)
- * 9. lookup_table (mut)
- * 10. alt_program (readonly)
- *
- * Data: [discriminator, amount (u64), recent_slot (u64 if creating ALT)]
+ * Business accounts: user, GDT, collateral mint, user global custody, source ATA,
+ * Token program, System program, and exchange. Two event trailers follow.
+ * Data is exactly discriminator 17 and amount:u64 LE. Nonce initialization is separate.
  */
 export function buildDepositToGlobalIx(
   params: DepositToGlobalParams,
   programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  return buildDepositToGlobalIxInner(params, undefined, programId);
-}
-
-/**
- * Build DepositToGlobal instruction with user deposit ALT create/extend accounts.
- */
-export function buildDepositToGlobalIxWithAlt(
-  params: DepositToGlobalParams,
-  altContext: DepositToGlobalAltContext,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  return buildDepositToGlobalIxInner(params, altContext, programId);
-}
-
-function buildDepositToGlobalIxInner(
-  params: DepositToGlobalParams,
-  altContext: DepositToGlobalAltContext | undefined,
-  programId: PublicKey
 ): TransactionInstruction {
   const [globalDepositToken] = getGlobalDepositTokenPda(params.mint, programId);
   const [userGlobalDeposit] = getUserGlobalDepositPda(params.user, params.mint, programId);
@@ -1478,22 +1456,6 @@ function buildDepositToGlobalIxInner(
     Buffer.from([INSTRUCTION.DEPOSIT_TO_GLOBAL]),
     toU64Le(params.amount),
   ];
-
-  if (altContext !== undefined) {
-    const [userNonce] = getUserNoncePda(params.user, programId);
-    const lookupTable =
-      altContext.kind === "create"
-        ? getAltPda(userNonce, altContext.recentSlot)[0]
-        : altContext.lookupTable;
-
-    if (altContext.kind === "create") {
-      dataBuffers.push(toU64Le(altContext.recentSlot));
-    }
-
-    keys.push(readonly(userNonce));
-    keys.push(writable(lookupTable));
-    keys.push(readonly(ALT_PROGRAM_ID));
-  }
 
   return publicInstruction(programId, keys, Buffer.concat(dataBuffers));
 }
@@ -1565,40 +1527,25 @@ export function buildGlobalToMarketDepositIx(
 }
 
 /**
- * Build InitPositionTokens instruction
+ * Prepare a beneficiary's Position and conditional ATAs without minting balances.
  *
- * Permissionless: any payer may initialize the accounts for a user. The
- * instruction is idempotent: replaying it with the same recentSlot reuses the
- * existing lookup table and skips deposit-mint groups that are already
- * present, so a retry after a partial failure must reuse the original slot
- * (the table address derives from it). At most MAX_DEPOSIT_MINTS_PER_IX groups
- * may be passed per instruction; more throws ProgramSdkError
- * (TooManyDepositMints).
+ * A signing payer can prepare initial, partial, repeated, or additional collateral groups.
+ * Existing valid accounts remain in place. The beneficiary must be nonzero and on curve.
+ * Supply 1..8 distinct mints in increasing global GDT registration-index order.
+ * This synchronous builder preserves that order. It does not fetch registration indices.
  *
- * Accounts (11 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
- * 0. payer (signer, mut)
- * 1. user (readonly)
- * 2. exchange (readonly)
- * 3. market (readonly)
- * 4. position (mut)
- * 5. lookup_table (mut)
- * 6. mint_authority (readonly)
- * 7. token_program (readonly)
- * 8. ata_program (readonly)
- * 9. alt_program (readonly)
- * 10. system_program (readonly)
- * + per deposit_mint: deposit_mint, vault, gdt, conditional_mint/position_ata pairs
- * + event_authority, program (readonly trailer)
- *
- * Data: [discriminator, recent_slot (u64), num_deposit_mints (u8)]
- * Throws MissingField for an empty depositMints list, TooManyDepositMints for
- * more than MAX_DEPOSIT_MINTS_PER_IX groups, or InvalidPubkey for a zero or off-curve user.
+ * The nine business-prefix accounts are payer, user, exchange, market, position,
+ * mint authority, Token program, ATA program, and System program.
+ * Each group adds collateral mint, vault, GDT, then each conditional mint and position ATA.
+ * The complete reference count is 11 + G*(3 + 2*O), including the two event trailers.
+ * Data is exactly [19, groupCount]. Each successful retry emits a preparation event.
  */
 export function buildInitPositionTokensIx(
   params: InitPositionTokensParams,
   numOutcomes: number,
   programId: PublicKey = PROGRAM_ID
 ): TransactionInstruction {
+  validateOutcomes(numOutcomes);
   if (params.depositMints.length === 0) {
     throw ProgramSdkError.missingField("deposit_mints");
   }
@@ -1607,9 +1554,12 @@ export function buildInitPositionTokensIx(
     throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
   }
 
+  if (new Set(params.depositMints.map((mint) => mint.toBase58())).size !== params.depositMints.length) {
+    throw ProgramSdkError.invalidDepositMintOrder();
+  }
+
   const [exchange] = getExchangePda(programId);
   const [position] = getPositionPda(params.user, params.market, programId);
-  const [lookupTable] = getPositionAltPda(position, params.recentSlot);
   const [mintAuthority] = getMintAuthorityPda(params.market, programId);
 
   const keys: AccountMeta[] = [
@@ -1618,11 +1568,9 @@ export function buildInitPositionTokensIx(
     readonly(exchange),
     readonly(params.market),
     writable(position),
-    writable(lookupTable),
     readonly(mintAuthority),
     readonly(TOKEN_PROGRAM_ID),
     readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-    readonly(ALT_PROGRAM_ID),
     readonly(SYSTEM_PROGRAM_ID),
   ];
 
@@ -1633,13 +1581,9 @@ export function buildInitPositionTokensIx(
     keys.push(readonly(vault));
     keys.push(readonly(gdt));
 
-    for (let i = 0; i < numOutcomes; i += 1) {
-      const [conditionalMint] = getAllConditionalMintPdas(
-        params.market,
-        depositMint,
-        numOutcomes,
-        programId
-      )[i];
+    for (const [conditionalMint] of getAllConditionalMintPdas(
+      params.market, depositMint, numOutcomes, programId
+    )) {
       keys.push(readonly(conditionalMint));
       keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
     }
@@ -1647,7 +1591,6 @@ export function buildInitPositionTokensIx(
 
   const data = Buffer.concat([
     Buffer.from([INSTRUCTION.INIT_POSITION_TOKENS]),
-    toU64Le(params.recentSlot),
     toU8(params.depositMints.length),
   ]);
 
@@ -1655,97 +1598,18 @@ export function buildInitPositionTokensIx(
 }
 
 /**
- * Build ExtendPositionTokens instruction
+ * Match 1..11 makers with optional global-collateral funding for each participant.
  *
- * Permissionless: any payer may extend a position's lookup table after a
- * market adds deposit mints; the position PDA remains the table authority.
- * Deposit-mint groups already present in the table are skipped on chain, so
- * callers may pass existing and new mints together. The program rejects a
- * deactivated table or one not owned by the position. At most
- * MAX_DEPOSIT_MINTS_PER_IX groups may be passed per instruction; more throws
- * ProgramSdkError (TooManyDepositMints).
+ * Fixed accounts: operator, exchange, market, orderbook, canonical GDT A and GDT B,
+ * mint authority, Token program, fee receiver quote ATA, fee receiver, and ATA program.
+ * Funding mints must back the participant's signed give side: BUY quote, SELL base.
+ * Every funded block includes collateral, vault, GDT, global custody, and every outcome pair.
+ * Maker settlement ATAs follow the taker's receive/give order on both funding paths.
  *
- * Accounts (10 + per deposit_mint: 3 + num_outcomes*2, + 2 trailer):
- * 0. payer (signer, mut)
- * 1. user (readonly)
- * 2. exchange (readonly)
- * 3. market (readonly)
- * 4. position (readonly)
- * 5. lookup_table (mut)
- * 6. token_program (readonly)
- * 7. ata_program (readonly)
- * 8. alt_program (readonly)
- * 9. system_program (readonly)
- * Per deposit_mint:
- *   deposit_mint (readonly), vault (readonly), gdt (readonly),
- *   per outcome: conditional_mint (readonly), position_ata (mut)
- * + event_authority, program (readonly trailer)
- *
- * Data: [discriminator, num_deposit_mints (u8)]
- */
-export function buildExtendPositionTokensIx(
-  params: ExtendPositionTokensParams,
-  numOutcomes: number,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  if (params.depositMints.length === 0) {
-    throw ProgramSdkError.missingField("deposit_mints");
-  }
-  validateUser(params.user);
-  if (params.depositMints.length > MAX_DEPOSIT_MINTS_PER_IX) {
-    throw ProgramSdkError.tooManyDepositMints(params.depositMints.length);
-  }
-
-  const [exchange] = getExchangePda(programId);
-  const [position] = getPositionPda(params.user, params.market, programId);
-
-  const keys: AccountMeta[] = [
-    signerMut(params.payer),
-    readonly(params.user),
-    readonly(exchange),
-    readonly(params.market),
-    readonly(position),
-    writable(params.lookupTable),
-    readonly(TOKEN_PROGRAM_ID),
-    readonly(ASSOCIATED_TOKEN_PROGRAM_ID),
-    readonly(ALT_PROGRAM_ID),
-    readonly(SYSTEM_PROGRAM_ID),
-  ];
-
-  for (const depositMint of params.depositMints) {
-    const [vault] = getVaultPda(depositMint, params.market, programId);
-    const [gdt] = getGlobalDepositTokenPda(depositMint, programId);
-    keys.push(readonly(depositMint));
-    keys.push(readonly(vault));
-    keys.push(readonly(gdt));
-
-    for (let i = 0; i < numOutcomes; i += 1) {
-      const [conditionalMint] = getAllConditionalMintPdas(
-        params.market,
-        depositMint,
-        numOutcomes,
-        programId
-      )[i];
-      keys.push(readonly(conditionalMint));
-      keys.push(writable(getConditionalTokenAta(conditionalMint, position)));
-    }
-  }
-
-  const data = Buffer.from([
-    INSTRUCTION.EXTEND_POSITION_TOKENS,
-    params.depositMints.length,
-  ]);
-
-  return publicInstruction(programId, keys, data);
-}
-
-/**
- * Build DepositAndSwap instruction.
- * Supports a mix of global deposits and token swaps in a single instruction.
- *
- * Fixed accounts:
- * operator, exchange, market, orderbook, mint_authority, token_program,
- * fee_receiver_quote_ata, fee_receiver, ata_program
+ * The full-fill and funding masks are independent u16 LE values, with taker bit 15.
+ * Data length is 107 + 117*M. Fill amounts use integer units given by each participant.
+ * Business references total 19 + 5*M - F + D*(4 + 2*O), then two event trailers.
+ * Repeated GDT and mint addresses retain their positions in this sequence.
  */
 export function buildDepositAndSwapIx(
   params: DepositAndSwapParams,
@@ -1759,6 +1623,13 @@ export function buildDepositAndSwapIx(
   if (params.makers.length > MAX_MAKERS) {
     throw ProgramSdkError.tooManyMakers(params.makers.length);
   }
+
+  validateTradingOrders(params, params.makers.map((maker) => maker.order));
+  for (const maker of params.makers) {
+    if (maker.isDeposit) validateFundingMint(maker.order, maker.depositMint, params);
+  }
+  if (params.takerIsDeposit) validateFundingMint(params.takerOrder, params.takerDepositMint, params);
+  const [gdtA, gdtB] = tradingDepositTokens(params, programId);
 
   const [exchange] = getExchangePda(programId);
   const [orderbook] = getOrderbookPda(params.baseMint, params.quoteMint, programId);
@@ -1778,10 +1649,10 @@ export function buildDepositAndSwapIx(
   let depositBitmask = 0;
 
   if (params.takerIsFullFill) {
-    fullFillBitmask |= 0x80;
+    fullFillBitmask |= TAKER_MASK;
   }
   if (params.takerIsDeposit) {
-    depositBitmask |= 0x80;
+    depositBitmask |= TAKER_MASK;
   }
 
   for (let i = 0; i < params.makers.length; i += 1) {
@@ -1799,6 +1670,8 @@ export function buildDepositAndSwapIx(
     readonly(exchange),
     readonly(params.market),
     readonly(orderbook),
+    readonly(gdtA),
+    readonly(gdtB),
     readonly(mintAuthority),
     readonly(TOKEN_PROGRAM_ID),
     writable(feeReceiverQuoteAta),
@@ -1813,7 +1686,7 @@ export function buildDepositAndSwapIx(
   }
 
   keys.push(readonly(takerNonce));
-  keys.push(writable(takerPosition));
+  keys.push(readonly(takerPosition));
   keys.push(readonly(params.baseMint));
   keys.push(readonly(params.quoteMint));
   keys.push(writable(getConditionalTokenAta(receiveMint, takerPosition)));
@@ -1863,7 +1736,7 @@ export function buildDepositAndSwapIx(
     }
 
     keys.push(readonly(makerNonce));
-    keys.push(writable(makerPosition));
+    keys.push(readonly(makerPosition));
 
     if (maker.isDeposit) {
       const [vault] = getVaultPda(maker.depositMint, params.market, programId);
@@ -1902,8 +1775,8 @@ export function buildDepositAndSwapIx(
     serializeOrder(signedOrderToOrder(params.takerOrder)),
     params.takerOrder.signature,
     toU8(params.makers.length),
-    toU8(fullFillBitmask),
-    toU8(depositBitmask),
+    participantMaskBytes(fullFillBitmask, params.makers.length),
+    participantMaskBytes(depositBitmask, params.makers.length),
   ];
 
   for (const maker of params.makers) {
@@ -1955,37 +1828,6 @@ export function buildWithdrawFromGlobalIx(
   ]);
 
   return publicInstruction(programId, keys, data);
-}
-
-/**
- * Build ClosePositionAlt instruction
- *
- * Accounts:
- * 0. operator (signer, mut)
- * 1. exchange (readonly)
- * 2. position (readonly)
- * 3. market (readonly)
- * 4. lookup_table (mut)
- * 5. alt_program (readonly)
- *
- * Data: [discriminator]
- */
-export function buildClosePositionAltIx(
-  params: ClosePositionAltParams,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  const [exchange] = getExchangePda(programId);
-
-  const keys: AccountMeta[] = [
-    signerMut(params.operator),
-    readonly(exchange),
-    readonly(params.position),
-    readonly(params.market),
-    writable(params.lookupTable),
-    readonly(ALT_PROGRAM_ID),
-  ];
-
-  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_POSITION_ALT]));
 }
 
 /**
@@ -2075,47 +1917,11 @@ export function buildClosePositionTokenAccountsIx(
 }
 
 /**
- * Build CloseOrderbookAlt instruction
+ * Close a resolved orderbook and refund its lamports to the operator.
  *
- * Accounts:
- * 0. operator (signer, mut)
- * 1. exchange (readonly)
- * 2. orderbook (readonly)
- * 3. market (readonly)
- * 4. lookup_table (mut)
- * 5. alt_program (readonly)
- *
- * Data: [discriminator]
- */
-export function buildCloseOrderbookAltIx(
-  params: CloseOrderbookAltParams,
-  programId: PublicKey = PROGRAM_ID
-): TransactionInstruction {
-  const [exchange] = getExchangePda(programId);
-
-  const keys: AccountMeta[] = [
-    signerMut(params.operator),
-    readonly(exchange),
-    readonly(params.orderbook),
-    readonly(params.market),
-    writable(params.lookupTable),
-    readonly(ALT_PROGRAM_ID),
-  ];
-
-  return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK_ALT]));
-}
-
-/**
- * Build CloseOrderbook instruction
- *
- * Accounts:
- * 0. operator (signer, mut)
- * 1. exchange (readonly)
- * 2. orderbook (mut)
- * 3. market (readonly)
- * 4. lookup_table (readonly)
- *
- * Data: [discriminator]
+ * Business accounts are operator (signer, writable), exchange (read-only),
+ * orderbook (writable), and market (read-only), followed by the two event trailers.
+ * Data is exactly the single discriminator byte 27.
  */
 export function buildCloseOrderbookIx(
   params: CloseOrderbookParams,
@@ -2128,7 +1934,6 @@ export function buildCloseOrderbookIx(
     readonly(exchange),
     writable(params.orderbook),
     readonly(params.market),
-    readonly(params.lookupTable),
   ];
 
   return publicInstruction(programId, keys, Buffer.from([INSTRUCTION.CLOSE_ORDERBOOK]));
@@ -2364,14 +2169,6 @@ export function buildCreateOrderbookTx(
   return new Transaction({ feePayer: params.manager }).add(ix);
 }
 
-export function buildRefreshOrderbookAltTx(
-  params: RefreshOrderbookAltParams,
-  programId: PublicKey = PROGRAM_ID
-): Transaction {
-  const ix = buildRefreshOrderbookAltIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
-}
-
 export function buildWhitelistDepositTokenTx(
   params: WhitelistDepositTokenParams,
   programId: PublicKey = PROGRAM_ID
@@ -2396,15 +2193,6 @@ export function buildDepositToGlobalTx(
   return new Transaction({ feePayer: params.user }).add(ix);
 }
 
-export function buildDepositToGlobalTxWithAlt(
-  params: DepositToGlobalParams,
-  altContext: DepositToGlobalAltContext,
-  programId: PublicKey = PROGRAM_ID
-): Transaction {
-  const ix = buildDepositToGlobalIxWithAlt(params, altContext, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
-}
-
 export function buildGlobalToMarketDepositTx(
   params: GlobalToMarketDepositParams,
   numOutcomes: number,
@@ -2420,15 +2208,6 @@ export function buildInitPositionTokensTx(
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
   const ix = buildInitPositionTokensIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.payer }).add(ix);
-}
-
-export function buildExtendPositionTokensTx(
-  params: ExtendPositionTokensParams,
-  numOutcomes: number,
-  programId: PublicKey = PROGRAM_ID
-): Transaction {
-  const ix = buildExtendPositionTokensIx(params, numOutcomes, programId);
   return new Transaction({ feePayer: params.payer }).add(ix);
 }
 
@@ -2448,14 +2227,6 @@ export function buildWithdrawFromGlobalTx(
   return new Transaction({ feePayer: params.user }).add(ix);
 }
 
-export function buildClosePositionAltTx(
-  params: ClosePositionAltParams,
-  programId: PublicKey = PROGRAM_ID
-): Transaction {
-  const ix = buildClosePositionAltIx(params, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
-}
-
 export function buildCloseOrderStatusTx(
   params: CloseOrderStatusParams,
   programId: PublicKey = PROGRAM_ID
@@ -2470,14 +2241,6 @@ export function buildClosePositionTokenAccountsTx(
   programId: PublicKey = PROGRAM_ID
 ): Transaction {
   const ix = buildClosePositionTokenAccountsIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
-}
-
-export function buildCloseOrderbookAltTx(
-  params: CloseOrderbookAltParams,
-  programId: PublicKey = PROGRAM_ID
-): Transaction {
-  const ix = buildCloseOrderbookAltIx(params, programId);
   return new Transaction({ feePayer: params.operator }).add(ix);
 }
 

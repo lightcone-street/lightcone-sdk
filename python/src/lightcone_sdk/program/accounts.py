@@ -7,6 +7,7 @@ from .constants import (
     GLOBAL_DEPOSIT_TOKEN_SIZE,
     MARKET_DISCRIMINATOR,
     MARKET_SIZE,
+    MAX_OUTCOMES,
     ORDER_STATUS_DISCRIMINATOR,
     ORDER_STATUS_SIZE,
     ORDERBOOK_DISCRIMINATOR,
@@ -19,6 +20,8 @@ from .constants import (
 from .errors import (
     InvalidAccountDataError,
     InvalidDiscriminatorError,
+    InvalidOrderbookError,
+    InvalidOutcomeIndexError,
     InvalidPendingRoleKindError,
 )
 from .types import (
@@ -216,32 +219,29 @@ def deserialize_user_nonce(data: bytes) -> UserNonce:
 
 
 def deserialize_orderbook(data: bytes) -> Orderbook:
-    """Deserialize an Orderbook account.
+    """Decode the exact 176-byte orderbook provenance layout.
 
-    Layout (144 bytes):
-    - [0..8]: discriminator
-    - [8..40]: market (Pubkey)
-    - [40..72]: mint_a (Pubkey)
-    - [72..104]: mint_b (Pubkey)
-    - [104..136]: lookup_table (Pubkey)
-    - [136]: base_index (u8)
-    - [137]: bump (u8)
-    - [138..144]: padding (6 bytes)
+    Collateral mints occupy offsets 104 and 136. Base index, shared outcome,
+    and bump occupy offsets 168, 169, and 170. Five padding bytes follow.
     """
     _validate_discriminator(data, ORDERBOOK_DISCRIMINATOR, "Orderbook")
-
-    if len(data) < ORDERBOOK_SIZE:
+    if len(data) != ORDERBOOK_SIZE:
         raise InvalidAccountDataError(
-            f"Orderbook data too short: {len(data)} bytes (expected {ORDERBOOK_SIZE})"
+            f"Orderbook must be {ORDERBOOK_SIZE} bytes, got {len(data)}"
         )
-
+    if data[168] > 1:
+        raise InvalidOrderbookError()
+    if data[169] >= MAX_OUTCOMES:
+        raise InvalidOutcomeIndexError(data[169], MAX_OUTCOMES - 1)
     return Orderbook(
         market=decode_pubkey(data, 8),
         mint_a=decode_pubkey(data, 40),
         mint_b=decode_pubkey(data, 72),
-        lookup_table=decode_pubkey(data, 104),
-        base_index=decode_u8(data, 136),
-        bump=decode_u8(data, 137),
+        deposit_mint_a=decode_pubkey(data, 104),
+        deposit_mint_b=decode_pubkey(data, 136),
+        base_index=data[168],
+        outcome_index=data[169],
+        bump=data[170],
     )
 
 
@@ -295,10 +295,13 @@ def deserialize_global_deposit_token(data: bytes) -> GlobalDepositToken:
         data, GLOBAL_DEPOSIT_TOKEN_DISCRIMINATOR, "GlobalDepositToken"
     )
 
-    if len(data) < GLOBAL_DEPOSIT_TOKEN_SIZE:
+    if len(data) != GLOBAL_DEPOSIT_TOKEN_SIZE:
         raise InvalidAccountDataError(
-            f"GlobalDepositToken data too short: {len(data)} bytes (expected {GLOBAL_DEPOSIT_TOKEN_SIZE})"
+            f"Invalid GlobalDepositToken data length: {len(data)} bytes (expected {GLOBAL_DEPOSIT_TOKEN_SIZE})"
         )
+
+    if data[43] not in (0, 1):
+        raise InvalidAccountDataError("GlobalDepositToken active must be 0 or 1")
 
     return GlobalDepositToken(
         mint=decode_pubkey(data, 8),

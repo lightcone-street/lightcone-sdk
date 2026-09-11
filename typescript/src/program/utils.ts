@@ -78,6 +78,16 @@ export function toU8(value: number): Buffer {
   return buffer;
 }
 
+/** Encode an exact unsigned 16-bit integer in little-endian order. */
+export function toU16Le(value: number): Buffer {
+  if (!Number.isInteger(value) || value < 0 || value > 0xffff) {
+    throw ProgramSdkError.serialization(`u16 value out of range: ${value}`);
+  }
+  const buffer = Buffer.alloc(2);
+  buffer.writeUInt16LE(value, 0);
+  return buffer;
+}
+
 /**
  * Convert a bigint to u64 little-endian buffer
  */

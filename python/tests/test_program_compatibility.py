@@ -1,9 +1,12 @@
-"""Regression coverage for the program's matching and signer boundaries."""
+"""Regression coverage for public program exports and matching/signer boundaries."""
+
+import struct
 
 import pytest
 from solders.keypair import Keypair
 from solders.pubkey import Pubkey
 
+import lightcone_sdk as sdk
 from lightcone_sdk.program import (
     INITIALIZE_AUTHORITY,
     MAX_MAKERS,
@@ -17,12 +20,12 @@ from lightcone_sdk.program import (
     TooManyMakersError,
     build_create_market_instruction,
     build_deposit_and_swap_instruction,
-    build_extend_position_tokens_instruction,
     build_init_position_tokens_instruction,
     build_match_orders_multi_instruction,
     build_set_oracle_instruction,
     build_set_paused_instruction,
     build_whitelist_deposit_token_instruction,
+    get_conditional_mint_pda,
     get_event_authority_pda,
     get_exchange_pda,
     get_global_deposit_pda,
@@ -34,55 +37,82 @@ def wallet(seed: int) -> Pubkey:
 
 
 def test_program_constants():
-    assert MAX_MAKERS == 4
+    assert MAX_MAKERS == 11
     assert str(INITIALIZE_AUTHORITY) == "3vYRAzr5X41hrmKMnDCoQJJmPH89S4LLwmFpk8UtwCqr"
 
 
+def test_root_orderbook_id_accepts_signed_order():
+    order = sdk.SignedOrder(
+        nonce=0,
+        maker=wallet(1),
+        market=wallet(2),
+        base_mint=Pubkey.from_bytes(bytes([3]) * 32),
+        quote_mint=Pubkey.from_bytes(bytes([4]) * 32),
+        side=sdk.OrderSide.BID,
+        amount_in=10,
+        amount_out=20,
+        expiration=0,
+    )
+    assert sdk.derive_orderbook_id(order) == "CktRuQ2m_GgBaCs3N"
+    assert sdk.program.derive_orderbook_id(order) == "CktRuQ2m_GgBaCs3N"
+    assert (
+        sdk.shared.derive_orderbook_id(str(order.base_mint), str(order.quote_mint))
+        == "CktRuQ2m_GgBaCs3N"
+    )
+
+
 @pytest.mark.parametrize("deposit", [False, True])
-def test_matching_four_maker_boundary_preserves_exact_fills(deposit):
-    market, base, quote = wallet(3), wallet(4), wallet(5)
+@pytest.mark.parametrize("full_fill_mask", [0x87FF, 0x8180])
+def test_eleven_maker_records_masks_and_exact_fills(deposit, full_fill_mask):
+    market, base_deposit_mint, quote_deposit_mint = wallet(3), wallet(70), wallet(71)
+    base_mint = get_conditional_mint_pda(market, base_deposit_mint, 1)[0]
+    quote_mint = get_conditional_mint_pda(market, quote_deposit_mint, 1)[0]
+    maker_amount, taker_amount = 2**53 + 7, 2**63 + 11
     orders = [
         SignedOrder(
-            nonce=i,
-            salt=i,
-            maker=wallet(i + 10),
+            nonce=index,
+            salt=2**53 + index,
+            maker=wallet(index + 10),
             market=market,
-            base_mint=base,
-            quote_mint=quote,
-            side=OrderSide.BID if i == 0 else OrderSide.ASK,
-            amount_in=2**63 + 11,
-            amount_out=2**53 + 7,
-            expiration=0,
-            signature=bytes([i]) * 64,
+            base_mint=base_mint,
+            quote_mint=quote_mint,
+            side=OrderSide.BID if index == 0 else OrderSide.ASK,
+            amount_in=taker_amount,
+            amount_out=maker_amount,
+            expiration=-1,
+            signature=bytes([index]) * 64,
         )
-        for i in range(6)
+        for index in range(13)
     ]
     common = {
         "operator": wallet(1),
         "market": market,
-        "base_mint": base,
-        "quote_mint": quote,
+        "base_mint": base_mint,
+        "quote_mint": quote_mint,
         "fee_receiver": wallet(2),
         "taker_order": orders[0],
+        "base_deposit_mint": base_deposit_mint,
+        "quote_deposit_mint": quote_deposit_mint,
     }
-    maker_amount, taker_amount = 2**53 + 7, 2**63 + 11
 
     def build(count):
         if deposit:
             return build_deposit_and_swap_instruction(
                 **common,
                 taker_is_full_fill=True,
-                taker_deposit_mint=base,
+                taker_is_deposit=True,
+                taker_deposit_mint=quote_deposit_mint,
+                num_outcomes=2,
                 makers=[
                     MakerFill(
-                        order=o,
+                        order=order,
                         maker_fill_amount=maker_amount,
                         taker_fill_amount=taker_amount,
-                        is_full_fill=True,
-                        is_deposit=False,
-                        deposit_mint=base,
+                        is_full_fill=bool(full_fill_mask & (1 << index)),
+                        is_deposit=index in (8, 10),
+                        deposit_mint=base_deposit_mint,
                     )
-                    for o in orders[1 : count + 1]
+                    for index, order in enumerate(orders[1 : count + 1])
                 ],
             )
         return build_match_orders_multi_instruction(
@@ -90,28 +120,42 @@ def test_matching_four_maker_boundary_preserves_exact_fills(deposit):
             maker_orders=orders[1 : count + 1],
             maker_fill_amounts=[maker_amount] * count,
             taker_fill_amounts=[taker_amount] * count,
-            full_fill_bitmask=0x8F,
+            full_fill_bitmask=full_fill_mask,
         )
 
-    data = build(4).data
+    ix = build(11)
+    data = ix.data
+    header_size = 107 if deposit else 105
+    assert len(data) == header_size + 11 * 117
     assert data[0] == (20 if deposit else 13)
-    assert data[102:104] == bytes([4, 0x8F])
-    start = 105 if deposit else 104
+    assert data[102] == 11
+    assert data[103:105] == full_fill_mask.to_bytes(2, "little")
     if deposit:
-        assert data[104] == 0
-    for i in range(4):
-        offset = start + i * 117
-        assert data[offset + 37 : offset + 101] == orders[i + 1].signature
-        assert (
-            int.from_bytes(data[offset + 101 : offset + 109], "little") == maker_amount
+        assert data[105:107] == bytes([0x00, 0x85])  # taker and makers 8, 10
+    for index, order in enumerate(orders[:12]):
+        offset = 1 if index == 0 else header_size + (index - 1) * 117
+        assert struct.unpack_from("<IQBQQq", data, offset) == (
+            order.nonce,
+            order.salt,
+            int(order.side),
+            taker_amount,
+            maker_amount,
+            -1,
         )
-        assert (
-            int.from_bytes(data[offset + 109 : offset + 117], "little") == taker_amount
-        )
-    with pytest.raises(TooManyMakersError) as exc:
-        build(5)
-    assert exc.value.count == 5
-    assert exc.value.max_count == 4
+        assert data[offset + 37 : offset + 101] == order.signature
+        if index:
+            assert struct.unpack_from("<QQ", data, offset + 101) == (
+                maker_amount,
+                taker_amount,
+            )
+    collateral = (base_deposit_mint, quote_deposit_mint)
+    if bytes(base_mint) > bytes(quote_mint):
+        collateral = collateral[::-1]
+    assert [(m.pubkey, m.is_signer, m.is_writable) for m in ix.accounts[4:6]] == [
+        (get_global_deposit_pda(mint)[0], False, False) for mint in collateral
+    ]
+    with pytest.raises(TooManyMakersError, match="12"):
+        build(12)
 
 
 @pytest.mark.parametrize(
@@ -129,11 +173,7 @@ def test_position_setup_rejects_zero_and_pda_beneficiaries_without_restricting_g
     for beneficiary in (Pubkey.default(), user):
         with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
             build_init_position_tokens_instruction(
-                wallet(1), beneficiary, wallet(2), [wallet(3)], 2, 99
-            )
-        with pytest.raises(InvalidPubkeyError, match=str(beneficiary)):
-            build_extend_position_tokens_instruction(
-                wallet(1), beneficiary, wallet(2), wallet(4), [wallet(3)], 2
+                wallet(1), beneficiary, wallet(2), [wallet(3)], 2
             )
     ix = build_set_paused_instruction(user, True)
     assert ix.accounts[0].pubkey == user

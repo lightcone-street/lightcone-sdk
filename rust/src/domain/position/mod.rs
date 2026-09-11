@@ -8,10 +8,9 @@ pub mod wire;
 use std::collections::{hash_map::Entry, HashMap};
 
 pub use builders::{
-    DepositBuilder, DepositToGlobalBuilder, ExtendPositionTokensBuilder,
-    GlobalToMarketDepositBuilder, InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder,
-    SolActionKind, SolActionPlan, SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder,
-    WithdrawFromPositionBuilder,
+    DepositBuilder, DepositToGlobalBuilder, GlobalToMarketDepositBuilder,
+    InitPositionTokensBuilder, MergeBuilder, RedeemWinningsBuilder, SolActionKind, SolActionPlan,
+    SolBalanceDelta, WithdrawBuilder, WithdrawFromGlobalBuilder, WithdrawFromPositionBuilder,
 };
 pub use state::{
     CanonicalWsolAccountInfo, SolActionCosts, SolBalanceAvailability, SolBalanceBreakdown,

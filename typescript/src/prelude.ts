@@ -189,7 +189,6 @@ export {
   RedeemWinningsBuilder,
   WithdrawFromPositionBuilder,
   InitPositionTokensBuilder,
-  ExtendPositionTokensBuilder,
   DepositToGlobalBuilder,
   WithdrawFromGlobalBuilder,
   GlobalToMarketDepositBuilder,

@@ -47,12 +47,9 @@ from spl.token.instructions import (
 from ...error import SdkError
 from ...program.accounts import deserialize_position
 from ...program.instructions import (
-    build_close_position_alt_instruction,
     build_close_position_token_accounts_instruction,
     build_deposit_instruction,
     build_deposit_to_global_instruction,
-    build_deposit_to_global_instruction_with_alt,
-    build_extend_position_tokens_instruction,
     build_global_to_market_deposit_instruction,
     build_init_position_tokens_instruction,
     build_merge_instruction,
@@ -62,11 +59,8 @@ from ...program.instructions import (
 )
 from ...program.pda import get_position_pda
 from ...program.types import (
-    ClosePositionAltParams,
     ClosePositionTokenAccountsParams,
-    DepositToGlobalAltContext,
     DepositToGlobalParams,
-    ExtendPositionTokensParams,
     GlobalToMarketDepositParams,
     InitPositionTokensParams,
     Position,
@@ -83,7 +77,6 @@ from . import DepositTokenBalancesSnapshot
 from .builders import (
     DepositBuilder,
     DepositToGlobalBuilder,
-    ExtendPositionTokensBuilder,
     GlobalToMarketDepositBuilder,
     InitPositionTokensBuilder,
     MergeBuilder,
@@ -1025,34 +1018,15 @@ class Positions:
     def init_position_tokens_ix(
         self, params: InitPositionTokensParams, num_outcomes: int
     ) -> Instruction:
-        """Build InitPositionTokens instruction (idempotent per recent_slot)."""
+        """Build idempotent position preparation for every supplied collateral group."""
         return build_init_position_tokens_instruction(
             payer=params.payer,
             user=params.user,
             market=params.market,
             deposit_mints=params.deposit_mints,
             num_outcomes=num_outcomes,
-            recent_slot=params.recent_slot,
             program_id=self._client.program_id,
         )
-
-    def extend_position_tokens_ix(
-        self, params: ExtendPositionTokensParams, num_outcomes: int
-    ) -> Instruction:
-        """Build ExtendPositionTokens instruction (permissionless; any payer)."""
-        return build_extend_position_tokens_instruction(
-            payer=params.payer,
-            user=params.user,
-            market=params.market,
-            lookup_table=params.lookup_table,
-            deposit_mints=params.deposit_mints,
-            num_outcomes=num_outcomes,
-            program_id=self._client.program_id,
-        )
-
-    def close_position_alt_ix(self, params: ClosePositionAltParams) -> Instruction:
-        """Build ClosePositionAlt instruction."""
-        return build_close_position_alt_instruction(params, self._client.program_id)
 
     def close_position_token_accounts_ix(
         self,
@@ -1072,20 +1046,6 @@ class Positions:
             user=params.user,
             mint=params.mint,
             amount=params.amount,
-            program_id=self._client.program_id,
-        )
-
-    def deposit_to_global_ix_with_alt(
-        self,
-        params: DepositToGlobalParams,
-        alt_context: DepositToGlobalAltContext,
-    ) -> Instruction:
-        """Build DepositToGlobal instruction with user-deposit ALT accounts."""
-        return build_deposit_to_global_instruction_with_alt(
-            user=params.user,
-            mint=params.mint,
-            amount=params.amount,
-            alt_context=alt_context,
             program_id=self._client.program_id,
         )
 
@@ -1140,18 +1100,6 @@ class Positions:
         ix = self.init_position_tokens_ix(params, num_outcomes)
         return Transaction.new_with_payer([ix], params.payer)
 
-    def extend_position_tokens_tx(
-        self, params: ExtendPositionTokensParams, num_outcomes: int
-    ) -> Transaction:
-        """Build ExtendPositionTokens transaction."""
-        ix = self.extend_position_tokens_ix(params, num_outcomes)
-        return Transaction.new_with_payer([ix], params.payer)
-
-    def close_position_alt_tx(self, params: ClosePositionAltParams) -> Transaction:
-        """Build ClosePositionAlt transaction."""
-        ix = self.close_position_alt_ix(params)
-        return Transaction.new_with_payer([ix], params.operator)
-
     def close_position_token_accounts_tx(
         self,
         params: ClosePositionTokenAccountsParams,
@@ -1164,15 +1112,6 @@ class Positions:
     def deposit_to_global_tx(self, params: DepositToGlobalParams) -> Transaction:
         """Build DepositToGlobal transaction."""
         ix = self.deposit_to_global_ix(params)
-        return Transaction.new_with_payer([ix], params.user)
-
-    def deposit_to_global_tx_with_alt(
-        self,
-        params: DepositToGlobalParams,
-        alt_context: DepositToGlobalAltContext,
-    ) -> Transaction:
-        """Build DepositToGlobal transaction with user-deposit ALT accounts."""
-        ix = self.deposit_to_global_ix_with_alt(params, alt_context)
         return Transaction.new_with_payer([ix], params.user)
 
     def global_to_market_deposit_tx(
@@ -1222,10 +1161,6 @@ class Positions:
     def init_position_tokens(self) -> InitPositionTokensBuilder:
         """Create an init-position-tokens builder."""
         return InitPositionTokensBuilder(self._client)
-
-    def extend_position_tokens(self) -> ExtendPositionTokensBuilder:
-        """Create an extend-position-tokens builder."""
-        return ExtendPositionTokensBuilder(self._client)
 
     def deposit_to_global(self) -> DepositToGlobalBuilder:
         """Create a deposit-to-global builder."""
