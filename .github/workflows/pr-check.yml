@@ -20,7 +20,9 @@ jobs:
 
       - name: Test release version promotion
         working-directory: .
-        run: bash .github/scripts/next-release-version.test.sh
+        run: |
+          bash .github/scripts/next-release-version.test.sh
+          bash .github/scripts/bump-versions.test.sh
 
       - name: Test example runner environment boundary
         working-directory: .

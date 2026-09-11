@@ -153,7 +153,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml
+          git add rust/Cargo.toml rust/Cargo.lock typescript/package.json typescript/package-lock.json python/pyproject.toml python/uv.lock
           git commit -m "chore: bump versions to rust=$RUST_VERSION ts=$TS_VERSION python=$PYTHON_VERSION [skip ci]"
           git push origin prod
 

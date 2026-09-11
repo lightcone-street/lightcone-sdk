@@ -34,6 +34,8 @@ PY_OLD=$(grep '^version = ' "$PY_FILE" | head -1 | sed 's/version = "\(.*\)"/\1/
 PY_NEW=$(next_release_version "$PY_OLD")
 sed -i "s/^version = \"${PY_OLD}\"/version = \"${PY_NEW}\"/" "$PY_FILE"
 echo "Python: $PY_OLD -> $PY_NEW"
+# Only the editable project's version changes; dependency pins remain intact.
+sed -i "/^name = \"lightcone-sdk\"$/{n;s/^version = \"${PY_OLD}\"$/version = \"${PY_NEW}\"/;}" python/uv.lock
 
 # ── Set outputs for GitHub Actions ──
 echo "rust_version=$RUST_NEW" >> "$GITHUB_OUTPUT"
