@@ -1,12 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-  Keypair,
-  SystemProgram,
-  Transaction,
-  type Connection,
-} from "@solana/web3.js";
-
+import { Keypair, type Connection } from "@solana/web3.js";
 import {
   signAndSubmitTx,
   signAndSubmitPreparedTxConfirmedWithSlot,
@@ -14,589 +8,419 @@ import {
 } from "../src/context";
 import { LightconeClient } from "../src/client";
 import { SdkError } from "../src/error";
+import { Rpc } from "../src/rpc";
 import { RpcFailoverState } from "../src/rpcFailover";
 import { DepositSource } from "../src/shared";
-import type { ExternalSigner } from "../src/shared/signing";
+import { Privy } from "../src/privy/client";
+import type { ExternalSigner, SigningStrategy } from "../src/shared/signing";
+import { V1Transaction } from "../src/program/transaction";
+import { TEST_CONTEXT, transferTransaction } from "./v1_helpers";
 
-const SIGNATURE = "prepared-signature";
-
-function preparedTransaction(blockhash: string): Transaction {
-  const payer = Keypair.generate().publicKey;
-  return new Transaction({ feePayer: payer, recentBlockhash: blockhash }).add(
-    SystemProgram.transfer({
-      fromPubkey: payer,
-      toPubkey: Keypair.generate().publicKey,
-      lamports: 1,
-    })
-  );
-}
-
-function contextFor(
-  signer: ExternalSigner,
-  funding: {
-    feeLamports?: number;
-    balanceLamports?: number;
-    feeError?: Error;
-    balanceError?: Error;
+const PAYER = Keypair.fromSeed(Buffer.alloc(32, 1));
+const TRANSACTION = transferTransaction(PAYER);
+const SIGNED = TRANSACTION.sign([PAYER]);
+function harness(
+  options: {
+    fee?: number | null;
+    balance?: number;
+    feeError?: boolean;
+    balanceError?: boolean;
+    active?: boolean;
+    simulationError?: unknown;
+    sendError?: boolean;
+    wrongSignature?: boolean;
     sponsored?: boolean;
-  } = {}
-): {
-  context: ClientContext;
-  submittedMessages: Uint8Array[];
-  fundingCalls: { fee: number; balance: number };
-} {
-  const submittedMessages: Uint8Array[] = [];
-  const fundingCalls = { fee: 0, balance: 0 };
+    strategy?: SigningStrategy;
+    onFee?: () => void;
+  } = {},
+) {
+  const calls: Array<{ method: string; params: unknown[] }> = [];
+  let signingCalls = 0;
+  const signer: ExternalSigner = {
+    walletAddress: PAYER.publicKey.toBase58(),
+    async signMessage(bytes) {
+      return bytes;
+    },
+    async signTransaction(bytes) {
+      signingCalls++;
+      return V1Transaction.fromWireBytes(bytes, TEST_CONTEXT)
+        .sign([PAYER])
+        .toWireBytes();
+    },
+  };
   const connection = {
-    async getLatestBlockhash() {
-      return {
-        blockhash: Keypair.generate().publicKey.toBase58(),
-        lastValidBlockHeight: 100,
-      };
-    },
-    async getFeeForMessage() {
-      fundingCalls.fee += 1;
-      if (funding.feeError) throw funding.feeError;
-      return { context: { slot: 1 }, value: funding.feeLamports ?? 5_000 };
-    },
+    rpcEndpoint: "https://primary.example.invalid",
     async getBalance() {
-      fundingCalls.balance += 1;
-      if (funding.balanceError) throw funding.balanceError;
-      return funding.balanceLamports ?? 5_000;
+      if (options.balanceError) throw Error("balance unavailable");
+      return options.balance ?? 5_000;
     },
-    async sendRawTransaction(bytes: Uint8Array) {
-      submittedMessages.push(Transaction.from(bytes).serializeMessage());
-      return SIGNATURE;
+    async getLatestBlockhash() {
+      throw Error("submission must retain its original lifetime");
+    },
+    async getBlockHeight() {
+      return 99;
     },
     async getSignatureStatuses() {
       return {
-        context: { slot: 7 },
         value: [
           {
             slot: 7,
-            confirmations: 1,
             err: null,
+            confirmations: 1,
             confirmationStatus: "confirmed",
           },
         ],
       };
     },
   } as unknown as Connection;
-  return {
-    context: {
-      primaryConnection: connection,
-      rpcFailoverState: new RpcFailoverState(),
-      signingStrategy: { type: "walletAdapter", signer },
-      transactionSponsorshipEnabled: funding.sponsored ?? false,
-      depositSource: DepositSource.Global,
-    } as unknown as ClientContext,
-    submittedMessages,
-    fundingCalls,
-  };
+  const context = {
+    primaryConnection: connection,
+    backupConnection: {
+      rpcEndpoint: "https://backup.example.invalid",
+    } as Connection,
+    rpcFailoverState: new RpcFailoverState(),
+    signingStrategy: options.strategy ?? { type: "walletAdapter", signer },
+    transactionSponsorshipEnabled: options.sponsored ?? false,
+    transactionResources: TEST_CONTEXT.resources,
+    depositSource: DepositSource.Global,
+    rpcFetch: async (url: unknown, init: RequestInit) => {
+      assert.equal(url, connection.rpcEndpoint);
+      const request = JSON.parse(String(init.body));
+      calls.push(request);
+      let result: unknown;
+      switch (request.method) {
+        case "getFeeForMessage":
+          options.onFee?.();
+          if (options.feeError) throw Error("fee unavailable");
+          result = { value: options.fee === undefined ? 5_000 : options.fee };
+          break;
+        case "getAccountInfo": {
+          const data = Buffer.alloc(9);
+          data[0] = options.active === false ? 0 : 1;
+          data.writeBigUInt64LE(1n, 1);
+          result = {
+            context: { slot: 9 },
+            value: {
+              owner: "Feature111111111111111111111111111111111111",
+              executable: false,
+              data: [data.toString("base64"), "base64"],
+            },
+          };
+          break;
+        }
+        case "simulateTransaction":
+          result = {
+            context: { slot: 9 },
+            value: {
+              err: options.simulationError ?? null,
+              unitsConsumed: 123,
+              loadedAccountsDataSize: 999,
+              logs: ["ok"],
+            },
+          };
+          break;
+        case "sendTransaction":
+          if (options.sendError) throw Error("connection reset after send");
+          result = options.wrongSignature ? "wrong" : SIGNED.signature;
+          break;
+        default:
+          throw Error(`unexpected ${request.method}`);
+      }
+      return Response.json({ jsonrpc: "2.0", id: 1, result });
+    },
+  } as unknown as ClientContext;
+  return { context, calls, signer, signingCalls: () => signingCalls };
 }
 
-const echoSigner: ExternalSigner = {
-  async signMessage(message) {
-    return message;
-  },
-  async signTransaction(transaction) {
-    return transaction;
-  },
-};
-
-describe("prepared transaction submission", () => {
-  it("exposes default-false capability and clone-by-value semantics", () => {
-    const client = LightconeClient.builder().build();
+describe("v1 transaction submission", () => {
+  it("keeps sponsorship and resources independent in cloned clients", () => {
+    const client = LightconeClient.builder()
+      .transactionResources(TEST_CONTEXT.resources)
+      .build();
     assert.equal(client.transactionSponsorshipEnabled, false);
-
     client.setTransactionSponsorshipEnabled(true);
     const clone = client.clone();
     client.setTransactionSponsorshipEnabled(false);
-
-    assert.equal(client.transactionSponsorshipEnabled, false);
     assert.equal(clone.transactionSponsorshipEnabled, true);
+    assert.deepEqual(clone.transactionResources, TEST_CONTEXT.resources);
   });
 
-  it("submits the exact fee-estimated message", async () => {
-    const blockhash = Keypair.generate().publicKey.toBase58();
-    const transaction = preparedTransaction(blockhash);
-    const expectedMessage = transaction.serializeMessage();
-    echoSigner.walletAddress = transaction.feePayer!.toBase58();
-    const { context, submittedMessages } = contextFor(echoSigner);
-
-    const confirmed = await signAndSubmitPreparedTxConfirmedWithSlot(
-      context,
-      transaction
+  it("estimates, signs, simulates, sends and confirms the exact immutable message", async () => {
+    const { context, calls } = harness();
+    assert.deepEqual(
+      await signAndSubmitPreparedTxConfirmedWithSlot(context, TRANSACTION),
+      { signature: SIGNED.signature, slot: 7 },
     );
-
-    assert.deepEqual(submittedMessages, [expectedMessage]);
-    assert.equal(transaction.recentBlockhash, blockhash);
-    assert.deepEqual(confirmed, { signature: SIGNATURE, slot: 7 });
+    assert.equal(
+      calls.find((c) => c.method === "getFeeForMessage")?.params[0],
+      Buffer.from(TRANSACTION.messageBytes()).toString("base64"),
+    );
+    const simulation = calls.find((c) => c.method === "simulateTransaction");
+    const send = calls.find((c) => c.method === "sendTransaction");
+    assert.equal(
+      simulation?.params[0],
+      Buffer.from(SIGNED.toWireBytes()).toString("base64"),
+    );
+    assert.equal(send?.params[0], simulation?.params[0]);
+    assert.deepEqual(simulation?.params[1], {
+      encoding: "base64",
+      commitment: "confirmed",
+      sigVerify: true,
+      replaceRecentBlockhash: false,
+    });
+    assert.deepEqual(send?.params[1], {
+      encoding: "base64",
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+      maxRetries: 0,
+    });
+    assert.equal(TRANSACTION.lastValidBlockHeight, 100);
+    assert.throws(() => TRANSACTION.verifySignatures(), /missing or invalid/);
   });
 
-  it("returns the typed fee error before external signing or submission", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    let signingCalls = 0;
-    const signer: ExternalSigner = {
-      walletAddress: transaction.feePayer!.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        signingCalls += 1;
-        return bytes;
-      },
-    };
-    const { context, submittedMessages } = contextFor(signer, {
-      feeLamports: 5_000,
-      balanceLamports: 4_999,
-    });
-
-    await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
-      (error: unknown) => {
-        assert.ok(error instanceof SdkError);
-        assert.equal(error.variant, "InsufficientSolForTransactionFees");
-        assert.equal(error.availableLamports, 4_999n);
-        assert.equal(error.requiredLamports, 5_000n);
-        assert.equal(
-          error.message,
-          "Insufficient SOL for transaction fees. Deposit SOL to your wallet and try again."
-        );
-        return true;
-      }
-    );
-    assert.equal(signingCalls, 0);
-    assert.equal(submittedMessages.length, 0);
-  });
-
-  it("applies the same typed funding guard to ordinary submission", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    transaction.recentBlockhash = undefined;
-    let signingCalls = 0;
-    const signer: ExternalSigner = {
-      walletAddress: transaction.feePayer!.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        signingCalls += 1;
-        return bytes;
-      },
-    };
-    const { context, submittedMessages } = contextFor(signer, {
-      feeLamports: 5_000,
-      balanceLamports: 4_999,
-    });
-
-    await assert.rejects(
-      () => signAndSubmitTx(context, transaction),
-      (error: unknown) =>
-        error instanceof SdkError &&
-        error.variant === "InsufficientSolForTransactionFees"
-    );
-    assert.equal(signingCalls, 0);
-    assert.equal(submittedMessages.length, 0);
-  });
-
-  it("keeps the sponsorship value captured before blockhash lookup", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    transaction.recentBlockhash = undefined;
-    const signer: ExternalSigner = {
-      ...echoSigner,
-      walletAddress: transaction.feePayer!.toBase58(),
-    };
-    const { context, submittedMessages } = contextFor(signer, {
-      feeLamports: 5_000,
-      balanceLamports: 4_999,
-    });
-    let releaseBlockhash!: () => void;
-    const blockhashReleased = new Promise<void>((resolve) => {
-      releaseBlockhash = resolve;
-    });
-    let markBlockhashStarted!: () => void;
-    const blockhashStarted = new Promise<void>((resolve) => {
-      markBlockhashStarted = resolve;
-    });
-    const connection = context.primaryConnection as Connection;
-    connection.getLatestBlockhash = async () => {
-      markBlockhashStarted();
-      await blockhashReleased;
-      return {
-        blockhash: Keypair.generate().publicKey.toBase58(),
-        lastValidBlockHeight: 100,
-      };
-    };
-
-    const submission = signAndSubmitTx(context, transaction);
-    await blockhashStarted;
-    (
-      context as ClientContext & { transactionSponsorshipEnabled: boolean }
-    ).transactionSponsorshipEnabled = true;
-    releaseBlockhash();
-
-    await assert.rejects(
-      submission,
-      (error: unknown) =>
-        error instanceof SdkError &&
-        error.variant === "InsufficientSolForTransactionFees"
-    );
-    assert.equal(submittedMessages.length, 0);
-  });
-
-  it("preserves submission when either generic funding observation fails", async () => {
-    for (const funding of [
-      { feeError: new Error("fee unavailable") },
-      { balanceError: new Error("balance unavailable") },
+  it("returns typed insufficiency before signing for ordinary and prepared submission", async () => {
+    for (const submit of [
+      signAndSubmitTx,
+      signAndSubmitPreparedTxConfirmedWithSlot,
     ]) {
-      const transaction = preparedTransaction(
-        Keypair.generate().publicKey.toBase58()
+      const h = harness({ balance: 4_999 });
+      await assert.rejects(
+        submit(h.context, TRANSACTION),
+        (error) =>
+          error instanceof SdkError &&
+          error.variant === "InsufficientSolForTransactionFees" &&
+          error.availableLamports === 4_999n &&
+          error.requiredLamports === 5_000n,
       );
-      const signer: ExternalSigner = {
-        ...echoSigner,
-        walletAddress: transaction.feePayer!.toBase58(),
-      };
-      const { context, submittedMessages } = contextFor(signer, funding);
-
-      await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
-
-      assert.equal(submittedMessages.length, 1);
+      assert.equal(h.signingCalls(), 0);
+      assert.deepEqual(
+        h.calls.map((c) => c.method),
+        ["getFeeForMessage"],
+      );
     }
   });
 
-  it("continues when the fee-payer balance is strictly above the exact fee", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    const signer: ExternalSigner = {
-      ...echoSigner,
-      walletAddress: transaction.feePayer!.toBase58(),
-    };
-    const { context, submittedMessages } = contextFor(signer, {
-      feeLamports: 5_000,
-      balanceLamports: 5_001,
-    });
-
-    await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
-
-    assert.equal(submittedMessages.length, 1);
+  it("continues on unknown generic funding, including null fee estimates", async () => {
+    for (const options of [
+      { feeError: true },
+      { balanceError: true },
+      { fee: null },
+      { balance: 6_000 },
+    ]) {
+      const h = harness(options);
+      assert.equal(
+        await signAndSubmitTx(h.context, TRANSACTION),
+        SIGNED.signature,
+      );
+    }
   });
 
-  it("allows a sponsored external signer to differ from the prepared fee payer", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
+  it("captures sponsorship before asynchronous fee evidence", async () => {
+    let h: ReturnType<typeof harness>;
+    h = harness({
+      balance: 1,
+      onFee: () => {
+        (
+          h.context as { transactionSponsorshipEnabled: boolean }
+        ).transactionSponsorshipEnabled = true;
+      },
+    });
+    await assert.rejects(
+      signAndSubmitTx(h.context, TRANSACTION),
+      /Insufficient SOL/,
     );
-    const signer: ExternalSigner = {
-      ...echoSigner,
+    assert.equal(h.signingCalls(), 0);
+  });
+
+  it("permits an asserted external sponsor and rejects local sponsorship before RPC", async () => {
+    const sponsored = harness({ sponsored: true });
+    Object.assign(sponsored.signer, {
       walletAddress: Keypair.generate().publicKey.toBase58(),
-    };
-    const { context, fundingCalls, submittedMessages } = contextFor(signer, {
+    });
+    assert.equal(
+      await signAndSubmitTx(sponsored.context, TRANSACTION),
+      SIGNED.signature,
+    );
+    assert.equal(
+      sponsored.calls.some((c) => c.method === "getFeeForMessage"),
+      false,
+    );
+    const native = harness({
       sponsored: true,
+      strategy: { type: "native", keypair: PAYER },
     });
-
-    await signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
-
-    assert.deepEqual(fundingCalls, { fee: 0, balance: 0 });
-    assert.equal(submittedMessages.length, 1);
+    await assert.rejects(
+      signAndSubmitTx(native.context, TRANSACTION),
+      /sponsorship is not supported/,
+    );
+    assert.equal(native.calls.length, 0);
   });
 
-  it("submits the prepared snapshot when the caller mutates after invocation", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    const expectedMessage = transaction.serializeMessage();
-    const signer: ExternalSigner = {
-      ...echoSigner,
+  it("rejects a mismatched known signer before funding evidence", async () => {
+    const h = harness();
+    Object.assign(h.signer, {
       walletAddress: Keypair.generate().publicKey.toBase58(),
-    };
-    const { context, submittedMessages } = contextFor(signer, { sponsored: true });
-
-    const submission = signAndSubmitPreparedTxConfirmedWithSlot(context, transaction);
-    transaction.feePayer = Keypair.generate().publicKey;
-    transaction.instructions[0].data = Buffer.from([255]);
-    await submission;
-
-    assert.deepEqual(submittedMessages, [expectedMessage]);
-  });
-
-  it("rejects sponsored prepared local signing before payer validation", async () => {
-    const keypair = Keypair.generate();
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    const { context } = contextFor(echoSigner, { sponsored: true });
-    const nativeContext = {
-      ...context,
-      signingStrategy: { type: "native", keypair },
-    } as ClientContext;
-
-    await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(nativeContext, transaction),
-      /transaction sponsorship is not supported with local-keypair signing/
-    );
-    assert.equal(transaction.signatures.length, 0);
-  });
-
-  it("rejects sponsored local-keypair submission before signing", async () => {
-    const keypair = Keypair.generate();
-    const transaction = new Transaction({ feePayer: keypair.publicKey }).add(
-      SystemProgram.transfer({
-        fromPubkey: keypair.publicKey,
-        toPubkey: Keypair.generate().publicKey,
-        lamports: 1,
-      })
-    );
-    const { context } = contextFor(echoSigner, { sponsored: true });
-    const nativeContext = {
-      ...context,
-      signingStrategy: { type: "native", keypair },
-    } as ClientContext;
-    let blockhashCalls = 0;
-    (nativeContext.primaryConnection as Connection).getLatestBlockhash = async () => {
-      blockhashCalls += 1;
-      throw new Error("blockhash lookup must not run");
-    };
-
-    await assert.rejects(
-      () => signAndSubmitTx(nativeContext, transaction),
-      /transaction sponsorship is not supported with local-keypair signing/
-    );
-    assert.equal(blockhashCalls, 0);
-    assert.equal(transaction.recentBlockhash, undefined);
-    assert.equal(transaction.signatures.length, 0);
-  });
-
-  it("rejects a known ordinary signer mismatch before funding RPC", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    transaction.recentBlockhash = undefined;
-    let signingCalls = 0;
-    const signer: ExternalSigner = {
-      walletAddress: Keypair.generate().publicKey.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        signingCalls += 1;
-        return bytes;
-      },
-    };
-    const { context, fundingCalls, submittedMessages } = contextFor(signer);
-    let blockhashCalls = 0;
-    (context.primaryConnection as Connection).getLatestBlockhash = async () => {
-      blockhashCalls += 1;
-      throw new Error("blockhash lookup must not run");
-    };
-
-    await assert.rejects(
-      () => signAndSubmitTx(context, transaction),
-      /does not control transaction fee payer/
-    );
-
-    assert.equal(blockhashCalls, 0);
-    assert.deepEqual(fundingCalls, { fee: 0, balance: 0 });
-    assert.equal(signingCalls, 0);
-    assert.equal(submittedMessages.length, 0);
-  });
-
-  it("submits the ordinary snapshot when the caller mutates during fee RPC", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    transaction.recentBlockhash = undefined;
-    const originalPayer = transaction.feePayer!;
-    const signer: ExternalSigner = {
-      ...echoSigner,
-      walletAddress: originalPayer.toBase58(),
-    };
-    const { context, submittedMessages } = contextFor(signer);
-    let feeStartedResolve!: () => void;
-    const feeStarted = new Promise<void>((resolve) => {
-      feeStartedResolve = resolve;
     });
-    let releaseFeeResolve!: () => void;
-    const releaseFee = new Promise<void>((resolve) => {
-      releaseFeeResolve = resolve;
+    await assert.rejects(
+      signAndSubmitTx(h.context, TRANSACTION),
+      /does not control/,
+    );
+    assert.equal(h.calls.length, 0);
+  });
+
+  it("rejects inactive clusters before prompting a wallet", async () => {
+    const h = harness({ active: false });
+    await assert.rejects(signAndSubmitTx(h.context, TRANSACTION), /inactive/);
+    assert.equal(h.signingCalls(), 0);
+  });
+
+  it("rejects unsigned wallet responses and altered blockhashes before simulation or send", async () => {
+    for (const mutated of [
+      TRANSACTION,
+      transferTransaction(PAYER, {
+        ...TEST_CONTEXT,
+        blockhash: Keypair.generate().publicKey.toBase58(),
+      }).sign([PAYER]),
+    ]) {
+      const h = harness();
+      h.signer.signTransaction = async () => mutated.toWireBytes();
+      await assert.rejects(signAndSubmitTx(h.context, TRANSACTION));
+      assert.equal(
+        h.calls.some(
+          (c) =>
+            c.method === "sendTransaction" ||
+            c.method === "simulateTransaction",
+        ),
+        false,
+      );
+    }
+  });
+
+  it("stops when signed simulation fails", async () => {
+    const h = harness({
+      simulationError: { InstructionError: [0, "InvalidArgument"] },
     });
-    let expectedMessage: Uint8Array | undefined;
-    (context.primaryConnection as Connection).getFeeForMessage = async (message) => {
-      expectedMessage = message.serialize();
-      feeStartedResolve();
-      await releaseFee;
-      return { context: { slot: 1 }, value: 5_000 };
-    };
-    (context.primaryConnection as Connection).getBalance = async (feePayer) => {
-      assert.equal(feePayer.toBase58(), originalPayer.toBase58());
-      return 5_000;
-    };
-
-    const submission = signAndSubmitTx(context, transaction);
-    await feeStarted;
-    transaction.feePayer = Keypair.generate().publicKey;
-    transaction.instructions[0].data = Buffer.from([255]);
-    releaseFeeResolve();
-    await submission;
-
-    assert.ok(expectedMessage);
-    assert.deepEqual(submittedMessages, [expectedMessage]);
+    await assert.rejects(
+      signAndSubmitTx(h.context, TRANSACTION),
+      /simulation failed/,
+    );
+    assert.equal(
+      h.calls.some((c) => c.method === "sendTransaction"),
+      false,
+    );
   });
 
-  it("rejects ordinary wallet mutation beyond a replacement blockhash", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    transaction.recentBlockhash = undefined;
-    const signer: ExternalSigner = {
-      walletAddress: transaction.feePayer!.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        const changed = Transaction.from(bytes);
-        changed.feePayer = Keypair.generate().publicKey;
-        return changed.serialize({
-          requireAllSignatures: false,
-          verifySignatures: false,
-        });
-      },
-    };
-    const { context, submittedMessages } = contextFor(signer);
-
-    await assert.rejects(
-      () => signAndSubmitTx(context, transaction),
-      /changed the transaction message beyond recent blockhash/
-    );
-    assert.equal(submittedMessages.length, 0);
+  it("retains signature and expiry on an ambiguous send without retry or failover", async () => {
+    for (const options of [{ sendError: true }, { wrongSignature: true }]) {
+      const h = harness({
+        ...options,
+        strategy: { type: "native", keypair: PAYER },
+      });
+      await assert.rejects(
+        signAndSubmitTx(h.context, TRANSACTION),
+        (error) =>
+          error instanceof SdkError &&
+          error.variant === "SubmissionUnknown" &&
+          error.signature === SIGNED.signature &&
+          error.lastValidBlockHeight === 100,
+      );
+      assert.equal(
+        h.calls.filter((c) => c.method === "sendTransaction").length,
+        1,
+      );
+    }
   });
 
-  it("rejects a wallet that replaces the prepared blockhash", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    const rehashSigner: ExternalSigner = {
-      walletAddress: transaction.feePayer!.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        const changed = Transaction.from(bytes);
-        changed.recentBlockhash = Keypair.generate().publicKey.toBase58();
-        return changed.serialize({
-          requireAllSignatures: false,
-          verifySignatures: false,
-        });
-      },
-    };
-    const { context, submittedMessages } = contextFor(rehashSigner);
-
+  it("rejects shared and raw Privy submission before any network call", async () => {
+    const h = harness({ strategy: { type: "privy", walletId: "wallet" } });
     await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
-      /changed the fee-prepared transaction message/
+      signAndSubmitTx(h.context, TRANSACTION),
+      /ExternalSigner/,
     );
-    assert.equal(submittedMessages.length, 0);
+    assert.equal(h.calls.length, 0);
+    const privy = new Privy({
+      http: {
+        post() {
+          throw Error("must not call HTTP");
+        },
+      } as never,
+    });
+    await assert.rejects(
+      privy.signAndSendTx("wallet", "invalid"),
+      /ExternalSigner/,
+    );
   });
 
-  it("rejects a mismatched signing wallet before signing or submission", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
+  it("preserves fee RPC integer tokens beyond Number.MAX_SAFE_INTEGER", async () => {
+    const h = harness();
+    const rpc = new Rpc({
+      ...h.context,
+      rpcFetch: async () =>
+        new Response('{"result":{"value":18446744073709551615}}'),
+    });
+    assert.equal(
+      await rpc.estimatePreparedTransactionFee(TRANSACTION),
+      0xffff_ffff_ffff_ffffn,
     );
-    let signingCalls = 0;
-    const signer: ExternalSigner = {
-      walletAddress: Keypair.generate().publicKey.toBase58(),
-      async signMessage(message) {
-        return message;
-      },
-      async signTransaction(bytes) {
-        signingCalls += 1;
-        return bytes;
-      },
-    };
-    const { context, submittedMessages } = contextFor(signer);
-
-    await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
-      /does not control transaction fee payer/
-    );
-    assert.equal(signingCalls, 0);
-    assert.equal(submittedMessages.length, 0);
   });
 
-  it("does not retry or fail over an uncertain prepared submission", async () => {
-    const transaction = preparedTransaction(
-      Keypair.generate().publicKey.toBase58()
-    );
-    const signer: ExternalSigner = {
-      ...echoSigner,
-      walletAddress: transaction.feePayer!.toBase58(),
-    };
-    let primaryAttempts = 0;
-    let backupAttempts = 0;
-    const primaryConnection = {
-      async sendRawTransaction() {
-        primaryAttempts += 1;
-        throw new TypeError("network response was lost");
-      },
-    } as unknown as Connection;
-    const backupConnection = {
-      async sendRawTransaction() {
-        backupAttempts += 1;
-        throw new TypeError("backup must not receive prepared bytes");
-      },
-    } as unknown as Connection;
-    const context = {
-      primaryConnection,
-      backupConnection,
-      rpcFailoverState: new RpcFailoverState(),
-      signingStrategy: { type: "walletAdapter", signer },
-      transactionSponsorshipEnabled: false,
-      depositSource: DepositSource.Global,
-    } as unknown as ClientContext;
-
+  it("requires an unsponsored wallet identity before RPC", async () => {
+    const h = harness();
+    delete (h.signer as { walletAddress?: string }).walletAddress;
     await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(context, transaction),
-      /network response was lost/
+      signAndSubmitTx(h.context, TRANSACTION),
+      /wallet identity is required/,
     );
-    assert.equal(primaryAttempts, 1);
-    assert.equal(backupAttempts, 0);
+    assert.equal(h.calls.length, 0);
   });
 
-  it("publishes the native signature before an uncertain prepared send", async () => {
-    const keypair = Keypair.generate();
-    const transaction = new Transaction({
-      feePayer: keypair.publicKey,
-      recentBlockhash: Keypair.generate().publicKey.toBase58(),
-    }).add(
-      SystemProgram.transfer({
-        fromPubkey: keypair.publicKey,
-        toPubkey: Keypair.generate().publicKey,
-        lamports: 1,
-      })
-    );
-    const { context } = contextFor(echoSigner);
-    const nativeContext = {
-      ...context,
-      signingStrategy: { type: "native", keypair },
-    } as ClientContext;
-    let submittedSignature: Buffer | null = null;
-    (nativeContext.primaryConnection as Connection).sendRawTransaction = async (
-      bytes
-    ) => {
-      submittedSignature = Transaction.from(bytes).signatures[0].signature;
-      throw new TypeError("network response was lost");
-    };
-
+  it("rejects legacy objects at direct RPC transaction boundaries before network activity", async () => {
+    const h = harness();
+    const rpc = new Rpc(h.context);
+    const legacy = {
+      verifySignatures() {
+        return false;
+      },
+    } as unknown as V1Transaction;
     await assert.rejects(
-      () => signAndSubmitPreparedTxConfirmedWithSlot(nativeContext, transaction),
-      /network response was lost/
+      rpc.estimatePreparedTransactionFee(legacy),
+      /only validated Solana v1/,
     );
-    assert.ok(submittedSignature);
-    assert.deepEqual(transaction.signatures[0].signature, submittedSignature);
+    await assert.rejects(
+      rpc.simulateTransaction(legacy),
+      /only validated Solana v1/,
+    );
+    await assert.rejects(
+      rpc.submitSignedTransaction(legacy),
+      /only validated Solana v1/,
+    );
+    assert.equal(h.calls.length, 0);
+  });
+
+  it("keeps read-only fee failover bound to the same canonical message", async () => {
+    for (const networkFailure of [false, true]) {
+      const h = harness(); const urls: string[] = []; const messages: string[] = [];
+      const rpc = new Rpc({ ...h.context, rpcFetch: async (url, init) => {
+        urls.push(String(url)); messages.push(JSON.parse(String(init?.body)).params[0]);
+        if (urls.length < 3) {
+          if (networkFailure) throw new TypeError("fetch failed");
+          return new Response("unavailable", { status: 503 });
+        }
+        return Response.json({ result: { value: 8_000 } });
+      } });
+      assert.equal(await rpc.estimatePreparedTransactionFee(TRANSACTION), 8_000n);
+      assert.deepEqual(urls, ["https://primary.example.invalid", "https://primary.example.invalid", "https://backup.example.invalid"]);
+      assert.deepEqual(messages, Array(3).fill(Buffer.from(TRANSACTION.messageBytes()).toString("base64")));
+    }
+  });
+
+  it("requires explicit resource configuration before blockhash RPC", async () => {
+    const h = harness();
+    delete (h.context as { transactionResources?: unknown })
+      .transactionResources;
+    await assert.rejects(
+      new Rpc(h.context).transactionContext(),
+      /resources are required/,
+    );
   });
 });

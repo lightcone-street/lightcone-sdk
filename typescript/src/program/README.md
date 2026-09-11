@@ -34,19 +34,25 @@ const client = LightconeClient.builder()
 | `client.orderbooks()` | Orderbook data | closeOrderbook, getOnchain |
 | `client.rpc()` | RPC utilities | getExchange, getGlobalDepositToken, getLatestBlockhash |
 
-### Transaction builders return `TransactionInstruction`
+### Instruction and v1 transaction builders
 
-All `*Ix()` methods are synchronous and return a `TransactionInstruction`. The caller composes transactions:
+All `*Ix()` methods return web3.js `TransactionInstruction`. The `*Tx()` helpers
+compile immutable `V1Transaction` values with an explicit blockhash/resource
+context. Direct helpers take the context before their optional program ID.
 
 ```typescript
-import { Transaction } from "@solana/web3.js";
-import { buildInitializeIx } from "@lightconexyz/lightcone-sdk";
+import { V1Transaction, buildInitializeIx } from "@lightconexyz/lightcone-sdk";
 
+const context = await client.transactionContext();
 const ix = buildInitializeIx({ authority });
-const tx = new Transaction().add(ix);
-tx.feePayer = authority;
-tx.recentBlockhash = (await client.rpc().getLatestBlockhash()).blockhash;
+const tx = V1Transaction.compile([ix], authority, context);
+const signed = tx.sign([authorityKeypair]);
+const signature = await client.rpc().submitSignedTransaction(signed);
+await client.rpc().confirmSignature(signature, context.lastValidBlockHeight);
 ```
+
+See [Solana v1 transactions](../../README.md#solana-v1-transactions) for explicit
+resource units, wallet requirements, and one-shot submission behavior.
 
 ---
 
@@ -182,7 +188,7 @@ import { PROGRAM_ID, TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID } from "@ligh
 - `GlobalDepositToken` requires exactly 47 bytes and an activity byte of 0 or 1. Inactivity gates trading, while deposits, preparation, splits, merges, and exits retain their existing rules.
 - `Exchange` and `Market` remain 216 bytes. Role transfers, fee updates, order signing, and backend wire fields retain their existing contracts.
 
-The transaction helpers still return `@solana/web3.js` `Transaction`. The program ABI accepts valid legacy or v0 envelopes that fit their resource limits. An eleven-maker instruction contains 1,392 or 1,394 bytes before transaction overhead and cannot fit the current 1,232-byte envelope. Full outer transaction-v1 transport requires a separate compatible message and signing stack.
+Transaction helpers return only validated Solana v1 envelopes, with 4,096-byte signed size and 64-address limits. Eleven-maker instructions retain the upgraded program ABI. Legacy/v0 imports, ComputeBudget instructions, and address lookup tables are rejected.
 
 ### Event Transport Trailer
 

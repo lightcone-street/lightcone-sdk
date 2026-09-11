@@ -1,4 +1,5 @@
-import { Transaction, type PublicKey, type TransactionInstruction } from "@solana/web3.js";
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
+import { type PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { requireConnection } from "../../context";
 import { ProgramSdkError } from "../../program/error";
@@ -145,9 +146,9 @@ export class Orderbooks {
     return buildCloseOrderbookIx(params, this.client.programId);
   }
 
-  closeOrderbookTx(params: CloseOrderbookParams): Transaction {
+  closeOrderbookTx(params: CloseOrderbookParams, context: V1TransactionContext): V1Transaction {
     const ix = this.closeOrderbookIx(params);
-    return new Transaction({ feePayer: params.operator }).add(ix);
+    return V1Transaction.compile([ix], params.operator, context);
   }
 
   // ── On-chain account fetchers (require Connection) ──────────────────

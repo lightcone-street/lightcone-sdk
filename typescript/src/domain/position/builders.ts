@@ -1,4 +1,6 @@
-import { PublicKey, Transaction, type TransactionInstruction } from "@solana/web3.js";
+import { Rpc } from "../../rpc";
+import { V1Transaction, type V1TransactionContext } from "../../program/transaction";
+import { PublicKey, type TransactionInstruction } from "@solana/web3.js";
 import type { ClientContext } from "../../context";
 import { resolveDepositSource, signAndSubmitTx } from "../../context";
 import { SdkError } from "../../error";
@@ -101,14 +103,14 @@ export class DepositBuilder {
     }
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -199,14 +201,14 @@ export class WithdrawBuilder {
     }
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -262,14 +264,14 @@ export class MergeBuilder {
     );
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -327,14 +329,14 @@ export class RedeemWinningsBuilder {
     );
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -404,14 +406,14 @@ export class WithdrawFromPositionBuilder {
     );
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -476,14 +478,14 @@ export class InitPositionTokensBuilder {
     );
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const payer = requireField(this.payerValue, "payer");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: payer }).add(ix);
+    return V1Transaction.compile([ix], payer, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -524,14 +526,14 @@ export class DepositToGlobalBuilder {
     return buildDepositToGlobalIx(params, this.client.programId);
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -571,14 +573,14 @@ export class WithdrawFromGlobalBuilder {
     return buildWithdrawFromGlobalIx({ user, mint, amount }, this.client.programId);
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }
@@ -636,14 +638,14 @@ export class GlobalToMarketDepositBuilder {
     );
   }
 
-  buildTx(): Transaction {
+  buildTx(context: V1TransactionContext): V1Transaction {
     const user = requireField(this.userValue, "user");
     const ix = this.buildIx();
-    return new Transaction({ feePayer: user }).add(ix);
+    return V1Transaction.compile([ix], user, context);
   }
 
   async signAndSubmit(): Promise<string> {
-    const tx = this.buildTx();
+    const tx = this.buildTx(await new Rpc(this.client).transactionContext());
     return signAndSubmitTx(this.client, tx);
   }
 }

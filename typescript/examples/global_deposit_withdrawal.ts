@@ -1,6 +1,6 @@
-import { PublicKey, Transaction } from "@solana/web3.js";
+import { PublicKey } from "@solana/web3.js";
+import { V1Transaction } from "../src";
 import {
-  confirmTransactionOrThrow,
   login,
   marketAndOrderbook,
   quoteDepositMint,
@@ -11,7 +11,6 @@ import {
 
 async function main() {
   const client = rpcClient();
-  const connection = client.rpc().inner();
   const keypair = getKeypair();
   await login(client, keypair);
 
@@ -71,14 +70,11 @@ async function main() {
   ]);
 
   for (const [name, ix] of instructions) {
-    const { blockhash, lastValidBlockHeight } = await client.rpc().getLatestBlockhash();
-    const tx = new Transaction({ feePayer: keypair.publicKey, blockhash, lastValidBlockHeight }).add(ix);
-    tx.sign(keypair);
-    const signature = await connection.sendRawTransaction(tx.serialize());
-    await confirmTransactionOrThrow(connection, signature, {
-      blockhash,
-      lastValidBlockHeight,
-    });
+    const context = await client.transactionContext();
+    const tx = V1Transaction.compile([ix], keypair.publicKey, context);
+    const signed = tx.sign([keypair]);
+    const signature = await client.rpc().submitSignedTransaction(signed);
+    await client.rpc().confirmSignature(signature, context.lastValidBlockHeight);
     console.log(`${name}: confirmed ${signature}`);
   }
 

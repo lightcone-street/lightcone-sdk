@@ -151,6 +151,7 @@ export type SdkErrorVariant =
   | "UserCancelled"
   | "TransactionFailed"
   | "TransactionExpired"
+  | "SubmissionUnknown"
   | "ConfirmationTimeout"
   | "ApiRejected"
   | "Program"
@@ -162,6 +163,7 @@ export class SdkError extends Error {
   readonly apiRejectedDetails?: ApiRejectedDetails;
   /** Transaction signature, set on the transaction-confirmation variants. */
   readonly signature?: string;
+  readonly lastValidBlockHeight?: number;
   /** Confirmed Native SOL Balance in the declared fee payer, in lamports. */
   readonly availableLamports?: bigint;
   /** Exact transaction fee or planner-owned reserve required, in lamports. */
@@ -174,7 +176,8 @@ export class SdkError extends Error {
     apiRejectedDetails?: ApiRejectedDetails,
     signature?: string,
     availableLamports?: bigint,
-    requiredLamports?: bigint
+    requiredLamports?: bigint,
+    lastValidBlockHeight?: number
   ) {
     super(message);
     this.name = "SdkError";
@@ -184,6 +187,12 @@ export class SdkError extends Error {
     this.signature = signature;
     this.availableLamports = availableLamports;
     this.requiredLamports = requiredLamports;
+    this.lastValidBlockHeight = lastValidBlockHeight;
+  }
+
+  /** Submission may have reached the cluster; reconcile before rebuilding. */
+  static submissionUnknown(signature: string, lastValidBlockHeight: number, reason: string): SdkError {
+    return new SdkError("SubmissionUnknown", `Transaction ${signature} submission is unknown: ${reason}`, undefined, undefined, signature, undefined, undefined, lastValidBlockHeight);
   }
 
   static from(error: unknown): SdkError {
@@ -273,7 +282,7 @@ export class SdkError extends Error {
   static transactionExpired(signature: string): SdkError {
     return new SdkError(
       "TransactionExpired",
-      `Transaction ${signature} expired before confirmation — it was never processed and is safe to resubmit`,
+      `Transaction ${signature} expired before confirmation; reconcile its signature and authoritative state before rebuilding`,
       undefined,
       undefined,
       signature

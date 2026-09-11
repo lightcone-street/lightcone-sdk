@@ -1,6 +1,6 @@
+import { V1Transaction, type V1TransactionContext } from "./transaction";
 import {
   PublicKey,
-  Transaction,
   TransactionInstruction,
   AccountMeta,
 } from "@solana/web3.js";
@@ -1941,313 +1941,350 @@ export function buildCloseOrderbookIx(
 
 // ============================================================================
 // TRANSACTION BUILDERS (_tx convenience wrappers)
-// Each wraps the corresponding _ix builder into a Transaction with feePayer set.
+// Each compiles the corresponding instruction with an explicit v1 context.
 // ============================================================================
 
 export function buildInitializeTx(
   params: InitializeParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildInitializeIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildCreateMarketTx(
   params: CreateMarketParams,
   marketId: bigint,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCreateMarketIx(params, marketId, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildAddDepositMintTx(
   params: AddDepositMintParams,
   market: PublicKey,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildAddDepositMintIx(params, market, numOutcomes, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildDepositTx(
   params: BuildDepositParams,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildDepositIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildMergeTx(
   params: BuildMergeParams,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildMergeIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildCancelOrderTx(
   operator: PublicKey,
   market: PublicKey,
   order: SignedOrder,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCancelOrderIx(operator, market, order, programId);
-  return new Transaction({ feePayer: operator }).add(ix);
+  return V1Transaction.compile([ix], operator, context);
 }
 
 export function buildIncrementNonceTx(
   user: PublicKey,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildIncrementNonceIx(user, programId);
-  return new Transaction({ feePayer: user }).add(ix);
+  return V1Transaction.compile([ix], user, context);
 }
 
 export function buildSettleMarketTx(
   params: SettleMarketParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSettleMarketIx(params, programId);
-  return new Transaction({ feePayer: params.oracle }).add(ix);
+  return V1Transaction.compile([ix], params.oracle, context);
 }
 
 export function buildRedeemWinningsTx(
   params: RedeemWinningsParams,
   outcomeIndex: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildRedeemWinningsIx(params, outcomeIndex, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildSetPausedTx(
   authority: PublicKey,
   paused: boolean,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetPausedIx(authority, paused, programId);
-  return new Transaction({ feePayer: authority }).add(ix);
+  return V1Transaction.compile([ix], authority, context);
 }
 
 export function buildSetOperatorTx(
   authority: PublicKey,
   newOperator: PublicKey,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetOperatorIx(authority, newOperator, programId);
-  return new Transaction({ feePayer: authority }).add(ix);
+  return V1Transaction.compile([ix], authority, context);
 }
 
 export function buildWithdrawConditionalFromPositionTx(
   params: WithdrawConditionalFromPositionParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildWithdrawConditionalFromPositionIx(params, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildWithdrawFromPositionTx(
   params: WithdrawFromPositionParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
-  return buildWithdrawConditionalFromPositionTx(params, programId);
+): V1Transaction {
+  return buildWithdrawConditionalFromPositionTx(params, context, programId);
 }
 
 export function buildActivateMarketTx(
   params: ActivateMarketParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildActivateMarketIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildMatchOrdersMultiTx(
   params: MatchOrdersMultiParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildMatchOrdersMultiIx(params, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return V1Transaction.compile([ix], params.operator, context);
 }
 
 export function buildSetAuthorityTx(
   params: SetAuthorityParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetAuthorityIx(params, programId);
-  return new Transaction({ feePayer: params.currentAuthority }).add(ix);
+  return V1Transaction.compile([ix], params.currentAuthority, context);
 }
 
 export function buildSetManagerTx(
   params: SetManagerParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetManagerIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildAcceptAuthorityTx(
   params: AcceptRoleParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildAcceptAuthorityIx(params, programId);
-  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+  return V1Transaction.compile([ix], params.incomingRole, context);
 }
 
 export function buildAcceptManagerTx(
   params: AcceptRoleParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildAcceptManagerIx(params, programId);
-  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+  return V1Transaction.compile([ix], params.incomingRole, context);
 }
 
 export function buildAcceptOperatorTx(
   params: AcceptRoleParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildAcceptOperatorIx(params, programId);
-  return new Transaction({ feePayer: params.incomingRole }).add(ix);
+  return V1Transaction.compile([ix], params.incomingRole, context);
 }
 
 export function buildSetOracleTx(
   params: SetOracleParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetOracleIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildSetMarketFeesTx(
   params: SetMarketFeesParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetMarketFeesIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildSetFeeReceiverTx(
   params: SetFeeReceiverParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetFeeReceiverIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildSetFeeReceiverWithAtasTx(
   params: SetFeeReceiverWithAtasParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetFeeReceiverWithAtasIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildCreateConditionalMetadataTx(
   params: ConditionalMetadataParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCreateConditionalMetadataIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildUpdateConditionalMetadataTx(
   params: ConditionalMetadataParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildUpdateConditionalMetadataIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildCreateOrderbookTx(
   params: CreateOrderbookParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCreateOrderbookIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildWhitelistDepositTokenTx(
   params: WhitelistDepositTokenParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildWhitelistDepositTokenIx(params, programId);
-  return new Transaction({ feePayer: params.authority }).add(ix);
+  return V1Transaction.compile([ix], params.authority, context);
 }
 
 export function buildSetDepositTokenStatusTx(
   params: SetDepositTokenStatusParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildSetDepositTokenStatusIx(params, programId);
-  return new Transaction({ feePayer: params.manager }).add(ix);
+  return V1Transaction.compile([ix], params.manager, context);
 }
 
 export function buildDepositToGlobalTx(
   params: DepositToGlobalParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildDepositToGlobalIx(params, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildGlobalToMarketDepositTx(
   params: GlobalToMarketDepositParams,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildGlobalToMarketDepositIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildInitPositionTokensTx(
   params: InitPositionTokensParams,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildInitPositionTokensIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.payer }).add(ix);
+  return V1Transaction.compile([ix], params.payer, context);
 }
 
 export function buildDepositAndSwapTx(
   params: DepositAndSwapParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildDepositAndSwapIx(params, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return V1Transaction.compile([ix], params.operator, context);
 }
 
 export function buildWithdrawFromGlobalTx(
   params: WithdrawFromGlobalParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildWithdrawFromGlobalIx(params, programId);
-  return new Transaction({ feePayer: params.user }).add(ix);
+  return V1Transaction.compile([ix], params.user, context);
 }
 
 export function buildCloseOrderStatusTx(
   params: CloseOrderStatusParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCloseOrderStatusIx(params, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return V1Transaction.compile([ix], params.operator, context);
 }
 
 export function buildClosePositionTokenAccountsTx(
   params: ClosePositionTokenAccountsParams,
   numOutcomes: number,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildClosePositionTokenAccountsIx(params, numOutcomes, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return V1Transaction.compile([ix], params.operator, context);
 }
 
 export function buildCloseOrderbookTx(
   params: CloseOrderbookParams,
+  context: V1TransactionContext,
   programId: PublicKey = PROGRAM_ID
-): Transaction {
+): V1Transaction {
   const ix = buildCloseOrderbookIx(params, programId);
-  return new Transaction({ feePayer: params.operator }).add(ix);
+  return V1Transaction.compile([ix], params.operator, context);
 }
